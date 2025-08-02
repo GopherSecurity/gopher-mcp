@@ -49,3 +49,5 @@ SpacesInParentheses: false
 SpacesInSquareBrackets: false
 Standard: c++11
 UseTab: Never
+# Remove trailing whitespace
+InsertTrailingCommas: None
