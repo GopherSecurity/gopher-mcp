@@ -1,30 +1,34 @@
-# Prerequisites
-*.d
+# Build directories
+build/
+cmake-build-*/
+out/
+bin/
+lib/
 
-# Compiled Object files
-*.slo
-*.lo
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+_deps/
+# Note: We have a hand-written Makefile at root, so only ignore generated ones in subdirs
+*/Makefile
+
+# Compiled object files
 *.o
 *.obj
+*.lo
+*.slo
 
 # Precompiled Headers
 *.gch
 *.pch
 
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
 # Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
 
 # Compiled Static libraries
 *.lai
@@ -36,6 +40,48 @@
 *.exe
 *.out
 *.app
+test_variant
 
-# debug information files
-*.dwo
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Coverage files
+*.gcov
+*.gcda
+*.gcno
+coverage/
+*.info
+
+# Documentation
+docs/html/
+docs/latex/
+doxygen/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Python cache (if using Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+Thumbs.db
+Desktop.ini
