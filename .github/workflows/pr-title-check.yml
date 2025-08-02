@@ -8,6 +8,9 @@ jobs:
   check-pr-title:
     name: Check PR Title Format
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
     
     steps:
     - name: Check PR title
