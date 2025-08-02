@@ -8,6 +8,11 @@ jobs:
   check-commit-format:
     name: Check Commit Messages
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      issues: write
     
     steps:
     - name: Checkout
