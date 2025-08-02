@@ -126,7 +126,7 @@ if [ "$RUN_TESTS" = true ]; then
     print_status "Running tests..."
     
     # Run all tests using ctest
-    if GTEST_COLOR=1 ctest --output-on-failure -C $BUILD_TYPE; then
+    if GTEST_COLOR=1 ctest --output-on-failure --verbose -C $BUILD_TYPE; then
         print_success "All tests passed!"
     else
         print_error "Some tests failed"
