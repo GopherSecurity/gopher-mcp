@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test clean release debug help
+.PHONY: all build test clean release debug help format check-format
 
 # Default target
 all: build test
@@ -32,6 +32,17 @@ rebuild: clean all
 verbose:
 	@./build.sh --verbose
 
+# Format all source files
+format:
+	@echo "Formatting all source files with clang-format..."
+	@find include tests -name "*.h" -o -name "*.cpp" | xargs clang-format -i
+	@echo "Formatting complete."
+
+# Check formatting without modifying files
+check-format:
+	@echo "Checking source file formatting..."
+	@find include tests -name "*.h" -o -name "*.cpp" | xargs clang-format --dry-run --Werror
+
 # Help
 help:
 	@echo "MCP C++ SDK Makefile"
@@ -45,6 +56,8 @@ help:
 	@echo "  make clean    - Clean build directory"
 	@echo "  make rebuild  - Clean and rebuild everything"
 	@echo "  make verbose  - Build with verbose output"
+	@echo "  make format   - Format all source files with clang-format"
+	@echo "  make check-format - Check formatting without modifying files"
 	@echo "  make help     - Show this help message"
 	@echo ""
 	@echo "Examples:"

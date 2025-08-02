@@ -45,3 +45,19 @@ enable_testing()
 
 # Add test subdirectory
 add_subdirectory(tests)
+
+# Add custom target for formatting
+add_custom_target(format
+    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/tests
+            -name "*.h" -o -name "*.cpp" | xargs clang-format -i
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Formatting all source files with clang-format"
+)
+
+# Add custom target to check formatting without modifying files
+add_custom_target(check-format
+    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/tests
+            -name "*.h" -o -name "*.cpp" | xargs clang-format --dry-run --Werror
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Checking source file formatting with clang-format"
+)
