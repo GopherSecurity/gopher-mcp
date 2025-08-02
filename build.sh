@@ -125,15 +125,8 @@ fi
 if [ "$RUN_TESTS" = true ]; then
     print_status "Running tests..."
     
-    # Check if test executable exists
-    TEST_EXEC="tests/test_variant"
-    if [ ! -f "$TEST_EXEC" ]; then
-        print_error "Test executable not found: $TEST_EXEC"
-        exit 1
-    fi
-    
-    # Run tests with color output
-    if GTEST_COLOR=1 ./$TEST_EXEC; then
+    # Run all tests using ctest
+    if GTEST_COLOR=1 ctest --output-on-failure -C $BUILD_TYPE; then
         print_success "All tests passed!"
     else
         print_error "Some tests failed"
@@ -153,6 +146,7 @@ echo "  Tests Run:  $([ "$RUN_TESTS" = true ] && echo "Yes" || echo "No")"
 # Provide next steps
 echo ""
 echo "Next steps:"
-echo "  Run tests manually:  cd $BUILD_DIR && ./tests/test_variant"
+echo "  Run all tests:       cd $BUILD_DIR && ctest --output-on-failure"
+echo "  Run specific test:   cd $BUILD_DIR && ./tests/test_variant"
 echo "  Clean build:         $0 --clean"
 echo "  Release build:       $0 --release"
