@@ -1,0 +1,68 @@
+name: PR Format Check (Simple)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  check-commits:
+    name: Check Commit Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        
+    - name: Check commit messages for PR number
+      run: |
+        PR_NUMBER=${{ github.event.pull_request.number }}
+        BASE_REF=${{ github.event.pull_request.base.ref }}
+        
+        echo "Checking commits for PR #${PR_NUMBER}"
+        echo "Base branch: ${BASE_REF}"
+        
+        # Fetch the base branch to ensure we have it
+        git fetch origin ${BASE_REF}
+        
+        # Get only the commits that are unique to this PR
+        COMMITS=$(git rev-list origin/${BASE_REF}..HEAD)
+        
+        if [ -z "$COMMITS" ]; then
+          echo "No new commits found in this PR"
+          exit 0
+        fi
+        
+        MISSING_PR_NUMBER=false
+        echo ""
+        echo "New commits in this PR:"
+        echo "======================"
+        
+        for commit in $COMMITS; do
+          MESSAGE=$(git log -1 --pretty=%s $commit)
+          SHA_SHORT=$(echo $commit | cut -c1-7)
+          
+          # Check if this commit already has ANY PR number (it might be from another PR)
+          if echo "$MESSAGE" | grep -q "(#[0-9]\+)$"; then
+            echo "✅ ${SHA_SHORT}: ${MESSAGE}"
+          else
+            echo "❌ ${SHA_SHORT}: ${MESSAGE}"
+            echo "   Missing PR number - should end with (#${PR_NUMBER})"
+            MISSING_PR_NUMBER=true
+          fi
+        done
+        
+        echo ""
+        if [ "$MISSING_PR_NUMBER" = true ]; then
+          echo "::error::Some commits are missing PR numbers. Please add (#${PR_NUMBER}) to commit messages."
+          echo ""
+          echo "To fix this, run:"
+          echo "  ./scripts/add-pr-number.sh ${PR_NUMBER}"
+          echo "or:"
+          echo "  git rebase origin/${{ github.event.pull_request.base.ref }} --exec 'git commit --amend -m \"\$(git log -1 --pretty=%s) (#${PR_NUMBER})\"'"
+          echo "  git push --force-with-lease"
+          exit 1
+        else
+          echo "::notice::All commits have PR numbers ✅"
+        fi
