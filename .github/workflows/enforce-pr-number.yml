@@ -1,0 +1,121 @@
+name: Enforce PR Number in Commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check-commit-format:
+    name: Check Commit Messages
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        
+    - name: Check commit messages
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const prNumber = context.payload.pull_request.number;
+          const baseBranch = context.payload.pull_request.base.ref;
+          
+          // Get commits in this PR
+          const commits = await github.rest.pulls.listCommits({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: prNumber
+          });
+          
+          let hasIssues = false;
+          const problematicCommits = [];
+          
+          for (const commit of commits.data) {
+            const message = commit.commit.message;
+            const firstLine = message.split('\n')[0];
+            
+            // Check if commit message has a PR number
+            if (!firstLine.match(/\(#\d+\)$/)) {
+              hasIssues = true;
+              problematicCommits.push({
+                sha: commit.sha.substring(0, 7),
+                message: firstLine
+              });
+            }
+          }
+          
+          if (hasIssues) {
+            let comment = `## ⚠️ Commit Message Format\n\n`;
+            comment += `To maintain a clean git history, please add PR numbers to your commit messages.\n\n`;
+            comment += `### Commits missing PR number:\n\n`;
+            
+            for (const commit of problematicCommits) {
+              comment += `- \`${commit.sha}\`: ${commit.message}\n`;
+              comment += `  - Suggested: \`${commit.message} (#${prNumber})\`\n`;
+            }
+            
+            comment += `\n### How to fix:\n\n`;
+            comment += `\`\`\`bash\n`;
+            comment += `# Interactive rebase to edit commit messages\n`;
+            comment += `git rebase -i origin/${baseBranch}\n`;
+            comment += `# Mark commits as 'reword' and add (#${prNumber}) to each message\n`;
+            comment += `# Then force push\n`;
+            comment += `git push --force-with-lease\n`;
+            comment += `\`\`\`\n\n`;
+            comment += `Or use this automated approach:\n`;
+            comment += `\`\`\`bash\n`;
+            comment += `# Add PR number to all commits since base branch\n`;
+            comment += `git rebase origin/${baseBranch} --exec 'git commit --amend -m "$(git log -1 --pretty=%s) (#${prNumber})"'\n`;
+            comment += `git push --force-with-lease\n`;
+            comment += `\`\`\``;
+            
+            // Create a check run
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Commit Message Format',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'neutral',
+              output: {
+                title: 'Commit messages should include PR number',
+                summary: comment
+              }
+            });
+            
+            // Add label to PR
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['needs-pr-number']
+            });
+          } else {
+            // Remove label if it exists
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: 'needs-pr-number'
+              });
+            } catch (e) {
+              // Label might not exist, that's ok
+            }
+            
+            // Create success check
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Commit Message Format',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'success',
+              output: {
+                title: 'All commit messages properly formatted',
+                summary: 'All commits include PR numbers. Ready for rebase and merge!'
+              }
+            });
+          }
