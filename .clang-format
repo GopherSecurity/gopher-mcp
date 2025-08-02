@@ -47,7 +47,7 @@ SpacesInAngles: false
 SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
-Standard: c++11
+Standard: c++14
 UseTab: Never
 # Remove trailing whitespace
 InsertTrailingCommas: None
