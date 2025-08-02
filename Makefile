@@ -19,7 +19,7 @@ build:
 
 # Run tests (assumes already built)
 test:
-	@cd build && ./tests/test_variant
+	@cd build && ctest --output-on-failure
 
 # Clean build
 clean:

@@ -360,6 +360,31 @@ overload_impl<Fs...> make_overload(Fs... fs) {
     return overload_impl<Fs...>(fs...);
 }
 
+// C++11 requires out-of-class definitions for static constexpr members
+template<typename T, typename First, typename... Rest>
+constexpr std::size_t type_index<T, First, Rest...>::value;
+
+template<typename T, typename Last>
+constexpr std::size_t type_index<T, Last>::value;
+
+template<typename T, std::size_t I>
+constexpr std::size_t find_convertible_type<T, I>::index;
+
+template<typename T, std::size_t I, typename First, typename... Rest>
+constexpr std::size_t find_convertible_type<T, I, First, Rest...>::index;
+
+template<typename T>
+constexpr std::size_t variant_storage_traits<T>::size;
+
+template<typename T>
+constexpr std::size_t variant_storage_traits<T>::alignment;
+
+template<typename T, typename... Rest>
+constexpr std::size_t variant_storage_traits<T, Rest...>::size;
+
+template<typename T, typename... Rest>
+constexpr std::size_t variant_storage_traits<T, Rest...>::alignment;
+
 } // namespace mcp
 
 #endif // MCP_VARIANT_H
