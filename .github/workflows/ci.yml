@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop, 'br_dev_*' ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format-14
+        
+    - name: Check formatting
+      run: |
+        echo "Checking code formatting..."
+        make check-format || {
+          echo "::error::Code formatting check failed"
+          echo "Please run 'make format' locally and commit the changes"
+          exit 1
+        }
+
+  build-and-test:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    needs: format-check
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        build_type: [Debug, Release]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake g++ clang
+        
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install cmake
+        
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        
+    - name: Build
+      run: |
+        cmake --build build --config ${{ matrix.build_type }} -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+        
+    - name: Test
+      run: |
+        cd build
+        ctest -C ${{ matrix.build_type }} --output-on-failure --verbose
+        
+    - name: List all tests
+      if: always()
+      run: |
+        make test-list || true
