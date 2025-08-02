@@ -1,0 +1,53 @@
+---
+# Google C++ Style Guide
+# https://google.github.io/styleguide/cppguide.html
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 80
+---
+Language: Cpp
+# Force pointers to the type for C++.
+DerivePointerAlignment: false
+PointerAlignment: Left
+# Other adjustments
+AccessModifierOffset: -1
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: true
+BinPackParameters: false
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+Cpp11BracedListStyle: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Standard library headers
+  - Regex: '^<[^/]+>$'
+    Priority: 1
+  # Other library headers  
+  - Regex: '^<.+>$'
+    Priority: 2
+  # Project headers with quotes
+  - Regex: '^"mcp/.+"$'
+    Priority: 3
+  # Other project headers
+  - Regex: '^".+"$'
+    Priority: 4
+IndentCaseLabels: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+NamespaceIndentation: None
+SortIncludes: true
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+Standard: c++11
+UseTab: Never
+# Remove trailing whitespace
+InsertTrailingCommas: None
