@@ -20,8 +20,14 @@ echo "Adding (#$PR_NUMBER) to commits since $BASE_BRANCH"
 echo ""
 
 # Show commits that will be modified
-echo "Commits to be updated:"
-git log --oneline $BASE_BRANCH..HEAD
+echo "New commits in this branch (will add PR number to these):"
+git log --oneline $BASE_BRANCH..HEAD | while read line; do
+  if echo "$line" | grep -q "(#[0-9]\+)$"; then
+    echo "  ✓ $line (already has PR number)"
+  else
+    echo "  → $line"
+  fi
+done
 echo ""
 
 read -p "Continue? (y/n) " -n 1 -r

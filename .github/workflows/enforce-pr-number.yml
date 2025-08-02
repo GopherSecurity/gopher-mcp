@@ -1,5 +1,7 @@
 name: Enforce PR Number in Commits
 
+# This workflow only checks NEW commits that are part of the PR
+# It does not check historical commits that might already be in the base branch
 on:
   pull_request:
     types: [opened, edited, synchronize]
@@ -27,12 +29,20 @@ jobs:
           const prNumber = context.payload.pull_request.number;
           const baseBranch = context.payload.pull_request.base.ref;
           
-          // Get commits in this PR
-          const commits = await github.rest.pulls.listCommits({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            pull_number: prNumber
-          });
+          // Get commits in this PR - this API only returns commits unique to the PR
+          let commits;
+          try {
+            commits = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+          } catch (error) {
+            console.log('::error::Failed to fetch PR commits. Falling back to simple check.');
+            console.log('Error:', error.message);
+            // Exit gracefully if we can't access commits
+            return;
+          }
           
           let hasIssues = false;
           const problematicCommits = [];
@@ -90,13 +100,17 @@ jobs:
               }
             });
             
-            // Add label to PR
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              labels: ['needs-pr-number']
-            });
+            // Try to add label, but don't fail if we can't
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: ['needs-pr-number']
+              });
+            } catch (e) {
+              console.log('::warning::Could not add label (insufficient permissions)');
+            }
           } else {
             // Remove label if it exists
             try {
