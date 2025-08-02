@@ -1,0 +1,81 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  clang-format:
+    name: Clang Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v3
+      with:
+        # Fetch the PR branch and the base branch
+        fetch-depth: 0
+        
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format-14
+        
+    - name: Check changed files
+      id: changed-files
+      run: |
+        # Get list of changed C++ files
+        git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(h|cpp)$' > changed_files.txt || true
+        
+        if [ -s changed_files.txt ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "Changed C++ files:"
+          cat changed_files.txt
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "No C++ files changed"
+        fi
+        
+    - name: Check formatting of changed files
+      if: steps.changed-files.outputs.has_changes == 'true'
+      run: |
+        exit_code=0
+        while IFS= read -r file; do
+          if [ -f "$file" ]; then
+            echo "Checking $file..."
+            clang-format-14 --style=file --dry-run --Werror "$file" || {
+              echo "::error file=$file::File is not properly formatted"
+              exit_code=1
+            }
+          fi
+        done < changed_files.txt
+        
+        if [ $exit_code -ne 0 ]; then
+          echo ""
+          echo "::error::Some files are not properly formatted."
+          echo "To fix, run: make format"
+          exit 1
+        fi
+        
+    - name: Post PR comment on failure
+      if: failure() && steps.changed-files.outputs.has_changes == 'true'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const comment = `## ❌ Code Formatting Check Failed
+          
+          Some files in this PR are not properly formatted according to the project's clang-format rules.
+          
+          **To fix this issue:**
+          \`\`\`bash
+          make format
+          \`\`\`
+          
+          Then commit and push the changes.`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
