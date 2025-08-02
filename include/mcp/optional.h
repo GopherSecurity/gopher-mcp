@@ -171,10 +171,11 @@ class optional : private optional_storage<T> {
     return *this;
   }
 
-  // Move assignment
+  // Move assignment - more accurate noexcept specification in C++14
   optional& operator=(optional&& other) noexcept(
-      std::is_nothrow_move_assignable<T>::value&&
-          std::is_nothrow_move_constructible<T>::value) {
+      std::is_nothrow_move_assignable<T>::value &&
+      std::is_nothrow_move_constructible<T>::value &&
+      std::is_nothrow_destructible<T>::value) {
     if (this != &other) {
       if (other.has_value_) {
         if (has_value_) {
@@ -217,15 +218,15 @@ class optional : private optional_storage<T> {
 
   constexpr bool has_value() const noexcept { return has_value_; }
 
-  // Checked access
-  T& value() & {
+  // Checked access - C++14 allows throw in constexpr
+  constexpr T& value() & {
     if (!has_value_) {
       throw bad_optional_access();
     }
     return value_;
   }
 
-  const T& value() const& {
+  constexpr const T& value() const& {
     if (!has_value_) {
       throw bad_optional_access();
     }
@@ -258,9 +259,10 @@ class optional : private optional_storage<T> {
                       : static_cast<T>(std::forward<U>(default_value));
   }
 
-  // Modifiers
+  // Modifiers - C++14 has better swap detection
   void swap(optional& other) noexcept(
-      std::is_nothrow_move_constructible<T>::value) {
+      std::is_nothrow_move_constructible<T>::value &&
+      noexcept(std::swap(std::declval<T&>(), std::declval<T&>()))) {
     if (has_value_ && other.has_value_) {
       using std::swap;
       swap(value_, other.value_);
@@ -501,7 +503,20 @@ struct hash<optional<T>> {
   }
 };
 
-// C++11 requires out-of-class definitions for static constexpr members
+// C++14 improvements
+#if __cplusplus >= 201402L
+// Better type deduction helpers for C++14
+template <typename T>
+constexpr auto make_optional_value(T&& value) 
+    -> optional<typename std::decay<T>::type> {
+  return optional<typename std::decay<T>::type>(std::forward<T>(value));
+}
+
+// Helper for determining common type in C++14
+template <typename T, typename U>
+using optional_common_t = optional<typename std::decay<
+    decltype(true ? std::declval<T>() : std::declval<U>())>::type>;
+#endif
 
 }  // namespace mcp
 
