@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test clean release debug help format check-format
+.PHONY: all build test test-list clean release debug help format check-format
 
 # Default target
 all: build test
@@ -19,7 +19,19 @@ build:
 
 # Run tests (assumes already built)
 test:
-	@cd build && ctest --output-on-failure
+	@echo "Running all tests..."
+	@cd build && ctest --output-on-failure --verbose
+
+# List all available tests
+test-list:
+	@echo "Available test cases:"
+	@cd build && for test in tests/test_*; do \
+		if [ -x "$$test" ]; then \
+			echo ""; \
+			echo "=== $$(basename $$test) ==="; \
+			./$$test --gtest_list_tests | sed 's/^/  /'; \
+		fi; \
+	done
 
 # Clean build
 clean:
@@ -53,6 +65,7 @@ help:
 	@echo "  make release  - Build in release mode with tests"
 	@echo "  make build    - Build only, no tests"
 	@echo "  make test     - Run tests (requires prior build)"
+	@echo "  make test-list - List all available test cases"
 	@echo "  make clean    - Clean build directory"
 	@echo "  make rebuild  - Clean and rebuild everything"
 	@echo "  make verbose  - Build with verbose output"
