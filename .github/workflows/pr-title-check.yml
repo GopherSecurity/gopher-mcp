@@ -1,0 +1,57 @@
+name: PR Title and Commit Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check-pr-title:
+    name: Check PR Title Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check PR title
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const prTitle = context.payload.pull_request.title;
+          const prNumber = context.payload.pull_request.number;
+          
+          // Check if PR title already has a PR number
+          const prNumberPattern = /\(#\d+\)$/;
+          if (prNumberPattern.test(prTitle)) {
+            console.log('PR title already contains a PR number');
+            return;
+          }
+          
+          // Suggest adding PR number
+          const suggestedTitle = `${prTitle} (#${prNumber})`;
+          
+          const comment = `## 📝 PR Title Suggestion
+          
+          For better commit history when using "Rebase and merge", consider updating your PR title to:
+          
+          **${suggestedTitle}**
+          
+          This ensures the PR number is included in the commit message.`;
+          
+          // Check if we already commented
+          const comments = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber
+          });
+          
+          const botComment = comments.data.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('PR Title Suggestion')
+          );
+          
+          if (!botComment) {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: comment
+            });
+          }
