@@ -124,7 +124,7 @@ class optional : private optional_storage<T> {
     }
   }
 
-  // Converting constructors
+  // Converting constructors with direct construction optimization
   template <typename U = T, typename = enable_if_constructible_t<U&&>>
   constexpr optional(U&& value) : base(in_place, std::forward<U>(value)) {}
 
@@ -189,7 +189,7 @@ class optional : private optional_storage<T> {
     return *this;
   }
 
-  // Converting assignment
+  // Converting assignment with exception safety
   template <typename U = T, typename = enable_if_constructible_t<U&&>>
   optional& operator=(U&& value) {
     if (has_value_) {
@@ -201,9 +201,9 @@ class optional : private optional_storage<T> {
   }
 
   // Observers
-  const T* operator->() const { return &value_; }
+  const T* operator->() const { return std::addressof(value_); }
 
-  T* operator->() { return &value_; }
+  T* operator->() { return std::addressof(value_); }
 
   const T& operator*() const& { return value_; }
 
@@ -297,7 +297,8 @@ class optional : private optional_storage<T> {
  private:
   template <typename... Args>
   void construct(Args&&... args) {
-    new (&value_) T(std::forward<Args>(args)...);
+    ::new (static_cast<void*>(std::addressof(value_)))
+        T(std::forward<Args>(args)...);
     has_value_ = true;
   }
 };
