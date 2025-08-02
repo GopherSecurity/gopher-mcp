@@ -14,18 +14,18 @@ template <typename... Types>
 class variant;
 
 // Helper to get the index of a type in a type list
+// Use enum to avoid ODR violations in C++14
 template <typename T, typename... Types>
 struct type_index;
 
 template <typename T, typename First, typename... Rest>
 struct type_index<T, First, Rest...> {
-  static constexpr std::size_t value =
-      std::is_same<T, First>::value ? 0 : 1 + type_index<T, Rest...>::value;
+  enum { value = std::is_same<T, First>::value ? 0 : 1 + type_index<T, Rest...>::value };
 };
 
 template <typename T, typename Last>
 struct type_index<T, Last> {
-  static constexpr std::size_t value = std::is_same<T, Last>::value ? 0 : 1;
+  enum { value = std::is_same<T, Last>::value ? 0 : 1 };
 };
 
 // Helper to check if a type is in a type list
@@ -60,7 +60,7 @@ struct find_convertible_type;
 
 template <typename T, std::size_t I>
 struct find_convertible_type<T, I> {
-  static constexpr std::size_t index = static_cast<std::size_t>(-1);
+  enum { index = static_cast<std::size_t>(-1) };
   using type = void;
 };
 
@@ -71,7 +71,7 @@ struct find_convertible_type<T, I, First, Rest...> {
   using rest_result = find_convertible_type<T, I + 1, Rest...>;
 
  public:
-  static constexpr std::size_t index = is_conv ? I : rest_result::index;
+  enum { index = is_conv ? I : rest_result::index };
   using type = typename std::
       conditional<is_conv, First, typename rest_result::type>::type;
 };
@@ -91,26 +91,57 @@ struct type_at_index<0, First, Rest...> {
 };
 
 // Helper to get the maximum size and alignment
+// Use enum to avoid ODR violations
 template <typename... Types>
 struct variant_storage_traits;
 
 template <typename T>
 struct variant_storage_traits<T> {
-  static constexpr std::size_t size = sizeof(T);
-  static constexpr std::size_t alignment = alignof(T);
+  enum { size = sizeof(T) };
+  enum { alignment = alignof(T) };
 };
 
 template <typename T, typename... Rest>
 struct variant_storage_traits<T, Rest...> {
-  static constexpr std::size_t size =
-      sizeof(T) > variant_storage_traits<Rest...>::size
-          ? sizeof(T)
-          : variant_storage_traits<Rest...>::size;
-  static constexpr std::size_t alignment =
-      alignof(T) > variant_storage_traits<Rest...>::alignment
-          ? alignof(T)
-          : variant_storage_traits<Rest...>::alignment;
+  enum {
+    size = sizeof(T) > variant_storage_traits<Rest...>::size
+               ? sizeof(T)
+               : variant_storage_traits<Rest...>::size
+  };
+  enum {
+    alignment = alignof(T) > variant_storage_traits<Rest...>::alignment
+                    ? alignof(T)
+                    : variant_storage_traits<Rest...>::alignment
+  };
 };
+
+// Check if all types have nothrow move constructors
+template <typename... Types>
+struct all_nothrow_move_constructible;
+
+template <>
+struct all_nothrow_move_constructible<> : std::true_type {};
+
+template <typename T, typename... Rest>
+struct all_nothrow_move_constructible<T, Rest...>
+    : std::conditional<
+          std::is_nothrow_move_constructible<T>::value,
+          all_nothrow_move_constructible<Rest...>,
+          std::false_type>::type {};
+
+// Check if all types have nothrow destructors
+template <typename... Types>
+struct all_nothrow_destructible;
+
+template <>
+struct all_nothrow_destructible<> : std::true_type {};
+
+template <typename T, typename... Rest>
+struct all_nothrow_destructible<T, Rest...>
+    : std::conditional<
+          std::is_nothrow_destructible<T>::value,
+          all_nothrow_destructible<Rest...>,
+          std::false_type>::type {};
 
 // Visitor helper
 template <typename Visitor, typename... Types>
@@ -148,10 +179,13 @@ class variant {
     }
   }
 
-  // Copy constructor dispatcher
+  // Copy constructor dispatcher - exception safe
   template <std::size_t I = 0>
   typename std::enable_if<I == sizeof...(Types)>::type copy_construct_impl(
-      const variant&) {}
+      const variant&) {
+    // Should never reach here if variant is valid
+    throw bad_variant_access();
+  }
 
   template <std::size_t I = 0>
       typename std::enable_if <
@@ -159,16 +193,19 @@ class variant {
     if (other.type_index_ == I) {
       using T = typename type_at_index<I, Types...>::type;
       new (&storage_) T(*reinterpret_cast<const T*>(&other.storage_));
-      type_index_ = I;
+      type_index_ = I;  // Set index AFTER successful construction
     } else {
       copy_construct_impl<I + 1>(other);
     }
   }
 
-  // Move constructor dispatcher
+  // Move constructor dispatcher - exception safe
   template <std::size_t I = 0>
   typename std::enable_if<I == sizeof...(Types)>::type move_construct_impl(
-      variant&&) {}
+      variant&&) {
+    // Should never reach here if variant is valid
+    throw bad_variant_access();
+  }
 
   template <std::size_t I = 0>
       typename std::enable_if <
@@ -176,7 +213,7 @@ class variant {
     if (other.type_index_ == I) {
       using T = typename type_at_index<I, Types...>::type;
       new (&storage_) T(std::move(*reinterpret_cast<T*>(&other.storage_)));
-      type_index_ = I;
+      type_index_ = I;  // Set index AFTER successful construction
     } else {
       move_construct_impl<I + 1>(std::move(other));
     }
@@ -200,13 +237,14 @@ class variant {
     new (&storage_) DecayedT(std::forward<T>(value));
   }
 
-  // Constructor from a value - implicit conversion
+  // Constructor from a value - implicit conversion (with disambiguation)
   template <
       typename T,
       typename = typename std::enable_if<
           !contains_type<typename std::decay<T>::type, Types...>::value>::type,
       typename = typename std::enable_if<
-          is_convertible_to_any<T, Types...>::value>::type>
+          is_convertible_to_any<T, Types...>::value>::type,
+      int = 0>  // Disambiguation parameter
   variant(T&& value)
       : type_index_(find_convertible_type<T, 0, Types...>::index) {
     using TargetType = typename find_convertible_type<T, 0, Types...>::type;
@@ -218,8 +256,10 @@ class variant {
     copy_construct_impl(other);
   }
 
-  // Move constructor
-  variant(variant&& other) noexcept
+  // Move constructor - conditional noexcept based on contained types
+  variant(variant&& other) noexcept(
+      all_nothrow_move_constructible<Types...>::value &&
+      all_nothrow_destructible<Types...>::value)
       : type_index_(static_cast<std::size_t>(-1)) {
     move_construct_impl(std::move(other));
   }
@@ -227,17 +267,19 @@ class variant {
   // Destructor
   ~variant() { destroy_impl(); }
 
-  // Copy assignment
+  // Copy assignment - exception safe using copy-and-swap idiom
   variant& operator=(const variant& other) {
     if (this != &other) {
-      destroy_impl();
-      copy_construct_impl(other);
+      variant tmp(other);
+      swap(tmp);
     }
     return *this;
   }
 
-  // Move assignment
-  variant& operator=(variant&& other) noexcept {
+  // Move assignment - conditional noexcept
+  variant& operator=(variant&& other) noexcept(
+      all_nothrow_move_constructible<Types...>::value &&
+      all_nothrow_destructible<Types...>::value) {
     if (this != &other) {
       destroy_impl();
       move_construct_impl(std::move(other));
@@ -317,6 +359,40 @@ class variant {
     return reinterpret_cast<const T*>(&storage_);
   }
 
+  // Swap implementation
+  void swap(variant& other) {
+    if (this == &other) return;
+    
+    if (type_index_ == other.type_index_) {
+      swap_same_type(other);
+    } else {
+      // Use three-way swap for different types
+      variant tmp(std::move(other));
+      other = std::move(*this);
+      *this = std::move(tmp);
+    }
+  }
+  
+ private:
+  // Helper to swap same type
+  template <std::size_t I = 0>
+  typename std::enable_if<I == sizeof...(Types)>::type 
+  swap_same_type(variant&) {}
+  
+  template <std::size_t I = 0>
+  typename std::enable_if<I < sizeof...(Types)>::type 
+  swap_same_type(variant& other) {
+    if (type_index_ == I) {
+      using std::swap;
+      using T = typename type_at_index<I, Types...>::type;
+      swap(*reinterpret_cast<T*>(&storage_), 
+           *reinterpret_cast<T*>(&other.storage_));
+    } else {
+      swap_same_type<I + 1>(other);
+    }
+  }
+  
+ public:
   // Visit helper - moved outside class to avoid incomplete type issues
 };
 
@@ -392,30 +468,14 @@ overload_impl<Fs...> make_overload(Fs... fs) {
   return overload_impl<Fs...>(fs...);
 }
 
-// C++11 requires out-of-class definitions for static constexpr members
-template <typename T, typename First, typename... Rest>
-constexpr std::size_t type_index<T, First, Rest...>::value;
+// swap free function
+template <typename... Types>
+void swap(variant<Types...>& lhs, variant<Types...>& rhs) 
+    noexcept(noexcept(lhs.swap(rhs))) {
+  lhs.swap(rhs);
+}
 
-template <typename T, typename Last>
-constexpr std::size_t type_index<T, Last>::value;
-
-template <typename T, std::size_t I>
-constexpr std::size_t find_convertible_type<T, I>::index;
-
-template <typename T, std::size_t I, typename First, typename... Rest>
-constexpr std::size_t find_convertible_type<T, I, First, Rest...>::index;
-
-template <typename T>
-constexpr std::size_t variant_storage_traits<T>::size;
-
-template <typename T>
-constexpr std::size_t variant_storage_traits<T>::alignment;
-
-template <typename T, typename... Rest>
-constexpr std::size_t variant_storage_traits<T, Rest...>::size;
-
-template <typename T, typename... Rest>
-constexpr std::size_t variant_storage_traits<T, Rest...>::alignment;
+// No out-of-class definitions needed with enum approach
 
 }  // namespace mcp
 
