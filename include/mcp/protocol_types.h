@@ -15,7 +15,7 @@ struct EmptyResult {
 struct Implementation : BaseMetadata {
   std::string name;
   std::string version;
-  
+
   Implementation() = default;
   Implementation(const std::string& n, const std::string& v)
       : name(n), version(v) {}
@@ -32,10 +32,8 @@ struct InitializeRequestExtended : jsonrpc::Request {
   std::string protocolVersion;
   ClientCapabilities capabilities;
   optional<Implementation> clientInfo;
-  
-  InitializeRequestExtended() : jsonrpc::Request() {
-    method = "initialize";
-  }
+
+  InitializeRequestExtended() : jsonrpc::Request() { method = "initialize"; }
 };
 
 struct InitializeResultExtended {
@@ -43,7 +41,7 @@ struct InitializeResultExtended {
   ServerCapabilities capabilities;
   optional<Implementation> serverInfo;
   optional<std::string> instructions;
-  
+
   InitializeResultExtended() = default;
 };
 
@@ -56,9 +54,7 @@ struct InitializedNotification : jsonrpc::Notification {
 
 // Ping request
 struct PingRequest : jsonrpc::Request {
-  PingRequest() : jsonrpc::Request() {
-    method = "ping";
-  }
+  PingRequest() : jsonrpc::Request() { method = "ping"; }
 };
 
 // Progress notification
@@ -66,7 +62,7 @@ struct ProgressNotification : jsonrpc::Notification {
   ProgressToken progressToken;
   double progress;  // 0.0 to 1.0
   optional<double> total;
-  
+
   ProgressNotification() : jsonrpc::Notification() {
     method = "notifications/progress";
   }
@@ -76,7 +72,7 @@ struct ProgressNotification : jsonrpc::Notification {
 struct CancelledNotification : jsonrpc::Notification {
   RequestId requestId;
   optional<std::string> reason;
-  
+
   CancelledNotification() : jsonrpc::Notification() {
     method = "notifications/cancelled";
   }
@@ -84,14 +80,12 @@ struct CancelledNotification : jsonrpc::Notification {
 
 // Resource-related types
 struct ListResourcesRequest : PaginatedRequest {
-  ListResourcesRequest() : PaginatedRequest() {
-    method = "resources/list";
-  }
+  ListResourcesRequest() : PaginatedRequest() { method = "resources/list"; }
 };
 
 struct ListResourcesResult : PaginatedResult {
   std::vector<Resource> resources;
-  
+
   ListResourcesResult() = default;
 };
 
@@ -106,23 +100,21 @@ struct ResourceTemplate : BaseMetadata {
   std::string name;
   optional<std::string> description;
   optional<std::string> mimeType;
-  
+
   ResourceTemplate() = default;
 };
 
 struct ListResourceTemplatesResult : PaginatedResult {
   std::vector<ResourceTemplate> resourceTemplates;
-  
+
   ListResourceTemplatesResult() = default;
 };
 
 struct ReadResourceRequest : jsonrpc::Request {
   std::string uri;
-  
-  ReadResourceRequest() : jsonrpc::Request() {
-    method = "resources/read";
-  }
-  
+
+  ReadResourceRequest() : jsonrpc::Request() { method = "resources/read"; }
+
   explicit ReadResourceRequest(const std::string& u) : ReadResourceRequest() {
     uri = u;
   }
@@ -130,7 +122,7 @@ struct ReadResourceRequest : jsonrpc::Request {
 
 struct ReadResourceResult {
   std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
-  
+
   ReadResourceResult() = default;
 };
 
@@ -142,11 +134,9 @@ struct ResourceListChangedNotification : jsonrpc::Notification {
 
 struct SubscribeRequest : jsonrpc::Request {
   std::string uri;
-  
-  SubscribeRequest() : jsonrpc::Request() {
-    method = "resources/subscribe";
-  }
-  
+
+  SubscribeRequest() : jsonrpc::Request() { method = "resources/subscribe"; }
+
   explicit SubscribeRequest(const std::string& u) : SubscribeRequest() {
     uri = u;
   }
@@ -154,11 +144,11 @@ struct SubscribeRequest : jsonrpc::Request {
 
 struct UnsubscribeRequest : jsonrpc::Request {
   std::string uri;
-  
+
   UnsubscribeRequest() : jsonrpc::Request() {
     method = "resources/unsubscribe";
   }
-  
+
   explicit UnsubscribeRequest(const std::string& u) : UnsubscribeRequest() {
     uri = u;
   }
@@ -166,7 +156,7 @@ struct UnsubscribeRequest : jsonrpc::Request {
 
 struct ResourceUpdatedNotification : jsonrpc::Notification {
   std::string uri;
-  
+
   ResourceUpdatedNotification() : jsonrpc::Notification() {
     method = "notifications/resources/updated";
   }
@@ -174,34 +164,30 @@ struct ResourceUpdatedNotification : jsonrpc::Notification {
 
 // Prompt-related types
 struct ListPromptsRequest : PaginatedRequest {
-  ListPromptsRequest() : PaginatedRequest() {
-    method = "prompts/list";
-  }
+  ListPromptsRequest() : PaginatedRequest() { method = "prompts/list"; }
 };
 
 struct ListPromptsResult : PaginatedResult {
   std::vector<Prompt> prompts;
-  
+
   ListPromptsResult() = default;
 };
 
 struct GetPromptRequest : jsonrpc::Request {
   std::string name;
   optional<Metadata> arguments;
-  
-  GetPromptRequest() : jsonrpc::Request() {
-    method = "prompts/get";
-  }
-  
+
+  GetPromptRequest() : jsonrpc::Request() { method = "prompts/get"; }
+
   explicit GetPromptRequest(const std::string& n) : GetPromptRequest() {
     name = n;
   }
 };
 
-struct GetPromptResult  {
+struct GetPromptResult {
   optional<std::string> description;
   std::vector<PromptMessage> messages;
-  
+
   GetPromptResult() = default;
 };
 
@@ -213,9 +199,7 @@ struct PromptListChangedNotification : jsonrpc::Notification {
 
 // Tool-related types
 struct ListToolsRequest : PaginatedRequest {
-  ListToolsRequest() : PaginatedRequest() {
-    method = "tools/list";
-  }
+  ListToolsRequest() : PaginatedRequest() { method = "tools/list"; }
 };
 
 // ListToolsResult is defined in types.h
@@ -223,11 +207,9 @@ struct ListToolsRequest : PaginatedRequest {
 struct CallToolRequest : jsonrpc::Request {
   std::string name;
   optional<Metadata> arguments;
-  
-  CallToolRequest() : jsonrpc::Request() {
-    method = "tools/call";
-  }
-  
+
+  CallToolRequest() : jsonrpc::Request() { method = "tools/call"; }
+
   CallToolRequest(const std::string& n, const Metadata& args)
       : CallToolRequest() {
     name = n;
@@ -235,12 +217,12 @@ struct CallToolRequest : jsonrpc::Request {
   }
 };
 
-// CallToolResult is defined in types.h with ContentBlock, 
+// CallToolResult is defined in types.h with ContentBlock,
 // we'll use extended version here
 struct CallToolResultExtended {
   std::vector<ExtendedContentBlock> content;
   bool isError = false;
-  
+
   CallToolResultExtended() = default;
 };
 
@@ -253,11 +235,9 @@ struct ToolListChangedNotification : jsonrpc::Notification {
 // Logging types
 struct SetLevelRequest : jsonrpc::Request {
   enums::LoggingLevelExtended::Value level;
-  
-  SetLevelRequest() : jsonrpc::Request() {
-    method = "logging/setLevel";
-  }
-  
+
+  SetLevelRequest() : jsonrpc::Request() { method = "logging/setLevel"; }
+
   explicit SetLevelRequest(enums::LoggingLevelExtended::Value l)
       : SetLevelRequest() {
     level = l;
@@ -268,7 +248,7 @@ struct LoggingMessageNotification : jsonrpc::Notification {
   enums::LoggingLevelExtended::Value level;
   optional<std::string> logger;
   variant<std::string, Metadata> data;
-  
+
   LoggingMessageNotification() : jsonrpc::Notification() {
     method = "notifications/message";
   }
@@ -278,36 +258,32 @@ struct LoggingMessageNotification : jsonrpc::Notification {
 struct CompleteRequest : jsonrpc::Request {
   PromptReference ref;
   optional<std::string> argument;
-  
-  CompleteRequest() : jsonrpc::Request() {
-    method = "completion/complete";
-  }
+
+  CompleteRequest() : jsonrpc::Request() { method = "completion/complete"; }
 };
 
-struct CompleteResult  {
+struct CompleteResult {
   struct Completion {
     std::vector<std::string> values;
     optional<double> total;
     bool hasMore = false;
-    
+
     Completion() = default;
   };
-  
+
   Completion completion;
-  
+
   CompleteResult() = default;
 };
 
 // Roots (filesystem-like) types
 struct ListRootsRequest : jsonrpc::Request {
-  ListRootsRequest() : jsonrpc::Request() {
-    method = "roots/list";
-  }
+  ListRootsRequest() : jsonrpc::Request() { method = "roots/list"; }
 };
 
-struct ListRootsResult  {
+struct ListRootsResult {
   std::vector<Root> roots;
-  
+
   ListRootsResult() = default;
 };
 
@@ -327,7 +303,7 @@ struct CreateMessageRequest : jsonrpc::Request {
   optional<int> maxTokens;
   optional<std::vector<std::string>> stopSequences;
   optional<Metadata> metadata;
-  
+
   CreateMessageRequest() : jsonrpc::Request() {
     method = "sampling/createMessage";
   }
@@ -336,7 +312,7 @@ struct CreateMessageRequest : jsonrpc::Request {
 struct CreateMessageResult : SamplingMessage {
   std::string model;
   optional<std::string> stopReason;
-  
+
   CreateMessageResult() = default;
 };
 
@@ -345,22 +321,19 @@ struct ElicitRequest : jsonrpc::Request {
   std::string name;
   PrimitiveSchemaDefinition schema;
   optional<std::string> prompt;
-  
-  ElicitRequest() : jsonrpc::Request() {
-    method = "elicit/createMessage";
-  }
+
+  ElicitRequest() : jsonrpc::Request() { method = "elicit/createMessage"; }
 };
 
-struct ElicitResult  {
+struct ElicitResult {
   variant<std::string, double, bool, std::nullptr_t> value;
-  
+
   ElicitResult() = default;
 };
 
 // Factory functions for requests
 inline InitializeRequestExtended make_initialize_request(
-    const std::string& version,
-    const ClientCapabilities& caps) {
+    const std::string& version, const ClientCapabilities& caps) {
   InitializeRequestExtended req;
   req.protocolVersion = version;
   req.capabilities = caps;
@@ -368,8 +341,7 @@ inline InitializeRequestExtended make_initialize_request(
 }
 
 inline ProgressNotification make_progress_notification(
-    const ProgressToken& token,
-    double progress) {
+    const ProgressToken& token, double progress) {
   ProgressNotification notif;
   notif.progressToken = token;
   notif.progress = progress;
@@ -377,8 +349,7 @@ inline ProgressNotification make_progress_notification(
 }
 
 inline CancelledNotification make_cancelled_notification(
-    const RequestId& id,
-    const std::string& reason = "") {
+    const RequestId& id, const std::string& reason = "") {
   CancelledNotification notif;
   notif.requestId = id;
   if (!reason.empty()) {
@@ -388,14 +359,12 @@ inline CancelledNotification make_cancelled_notification(
 }
 
 inline CallToolRequest make_call_tool_request(
-    const std::string& name,
-    const Metadata& arguments = make_metadata()) {
+    const std::string& name, const Metadata& arguments = make_metadata()) {
   return CallToolRequest(name, arguments);
 }
 
 inline LoggingMessageNotification make_log_notification(
-    enums::LoggingLevelExtended::Value level,
-    const std::string& message) {
+    enums::LoggingLevelExtended::Value level, const std::string& message) {
   LoggingMessageNotification notif;
   notif.level = level;
   notif.data = message;
@@ -406,7 +375,7 @@ inline LoggingMessageNotification make_log_notification(
 class CreateMessageRequestBuilder {
   CreateMessageRequest request_;
 
-public:
+ public:
   CreateMessageRequestBuilder() = default;
 
   CreateMessageRequestBuilder& add_message(const SamplingMessage& msg) {
@@ -430,7 +399,8 @@ public:
     return *this;
   }
 
-  CreateMessageRequestBuilder& model_preferences(const ModelPreferences& prefs) {
+  CreateMessageRequestBuilder& model_preferences(
+      const ModelPreferences& prefs) {
     request_.modelPreferences = make_optional(prefs);
     return *this;
   }
@@ -467,75 +437,63 @@ inline CreateMessageRequestBuilder build_create_message_request() {
 }
 
 // Type unions for client/server messages
-using ClientRequest = variant<
-    InitializeRequestExtended,
-    PingRequest,
-    ListResourcesRequest,
-    ListResourceTemplatesRequest,
-    ReadResourceRequest,
-    SubscribeRequest,
-    UnsubscribeRequest,
-    ListPromptsRequest,
-    GetPromptRequest,
-    ListToolsRequest,
-    CallToolRequest,
-    SetLevelRequest,
-    CreateMessageRequest,
-    CompleteRequest,
-    ListRootsRequest,
-    ElicitRequest
->;
+using ClientRequest = variant<InitializeRequestExtended,
+                              PingRequest,
+                              ListResourcesRequest,
+                              ListResourceTemplatesRequest,
+                              ReadResourceRequest,
+                              SubscribeRequest,
+                              UnsubscribeRequest,
+                              ListPromptsRequest,
+                              GetPromptRequest,
+                              ListToolsRequest,
+                              CallToolRequest,
+                              SetLevelRequest,
+                              CreateMessageRequest,
+                              CompleteRequest,
+                              ListRootsRequest,
+                              ElicitRequest>;
 
-using ClientNotification = variant<
-    InitializedNotification,
-    CancelledNotification
->;
+using ClientNotification =
+    variant<InitializedNotification, CancelledNotification>;
 
 using ServerRequest = variant<
     // Server can also make requests in some cases
     CreateMessageRequest,
-    ElicitRequest
->;
+    ElicitRequest>;
 
-using ServerNotification = variant<
-    ProgressNotification,
-    ResourceListChangedNotification,
-    ResourceUpdatedNotification,
-    PromptListChangedNotification,
-    ToolListChangedNotification,
-    LoggingMessageNotification,
-    RootsListChangedNotification
->;
+using ServerNotification = variant<ProgressNotification,
+                                   ResourceListChangedNotification,
+                                   ResourceUpdatedNotification,
+                                   PromptListChangedNotification,
+                                   ToolListChangedNotification,
+                                   LoggingMessageNotification,
+                                   RootsListChangedNotification>;
 
 // Helper to determine message type
 template <typename T>
 struct MessageTypeHelper {
   static std::string get_method(const T& msg) {
-    return match(msg,
-        [](const auto& m) -> std::string {
-          return get_method_impl(m);
-        }
-    );
+    return match(
+        msg, [](const auto& m) -> std::string { return get_method_impl(m); });
   }
 
-private:
+ private:
   template <typename U>
   static std::string get_method_impl(
       const U& m,
       typename std::enable_if<
           std::is_base_of<jsonrpc::Request, U>::value ||
-          std::is_base_of<jsonrpc::Notification, U>::value
-      >::type* = nullptr) {
+          std::is_base_of<jsonrpc::Notification, U>::value>::type* = nullptr) {
     return m.method;
   }
-  
+
   template <typename U>
   static std::string get_method_impl(
       const U&,
       typename std::enable_if<
           !std::is_base_of<jsonrpc::Request, U>::value &&
-          !std::is_base_of<jsonrpc::Notification, U>::value
-      >::type* = nullptr) {
+          !std::is_base_of<jsonrpc::Notification, U>::value>::type* = nullptr) {
     return "";
   }
 };
