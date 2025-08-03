@@ -52,6 +52,49 @@ endif()
 # Find packages
 find_package(Threads REQUIRED)
 
+# Find libevent
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBEVENT libevent)
+endif()
+
+if(NOT LIBEVENT_FOUND)
+    # Try to find libevent manually
+    find_path(LIBEVENT_INCLUDE_DIR event2/event.h
+        PATHS /usr/local/include /usr/include
+    )
+    find_library(LIBEVENT_CORE_LIBRARY
+        NAMES event_core event
+        PATHS /usr/local/lib /usr/lib /usr/local/Cellar/libevent/2.1.12_1/lib
+    )
+    find_library(LIBEVENT_PTHREADS_LIBRARY
+        NAMES event_pthreads
+        PATHS /usr/local/lib /usr/lib /usr/local/Cellar/libevent/2.1.12_1/lib
+    )
+    
+    if(LIBEVENT_INCLUDE_DIR AND LIBEVENT_CORE_LIBRARY)
+        set(LIBEVENT_FOUND TRUE)
+        set(LIBEVENT_INCLUDE_DIRS ${LIBEVENT_INCLUDE_DIR})
+        set(LIBEVENT_LIBRARIES ${LIBEVENT_CORE_LIBRARY})
+        if(LIBEVENT_PTHREADS_LIBRARY)
+            list(APPEND LIBEVENT_LIBRARIES ${LIBEVENT_PTHREADS_LIBRARY})
+        endif()
+    endif()
+else()
+    # If pkg-config found it, we need to add pthreads library manually
+    find_library(LIBEVENT_PTHREADS_LIBRARY
+        NAMES event_pthreads
+        PATHS ${LIBEVENT_LIBRARY_DIRS} /usr/local/lib
+    )
+    if(LIBEVENT_PTHREADS_LIBRARY)
+        set(LIBEVENT_LIBRARIES ${LIBEVENT_LIBRARIES} ${LIBEVENT_PTHREADS_LIBRARY})
+    endif()
+endif()
+
+if(NOT LIBEVENT_FOUND)
+    message(FATAL_ERROR "libevent not found. Please install libevent development package.")
+endif()
+
 # nlohmann/json
 include(FetchContent)
 FetchContent_Declare(
@@ -77,16 +120,51 @@ set(MCP_SDK_SOURCES
     src/json.cpp
 )
 
+# Event system source files
+set(MCP_EVENT_SOURCES
+    src/event/libevent_dispatcher.cpp
+    src/event/worker.cpp
+)
+
 # Create MCP SDK library
 add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES})
 target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json)
+
+# Create MCP Event library
+add_library(mcp-event STATIC ${MCP_EVENT_SOURCES})
+target_include_directories(mcp-event PUBLIC 
+    ${CMAKE_SOURCE_DIR}/include
+    ${LIBEVENT_INCLUDE_DIRS}
+)
+target_link_libraries(mcp-event PUBLIC 
+    mcp-sdk
+    Threads::Threads
+)
+
+if(LIBEVENT_FOUND)
+    if(LIBEVENT_LIBRARY_DIRS)
+        target_link_directories(mcp-event PUBLIC ${LIBEVENT_LIBRARY_DIRS})
+    endif()
+    target_link_libraries(mcp-event PUBLIC ${LIBEVENT_LIBRARIES})
+endif()
 
 # Enable testing
 enable_testing()
 
 # Add test subdirectory
 add_subdirectory(tests)
+
+# Build examples (optional)
+option(BUILD_EXAMPLES "Build example programs" ON)
+if(BUILD_EXAMPLES)
+    add_executable(event_loop_example examples/event_loop_example.cpp)
+    target_link_libraries(event_loop_example 
+        mcp-event 
+        mcp-sdk 
+        Threads::Threads
+    )
+endif()
 
 # Add custom target for formatting
 add_custom_target(format
