@@ -356,7 +356,6 @@ TEST_F(TypeHelpersTest, JSONRPCFactories) {
 
 // Test protocol message factories
 TEST_F(TypeHelpersTest, ProtocolMessageFactories) {
-  using namespace protocol;
 
   // Test initialize params builder
   auto init_params = build_initialize_params("1.0.0")
@@ -406,7 +405,6 @@ TEST_F(TypeHelpersTest, StringLiteral) {
 
 // Integration test - Building a complete MCP request
 TEST_F(TypeHelpersTest, IntegrationCompleteRequest) {
-  using namespace protocol;
   using namespace jsonrpc;
 
   // Build a complete tool call request
@@ -416,8 +414,9 @@ TEST_F(TypeHelpersTest, IntegrationCompleteRequest) {
 
   auto call_params = make_tool_call("calculator", tool_params);
 
-  auto request =
-      make_request(make_request_id("req-calc-1"), "tools/call", call_params);
+  // Convert CallToolRequest to a proper JSONRPC request
+  auto request = call_params;  // CallToolRequest already inherits from jsonrpc::Request
+  request.id = make_request_id("req-calc-1");
 
   EXPECT_EQ(request.method, "tools/call");
   EXPECT_TRUE(request.id.holds_alternative<std::string>());
