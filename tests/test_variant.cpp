@@ -181,7 +181,8 @@ TEST_F(VariantTest, LifecycleTracking) {
   // - Initial construction: 1 construction + 1 temporary destroyed after move
   // - v2(v1): 1 copy
   // - v2 = 10: 1 destruction
-  // - v2 = v1 with copy-and-swap: creates temp (1 copy), swaps, destroys old (1 destruction)
+  // - v2 = v1 with copy-and-swap: creates temp (1 copy), swaps, destroys old (1
+  // destruction)
   // - End of scope: 2 destructions (v1 and v2)
   // Total: 1 construction + 2 copies = 3 objects created
   // Total destructions: 1 (temp) + 1 (assign int) + 1 (copy-swap) + 2 (end) = 5
