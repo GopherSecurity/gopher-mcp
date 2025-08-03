@@ -52,14 +52,22 @@ struct LoggingLevelExtended {
   }
 
   static optional<Value> from_string(const std::string& s) {
-    if (s == "debug") return make_optional(DEBUG);
-    if (s == "info") return make_optional(INFO);
-    if (s == "notice") return make_optional(NOTICE);
-    if (s == "warning") return make_optional(WARNING);
-    if (s == "error") return make_optional(ERROR);
-    if (s == "critical") return make_optional(CRITICAL);
-    if (s == "alert") return make_optional(ALERT);
-    if (s == "emergency") return make_optional(EMERGENCY);
+    if (s == "debug")
+      return make_optional(DEBUG);
+    if (s == "info")
+      return make_optional(INFO);
+    if (s == "notice")
+      return make_optional(NOTICE);
+    if (s == "warning")
+      return make_optional(WARNING);
+    if (s == "error")
+      return make_optional(ERROR);
+    if (s == "critical")
+      return make_optional(CRITICAL);
+    if (s == "alert")
+      return make_optional(ALERT);
+    if (s == "emergency")
+      return make_optional(EMERGENCY);
     return nullopt;
   }
 };
@@ -77,7 +85,7 @@ constexpr int INTERNAL_ERROR = -32603;
 // Base metadata interface (replaces Annotated)
 struct BaseMetadata {
   optional<Metadata> _meta;
-  
+
   BaseMetadata() = default;
 };
 
@@ -85,14 +93,14 @@ struct BaseMetadata {
 struct Annotations {
   optional<std::vector<enums::Role::Value>> audience;
   optional<double> priority;  // 1.0 = most important
-  
+
   Annotations() = default;
 };
 
 // Tool-specific annotations
 struct ToolAnnotations {
   optional<std::vector<enums::Role::Value>> audience;
-  
+
   ToolAnnotations() = default;
 };
 
@@ -101,7 +109,7 @@ struct AudioContent {
   std::string type = "audio";
   std::string data;  // Base64-encoded audio data
   std::string mimeType;
-  
+
   AudioContent() = default;
   AudioContent(const std::string& d, const std::string& mt)
       : data(d), mimeType(mt) {}
@@ -110,7 +118,7 @@ struct AudioContent {
 // Resource link (reference to a resource)
 struct ResourceLink : Resource {
   std::string type = "resource";
-  
+
   ResourceLink() = default;
   explicit ResourceLink(const Resource& r) : Resource(r) {}
 };
@@ -120,23 +128,21 @@ struct EmbeddedResource {
   std::string type = "embedded";
   Resource resource;
   std::vector<ContentBlock> content;
-  
+
   EmbeddedResource() = default;
   explicit EmbeddedResource(const Resource& r) : resource(r) {}
 };
 
 // Extended ContentBlock to include all types
-using ExtendedContentBlock = variant<
-    TextContent,
-    ImageContent,
-    AudioContent,
-    ResourceLink,
-    EmbeddedResource
->;
+using ExtendedContentBlock = variant<TextContent,
+                                     ImageContent,
+                                     AudioContent,
+                                     ResourceLink,
+                                     EmbeddedResource>;
 
 // Factory functions for new content types
 inline ExtendedContentBlock make_audio_content(const std::string& data,
-                                                const std::string& mime_type) {
+                                               const std::string& mime_type) {
   return ExtendedContentBlock(AudioContent(data, mime_type));
 }
 
@@ -152,7 +158,7 @@ inline ExtendedContentBlock make_embedded_resource(const Resource& resource) {
 class EmbeddedResourceBuilder {
   EmbeddedResource resource_;
 
-public:
+ public:
   explicit EmbeddedResourceBuilder(const Resource& r) : resource_(r) {}
 
   EmbeddedResourceBuilder& add_content(const ContentBlock& content) {
@@ -175,20 +181,21 @@ public:
   EmbeddedResource build() const& { return resource_; }
 };
 
-inline EmbeddedResourceBuilder build_embedded_resource(const Resource& resource) {
+inline EmbeddedResourceBuilder build_embedded_resource(
+    const Resource& resource) {
   return EmbeddedResourceBuilder(resource);
 }
 
 // Pagination support
 struct PaginatedRequest : jsonrpc::Request {
   optional<Cursor> cursor;
-  
+
   PaginatedRequest() = default;
 };
 
 struct PaginatedResult {
   optional<Cursor> nextCursor;
-  
+
   PaginatedResult() = default;
 };
 
@@ -196,7 +203,7 @@ struct PaginatedResult {
 struct ClientCapabilities {
   optional<Metadata> experimental;
   optional<SamplingParams> sampling;
-  
+
   ClientCapabilities() = default;
 };
 
@@ -206,7 +213,7 @@ struct ServerCapabilities {
   optional<bool> tools;
   optional<bool> prompts;
   optional<bool> logging;
-  
+
   ServerCapabilities() = default;
 };
 
@@ -214,7 +221,7 @@ struct ServerCapabilities {
 class ClientCapabilitiesBuilder {
   ClientCapabilities caps_;
 
-public:
+ public:
   ClientCapabilitiesBuilder() = default;
 
   ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
@@ -255,7 +262,7 @@ inline ClientCapabilitiesBuilder build_client_capabilities() {
 class ServerCapabilitiesBuilder {
   ServerCapabilities caps_;
 
-public:
+ public:
   ServerCapabilitiesBuilder() = default;
 
   ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
@@ -295,7 +302,7 @@ inline ServerCapabilitiesBuilder build_server_capabilities() {
 struct PromptMessage {
   enums::Role::Value role;
   variant<TextContent, ImageContent, EmbeddedResource> content;
-  
+
   PromptMessage() = default;
   PromptMessage(enums::Role::Value r, const TextContent& c)
       : role(r), content(c) {}
@@ -311,20 +318,20 @@ inline PromptMessage make_prompt_message(enums::Role::Value role,
 struct ResourceContents {
   optional<std::string> uri;
   optional<std::string> mimeType;
-  
+
   ResourceContents() = default;
 };
 
 struct TextResourceContents : ResourceContents {
   std::string text;
-  
+
   TextResourceContents() = default;
   explicit TextResourceContents(const std::string& t) : text(t) {}
 };
 
 struct BlobResourceContents : ResourceContents {
   std::string blob;  // Base64-encoded data
-  
+
   BlobResourceContents() = default;
   explicit BlobResourceContents(const std::string& b) : blob(b) {}
 };
@@ -342,14 +349,14 @@ inline BlobResourceContents make_blob_resource(const std::string& blob) {
 struct SamplingMessage {
   enums::Role::Value role;
   variant<TextContent, ImageContent, AudioContent> content;
-  
+
   SamplingMessage() = default;
 };
 
 // Model hint
 struct ModelHint {
   optional<std::string> name;
-  
+
   ModelHint() = default;
   explicit ModelHint(const std::string& n) : name(make_optional(n)) {}
 };
@@ -357,10 +364,10 @@ struct ModelHint {
 // Model preferences
 struct ModelPreferences {
   optional<std::vector<ModelHint>> hints;
-  optional<double> costPriority;  // 0-1, 0 = cost, 1 = quality
-  optional<double> speedPriority;  // 0-1, 0 = speed, 1 = quality
+  optional<double> costPriority;          // 0-1, 0 = cost, 1 = quality
+  optional<double> speedPriority;         // 0-1, 0 = speed, 1 = quality
   optional<double> intelligencePriority;  // 0-1, 0 = simpler, 1 = smarter
-  
+
   ModelPreferences() = default;
 };
 
@@ -368,7 +375,7 @@ struct ModelPreferences {
 class ModelPreferencesBuilder {
   ModelPreferences prefs_;
 
-public:
+ public:
   ModelPreferencesBuilder() = default;
 
   ModelPreferencesBuilder& add_hint(const std::string& model_name) {
@@ -406,7 +413,7 @@ inline ModelPreferencesBuilder build_model_preferences() {
 struct Root {
   std::string uri;
   optional<std::string> name;
-  
+
   Root() = default;
   Root(const std::string& u, const std::string& n)
       : uri(u), name(make_optional(n)) {}
@@ -424,7 +431,7 @@ struct StringSchema {
   optional<std::string> pattern;
   optional<int> minLength;
   optional<int> maxLength;
-  
+
   StringSchema() = default;
 };
 
@@ -434,14 +441,14 @@ struct NumberSchema {
   optional<double> minimum;
   optional<double> maximum;
   optional<double> multipleOf;
-  
+
   NumberSchema() = default;
 };
 
 struct BooleanSchema {
   std::string type = "boolean";
   optional<std::string> description;
-  
+
   BooleanSchema() = default;
 };
 
@@ -449,19 +456,15 @@ struct EnumSchema {
   std::string type = "enum";
   optional<std::string> description;
   std::vector<std::string> values;
-  
+
   EnumSchema() = default;
   explicit EnumSchema(std::vector<std::string>&& vals)
       : values(std::move(vals)) {}
 };
 
 // Discriminated union for primitive schemas
-using PrimitiveSchemaDefinition = variant<
-    StringSchema,
-    NumberSchema,
-    BooleanSchema,
-    EnumSchema
->;
+using PrimitiveSchemaDefinition =
+    variant<StringSchema, NumberSchema, BooleanSchema, EnumSchema>;
 
 // Factory functions for schemas
 inline PrimitiveSchemaDefinition make_string_schema() {
@@ -485,7 +488,7 @@ inline PrimitiveSchemaDefinition make_enum_schema(
 class StringSchemaBuilder {
   StringSchema schema_;
 
-public:
+ public:
   StringSchemaBuilder() = default;
 
   StringSchemaBuilder& description(const std::string& desc) {
@@ -520,7 +523,7 @@ inline StringSchemaBuilder build_string_schema() {
 struct ResourceTemplateReference {
   std::string type;
   std::string name;
-  
+
   ResourceTemplateReference() = default;
   ResourceTemplateReference(const std::string& t, const std::string& n)
       : type(t), name(n) {}
@@ -529,7 +532,7 @@ struct ResourceTemplateReference {
 struct PromptReference : BaseMetadata {
   std::string type;
   std::string name;
-  
+
   PromptReference() = default;
   PromptReference(const std::string& t, const std::string& n)
       : type(t), name(n) {}
