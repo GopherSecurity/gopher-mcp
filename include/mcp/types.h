@@ -52,9 +52,9 @@ struct Role {
 
   static optional<Value> from_string(const std::string& s) {
     if (s == "user")
-      return make_optional(USER);
+      return mcp::make_optional(USER);
     if (s == "assistant")
-      return make_optional(ASSISTANT);
+      return mcp::make_optional(ASSISTANT);
     return nullopt;
   }
 };
@@ -97,21 +97,21 @@ struct LoggingLevel {
 
   static optional<Value> from_string(const std::string& s) {
     if (s == "debug")
-      return make_optional(DEBUG);
+      return mcp::make_optional(DEBUG);
     if (s == "info")
-      return make_optional(INFO);
+      return mcp::make_optional(INFO);
     if (s == "notice")
-      return make_optional(NOTICE);
+      return mcp::make_optional(NOTICE);
     if (s == "warning")
-      return make_optional(WARNING);
+      return mcp::make_optional(WARNING);
     if (s == "error")
-      return make_optional(ERROR);
+      return mcp::make_optional(ERROR);
     if (s == "critical")
-      return make_optional(CRITICAL);
+      return mcp::make_optional(CRITICAL);
     if (s == "alert")
-      return make_optional(ALERT);
+      return mcp::make_optional(ALERT);
     if (s == "emergency")
-      return make_optional(EMERGENCY);
+      return mcp::make_optional(EMERGENCY);
     return nullopt;
   }
 };
@@ -430,12 +430,12 @@ class ResourceBuilder {
       : resource_(uri, name) {}
 
   ResourceBuilder& description(const std::string& desc) {
-    resource_.description = make_optional(desc);
+    resource_.description = mcp::make_optional(desc);
     return *this;
   }
 
   ResourceBuilder& mimeType(const std::string& mime) {
-    resource_.mimeType = make_optional(mime);
+    resource_.mimeType = mcp::make_optional(mime);
     return *this;
   }
 
@@ -455,7 +455,7 @@ class ToolBuilder {
   explicit ToolBuilder(const std::string& name) : tool_(name) {}
 
   ToolBuilder& description(const std::string& desc) {
-    tool_.description = make_optional(desc);
+    tool_.description = mcp::make_optional(desc);
     return *this;
   }
 
@@ -463,7 +463,7 @@ class ToolBuilder {
                          const std::string& type,
                          bool required = false) {
     if (!tool_.parameters) {
-      tool_.parameters = make_optional(std::vector<ToolParameter>());
+      tool_.parameters = mcp::make_optional(std::vector<ToolParameter>());
     }
     tool_.parameters->push_back(ToolParameter{name, type, nullopt, required});
     return *this;
@@ -474,10 +474,10 @@ class ToolBuilder {
                          const std::string& desc,
                          bool required = false) {
     if (!tool_.parameters) {
-      tool_.parameters = make_optional(std::vector<ToolParameter>());
+      tool_.parameters = mcp::make_optional(std::vector<ToolParameter>());
     }
     tool_.parameters->push_back(
-        ToolParameter{name, type, make_optional(desc), required});
+        ToolParameter{name, type, mcp::make_optional(desc), required});
     return *this;
   }
 
@@ -496,18 +496,18 @@ class SamplingParamsBuilder {
   SamplingParamsBuilder() = default;
 
   SamplingParamsBuilder& temperature(double temp) {
-    params_.temperature = make_optional(temp);
+    params_.temperature = mcp::make_optional(temp);
     return *this;
   }
 
   SamplingParamsBuilder& maxTokens(int max) {
-    params_.maxTokens = make_optional(max);
+    params_.maxTokens = mcp::make_optional(max);
     return *this;
   }
 
   SamplingParamsBuilder& stopSequence(const std::string& seq) {
     if (!params_.stopSequences) {
-      params_.stopSequences = make_optional(std::vector<std::string>());
+      params_.stopSequences = mcp::make_optional(std::vector<std::string>());
     }
     params_.stopSequences->push_back(seq);
     return *this;
@@ -516,7 +516,7 @@ class SamplingParamsBuilder {
   SamplingParamsBuilder& metadata(const std::string& key,
                                   const std::string& value) {
     if (!params_.metadata) {
-      params_.metadata = make_optional(Metadata());
+      params_.metadata = mcp::make_optional(Metadata());
     }
     add_metadata(*params_.metadata, key, value);
     return *this;
@@ -525,7 +525,7 @@ class SamplingParamsBuilder {
   template <typename T>
   SamplingParamsBuilder& metadata(const std::string& key, T&& value) {
     if (!params_.metadata) {
-      params_.metadata = make_optional(Metadata());
+      params_.metadata = mcp::make_optional(Metadata());
     }
     add_metadata(*params_.metadata, key, std::forward<T>(value));
     return *this;
@@ -584,10 +584,10 @@ struct Request {
   Request(const RequestId& i, const std::string& m) : id(i), method(m) {}
 
   Request(const RequestId& i, const std::string& m, const Metadata& p)
-      : id(i), method(m), params(make_optional(p)) {}
+      : id(i), method(m), params(mcp::make_optional(p)) {}
 
   Request(const RequestId& i, const std::string& m, Metadata&& p)
-      : id(i), method(m), params(make_optional(std::move(p))) {}
+      : id(i), method(m), params(mcp::make_optional(std::move(p))) {}
 };
 
 // Generic result type for responses
@@ -614,13 +614,13 @@ struct Response {
   template <typename T>
   static Response success(const RequestId& id, T&& result) {
     Response r(id);
-    r.result = make_optional(ResponseResult(std::forward<T>(result)));
+    r.result = mcp::make_optional(ResponseResult(std::forward<T>(result)));
     return r;
   }
 
   static Response make_error(const RequestId& id, const Error& err) {
     Response r(id);
-    r.error = make_optional(err);
+    r.error = mcp::make_optional(err);
     return r;
   }
 };
@@ -635,7 +635,7 @@ struct Notification {
 
   template <typename T>
   Notification(const std::string& m, T&& p)
-      : method(m), params(make_optional(std::forward<T>(p))) {}
+      : method(m), params(mcp::make_optional(std::forward<T>(p))) {}
 };
 
 // Factory functions for JSON-RPC
@@ -741,7 +741,7 @@ struct ModelHint {
   optional<std::string> name;
 
   ModelHint() = default;
-  explicit ModelHint(const std::string& n) : name(make_optional(n)) {}
+  explicit ModelHint(const std::string& n) : name(mcp::make_optional(n)) {}
 };
 
 // Model preferences
@@ -763,24 +763,24 @@ class ModelPreferencesBuilder {
 
   ModelPreferencesBuilder& add_hint(const std::string& model_name) {
     if (!prefs_.hints) {
-      prefs_.hints = make_optional(std::vector<ModelHint>());
+      prefs_.hints = mcp::make_optional(std::vector<ModelHint>());
     }
     prefs_.hints->push_back(ModelHint(model_name));
     return *this;
   }
 
   ModelPreferencesBuilder& cost_priority(double priority) {
-    prefs_.costPriority = make_optional(priority);
+    prefs_.costPriority = mcp::make_optional(priority);
     return *this;
   }
 
   ModelPreferencesBuilder& speed_priority(double priority) {
-    prefs_.speedPriority = make_optional(priority);
+    prefs_.speedPriority = mcp::make_optional(priority);
     return *this;
   }
 
   ModelPreferencesBuilder& intelligence_priority(double priority) {
-    prefs_.intelligencePriority = make_optional(priority);
+    prefs_.intelligencePriority = mcp::make_optional(priority);
     return *this;
   }
 
@@ -799,7 +799,7 @@ struct Root {
 
   Root() = default;
   Root(const std::string& u, const std::string& n)
-      : uri(u), name(make_optional(n)) {}
+      : uri(u), name(mcp::make_optional(n)) {}
 };
 
 // Factory for roots
@@ -875,22 +875,22 @@ class StringSchemaBuilder {
   StringSchemaBuilder() = default;
 
   StringSchemaBuilder& description(const std::string& desc) {
-    schema_.description = make_optional(desc);
+    schema_.description = mcp::make_optional(desc);
     return *this;
   }
 
   StringSchemaBuilder& pattern(const std::string& regex) {
-    schema_.pattern = make_optional(regex);
+    schema_.pattern = mcp::make_optional(regex);
     return *this;
   }
 
   StringSchemaBuilder& min_length(int len) {
-    schema_.minLength = make_optional(len);
+    schema_.minLength = mcp::make_optional(len);
     return *this;
   }
 
   StringSchemaBuilder& max_length(int len) {
-    schema_.maxLength = make_optional(len);
+    schema_.maxLength = mcp::make_optional(len);
     return *this;
   }
 
@@ -971,19 +971,19 @@ class ClientCapabilitiesBuilder {
   ClientCapabilitiesBuilder() = default;
 
   ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    caps_.experimental = make_optional(metadata);
+    caps_.experimental = mcp::make_optional(metadata);
     return *this;
   }
 
   ClientCapabilitiesBuilder& sampling(const SamplingParams& params) {
-    caps_.sampling = make_optional(params);
+    caps_.sampling = mcp::make_optional(params);
     return *this;
   }
 
   // Add missing methods that tests expect
   ClientCapabilitiesBuilder& resources(bool enabled) {
     if (!caps_.experimental) {
-      caps_.experimental = make_optional(Metadata());
+      caps_.experimental = mcp::make_optional(Metadata());
     }
     add_metadata(*caps_.experimental, "resources", enabled);
     return *this;
@@ -991,7 +991,7 @@ class ClientCapabilitiesBuilder {
 
   ClientCapabilitiesBuilder& tools(bool enabled) {
     if (!caps_.experimental) {
-      caps_.experimental = make_optional(Metadata());
+      caps_.experimental = mcp::make_optional(Metadata());
     }
     add_metadata(*caps_.experimental, "tools", enabled);
     return *this;
@@ -1012,27 +1012,27 @@ class ServerCapabilitiesBuilder {
   ServerCapabilitiesBuilder() = default;
 
   ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    caps_.experimental = make_optional(metadata);
+    caps_.experimental = mcp::make_optional(metadata);
     return *this;
   }
 
   ServerCapabilitiesBuilder& resources(bool enabled) {
-    caps_.resources = make_optional(enabled);
+    caps_.resources = mcp::make_optional(enabled);
     return *this;
   }
 
   ServerCapabilitiesBuilder& tools(bool enabled) {
-    caps_.tools = make_optional(enabled);
+    caps_.tools = mcp::make_optional(enabled);
     return *this;
   }
 
   ServerCapabilitiesBuilder& prompts(bool enabled) {
-    caps_.prompts = make_optional(enabled);
+    caps_.prompts = mcp::make_optional(enabled);
     return *this;
   }
 
   ServerCapabilitiesBuilder& logging(bool enabled) {
-    caps_.logging = make_optional(enabled);
+    caps_.logging = mcp::make_optional(enabled);
     return *this;
   }
 
@@ -1257,7 +1257,7 @@ struct CallToolRequest : jsonrpc::Request {
   CallToolRequest(const std::string& n, const Metadata& args)
       : CallToolRequest() {
     name = n;
-    arguments = make_optional(args);
+    arguments = mcp::make_optional(args);
   }
 };
 
@@ -1395,7 +1395,7 @@ inline CancelledNotification make_cancelled_notification(
   CancelledNotification notif;
   notif.requestId = id;
   if (!reason.empty()) {
-    notif.reason = make_optional(reason);
+    notif.reason = mcp::make_optional(reason);
   }
   return notif;
 }
@@ -1443,28 +1443,28 @@ class CreateMessageRequestBuilder {
 
   CreateMessageRequestBuilder& model_preferences(
       const ModelPreferences& prefs) {
-    request_.modelPreferences = make_optional(prefs);
+    request_.modelPreferences = mcp::make_optional(prefs);
     return *this;
   }
 
   CreateMessageRequestBuilder& system_prompt(const std::string& prompt) {
-    request_.systemPrompt = make_optional(prompt);
+    request_.systemPrompt = mcp::make_optional(prompt);
     return *this;
   }
 
   CreateMessageRequestBuilder& temperature(double temp) {
-    request_.temperature = make_optional(temp);
+    request_.temperature = mcp::make_optional(temp);
     return *this;
   }
 
   CreateMessageRequestBuilder& max_tokens(int tokens) {
-    request_.maxTokens = make_optional(tokens);
+    request_.maxTokens = mcp::make_optional(tokens);
     return *this;
   }
 
   CreateMessageRequestBuilder& stop_sequence(const std::string& seq) {
     if (!request_.stopSequences) {
-      request_.stopSequences = make_optional(std::vector<std::string>());
+      request_.stopSequences = mcp::make_optional(std::vector<std::string>());
     }
     request_.stopSequences->push_back(seq);
     return *this;
@@ -1503,12 +1503,12 @@ inline CallToolResult make_tool_result(std::vector<ContentBlock>&& content) {
   CallToolResult result;
   // Convert ContentBlock to ExtendedContentBlock
   for (auto& cb : content) {
-    if (cb.holds_alternative<TextContent>()) {
-      result.content.push_back(ExtendedContentBlock(cb.get<TextContent>()));
-    } else if (cb.holds_alternative<ImageContent>()) {
-      result.content.push_back(ExtendedContentBlock(cb.get<ImageContent>()));
-    } else if (cb.holds_alternative<ResourceContent>()) {
-      auto& rc = cb.get<ResourceContent>();
+    if (mcp::holds_alternative<TextContent>(cb)) {
+      result.content.push_back(ExtendedContentBlock(mcp::get<TextContent>(cb)));
+    } else if (mcp::holds_alternative<ImageContent>(cb)) {
+      result.content.push_back(ExtendedContentBlock(mcp::get<ImageContent>(cb)));
+    } else if (mcp::holds_alternative<ResourceContent>(cb)) {
+      auto& rc = mcp::get<ResourceContent>(cb);
       result.content.push_back(ExtendedContentBlock(ResourceLink(rc.resource)));
     }
   }
@@ -1532,18 +1532,18 @@ class InitializeParamsBuilder {
   }
 
   InitializeParamsBuilder& clientName(const std::string& name) {
-    params_.clientName = make_optional(name);
+    params_.clientName = mcp::make_optional(name);
     return *this;
   }
 
   InitializeParamsBuilder& clientVersion(const std::string& version) {
-    params_.clientVersion = make_optional(version);
+    params_.clientVersion = mcp::make_optional(version);
     return *this;
   }
 
   InitializeParamsBuilder& capability(const std::string& key, bool value) {
     if (!params_.capabilities) {
-      params_.capabilities = make_optional(Metadata());
+      params_.capabilities = mcp::make_optional(Metadata());
     }
     add_metadata(*params_.capabilities, key, value);
     return *this;
@@ -1552,7 +1552,7 @@ class InitializeParamsBuilder {
   template <typename T>
   InitializeParamsBuilder& capability(const std::string& key, T&& value) {
     if (!params_.capabilities) {
-      params_.capabilities = make_optional(Metadata());
+      params_.capabilities = mcp::make_optional(Metadata());
     }
     add_metadata(*params_.capabilities, key, std::forward<T>(value));
     return *this;
