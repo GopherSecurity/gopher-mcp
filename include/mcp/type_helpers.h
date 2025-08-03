@@ -121,9 +121,10 @@ auto make_method_notification(const std::string& method, T&& params)
 
 // Enum helpers moved to types.h for protocol consistency
 
-// Extensible metadata pattern for [key: string]: unknown  
+// Extensible metadata pattern for [key: string]: unknown
 // For now, keep it simple to avoid circular dependency issues
-using MetadataValue = variant<std::nullptr_t, std::string, int64_t, double, bool>;
+using MetadataValue =
+    variant<std::nullptr_t, std::string, int64_t, double, bool>;
 
 // Metadata is a map of string keys to MetadataValue
 using Metadata = std::map<std::string, MetadataValue>;

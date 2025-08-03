@@ -2,13 +2,14 @@
 #define MCP_TYPES_H
 
 #include <chrono>
-#include <string>
-#include <vector>
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>  // Needed for JSON types used in Tool and other structures
 
 #include "mcp/type_helpers.h"
-#include <nlohmann/json.hpp>  // Needed for JSON types used in Tool and other structures
 
 namespace mcp {
 
@@ -470,7 +471,7 @@ class ToolBuilder {
     tool_.inputSchema = mcp::make_optional(schema);
     return *this;
   }
-  
+
   // Legacy parameter support
   ToolBuilder& parameter(const std::string& name,
                          const std::string& type,
@@ -960,7 +961,8 @@ struct PaginatedResult {
 
 // Type aliases for JSON compatibility
 using Cursor = std::string;
-using EmptyCapability = std::map<std::string, nlohmann::json>;  // Empty capability objects
+using EmptyCapability =
+    std::map<std::string, nlohmann::json>;  // Empty capability objects
 using JSONObject = nlohmann::json;
 
 // Complex capability types for JSON compatibility
@@ -1050,12 +1052,14 @@ class ServerCapabilitiesBuilder {
   }
 
   ServerCapabilitiesBuilder& resources(bool enabled) {
-    caps_.resources = mcp::make_optional(variant<bool, ResourcesCapability>(enabled));
+    caps_.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(enabled));
     return *this;
   }
-  
+
   ServerCapabilitiesBuilder& resources(const ResourcesCapability& res_caps) {
-    caps_.resources = mcp::make_optional(variant<bool, ResourcesCapability>(res_caps));
+    caps_.resources =
+        mcp::make_optional(variant<bool, ResourcesCapability>(res_caps));
     return *this;
   }
 

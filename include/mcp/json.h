@@ -5,6 +5,7 @@
 // Include this AFTER types.h to ensure all types are defined
 
 #include <nlohmann/json.hpp>
+
 #include "mcp/types.h"
 
 namespace mcp {

@@ -215,7 +215,7 @@ TEST_F(MCPTypeHelpersTest, MetadataBasic) {
   EXPECT_TRUE(meta1["double"].holds_alternative<double>());
   EXPECT_TRUE(meta1["string"].holds_alternative<std::string>());
 
-  // Test additional basic metadata types  
+  // Test additional basic metadata types
   add_metadata(meta1, "string_value", std::string("test_string"));
   add_metadata(meta1, "int64_value", static_cast<int64_t>(9999));
   add_metadata(meta1, "bool_false", false);
@@ -892,9 +892,7 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   mcp::ToolInputSchema schema;
   schema["type"] = "object";
   schema["properties"]["expression"] = {
-    {"type", "string"},
-    {"description", "The math expression to evaluate"}
-  };
+      {"type", "string"}, {"description", "The math expression to evaluate"}};
   schema["required"] = {"expression"};
 
   auto tool = build_tool("calculator")
