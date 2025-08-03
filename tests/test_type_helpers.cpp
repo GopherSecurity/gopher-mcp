@@ -148,7 +148,7 @@ TEST_F(TypeHelpersTest, Metadata) {
 
   EXPECT_EQ(meta.size(), 4u);
   EXPECT_TRUE(meta["string_key"].holds_alternative<std::string>());
-  EXPECT_TRUE(meta["int_key"].holds_alternative<int>());
+  EXPECT_TRUE(meta["int_key"].holds_alternative<int64_t>());
   EXPECT_TRUE(meta["bool_key"].holds_alternative<bool>());
   EXPECT_TRUE(meta["null_key"].holds_alternative<std::nullptr_t>());
 }
@@ -285,20 +285,24 @@ TEST_F(TypeHelpersTest, MCPTypeFactories) {
   EXPECT_EQ(resource.mimeType.value(), "application/pdf");
 
   // Test tool builder
+  mcp::ToolInputSchema schema;
+  schema["type"] = "object";
+  schema["properties"]["expression"] = {
+    {"type", "string"},
+    {"description", "The math expression to evaluate"}
+  };
+  schema["required"] = {"expression"};
+
   auto tool = build_tool("calculator")
                   .description("Performs mathematical calculations")
-                  .parameter("expression", "string",
-                             "The math expression to evaluate", true)
-                  .parameter("precision", "number", false)
+                  .inputSchema(schema)
                   .build();
 
   EXPECT_EQ(tool.name, "calculator");
   ASSERT_TRUE(tool.description.has_value());
-  ASSERT_TRUE(tool.parameters.has_value());
-  EXPECT_EQ(tool.parameters->size(), 2u);
-  EXPECT_EQ((*tool.parameters)[0].name, "expression");
-  EXPECT_TRUE((*tool.parameters)[0].required);
-  EXPECT_FALSE((*tool.parameters)[1].required);
+  EXPECT_EQ(tool.description.value(), "Performs mathematical calculations");
+  ASSERT_TRUE(tool.inputSchema.has_value());
+  EXPECT_EQ(tool.inputSchema.value()["type"], "object");
 
   // Test sampling params builder
   auto params = build_sampling_params()
