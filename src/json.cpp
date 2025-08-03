@@ -1,6 +1,8 @@
 #include "mcp/json.h"
-#include "mcp/types.h"
+
 #include <nlohmann/json.hpp>
+
+#include "mcp/types.h"
 
 using namespace mcp;
 using json = nlohmann::json;
@@ -99,7 +101,9 @@ void from_json(const json& j, TextContent& content) {
 
 // ImageContent
 void to_json(json& j, const ImageContent& content) {
-  j = json{{"type", content.type}, {"data", content.data}, {"mimeType", content.mimeType}};
+  j = json{{"type", content.type},
+           {"data", content.data},
+           {"mimeType", content.mimeType}};
 }
 
 void from_json(const json& j, ImageContent& content) {
@@ -112,7 +116,9 @@ void from_json(const json& j, ImageContent& content) {
 
 // AudioContent
 void to_json(json& j, const AudioContent& content) {
-  j = json{{"type", content.type}, {"data", content.data}, {"mimeType", content.mimeType}};
+  j = json{{"type", content.type},
+           {"data", content.data},
+           {"mimeType", content.mimeType}};
 }
 
 void from_json(const json& j, AudioContent& content) {
@@ -265,41 +271,39 @@ void to_json(json& j, const Error& err) {
   j = json{{"code", err.code}, {"message", err.message}};
   if (err.data.has_value()) {
     // Handle variant data - need to handle each type explicitly
-    match(err.data.value(),
-      [&j](std::nullptr_t) { j["data"] = nullptr; },
-      [&j](bool val) { j["data"] = val; },
-      [&j](int val) { j["data"] = val; },
-      [&j](double val) { j["data"] = val; },
-      [&j](const std::string& val) { j["data"] = val; },
-      [&j](const std::vector<variant<std::nullptr_t, bool, int, double, std::string>>& vec) {
-        json arr = json::array();
-        for (const auto& item : vec) {
-          match(item,
-            [&arr](std::nullptr_t) { arr.push_back(nullptr); },
-            [&arr](bool v) { arr.push_back(v); },
-            [&arr](int v) { arr.push_back(v); },
-            [&arr](double v) { arr.push_back(v); },
-            [&arr](const std::string& v) { arr.push_back(v); }
-          );
-        }
-        j["data"] = arr;
-      },
-      [&j](const std::map<std::string, variant<std::nullptr_t, bool, int, double, std::string>>& map) {
-        json obj = json::object();
-        for (const auto& kv : map) {
-          const std::string& key = kv.first;
-          const auto& value = kv.second;
-          match(value,
-            [&obj, &key](std::nullptr_t) { obj[key] = nullptr; },
-            [&obj, &key](bool v) { obj[key] = v; },
-            [&obj, &key](int v) { obj[key] = v; },
-            [&obj, &key](double v) { obj[key] = v; },
-            [&obj, &key](const std::string& v) { obj[key] = v; }
-          );
-        }
-        j["data"] = obj;
-      }
-    );
+    match(
+        err.data.value(), [&j](std::nullptr_t) { j["data"] = nullptr; },
+        [&j](bool val) { j["data"] = val; }, [&j](int val) { j["data"] = val; },
+        [&j](double val) { j["data"] = val; },
+        [&j](const std::string& val) { j["data"] = val; },
+        [&j](const std::vector<
+             variant<std::nullptr_t, bool, int, double, std::string>>& vec) {
+          json arr = json::array();
+          for (const auto& item : vec) {
+            match(
+                item, [&arr](std::nullptr_t) { arr.push_back(nullptr); },
+                [&arr](bool v) { arr.push_back(v); },
+                [&arr](int v) { arr.push_back(v); },
+                [&arr](double v) { arr.push_back(v); },
+                [&arr](const std::string& v) { arr.push_back(v); });
+          }
+          j["data"] = arr;
+        },
+        [&j](const std::map<std::string, variant<std::nullptr_t, bool, int,
+                                                 double, std::string>>& map) {
+          json obj = json::object();
+          for (const auto& kv : map) {
+            const std::string& key = kv.first;
+            const auto& value = kv.second;
+            match(
+                value, [&obj, &key](std::nullptr_t) { obj[key] = nullptr; },
+                [&obj, &key](bool v) { obj[key] = v; },
+                [&obj, &key](int v) { obj[key] = v; },
+                [&obj, &key](double v) { obj[key] = v; },
+                [&obj, &key](const std::string& v) { obj[key] = v; });
+          }
+          j["data"] = obj;
+        });
   }
 }
 
@@ -330,19 +334,18 @@ void to_json(json& j, const ServerCapabilities& caps) {
     j["experimental"] = caps.experimental.value();
   }
   if (caps.resources.has_value()) {
-    match(caps.resources.value(),
-      [&j](bool val) { j["resources"] = val; },
-      [&j](const ResourcesCapability& res_caps) { 
-        json res_json = json::object();
-        if (res_caps.subscribe.has_value()) {
-          res_json["subscribe"] = res_caps.subscribe.value();
-        }
-        if (res_caps.listChanged.has_value()) {
-          res_json["listChanged"] = res_caps.listChanged.value();
-        }
-        j["resources"] = res_json;
-      }
-    );
+    match(
+        caps.resources.value(), [&j](bool val) { j["resources"] = val; },
+        [&j](const ResourcesCapability& res_caps) {
+          json res_json = json::object();
+          if (res_caps.subscribe.has_value()) {
+            res_json["subscribe"] = res_caps.subscribe.value();
+          }
+          if (res_caps.listChanged.has_value()) {
+            res_json["listChanged"] = res_caps.listChanged.value();
+          }
+          j["resources"] = res_json;
+        });
   }
   if (caps.tools.has_value()) {
     j["tools"] = caps.tools.value();
@@ -432,7 +435,8 @@ void from_json(const json& j, ClientCapabilities& caps) {
       params.maxTokens = sampling.at("maxTokens").get<int>();
     }
     if (sampling.contains("stopSequences")) {
-      params.stopSequences = sampling.at("stopSequences").get<std::vector<std::string>>();
+      params.stopSequences =
+          sampling.at("stopSequences").get<std::vector<std::string>>();
     }
     if (sampling.contains("metadata")) {
       params.metadata = sampling.at("metadata").get<Metadata>();
@@ -451,20 +455,19 @@ void from_json(const json& j, ClientCapabilities& caps) {
 
 // ContentBlock (variant)
 void to_json(json& j, const ContentBlock& block) {
-  match(block,
-    [&j](const TextContent& content) { to_json(j, content); },
-    [&j](const ImageContent& content) { to_json(j, content); },
-    [&j](const ResourceContent& content) { to_json(j, content); }
-  );
+  match(
+      block, [&j](const TextContent& content) { to_json(j, content); },
+      [&j](const ImageContent& content) { to_json(j, content); },
+      [&j](const ResourceContent& content) { to_json(j, content); });
 }
 
 void from_json(const json& j, ContentBlock& block) {
   if (!j.contains("type")) {
     throw std::runtime_error("ContentBlock missing 'type' field");
   }
-  
+
   const std::string type = j.at("type").get<std::string>();
-  
+
   if (type == "text") {
     TextContent content;
     from_json(j, content);
@@ -484,22 +487,21 @@ void from_json(const json& j, ContentBlock& block) {
 
 // ExtendedContentBlock (variant)
 void to_json(json& j, const ExtendedContentBlock& block) {
-  match(block,
-    [&j](const TextContent& content) { to_json(j, content); },
-    [&j](const ImageContent& content) { to_json(j, content); },
-    [&j](const AudioContent& content) { to_json(j, content); },
-    [&j](const ResourceLink& link) { to_json(j, link); },
-    [&j](const EmbeddedResource& resource) { to_json(j, resource); }
-  );
+  match(
+      block, [&j](const TextContent& content) { to_json(j, content); },
+      [&j](const ImageContent& content) { to_json(j, content); },
+      [&j](const AudioContent& content) { to_json(j, content); },
+      [&j](const ResourceLink& link) { to_json(j, link); },
+      [&j](const EmbeddedResource& resource) { to_json(j, resource); });
 }
 
 void from_json(const json& j, ExtendedContentBlock& block) {
   if (!j.contains("type")) {
     throw std::runtime_error("ExtendedContentBlock missing 'type' field");
   }
-  
+
   const std::string type = j.at("type").get<std::string>();
-  
+
   if (type == "text") {
     TextContent content;
     from_json(j, content);
@@ -544,20 +546,17 @@ void from_json(const json& j, Implementation& impl) {
 // InitializeRequest
 void to_json(json& j, const InitializeRequest& req) {
   j = json{
-    {"jsonrpc", req.jsonrpc},
-    {"method", req.method},
-    {"id", nullptr}  // Will be overridden
+      {"jsonrpc", req.jsonrpc},
+      {"method", req.method},
+      {"id", nullptr}  // Will be overridden
   };
-  
+
   // Handle RequestId variant
-  match(req.id,
-    [&j](const std::string& id) { j["id"] = id; },
-    [&j](int id) { j["id"] = id; }
-  );
-  
-  json params = {
-    {"protocolVersion", req.protocolVersion}
-  };
+  match(
+      req.id, [&j](const std::string& id) { j["id"] = id; },
+      [&j](int id) { j["id"] = id; });
+
+  json params = {{"protocolVersion", req.protocolVersion}};
   to_json(params["capabilities"], req.capabilities);
   if (req.clientInfo.has_value()) {
     to_json(params["clientInfo"], req.clientInfo.value());
@@ -568,7 +567,7 @@ void to_json(json& j, const InitializeRequest& req) {
 void from_json(const json& j, InitializeRequest& req) {
   req.jsonrpc = j.at("jsonrpc").get<std::string>();
   req.method = j.at("method").get<std::string>();
-  
+
   // Handle RequestId
   const auto& id = j.at("id");
   if (id.is_string()) {
@@ -576,7 +575,7 @@ void from_json(const json& j, InitializeRequest& req) {
   } else if (id.is_number_integer()) {
     req.id = id.get<int>();
   }
-  
+
   if (j.contains("params")) {
     const auto& params = j.at("params");
     req.protocolVersion = params.at("protocolVersion").get<std::string>();
@@ -591,9 +590,7 @@ void from_json(const json& j, InitializeRequest& req) {
 
 // InitializeResult
 void to_json(json& j, const InitializeResult& result) {
-  j = json{
-    {"protocolVersion", result.protocolVersion}
-  };
+  j = json{{"protocolVersion", result.protocolVersion}};
   to_json(j["capabilities"], result.capabilities);
   if (result.serverInfo.has_value()) {
     to_json(j["serverInfo"], result.serverInfo.value());
@@ -647,23 +644,25 @@ void from_json(const json& j, CallToolResult& result) {
 void to_json(json& j, const PromptMessage& msg) {
   j = json{{"role", nullptr}};
   to_json(j["role"], msg.role);
-  
-  match(msg.content,
-    [&j](const TextContent& content) { to_json(j["content"], content); },
-    [&j](const ImageContent& content) { to_json(j["content"], content); },
-    [&j](const EmbeddedResource& resource) { to_json(j["content"], resource); }
-  );
+
+  match(
+      msg.content,
+      [&j](const TextContent& content) { to_json(j["content"], content); },
+      [&j](const ImageContent& content) { to_json(j["content"], content); },
+      [&j](const EmbeddedResource& resource) {
+        to_json(j["content"], resource);
+      });
 }
 
 void from_json(const json& j, PromptMessage& msg) {
   from_json(j.at("role"), msg.role);
-  
+
   if (j.contains("content")) {
     const auto& content = j.at("content");
     if (!content.contains("type")) {
       throw std::runtime_error("PromptMessage content missing 'type' field");
     }
-    
+
     const std::string type = content.at("type").get<std::string>();
     if (type == "text") {
       TextContent text;
@@ -683,10 +682,8 @@ void from_json(const json& j, PromptMessage& msg) {
 
 // RequestId (variant<string, int>)
 void to_json(json& j, const RequestId& id) {
-  match(id,
-    [&j](const std::string& s) { j = s; },
-    [&j](int i) { j = i; }
-  );
+  match(
+      id, [&j](const std::string& s) { j = s; }, [&j](int i) { j = i; });
 }
 
 void from_json(const json& j, RequestId& id) {
@@ -698,7 +695,6 @@ void from_json(const json& j, RequestId& id) {
     throw std::runtime_error("RequestId must be string or integer");
   }
 }
-
 
 // Prompt
 void to_json(json& j, const Prompt& prompt) {
@@ -743,10 +739,7 @@ void from_json(const json& j, Prompt& prompt) {
 
 // ResourceTemplate
 void to_json(json& j, const ResourceTemplate& tmpl) {
-  j = json{
-    {"uriTemplate", tmpl.uriTemplate},
-    {"name", tmpl.name}
-  };
+  j = json{{"uriTemplate", tmpl.uriTemplate}, {"name", tmpl.name}};
   if (tmpl.description.has_value()) {
     j["description"] = tmpl.description.value();
   }
@@ -791,23 +784,23 @@ void from_json(const json& j, Root& root) {
 void to_json(json& j, const SamplingMessage& msg) {
   j = json{{"role", nullptr}};
   to_json(j["role"], msg.role);
-  
-  match(msg.content,
-    [&j](const TextContent& content) { to_json(j["content"], content); },
-    [&j](const ImageContent& content) { to_json(j["content"], content); },
-    [&j](const AudioContent& content) { to_json(j["content"], content); }
-  );
+
+  match(
+      msg.content,
+      [&j](const TextContent& content) { to_json(j["content"], content); },
+      [&j](const ImageContent& content) { to_json(j["content"], content); },
+      [&j](const AudioContent& content) { to_json(j["content"], content); });
 }
 
 void from_json(const json& j, SamplingMessage& msg) {
   from_json(j.at("role"), msg.role);
-  
+
   if (j.contains("content")) {
     const auto& content = j.at("content");
     if (!content.contains("type")) {
       throw std::runtime_error("SamplingMessage content missing 'type' field");
     }
-    
+
     const std::string type = content.at("type").get<std::string>();
     if (type == "text") {
       TextContent text;
@@ -850,46 +843,44 @@ void to_json(json& j, const jsonrpc::Response& resp) {
   if (resp.result.has_value()) {
     // ResponseResult is a variant type - need to handle each case
     const auto& result = resp.result.value();
-    match(result,
-      [&j](std::nullptr_t) { j["result"] = nullptr; },
-      [&j](bool b) { j["result"] = b; },
-      [&j](int i) { j["result"] = i; },
-      [&j](double d) { j["result"] = d; },
-      [&j](const std::string& s) { j["result"] = s; },
-      [&j](const Metadata& m) { j["result"] = m; },
-      [&j](const std::vector<ContentBlock>& blocks) {
-        j["result"] = json::array();
-        for (const auto& block : blocks) {
-          json block_json;
-          to_json(block_json, block);
-          j["result"].push_back(block_json);
-        }
-      },
-      [&j](const std::vector<Tool>& tools) {
-        j["result"] = json::array();
-        for (const auto& tool : tools) {
-          json tool_json;
-          to_json(tool_json, tool);
-          j["result"].push_back(tool_json);
-        }
-      },
-      [&j](const std::vector<Prompt>& prompts) {
-        j["result"] = json::array();
-        for (const auto& prompt : prompts) {
-          json prompt_json;
-          to_json(prompt_json, prompt);
-          j["result"].push_back(prompt_json);
-        }
-      },
-      [&j](const std::vector<Resource>& resources) {
-        j["result"] = json::array();
-        for (const auto& resource : resources) {
-          json resource_json;
-          to_json(resource_json, resource);
-          j["result"].push_back(resource_json);
-        }
-      }
-    );
+    match(
+        result, [&j](std::nullptr_t) { j["result"] = nullptr; },
+        [&j](bool b) { j["result"] = b; }, [&j](int i) { j["result"] = i; },
+        [&j](double d) { j["result"] = d; },
+        [&j](const std::string& s) { j["result"] = s; },
+        [&j](const Metadata& m) { j["result"] = m; },
+        [&j](const std::vector<ContentBlock>& blocks) {
+          j["result"] = json::array();
+          for (const auto& block : blocks) {
+            json block_json;
+            to_json(block_json, block);
+            j["result"].push_back(block_json);
+          }
+        },
+        [&j](const std::vector<Tool>& tools) {
+          j["result"] = json::array();
+          for (const auto& tool : tools) {
+            json tool_json;
+            to_json(tool_json, tool);
+            j["result"].push_back(tool_json);
+          }
+        },
+        [&j](const std::vector<Prompt>& prompts) {
+          j["result"] = json::array();
+          for (const auto& prompt : prompts) {
+            json prompt_json;
+            to_json(prompt_json, prompt);
+            j["result"].push_back(prompt_json);
+          }
+        },
+        [&j](const std::vector<Resource>& resources) {
+          j["result"] = json::array();
+          for (const auto& resource : resources) {
+            json resource_json;
+            to_json(resource_json, resource);
+            j["result"].push_back(resource_json);
+          }
+        });
   }
   if (resp.error.has_value()) {
     to_json(j["error"], resp.error.value());
@@ -915,8 +906,8 @@ void from_json(const json& j, jsonrpc::Response& resp) {
       // Could be Metadata or other structured types
       resp.result = jsonrpc::ResponseResult(result.get<Metadata>());
     } else if (result.is_array()) {
-      // Need to determine the type of array - this is tricky without more context
-      // For now, we'll try to handle it as generic JSON
+      // Need to determine the type of array - this is tricky without more
+      // context For now, we'll try to handle it as generic JSON
       resp.result = jsonrpc::ResponseResult(result.get<Metadata>());
     }
   }
@@ -977,13 +968,12 @@ void to_json(json& j, const Metadata& metadata) {
   for (const auto& kv : metadata) {
     const std::string& key = kv.first;
     const MetadataValue& value = kv.second;
-    match(value,
-      [&j, &key](std::nullptr_t) { j[key] = nullptr; },
-      [&j, &key](const std::string& v) { j[key] = v; },
-      [&j, &key](int64_t v) { j[key] = v; },
-      [&j, &key](double v) { j[key] = v; },
-      [&j, &key](bool v) { j[key] = v; }
-    );
+    match(
+        value, [&j, &key](std::nullptr_t) { j[key] = nullptr; },
+        [&j, &key](const std::string& v) { j[key] = v; },
+        [&j, &key](int64_t v) { j[key] = v; },
+        [&j, &key](double v) { j[key] = v; },
+        [&j, &key](bool v) { j[key] = v; });
   }
 }
 
@@ -991,7 +981,7 @@ void from_json(const json& j, Metadata& metadata) {
   for (auto it = j.begin(); it != j.end(); ++it) {
     const std::string& key = it.key();
     const auto& value = it.value();
-    
+
     if (value.is_null()) {
       metadata[key] = nullptr;
     } else if (value.is_string()) {
@@ -1057,12 +1047,12 @@ void from_json(const json& j, ModelPreferences& prefs) {
 void to_json(json& j, const CreateMessageResult& result) {
   // Serialize role and content from base class
   to_json(j["role"], result.role);
-  match(result.content,
-    [&j](const TextContent& content) { to_json(j["content"], content); },
-    [&j](const ImageContent& content) { to_json(j["content"], content); },
-    [&j](const AudioContent& content) { to_json(j["content"], content); }
-  );
-  
+  match(
+      result.content,
+      [&j](const TextContent& content) { to_json(j["content"], content); },
+      [&j](const ImageContent& content) { to_json(j["content"], content); },
+      [&j](const AudioContent& content) { to_json(j["content"], content); });
+
   // Add additional fields
   j["model"] = result.model;
   if (result.stopReason.has_value()) {
@@ -1073,13 +1063,14 @@ void to_json(json& j, const CreateMessageResult& result) {
 void from_json(const json& j, CreateMessageResult& result) {
   // Deserialize base class fields
   from_json(j.at("role"), result.role);
-  
+
   if (j.contains("content")) {
     const auto& content = j.at("content");
     if (!content.contains("type")) {
-      throw std::runtime_error("CreateMessageResult content missing 'type' field");
+      throw std::runtime_error(
+          "CreateMessageResult content missing 'type' field");
     }
-    
+
     const std::string type = content.at("type").get<std::string>();
     if (type == "text") {
       TextContent text;
@@ -1095,7 +1086,7 @@ void from_json(const json& j, CreateMessageResult& result) {
       result.content = audio;
     }
   }
-  
+
   result.model = j.at("model").get<std::string>();
   if (j.contains("stopReason")) {
     result.stopReason = j.at("stopReason").get<std::string>();
@@ -1183,10 +1174,14 @@ void to_json(json& j, const ReadResourceResult& result) {
   j["contents"] = json::array();
   for (const auto& content : result.contents) {
     json content_json;
-    match(content,
-      [&content_json](const TextResourceContents& text) { to_json(content_json, text); },
-      [&content_json](const BlobResourceContents& blob) { to_json(content_json, blob); }
-    );
+    match(
+        content,
+        [&content_json](const TextResourceContents& text) {
+          to_json(content_json, text);
+        },
+        [&content_json](const BlobResourceContents& blob) {
+          to_json(content_json, blob);
+        });
     j["contents"].push_back(content_json);
   }
 }
@@ -1430,14 +1425,14 @@ void from_json(const json& j, ListRootsResult& result) {
 void to_json(json& j, const CreateMessageRequest& req) {
   to_json(j, static_cast<const jsonrpc::Request&>(req));
   auto& params = j["params"];
-  
+
   params["messages"] = json::array();
   for (const auto& msg : req.messages) {
     json msg_json;
     to_json(msg_json, msg);
     params["messages"].push_back(msg_json);
   }
-  
+
   if (req.modelPreferences.has_value()) {
     to_json(params["modelPreferences"], req.modelPreferences.value());
   }
@@ -1465,7 +1460,7 @@ void from_json(const json& j, CreateMessageRequest& req) {
   from_json(j, static_cast<jsonrpc::Request&>(req));
   if (j.contains("params")) {
     const auto& params = j["params"];
-    
+
     if (params.contains("messages")) {
       for (const auto& msg_json : params["messages"]) {
         SamplingMessage msg;
@@ -1473,7 +1468,7 @@ void from_json(const json& j, CreateMessageRequest& req) {
         req.messages.push_back(msg);
       }
     }
-    
+
     if (params.contains("modelPreferences")) {
       ModelPreferences prefs;
       from_json(params["modelPreferences"], prefs);
@@ -1492,7 +1487,8 @@ void from_json(const json& j, CreateMessageRequest& req) {
       req.maxTokens = params["maxTokens"].get<int>();
     }
     if (params.contains("stopSequences")) {
-      req.stopSequences = params["stopSequences"].get<std::vector<std::string>>();
+      req.stopSequences =
+          params["stopSequences"].get<std::vector<std::string>>();
     }
     if (params.contains("metadata")) {
       req.metadata = params["metadata"].get<Metadata>();
@@ -1526,12 +1522,10 @@ void from_json(const json& j, ElicitRequest& req) {
 }
 
 void to_json(json& j, const ElicitResult& result) {
-  match(result.value,
-    [&j](const std::string& s) { j["value"] = s; },
-    [&j](double d) { j["value"] = d; },
-    [&j](bool b) { j["value"] = b; },
-    [&j](std::nullptr_t) { j["value"] = nullptr; }
-  );
+  match(
+      result.value, [&j](const std::string& s) { j["value"] = s; },
+      [&j](double d) { j["value"] = d; }, [&j](bool b) { j["value"] = b; },
+      [&j](std::nullptr_t) { j["value"] = nullptr; });
 }
 
 void from_json(const json& j, ElicitResult& result) {
@@ -1649,10 +1643,9 @@ void to_json(json& j, const LoggingMessageNotification& notif) {
   if (notif.logger.has_value()) {
     params["logger"] = notif.logger.value();
   }
-  match(notif.data,
-    [&params](const std::string& s) { params["data"] = s; },
-    [&params](const Metadata& m) { params["data"] = m; }
-  );
+  match(
+      notif.data, [&params](const std::string& s) { params["data"] = s; },
+      [&params](const Metadata& m) { params["data"] = m; });
 }
 
 void from_json(const json& j, LoggingMessageNotification& notif) {
@@ -1778,19 +1771,18 @@ void from_json(const json& j, EnumSchema& schema) {
 }
 
 void to_json(json& j, const PrimitiveSchemaDefinition& def) {
-  match(def,
-    [&j](const StringSchema& s) { to_json(j, s); },
-    [&j](const NumberSchema& n) { to_json(j, n); },
-    [&j](const BooleanSchema& b) { to_json(j, b); },
-    [&j](const EnumSchema& e) { to_json(j, e); }
-  );
+  match(
+      def, [&j](const StringSchema& s) { to_json(j, s); },
+      [&j](const NumberSchema& n) { to_json(j, n); },
+      [&j](const BooleanSchema& b) { to_json(j, b); },
+      [&j](const EnumSchema& e) { to_json(j, e); });
 }
 
 void from_json(const json& j, PrimitiveSchemaDefinition& def) {
   if (!j.contains("type")) {
     throw std::runtime_error("Schema missing 'type' field");
   }
-  
+
   const std::string type = j["type"].get<std::string>();
   if (type == "string") {
     if (j.contains("enum")) {
@@ -1861,17 +1853,13 @@ void from_json(const json& j, PromptsCapability& cap) {
   }
 }
 
-void to_json(json& j, const EmptyResult&) {
-  j = json::object();
-}
+void to_json(json& j, const EmptyResult&) { j = json::object(); }
 
 void from_json(const json&, EmptyResult&) {
   // Nothing to do
 }
 
-void to_json(json& j, const EmptyCapability&) {
-  j = json::object();
-}
+void to_json(json& j, const EmptyCapability&) { j = json::object(); }
 
 void from_json(const json&, EmptyCapability&) {
   // Nothing to do
@@ -1933,13 +1921,9 @@ void from_json(const json& j, ToolParameter& param) {
   }
 }
 
-void to_json(json& j, const ToolInputSchema& schema) {
-  j = schema;
-}
+void to_json(json& j, const ToolInputSchema& schema) { j = schema; }
 
-void from_json(const json& j, ToolInputSchema& schema) {
-  schema = j;
-}
+void from_json(const json& j, ToolInputSchema& schema) { schema = j; }
 
 void to_json(json& j, const InitializeParams& params) {
   j["protocolVersion"] = params.protocolVersion;
