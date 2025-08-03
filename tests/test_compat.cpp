@@ -1,7 +1,8 @@
-#include <gtest/gtest.h>
 #include <iostream>
 #include <string>
 #include <type_traits>
+
+#include <gtest/gtest.h>
 
 #include "mcp/compat.h"
 
@@ -13,8 +14,9 @@ class CompatTest : public ::testing::Test {
 // Test that we're using the correct implementation based on C++ version
 TEST_F(CompatTest, ImplementationSelection) {
   std::cout << "__cplusplus = " << __cplusplus << std::endl;
-  std::cout << "MCP_USE_STD_OPTIONAL_VARIANT = " << MCP_USE_STD_OPTIONAL_VARIANT << std::endl;
-  
+  std::cout << "MCP_USE_STD_OPTIONAL_VARIANT = " << MCP_USE_STD_OPTIONAL_VARIANT
+            << std::endl;
+
 #if MCP_HAS_STD_OPTIONAL
   std::cout << "Using std::optional (C++17 or later)" << std::endl;
   // Verify we're using std::optional
@@ -29,9 +31,9 @@ TEST_F(CompatTest, ImplementationSelection) {
 #if MCP_HAS_STD_VARIANT
   std::cout << "Using std::variant (C++17 or later)" << std::endl;
   // Verify we're using std::variant
-  static_assert(std::is_same<mcp::variant<int, double>, 
-                              std::variant<int, double>>::value,
-                "mcp::variant should be std::variant in C++17");
+  static_assert(
+      std::is_same<mcp::variant<int, double>, std::variant<int, double>>::value,
+      "mcp::variant should be std::variant in C++17");
 #else
   std::cout << "Using mcp::variant (C++14)" << std::endl;
 #endif
