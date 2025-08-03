@@ -34,6 +34,19 @@ void from_json(const json& j, enums::LoggingLevel::Value& level) {
   }
 }
 
+// BaseMetadata
+void to_json(json& j, const BaseMetadata& meta) {
+  if (meta._meta.has_value()) {
+    j["_meta"] = meta._meta.value();
+  }
+}
+
+void from_json(const json& j, BaseMetadata& meta) {
+  if (j.contains("_meta")) {
+    meta._meta = j["_meta"].get<Metadata>();
+  }
+}
+
 // Annotations
 void to_json(json& j, const Annotations& ann) {
   j = json::object();
@@ -668,6 +681,25 @@ void from_json(const json& j, PromptMessage& msg) {
   }
 }
 
+// RequestId (variant<string, int>)
+void to_json(json& j, const RequestId& id) {
+  match(id,
+    [&j](const std::string& s) { j = s; },
+    [&j](int i) { j = i; }
+  );
+}
+
+void from_json(const json& j, RequestId& id) {
+  if (j.is_string()) {
+    id = j.get<std::string>();
+  } else if (j.is_number_integer()) {
+    id = j.get<int>();
+  } else {
+    throw std::runtime_error("RequestId must be string or integer");
+  }
+}
+
+
 // Prompt
 void to_json(json& j, const Prompt& prompt) {
   j = json{{"name", prompt.name}};
@@ -790,6 +822,152 @@ void from_json(const json& j, SamplingMessage& msg) {
       from_json(content, audio);
       msg.content = audio;
     }
+  }
+}
+
+// JSON-RPC base types
+void to_json(json& j, const jsonrpc::Request& req) {
+  j["jsonrpc"] = req.jsonrpc;
+  j["method"] = req.method;
+  to_json(j["id"], req.id);
+  if (req.params.has_value()) {
+    j["params"] = req.params.value();
+  }
+}
+
+void from_json(const json& j, jsonrpc::Request& req) {
+  req.jsonrpc = j.at("jsonrpc").get<std::string>();
+  req.method = j.at("method").get<std::string>();
+  from_json(j.at("id"), req.id);
+  if (j.contains("params")) {
+    req.params = j["params"];
+  }
+}
+
+void to_json(json& j, const jsonrpc::Response& resp) {
+  j["jsonrpc"] = resp.jsonrpc;
+  to_json(j["id"], resp.id);
+  if (resp.result.has_value()) {
+    // ResponseResult is a variant type - need to handle each case
+    const auto& result = resp.result.value();
+    match(result,
+      [&j](std::nullptr_t) { j["result"] = nullptr; },
+      [&j](bool b) { j["result"] = b; },
+      [&j](int i) { j["result"] = i; },
+      [&j](double d) { j["result"] = d; },
+      [&j](const std::string& s) { j["result"] = s; },
+      [&j](const Metadata& m) { j["result"] = m; },
+      [&j](const std::vector<ContentBlock>& blocks) {
+        j["result"] = json::array();
+        for (const auto& block : blocks) {
+          json block_json;
+          to_json(block_json, block);
+          j["result"].push_back(block_json);
+        }
+      },
+      [&j](const std::vector<Tool>& tools) {
+        j["result"] = json::array();
+        for (const auto& tool : tools) {
+          json tool_json;
+          to_json(tool_json, tool);
+          j["result"].push_back(tool_json);
+        }
+      },
+      [&j](const std::vector<Prompt>& prompts) {
+        j["result"] = json::array();
+        for (const auto& prompt : prompts) {
+          json prompt_json;
+          to_json(prompt_json, prompt);
+          j["result"].push_back(prompt_json);
+        }
+      },
+      [&j](const std::vector<Resource>& resources) {
+        j["result"] = json::array();
+        for (const auto& resource : resources) {
+          json resource_json;
+          to_json(resource_json, resource);
+          j["result"].push_back(resource_json);
+        }
+      }
+    );
+  }
+  if (resp.error.has_value()) {
+    to_json(j["error"], resp.error.value());
+  }
+}
+
+void from_json(const json& j, jsonrpc::Response& resp) {
+  resp.jsonrpc = j.at("jsonrpc").get<std::string>();
+  from_json(j.at("id"), resp.id);
+  if (j.contains("result")) {
+    const auto& result = j["result"];
+    if (result.is_null()) {
+      resp.result = jsonrpc::ResponseResult(nullptr);
+    } else if (result.is_boolean()) {
+      resp.result = jsonrpc::ResponseResult(result.get<bool>());
+    } else if (result.is_number_integer()) {
+      resp.result = jsonrpc::ResponseResult(result.get<int>());
+    } else if (result.is_number_float()) {
+      resp.result = jsonrpc::ResponseResult(result.get<double>());
+    } else if (result.is_string()) {
+      resp.result = jsonrpc::ResponseResult(result.get<std::string>());
+    } else if (result.is_object()) {
+      // Could be Metadata or other structured types
+      resp.result = jsonrpc::ResponseResult(result.get<Metadata>());
+    } else if (result.is_array()) {
+      // Need to determine the type of array - this is tricky without more context
+      // For now, we'll try to handle it as generic JSON
+      resp.result = jsonrpc::ResponseResult(result.get<Metadata>());
+    }
+  }
+  if (j.contains("error")) {
+    Error err;
+    from_json(j["error"], err);
+    resp.error = err;
+  }
+}
+
+void to_json(json& j, const jsonrpc::Notification& notif) {
+  j["jsonrpc"] = notif.jsonrpc;
+  j["method"] = notif.method;
+  if (notif.params.has_value()) {
+    j["params"] = notif.params.value();
+  }
+}
+
+void from_json(const json& j, jsonrpc::Notification& notif) {
+  notif.jsonrpc = j.at("jsonrpc").get<std::string>();
+  notif.method = j.at("method").get<std::string>();
+  if (j.contains("params")) {
+    notif.params = j["params"];
+  }
+}
+
+// TextResourceContents
+void to_json(json& j, const TextResourceContents& contents) {
+  to_json(j, static_cast<const ResourceContents&>(contents));
+  j["type"] = "text";
+  j["text"] = contents.text;
+}
+
+void from_json(const json& j, TextResourceContents& contents) {
+  from_json(j, static_cast<ResourceContents&>(contents));
+  if (j.contains("text")) {
+    contents.text = j["text"].get<std::string>();
+  }
+}
+
+// BlobResourceContents
+void to_json(json& j, const BlobResourceContents& contents) {
+  to_json(j, static_cast<const ResourceContents&>(contents));
+  j["type"] = "blob";
+  j["blob"] = contents.blob;
+}
+
+void from_json(const json& j, BlobResourceContents& contents) {
+  from_json(j, static_cast<ResourceContents&>(contents));
+  if (j.contains("base64")) {
+    contents.blob = j["blob"].get<std::string>();
   }
 }
 
@@ -921,6 +1099,871 @@ void from_json(const json& j, CreateMessageResult& result) {
   result.model = j.at("model").get<std::string>();
   if (j.contains("stopReason")) {
     result.stopReason = j.at("stopReason").get<std::string>();
+  }
+}
+
+// Base types for pagination
+void to_json(json& j, const PaginatedRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  if (req.cursor.has_value()) {
+    j["params"]["cursor"] = req.cursor.value();
+  }
+}
+
+void from_json(const json& j, PaginatedRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params") && j["params"].contains("cursor")) {
+    req.cursor = j["params"]["cursor"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const PaginatedResult& result) {
+  if (result.nextCursor.has_value()) {
+    j["nextCursor"] = result.nextCursor.value();
+  }
+}
+
+void from_json(const json& j, PaginatedResult& result) {
+  if (j.contains("nextCursor")) {
+    result.nextCursor = j["nextCursor"].get<std::string>();
+  }
+}
+
+// Request/Response messages
+void to_json(json& j, const PingRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+}
+
+void from_json(const json& j, PingRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+}
+
+void to_json(json& j, const ListResourcesRequest& req) {
+  to_json(j, static_cast<const PaginatedRequest&>(req));
+}
+
+void from_json(const json& j, ListResourcesRequest& req) {
+  from_json(j, static_cast<PaginatedRequest&>(req));
+}
+
+void to_json(json& j, const ListResourcesResult& result) {
+  to_json(j, static_cast<const PaginatedResult&>(result));
+  j["resources"] = json::array();
+  for (const auto& resource : result.resources) {
+    json res_json;
+    to_json(res_json, resource);
+    j["resources"].push_back(res_json);
+  }
+}
+
+void from_json(const json& j, ListResourcesResult& result) {
+  from_json(j, static_cast<PaginatedResult&>(result));
+  if (j.contains("resources")) {
+    for (const auto& res_json : j["resources"]) {
+      Resource resource;
+      from_json(res_json, resource);
+      result.resources.push_back(resource);
+    }
+  }
+}
+
+void to_json(json& j, const ReadResourceRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  j["params"]["uri"] = req.uri;
+}
+
+void from_json(const json& j, ReadResourceRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params") && j["params"].contains("uri")) {
+    req.uri = j["params"]["uri"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const ReadResourceResult& result) {
+  j["contents"] = json::array();
+  for (const auto& content : result.contents) {
+    json content_json;
+    match(content,
+      [&content_json](const TextResourceContents& text) { to_json(content_json, text); },
+      [&content_json](const BlobResourceContents& blob) { to_json(content_json, blob); }
+    );
+    j["contents"].push_back(content_json);
+  }
+}
+
+void from_json(const json& j, ReadResourceResult& result) {
+  if (j.contains("contents")) {
+    for (const auto& content_json : j["contents"]) {
+      if (!content_json.contains("type")) {
+        throw std::runtime_error("Resource content missing 'type' field");
+      }
+      const std::string type = content_json["type"].get<std::string>();
+      if (type == "text") {
+        TextResourceContents text;
+        from_json(content_json, text);
+        result.contents.push_back(text);
+      } else if (type == "blob") {
+        BlobResourceContents blob;
+        from_json(content_json, blob);
+        result.contents.push_back(blob);
+      }
+    }
+  }
+}
+
+void to_json(json& j, const SubscribeRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  j["params"]["uri"] = req.uri;
+}
+
+void from_json(const json& j, SubscribeRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params") && j["params"].contains("uri")) {
+    req.uri = j["params"]["uri"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const UnsubscribeRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  j["params"]["uri"] = req.uri;
+}
+
+void from_json(const json& j, UnsubscribeRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params") && j["params"].contains("uri")) {
+    req.uri = j["params"]["uri"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const ListPromptsRequest& req) {
+  to_json(j, static_cast<const PaginatedRequest&>(req));
+}
+
+void from_json(const json& j, ListPromptsRequest& req) {
+  from_json(j, static_cast<PaginatedRequest&>(req));
+}
+
+void to_json(json& j, const ListPromptsResult& result) {
+  to_json(j, static_cast<const PaginatedResult&>(result));
+  j["prompts"] = json::array();
+  for (const auto& prompt : result.prompts) {
+    json prompt_json;
+    to_json(prompt_json, prompt);
+    j["prompts"].push_back(prompt_json);
+  }
+}
+
+void from_json(const json& j, ListPromptsResult& result) {
+  from_json(j, static_cast<PaginatedResult&>(result));
+  if (j.contains("prompts")) {
+    for (const auto& prompt_json : j["prompts"]) {
+      Prompt prompt;
+      from_json(prompt_json, prompt);
+      result.prompts.push_back(prompt);
+    }
+  }
+}
+
+void to_json(json& j, const GetPromptRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  j["params"]["name"] = req.name;
+  if (req.arguments.has_value()) {
+    j["params"]["arguments"] = req.arguments.value();
+  }
+}
+
+void from_json(const json& j, GetPromptRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("name")) {
+      req.name = params["name"].get<std::string>();
+    }
+    if (params.contains("arguments")) {
+      req.arguments = params["arguments"].get<Metadata>();
+    }
+  }
+}
+
+void to_json(json& j, const GetPromptResult& result) {
+  if (result.description.has_value()) {
+    j["description"] = result.description.value();
+  }
+  j["messages"] = json::array();
+  for (const auto& msg : result.messages) {
+    json msg_json;
+    to_json(msg_json, msg);
+    j["messages"].push_back(msg_json);
+  }
+}
+
+void from_json(const json& j, GetPromptResult& result) {
+  if (j.contains("description")) {
+    result.description = j["description"].get<std::string>();
+  }
+  if (j.contains("messages")) {
+    for (const auto& msg_json : j["messages"]) {
+      PromptMessage msg;
+      from_json(msg_json, msg);
+      result.messages.push_back(msg);
+    }
+  }
+}
+
+void to_json(json& j, const ListToolsRequest& req) {
+  to_json(j, static_cast<const PaginatedRequest&>(req));
+}
+
+void from_json(const json& j, ListToolsRequest& req) {
+  from_json(j, static_cast<PaginatedRequest&>(req));
+}
+
+void to_json(json& j, const ListToolsResult& result) {
+  j["tools"] = json::array();
+  for (const auto& tool : result.tools) {
+    json tool_json;
+    to_json(tool_json, tool);
+    j["tools"].push_back(tool_json);
+  }
+}
+
+void from_json(const json& j, ListToolsResult& result) {
+  if (j.contains("tools")) {
+    for (const auto& tool_json : j["tools"]) {
+      Tool tool;
+      from_json(tool_json, tool);
+      result.tools.push_back(tool);
+    }
+  }
+}
+
+void to_json(json& j, const SetLevelRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  to_json(j["params"]["level"], req.level);
+}
+
+void from_json(const json& j, SetLevelRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params") && j["params"].contains("level")) {
+    from_json(j["params"]["level"], req.level);
+  }
+}
+
+void to_json(json& j, const CompleteRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  to_json(j["params"]["ref"], req.ref);
+  if (req.argument.has_value()) {
+    j["params"]["argument"] = req.argument.value();
+  }
+}
+
+void from_json(const json& j, CompleteRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("ref")) {
+      from_json(params["ref"], req.ref);
+    }
+    if (params.contains("argument")) {
+      req.argument = params["argument"].get<std::string>();
+    }
+  }
+}
+
+void to_json(json& j, const CompleteResult& result) {
+  to_json(j["completion"], result.completion);
+}
+
+void from_json(const json& j, CompleteResult& result) {
+  if (j.contains("completion")) {
+    from_json(j["completion"], result.completion);
+  }
+}
+
+void to_json(json& j, const CompleteResult::Completion& completion) {
+  j["values"] = completion.values;
+  if (completion.total.has_value()) {
+    j["total"] = completion.total.value();
+  }
+  j["hasMore"] = completion.hasMore;
+}
+
+void from_json(const json& j, CompleteResult::Completion& completion) {
+  if (j.contains("values")) {
+    completion.values = j["values"].get<std::vector<std::string>>();
+  }
+  if (j.contains("total")) {
+    completion.total = j["total"].get<double>();
+  }
+  if (j.contains("hasMore")) {
+    completion.hasMore = j["hasMore"].get<bool>();
+  }
+}
+
+void to_json(json& j, const ListRootsRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+}
+
+void from_json(const json& j, ListRootsRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+}
+
+void to_json(json& j, const ListRootsResult& result) {
+  j["roots"] = json::array();
+  for (const auto& root : result.roots) {
+    json root_json;
+    to_json(root_json, root);
+    j["roots"].push_back(root_json);
+  }
+}
+
+void from_json(const json& j, ListRootsResult& result) {
+  if (j.contains("roots")) {
+    for (const auto& root_json : j["roots"]) {
+      Root root;
+      from_json(root_json, root);
+      result.roots.push_back(root);
+    }
+  }
+}
+
+void to_json(json& j, const CreateMessageRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  auto& params = j["params"];
+  
+  params["messages"] = json::array();
+  for (const auto& msg : req.messages) {
+    json msg_json;
+    to_json(msg_json, msg);
+    params["messages"].push_back(msg_json);
+  }
+  
+  if (req.modelPreferences.has_value()) {
+    to_json(params["modelPreferences"], req.modelPreferences.value());
+  }
+  if (req.systemPrompt.has_value()) {
+    params["systemPrompt"] = req.systemPrompt.value();
+  }
+  if (req.includeContext.has_value()) {
+    params["includeContext"] = req.includeContext.value();
+  }
+  if (req.temperature.has_value()) {
+    params["temperature"] = req.temperature.value();
+  }
+  if (req.maxTokens.has_value()) {
+    params["maxTokens"] = req.maxTokens.value();
+  }
+  if (req.stopSequences.has_value()) {
+    params["stopSequences"] = req.stopSequences.value();
+  }
+  if (req.metadata.has_value()) {
+    params["metadata"] = req.metadata.value();
+  }
+}
+
+void from_json(const json& j, CreateMessageRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    
+    if (params.contains("messages")) {
+      for (const auto& msg_json : params["messages"]) {
+        SamplingMessage msg;
+        from_json(msg_json, msg);
+        req.messages.push_back(msg);
+      }
+    }
+    
+    if (params.contains("modelPreferences")) {
+      ModelPreferences prefs;
+      from_json(params["modelPreferences"], prefs);
+      req.modelPreferences = prefs;
+    }
+    if (params.contains("systemPrompt")) {
+      req.systemPrompt = params["systemPrompt"].get<std::string>();
+    }
+    if (params.contains("includeContext")) {
+      req.includeContext = params["includeContext"].get<Metadata>();
+    }
+    if (params.contains("temperature")) {
+      req.temperature = params["temperature"].get<double>();
+    }
+    if (params.contains("maxTokens")) {
+      req.maxTokens = params["maxTokens"].get<int>();
+    }
+    if (params.contains("stopSequences")) {
+      req.stopSequences = params["stopSequences"].get<std::vector<std::string>>();
+    }
+    if (params.contains("metadata")) {
+      req.metadata = params["metadata"].get<Metadata>();
+    }
+  }
+}
+
+void to_json(json& j, const ElicitRequest& req) {
+  to_json(j, static_cast<const jsonrpc::Request&>(req));
+  j["params"]["name"] = req.name;
+  to_json(j["params"]["schema"], req.schema);
+  if (req.prompt.has_value()) {
+    j["params"]["prompt"] = req.prompt.value();
+  }
+}
+
+void from_json(const json& j, ElicitRequest& req) {
+  from_json(j, static_cast<jsonrpc::Request&>(req));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("name")) {
+      req.name = params["name"].get<std::string>();
+    }
+    if (params.contains("schema")) {
+      from_json(params["schema"], req.schema);
+    }
+    if (params.contains("prompt")) {
+      req.prompt = params["prompt"].get<std::string>();
+    }
+  }
+}
+
+void to_json(json& j, const ElicitResult& result) {
+  match(result.value,
+    [&j](const std::string& s) { j["value"] = s; },
+    [&j](double d) { j["value"] = d; },
+    [&j](bool b) { j["value"] = b; },
+    [&j](std::nullptr_t) { j["value"] = nullptr; }
+  );
+}
+
+void from_json(const json& j, ElicitResult& result) {
+  if (j.contains("value")) {
+    const auto& val = j["value"];
+    if (val.is_string()) {
+      result.value = val.get<std::string>();
+    } else if (val.is_number()) {
+      result.value = val.get<double>();
+    } else if (val.is_boolean()) {
+      result.value = val.get<bool>();
+    } else if (val.is_null()) {
+      result.value = nullptr;
+    }
+  }
+}
+
+// Notification messages
+void to_json(json& j, const InitializedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+}
+
+void from_json(const json& j, InitializedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+}
+
+void to_json(json& j, const ProgressNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+  auto& params = j["params"];
+  to_json(params["progressToken"], notif.progressToken);
+  params["progress"] = notif.progress;
+  if (notif.total.has_value()) {
+    params["total"] = notif.total.value();
+  }
+}
+
+void from_json(const json& j, ProgressNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("progressToken")) {
+      from_json(params["progressToken"], notif.progressToken);
+    }
+    if (params.contains("progress")) {
+      notif.progress = params["progress"].get<double>();
+    }
+    if (params.contains("total")) {
+      notif.total = params["total"].get<double>();
+    }
+  }
+}
+
+void to_json(json& j, const CancelledNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+  auto& params = j["params"];
+  to_json(params["requestId"], notif.requestId);
+  if (notif.reason.has_value()) {
+    params["reason"] = notif.reason.value();
+  }
+}
+
+void from_json(const json& j, CancelledNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("requestId")) {
+      from_json(params["requestId"], notif.requestId);
+    }
+    if (params.contains("reason")) {
+      notif.reason = params["reason"].get<std::string>();
+    }
+  }
+}
+
+void to_json(json& j, const ResourceListChangedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+}
+
+void from_json(const json& j, ResourceListChangedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+}
+
+void to_json(json& j, const ResourceUpdatedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+  j["params"]["uri"] = notif.uri;
+}
+
+void from_json(const json& j, ResourceUpdatedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+  if (j.contains("params") && j["params"].contains("uri")) {
+    notif.uri = j["params"]["uri"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const PromptListChangedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+}
+
+void from_json(const json& j, PromptListChangedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+}
+
+void to_json(json& j, const ToolListChangedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+}
+
+void from_json(const json& j, ToolListChangedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+}
+
+void to_json(json& j, const LoggingMessageNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+  auto& params = j["params"];
+  to_json(params["level"], notif.level);
+  if (notif.logger.has_value()) {
+    params["logger"] = notif.logger.value();
+  }
+  match(notif.data,
+    [&params](const std::string& s) { params["data"] = s; },
+    [&params](const Metadata& m) { params["data"] = m; }
+  );
+}
+
+void from_json(const json& j, LoggingMessageNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+  if (j.contains("params")) {
+    const auto& params = j["params"];
+    if (params.contains("level")) {
+      from_json(params["level"], notif.level);
+    }
+    if (params.contains("logger")) {
+      notif.logger = params["logger"].get<std::string>();
+    }
+    if (params.contains("data")) {
+      const auto& data = params["data"];
+      if (data.is_string()) {
+        notif.data = data.get<std::string>();
+      } else if (data.is_object()) {
+        notif.data = data.get<Metadata>();
+      }
+    }
+  }
+}
+
+void to_json(json& j, const RootsListChangedNotification& notif) {
+  to_json(j, static_cast<const jsonrpc::Notification&>(notif));
+}
+
+void from_json(const json& j, RootsListChangedNotification& notif) {
+  from_json(j, static_cast<jsonrpc::Notification&>(notif));
+}
+
+// Schema types
+void to_json(json& j, const StringSchema& schema) {
+  j["type"] = "string";
+  if (schema.description.has_value()) {
+    j["description"] = schema.description.value();
+  }
+  if (schema.minLength.has_value()) {
+    j["minLength"] = schema.minLength.value();
+  }
+  if (schema.maxLength.has_value()) {
+    j["maxLength"] = schema.maxLength.value();
+  }
+  if (schema.pattern.has_value()) {
+    j["pattern"] = schema.pattern.value();
+  }
+}
+
+void from_json(const json& j, StringSchema& schema) {
+  if (j.contains("description")) {
+    schema.description = j["description"].get<std::string>();
+  }
+  if (j.contains("minLength")) {
+    schema.minLength = j["minLength"].get<int>();
+  }
+  if (j.contains("maxLength")) {
+    schema.maxLength = j["maxLength"].get<int>();
+  }
+  if (j.contains("pattern")) {
+    schema.pattern = j["pattern"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const NumberSchema& schema) {
+  j["type"] = "number";
+  if (schema.description.has_value()) {
+    j["description"] = schema.description.value();
+  }
+  if (schema.minimum.has_value()) {
+    j["minimum"] = schema.minimum.value();
+  }
+  if (schema.maximum.has_value()) {
+    j["maximum"] = schema.maximum.value();
+  }
+  if (schema.multipleOf.has_value()) {
+    j["multipleOf"] = schema.multipleOf.value();
+  }
+}
+
+void from_json(const json& j, NumberSchema& schema) {
+  if (j.contains("description")) {
+    schema.description = j["description"].get<std::string>();
+  }
+  if (j.contains("minimum")) {
+    schema.minimum = j["minimum"].get<double>();
+  }
+  if (j.contains("maximum")) {
+    schema.maximum = j["maximum"].get<double>();
+  }
+  if (j.contains("multipleOf")) {
+    schema.multipleOf = j["multipleOf"].get<double>();
+  }
+}
+
+void to_json(json& j, const BooleanSchema& schema) {
+  j["type"] = "boolean";
+  if (schema.description.has_value()) {
+    j["description"] = schema.description.value();
+  }
+}
+
+void from_json(const json& j, BooleanSchema& schema) {
+  if (j.contains("description")) {
+    schema.description = j["description"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const EnumSchema& schema) {
+  j["type"] = "string";
+  j["enum"] = schema.values;
+  if (schema.description.has_value()) {
+    j["description"] = schema.description.value();
+  }
+}
+
+void from_json(const json& j, EnumSchema& schema) {
+  if (j.contains("enum")) {
+    schema.values = j["enum"].get<std::vector<std::string>>();
+  }
+  if (j.contains("description")) {
+    schema.description = j["description"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const PrimitiveSchemaDefinition& def) {
+  match(def,
+    [&j](const StringSchema& s) { to_json(j, s); },
+    [&j](const NumberSchema& n) { to_json(j, n); },
+    [&j](const BooleanSchema& b) { to_json(j, b); },
+    [&j](const EnumSchema& e) { to_json(j, e); }
+  );
+}
+
+void from_json(const json& j, PrimitiveSchemaDefinition& def) {
+  if (!j.contains("type")) {
+    throw std::runtime_error("Schema missing 'type' field");
+  }
+  
+  const std::string type = j["type"].get<std::string>();
+  if (type == "string") {
+    if (j.contains("enum")) {
+      EnumSchema e;
+      from_json(j, e);
+      def = e;
+    } else {
+      StringSchema s;
+      from_json(j, s);
+      def = s;
+    }
+  } else if (type == "number") {
+    NumberSchema n;
+    from_json(j, n);
+    def = n;
+  } else if (type == "boolean") {
+    BooleanSchema b;
+    from_json(j, b);
+    def = b;
+  } else {
+    throw std::runtime_error("Unknown schema type: " + type);
+  }
+}
+
+// Other types
+void to_json(json& j, const Message& msg) {
+  to_json(j["role"], msg.role);
+  to_json(j["content"], msg.content);
+}
+
+void from_json(const json& j, Message& msg) {
+  from_json(j.at("role"), msg.role);
+  from_json(j.at("content"), msg.content);
+}
+
+void to_json(json& j, const ToolAnnotations& ann) {
+  if (ann.audience.has_value()) {
+    j["audience"] = json::array();
+    for (const auto& role : ann.audience.value()) {
+      json role_json;
+      to_json(role_json, role);
+      j["audience"].push_back(role_json);
+    }
+  }
+}
+
+void from_json(const json& j, ToolAnnotations& ann) {
+  if (j.contains("audience")) {
+    std::vector<enums::Role::Value> audience;
+    for (const auto& role_json : j["audience"]) {
+      enums::Role::Value role;
+      from_json(role_json, role);
+      audience.push_back(role);
+    }
+    ann.audience = audience;
+  }
+}
+
+void to_json(json& j, const PromptsCapability& cap) {
+  if (cap.listChanged.has_value()) {
+    j["listChanged"] = json::object();
+  }
+}
+
+void from_json(const json& j, PromptsCapability& cap) {
+  if (j.contains("listChanged")) {
+    cap.listChanged = EmptyCapability();
+  }
+}
+
+void to_json(json& j, const EmptyResult&) {
+  j = json::object();
+}
+
+void from_json(const json&, EmptyResult&) {
+  // Nothing to do
+}
+
+void to_json(json& j, const EmptyCapability&) {
+  j = json::object();
+}
+
+void from_json(const json&, EmptyCapability&) {
+  // Nothing to do
+}
+
+void to_json(json& j, const ResourceContents& contents) {
+  if (contents.uri.has_value()) {
+    j["uri"] = contents.uri.value();
+  }
+  if (contents.mimeType.has_value()) {
+    j["mimeType"] = contents.mimeType.value();
+  }
+}
+
+void from_json(const json& j, ResourceContents& contents) {
+  if (j.contains("uri")) {
+    contents.uri = j["uri"].get<std::string>();
+  }
+  if (j.contains("mimeType")) {
+    contents.mimeType = j["mimeType"].get<std::string>();
+  }
+}
+
+void to_json(json& j, const PromptReference& ref) {
+  to_json(j, static_cast<const BaseMetadata&>(ref));
+  j["name"] = ref.name;
+}
+
+void from_json(const json& j, PromptReference& ref) {
+  from_json(j, static_cast<BaseMetadata&>(ref));
+  ref.name = j.at("name").get<std::string>();
+}
+
+void to_json(json& j, const ResourceTemplateReference& ref) {
+  j["type"] = ref.type;
+  j["name"] = ref.name;
+}
+
+void from_json(const json& j, ResourceTemplateReference& ref) {
+  ref.type = j.at("type").get<std::string>();
+  ref.name = j.at("name").get<std::string>();
+}
+
+void to_json(json& j, const ToolParameter& param) {
+  j["name"] = param.name;
+  if (param.description.has_value()) {
+    j["description"] = param.description.value();
+  }
+  j["required"] = param.required;
+}
+
+void from_json(const json& j, ToolParameter& param) {
+  param.name = j.at("name").get<std::string>();
+  if (j.contains("description")) {
+    param.description = j["description"].get<std::string>();
+  }
+  if (j.contains("required")) {
+    param.required = j["required"].get<bool>();
+  }
+}
+
+void to_json(json& j, const ToolInputSchema& schema) {
+  j = schema;
+}
+
+void from_json(const json& j, ToolInputSchema& schema) {
+  schema = j;
+}
+
+void to_json(json& j, const InitializeParams& params) {
+  j["protocolVersion"] = params.protocolVersion;
+  if (params.clientName.has_value()) {
+    j["clientName"] = params.clientName.value();
+  }
+  if (params.clientVersion.has_value()) {
+    j["clientVersion"] = params.clientVersion.value();
+  }
+  if (params.capabilities.has_value()) {
+    j["capabilities"] = params.capabilities.value();
+  }
+}
+
+void from_json(const json& j, InitializeParams& params) {
+  params.protocolVersion = j.at("protocolVersion").get<std::string>();
+  if (j.contains("clientName")) {
+    params.clientName = j["clientName"].get<std::string>();
+  }
+  if (j.contains("clientVersion")) {
+    params.clientVersion = j["clientVersion"].get<std::string>();
+  }
+  if (j.contains("capabilities")) {
+    params.capabilities = j["capabilities"].get<Metadata>();
   }
 }
 
