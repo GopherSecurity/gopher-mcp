@@ -10,6 +10,7 @@ add_executable(test_mcp_types test_mcp_types.cpp)
 add_executable(test_compat test_compat.cpp)
 add_executable(test_buffer test_buffer.cpp)
 add_executable(test_json test_json.cpp)
+add_executable(test_event_loop test_event_loop.cpp)
 
 # Link libraries
 target_link_libraries(test_variant 
@@ -82,6 +83,14 @@ target_link_libraries(test_json
     Threads::Threads
 )
 
+target_link_libraries(test_event_loop
+    mcp-event
+    mcp-sdk
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -94,6 +103,7 @@ add_test(NAME MCPTypesTest COMMAND test_mcp_types)
 add_test(NAME CompatTest COMMAND test_compat)
 add_test(NAME BufferTest COMMAND test_buffer)
 add_test(NAME JsonTest COMMAND test_json)
+add_test(NAME EventLoopTest COMMAND test_event_loop)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
@@ -107,7 +117,7 @@ add_custom_target(run_tests
     DEPENDS test_variant test_variant_extensive test_variant_advanced 
             test_optional test_optional_extensive test_optional_advanced
             test_mcp_type_helpers test_mcp_types test_compat
-            test_buffer test_json
+            test_buffer test_json test_event_loop
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
