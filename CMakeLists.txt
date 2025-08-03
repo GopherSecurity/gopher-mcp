@@ -13,9 +13,14 @@ endif()
 project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES CXX)
 
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 14)
+if(NOT CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 14)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Option to use std::optional/variant when available
+option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++17)" ON)
 
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -36,6 +41,13 @@ endif()
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
+
+# Configure based on C++ standard
+if(CMAKE_CXX_STANDARD GREATER_EQUAL 17 AND MCP_USE_STD_TYPES)
+    add_compile_definitions(MCP_USE_STD_OPTIONAL_VARIANT=1)
+else()
+    add_compile_definitions(MCP_USE_STD_OPTIONAL_VARIANT=0)
+endif()
 
 # Find packages
 find_package(Threads REQUIRED)
