@@ -8,7 +8,7 @@
 
 // MCP-specific type alias
 namespace mcp {
-  using JSONObject = nlohmann::json;
+using JSONObject = nlohmann::json;
 }
 
 #endif  // MCP_JSON_FWD_H
