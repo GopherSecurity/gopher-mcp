@@ -27,6 +27,122 @@ constexpr int INVALID_PARAMS = -32602;
 constexpr int INTERNAL_ERROR = -32603;
 }  // namespace jsonrpc
 
+// Protocol type aliases
+using RequestId = variant<std::string, int>;
+using ProgressToken = variant<std::string, int>;
+using Cursor = std::string;
+
+// Enum definitions
+namespace enums {
+
+// Role enum
+struct Role {
+  enum Value { USER, ASSISTANT };
+
+  static const char* to_string(Value v) {
+    switch (v) {
+      case USER:
+        return "user";
+      case ASSISTANT:
+        return "assistant";
+      default:
+        return "";
+    }
+  }
+
+  static optional<Value> from_string(const std::string& s) {
+    if (s == "user")
+      return make_optional(USER);
+    if (s == "assistant")
+      return make_optional(ASSISTANT);
+    return nullopt;
+  }
+};
+
+// LoggingLevel enum with all RFC-5424 severities
+struct LoggingLevel {
+  enum Value {
+    DEBUG = 0,     // Debug-level messages
+    INFO = 1,      // Informational messages
+    NOTICE = 2,    // Normal but significant condition
+    WARNING = 3,   // Warning conditions
+    ERROR = 4,     // Error conditions
+    CRITICAL = 5,  // Critical conditions
+    ALERT = 6,     // Action must be taken immediately
+    EMERGENCY = 7  // System is unusable
+  };
+
+  static const char* to_string(Value v) {
+    switch (v) {
+      case DEBUG:
+        return "debug";
+      case INFO:
+        return "info";
+      case NOTICE:
+        return "notice";
+      case WARNING:
+        return "warning";
+      case ERROR:
+        return "error";
+      case CRITICAL:
+        return "critical";
+      case ALERT:
+        return "alert";
+      case EMERGENCY:
+        return "emergency";
+      default:
+        return "";
+    }
+  }
+
+  static optional<Value> from_string(const std::string& s) {
+    if (s == "debug")
+      return make_optional(DEBUG);
+    if (s == "info")
+      return make_optional(INFO);
+    if (s == "notice")
+      return make_optional(NOTICE);
+    if (s == "warning")
+      return make_optional(WARNING);
+    if (s == "error")
+      return make_optional(ERROR);
+    if (s == "critical")
+      return make_optional(CRITICAL);
+    if (s == "alert")
+      return make_optional(ALERT);
+    if (s == "emergency")
+      return make_optional(EMERGENCY);
+    return nullopt;
+  }
+};
+
+}  // namespace enums
+
+// Factory functions for protocol types
+// RequestId factory
+inline RequestId make_request_id(const std::string& id) {
+  return RequestId(id);
+}
+
+inline RequestId make_request_id(int id) { return RequestId(id); }
+
+inline RequestId make_request_id(const char* id) {
+  return RequestId(std::string(id));
+}
+
+// ProgressToken factory
+inline ProgressToken make_progress_token(const std::string& token) {
+  return ProgressToken(token);
+}
+
+inline ProgressToken make_progress_token(int token) {
+  return ProgressToken(token);
+}
+
+inline ProgressToken make_progress_token(const char* token) {
+  return ProgressToken(std::string(token));
+}
+
 // Base types
 struct TextContent {
   std::string type = "text";
@@ -1510,6 +1626,17 @@ struct MessageTypeHelper {
     return "";
   }
 };
+
+// Helper function for creating method requests (depends on RequestId)
+template <typename T>
+auto make_method_request(const RequestId& id,
+                         const std::string& method,
+                         T&& params)
+    -> std::pair<RequestId, MethodDiscriminator<typename std::decay<T>::type>> {
+  return std::make_pair(
+      id, MethodDiscriminator<typename std::decay<T>::type>::create(
+              method, std::forward<T>(params)));
+}
 
 }  // namespace mcp
 
