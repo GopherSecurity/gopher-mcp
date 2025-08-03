@@ -41,6 +41,15 @@ _deps/
 *.out
 *.app
 test_variant
+test_variant_advanced
+test_variant_extensive
+test_optional
+test_optional_advanced
+test_optional_extensive
+test_type_helpers
+test_mcp_types
+test_mcp_types_extended
+test_mcp_type_helpers
 
 # IDE specific files
 .vscode/
