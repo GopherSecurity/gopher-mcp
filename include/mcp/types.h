@@ -9,6 +9,24 @@
 
 namespace mcp {
 
+// Forward declarations
+struct AudioContent;
+struct ResourceLink;
+struct EmbeddedResource;
+struct BaseMetadata;
+struct Annotations;
+struct ToolAnnotations;
+struct ModelHint;
+
+// JSON-RPC error codes as constants
+namespace jsonrpc {
+constexpr int PARSE_ERROR = -32700;
+constexpr int INVALID_REQUEST = -32600;
+constexpr int METHOD_NOT_FOUND = -32601;
+constexpr int INVALID_PARAMS = -32602;
+constexpr int INTERNAL_ERROR = -32603;
+}  // namespace jsonrpc
+
 // Base types
 struct TextContent {
   std::string type = "text";
@@ -48,6 +66,64 @@ struct ResourceContent {
 };
 
 using ContentBlock = variant<TextContent, ImageContent, ResourceContent>;
+
+// Base metadata interface (replaces Annotated)
+struct BaseMetadata {
+  optional<Metadata> _meta;
+
+  BaseMetadata() = default;
+};
+
+// Annotations for content blocks
+struct Annotations {
+  optional<std::vector<enums::Role::Value>> audience;
+  optional<double> priority;  // 1.0 = most important
+
+  Annotations() = default;
+};
+
+// Tool-specific annotations
+struct ToolAnnotations {
+  optional<std::vector<enums::Role::Value>> audience;
+
+  ToolAnnotations() = default;
+};
+
+// Audio content type (new in latest schema)
+struct AudioContent {
+  std::string type = "audio";
+  std::string data;  // Base64-encoded audio data
+  std::string mimeType;
+
+  AudioContent() = default;
+  AudioContent(const std::string& d, const std::string& mt)
+      : data(d), mimeType(mt) {}
+};
+
+// Resource link (reference to a resource)
+struct ResourceLink : Resource {
+  std::string type = "resource";
+
+  ResourceLink() = default;
+  explicit ResourceLink(const Resource& r) : Resource(r) {}
+};
+
+// Embedded resource with nested content (uses ContentBlock for now)
+struct EmbeddedResource {
+  std::string type = "embedded";
+  Resource resource;
+  std::vector<ContentBlock> content;
+
+  EmbeddedResource() = default;
+  explicit EmbeddedResource(const Resource& r) : resource(r) {}
+};
+
+// Extended ContentBlock to include all types
+using ExtendedContentBlock = variant<TextContent,
+                                     ImageContent,
+                                     AudioContent,
+                                     ResourceLink,
+                                     EmbeddedResource>;
 
 // Content block factory implementations
 inline ContentBlock make_text_content(const std::string& text) {
@@ -146,6 +222,20 @@ inline Resource make_resource(const std::string& uri, const std::string& name) {
 
 inline ContentBlock make_resource_content(const Resource& resource) {
   return ContentBlock(ResourceContent(resource));
+}
+
+// Factory functions for new content types
+inline ExtendedContentBlock make_audio_content(const std::string& data,
+                                               const std::string& mime_type) {
+  return ExtendedContentBlock(AudioContent(data, mime_type));
+}
+
+inline ExtendedContentBlock make_resource_link(const Resource& resource) {
+  return ExtendedContentBlock(ResourceLink(resource));
+}
+
+inline ExtendedContentBlock make_embedded_resource(const Resource& resource) {
+  return ExtendedContentBlock(EmbeddedResource(resource));
 }
 
 inline Tool make_tool(const std::string& name) { return Tool(name); }
@@ -333,6 +423,38 @@ inline SamplingParamsBuilder build_sampling_params() {
   return SamplingParamsBuilder();
 }
 
+// Builder for EmbeddedResource
+class EmbeddedResourceBuilder {
+  EmbeddedResource resource_;
+
+ public:
+  explicit EmbeddedResourceBuilder(const Resource& r) : resource_(r) {}
+
+  EmbeddedResourceBuilder& add_content(const ContentBlock& content) {
+    resource_.content.push_back(content);
+    return *this;
+  }
+
+  EmbeddedResourceBuilder& add_text(const std::string& text) {
+    resource_.content.push_back(make_text_content(text));
+    return *this;
+  }
+
+  EmbeddedResourceBuilder& add_image(const std::string& data,
+                                     const std::string& mime_type) {
+    resource_.content.push_back(make_image_content(data, mime_type));
+    return *this;
+  }
+
+  EmbeddedResource build() && { return std::move(resource_); }
+  EmbeddedResource build() const& { return resource_; }
+};
+
+inline EmbeddedResourceBuilder build_embedded_resource(
+    const Resource& resource) {
+  return EmbeddedResourceBuilder(resource);
+}
+
 // JSON-RPC message types
 namespace jsonrpc {
 
@@ -443,10 +565,840 @@ inline Response make_error_response(const RequestId& id,
 
 }  // namespace jsonrpc
 
-// Specific MCP protocol messages
-namespace protocol {
+// Resource contents variations
+struct ResourceContents {
+  optional<std::string> uri;
+  optional<std::string> mimeType;
+
+  ResourceContents() = default;
+};
+
+struct TextResourceContents : ResourceContents {
+  std::string text;
+
+  TextResourceContents() = default;
+  explicit TextResourceContents(const std::string& t) : text(t) {}
+};
+
+struct BlobResourceContents : ResourceContents {
+  std::string blob;  // Base64-encoded data
+
+  BlobResourceContents() = default;
+  explicit BlobResourceContents(const std::string& b) : blob(b) {}
+};
+
+// Factory functions for resource contents
+inline TextResourceContents make_text_resource(const std::string& text) {
+  return TextResourceContents(text);
+}
+
+inline BlobResourceContents make_blob_resource(const std::string& blob) {
+  return BlobResourceContents(blob);
+}
+
+// Prompt message with embedded resources
+struct PromptMessage {
+  enums::Role::Value role;
+  variant<TextContent, ImageContent, EmbeddedResource> content;
+
+  PromptMessage() = default;
+  PromptMessage(enums::Role::Value r, const TextContent& c)
+      : role(r), content(c) {}
+};
+
+// Factory for prompt messages
+inline PromptMessage make_prompt_message(enums::Role::Value role,
+                                         const std::string& text) {
+  return PromptMessage(role, TextContent(text));
+}
+
+// Sampling message
+struct SamplingMessage {
+  enums::Role::Value role;
+  variant<TextContent, ImageContent, AudioContent> content;
+
+  SamplingMessage() = default;
+};
+
+// Model hint
+struct ModelHint {
+  optional<std::string> name;
+
+  ModelHint() = default;
+  explicit ModelHint(const std::string& n) : name(make_optional(n)) {}
+};
+
+// Model preferences
+struct ModelPreferences {
+  optional<std::vector<ModelHint>> hints;
+  optional<double> costPriority;          // 0-1, 0 = cost, 1 = quality
+  optional<double> speedPriority;         // 0-1, 0 = speed, 1 = quality
+  optional<double> intelligencePriority;  // 0-1, 0 = simpler, 1 = smarter
+
+  ModelPreferences() = default;
+};
+
+// Builder for model preferences
+class ModelPreferencesBuilder {
+  ModelPreferences prefs_;
+
+ public:
+  ModelPreferencesBuilder() = default;
+
+  ModelPreferencesBuilder& add_hint(const std::string& model_name) {
+    if (!prefs_.hints) {
+      prefs_.hints = make_optional(std::vector<ModelHint>());
+    }
+    prefs_.hints->push_back(ModelHint(model_name));
+    return *this;
+  }
+
+  ModelPreferencesBuilder& cost_priority(double priority) {
+    prefs_.costPriority = make_optional(priority);
+    return *this;
+  }
+
+  ModelPreferencesBuilder& speed_priority(double priority) {
+    prefs_.speedPriority = make_optional(priority);
+    return *this;
+  }
+
+  ModelPreferencesBuilder& intelligence_priority(double priority) {
+    prefs_.intelligencePriority = make_optional(priority);
+    return *this;
+  }
+
+  ModelPreferences build() && { return std::move(prefs_); }
+  ModelPreferences build() const& { return prefs_; }
+};
+
+inline ModelPreferencesBuilder build_model_preferences() {
+  return ModelPreferencesBuilder();
+}
+
+// Root type for filesystem-like structures
+struct Root {
+  std::string uri;
+  optional<std::string> name;
+
+  Root() = default;
+  Root(const std::string& u, const std::string& n)
+      : uri(u), name(make_optional(n)) {}
+};
+
+// Factory for roots
+inline Root make_root(const std::string& uri, const std::string& name) {
+  return Root(uri, name);
+}
+
+// Schema types for elicitation
+struct StringSchema {
+  std::string type = "string";
+  optional<std::string> description;
+  optional<std::string> pattern;
+  optional<int> minLength;
+  optional<int> maxLength;
+
+  StringSchema() = default;
+};
+
+struct NumberSchema {
+  std::string type = "number";
+  optional<std::string> description;
+  optional<double> minimum;
+  optional<double> maximum;
+  optional<double> multipleOf;
+
+  NumberSchema() = default;
+};
+
+struct BooleanSchema {
+  std::string type = "boolean";
+  optional<std::string> description;
+
+  BooleanSchema() = default;
+};
+
+struct EnumSchema {
+  std::string type = "enum";
+  optional<std::string> description;
+  std::vector<std::string> values;
+
+  EnumSchema() = default;
+  explicit EnumSchema(std::vector<std::string>&& vals)
+      : values(std::move(vals)) {}
+};
+
+// Discriminated union for primitive schemas
+using PrimitiveSchemaDefinition =
+    variant<StringSchema, NumberSchema, BooleanSchema, EnumSchema>;
+
+// Factory functions for schemas
+inline PrimitiveSchemaDefinition make_string_schema() {
+  return PrimitiveSchemaDefinition(StringSchema());
+}
+
+inline PrimitiveSchemaDefinition make_number_schema() {
+  return PrimitiveSchemaDefinition(NumberSchema());
+}
+
+inline PrimitiveSchemaDefinition make_boolean_schema() {
+  return PrimitiveSchemaDefinition(BooleanSchema());
+}
+
+inline PrimitiveSchemaDefinition make_enum_schema(
+    std::vector<std::string>&& values) {
+  return PrimitiveSchemaDefinition(EnumSchema(std::move(values)));
+}
+
+// Schema builders
+class StringSchemaBuilder {
+  StringSchema schema_;
+
+ public:
+  StringSchemaBuilder() = default;
+
+  StringSchemaBuilder& description(const std::string& desc) {
+    schema_.description = make_optional(desc);
+    return *this;
+  }
+
+  StringSchemaBuilder& pattern(const std::string& regex) {
+    schema_.pattern = make_optional(regex);
+    return *this;
+  }
+
+  StringSchemaBuilder& min_length(int len) {
+    schema_.minLength = make_optional(len);
+    return *this;
+  }
+
+  StringSchemaBuilder& max_length(int len) {
+    schema_.maxLength = make_optional(len);
+    return *this;
+  }
+
+  StringSchema build() && { return std::move(schema_); }
+  StringSchema build() const& { return schema_; }
+};
+
+inline StringSchemaBuilder build_string_schema() {
+  return StringSchemaBuilder();
+}
+
+// Reference types
+struct ResourceTemplateReference {
+  std::string type;
+  std::string name;
+
+  ResourceTemplateReference() = default;
+  ResourceTemplateReference(const std::string& t, const std::string& n)
+      : type(t), name(n) {}
+};
+
+struct PromptReference : BaseMetadata {
+  std::string type;
+  std::string name;
+
+  PromptReference() = default;
+  PromptReference(const std::string& t, const std::string& n)
+      : type(t), name(n) {}
+};
+
+// Factory functions for references
+inline ResourceTemplateReference make_resource_template_ref(
+    const std::string& type, const std::string& name) {
+  return ResourceTemplateReference(type, name);
+}
+
+inline PromptReference make_prompt_ref(const std::string& type,
+                                       const std::string& name) {
+  return PromptReference(type, name);
+}
+
+// Pagination support
+struct PaginatedRequest : jsonrpc::Request {
+  optional<Cursor> cursor;
+
+  PaginatedRequest() = default;
+};
+
+struct PaginatedResult {
+  optional<Cursor> nextCursor;
+
+  PaginatedResult() = default;
+};
+
+// Capability types
+struct ClientCapabilities {
+  optional<Metadata> experimental;
+  optional<SamplingParams> sampling;
+
+  ClientCapabilities() = default;
+};
+
+struct ServerCapabilities {
+  optional<Metadata> experimental;
+  optional<bool> resources;
+  optional<bool> tools;
+  optional<bool> prompts;
+  optional<bool> logging;
+
+  ServerCapabilities() = default;
+};
+
+// Builder for capabilities
+class ClientCapabilitiesBuilder {
+  ClientCapabilities caps_;
+
+ public:
+  ClientCapabilitiesBuilder() = default;
+
+  ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
+    caps_.experimental = make_optional(metadata);
+    return *this;
+  }
+
+  ClientCapabilitiesBuilder& sampling(const SamplingParams& params) {
+    caps_.sampling = make_optional(params);
+    return *this;
+  }
+
+  // Add missing methods that tests expect
+  ClientCapabilitiesBuilder& resources(bool enabled) {
+    if (!caps_.experimental) {
+      caps_.experimental = make_optional(Metadata());
+    }
+    add_metadata(*caps_.experimental, "resources", enabled);
+    return *this;
+  }
+
+  ClientCapabilitiesBuilder& tools(bool enabled) {
+    if (!caps_.experimental) {
+      caps_.experimental = make_optional(Metadata());
+    }
+    add_metadata(*caps_.experimental, "tools", enabled);
+    return *this;
+  }
+
+  ClientCapabilities build() && { return std::move(caps_); }
+  ClientCapabilities build() const& { return caps_; }
+};
+
+inline ClientCapabilitiesBuilder build_client_capabilities() {
+  return ClientCapabilitiesBuilder();
+}
+
+class ServerCapabilitiesBuilder {
+  ServerCapabilities caps_;
+
+ public:
+  ServerCapabilitiesBuilder() = default;
+
+  ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
+    caps_.experimental = make_optional(metadata);
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& resources(bool enabled) {
+    caps_.resources = make_optional(enabled);
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& tools(bool enabled) {
+    caps_.tools = make_optional(enabled);
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& prompts(bool enabled) {
+    caps_.prompts = make_optional(enabled);
+    return *this;
+  }
+
+  ServerCapabilitiesBuilder& logging(bool enabled) {
+    caps_.logging = make_optional(enabled);
+    return *this;
+  }
+
+  ServerCapabilities build() && { return std::move(caps_); }
+  ServerCapabilities build() const& { return caps_; }
+};
+
+inline ServerCapabilitiesBuilder build_server_capabilities() {
+  return ServerCapabilitiesBuilder();
+}
+
+// Protocol message types
+
+// Empty result type
+struct EmptyResult {
+  EmptyResult() = default;
+};
+
+// Implementation info
+struct Implementation : BaseMetadata {
+  std::string name;
+  std::string version;
+
+  Implementation() = default;
+  Implementation(const std::string& n, const std::string& v)
+      : name(n), version(v) {}
+};
+
+// Factory for implementation
+inline Implementation make_implementation(const std::string& name,
+                                          const std::string& version) {
+  return Implementation(name, version);
+}
 
 // Initialize request/response
+struct InitializeRequest : jsonrpc::Request {
+  std::string protocolVersion;
+  ClientCapabilities capabilities;
+  optional<Implementation> clientInfo;
+
+  InitializeRequest() : jsonrpc::Request() { method = "initialize"; }
+};
+
+struct InitializeResult {
+  std::string protocolVersion;
+  ServerCapabilities capabilities;
+  optional<Implementation> serverInfo;
+  optional<std::string> instructions;
+
+  InitializeResult() = default;
+};
+
+// Initialized notification
+struct InitializedNotification : jsonrpc::Notification {
+  InitializedNotification() : jsonrpc::Notification() {
+    method = "initialized";
+  }
+};
+
+// Ping request
+struct PingRequest : jsonrpc::Request {
+  PingRequest() : jsonrpc::Request() { method = "ping"; }
+};
+
+// Progress notification
+struct ProgressNotification : jsonrpc::Notification {
+  ProgressToken progressToken;
+  double progress;  // 0.0 to 1.0
+  optional<double> total;
+
+  ProgressNotification() : jsonrpc::Notification() {
+    method = "notifications/progress";
+  }
+};
+
+// Cancelled notification
+struct CancelledNotification : jsonrpc::Notification {
+  RequestId requestId;
+  optional<std::string> reason;
+
+  CancelledNotification() : jsonrpc::Notification() {
+    method = "notifications/cancelled";
+  }
+};
+
+// Resource-related types
+struct ListResourcesRequest : PaginatedRequest {
+  ListResourcesRequest() : PaginatedRequest() { method = "resources/list"; }
+};
+
+struct ListResourcesResult : PaginatedResult {
+  std::vector<Resource> resources;
+
+  ListResourcesResult() = default;
+};
+
+struct ListResourceTemplatesRequest : PaginatedRequest {
+  ListResourceTemplatesRequest() : PaginatedRequest() {
+    method = "resources/templates/list";
+  }
+};
+
+struct ResourceTemplate : BaseMetadata {
+  std::string uriTemplate;
+  std::string name;
+  optional<std::string> description;
+  optional<std::string> mimeType;
+
+  ResourceTemplate() = default;
+};
+
+struct ListResourceTemplatesResult : PaginatedResult {
+  std::vector<ResourceTemplate> resourceTemplates;
+
+  ListResourceTemplatesResult() = default;
+};
+
+struct ReadResourceRequest : jsonrpc::Request {
+  std::string uri;
+
+  ReadResourceRequest() : jsonrpc::Request() { method = "resources/read"; }
+
+  explicit ReadResourceRequest(const std::string& u) : ReadResourceRequest() {
+    uri = u;
+  }
+};
+
+struct ReadResourceResult {
+  std::vector<variant<TextResourceContents, BlobResourceContents>> contents;
+
+  ReadResourceResult() = default;
+};
+
+struct ResourceListChangedNotification : jsonrpc::Notification {
+  ResourceListChangedNotification() : jsonrpc::Notification() {
+    method = "notifications/resources/list_changed";
+  }
+};
+
+struct SubscribeRequest : jsonrpc::Request {
+  std::string uri;
+
+  SubscribeRequest() : jsonrpc::Request() { method = "resources/subscribe"; }
+
+  explicit SubscribeRequest(const std::string& u) : SubscribeRequest() {
+    uri = u;
+  }
+};
+
+struct UnsubscribeRequest : jsonrpc::Request {
+  std::string uri;
+
+  UnsubscribeRequest() : jsonrpc::Request() {
+    method = "resources/unsubscribe";
+  }
+
+  explicit UnsubscribeRequest(const std::string& u) : UnsubscribeRequest() {
+    uri = u;
+  }
+};
+
+struct ResourceUpdatedNotification : jsonrpc::Notification {
+  std::string uri;
+
+  ResourceUpdatedNotification() : jsonrpc::Notification() {
+    method = "notifications/resources/updated";
+  }
+};
+
+// Prompt-related types
+struct ListPromptsRequest : PaginatedRequest {
+  ListPromptsRequest() : PaginatedRequest() { method = "prompts/list"; }
+};
+
+struct ListPromptsResult : PaginatedResult {
+  std::vector<Prompt> prompts;
+
+  ListPromptsResult() = default;
+};
+
+struct GetPromptRequest : jsonrpc::Request {
+  std::string name;
+  optional<Metadata> arguments;
+
+  GetPromptRequest() : jsonrpc::Request() { method = "prompts/get"; }
+
+  explicit GetPromptRequest(const std::string& n) : GetPromptRequest() {
+    name = n;
+  }
+};
+
+struct GetPromptResult {
+  optional<std::string> description;
+  std::vector<PromptMessage> messages;
+
+  GetPromptResult() = default;
+};
+
+struct PromptListChangedNotification : jsonrpc::Notification {
+  PromptListChangedNotification() : jsonrpc::Notification() {
+    method = "notifications/prompts/list_changed";
+  }
+};
+
+// Tool-related types
+struct ListToolsRequest : PaginatedRequest {
+  ListToolsRequest() : PaginatedRequest() { method = "tools/list"; }
+};
+
+struct ListToolsResult {
+  std::vector<Tool> tools;
+
+  ListToolsResult() = default;
+};
+
+struct CallToolRequest : jsonrpc::Request {
+  std::string name;
+  optional<Metadata> arguments;
+
+  CallToolRequest() : jsonrpc::Request() { method = "tools/call"; }
+
+  CallToolRequest(const std::string& n, const Metadata& args)
+      : CallToolRequest() {
+    name = n;
+    arguments = make_optional(args);
+  }
+};
+
+// CallToolResult with ExtendedContentBlock
+struct CallToolResult {
+  std::vector<ExtendedContentBlock> content;
+  bool isError = false;
+
+  CallToolResult() = default;
+};
+
+struct ToolListChangedNotification : jsonrpc::Notification {
+  ToolListChangedNotification() : jsonrpc::Notification() {
+    method = "notifications/tools/list_changed";
+  }
+};
+
+// Logging types
+struct SetLevelRequest : jsonrpc::Request {
+  enums::LoggingLevel::Value level;
+
+  SetLevelRequest() : jsonrpc::Request() { method = "logging/setLevel"; }
+
+  explicit SetLevelRequest(enums::LoggingLevel::Value l)
+      : SetLevelRequest() {
+    level = l;
+  }
+};
+
+struct LoggingMessageNotification : jsonrpc::Notification {
+  enums::LoggingLevel::Value level;
+  optional<std::string> logger;
+  variant<std::string, Metadata> data;
+
+  LoggingMessageNotification() : jsonrpc::Notification() {
+    method = "notifications/message";
+  }
+};
+
+// Completion types
+struct CompleteRequest : jsonrpc::Request {
+  PromptReference ref;
+  optional<std::string> argument;
+
+  CompleteRequest() : jsonrpc::Request() { method = "completion/complete"; }
+};
+
+struct CompleteResult {
+  struct Completion {
+    std::vector<std::string> values;
+    optional<double> total;
+    bool hasMore = false;
+
+    Completion() = default;
+  };
+
+  Completion completion;
+
+  CompleteResult() = default;
+};
+
+// Roots (filesystem-like) types
+struct ListRootsRequest : jsonrpc::Request {
+  ListRootsRequest() : jsonrpc::Request() { method = "roots/list"; }
+};
+
+struct ListRootsResult {
+  std::vector<Root> roots;
+
+  ListRootsResult() = default;
+};
+
+struct RootsListChangedNotification : jsonrpc::Notification {
+  RootsListChangedNotification() : jsonrpc::Notification() {
+    method = "notifications/roots/list_changed";
+  }
+};
+
+// Sampling/message creation types
+struct CreateMessageRequest : jsonrpc::Request {
+  std::vector<SamplingMessage> messages;
+  optional<ModelPreferences> modelPreferences;
+  optional<std::string> systemPrompt;
+  optional<Metadata> includeContext;
+  optional<double> temperature;
+  optional<int> maxTokens;
+  optional<std::vector<std::string>> stopSequences;
+  optional<Metadata> metadata;
+
+  CreateMessageRequest() : jsonrpc::Request() {
+    method = "sampling/createMessage";
+  }
+};
+
+struct CreateMessageResult : SamplingMessage {
+  std::string model;
+  optional<std::string> stopReason;
+
+  CreateMessageResult() = default;
+};
+
+// Elicitation types  
+struct ElicitRequest : jsonrpc::Request {
+  std::string name;
+  PrimitiveSchemaDefinition schema;
+  optional<std::string> prompt;
+
+  ElicitRequest() : jsonrpc::Request() { method = "elicit/createMessage"; }
+};
+
+struct ElicitResult {
+  variant<std::string, double, bool, std::nullptr_t> value;
+
+  ElicitResult() = default;
+};
+
+// Factory functions for requests
+inline InitializeRequest make_initialize_request(
+    const std::string& version, const ClientCapabilities& caps) {
+  InitializeRequest req;
+  req.protocolVersion = version;
+  req.capabilities = caps;
+  return req;
+}
+
+inline ProgressNotification make_progress_notification(
+    const ProgressToken& token, double progress) {
+  ProgressNotification notif;
+  notif.progressToken = token;
+  notif.progress = progress;
+  return notif;
+}
+
+inline CancelledNotification make_cancelled_notification(
+    const RequestId& id, const std::string& reason = "") {
+  CancelledNotification notif;
+  notif.requestId = id;
+  if (!reason.empty()) {
+    notif.reason = make_optional(reason);
+  }
+  return notif;
+}
+
+inline CallToolRequest make_call_tool_request(
+    const std::string& name, const Metadata& arguments = make_metadata()) {
+  return CallToolRequest(name, arguments);
+}
+
+inline LoggingMessageNotification make_log_notification(
+    enums::LoggingLevel::Value level, const std::string& message) {
+  LoggingMessageNotification notif;
+  notif.level = level;
+  notif.data = message;
+  return notif;
+}
+
+// Builder for CreateMessageRequest
+class CreateMessageRequestBuilder {
+  CreateMessageRequest request_;
+
+ public:
+  CreateMessageRequestBuilder() = default;
+
+  CreateMessageRequestBuilder& add_message(const SamplingMessage& msg) {
+    request_.messages.push_back(msg);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& add_user_message(const std::string& text) {
+    SamplingMessage msg;
+    msg.role = enums::Role::USER;
+    msg.content = TextContent(text);
+    request_.messages.push_back(msg);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& add_assistant_message(const std::string& text) {
+    SamplingMessage msg;
+    msg.role = enums::Role::ASSISTANT;
+    msg.content = TextContent(text);
+    request_.messages.push_back(msg);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& model_preferences(
+      const ModelPreferences& prefs) {
+    request_.modelPreferences = make_optional(prefs);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& system_prompt(const std::string& prompt) {
+    request_.systemPrompt = make_optional(prompt);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& temperature(double temp) {
+    request_.temperature = make_optional(temp);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& max_tokens(int tokens) {
+    request_.maxTokens = make_optional(tokens);
+    return *this;
+  }
+
+  CreateMessageRequestBuilder& stop_sequence(const std::string& seq) {
+    if (!request_.stopSequences) {
+      request_.stopSequences = make_optional(std::vector<std::string>());
+    }
+    request_.stopSequences->push_back(seq);
+    return *this;
+  }
+
+  CreateMessageRequest build() && { return std::move(request_); }
+  CreateMessageRequest build() const& { return request_; }
+};
+
+inline CreateMessageRequestBuilder build_create_message_request() {
+  return CreateMessageRequestBuilder();
+}
+
+// Additional factory functions for protocol types
+inline CallToolRequest make_tool_call(const std::string& name) {
+  CallToolRequest req;
+  req.method = "tools/call";
+  req.name = name;
+  // Don't set arguments to leave it as nullopt
+  return req;
+}
+
+inline CallToolRequest make_tool_call(const std::string& name, const Metadata& args) {
+  return CallToolRequest(name, args);
+}
+
+inline CallToolResult make_tool_result(std::vector<ExtendedContentBlock>&& content) {
+  CallToolResult result;
+  result.content = std::move(content);
+  return result;
+}
+
+inline CallToolResult make_tool_result(std::vector<ContentBlock>&& content) {
+  CallToolResult result;
+  // Convert ContentBlock to ExtendedContentBlock
+  for (auto& cb : content) {
+    if (cb.holds_alternative<TextContent>()) {
+      result.content.push_back(ExtendedContentBlock(cb.get<TextContent>()));
+    } else if (cb.holds_alternative<ImageContent>()) {
+      result.content.push_back(ExtendedContentBlock(cb.get<ImageContent>()));
+    } else if (cb.holds_alternative<ResourceContent>()) {
+      auto& rc = cb.get<ResourceContent>();
+      result.content.push_back(ExtendedContentBlock(ResourceLink(rc.resource)));
+    }
+  }
+  return result;
+}
+
+// Builder for InitializeParams (for protocol compatibility)
 struct InitializeParams {
   std::string protocolVersion;
   optional<std::string> clientName;
@@ -454,70 +1406,6 @@ struct InitializeParams {
   optional<Metadata> capabilities;
 };
 
-struct InitializeResult {
-  std::string protocolVersion;
-  optional<std::string> serverName;
-  optional<std::string> serverVersion;
-  optional<Metadata> capabilities;
-};
-
-// List tools request/response
-struct ListToolsParams {};
-
-struct ListToolsResult {
-  std::vector<Tool> tools;
-};
-
-// Call tool request/response
-struct CallToolParams {
-  std::string name;
-  optional<Metadata> arguments;
-
-  // Conversion to Metadata for JSON-RPC
-  Metadata to_metadata() const {
-    Metadata m;
-    add_metadata(m, "name", name);
-    if (arguments) {
-      // Create a nested metadata object for arguments
-      for (const auto& kv : *arguments) {
-        m["arguments." + kv.first] = kv.second;
-      }
-    }
-    return m;
-  }
-};
-
-struct CallToolResult {
-  std::vector<ContentBlock> content;
-};
-
-// Factory functions
-inline InitializeParams make_initialize_params(const std::string& version) {
-  return InitializeParams{version, nullopt, nullopt, nullopt};
-}
-
-inline InitializeResult make_initialize_result(const std::string& version) {
-  return InitializeResult{version, nullopt, nullopt, nullopt};
-}
-
-inline ListToolsResult make_tools_list(std::vector<Tool>&& tools) {
-  return ListToolsResult{std::move(tools)};
-}
-
-inline CallToolParams make_tool_call(const std::string& name) {
-  return CallToolParams{name, nullopt};
-}
-
-template <typename T>
-CallToolParams make_tool_call(const std::string& name, T&& args) {
-  return CallToolParams{name, make_optional(std::forward<T>(args))};
-}
-
-inline CallToolResult make_tool_result(std::vector<ContentBlock>&& content) {
-  return CallToolResult{std::move(content)};
-}
-
-// Builder for InitializeParams
 class InitializeParamsBuilder {
   InitializeParams params_;
 
@@ -557,36 +1445,71 @@ class InitializeParamsBuilder {
   InitializeParams build() const& { return params_; }
 };
 
-inline InitializeParamsBuilder build_initialize_params(
-    const std::string& version) {
+inline InitializeParamsBuilder build_initialize_params(const std::string& version) {
   return InitializeParamsBuilder(version);
 }
 
-}  // namespace protocol
+// Type unions for client/server messages
+using ClientRequest = variant<InitializeRequest,
+                              PingRequest,
+                              ListResourcesRequest,
+                              ListResourceTemplatesRequest,
+                              ReadResourceRequest,
+                              SubscribeRequest,
+                              UnsubscribeRequest,
+                              ListPromptsRequest,
+                              GetPromptRequest,
+                              ListToolsRequest,
+                              CallToolRequest,
+                              SetLevelRequest,
+                              CreateMessageRequest,
+                              CompleteRequest,
+                              ListRootsRequest,
+                              ElicitRequest>;
 
-// Additional factory functions that depend on protocol types
-namespace jsonrpc {
+using ClientNotification =
+    variant<InitializedNotification, CancelledNotification>;
 
-inline Request make_request(const RequestId& id,
-                            const std::string& method,
-                            const protocol::CallToolParams& params) {
-  return Request(id, method, params.to_metadata());
-}
+using ServerRequest = variant<
+    // Server can also make requests in some cases
+    CreateMessageRequest,
+    ElicitRequest>;
 
-inline Request make_request(const RequestId& id,
-                            const std::string& method,
-                            const protocol::InitializeParams& params) {
-  Metadata m;
-  add_metadata(m, "protocolVersion", params.protocolVersion);
-  if (params.clientName)
-    add_metadata(m, "clientName", *params.clientName);
-  if (params.clientVersion)
-    add_metadata(m, "clientVersion", *params.clientVersion);
-  // Note: capabilities would need custom serialization
-  return Request(id, method, m);
-}
+using ServerNotification = variant<ProgressNotification,
+                                   ResourceListChangedNotification,
+                                   ResourceUpdatedNotification,
+                                   PromptListChangedNotification,
+                                   ToolListChangedNotification,
+                                   LoggingMessageNotification,
+                                   RootsListChangedNotification>;
 
-}  // namespace jsonrpc
+// Helper to determine message type
+template <typename T>
+struct MessageTypeHelper {
+  static std::string get_method(const T& msg) {
+    return match(
+        msg, [](const auto& m) -> std::string { return get_method_impl(m); });
+  }
+
+ private:
+  template <typename U>
+  static std::string get_method_impl(
+      const U& m,
+      typename std::enable_if<
+          std::is_base_of<jsonrpc::Request, U>::value ||
+          std::is_base_of<jsonrpc::Notification, U>::value>::type* = nullptr) {
+    return m.method;
+  }
+
+  template <typename U>
+  static std::string get_method_impl(
+      const U&,
+      typename std::enable_if<
+          !std::is_base_of<jsonrpc::Request, U>::value &&
+          !std::is_base_of<jsonrpc::Notification, U>::value>::type* = nullptr) {
+    return "";
+  }
+};
 
 }  // namespace mcp
 

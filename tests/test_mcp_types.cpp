@@ -1,17 +1,16 @@
 #include <gtest/gtest.h>
 
-#include "mcp/protocol_types.h"
+#include "mcp/types.h"
 
 using namespace mcp;
-using namespace mcp::protocol;
 
-class MCPTypesExtendedTest : public ::testing::Test {
+class MCPTypesTest : public ::testing::Test {
  protected:
   void SetUp() override {}
 };
 
 // Test extended content block types
-TEST_F(MCPTypesExtendedTest, AudioContent) {
+TEST_F(MCPTypesTest, AudioContent) {
   auto audio = make_audio_content("base64audiodata", "audio/mp3");
   EXPECT_TRUE(audio.holds_alternative<AudioContent>());
 
@@ -21,7 +20,7 @@ TEST_F(MCPTypesExtendedTest, AudioContent) {
   EXPECT_EQ(content.mimeType, "audio/mp3");
 }
 
-TEST_F(MCPTypesExtendedTest, ResourceLink) {
+TEST_F(MCPTypesTest, ResourceLink) {
   auto resource = make_resource("file:///test.txt", "test.txt");
   auto link = make_resource_link(resource);
 
@@ -31,7 +30,7 @@ TEST_F(MCPTypesExtendedTest, ResourceLink) {
   EXPECT_EQ(content.uri, "file:///test.txt");
 }
 
-TEST_F(MCPTypesExtendedTest, EmbeddedResource) {
+TEST_F(MCPTypesTest, EmbeddedResource) {
   auto resource = make_resource("file:///doc.pdf", "document.pdf");
 
   auto embedded = build_embedded_resource(resource)
@@ -47,28 +46,28 @@ TEST_F(MCPTypesExtendedTest, EmbeddedResource) {
 }
 
 // Test extended logging levels
-TEST_F(MCPTypesExtendedTest, ExtendedLoggingLevels) {
+TEST_F(MCPTypesTest, ExtendedLoggingLevels) {
   using namespace enums;
 
   // Test all levels
-  EXPECT_STREQ(LoggingLevelExtended::to_string(LoggingLevelExtended::DEBUG),
+  EXPECT_STREQ(LoggingLevel::to_string(LoggingLevel::DEBUG),
                "debug");
-  EXPECT_STREQ(LoggingLevelExtended::to_string(LoggingLevelExtended::CRITICAL),
+  EXPECT_STREQ(LoggingLevel::to_string(LoggingLevel::CRITICAL),
                "critical");
-  EXPECT_STREQ(LoggingLevelExtended::to_string(LoggingLevelExtended::EMERGENCY),
+  EXPECT_STREQ(LoggingLevel::to_string(LoggingLevel::EMERGENCY),
                "emergency");
 
   // Test conversions
-  auto level = LoggingLevelExtended::from_string("alert");
+  auto level = LoggingLevel::from_string("alert");
   ASSERT_TRUE(level.has_value());
-  EXPECT_EQ(level.value(), LoggingLevelExtended::ALERT);
+  EXPECT_EQ(level.value(), LoggingLevel::ALERT);
 
-  auto invalid = LoggingLevelExtended::from_string("invalid");
+  auto invalid = LoggingLevel::from_string("invalid");
   EXPECT_FALSE(invalid.has_value());
 }
 
 // Test capability builders
-TEST_F(MCPTypesExtendedTest, ClientCapabilities) {
+TEST_F(MCPTypesTest, ClientCapabilities) {
   auto caps =
       build_client_capabilities()
           .experimental(make_metadata())
@@ -82,7 +81,7 @@ TEST_F(MCPTypesExtendedTest, ClientCapabilities) {
   EXPECT_DOUBLE_EQ(caps.sampling->temperature.value(), 0.7);
 }
 
-TEST_F(MCPTypesExtendedTest, ServerCapabilities) {
+TEST_F(MCPTypesTest, ServerCapabilities) {
   auto caps = build_server_capabilities()
                   .resources(true)
                   .tools(true)
@@ -99,7 +98,7 @@ TEST_F(MCPTypesExtendedTest, ServerCapabilities) {
 }
 
 // Test model preferences
-TEST_F(MCPTypesExtendedTest, ModelPreferences) {
+TEST_F(MCPTypesTest, ModelPreferences) {
   auto prefs = build_model_preferences()
                    .add_hint("gpt-4")
                    .add_hint("claude-3")
@@ -117,7 +116,7 @@ TEST_F(MCPTypesExtendedTest, ModelPreferences) {
 }
 
 // Test schema types
-TEST_F(MCPTypesExtendedTest, SchemaTypes) {
+TEST_F(MCPTypesTest, SchemaTypes) {
   // String schema
   auto string_schema = build_string_schema()
                            .description("Email address")
@@ -139,7 +138,7 @@ TEST_F(MCPTypesExtendedTest, SchemaTypes) {
 }
 
 // Test request types
-TEST_F(MCPTypesExtendedTest, InitializeRequest) {
+TEST_F(MCPTypesTest, InitializeRequest) {
   auto caps = build_client_capabilities().resources(true).build();
 
   auto req = make_initialize_request("2025-06-18", caps);
@@ -147,7 +146,7 @@ TEST_F(MCPTypesExtendedTest, InitializeRequest) {
   EXPECT_EQ(req.protocolVersion, "2025-06-18");
 }
 
-TEST_F(MCPTypesExtendedTest, ProgressNotification) {
+TEST_F(MCPTypesTest, ProgressNotification) {
   auto notif =
       make_progress_notification(make_progress_token("task-123"), 0.75);
 
@@ -156,7 +155,7 @@ TEST_F(MCPTypesExtendedTest, ProgressNotification) {
   EXPECT_DOUBLE_EQ(notif.progress, 0.75);
 }
 
-TEST_F(MCPTypesExtendedTest, CallToolRequest) {
+TEST_F(MCPTypesTest, CallToolRequest) {
   auto args = make_metadata();
   add_metadata(args, "expression", "2 + 2");
 
@@ -166,17 +165,17 @@ TEST_F(MCPTypesExtendedTest, CallToolRequest) {
   ASSERT_TRUE(req.arguments.has_value());
 }
 
-TEST_F(MCPTypesExtendedTest, LoggingNotification) {
-  auto notif = make_log_notification(enums::LoggingLevelExtended::WARNING,
+TEST_F(MCPTypesTest, LoggingNotification) {
+  auto notif = make_log_notification(enums::LoggingLevel::WARNING,
                                      "This is a warning message");
 
   EXPECT_EQ(notif.method, "notifications/message");
-  EXPECT_EQ(notif.level, enums::LoggingLevelExtended::WARNING);
+  EXPECT_EQ(notif.level, enums::LoggingLevel::WARNING);
   EXPECT_TRUE(notif.data.holds_alternative<std::string>());
 }
 
 // Test CreateMessageRequest builder
-TEST_F(MCPTypesExtendedTest, CreateMessageRequest) {
+TEST_F(MCPTypesTest, CreateMessageRequest) {
   auto req = build_create_message_request()
                  .add_user_message("What is 2+2?")
                  .add_assistant_message("2+2 equals 4.")
@@ -208,7 +207,7 @@ TEST_F(MCPTypesExtendedTest, CreateMessageRequest) {
 }
 
 // Test resource contents variations
-TEST_F(MCPTypesExtendedTest, ResourceContents) {
+TEST_F(MCPTypesTest, ResourceContents) {
   auto text_contents = make_text_resource("Hello, world!");
   EXPECT_EQ(text_contents.text, "Hello, world!");
 
@@ -217,7 +216,7 @@ TEST_F(MCPTypesExtendedTest, ResourceContents) {
 }
 
 // Test reference types
-TEST_F(MCPTypesExtendedTest, ReferenceTypes) {
+TEST_F(MCPTypesTest, ReferenceTypes) {
   auto template_ref = make_resource_template_ref("template", "my-template");
   EXPECT_EQ(template_ref.type, "template");
   EXPECT_EQ(template_ref.name, "my-template");
@@ -228,7 +227,7 @@ TEST_F(MCPTypesExtendedTest, ReferenceTypes) {
 }
 
 // Test root types
-TEST_F(MCPTypesExtendedTest, RootTypes) {
+TEST_F(MCPTypesTest, RootTypes) {
   auto root = make_root("file:///home/user", "User Home");
   EXPECT_EQ(root.uri, "file:///home/user");
   ASSERT_TRUE(root.name.has_value());
@@ -236,7 +235,7 @@ TEST_F(MCPTypesExtendedTest, RootTypes) {
 }
 
 // Test client/server message unions
-TEST_F(MCPTypesExtendedTest, MessageUnions) {
+TEST_F(MCPTypesTest, MessageUnions) {
   // Client request
   ClientRequest req = CallToolRequest("test", make_metadata());
 
@@ -257,7 +256,7 @@ TEST_F(MCPTypesExtendedTest, MessageUnions) {
 }
 
 // Test pagination
-TEST_F(MCPTypesExtendedTest, Pagination) {
+TEST_F(MCPTypesTest, Pagination) {
   ListResourcesRequest req;
   req.cursor = make_optional(Cursor("next-page-token"));
 
@@ -274,14 +273,14 @@ TEST_F(MCPTypesExtendedTest, Pagination) {
 }
 
 // Integration test - Complete request/response flow
-TEST_F(MCPTypesExtendedTest, IntegrationRequestResponse) {
+TEST_F(MCPTypesTest, IntegrationRequestResponse) {
   // Initialize request
   auto init_req = make_initialize_request(
       "2025-06-18",
       build_client_capabilities().tools(true).resources(true).build());
 
   // Simulate server response
-  InitializeResultExtended init_result;
+  InitializeResult init_result;
   init_result.protocolVersion = "2025-06-18";
   init_result.capabilities = build_server_capabilities()
                                  .tools(true)
@@ -302,7 +301,7 @@ TEST_F(MCPTypesExtendedTest, IntegrationRequestResponse) {
   auto tool_req = make_call_tool_request("sql_query", tool_args);
 
   // Tool response
-  CallToolResultExtended tool_result;
+  CallToolResult tool_result;
   tool_result.content.push_back(
       ExtendedContentBlock(TextContent("Found 42 users")));
   tool_result.isError = false;
@@ -312,7 +311,7 @@ TEST_F(MCPTypesExtendedTest, IntegrationRequestResponse) {
 }
 
 // Test JSON-RPC error codes
-TEST_F(MCPTypesExtendedTest, JSONRPCErrorCodes) {
+TEST_F(MCPTypesTest, JSONRPCErrorCodes) {
   using namespace jsonrpc;
 
   EXPECT_EQ(PARSE_ERROR, -32700);
@@ -327,7 +326,7 @@ TEST_F(MCPTypesExtendedTest, JSONRPCErrorCodes) {
 }
 
 // Test base metadata
-TEST_F(MCPTypesExtendedTest, BaseMetadata) {
+TEST_F(MCPTypesTest, BaseMetadata) {
   ResourceTemplate tmpl;
   tmpl.uriTemplate = "file:///{path}";
   tmpl.name = "file-template";
