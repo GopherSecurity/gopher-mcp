@@ -1221,18 +1221,12 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   // ToolBuilder
   mcp::ToolInputSchema schema;
   schema["type"] = "object";
-  schema["properties"]["expression"] = {
-    {"type", "string"},
-    {"description", "Math expression"}
-  };
+  schema["properties"]["expression"] = {{"type", "string"},
+                                        {"description", "Math expression"}};
   schema["properties"]["precision"] = {
-    {"type", "number"},
-    {"description", "Precision for calculations"}
-  };
-  schema["properties"]["format"] = {
-    {"type", "string"},
-    {"description", "Output format"}
-  };
+      {"type", "number"}, {"description", "Precision for calculations"}};
+  schema["properties"]["format"] = {{"type", "string"},
+                                    {"description", "Output format"}};
   schema["required"] = {"expression"};
 
   auto tool = build_tool("advanced_calc")
@@ -1248,7 +1242,8 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(tool.inputSchema.value()["type"], "object");
   EXPECT_TRUE(tool.inputSchema.value().contains("properties"));
   EXPECT_TRUE(tool.inputSchema.value()["properties"].contains("expression"));
-  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"], "string");
+  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"],
+            "string");
 
   // Note: tool.parameters is not set by the builder, only inputSchema
   EXPECT_FALSE(tool.parameters.has_value());
