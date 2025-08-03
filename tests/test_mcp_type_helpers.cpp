@@ -211,28 +211,20 @@ TEST_F(MCPTypeHelpersTest, MetadataBasic) {
   EXPECT_EQ(meta1.size(), 5u);
   EXPECT_TRUE(meta1["null"].holds_alternative<std::nullptr_t>());
   EXPECT_TRUE(meta1["bool"].holds_alternative<bool>());
-  EXPECT_TRUE(meta1["int"].holds_alternative<int>());
+  EXPECT_TRUE(meta1["int"].holds_alternative<int64_t>());
   EXPECT_TRUE(meta1["double"].holds_alternative<double>());
   EXPECT_TRUE(meta1["string"].holds_alternative<std::string>());
 
-  // Test vector metadata
-  std::vector<variant<std::nullptr_t, bool, int, double, std::string>> vec;
-  vec.push_back(nullptr);
-  vec.push_back(true);
-  vec.push_back(123);
-  vec.push_back(4.56);
-  vec.push_back(std::string("vec_item"));
+  // Test additional basic metadata types  
+  add_metadata(meta1, "string_value", std::string("test_string"));
+  add_metadata(meta1, "int64_value", static_cast<int64_t>(9999));
+  add_metadata(meta1, "bool_false", false);
+  add_metadata(meta1, "null_value", nullptr);
 
-  add_metadata(meta1, "vector", vec);
-  EXPECT_TRUE(meta1["vector"].holds_alternative<decltype(vec)>());
-
-  // Test nested map metadata
-  std::map<std::string, variant<std::nullptr_t, bool, int, double, std::string>>
-      nested;
-  nested["nested_key"] = std::string("nested_value");
-
-  add_metadata(meta1, "map", nested);
-  EXPECT_TRUE(meta1["map"].holds_alternative<decltype(nested)>());
+  EXPECT_TRUE(meta1["string_value"].holds_alternative<std::string>());
+  EXPECT_TRUE(meta1["int64_value"].holds_alternative<int64_t>());
+  EXPECT_TRUE(meta1["bool_false"].holds_alternative<bool>());
+  EXPECT_TRUE(meta1["null_value"].holds_alternative<std::nullptr_t>());
 }
 
 TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
@@ -244,7 +236,7 @@ TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
 
   // Test overwriting values
   add_metadata(meta, "key", 1);
-  EXPECT_TRUE(meta["key"].holds_alternative<int>());
+  EXPECT_TRUE(meta["key"].holds_alternative<int64_t>());
 
   add_metadata(meta, "key", "overwritten");
   EXPECT_FALSE(meta["key"].holds_alternative<int>());

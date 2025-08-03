@@ -87,7 +87,9 @@ TEST_F(MCPTypesTest, ServerCapabilities) {
                   .build();
 
   ASSERT_TRUE(caps.resources.has_value());
-  EXPECT_TRUE(caps.resources.value());
+  // resources is now a variant<bool, ResourcesCapability>
+  ASSERT_TRUE(holds_alternative<bool>(caps.resources.value()));
+  EXPECT_TRUE(get<bool>(caps.resources.value()));
   ASSERT_TRUE(caps.tools.has_value());
   EXPECT_TRUE(caps.tools.value());
   ASSERT_TRUE(caps.prompts.has_value());
@@ -1056,7 +1058,7 @@ TEST_F(MCPTypesTest, AllMCPTypesComprehensive) {
   tool1.name = "calculator";
   EXPECT_EQ(tool1.name, "calculator");
   EXPECT_FALSE(tool1.description.has_value());
-  EXPECT_FALSE(tool1.parameters.has_value());
+  EXPECT_FALSE(tool1.inputSchema.has_value());
 
   Tool tool2;
   EXPECT_TRUE(tool2.name.empty());
@@ -1217,31 +1219,39 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(resource_move.uri, "file:///test.txt");
 
   // ToolBuilder
+  mcp::ToolInputSchema schema;
+  schema["type"] = "object";
+  schema["properties"]["expression"] = {
+    {"type", "string"},
+    {"description", "Math expression"}
+  };
+  schema["properties"]["precision"] = {
+    {"type", "number"},
+    {"description", "Precision for calculations"}
+  };
+  schema["properties"]["format"] = {
+    {"type", "string"},
+    {"description", "Output format"}
+  };
+  schema["required"] = {"expression"};
+
   auto tool = build_tool("advanced_calc")
                   .description("Advanced calculator with multiple functions")
-                  .parameter("expression", "string", "Math expression", true)
-                  .parameter("precision", "number", false)
-                  .parameter("format", "string", "Output format", false)
+                  .inputSchema(schema)
                   .build();
 
   EXPECT_EQ(tool.name, "advanced_calc");
   ASSERT_TRUE(tool.description.has_value());
   EXPECT_EQ(tool.description.value(),
             "Advanced calculator with multiple functions");
-  ASSERT_TRUE(tool.parameters.has_value());
-  EXPECT_EQ(tool.parameters->size(), 3u);
+  ASSERT_TRUE(tool.inputSchema.has_value());
+  EXPECT_EQ(tool.inputSchema.value()["type"], "object");
+  EXPECT_TRUE(tool.inputSchema.value().contains("properties"));
+  EXPECT_TRUE(tool.inputSchema.value()["properties"].contains("expression"));
+  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"], "string");
 
-  auto& param1 = (*tool.parameters)[0];
-  EXPECT_EQ(param1.name, "expression");
-  EXPECT_EQ(param1.type, "string");
-  ASSERT_TRUE(param1.description.has_value());
-  EXPECT_EQ(param1.description.value(), "Math expression");
-  EXPECT_TRUE(param1.required);
-
-  auto& param2 = (*tool.parameters)[1];
-  EXPECT_EQ(param2.name, "precision");
-  EXPECT_FALSE(param2.description.has_value());
-  EXPECT_FALSE(param2.required);
+  // Note: tool.parameters is not set by the builder, only inputSchema
+  EXPECT_FALSE(tool.parameters.has_value());
 
   // SamplingParamsBuilder
   auto params = build_sampling_params()
