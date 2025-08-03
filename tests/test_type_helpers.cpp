@@ -172,7 +172,7 @@ TEST_F(TypeHelpersTest, CapabilityHelpers) {
 // Test Result/Error pattern
 TEST_F(TypeHelpersTest, ResultErrorPattern) {
   // Success case
-  Result<int> result1 = make_result(42);
+  Result<int> result1 = make_result<int>(42);
   EXPECT_TRUE(is_success<int>(result1));
   EXPECT_FALSE(is_error<int>(result1));
 
@@ -356,7 +356,6 @@ TEST_F(TypeHelpersTest, JSONRPCFactories) {
 
 // Test protocol message factories
 TEST_F(TypeHelpersTest, ProtocolMessageFactories) {
-
   // Test initialize params builder
   auto init_params = build_initialize_params("1.0.0")
                          .clientName("test-client")
@@ -415,7 +414,8 @@ TEST_F(TypeHelpersTest, IntegrationCompleteRequest) {
   auto call_params = make_tool_call("calculator", tool_params);
 
   // Convert CallToolRequest to a proper JSONRPC request
-  auto request = call_params;  // CallToolRequest already inherits from jsonrpc::Request
+  auto request =
+      call_params;  // CallToolRequest already inherits from jsonrpc::Request
   request.id = make_request_id("req-calc-1");
 
   EXPECT_EQ(request.method, "tools/call");
