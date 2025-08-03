@@ -63,6 +63,16 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# Source files
+set(MCP_SDK_SOURCES
+    src/buffer/buffer_impl.cc
+)
+
+# Create MCP SDK library
+add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES})
+target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mcp-sdk PUBLIC Threads::Threads)
+
 # Enable testing
 enable_testing()
 
@@ -71,16 +81,16 @@ add_subdirectory(tests)
 
 # Add custom target for formatting
 add_custom_target(format
-    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/tests
-            -name "*.h" -o -name "*.cpp" | xargs clang-format -i
+    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
+            -name "*.h" -o -name "*.cpp" -o -name "*.cc" | xargs clang-format -i
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Formatting all source files with clang-format"
 )
 
 # Add custom target to check formatting without modifying files
 add_custom_target(check-format
-    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/tests
-            -name "*.h" -o -name "*.cpp" | xargs clang-format --dry-run --Werror
+    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
+            -name "*.h" -o -name "*.cpp" -o -name "*.cc" | xargs clang-format --dry-run --Werror
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Checking source file formatting with clang-format"
 )
