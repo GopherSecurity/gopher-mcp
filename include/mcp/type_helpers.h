@@ -8,8 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "mcp/optional.h"
-#include "mcp/variant.h"
+#include "mcp/compat.h"
 
 namespace mcp {
 
@@ -30,7 +29,7 @@ struct Error;
 // Additional helpers for common MCP patterns
 template <typename T>
 constexpr optional<typename std::decay<T>::type> opt(T&& value) {
-  return make_optional(std::forward<T>(value));
+  return mcp::make_optional(std::forward<T>(value));
 }
 
 // Shorthand for nullopt construction
