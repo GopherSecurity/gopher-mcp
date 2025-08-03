@@ -9,6 +9,7 @@ add_executable(test_type_helpers test_type_helpers.cpp)
 add_executable(test_mcp_type_helpers test_mcp_type_helpers.cpp)
 add_executable(test_mcp_types test_mcp_types.cpp)
 add_executable(test_compat test_compat.cpp)
+add_executable(test_buffer test_buffer.cpp)
 
 # Link libraries
 target_link_libraries(test_variant 
@@ -71,6 +72,13 @@ target_link_libraries(test_compat
     Threads::Threads
 )
 
+target_link_libraries(test_buffer
+    mcp-sdk
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -82,6 +90,7 @@ add_test(NAME TypeHelpersTest COMMAND test_type_helpers)
 add_test(NAME MCPTypeHelpersTest COMMAND test_mcp_type_helpers)
 add_test(NAME MCPTypesTest COMMAND test_mcp_types)
 add_test(NAME CompatTest COMMAND test_compat)
+add_test(NAME BufferTest COMMAND test_buffer)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
@@ -95,6 +104,7 @@ add_custom_target(run_tests
     DEPENDS test_variant test_variant_extensive test_variant_advanced 
             test_optional test_optional_extensive test_optional_advanced
             test_type_helpers test_mcp_type_helpers test_mcp_types test_compat
+            test_buffer
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
