@@ -6,6 +6,7 @@ add_executable(test_optional test_optional.cpp)
 add_executable(test_optional_extensive test_optional_extensive.cpp)
 add_executable(test_optional_advanced test_optional_advanced.cpp)
 add_executable(test_type_helpers test_type_helpers.cpp)
+add_executable(test_mcp_type_helpers test_mcp_type_helpers.cpp)
 add_executable(test_mcp_types test_mcp_types.cpp)
 
 # Link libraries
@@ -51,6 +52,12 @@ target_link_libraries(test_type_helpers
     Threads::Threads
 )
 
+target_link_libraries(test_mcp_type_helpers
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_mcp_types
     gtest 
     gtest_main
@@ -65,6 +72,7 @@ add_test(NAME OptionalTest COMMAND test_optional)
 add_test(NAME OptionalExtensiveTest COMMAND test_optional_extensive)
 add_test(NAME OptionalAdvancedTest COMMAND test_optional_advanced)
 add_test(NAME TypeHelpersTest COMMAND test_type_helpers)
+add_test(NAME MCPTypeHelpersTest COMMAND test_mcp_type_helpers)
 add_test(NAME MCPTypesTest COMMAND test_mcp_types)
 
 # Set test properties
@@ -78,7 +86,7 @@ add_custom_target(run_tests
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -C $<CONFIG>
     DEPENDS test_variant test_variant_extensive test_variant_advanced 
             test_optional test_optional_extensive test_optional_advanced
-            test_type_helpers test_mcp_types
+            test_type_helpers test_mcp_type_helpers test_mcp_types
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )

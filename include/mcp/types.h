@@ -1281,8 +1281,7 @@ struct SetLevelRequest : jsonrpc::Request {
 
   SetLevelRequest() : jsonrpc::Request() { method = "logging/setLevel"; }
 
-  explicit SetLevelRequest(enums::LoggingLevel::Value l)
-      : SetLevelRequest() {
+  explicit SetLevelRequest(enums::LoggingLevel::Value l) : SetLevelRequest() {
     level = l;
   }
 };
@@ -1359,7 +1358,7 @@ struct CreateMessageResult : SamplingMessage {
   CreateMessageResult() = default;
 };
 
-// Elicitation types  
+// Elicitation types
 struct ElicitRequest : jsonrpc::Request {
   std::string name;
   PrimitiveSchemaDefinition schema;
@@ -1488,11 +1487,13 @@ inline CallToolRequest make_tool_call(const std::string& name) {
   return req;
 }
 
-inline CallToolRequest make_tool_call(const std::string& name, const Metadata& args) {
+inline CallToolRequest make_tool_call(const std::string& name,
+                                      const Metadata& args) {
   return CallToolRequest(name, args);
 }
 
-inline CallToolResult make_tool_result(std::vector<ExtendedContentBlock>&& content) {
+inline CallToolResult make_tool_result(
+    std::vector<ExtendedContentBlock>&& content) {
   CallToolResult result;
   result.content = std::move(content);
   return result;
@@ -1561,7 +1562,8 @@ class InitializeParamsBuilder {
   InitializeParams build() const& { return params_; }
 };
 
-inline InitializeParamsBuilder build_initialize_params(const std::string& version) {
+inline InitializeParamsBuilder build_initialize_params(
+    const std::string& version) {
   return InitializeParamsBuilder(version);
 }
 
