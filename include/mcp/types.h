@@ -1506,7 +1506,8 @@ inline CallToolResult make_tool_result(std::vector<ContentBlock>&& content) {
     if (mcp::holds_alternative<TextContent>(cb)) {
       result.content.push_back(ExtendedContentBlock(mcp::get<TextContent>(cb)));
     } else if (mcp::holds_alternative<ImageContent>(cb)) {
-      result.content.push_back(ExtendedContentBlock(mcp::get<ImageContent>(cb)));
+      result.content.push_back(
+          ExtendedContentBlock(mcp::get<ImageContent>(cb)));
     } else if (mcp::holds_alternative<ResourceContent>(cb)) {
       auto& rc = mcp::get<ResourceContent>(cb);
       result.content.push_back(ExtendedContentBlock(ResourceLink(rc.resource)));
