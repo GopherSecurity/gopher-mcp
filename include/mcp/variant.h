@@ -227,7 +227,9 @@ struct union_accessor<0, variant_union<T, Rest...>> {
 
   static const T& get(const variant_union<T, Rest...>& u) { return u.value; }
 
-  static T* get_ptr(variant_union<T, Rest...>& u) { return std::addressof(u.value); }
+  static T* get_ptr(variant_union<T, Rest...>& u) {
+    return std::addressof(u.value);
+  }
 
   static const T* get_ptr(const variant_union<T, Rest...>& u) {
     return std::addressof(u.value);
@@ -271,7 +273,9 @@ struct union_accessor<0, variant_union<T>> {
 
   static T* get_ptr(variant_union<T>& u) { return std::addressof(u.value); }
 
-  static const T* get_ptr(const variant_union<T>& u) { return std::addressof(u.value); }
+  static const T* get_ptr(const variant_union<T>& u) {
+    return std::addressof(u.value);
+  }
 };
 
 }  // namespace detail

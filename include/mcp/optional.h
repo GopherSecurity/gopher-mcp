@@ -173,9 +173,9 @@ class optional : private optional_storage<T> {
 
   // Move assignment - more accurate noexcept specification in C++14
   optional& operator=(optional&& other) noexcept(
-      std::is_nothrow_move_assignable<T>::value &&
-      std::is_nothrow_move_constructible<T>::value &&
-      std::is_nothrow_destructible<T>::value) {
+      std::is_nothrow_move_assignable<T>::value&&
+          std::is_nothrow_move_constructible<T>::value&&
+              std::is_nothrow_destructible<T>::value) {
     if (this != &other) {
       if (other.has_value_) {
         if (has_value_) {
@@ -261,8 +261,8 @@ class optional : private optional_storage<T> {
 
   // Modifiers - C++14 has better swap detection
   void swap(optional& other) noexcept(
-      std::is_nothrow_move_constructible<T>::value &&
-      noexcept(std::swap(std::declval<T&>(), std::declval<T&>()))) {
+      std::is_nothrow_move_constructible<T>::value&& noexcept(
+          std::swap(std::declval<T&>(), std::declval<T&>()))) {
     if (has_value_ && other.has_value_) {
       using std::swap;
       swap(value_, other.value_);
@@ -507,15 +507,16 @@ struct hash<optional<T>> {
 #if __cplusplus >= 201402L
 // Better type deduction helpers for C++14
 template <typename T>
-constexpr auto make_optional_value(T&& value) 
+constexpr auto make_optional_value(T&& value)
     -> optional<typename std::decay<T>::type> {
   return optional<typename std::decay<T>::type>(std::forward<T>(value));
 }
 
 // Helper for determining common type in C++14
 template <typename T, typename U>
-using optional_common_t = optional<typename std::decay<
-    decltype(true ? std::declval<T>() : std::declval<U>())>::type>;
+using optional_common_t =
+    optional<typename std::decay<decltype(true ? std::declval<T>()
+                                               : std::declval<U>())>::type>;
 #endif
 
 }  // namespace mcp
