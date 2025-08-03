@@ -4,8 +4,11 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <map>
+#include <memory>
 
 #include "mcp/type_helpers.h"
+#include <nlohmann/json.hpp>  // Needed for JSON types used in Tool and other structures
 
 namespace mcp {
 
@@ -143,10 +146,19 @@ inline ProgressToken make_progress_token(const char* token) {
   return ProgressToken(std::string(token));
 }
 
+// Annotations for content blocks
+struct Annotations {
+  optional<std::vector<enums::Role::Value>> audience;
+  optional<double> priority;  // 1.0 = most important
+
+  Annotations() = default;
+};
+
 // Base types
 struct TextContent {
   std::string type = "text";
   std::string text;
+  optional<Annotations> annotations;
 
   TextContent() = default;
   explicit TextContent(const std::string& t) : text(t) {}
@@ -188,14 +200,6 @@ struct BaseMetadata {
   optional<Metadata> _meta;
 
   BaseMetadata() = default;
-};
-
-// Annotations for content blocks
-struct Annotations {
-  optional<std::vector<enums::Role::Value>> audience;
-  optional<double> priority;  // 1.0 = most important
-
-  Annotations() = default;
 };
 
 // Tool-specific annotations
@@ -252,6 +256,8 @@ inline ContentBlock make_image_content(const std::string& data,
 }
 
 // Tool definitions
+using ToolInputSchema = nlohmann::json;  // Tool input schema is a JSON object
+
 struct ToolParameter {
   std::string name;
   std::string type;
@@ -262,7 +268,8 @@ struct ToolParameter {
 struct Tool {
   std::string name;
   optional<std::string> description;
-  optional<std::vector<ToolParameter>> parameters;
+  optional<ToolInputSchema> inputSchema;
+  optional<std::vector<ToolParameter>> parameters;  // Legacy support
 
   Tool() = default;
   explicit Tool(const std::string& n) : name(n) {}
@@ -459,6 +466,12 @@ class ToolBuilder {
     return *this;
   }
 
+  ToolBuilder& inputSchema(const ToolInputSchema& schema) {
+    tool_.inputSchema = mcp::make_optional(schema);
+    return *this;
+  }
+  
+  // Legacy parameter support
   ToolBuilder& parameter(const std::string& name,
                          const std::string& type,
                          bool required = false) {
@@ -945,17 +958,37 @@ struct PaginatedResult {
   PaginatedResult() = default;
 };
 
+// Type aliases for JSON compatibility
+using Cursor = std::string;
+using EmptyCapability = std::map<std::string, nlohmann::json>;  // Empty capability objects
+using JSONObject = nlohmann::json;
+
+// Complex capability types for JSON compatibility
+struct ResourcesCapability {
+  optional<EmptyCapability> subscribe;
+  optional<EmptyCapability> listChanged;
+};
+
+struct PromptsCapability {
+  optional<EmptyCapability> listChanged;
+};
+
+struct RootsCapability {
+  optional<EmptyCapability> listChanged;
+};
+
 // Capability types
 struct ClientCapabilities {
   optional<Metadata> experimental;
   optional<SamplingParams> sampling;
+  optional<RootsCapability> roots;
 
   ClientCapabilities() = default;
 };
 
 struct ServerCapabilities {
   optional<Metadata> experimental;
-  optional<bool> resources;
+  optional<variant<bool, ResourcesCapability>> resources;
   optional<bool> tools;
   optional<bool> prompts;
   optional<bool> logging;
@@ -1017,7 +1050,12 @@ class ServerCapabilitiesBuilder {
   }
 
   ServerCapabilitiesBuilder& resources(bool enabled) {
-    caps_.resources = mcp::make_optional(enabled);
+    caps_.resources = mcp::make_optional(variant<bool, ResourcesCapability>(enabled));
+    return *this;
+  }
+  
+  ServerCapabilitiesBuilder& resources(const ResourcesCapability& res_caps) {
+    caps_.resources = mcp::make_optional(variant<bool, ResourcesCapability>(res_caps));
     return *this;
   }
 
@@ -1066,6 +1104,10 @@ inline Implementation make_implementation(const std::string& name,
                                           const std::string& version) {
   return Implementation(name, version);
 }
+
+// Type aliases that depend on Implementation
+using ServerInfo = Implementation;  // Alias for consistency with spec
+using ClientInfo = Implementation;  // Alias for consistency with spec
 
 // Initialize request/response
 struct InitializeRequest : jsonrpc::Request {

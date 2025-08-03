@@ -52,8 +52,16 @@ endif()
 # Find packages
 find_package(Threads REQUIRED)
 
-# Google Test
+# nlohmann/json
 include(FetchContent)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+# Google Test
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -66,12 +74,13 @@ FetchContent_MakeAvailable(googletest)
 # Source files
 set(MCP_SDK_SOURCES
     src/buffer/buffer_impl.cpp
+    src/json.cpp
 )
 
 # Create MCP SDK library
 add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES})
 target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mcp-sdk PUBLIC Threads::Threads)
+target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json)
 
 # Enable testing
 enable_testing()
