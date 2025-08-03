@@ -966,7 +966,7 @@ void to_json(json& j, const BlobResourceContents& contents) {
 
 void from_json(const json& j, BlobResourceContents& contents) {
   from_json(j, static_cast<ResourceContents&>(contents));
-  if (j.contains("base64")) {
+  if (j.contains("blob")) {
     contents.blob = j["blob"].get<std::string>();
   }
 }
