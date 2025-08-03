@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
+
+# Prevent in-source builds
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR "In-source builds are not allowed.
+Please create a build directory and run cmake from there:
+    mkdir build
+    cd build
+    cmake ..
+You may need to remove CMakeCache.txt and CMakeFiles/")
+endif()
+
 project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES CXX)
 
 # Set C++ standard
