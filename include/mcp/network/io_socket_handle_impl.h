@@ -48,7 +48,7 @@ class IoSocketHandleImpl : public IoHandle {
                         const UdpSaveCmsgConfig& save_cmsg_config,
                         RecvMsgOutput& output) override;
 
-  IoCallVoidResult close() override;
+  IoVoidResult close() override;
   bool isOpen() const override { return fd_ != INVALID_SOCKET_FD; }
 
   IoResult<int> bind(const Address::InstanceConstSharedPtr& address) override;

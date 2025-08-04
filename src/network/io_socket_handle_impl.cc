@@ -460,9 +460,9 @@ IoCallResult IoSocketHandleImpl::recvmmsg(std::vector<RawSlice>& slices,
   return IoCallResult::success(0);
 }
 
-IoCallVoidResult IoSocketHandleImpl::close() {
+IoVoidResult IoSocketHandleImpl::close() {
   if (!isOpen()) {
-    return IoCallVoidResult::success(nullptr);
+    return IoVoidResult::success();
   }
 
   // Reset file events first
@@ -477,9 +477,9 @@ IoCallVoidResult IoSocketHandleImpl::close() {
   fd_ = INVALID_SOCKET_FD;
   
   if (result == 0) {
-    return IoCallVoidResult::success(nullptr);
+    return IoVoidResult::success();
   } else {
-    return IoCallVoidResult::error(getLastSocketError());
+    return IoVoidResult::error(getLastSocketError());
   }
 }
 
