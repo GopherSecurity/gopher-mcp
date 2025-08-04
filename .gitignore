@@ -50,6 +50,15 @@ test_type_helpers
 test_mcp_types
 test_mcp_types_extended
 test_mcp_type_helpers
+test_compat
+test_buffer
+test_json
+test_event_loop
+test_io_socket_handle
+test_address
+test_socket
+test_socket_interface
+test_socket_option
 
 # IDE specific files
 .vscode/
