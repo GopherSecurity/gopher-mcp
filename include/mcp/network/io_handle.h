@@ -11,6 +11,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/address.h"
 #include "mcp/optional.h"
+#include "mcp/io_result.h"
 
 namespace mcp {
 namespace network {
@@ -28,44 +29,11 @@ using os_fd_t = int;
 constexpr os_fd_t INVALID_SOCKET_FD = -1;
 #endif
 
-// I/O operation result with error handling using optional
-template <typename T>
-struct IoResult {
-  optional<T> value;         // Value on success
-  optional<int> error_code;  // Error code on failure
-
-  bool ok() const { return value.has_value(); }
-  explicit operator bool() const { return ok(); }
-
-  T& operator*() { return *value; }
-  const T& operator*() const { return *value; }
-
-  static IoResult success(T val) {
-    IoResult result;
-    result.value = std::move(val);
-    return result;
-  }
-
-  static IoResult error(int code) {
-    IoResult result;
-    result.error_code = code;
-    return result;
-  }
-
-  // Check if error is EAGAIN/EWOULDBLOCK
-  bool wouldBlock() const {
-    if (!error_code)
-      return false;
-#ifdef _WIN32
-    return *error_code == WSAEWOULDBLOCK;
-#else
-    return *error_code == EAGAIN || *error_code == EWOULDBLOCK;
-#endif
-  }
-};
-
-using IoCallResult = IoResult<size_t>;
-using IoCallVoidResult = IoResult<void*>;  // void* to avoid void in templates
+// Bring IoResult types into this namespace
+using ::mcp::IoResult;
+using ::mcp::IoCallResult;
+using ::mcp::IoVoidResult;
+using ::mcp::SystemError;
 
 // UDP receive message output
 struct RecvMsgOutput {
@@ -187,7 +155,7 @@ class IoHandle {
    * Close the socket.
    * @return Success or error
    */
-  virtual IoCallVoidResult close() = 0;
+  virtual IoVoidResult close() = 0;
 
   /**
    * Check if the socket is open.

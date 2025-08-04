@@ -129,17 +129,17 @@ TEST_F(IoSocketHandleTest, InvalidSocketOperations) {
   RawSlice slice;
   auto read_result = handle.readv(1024, &slice, 1);
   EXPECT_FALSE(read_result.ok());
-  EXPECT_EQ(*read_result.error_code, EBADF);
+  EXPECT_EQ(read_result.error_code(), EBADF);
 
   ConstRawSlice const_slice;
   auto write_result = handle.writev(&const_slice, 1);
   EXPECT_FALSE(write_result.ok());
-  EXPECT_EQ(*write_result.error_code, EBADF);
+  EXPECT_EQ(write_result.error_code(), EBADF);
 
   auto addr = Address::anyAddress(Address::IpVersion::v4);
   auto bind_result = handle.bind(addr);
   EXPECT_FALSE(bind_result.ok());
-  EXPECT_EQ(*bind_result.error_code, EBADF);
+  EXPECT_EQ(bind_result.error_code(), EBADF);
 }
 
 TEST_F(IoSocketHandleTest, TcpReadWrite) {
@@ -464,7 +464,7 @@ TEST_F(IoSocketHandleTest, LargeBuffer) {
     if (result.ok()) {
       total_written += *result;
     } else if (!result.wouldBlock()) {
-      FAIL() << "Write failed with error: " << *result.error_code;
+      FAIL() << "Write failed with error: " << result.error_code();
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -479,7 +479,7 @@ TEST_F(IoSocketHandleTest, LargeBuffer) {
     if (result.ok() && *result > 0) {
       total_read += *result;
     } else if (!result.ok() && !result.wouldBlock()) {
-      FAIL() << "Read failed with error: " << *result.error_code;
+      FAIL() << "Read failed with error: " << result.error_code();
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

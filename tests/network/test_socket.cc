@@ -40,7 +40,7 @@ class MockIoHandle : public IoHandle {
  public:
   MOCK_METHOD(os_fd_t, fd, (), (const, override));
   MOCK_METHOD(bool, isOpen, (), (const, override));
-  MOCK_METHOD(IoCallVoidResult, close, (), (override));
+  MOCK_METHOD(IoVoidResult, close, (), (override));
 
   MOCK_METHOD(IoCallResult,
               readv,
@@ -156,9 +156,10 @@ TEST_F(SocketTest, ConnectionInfoProvider) {
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
   auto remote_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
 
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
-  EXPECT_CALL(*mock_handle, fd()).WillRepeatedly(Return(5));
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_handle_ptr, fd()).WillRepeatedly(Return(5));
 
   ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
 
@@ -210,8 +211,9 @@ TEST_F(SocketTest, LocalAddressRestore) {
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
   auto remote_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
 
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
 
   ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
   auto& setter = socket.connectionInfoProvider();
@@ -231,32 +233,32 @@ TEST_F(SocketTest, LocalAddressRestore) {
 }
 
 TEST_F(SocketTest, IoHandleOperations) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
-  EXPECT_CALL(*handle_ptr, isOpen()).WillRepeatedly(Return(true));
-  EXPECT_CALL(*handle_ptr, fd()).WillRepeatedly(Return(10));
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_handle_ptr, fd()).WillRepeatedly(Return(10));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
 
   // Test IoHandle access
-  EXPECT_EQ(&socket.ioHandle(), handle_ptr);
+  EXPECT_EQ(&socket.ioHandle(), mock_handle_ptr);
   EXPECT_EQ(&const_cast<const ConnectionSocketImpl&>(socket).ioHandle(),
-            handle_ptr);
+            mock_handle_ptr);
   EXPECT_TRUE(socket.isOpen());
 
   // Test close
-  EXPECT_CALL(*handle_ptr, close()).Times(1);
+  EXPECT_CALL(*mock_handle_ptr, close()).Times(1);
   socket.close();
 }
 
 TEST_F(SocketTest, BindOperation) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   auto bind_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
 
-  EXPECT_CALL(*handle_ptr, bind(bind_addr))
+  EXPECT_CALL(*mock_handle_ptr, bind(bind_addr))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -270,10 +272,10 @@ TEST_F(SocketTest, BindOperation) {
 }
 
 TEST_F(SocketTest, ListenOperation) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
-  EXPECT_CALL(*handle_ptr, listen(128))
+  EXPECT_CALL(*mock_handle_ptr, listen(128))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -283,12 +285,12 @@ TEST_F(SocketTest, ListenOperation) {
 }
 
 TEST_F(SocketTest, ConnectOperation) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   auto connect_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
 
-  EXPECT_CALL(*handle_ptr, connect(connect_addr))
+  EXPECT_CALL(*mock_handle_ptr, connect(connect_addr))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -302,12 +304,12 @@ TEST_F(SocketTest, ConnectOperation) {
 }
 
 TEST_F(SocketTest, SocketOptions) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   // Test setSocketOption
   int reuse = 1;
-  EXPECT_CALL(*handle_ptr,
+  EXPECT_CALL(*mock_handle_ptr,
               setSocketOption(SOL_SOCKET, SO_REUSEADDR, _, sizeof(int)))
       .WillOnce(Return(IoResult<int>::success(0)));
 
@@ -320,7 +322,7 @@ TEST_F(SocketTest, SocketOptions) {
   // Test getSocketOption
   int value = 0;
   socklen_t len = sizeof(value);
-  EXPECT_CALL(*handle_ptr, getSocketOption(SOL_SOCKET, SO_REUSEADDR, _, _))
+  EXPECT_CALL(*mock_handle_ptr, getSocketOption(SOL_SOCKET, SO_REUSEADDR, _, _))
       .WillOnce([](int, int, void* optval, socklen_t* optlen) {
         *static_cast<int*>(optval) = 1;
         *optlen = sizeof(int);
@@ -333,11 +335,11 @@ TEST_F(SocketTest, SocketOptions) {
 }
 
 TEST_F(SocketTest, Ioctl) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   int bytes_available = 0;
-  EXPECT_CALL(*handle_ptr, ioctl(FIONREAD, &bytes_available))
+  EXPECT_CALL(*mock_handle_ptr, ioctl(FIONREAD, &bytes_available))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -347,7 +349,8 @@ TEST_F(SocketTest, Ioctl) {
 }
 
 TEST_F(SocketTest, AddOptions) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
 
@@ -370,17 +373,18 @@ TEST_F(SocketTest, AddOptions) {
 }
 
 TEST_F(SocketTest, Duplicate) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
   auto remote_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
 
   // Setup duplicate handle
-  auto dup_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*dup_handle, fd()).WillRepeatedly(Return(11));
+  std::unique_ptr<IoHandle> dup_handle = std::make_unique<MockIoHandle>();
+  auto* dup_mock_handle_ptr = static_cast<MockIoHandle*>(dup_handle.get());
+  EXPECT_CALL(*dup_mock_handle_ptr, fd()).WillRepeatedly(Return(11));
 
-  EXPECT_CALL(*handle_ptr, duplicate())
+  EXPECT_CALL(*mock_handle_ptr, duplicate())
       .WillOnce(Return(ByMove(std::move(dup_handle))));
 
   ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
@@ -401,10 +405,10 @@ TEST_F(SocketTest, Duplicate) {
 }
 
 TEST_F(SocketTest, SetBlocking) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
-  EXPECT_CALL(*handle_ptr, setBlocking(false))
+  EXPECT_CALL(*mock_handle_ptr, setBlocking(false))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -414,8 +418,9 @@ TEST_F(SocketTest, SetBlocking) {
 }
 
 TEST_F(SocketTest, ConnectionSocket) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
 
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
   auto remote_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
@@ -444,8 +449,9 @@ TEST_F(SocketTest, ConnectionSocket) {
 }
 
 TEST_F(SocketTest, ListenSocket) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
 
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
 
@@ -542,13 +548,13 @@ TEST_F(SocketTest, CreateSocketOptions) {
 }
 
 TEST_F(SocketTest, ApplySocketOptions) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  MockIoHandle* handle_ptr = mock_handle.get();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   // Expect socket option calls
-  EXPECT_CALL(*handle_ptr, setSocketOption(SOL_SOCKET, SO_REUSEADDR, _, _))
+  EXPECT_CALL(*mock_handle_ptr, setSocketOption(SOL_SOCKET, SO_REUSEADDR, _, _))
       .WillOnce(Return(IoResult<int>::success(0)));
-  EXPECT_CALL(*handle_ptr, setSocketOption(IPPROTO_TCP, TCP_NODELAY, _, _))
+  EXPECT_CALL(*mock_handle_ptr, setSocketOption(IPPROTO_TCP, TCP_NODELAY, _, _))
       .WillOnce(Return(IoResult<int>::success(0)));
 
   ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
@@ -573,36 +579,36 @@ TEST_F(SocketTest, ErrorHandling) {
   auto bind_result =
       socket.bind(Address::loopbackAddress(Address::IpVersion::v4, 8080));
   EXPECT_FALSE(bind_result.ok());
-  EXPECT_EQ(bind_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(bind_result.error_code(), EBADF);
 
   auto listen_result = socket.listen(128);
   EXPECT_FALSE(listen_result.ok());
-  EXPECT_EQ(listen_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(listen_result.error_code(), EBADF);
 
   auto connect_result =
       socket.connect(Address::loopbackAddress(Address::IpVersion::v4, 9090));
   EXPECT_FALSE(connect_result.ok());
-  EXPECT_EQ(connect_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(connect_result.error_code(), EBADF);
 
   int value = 1;
   auto setsockopt_result =
       socket.setSocketOption(SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value));
   EXPECT_FALSE(setsockopt_result.ok());
-  EXPECT_EQ(setsockopt_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(setsockopt_result.error_code(), EBADF);
 
   socklen_t len = sizeof(value);
   auto getsockopt_result =
       socket.getSocketOption(SOL_SOCKET, SO_REUSEADDR, &value, &len);
   EXPECT_FALSE(getsockopt_result.ok());
-  EXPECT_EQ(getsockopt_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(getsockopt_result.error_code(), EBADF);
 
   auto ioctl_result = socket.ioctl(FIONREAD, &value);
   EXPECT_FALSE(ioctl_result.ok());
-  EXPECT_EQ(ioctl_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(ioctl_result.error_code(), EBADF);
 
   auto setblocking_result = socket.setBlocking(false);
   EXPECT_FALSE(setblocking_result.ok());
-  EXPECT_EQ(setblocking_result.error_code.value_or(0), EBADF);
+  EXPECT_EQ(setblocking_result.error_code(), EBADF);
 
   auto dup = socket.duplicate();
   EXPECT_EQ(dup, nullptr);
@@ -612,7 +618,8 @@ TEST_F(SocketTest, ConnectionInfoProviderSharedPtr) {
   auto local_addr = Address::loopbackAddress(Address::IpVersion::v4, 8080);
   auto remote_addr = Address::loopbackAddress(Address::IpVersion::v4, 9090);
 
-  auto mock_handle = std::make_unique<MockIoHandle>();
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
 
   ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
 
@@ -630,8 +637,9 @@ TEST_F(SocketTest, ConnectionInfoProviderSharedPtr) {
 // Test Unix domain sockets if supported
 #ifndef _WIN32
 TEST_F(SocketTest, UnixDomainSocket) {
-  auto mock_handle = std::make_unique<MockIoHandle>();
-  EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
+  std::unique_ptr<IoHandle> mock_handle = std::make_unique<MockIoHandle>();
+  auto* mock_mock_handle_ptr = static_cast<MockIoHandle*>(mock_handle.get());
+  EXPECT_CALL(*mock_handle_ptr, isOpen()).WillRepeatedly(Return(true));
 
   auto unix_addr = std::make_shared<Address::PipeInstance>("/tmp/test.sock");
 
@@ -675,9 +683,9 @@ TEST_F(SocketTest, RealSocketIntegration) {
     auto connect_result = conn_socket->connect(connect_addr);
     // May be in progress or succeed
     EXPECT_TRUE(connect_result.ok() ||
-                (connect_result.error_code &&
-                 (*connect_result.error_code == EINPROGRESS ||
-                  *connect_result.error_code == EWOULDBLOCK)));
+                (connect_result.error_code() &&
+                 (connect_result.error_code() == EINPROGRESS ||
+                  connect_result.error_code() == EWOULDBLOCK)));
 
     conn_socket->close();
   }
