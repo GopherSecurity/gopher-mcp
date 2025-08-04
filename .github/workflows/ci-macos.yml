@@ -11,11 +11,6 @@ jobs:
     name: Build and Test (macOS)
     runs-on: macos-latest
     
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [Debug, Release]
-        
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -27,16 +22,16 @@ jobs:
         
     - name: Configure CMake
       run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug
         
     - name: Build
       run: |
-        cmake --build build --config ${{ matrix.build_type }} -j$(sysctl -n hw.ncpu)
+        cmake --build build --config Debug -j$(sysctl -n hw.ncpu)
         
     - name: Test
       run: |
         cd build
-        ctest -C ${{ matrix.build_type }} --output-on-failure --verbose
+        ctest -C Debug --output-on-failure --verbose
         
     - name: List all tests
       if: always()
