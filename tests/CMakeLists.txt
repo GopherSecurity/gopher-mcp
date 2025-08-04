@@ -18,6 +18,7 @@ add_executable(test_address network/test_address.cc)
 add_executable(test_socket network/test_socket.cc)
 add_executable(test_socket_interface network/test_socket_interface.cc)
 add_executable(test_socket_option network/test_socket_option.cc)
+add_executable(test_transport_socket network/test_transport_socket.cc)
 
 # Link libraries
 target_link_libraries(test_variant 
@@ -140,6 +141,14 @@ target_link_libraries(test_socket_option
     Threads::Threads
 )
 
+target_link_libraries(test_transport_socket
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -160,6 +169,7 @@ add_test(NAME AddressTest COMMAND test_address)
 add_test(NAME SocketTest COMMAND test_socket)
 add_test(NAME SocketInterfaceTest COMMAND test_socket_interface)
 add_test(NAME SocketOptionTest COMMAND test_socket_option)
+add_test(NAME TransportSocketTest COMMAND test_transport_socket)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
@@ -175,7 +185,7 @@ add_custom_target(run_tests
             test_mcp_type_helpers test_mcp_types test_compat
             test_buffer test_json test_event_loop
             test_io_socket_handle test_address test_socket
-            test_socket_interface test_socket_option
+            test_socket_interface test_socket_option test_transport_socket
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
