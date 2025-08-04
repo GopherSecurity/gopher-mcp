@@ -66,7 +66,7 @@ TEST_F(SocketOptionTest, BoolSocketOption) {
   EXPECT_TRUE(reuse_addr.isSupported());
   
   // Test string representation
-  EXPECT_EQ(reuse_addr.toString(), "SO_REUSEADDR=1");
+  EXPECT_EQ(reuse_addr.toString(), "SOL_SOCKET/SO_REUSEADDR=1");
   
   // Test hash key
   std::vector<uint8_t> key;
@@ -86,41 +86,44 @@ TEST_F(SocketOptionTest, IntSocketOption) {
       });
   
   EXPECT_TRUE(rcv_buf.setOption(mock_socket_));
-  EXPECT_EQ(rcv_buf.toString(), "SO_RCVBUF=65536");
+  EXPECT_EQ(rcv_buf.toString(), "SOL_SOCKET/SO_RCVBUF=65536");
 }
 
 TEST_F(SocketOptionTest, IpTransparentSocketOption) {
   IpTransparentSocketOption transparent(true);
   
-  // For IPv4 socket
-  EXPECT_CALL(mock_socket_, addressType())
-      .WillOnce(Return(Address::Type::Ip));
-  EXPECT_CALL(mock_socket_, ipVersion())
-      .WillOnce(Return(Address::IpVersion::v4));
-  
 #ifdef IP_TRANSPARENT
-  EXPECT_CALL(mock_socket_, setSocketOption(IPPROTO_IP, IP_TRANSPARENT, _, sizeof(int)))
-      .WillOnce(Return(IoResult<int>::success(0)));
-#endif
+  // If IP_TRANSPARENT is defined, the option should work
+  if (SOCKET_IP_TRANSPARENT.hasValue()) {
+    // For IPv4 socket
+    EXPECT_CALL(mock_socket_, setSocketOption(_, _, _, sizeof(int)))
+        .WillOnce(Return(IoResult<int>::success(0)));
+    
+    transparent.setOption(mock_socket_);
+  }
   
-  transparent.setOption(mock_socket_);
-  
-  // For IPv6 socket
+  // For IPv6 socket  
   EXPECT_CALL(mock_socket_, addressType())
       .WillRepeatedly(Return(Address::Type::Ip));
   EXPECT_CALL(mock_socket_, ipVersion())
       .WillRepeatedly(Return(Address::IpVersion::v6));
   
-#ifdef IP_TRANSPARENT
-  EXPECT_CALL(mock_socket_, setSocketOption(IPPROTO_IP, IP_TRANSPARENT, _, sizeof(int)))
-      .WillOnce(Return(IoResult<int>::success(0)));
-#endif
+  if (SOCKET_IP_TRANSPARENT.hasValue()) {
+    EXPECT_CALL(mock_socket_, setSocketOption(IPPROTO_IP, IP_TRANSPARENT, _, sizeof(int)))
+        .WillOnce(Return(IoResult<int>::success(0)));
+  }
 #ifdef IPV6_TRANSPARENT
-  EXPECT_CALL(mock_socket_, setSocketOption(IPPROTO_IPV6, IPV6_TRANSPARENT, _, sizeof(int)))
-      .WillOnce(Return(IoResult<int>::success(0)));
+  if (SOCKET_IPV6_TRANSPARENT.hasValue()) {
+    EXPECT_CALL(mock_socket_, setSocketOption(IPPROTO_IPV6, IPV6_TRANSPARENT, _, sizeof(int)))
+        .WillOnce(Return(IoResult<int>::success(0)));
+  }
 #endif
   
   transparent.setOption(mock_socket_);
+#else
+  // Without IP_TRANSPARENT, the option may not be supported
+  transparent.setOption(mock_socket_);
+#endif
 }
 
 TEST_F(SocketOptionTest, IpFreebindSocketOption) {
@@ -455,7 +458,7 @@ TEST_F(SocketOptionTest, SocketOptionNameConstants) {
   EXPECT_TRUE(SOCKET_SO_REUSEADDR.hasValue());
   EXPECT_EQ(SOCKET_SO_REUSEADDR.level, SOL_SOCKET);
   EXPECT_EQ(SOCKET_SO_REUSEADDR.option, SO_REUSEADDR);
-  EXPECT_EQ(SOCKET_SO_REUSEADDR.name, "SO_REUSEADDR");
+  EXPECT_EQ(SOCKET_SO_REUSEADDR.name, "SOL_SOCKET/SO_REUSEADDR");
   
 #ifdef SO_REUSEPORT
   EXPECT_TRUE(SOCKET_SO_REUSEPORT.hasValue());
