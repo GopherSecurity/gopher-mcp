@@ -13,23 +13,23 @@ namespace network {
 
 /**
  * Base socket option implementation.
- * 
+ *
  * Provides common functionality for socket options.
  */
 class SocketOptionImpl : public SocketOption {
-public:
+ public:
   SocketOptionImpl(const SocketOptionName& optname,
                    const void* value,
                    size_t size);
-  
+
   // SocketOption interface
   bool setOption(Socket& socket) const override;
   bool setOptionForListen(Socket& socket) const override;
   void hashKey(std::vector<uint8_t>& key) const override;
   std::string toString() const override;
   bool isSupported() const override;
-  
-protected:
+
+ protected:
   SocketOptionName optname_;
   std::vector<uint8_t> value_;
 };
@@ -38,7 +38,7 @@ protected:
  * Socket option for boolean values.
  */
 class BoolSocketOption : public SocketOptionImpl {
-public:
+ public:
   BoolSocketOption(const SocketOptionName& optname, bool value)
       : SocketOptionImpl(optname, &value, sizeof(int)) {
     // Convert bool to int for setsockopt
@@ -52,7 +52,7 @@ public:
  * Socket option for integer values.
  */
 class IntSocketOption : public SocketOptionImpl {
-public:
+ public:
   IntSocketOption(const SocketOptionName& optname, int value)
       : SocketOptionImpl(optname, &value, sizeof(int)) {}
 };
@@ -61,42 +61,45 @@ public:
  * Socket option that applies at different phases.
  */
 class MultiPhaseSocketOption : public SocketOption {
-public:
+ public:
   MultiPhaseSocketOption(SocketOptionConstSharedPtr pre_bind,
                          SocketOptionConstSharedPtr post_listen)
       : pre_bind_(pre_bind), post_listen_(post_listen) {}
-  
+
   bool setOption(Socket& socket) const override {
     return pre_bind_ ? pre_bind_->setOption(socket) : true;
   }
-  
+
   bool setOptionForListen(Socket& socket) const override {
     return post_listen_ ? post_listen_->setOptionForListen(socket) : true;
   }
-  
+
   void hashKey(std::vector<uint8_t>& key) const override {
-    if (pre_bind_) pre_bind_->hashKey(key);
-    if (post_listen_) post_listen_->hashKey(key);
+    if (pre_bind_)
+      pre_bind_->hashKey(key);
+    if (post_listen_)
+      post_listen_->hashKey(key);
   }
-  
+
   std::string toString() const override {
     std::string result;
     if (pre_bind_) {
       result += "pre_bind: " + pre_bind_->toString();
     }
     if (post_listen_) {
-      if (!result.empty()) result += ", ";
+      if (!result.empty())
+        result += ", ";
       result += "post_listen: " + post_listen_->toString();
     }
     return result;
   }
-  
+
   bool isSupported() const override {
     return (!pre_bind_ || pre_bind_->isSupported()) &&
            (!post_listen_ || post_listen_->isSupported());
   }
-  
-private:
+
+ private:
   SocketOptionConstSharedPtr pre_bind_;
   SocketOptionConstSharedPtr post_listen_;
 };
@@ -105,9 +108,9 @@ private:
  * Socket option for IP_TRANSPARENT (Linux).
  */
 class IpTransparentSocketOption : public BoolSocketOption {
-public:
+ public:
   explicit IpTransparentSocketOption(bool enabled = true);
-  
+
   bool setOption(Socket& socket) const override;
 };
 
@@ -115,7 +118,7 @@ public:
  * Socket option for IP_FREEBIND (Linux).
  */
 class IpFreebindSocketOption : public BoolSocketOption {
-public:
+ public:
   explicit IpFreebindSocketOption(bool enabled = true);
 };
 
@@ -123,19 +126,19 @@ public:
  * Socket option for SO_REUSEPORT (with BPF support on Linux).
  */
 class ReusePortSocketOption : public BoolSocketOption {
-public:
+ public:
   explicit ReusePortSocketOption(bool enabled = true);
-  
+
   /**
    * Set BPF program for REUSEPORT_CBPF (Linux).
    * @param prog BPF program
    * @param prog_len Program length
    */
   void setBpfProgram(const void* prog, size_t prog_len);
-  
+
   bool setOptionForListen(Socket& socket) const override;
-  
-private:
+
+ private:
   std::vector<uint8_t> bpf_program_;
 };
 
@@ -143,24 +146,27 @@ private:
  * Socket option for TCP keepalive settings.
  */
 class TcpKeepaliveSocketOption : public SocketOption {
-public:
+ public:
   struct KeepaliveSettings {
     optional<bool> enabled;
-    optional<int> idle_time_s;     // TCP_KEEPIDLE
-    optional<int> interval_s;       // TCP_KEEPINTVL
-    optional<int> probes;          // TCP_KEEPCNT
+    optional<int> idle_time_s;  // TCP_KEEPIDLE
+    optional<int> interval_s;   // TCP_KEEPINTVL
+    optional<int> probes;       // TCP_KEEPCNT
   };
-  
+
   explicit TcpKeepaliveSocketOption(const KeepaliveSettings& settings)
       : settings_(settings) {}
-  
+
   bool setOption(Socket& socket) const override;
-  bool setOptionForListen(Socket& socket) const override { (void)socket; return true; }
+  bool setOptionForListen(Socket& socket) const override {
+    (void)socket;
+    return true;
+  }
   void hashKey(std::vector<uint8_t>& key) const override;
   std::string toString() const override;
   bool isSupported() const override;
-  
-private:
+
+ private:
   KeepaliveSettings settings_;
 };
 
@@ -168,12 +174,12 @@ private:
  * Socket option for receive/send buffer sizes.
  */
 class BufferSizeSocketOption : public IntSocketOption {
-public:
+ public:
   enum BufferType {
     Receive,  // SO_RCVBUF
     Send      // SO_SNDBUF
   };
-  
+
   BufferSizeSocketOption(BufferType type, int size);
 };
 
@@ -181,7 +187,7 @@ public:
  * Socket option for marking packets (SO_MARK on Linux).
  */
 class MarkSocketOption : public IntSocketOption {
-public:
+ public:
   explicit MarkSocketOption(uint32_t mark);
 };
 
@@ -189,16 +195,19 @@ public:
  * Socket option for Type of Service (IP_TOS).
  */
 class TosSocketOption : public SocketOption {
-public:
+ public:
   explicit TosSocketOption(uint8_t tos) : tos_(tos) {}
-  
+
   bool setOption(Socket& socket) const override;
-  bool setOptionForListen(Socket& socket) const override { (void)socket; return true; }
+  bool setOptionForListen(Socket& socket) const override {
+    (void)socket;
+    return true;
+  }
   void hashKey(std::vector<uint8_t>& key) const override;
   std::string toString() const override;
   bool isSupported() const override;
-  
-private:
+
+ private:
   uint8_t tos_;
 };
 
