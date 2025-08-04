@@ -13,11 +13,11 @@ add_executable(test_json test_json.cpp)
 add_executable(test_event_loop test_event_loop.cpp)
 
 # Network tests
-add_executable(test_io_socket_handle network/io_socket_handle_test.cc)
-add_executable(test_address network/address_test.cc)
-add_executable(test_socket network/socket_test.cc)
-add_executable(test_socket_interface network/socket_interface_test.cc)
-add_executable(test_socket_option network/socket_option_test.cc)
+add_executable(test_io_socket_handle network/test_io_socket_handle.cpp)
+add_executable(test_address network/test_address.cpp)
+add_executable(test_socket network/test_socket.cpp)
+add_executable(test_socket_interface network/test_socket_interface.cpp)
+add_executable(test_socket_option network/test_socket_option.cpp)
 
 # Link libraries
 target_link_libraries(test_variant 
