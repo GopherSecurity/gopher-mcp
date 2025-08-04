@@ -155,7 +155,7 @@ public:
       : settings_(settings) {}
   
   bool setOption(Socket& socket) const override;
-  bool setOptionForListen(Socket& socket) const override { return true; }
+  bool setOptionForListen(Socket& socket) const override { (void)socket; return true; }
   void hashKey(std::vector<uint8_t>& key) const override;
   std::string toString() const override;
   bool isSupported() const override;
@@ -193,7 +193,7 @@ public:
   explicit TosSocketOption(uint8_t tos) : tos_(tos) {}
   
   bool setOption(Socket& socket) const override;
-  bool setOptionForListen(Socket& socket) const override { return true; }
+  bool setOptionForListen(Socket& socket) const override { (void)socket; return true; }
   void hashKey(std::vector<uint8_t>& key) const override;
   std::string toString() const override;
   bool isSupported() const override;
@@ -215,46 +215,51 @@ SocketOptionsSharedPtr buildSocketOptions(const SocketCreationOptions& options);
 
 // Define platform-specific socket options
 #ifdef SO_REUSEADDR
-inline const SocketOptionName SOCKET_SO_REUSEADDR = 
-    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEADDR);
+extern const SocketOptionName SOCKET_SO_REUSEADDR;
 #else
-inline const SocketOptionName SOCKET_SO_REUSEADDR;
+extern const SocketOptionName SOCKET_SO_REUSEADDR;
 #endif
 
 #ifdef SO_REUSEPORT
-inline const SocketOptionName SOCKET_SO_REUSEPORT = 
-    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEPORT);
+extern const SocketOptionName SOCKET_SO_REUSEPORT;
 #else
-inline const SocketOptionName SOCKET_SO_REUSEPORT;
+extern const SocketOptionName SOCKET_SO_REUSEPORT;
 #endif
 
 #ifdef SO_KEEPALIVE
-inline const SocketOptionName SOCKET_SO_KEEPALIVE = 
-    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_KEEPALIVE);
+extern const SocketOptionName SOCKET_SO_KEEPALIVE;
 #else
-inline const SocketOptionName SOCKET_SO_KEEPALIVE;
+extern const SocketOptionName SOCKET_SO_KEEPALIVE;
 #endif
 
 #ifdef TCP_NODELAY
-inline const SocketOptionName SOCKET_TCP_NODELAY = 
-    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_NODELAY);
+extern const SocketOptionName SOCKET_TCP_NODELAY;
 #else
-inline const SocketOptionName SOCKET_TCP_NODELAY;
+extern const SocketOptionName SOCKET_TCP_NODELAY;
 #endif
 
 #ifdef IP_TRANSPARENT
-inline const SocketOptionName SOCKET_IP_TRANSPARENT = 
-    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_TRANSPARENT);
+extern const SocketOptionName SOCKET_IP_TRANSPARENT;
 #else
-inline const SocketOptionName SOCKET_IP_TRANSPARENT;
+extern const SocketOptionName SOCKET_IP_TRANSPARENT;
 #endif
 
 #ifdef IPV6_V6ONLY
-inline const SocketOptionName SOCKET_IPV6_V6ONLY = 
-    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IPV6, IPV6_V6ONLY);
+extern const SocketOptionName SOCKET_IPV6_V6ONLY;
 #else
-inline const SocketOptionName SOCKET_IPV6_V6ONLY;
+extern const SocketOptionName SOCKET_IPV6_V6ONLY;
 #endif
+
+// Additional socket options
+extern const SocketOptionName SOCKET_SO_RCVBUF;
+extern const SocketOptionName SOCKET_SO_SNDBUF;
+extern const SocketOptionName SOCKET_SO_MARK;
+extern const SocketOptionName SOCKET_IP_FREEBIND;
+extern const SocketOptionName SOCKET_IPV6_TRANSPARENT;
+extern const SocketOptionName SOCKET_TCP_KEEPIDLE;
+extern const SocketOptionName SOCKET_TCP_KEEPINTVL;
+extern const SocketOptionName SOCKET_TCP_KEEPCNT;
+extern const SocketOptionName SOCKET_IP_TOS;
 
 }  // namespace network
 }  // namespace mcp

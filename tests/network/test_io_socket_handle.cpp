@@ -3,11 +3,19 @@
 #include <thread>
 #include <chrono>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <netinet/tcp.h>
+#endif
+
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/event/libevent_dispatcher.h"
 
+using namespace mcp;
 using namespace mcp::network;
 using namespace mcp::event;
 using namespace testing;
@@ -113,7 +121,9 @@ TEST_F(IoSocketHandleTest, InvalidSocketOperations) {
 }
 
 TEST_F(IoSocketHandleTest, TcpReadWrite) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
   
   // Write data from client
   const std::string test_data = "Hello, World!";
@@ -142,7 +152,9 @@ TEST_F(IoSocketHandleTest, TcpReadWrite) {
 }
 
 TEST_F(IoSocketHandleTest, TcpVectoredIO) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
   
   // Prepare multiple slices
   const std::string part1 = "Hello, ";
@@ -188,7 +200,9 @@ TEST_F(IoSocketHandleTest, TcpVectoredIO) {
 }
 
 TEST_F(IoSocketHandleTest, UdpSendRecv) {
-  auto [socket1, socket2] = createUdpSocketPair();
+  auto socket_pair = createUdpSocketPair();
+  auto& socket1 = socket_pair.first;
+  auto& socket2 = socket_pair.second;
   
   // Get addresses
   auto addr1_result = socket1->localAddress();
@@ -283,7 +297,9 @@ TEST_F(IoSocketHandleTest, NonBlockingMode) {
 }
 
 TEST_F(IoSocketHandleTest, EventIntegration) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
   
   bool read_ready = false;
   bool write_ready = false;
@@ -340,7 +356,9 @@ TEST_F(IoSocketHandleTest, AddressRetrieval) {
 }
 
 TEST_F(IoSocketHandleTest, Shutdown) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
   
   // Shutdown write side of client
   auto shutdown_result = client->shutdown(SHUT_WR);
@@ -386,7 +404,9 @@ TEST_F(IoSocketHandleTest, Duplicate) {
 }
 
 TEST_F(IoSocketHandleTest, LargeBuffer) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
   
   // Create large buffer (1MB)
   const size_t size = 1024 * 1024;
@@ -464,7 +484,10 @@ TEST_F(IoSocketHandleTest, UnixDomainSocket) {
 }
 
 TEST_F(IoSocketHandleTest, TcpInfo) {
-  auto [client, server] = createTcpSocketPair();
+  auto socket_pair = createTcpSocketPair();
+  auto& client = socket_pair.first;
+  auto& server = socket_pair.second;
+  (void)server;  // Unused in this test
   
   // Send some data to establish RTT
   mcp::OwnedBuffer buffer;
@@ -494,9 +517,9 @@ TEST_F(IoSocketHandleTest, FileEventActivation) {
   auto* mock_ptr = mock_event.get();
   
   // Can't easily inject mock into real dispatcher, so test the handle methods
-  EXPECT_CALL(*mock_ptr, activate(FileReadyType::Read))
+  EXPECT_CALL(*mock_ptr, activate(static_cast<uint32_t>(FileReadyType::Read)))
       .Times(1);
-  EXPECT_CALL(*mock_ptr, setEnabled(FileReadyType::Write))
+  EXPECT_CALL(*mock_ptr, setEnabled(static_cast<uint32_t>(FileReadyType::Write)))
       .Times(1);
   
   // These would normally be called by the handle

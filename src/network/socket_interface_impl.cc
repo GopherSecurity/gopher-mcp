@@ -16,6 +16,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <errno.h>
 #endif
@@ -33,6 +34,7 @@ namespace {
 constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
 constexpr int SOCKET_ERROR_INVAL = WSAEINVAL;
 constexpr int SOCKET_ERROR_AFNOSUPPORT = WSAEAFNOSUPPORT;
+constexpr int SOCKET_ERROR_INPROGRESS = WSAEINPROGRESS;
 
 int getLastSocketError() { return WSAGetLastError(); }
 
@@ -58,6 +60,7 @@ static WinsockInitializer winsock_init;
 constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
 constexpr int SOCKET_ERROR_INVAL = EINVAL;
 constexpr int SOCKET_ERROR_AFNOSUPPORT = EAFNOSUPPORT;
+constexpr int SOCKET_ERROR_INPROGRESS = EINPROGRESS;
 
 int getLastSocketError() { return errno; }
 #endif
@@ -105,19 +108,16 @@ std::map<std::string, SocketInterfaceLoaderPtr> g_socket_interface_loaders;
 
 }  // namespace
 
-/**
- * Default socket interface implementation
- */
-class SocketInterfaceImpl : public SocketInterface {
-public:
-  SocketInterfaceImpl() : platform_name_(detectPlatform()) {
-    initializeCapabilities();
-  }
-  
-  IoResult<os_fd_t> socket(SocketType type,
-                           Address::Type addr_type,
-                           optional<Address::IpVersion> version,
-                           bool socket_v6only) override {
+// Implementation of SocketInterfaceImpl methods
+// Class is already declared in the header file
+SocketInterfaceImpl::SocketInterfaceImpl() : platform_name_(detectPlatform()) {
+  initializeCapabilities();
+}
+
+IoResult<os_fd_t> SocketInterfaceImpl::socket(SocketType type,
+                                               Address::Type addr_type,
+                                               optional<Address::IpVersion> version,
+                                               bool socket_v6only) {
     int domain = addressTypeToDomain(addr_type, version);
     if (domain < 0) {
       return IoResult<os_fd_t>::error(SOCKET_ERROR_AFNOSUPPORT);
@@ -153,8 +153,8 @@ public:
     
     return IoResult<os_fd_t>::success(fd);
   }
-  
-  IoResult<int> socketPair(SocketType type, os_fd_t fds[2]) override {
+
+IoResult<int> SocketInterfaceImpl::socketPair(SocketType type, os_fd_t fds[2]) {
 #ifdef _WIN32
     // Windows doesn't have socketpair, emulate with TCP sockets
     return emulateSocketPairWindows(type, fds);
@@ -184,14 +184,14 @@ public:
     return IoResult<int>::success(0);
 #endif
   }
-  
-  IoHandlePtr ioHandleForFd(os_fd_t fd,
-                           bool socket_v6only,
-                           optional<int> domain) override {
+
+IoHandlePtr SocketInterfaceImpl::ioHandleForFd(os_fd_t fd,
+                                                bool socket_v6only,
+                                                optional<int> domain) {
     return std::make_unique<IoSocketHandleImpl>(fd, socket_v6only, domain);
   }
-  
-  IoResult<int> close(os_fd_t fd) override {
+
+IoResult<int> SocketInterfaceImpl::close(os_fd_t fd) {
 #ifdef _WIN32
     int result = ::closesocket(fd);
 #else
@@ -202,8 +202,8 @@ public:
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<os_fd_t> duplicate(os_fd_t fd) override {
+
+IoResult<os_fd_t> SocketInterfaceImpl::duplicate(os_fd_t fd) {
 #ifdef _WIN32
     // Windows socket duplication is more complex
     WSAPROTOCOL_INFO info;
@@ -227,8 +227,8 @@ public:
     return IoResult<os_fd_t>::success(new_fd);
 #endif
   }
-  
-  IoResult<int> setFileFlags(os_fd_t fd, int flags) override {
+
+IoResult<int> SocketInterfaceImpl::setFileFlags(os_fd_t fd, int flags) {
 #ifdef _WIN32
     // Windows doesn't have fcntl, handle specific flags
     if (flags & O_NONBLOCK) {
@@ -258,8 +258,8 @@ public:
     return IoResult<int>::success(0);
 #endif
   }
-  
-  IoResult<int> getFileFlags(os_fd_t fd) override {
+
+IoResult<int> SocketInterfaceImpl::getFileFlags(os_fd_t fd) {
 #ifdef _WIN32
     // Limited flag support on Windows
     return IoResult<int>::success(0);
@@ -271,9 +271,9 @@ public:
     return IoResult<int>::success(flags);
 #endif
   }
-  
-  IoResult<int> setsockopt(os_fd_t fd, int level, int optname,
-                          const void* optval, socklen_t optlen) override {
+
+IoResult<int> SocketInterfaceImpl::setsockopt(os_fd_t fd, int level, int optname,
+                                               const void* optval, socklen_t optlen) {
 #ifdef _WIN32
     int result = ::setsockopt(fd, level, optname,
                              static_cast<const char*>(optval), optlen);
@@ -285,9 +285,9 @@ public:
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<int> getsockopt(os_fd_t fd, int level, int optname,
-                          void* optval, socklen_t* optlen) override {
+
+IoResult<int> SocketInterfaceImpl::getsockopt(os_fd_t fd, int level, int optname,
+                                               void* optval, socklen_t* optlen) {
 #ifdef _WIN32
     int result = ::getsockopt(fd, level, optname,
                              static_cast<char*>(optval), optlen);
@@ -299,26 +299,26 @@ public:
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<int> bind(os_fd_t fd, const Address::Instance& addr) override {
+
+IoResult<int> SocketInterfaceImpl::bind(os_fd_t fd, const Address::Instance& addr) {
     int result = ::bind(fd, addr.sockAddr(), addr.sockAddrLen());
     if (result < 0) {
       return IoResult<int>::error(getLastSocketError());
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<int> listen(os_fd_t fd, int backlog) override {
+
+IoResult<int> SocketInterfaceImpl::listen(os_fd_t fd, int backlog) {
     int result = ::listen(fd, backlog);
     if (result < 0) {
       return IoResult<int>::error(getLastSocketError());
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<os_fd_t> accept(os_fd_t fd,
-                          sockaddr* addr,
-                          socklen_t* addrlen) override {
+
+IoResult<os_fd_t> SocketInterfaceImpl::accept(os_fd_t fd,
+                                               sockaddr* addr,
+                                               socklen_t* addrlen) {
 #ifdef __linux__
     // Use accept4 on Linux for SOCK_CLOEXEC and SOCK_NONBLOCK
     os_fd_t new_fd = ::accept4(fd, addr, addrlen, SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -345,29 +345,29 @@ public:
     }
     return IoResult<os_fd_t>::success(new_fd);
   }
-  
-  IoResult<int> connect(os_fd_t fd, const Address::Instance& addr) override {
+
+IoResult<int> SocketInterfaceImpl::connect(os_fd_t fd, const Address::Instance& addr) {
     int result = ::connect(fd, addr.sockAddr(), addr.sockAddrLen());
     if (result < 0) {
       int error = getLastSocketError();
       // EINPROGRESS is expected for non-blocking connect
-      if (error == EINPROGRESS || error == SOCKET_ERROR_AGAIN) {
+      if (error == SOCKET_ERROR_INPROGRESS || error == SOCKET_ERROR_AGAIN) {
         return IoResult<int>::success(0);
       }
       return IoResult<int>::error(error);
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<int> shutdown(os_fd_t fd, int how) override {
+
+IoResult<int> SocketInterfaceImpl::shutdown(os_fd_t fd, int how) {
     int result = ::shutdown(fd, how);
     if (result < 0) {
       return IoResult<int>::error(getLastSocketError());
     }
     return IoResult<int>::success(0);
   }
-  
-  IoResult<Address::InstanceConstSharedPtr> localAddress(os_fd_t fd) override {
+
+IoResult<Address::InstanceConstSharedPtr> SocketInterfaceImpl::localAddress(os_fd_t fd) {
     sockaddr_storage addr;
     socklen_t addr_len = sizeof(addr);
     
@@ -378,8 +378,8 @@ public:
     return IoResult<Address::InstanceConstSharedPtr>::success(
         Address::addressFromSockAddr(addr, addr_len, false));
   }
-  
-  IoResult<Address::InstanceConstSharedPtr> peerAddress(os_fd_t fd) override {
+
+IoResult<Address::InstanceConstSharedPtr> SocketInterfaceImpl::peerAddress(os_fd_t fd) {
     sockaddr_storage addr;
     socklen_t addr_len = sizeof(addr);
     
@@ -390,8 +390,8 @@ public:
     return IoResult<Address::InstanceConstSharedPtr>::success(
         Address::addressFromSockAddr(addr, addr_len, false));
   }
-  
-  IoResult<int> ioctl(os_fd_t fd, unsigned long request, void* argp) override {
+
+IoResult<int> SocketInterfaceImpl::ioctl(os_fd_t fd, unsigned long request, void* argp) {
 #ifdef _WIN32
     int result = ::ioctlsocket(fd, request, static_cast<u_long*>(argp));
 #else
@@ -402,15 +402,15 @@ public:
     }
     return IoResult<int>::success(0);
   }
-  
-  optional<std::string> interfaceName(os_fd_t fd) override {
+
+optional<std::string> SocketInterfaceImpl::interfaceName(os_fd_t fd) {
     // TODO: Implement interface name retrieval
     // This requires platform-specific implementation
     (void)fd;
     return nullopt;
   }
-  
-  bool supportsSocketOption(int level, int optname) const override {
+
+bool SocketInterfaceImpl::supportsSocketOption(int level, int optname) const {
     // Check common options
     if (level == SOL_SOCKET) {
       switch (optname) {
@@ -451,33 +451,32 @@ public:
     // For unknown options, assume not supported
     return false;
   }
-  
-  const std::string& platformName() const override {
+
+const std::string& SocketInterfaceImpl::platformName() const {
     return platform_name_;
   }
-  
-  bool supportsIoUring() const override {
+
+bool SocketInterfaceImpl::supportsIoUring() const {
     return supports_io_uring_;
   }
-  
-  bool supportsUdpGro() const override {
+
+bool SocketInterfaceImpl::supportsUdpGro() const {
     return supports_udp_gro_;
   }
-  
-  bool supportsUdpGso() const override {
+
+bool SocketInterfaceImpl::supportsUdpGso() const {
     return supports_udp_gso_;
   }
-  
-  bool supportsIpPktInfo() const override {
+
+bool SocketInterfaceImpl::supportsIpPktInfo() const {
     return supports_ip_pktinfo_;
   }
-  
-  bool supportsReusePort() const override {
+
+bool SocketInterfaceImpl::supportsReusePort() const {
     return supports_reuse_port_;
   }
-  
-private:
-  void setNonBlocking(os_fd_t fd) {
+
+void SocketInterfaceImpl::setNonBlocking(os_fd_t fd) {
 #ifdef _WIN32
     u_long mode = 1;
     ::ioctlsocket(fd, FIONBIO, &mode);
@@ -488,14 +487,14 @@ private:
     }
 #endif
   }
-  
-  void setCloseOnExec(os_fd_t fd) {
+
+void SocketInterfaceImpl::setCloseOnExec(os_fd_t fd) {
 #ifndef _WIN32
     ::fcntl(fd, F_SETFD, FD_CLOEXEC);
 #endif
   }
-  
-  std::string detectPlatform() {
+
+std::string SocketInterfaceImpl::detectPlatform() {
 #ifdef _WIN32
     return "windows";
 #elif __APPLE__
@@ -508,8 +507,8 @@ private:
     return "unknown";
 #endif
   }
-  
-  void initializeCapabilities() {
+
+void SocketInterfaceImpl::initializeCapabilities() {
     // Detect platform capabilities
 #ifdef SO_REUSEPORT
     supports_reuse_port_ = true;
@@ -543,9 +542,9 @@ private:
     supports_ip_pktinfo_ = true;
 #endif
   }
-  
+
 #ifdef _WIN32
-  IoResult<int> emulateSocketPairWindows(SocketType type, os_fd_t fds[2]) {
+IoResult<int> SocketInterfaceImpl::emulateSocketPairWindows(SocketType type, os_fd_t fds[2]) {
     // Create listening socket
     auto listen_result = socket(type, Address::Type::Ip, Address::IpVersion::v4, false);
     if (!listen_result.ok()) {
@@ -615,16 +614,6 @@ private:
     return IoResult<int>::success(0);
   }
 #endif
-  
-  std::string platform_name_;
-  bool supports_reuse_port_ = false;
-  bool supports_io_uring_ = false;
-  bool supports_udp_gro_ = false;
-  bool supports_udp_gso_ = false;
-  bool supports_ip_transparent_ = false;
-  bool supports_ip_freebind_ = false;
-  bool supports_ip_pktinfo_ = false;
-};
 
 // ===== Global Functions =====
 
@@ -654,8 +643,8 @@ void registerSocketInterfaceLoader(SocketInterfaceLoaderPtr loader) {
 std::vector<std::string> getSocketInterfaceLoaderNames() {
   std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
   std::vector<std::string> names;
-  for (const auto& [name, loader] : g_socket_interface_loaders) {
-    names.push_back(name);
+  for (const auto& pair : g_socket_interface_loaders) {
+    names.push_back(pair.first);
   }
   return names;
 }

@@ -102,7 +102,7 @@ protected:
 /**
  * Connection socket implementation
  */
-class ConnectionSocketImpl : public SocketImpl, public ConnectionSocket {
+class ConnectionSocketImpl : public ConnectionSocket {
 public:
   ConnectionSocketImpl(IoHandlePtr io_handle,
                        const Address::InstanceConstSharedPtr& local_address,
@@ -119,7 +119,32 @@ public:
   Address::Type addressType() const override;
   optional<Address::IpVersion> ipVersion() const override;
   
+  // Socket implementation methods
+  ConnectionInfoSetter& connectionInfoProvider() override;
+  const ConnectionInfoProvider& connectionInfoProvider() const override;
+  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const override;
+  IoHandle& ioHandle() override;
+  const IoHandle& ioHandle() const override;
+  void close() override;
+  bool isOpen() const override;
+  IoResult<int> bind(const Address::InstanceConstSharedPtr& address) override;
+  IoResult<int> listen(int backlog) override;
+  IoResult<int> connect(const Address::InstanceConstSharedPtr& address) override;
+  IoResult<int> setSocketOption(int level, int optname,
+                                const void* optval, socklen_t optlen) override;
+  IoResult<int> getSocketOption(int level, int optname,
+                                void* optval, socklen_t* optlen) const override;
+  IoResult<int> ioctl(unsigned long request, void* argp) override;
+  void addOption(const SocketOptionConstSharedPtr& option) override;
+  void addOptions(const SocketOptionsSharedPtr& options) override;
+  const SocketOptionsSharedPtr& options() const override;
+  SocketPtr duplicate() override;
+  IoResult<int> setBlocking(bool blocking) override;
+
 private:
+  IoHandlePtr io_handle_;
+  std::shared_ptr<ConnectionInfoSetterImpl> connection_info_provider_;
+  SocketOptionsSharedPtr options_;
   bool half_close_enabled_{false};
   DetectedCloseType detected_close_type_{DetectedCloseType::Normal};
 };
@@ -127,7 +152,7 @@ private:
 /**
  * Listen socket implementation
  */
-class ListenSocketImpl : public SocketImpl, public ListenSocket {
+class ListenSocketImpl : public ListenSocket {
 public:
   ListenSocketImpl(IoHandlePtr io_handle,
                    const Address::InstanceConstSharedPtr& local_address);
@@ -139,6 +164,33 @@ public:
   SocketType socketType() const override;
   Address::Type addressType() const override;
   optional<Address::IpVersion> ipVersion() const override;
+  
+  // Socket implementation methods
+  ConnectionInfoSetter& connectionInfoProvider() override;
+  const ConnectionInfoProvider& connectionInfoProvider() const override;
+  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const override;
+  IoHandle& ioHandle() override;
+  const IoHandle& ioHandle() const override;
+  void close() override;
+  bool isOpen() const override;
+  IoResult<int> bind(const Address::InstanceConstSharedPtr& address) override;
+  IoResult<int> listen(int backlog) override;
+  IoResult<int> connect(const Address::InstanceConstSharedPtr& address) override;
+  IoResult<int> setSocketOption(int level, int optname,
+                                const void* optval, socklen_t optlen) override;
+  IoResult<int> getSocketOption(int level, int optname,
+                                void* optval, socklen_t* optlen) const override;
+  IoResult<int> ioctl(unsigned long request, void* argp) override;
+  void addOption(const SocketOptionConstSharedPtr& option) override;
+  void addOptions(const SocketOptionsSharedPtr& options) override;
+  const SocketOptionsSharedPtr& options() const override;
+  SocketPtr duplicate() override;
+  IoResult<int> setBlocking(bool blocking) override;
+
+private:
+  IoHandlePtr io_handle_;
+  std::shared_ptr<ConnectionInfoSetterImpl> connection_info_provider_;
+  SocketOptionsSharedPtr options_;
 };
 
 }  // namespace network

@@ -12,16 +12,13 @@
 #include "mcp/compat.h"
 
 namespace mcp {
+namespace event {
 
-// Forward declaration for Buffer namespace
-namespace Buffer {
+// Forward declaration
 class WatermarkFactory {
  public:
   virtual ~WatermarkFactory() = default;
 };
-}  // namespace Buffer
-
-namespace event {
 
 // Forward declarations
 class Dispatcher;
@@ -324,7 +321,7 @@ class Dispatcher : public DispatcherBase {
   /**
    * Get the buffer factory for this dispatcher.
    */
-  virtual Buffer::WatermarkFactory& getWatermarkFactory() = 0;
+  virtual WatermarkFactory& getWatermarkFactory() = 0;
 
   /**
    * Push a tracked object for debugging.
