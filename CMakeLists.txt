@@ -128,6 +128,7 @@ set(MCP_SDK_SOURCES
     src/network/socket_impl.cc
     src/network/socket_interface_impl.cc
     src/network/socket_option_impl.cc
+    src/network/transport_socket.cpp
 )
 
 # Event system source files
