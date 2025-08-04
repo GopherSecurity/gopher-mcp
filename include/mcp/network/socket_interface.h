@@ -15,15 +15,15 @@ namespace network {
 
 /**
  * Socket interface for creating and managing sockets.
- * 
+ *
  * This is the main entry point for socket operations.
  * It provides platform abstraction and allows
  * for different implementations (e.g., standard sockets, io_uring, etc.).
  */
 class SocketInterface {
-public:
+ public:
   virtual ~SocketInterface() = default;
-  
+
   /**
    * Create a socket.
    * @param type Socket type (stream, datagram, raw)
@@ -32,11 +32,12 @@ public:
    * @param socket_v6only True for IPv6-only sockets
    * @return File descriptor or error
    */
-  virtual IoResult<os_fd_t> socket(SocketType type,
-                                   Address::Type addr_type,
-                                   optional<Address::IpVersion> version = nullopt,
-                                   bool socket_v6only = false) = 0;
-  
+  virtual IoResult<os_fd_t> socket(
+      SocketType type,
+      Address::Type addr_type,
+      optional<Address::IpVersion> version = nullopt,
+      bool socket_v6only = false) = 0;
+
   /**
    * Create a socket pair (Unix domain).
    * @param type Socket type
@@ -44,7 +45,7 @@ public:
    * @return Success or error
    */
   virtual IoResult<int> socketPair(SocketType type, os_fd_t fds[2]) = 0;
-  
+
   /**
    * Create an IoHandle for a file descriptor.
    * @param fd File descriptor
@@ -55,21 +56,21 @@ public:
   virtual IoHandlePtr ioHandleForFd(os_fd_t fd,
                                     bool socket_v6only = false,
                                     optional<int> domain = nullopt) = 0;
-  
+
   /**
    * Close a file descriptor.
    * @param fd File descriptor to close
    * @return Success or error
    */
   virtual IoResult<int> close(os_fd_t fd) = 0;
-  
+
   /**
    * Duplicate a file descriptor.
    * @param fd File descriptor to duplicate
    * @return New file descriptor or error
    */
   virtual IoResult<os_fd_t> duplicate(os_fd_t fd) = 0;
-  
+
   /**
    * Set file descriptor flags.
    * @param fd File descriptor
@@ -77,14 +78,14 @@ public:
    * @return Success or error
    */
   virtual IoResult<int> setFileFlags(os_fd_t fd, int flags) = 0;
-  
+
   /**
    * Get file descriptor flags.
    * @param fd File descriptor
    * @return Flags or error
    */
   virtual IoResult<int> getFileFlags(os_fd_t fd) = 0;
-  
+
   /**
    * Set socket option.
    * @param fd File descriptor
@@ -94,9 +95,12 @@ public:
    * @param optlen Option length
    * @return Success or error
    */
-  virtual IoResult<int> setsockopt(os_fd_t fd, int level, int optname,
-                                   const void* optval, socklen_t optlen) = 0;
-  
+  virtual IoResult<int> setsockopt(os_fd_t fd,
+                                   int level,
+                                   int optname,
+                                   const void* optval,
+                                   socklen_t optlen) = 0;
+
   /**
    * Get socket option.
    * @param fd File descriptor
@@ -106,9 +110,9 @@ public:
    * @param optlen Option length (in/out)
    * @return Success or error
    */
-  virtual IoResult<int> getsockopt(os_fd_t fd, int level, int optname,
-                                   void* optval, socklen_t* optlen) = 0;
-  
+  virtual IoResult<int> getsockopt(
+      os_fd_t fd, int level, int optname, void* optval, socklen_t* optlen) = 0;
+
   /**
    * Bind socket to address.
    * @param fd File descriptor
@@ -116,7 +120,7 @@ public:
    * @return Success or error
    */
   virtual IoResult<int> bind(os_fd_t fd, const Address::Instance& addr) = 0;
-  
+
   /**
    * Listen on socket.
    * @param fd File descriptor
@@ -124,7 +128,7 @@ public:
    * @return Success or error
    */
   virtual IoResult<int> listen(os_fd_t fd, int backlog) = 0;
-  
+
   /**
    * Accept connection.
    * @param fd Listening socket
@@ -135,7 +139,7 @@ public:
   virtual IoResult<os_fd_t> accept(os_fd_t fd,
                                    sockaddr* addr = nullptr,
                                    socklen_t* addrlen = nullptr) = 0;
-  
+
   /**
    * Connect to address.
    * @param fd File descriptor
@@ -143,7 +147,7 @@ public:
    * @return Success or error (EINPROGRESS for non-blocking)
    */
   virtual IoResult<int> connect(os_fd_t fd, const Address::Instance& addr) = 0;
-  
+
   /**
    * Shutdown socket.
    * @param fd File descriptor
@@ -151,21 +155,22 @@ public:
    * @return Success or error
    */
   virtual IoResult<int> shutdown(os_fd_t fd, int how) = 0;
-  
+
   /**
    * Get local address.
    * @param fd File descriptor
    * @return Address or error
    */
-  virtual IoResult<Address::InstanceConstSharedPtr> localAddress(os_fd_t fd) = 0;
-  
+  virtual IoResult<Address::InstanceConstSharedPtr> localAddress(
+      os_fd_t fd) = 0;
+
   /**
    * Get peer address.
    * @param fd File descriptor
    * @return Address or error
    */
   virtual IoResult<Address::InstanceConstSharedPtr> peerAddress(os_fd_t fd) = 0;
-  
+
   /**
    * Platform-specific ioctl.
    * @param fd File descriptor
@@ -173,15 +178,17 @@ public:
    * @param argp Argument pointer
    * @return Success or error
    */
-  virtual IoResult<int> ioctl(os_fd_t fd, unsigned long request, void* argp) = 0;
-  
+  virtual IoResult<int> ioctl(os_fd_t fd,
+                              unsigned long request,
+                              void* argp) = 0;
+
   /**
    * Get interface name for socket.
    * @param fd File descriptor
    * @return Interface name or nullopt
    */
   virtual optional<std::string> interfaceName(os_fd_t fd) = 0;
-  
+
   /**
    * Check if socket option is supported.
    * @param level Option level
@@ -189,37 +196,37 @@ public:
    * @return True if supported
    */
   virtual bool supportsSocketOption(int level, int optname) const = 0;
-  
+
   /**
    * Get platform name.
    * @return Platform name (e.g., "linux", "macos", "windows")
    */
   virtual const std::string& platformName() const = 0;
-  
+
   /**
    * Check if io_uring is available (Linux).
    * @return True if available
    */
   virtual bool supportsIoUring() const { return false; }
-  
+
   /**
    * Check if UDP GRO is available.
    * @return True if available
    */
   virtual bool supportsUdpGro() const { return false; }
-  
+
   /**
    * Check if UDP GSO is available.
    * @return True if available
    */
   virtual bool supportsUdpGso() const { return false; }
-  
+
   /**
    * Check if IP_PKTINFO is available.
    * @return True if available
    */
   virtual bool supportsIpPktInfo() const { return false; }
-  
+
   /**
    * Check if SO_REUSEPORT is available.
    * @return True if available
@@ -248,20 +255,20 @@ void resetSocketInterface();
 
 /**
  * Socket interface loader for platform-specific implementations.
- * 
+ *
  * Different platforms can register their own loaders to provide
  * optimized implementations.
  */
 class SocketInterfaceLoader {
-public:
+ public:
   virtual ~SocketInterfaceLoader() = default;
-  
+
   /**
    * Get the name of this loader.
    * @return Loader name
    */
   virtual const std::string& name() const = 0;
-  
+
   /**
    * Create a socket interface instance.
    * @return Socket interface
