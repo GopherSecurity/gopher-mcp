@@ -9,8 +9,9 @@
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
 #include "mcp/optional.h"
-#include "mcp/result.h"
 #include "mcp/types.h"
+#include "mcp/compat.h"
+#include "mcp/result.h"
 
 namespace mcp {
 namespace network {
@@ -28,46 +29,8 @@ using TransportSocketFactoryPtr = std::unique_ptr<TransportSocketFactory>;
 using TransportSocketFactorySharedPtr = std::shared_ptr<TransportSocketFactory>;
 using TransportSocketOptionsSharedPtr = std::shared_ptr<const TransportSocketOptions>;
 
-/**
- * Post-I/O action to take after transport socket operations
- */
-enum class PostIoAction {
-  Continue,      // Continue with further I/O operations
-  StopIteration, // Stop current iteration, wait for more data
-  Close          // Close the connection
-};
-
-/**
- * Result of transport socket I/O operations
- */
-struct IoResult {
-  PostIoAction action_;
-  uint64_t bytes_processed_;
-  bool end_stream_read_;
-  optional<Error> error_;
-
-  IoResult(PostIoAction action, uint64_t bytes_processed, bool end_stream_read)
-      : action_(action), bytes_processed_(bytes_processed), end_stream_read_(end_stream_read) {}
-
-  IoResult(PostIoAction action, uint64_t bytes_processed, bool end_stream_read, const Error& error)
-      : action_(action), bytes_processed_(bytes_processed), end_stream_read_(end_stream_read), error_(error) {}
-
-  static IoResult success(uint64_t bytes_processed = 0, bool end_stream = false) {
-    return IoResult(PostIoAction::Continue, bytes_processed, end_stream);
-  }
-
-  static IoResult stop() {
-    return IoResult(PostIoAction::StopIteration, 0, false);
-  }
-
-  static IoResult close() {
-    return IoResult(PostIoAction::Close, 0, false);
-  }
-
-  static IoResult error(const Error& err) {
-    return IoResult(PostIoAction::Close, 0, false, err);
-  }
-};
+// Bring TransportIoResult into this namespace
+using ::mcp::TransportIoResult;
 
 /**
  * Connection close types
@@ -169,7 +132,7 @@ public:
   /**
    * Get the failure reason if the transport socket failed
    */
-  virtual absl::string_view failureReason() const = 0;
+  virtual std::string failureReason() const = 0;
 
   /**
    * Check if the socket can flush data and close
@@ -179,7 +142,7 @@ public:
   /**
    * Establish connection (client mode)
    */
-  virtual Result<void> connect(Socket& socket) = 0;
+  virtual Result<std::nullptr_t> connect(Socket& socket) = 0;
 
   /**
    * Close the transport socket
@@ -190,13 +153,13 @@ public:
    * Read data from the transport
    * Buffer is filled with decrypted/processed data
    */
-  virtual IoResult doRead(Buffer& buffer) = 0;
+  virtual TransportIoResult doRead(Buffer& buffer) = 0;
 
   /**
    * Write data to the transport
    * Buffer contains plaintext data to be encrypted/processed
    */
-  virtual IoResult doWrite(Buffer& buffer, bool end_stream) = 0;
+  virtual TransportIoResult doWrite(Buffer& buffer, bool end_stream) = 0;
 
   /**
    * Called when the underlying transport is connected
@@ -334,7 +297,7 @@ public:
   /**
    * Get the factory name
    */
-  virtual absl::string_view name() const = 0;
+  virtual std::string name() const = 0;
 };
 
 /**
@@ -358,7 +321,7 @@ public:
   /**
    * Get the default server name indication
    */
-  virtual absl::string_view defaultServerNameIndication() const { return ""; }
+  virtual std::string defaultServerNameIndication() const { return ""; }
 
   /**
    * Hash key for connection pooling
@@ -400,12 +363,12 @@ public:
   // TransportSocket interface
   void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override;
   std::string protocol() const override { return ""; }
-  absl::string_view failureReason() const override { return failure_reason_; }
+  std::string failureReason() const override { return failure_reason_; }
   bool canFlushClose() override { return true; }
-  Result<void> connect(Socket& socket) override;
+  Result<std::nullptr_t> connect(Socket& socket) override;
   void closeSocket(ConnectionEvent event) override;
-  IoResult doRead(Buffer& buffer) override;
-  IoResult doWrite(Buffer& buffer, bool end_stream) override;
+  TransportIoResult doRead(Buffer& buffer) override;
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
 
 private:
@@ -425,7 +388,7 @@ public:
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override { return false; }
-  absl::string_view name() const override { return "raw_buffer"; }
+  std::string name() const override { return "raw_buffer"; }
 
   // ClientTransportSocketFactory interface
   TransportSocketPtr createTransportSocket(
@@ -440,7 +403,7 @@ public:
 /**
  * Create a raw buffer transport socket factory
  */
-inline TransportSocketFactoryPtr createRawBufferTransportSocketFactory() {
+inline std::unique_ptr<TransportSocketFactoryBase> createRawBufferTransportSocketFactory() {
   return std::make_unique<RawBufferTransportSocketFactory>();
 }
 

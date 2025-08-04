@@ -19,7 +19,8 @@ void RawBufferTransportSocket::setTransportSocketCallbacks(TransportSocketCallba
   callbacks_ = &callbacks;
 }
 
-Result<void> RawBufferTransportSocket::connect(Socket& socket) {
+Result<std::nullptr_t> RawBufferTransportSocket::connect(Socket& socket) {
+  (void)socket; // Unused for raw transport
   // For raw buffer transport, connection is immediate
   connected_ = true;
   return make_result(nullptr);
@@ -44,9 +45,9 @@ void RawBufferTransportSocket::closeSocket(ConnectionEvent event) {
   callbacks_->raiseEvent(event);
 }
 
-IoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
+TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
   if (!callbacks_ || shutdown_read_) {
-    return IoResult::stop();
+    return TransportIoResult::stop();
   }
   
   const size_t max_slice_size = 16384; // 16KB slices
@@ -55,41 +56,38 @@ IoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
   // Reserve space in the buffer
   void* mem = buffer.reserveSingleSlice(max_slice_size, slice);
   if (!mem) {
-    return IoResult::stop();
+    return TransportIoResult::stop();
   }
   
   // Read from socket
   IoHandle& io_handle = callbacks_->ioHandle();
-  auto result = io_handle.recv(slice.mem_, slice.len_, 0);
+  auto result = io_handle.readv(slice.len_, &slice, 1);
   
   if (!result.ok()) {
-    auto error_code = result.error().error_code;
+    buffer.commit(slice, 0);
     
     // Handle would-block
-    if (error_code == EAGAIN || error_code == EWOULDBLOCK) {
-      buffer.commit(slice, 0);
-      return IoResult::stop();
+    if (result.wouldBlock()) {
+      return TransportIoResult::stop();
     }
     
     // Handle connection reset
-    if (error_code == ECONNRESET) {
-      buffer.commit(slice, 0);
-      return IoResult::close();
+    if (result.error_code() == ECONNRESET) {
+      return TransportIoResult::close();
     }
     
     // Other errors
-    failure_reason_ = strerror(error_code);
-    buffer.commit(slice, 0);
-    return IoResult::error(make_error(jsonrpc::INTERNAL_ERROR, failure_reason_));
+    failure_reason_ = result.error_info ? result.error_info->message : "Unknown error";
+    return TransportIoResult::error(make_error(jsonrpc::INTERNAL_ERROR, failure_reason_));
   }
   
-  size_t bytes_read = result.return_value_;
+  size_t bytes_read = *result;
   
   // Handle EOF
   if (bytes_read == 0) {
     buffer.commit(slice, 0);
     shutdown_read_ = true;
-    return IoResult(PostIoAction::Close, 0, true);
+    return TransportIoResult::endStream(0);
   }
   
   // Commit the read data
@@ -98,19 +96,19 @@ IoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
   // Mark socket as readable if edge-triggered
   callbacks_->setTransportSocketIsReadable();
   
-  return IoResult::success(bytes_read);
+  return TransportIoResult::success(bytes_read);
 }
 
-IoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
+TransportIoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   if (!callbacks_ || shutdown_write_) {
-    return IoResult::stop();
+    return TransportIoResult::stop();
   }
   
   if (buffer.length() == 0) {
     if (end_stream) {
       shutdown_write_ = true;
     }
-    return IoResult::success();
+    return TransportIoResult::success(0);
   }
   
   IoHandle& io_handle = callbacks_->ioHandle();
@@ -118,38 +116,30 @@ IoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   
   // Gather slices for vectored I/O
   constexpr size_t max_iovecs = 16;
-  RawSlice slices[max_iovecs];
+  ConstRawSlice slices[max_iovecs];
   const size_t num_slices = buffer.getRawSlices(slices, max_iovecs);
   
-  // Convert to iovec for sendmsg
-  struct iovec iov[max_iovecs];
-  for (size_t i = 0; i < num_slices; ++i) {
-    iov[i].iov_base = slices[i].mem_;
-    iov[i].iov_len = slices[i].len_;
-  }
-  
-  // Send data
-  auto result = io_handle.sendmsg(iov, num_slices, 0);
+  // Send data using writev
+  auto result = io_handle.writev(slices, num_slices);
   
   if (!result.ok()) {
-    auto error_code = result.error().error_code;
-    
     // Handle would-block
-    if (error_code == EAGAIN || error_code == EWOULDBLOCK) {
-      return IoResult::stop();
+    if (result.wouldBlock()) {
+      return TransportIoResult::stop();
     }
     
     // Handle connection reset/broken pipe
+    int error_code = result.error_code();
     if (error_code == ECONNRESET || error_code == EPIPE) {
-      return IoResult::close();
+      return TransportIoResult::close();
     }
     
     // Other errors
-    failure_reason_ = strerror(error_code);
-    return IoResult::error(make_error(jsonrpc::INTERNAL_ERROR, failure_reason_));
+    failure_reason_ = result.error_info ? result.error_info->message : "Unknown error";
+    return TransportIoResult::error(make_error(jsonrpc::INTERNAL_ERROR, failure_reason_));
   }
   
-  total_bytes_sent = result.return_value_;
+  total_bytes_sent = *result;
   
   // Drain sent data from buffer
   buffer.drain(total_bytes_sent);
@@ -160,7 +150,7 @@ IoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
     callbacks_->flushWriteBuffer();
   }
   
-  return IoResult::success(total_bytes_sent);
+  return TransportIoResult::success(total_bytes_sent);
 }
 
 void RawBufferTransportSocket::onConnected() {
