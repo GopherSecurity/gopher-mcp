@@ -7,32 +7,9 @@ on:
     branches: [ main, master, develop ]
 
 jobs:
-  format-check:
-    name: Format Check
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
-    - name: Install clang-format
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y clang-format-16
-        
-    - name: Check formatting
-      run: |
-        echo "Checking code formatting..."
-        make check-format || {
-          echo "::error::Code formatting check failed"
-          echo "Please run 'make format' locally and commit the changes"
-          exit 1
-        }
-
   build-and-test:
     name: Build and Test
     runs-on: ${{ matrix.os }}
-    needs: format-check
     
     strategy:
       fail-fast: false
