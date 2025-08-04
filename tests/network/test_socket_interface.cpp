@@ -409,9 +409,12 @@ TEST_F(SocketInterfaceTest, CustomInterface) {
   auto mock_interface = std::make_unique<MockSocketInterface>();
   MockSocketInterface* mock_ptr = mock_interface.get();
   
+  // Create a persistent string for the mock to return
+  static const std::string mock_platform_name = "mock";
+  
   // Set expectations
   EXPECT_CALL(*mock_ptr, platformName())
-      .WillRepeatedly(ReturnRef("mock"));
+      .WillRepeatedly(ReturnRef(mock_platform_name));
   
   EXPECT_CALL(*mock_ptr, supportsReusePort())
       .WillRepeatedly(Return(true));

@@ -33,7 +33,10 @@ protected:
   // Create a TCP socket pair for testing
   std::pair<IoHandlePtr, IoHandlePtr> createTcpSocketPair() {
     // Create server socket
-    auto server_handle = createIoSocketHandle();
+    auto server_socket = socketInterface().socket(
+        SocketType::Stream, Address::Type::Ip, Address::IpVersion::v4, false);
+    EXPECT_TRUE(server_socket.ok());
+    auto server_handle = createIoSocketHandle(*server_socket);
     auto listen_addr = Address::loopbackAddress(Address::IpVersion::v4, 0);
     
     EXPECT_TRUE(server_handle->bind(listen_addr).ok());
@@ -45,15 +48,28 @@ protected:
     uint16_t port = (*local_addr_result)->ip()->port();
     
     // Create client socket
-    auto client_handle = createIoSocketHandle();
+    auto client_socket = socketInterface().socket(
+        SocketType::Stream, Address::Type::Ip, Address::IpVersion::v4, false);
+    EXPECT_TRUE(client_socket.ok());
+    auto client_handle = createIoSocketHandle(*client_socket);
     auto connect_addr = Address::loopbackAddress(Address::IpVersion::v4, port);
     
     // Non-blocking connect
     auto connect_result = client_handle->connect(connect_addr);
     EXPECT_TRUE(connect_result.ok());
     
-    // Accept connection
-    auto accept_result = server_handle->accept();
+    // Accept connection with retry for non-blocking socket
+    IoResult<IoHandlePtr> accept_result;
+    for (int i = 0; i < 100; ++i) {
+      accept_result = server_handle->accept();
+      if (accept_result.ok()) {
+        break;
+      }
+      if (!accept_result.wouldBlock()) {
+        break;  // Real error, not just EAGAIN
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     EXPECT_TRUE(accept_result.ok());
     
     // Wait for connection to complete
@@ -64,13 +80,15 @@ protected:
   
   // Create a UDP socket pair for testing
   std::pair<IoHandlePtr, IoHandlePtr> createUdpSocketPair() {
-    auto socket1 = createIoSocketHandle();
-    auto socket2 = createIoSocketHandle();
+    auto socket1_fd = socketInterface().socket(
+        SocketType::Datagram, Address::Type::Ip, Address::IpVersion::v4, false);
+    auto socket2_fd = socketInterface().socket(
+        SocketType::Datagram, Address::Type::Ip, Address::IpVersion::v4, false);
+    EXPECT_TRUE(socket1_fd.ok());
+    EXPECT_TRUE(socket2_fd.ok());
     
-    // Set socket type to datagram
-    int type = SOCK_DGRAM;
-    socket1->setSocketOption(SOL_SOCKET, SO_TYPE, &type, sizeof(type));
-    socket2->setSocketOption(SOL_SOCKET, SO_TYPE, &type, sizeof(type));
+    auto socket1 = createIoSocketHandle(*socket1_fd);
+    auto socket2 = createIoSocketHandle(*socket2_fd);
     
     auto addr1 = Address::loopbackAddress(Address::IpVersion::v4, 0);
     auto addr2 = Address::loopbackAddress(Address::IpVersion::v4, 0);
@@ -85,7 +103,12 @@ protected:
 };
 
 TEST_F(IoSocketHandleTest, CreateAndClose) {
-  auto handle = createIoSocketHandle();
+  // Create a valid socket first
+  auto socket_result = socketInterface().socket(
+      SocketType::Stream, Address::Type::Ip, Address::IpVersion::v4, false);
+  ASSERT_TRUE(socket_result.ok());
+  
+  auto handle = createIoSocketHandle(*socket_result);
   EXPECT_TRUE(handle->isOpen());
   EXPECT_NE(handle->fd(), INVALID_SOCKET_FD);
   

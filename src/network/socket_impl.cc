@@ -694,6 +694,14 @@ ListenSocketPtr createListenSocket(
     if (!bind_result.ok()) {
       return nullptr;
     }
+    
+    // If bound to port 0, update the address with the actual assigned port
+    if (address->ip() && address->ip()->port() == 0) {
+      auto actual_addr = socket->ioHandle().localAddress();
+      if (actual_addr.ok()) {
+        socket->connectionInfoProvider().setLocalAddress(*actual_addr);
+      }
+    }
   }
   
   return socket;
