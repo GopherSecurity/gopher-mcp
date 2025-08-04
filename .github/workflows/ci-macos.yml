@@ -1,8 +1,6 @@
 name: CI (macOS)
 
 on:
-  push:
-    branches: [ main, master, develop, 'br_dev_*' ]
   pull_request:
     branches: [ main, master, develop ]
 
