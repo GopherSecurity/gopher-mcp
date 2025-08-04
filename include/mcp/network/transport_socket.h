@@ -23,6 +23,9 @@ class TransportSocketFactory;
 class TransportSocketOptions;
 class TransportSocketCallbacks;
 
+// Type aliases from socket.h
+using ConnectionSocketOptionsSharedPtr = std::shared_ptr<const std::vector<SocketOptionConstSharedPtr>>;
+
 using TransportSocketPtr = std::unique_ptr<TransportSocket>;
 using TransportSocketSharedPtr = std::shared_ptr<TransportSocket>;
 using TransportSocketFactoryPtr = std::unique_ptr<TransportSocketFactory>;
@@ -51,6 +54,66 @@ enum class ConnectionEvent {
   LocalClose,
   Connected,
   ConnectedZeroRtt
+};
+
+/**
+ * Connection interface
+ * 
+ * This is a minimal interface for now, will be fully implemented later
+ */
+class Connection {
+public:
+  virtual ~Connection() = default;
+  
+  /**
+   * Close the connection
+   */
+  virtual void close(ConnectionCloseType type) = 0;
+  
+  /**
+   * Close the underlying socket
+   */
+  virtual void closeSocket(ConnectionEvent event) = 0;
+  
+  /**
+   * Get connection ID
+   */
+  virtual uint64_t id() const = 0;
+  
+  /**
+   * Set TCP no delay
+   */
+  virtual void noDelay(bool enable) = 0;
+  
+  /**
+   * Disable/enable reading
+   */
+  virtual void readDisable(bool disable) = 0;
+  
+  /**
+   * Check if reading is enabled
+   */
+  virtual bool readEnabled() const = 0;
+  
+  /**
+   * Get socket options
+   */
+  virtual const ConnectionSocketOptionsSharedPtr& socketOptions() const = 0;
+  
+  /**
+   * Get transport failure reason
+   */
+  virtual std::string transportFailureReason() const = 0;
+  
+  /**
+   * Start secure transport
+   */
+  virtual bool startSecureTransport() = 0;
+  
+  /**
+   * Get last round trip time
+   */
+  virtual std::chrono::milliseconds lastRoundTripTime() = 0;
 };
 
 /**
