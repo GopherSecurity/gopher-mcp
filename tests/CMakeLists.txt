@@ -101,6 +101,7 @@ target_link_libraries(test_event_loop
 # Network test libraries
 target_link_libraries(test_io_socket_handle
     mcp-sdk
+    mcp-event
     gtest
     gmock
     gtest_main

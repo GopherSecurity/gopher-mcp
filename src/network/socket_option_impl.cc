@@ -377,6 +377,78 @@ SocketOptionsSharedPtr buildSocketOptions(const SocketCreationOptions& options) 
 
 // ===== Socket Option Names (defined here to ensure single definition) =====
 
+// Standard socket options
+#ifdef SO_REUSEADDR
+const SocketOptionName SOCKET_SO_REUSEADDR = 
+    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEADDR);
+#else
+const SocketOptionName SOCKET_SO_REUSEADDR;
+#endif
+
+#ifdef SO_REUSEPORT
+const SocketOptionName SOCKET_SO_REUSEPORT = 
+    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEPORT);
+#else
+const SocketOptionName SOCKET_SO_REUSEPORT;
+#endif
+
+#ifdef SO_KEEPALIVE
+const SocketOptionName SOCKET_SO_KEEPALIVE = 
+    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_KEEPALIVE);
+#else
+const SocketOptionName SOCKET_SO_KEEPALIVE;
+#endif
+
+#ifdef TCP_NODELAY
+const SocketOptionName SOCKET_TCP_NODELAY = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_NODELAY);
+#else
+const SocketOptionName SOCKET_TCP_NODELAY;
+#endif
+
+#ifdef IP_TRANSPARENT
+const SocketOptionName SOCKET_IP_TRANSPARENT = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_TRANSPARENT);
+#else
+const SocketOptionName SOCKET_IP_TRANSPARENT;
+#endif
+
+#ifdef IPV6_V6ONLY
+const SocketOptionName SOCKET_IPV6_V6ONLY = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IPV6, IPV6_V6ONLY);
+#else
+const SocketOptionName SOCKET_IPV6_V6ONLY;
+#endif
+
+#ifdef SO_MARK
+const SocketOptionName SOCKET_SO_MARK = 
+    MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_MARK);
+#else
+const SocketOptionName SOCKET_SO_MARK;
+#endif
+
+// TCP keepalive constants
+#ifdef TCP_KEEPIDLE
+const SocketOptionName SOCKET_TCP_KEEPIDLE = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPIDLE);
+#else
+const SocketOptionName SOCKET_TCP_KEEPIDLE;
+#endif
+
+#ifdef TCP_KEEPINTVL
+const SocketOptionName SOCKET_TCP_KEEPINTVL = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPINTVL);
+#else
+const SocketOptionName SOCKET_TCP_KEEPINTVL;
+#endif
+
+#ifdef TCP_KEEPCNT
+const SocketOptionName SOCKET_TCP_KEEPCNT = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPCNT);
+#else
+const SocketOptionName SOCKET_TCP_KEEPCNT;
+#endif
+
 // Fix the macro reference
 #ifdef SO_ATTACH_REUSEPORT_CBPF
 #define MCP_ATTACH_REUSEPORT_CBPF \
@@ -394,6 +466,22 @@ const SocketOptionName SOCKET_IPV6_TRANSPARENT =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IPV6, IPV6_TRANSPARENT);
 #else
 const SocketOptionName SOCKET_IPV6_TRANSPARENT;
+#endif
+
+// IP_FREEBIND option  
+#ifdef IP_FREEBIND
+const SocketOptionName SOCKET_IP_FREEBIND = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_FREEBIND);
+#else
+const SocketOptionName SOCKET_IP_FREEBIND;
+#endif
+
+// IP_TOS option
+#ifdef IP_TOS
+const SocketOptionName SOCKET_IP_TOS = 
+    MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_TOS);
+#else
+const SocketOptionName SOCKET_IP_TOS;
 #endif
 
 // SO_RCVBUF and SO_SNDBUF

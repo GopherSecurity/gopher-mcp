@@ -73,7 +73,7 @@ private:
 /**
  * Unix domain socket address implementation
  */
-class PipeInstance : public Pipe, public Instance {
+class PipeInstance : public Pipe {
 public:
   explicit PipeInstance(const sockaddr_un* address, socklen_t addr_len);
   PipeInstance(const std::string& path, mode_t mode = 0);

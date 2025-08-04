@@ -30,6 +30,11 @@ endif()
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    # Disable warnings for unused variables and fields (common in platform-specific code)
+    add_compile_options(-Wno-unused-variable -Wno-unused-const-variable)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options(-Wno-unused-private-field)
+    endif()
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         add_compile_options(-g -O0)
     else()
@@ -118,6 +123,11 @@ FetchContent_MakeAvailable(googletest)
 set(MCP_SDK_SOURCES
     src/buffer/buffer_impl.cpp
     src/json.cpp
+    src/network/address_impl.cc
+    src/network/io_socket_handle_impl.cc
+    src/network/socket_impl.cc
+    src/network/socket_interface_impl.cc
+    src/network/socket_option_impl.cc
 )
 
 # Event system source files
