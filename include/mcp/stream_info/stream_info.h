@@ -44,25 +44,25 @@ public:
   /**
    * Set data in the filter state
    */
-  virtual void setData(absl::string_view name, 
+  virtual void setData(const std::string& name, 
                        ObjectSharedPtr object,
                        StateType state_type) = 0;
 
   /**
    * Get data from the filter state
    */
-  virtual const Object* getData(absl::string_view name) const = 0;
+  virtual const Object* getData(const std::string& name) const = 0;
 
   /**
    * Check if data exists
    */
-  virtual bool hasData(absl::string_view name) const = 0;
+  virtual bool hasData(const std::string& name) const = 0;
 
   /**
    * Get data with type checking
    */
   template<typename T>
-  const T* getDataTyped(absl::string_view name) const {
+  const T* getDataTyped(const std::string& name) const {
     auto* obj = getData(name);
     return dynamic_cast<const T*>(obj);
   }
