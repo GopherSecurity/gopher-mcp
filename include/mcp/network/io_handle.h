@@ -31,30 +31,31 @@ constexpr os_fd_t INVALID_SOCKET_FD = -1;
 // I/O operation result with error handling using optional
 template <typename T>
 struct IoResult {
-  optional<T> value;       // Value on success
+  optional<T> value;         // Value on success
   optional<int> error_code;  // Error code on failure
-  
+
   bool ok() const { return value.has_value(); }
   explicit operator bool() const { return ok(); }
-  
+
   T& operator*() { return *value; }
   const T& operator*() const { return *value; }
-  
+
   static IoResult success(T val) {
     IoResult result;
     result.value = std::move(val);
     return result;
   }
-  
+
   static IoResult error(int code) {
     IoResult result;
     result.error_code = code;
     return result;
   }
-  
+
   // Check if error is EAGAIN/EWOULDBLOCK
   bool wouldBlock() const {
-    if (!error_code) return false;
+    if (!error_code)
+      return false;
 #ifdef _WIN32
     return *error_code == WSAEWOULDBLOCK;
 #else
@@ -75,7 +76,7 @@ struct RecvMsgOutput {
     optional<uint32_t> packets_dropped;
     bool truncated{false};
   };
-  
+
   std::vector<ReceivedMessage> messages;
 };
 
@@ -88,17 +89,17 @@ struct UdpSaveCmsgConfig {
 
 /**
  * Abstract interface for I/O operations on sockets.
- * 
+ *
  * This design provides a clean abstraction
  * over platform-specific socket operations while integrating with our
  * event loop and buffer systems.
  */
 class IoHandle {
-public:
+ public:
   virtual ~IoHandle() = default;
-  
+
   // ===== Core I/O Operations =====
-  
+
   /**
    * Read data into buffer slices (vectored I/O).
    * @param max_length Maximum bytes to read
@@ -106,9 +107,10 @@ public:
    * @param num_slices Number of slices
    * @return Number of bytes read or error
    */
-  virtual IoCallResult readv(size_t max_length, RawSlice* slices,
-                              size_t num_slices) = 0;
-  
+  virtual IoCallResult readv(size_t max_length,
+                             RawSlice* slices,
+                             size_t num_slices) = 0;
+
   /**
    * Read data into a buffer.
    * @param buffer Buffer to read into
@@ -117,7 +119,7 @@ public:
    */
   virtual IoCallResult read(Buffer& buffer,
                             optional<size_t> max_length = nullopt) = 0;
-  
+
   /**
    * Write data from buffer slices (vectored I/O).
    * @param slices Buffer slices to write from
@@ -126,16 +128,16 @@ public:
    */
   virtual IoCallResult writev(const ConstRawSlice* slices,
                               size_t num_slices) = 0;
-  
+
   /**
    * Write data from a buffer.
    * @param buffer Buffer to write from
    * @return Number of bytes written or error
    */
   virtual IoCallResult write(Buffer& buffer) = 0;
-  
+
   // ===== UDP Operations =====
-  
+
   /**
    * Send a UDP message with control information.
    * @param slices Data to send
@@ -145,10 +147,12 @@ public:
    * @param peer_address Destination address
    * @return Number of bytes sent or error
    */
-  virtual IoCallResult sendmsg(const ConstRawSlice* slices, size_t num_slices,
-                               int flags, const Address::Ip* self_ip,
+  virtual IoCallResult sendmsg(const ConstRawSlice* slices,
+                               size_t num_slices,
+                               int flags,
+                               const Address::Ip* self_ip,
                                const Address::Instance& peer_address) = 0;
-  
+
   /**
    * Receive UDP messages with control information.
    * @param slices Buffer slices to receive into
@@ -158,11 +162,12 @@ public:
    * @param output Output messages
    * @return Number of messages received or error
    */
-  virtual IoCallResult recvmsg(RawSlice* slices, size_t num_slices,
+  virtual IoCallResult recvmsg(RawSlice* slices,
+                               size_t num_slices,
                                uint32_t self_port,
                                const UdpSaveCmsgConfig& save_cmsg_config,
                                RecvMsgOutput& output) = 0;
-  
+
   /**
    * Receive multiple UDP messages at once (Linux recvmmsg).
    * @param slices Arrays of buffer slices
@@ -175,56 +180,58 @@ public:
                                 uint32_t self_port,
                                 const UdpSaveCmsgConfig& save_cmsg_config,
                                 RecvMsgOutput& output) = 0;
-  
+
   // ===== Socket Operations =====
-  
+
   /**
    * Close the socket.
    * @return Success or error
    */
   virtual IoCallVoidResult close() = 0;
-  
+
   /**
    * Check if the socket is open.
    */
   virtual bool isOpen() const = 0;
-  
+
   /**
    * Bind to an address.
    * @param address Address to bind to
    * @return Success or error code
    */
-  virtual IoResult<int> bind(const Address::InstanceConstSharedPtr& address) = 0;
-  
+  virtual IoResult<int> bind(
+      const Address::InstanceConstSharedPtr& address) = 0;
+
   /**
    * Listen for connections.
    * @param backlog Maximum pending connections
    * @return Success or error code
    */
   virtual IoResult<int> listen(int backlog) = 0;
-  
+
   /**
    * Accept a new connection.
    * @return New IoHandle or error
    */
   virtual IoResult<IoHandlePtr> accept() = 0;
-  
+
   /**
    * Connect to an address.
    * @param address Address to connect to
    * @return Success or error code
    */
-  virtual IoResult<int> connect(const Address::InstanceConstSharedPtr& address) = 0;
-  
+  virtual IoResult<int> connect(
+      const Address::InstanceConstSharedPtr& address) = 0;
+
   /**
    * Shutdown the socket.
    * @param how SHUT_RD, SHUT_WR, or SHUT_RDWR
    * @return Success or error code
    */
   virtual IoResult<int> shutdown(int how) = 0;
-  
+
   // ===== Socket Options =====
-  
+
   /**
    * Set a socket option.
    * @param level Socket level (SOL_SOCKET, IPPROTO_TCP, etc.)
@@ -233,9 +240,11 @@ public:
    * @param optlen Option value length
    * @return Success or error code
    */
-  virtual IoResult<int> setSocketOption(int level, int optname,
-                                        const void* optval, socklen_t optlen) = 0;
-  
+  virtual IoResult<int> setSocketOption(int level,
+                                        int optname,
+                                        const void* optval,
+                                        socklen_t optlen) = 0;
+
   /**
    * Get a socket option.
    * @param level Socket level
@@ -244,9 +253,11 @@ public:
    * @param optlen Option value length (in/out)
    * @return Success or error code
    */
-  virtual IoResult<int> getSocketOption(int level, int optname,
-                                        void* optval, socklen_t* optlen) const = 0;
-  
+  virtual IoResult<int> getSocketOption(int level,
+                                        int optname,
+                                        void* optval,
+                                        socklen_t* optlen) const = 0;
+
   /**
    * Platform-specific ioctl.
    * @param request Request code
@@ -254,9 +265,9 @@ public:
    * @return Success or error code
    */
   virtual IoResult<int> ioctl(unsigned long request, void* argp) = 0;
-  
+
   // ===== Event Integration =====
-  
+
   /**
    * Initialize file event monitoring.
    * @param dispatcher Event dispatcher
@@ -268,72 +279,71 @@ public:
                                    event::FileReadyCb cb,
                                    event::FileTriggerType trigger,
                                    uint32_t events) = 0;
-  
+
   /**
    * Activate file events (for edge-triggered mode).
    * @param events Events to activate
    */
   virtual void activateFileEvents(uint32_t events) = 0;
-  
+
   /**
    * Enable file events.
    * @param events Events to enable
    */
   virtual void enableFileEvents(uint32_t events) = 0;
-  
+
   /**
    * Reset file events (remove from event loop).
    */
   virtual void resetFileEvents() = 0;
-  
+
   // ===== Information =====
-  
+
   /**
    * Get the file descriptor.
    * Note: Should only be used for debugging/logging, not for operations.
    */
   virtual os_fd_t fd() const = 0;
-  
+
   /**
    * Get local address.
    * @return Local address or error
    */
   virtual IoResult<Address::InstanceConstSharedPtr> localAddress() const = 0;
-  
+
   /**
    * Get peer address.
    * @return Peer address or error
    */
   virtual IoResult<Address::InstanceConstSharedPtr> peerAddress() const = 0;
-  
+
   /**
    * Get network interface name.
    * @return Interface name or nullopt
    */
   virtual optional<std::string> interfaceName() const = 0;
-  
+
   /**
    * Set blocking mode (for testing).
    * @param blocking True for blocking, false for non-blocking
    * @return Success or error code
    */
   virtual IoResult<int> setBlocking(bool blocking) = 0;
-  
+
   /**
    * Get the last round-trip time (for TCP).
    * @return RTT in milliseconds or nullopt
    */
   virtual optional<std::chrono::milliseconds> lastRoundTripTime() const = 0;
-  
+
   /**
    * Configure initial congestion window.
    * @param bandwidth_bits_per_sec Bandwidth in bits per second
    * @param rtt Round-trip time
    */
   virtual void configureInitialCongestionWindow(
-      uint64_t bandwidth_bits_per_sec,
-      std::chrono::microseconds rtt) = 0;
-  
+      uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) = 0;
+
   /**
    * Duplicate the handle.
    * @return Duplicated handle or nullptr if not supported
@@ -348,10 +358,9 @@ public:
  * @param domain Socket domain (AF_INET, AF_INET6, AF_UNIX)
  * @return IoHandle instance
  */
-IoHandlePtr createIoSocketHandle(
-    os_fd_t fd = INVALID_SOCKET_FD,
-    bool socket_v6only = false,
-    optional<int> domain = nullopt);
+IoHandlePtr createIoSocketHandle(os_fd_t fd = INVALID_SOCKET_FD,
+                                 bool socket_v6only = false,
+                                 optional<int> domain = nullopt);
 
 /**
  * Create an io_uring socket handle (Linux only).

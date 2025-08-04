@@ -42,59 +42,56 @@ enum class Type {
 /**
  * IP versions
  */
-enum class IpVersion {
-  v4,
-  v6
-};
+enum class IpVersion { v4, v6 };
 
 /**
  * Base address interface
  */
 class Instance {
-public:
+ public:
   virtual ~Instance() = default;
-  
+
   /**
    * Get address type.
    */
   virtual Type type() const = 0;
-  
+
   /**
    * Get the IP interface if this is an IP address.
    * @return IP interface or nullptr
    */
   virtual const Ip* ip() const { return nullptr; }
-  
+
   /**
    * Get the sockaddr structure.
    * @return Pointer to sockaddr
    */
   virtual const sockaddr* sockAddr() const = 0;
-  
+
   /**
    * Get the sockaddr length.
    * @return Size of sockaddr structure
    */
   virtual socklen_t sockAddrLen() const = 0;
-  
+
   /**
    * Convert to human-readable string.
    * @return String representation
    */
   virtual std::string asString() const = 0;
-  
+
   /**
    * Convert to string with port (if applicable).
    * @return String with port
    */
   virtual std::string asStringView() const { return asString(); }
-  
+
   /**
    * Get the logical name (for logging).
    * @return Logical name
    */
   virtual std::string logicalName() const { return asString(); }
-  
+
   /**
    * Compare addresses.
    */
@@ -106,55 +103,55 @@ public:
  * IP address interface
  */
 class Ip : public Instance {
-public:
+ public:
   /**
    * Get port number.
    * @return Port number
    */
   virtual uint32_t port() const = 0;
-  
+
   /**
    * Get IP version.
    * @return IPv4 or IPv6
    */
   virtual IpVersion version() const = 0;
-  
+
   /**
    * Get address as string without port.
    * @return IP address string
    */
   virtual std::string addressAsString() const = 0;
-  
+
   /**
    * Check if this is an any address (0.0.0.0 or ::).
    * @return True if any address
    */
   virtual bool isAnyAddress() const = 0;
-  
+
   /**
    * Check if this is a loopback address.
    * @return True if loopback
    */
   virtual bool isLoopbackAddress() const = 0;
-  
+
   /**
    * Check if this is a multicast address.
    * @return True if multicast
    */
   virtual bool isMulticastAddress() const = 0;
-  
+
   /**
    * Get IPv4 address as uint32_t (network byte order).
    * @return Address or nullopt for IPv6
    */
   virtual optional<uint32_t> ipv4() const { return nullopt; }
-  
+
   /**
    * Get IPv6 address as array.
    * @return Address or nullopt for IPv4
    */
   virtual optional<std::array<uint8_t, 16>> ipv6() const { return nullopt; }
-  
+
   const Ip* ip() const override { return this; }
 };
 
@@ -162,13 +159,13 @@ public:
  * Pipe address interface (Unix sockets / Windows named pipes)
  */
 class Pipe : public Instance {
-public:
+ public:
   /**
    * Get the pipe path.
    * @return Path
    */
   virtual const std::string& path() const = 0;
-  
+
   /**
    * Get the mode (for Unix sockets).
    * @return Mode or 0
@@ -183,7 +180,7 @@ public:
  * @return Address instance or nullptr on error
  */
 InstanceConstSharedPtr parseInternetAddress(const std::string& address,
-                                          uint16_t port = 0);
+                                            uint16_t port = 0);
 
 /**
  * Create an IP address from string without port.
@@ -193,8 +190,8 @@ InstanceConstSharedPtr parseInternetAddress(const std::string& address,
  * @return Address instance or nullptr on error
  */
 InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
-                                                uint16_t port = 0,
-                                                bool v6only = true);
+                                                  uint16_t port = 0,
+                                                  bool v6only = true);
 
 /**
  * Create an address from sockaddr.
@@ -204,8 +201,8 @@ InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
  * @return Address instance
  */
 InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
-                                         socklen_t len,
-                                         bool v6only = true);
+                                           socklen_t len,
+                                           bool v6only = true);
 
 /**
  * Create a pipe address.
@@ -213,8 +210,7 @@ InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
  * @param mode Unix socket mode (ignored on Windows)
  * @return Address instance
  */
-InstanceConstSharedPtr pipeAddress(const std::string& path,
-                                 mode_t mode = 0);
+InstanceConstSharedPtr pipeAddress(const std::string& path, mode_t mode = 0);
 
 /**
  * Get any address for IP version.
@@ -236,44 +232,44 @@ InstanceConstSharedPtr loopbackAddress(IpVersion version, uint16_t port = 0);
  * CIDR range for IP filtering
  */
 class CidrRange {
-public:
+ public:
   /**
    * Create from string (e.g., "192.168.1.0/24").
    * @param range CIDR string
    * @return CidrRange or error
    */
   static optional<CidrRange> parse(const std::string& range);
-  
+
   /**
    * Create from address and prefix length.
    * @param address Base address
    * @param prefix_len Prefix length
    */
   CidrRange(const InstanceConstSharedPtr& address, uint32_t prefix_len);
-  
+
   /**
    * Check if address is in range.
    * @param address Address to check
    * @return True if in range
    */
   bool contains(const Instance& address) const;
-  
+
   /**
    * Get the base address.
    */
   const InstanceConstSharedPtr& address() const { return address_; }
-  
+
   /**
    * Get the prefix length.
    */
   uint32_t prefixLength() const { return prefix_len_; }
-  
+
   /**
    * Convert to string.
    */
   std::string asString() const;
-  
-private:
+
+ private:
   InstanceConstSharedPtr address_;
   uint32_t prefix_len_;
   // Cached network bits for fast comparison
