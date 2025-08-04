@@ -293,9 +293,9 @@ TEST_F(SocketInterfaceTest, BindListenAccept) {
   auto connect_addr = Address::loopbackAddress(Address::IpVersion::v4, port);
   auto connect_result = interface_->connect(client_fd, *connect_addr);
   EXPECT_TRUE(connect_result.ok() ||
-              (connect_result.error_code &&
-               (*connect_result.error_code == EINPROGRESS ||
-                *connect_result.error_code == EWOULDBLOCK)));
+              (connect_result.error_code() &&
+               (connect_result.error_code() == EINPROGRESS ||
+                connect_result.error_code() == EWOULDBLOCK)));
 
   // Accept
   sockaddr_storage peer_addr;
