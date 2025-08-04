@@ -1,11 +1,20 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <netinet/tcp.h>
+#endif
+
 #include "mcp/network/socket_option_impl.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
+#include "mcp/network/socket_interface_impl.h"
 
+using namespace mcp;
 using namespace mcp::network;
 using namespace testing;
 
@@ -372,6 +381,8 @@ TEST_F(SocketOptionTest, BuildSocketOptions) {
   
   // Should have created options for all supported values
   EXPECT_GE(socket_options->size(), 5);  // At least some basic options
+  // TODO: This is a rough check - we expect at least some options but the exact count varies by platform
+  (void)expected_count;  // Mark as intentionally unused
 }
 
 TEST_F(SocketOptionTest, SocketOptionImplBase) {
@@ -411,7 +422,7 @@ TEST_F(SocketOptionTest, RealSocketIntegration) {
   }
   
   auto io_handle = socketInterface().ioHandleForFd(*socket_result, false, AF_INET);
-  SocketImpl socket(std::move(io_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(io_handle), nullptr, nullptr);
   
   // Test applying various options
   BoolSocketOption reuse_addr(SOCKET_SO_REUSEADDR, true);

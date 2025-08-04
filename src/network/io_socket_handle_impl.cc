@@ -14,6 +14,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <errno.h>
 #endif
@@ -396,7 +397,7 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
   }
 
   // Set peer address
-  received_msg.peer_address = addressFromSockAddr(peer_addr, msg.msg_namelen, socket_v6only_);
+  received_msg.peer_address = Address::addressFromSockAddr(peer_addr, msg.msg_namelen, socket_v6only_);
   
   // Check if message was truncated
   received_msg.truncated = (msg.msg_flags & MSG_TRUNC) != 0;
@@ -415,7 +416,7 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
           local_addr.sin_family = AF_INET;
           local_addr.sin_addr = pktinfo->ipi_addr;
           local_addr.sin_port = htons(self_port);
-          received_msg.local_address = addressFromSockAddr(
+          received_msg.local_address = Address::addressFromSockAddr(
               *reinterpret_cast<sockaddr_storage*>(&local_addr), sizeof(local_addr), false);
         }
 #endif
@@ -427,7 +428,7 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
           local_addr.sin6_family = AF_INET6;
           local_addr.sin6_addr = pktinfo->ipi6_addr;
           local_addr.sin6_port = htons(self_port);
-          received_msg.local_address = addressFromSockAddr(
+          received_msg.local_address = Address::addressFromSockAddr(
               *reinterpret_cast<sockaddr_storage*>(&local_addr), sizeof(local_addr), socket_v6only_);
         }
 #endif
@@ -523,6 +524,7 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
         std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_));
   }
 #else
+#ifdef __linux__
   int new_fd = ::accept4(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len,
                          SOCK_NONBLOCK | SOCK_CLOEXEC);
   if (new_fd == -1 && errno == ENOSYS) {
@@ -537,6 +539,18 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
       ::fcntl(new_fd, F_SETFD, FD_CLOEXEC);
     }
   }
+#else
+  // For BSD/macOS, use accept directly
+  int new_fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
+  if (new_fd != -1) {
+    // Set non-blocking and close-on-exec
+    int flags = ::fcntl(new_fd, F_GETFL, 0);
+    if (flags != -1) {
+      ::fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
+    }
+    ::fcntl(new_fd, F_SETFD, FD_CLOEXEC);
+  }
+#endif
   
   if (new_fd != -1) {
     return IoResult<IoHandlePtr>::success(
@@ -674,7 +688,7 @@ IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::localAddress() con
   int result = ::getsockname(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (result == 0) {
     return IoResult<Address::InstanceConstSharedPtr>::success(
-        addressFromSockAddr(addr, addr_len, socket_v6only_));
+        Address::addressFromSockAddr(addr, addr_len, socket_v6only_));
   } else {
     return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
   }
@@ -691,7 +705,7 @@ IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::peerAddress() cons
   int result = ::getpeername(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (result == 0) {
     return IoResult<Address::InstanceConstSharedPtr>::success(
-        addressFromSockAddr(addr, addr_len, socket_v6only_));
+        Address::addressFromSockAddr(addr, addr_len, socket_v6only_));
   } else {
     return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
   }

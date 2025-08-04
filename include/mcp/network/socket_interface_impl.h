@@ -76,6 +76,25 @@ public:
   bool supportsIpPktInfo() const override;
   
   bool supportsReusePort() const override;
+
+private:
+  void setNonBlocking(os_fd_t fd);
+  void setCloseOnExec(os_fd_t fd);
+  std::string detectPlatform();
+  void initializeCapabilities();
+  
+#ifdef _WIN32
+  IoResult<int> emulateSocketPairWindows(SocketType type, os_fd_t fds[2]);
+#endif
+
+  std::string platform_name_;
+  bool supports_reuse_port_ = false;
+  bool supports_io_uring_ = false;
+  bool supports_udp_gro_ = false;
+  bool supports_udp_gso_ = false;
+  bool supports_ip_transparent_ = false;
+  bool supports_ip_freebind_ = false;
+  bool supports_ip_pktinfo_ = false;
 };
 
 }  // namespace network

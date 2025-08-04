@@ -1,11 +1,20 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/ioctl.h>
+#include <netinet/tcp.h>
+#endif
+
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/socket_interface_impl.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/socket_option_impl.h"
 
+using namespace mcp;
 using namespace mcp::network;
 using namespace testing;
 
@@ -31,36 +40,36 @@ class MockIoHandle : public IoHandle {
 public:
   MOCK_METHOD(os_fd_t, fd, (), (const, override));
   MOCK_METHOD(bool, isOpen, (), (const, override));
-  MOCK_METHOD(void, close, (), (override));
+  MOCK_METHOD(IoCallVoidResult, close, (), (override));
   
   MOCK_METHOD(IoCallResult, readv,
               (size_t max_length, RawSlice* slices, size_t num_slices),
               (override));
   
-  MOCK_METHOD(IoCallResult, read, (Buffer& buffer, size_t max_length), (override));
+  MOCK_METHOD(IoCallResult, read, (Buffer& buffer, optional<size_t> max_length), (override));
   
   MOCK_METHOD(IoCallResult, writev,
-              (const RawSlice* slices, size_t num_slices),
+              (const ConstRawSlice* slices, size_t num_slices),
               (override));
   
   MOCK_METHOD(IoCallResult, write, (Buffer& buffer), (override));
   
   MOCK_METHOD(IoCallResult, sendmsg,
-              (const RawSlice* slices, size_t num_slices,
-               int flags, const Address::Ip* peer_address),
+              (const ConstRawSlice* slices, size_t num_slices,
+               int flags, const Address::Ip* self_ip, const Address::Instance& peer_address),
               (override));
   
   MOCK_METHOD(IoCallResult, recvmsg,
               (RawSlice* slices, size_t num_slices,
-               uint32_t packet_size, RecvMsgOutput& output),
+               uint32_t self_port, const UdpSaveCmsgConfig& save_cmsg_config, RecvMsgOutput& output),
               (override));
   
   MOCK_METHOD(IoCallResult, recvmmsg,
-              (RawSlicePair* slices, size_t num_slices,
-               uint32_t packet_size, RecvMsgOutput* output),
+              (std::vector<RawSlice>& slices,
+               uint32_t self_port, const UdpSaveCmsgConfig& save_cmsg_config, RecvMsgOutput& output),
               (override));
   
-  MOCK_METHOD(IoResult<size_t>, recv, (void* buffer, size_t size, int flags), (override));
+  // recv method doesn't exist in IoHandle interface
   
   MOCK_METHOD(IoResult<int>, bind, (const Address::InstanceConstSharedPtr& address), (override));
   MOCK_METHOD(IoResult<int>, listen, (int backlog), (override));
@@ -78,10 +87,14 @@ public:
   
   MOCK_METHOD(IoResult<int>, setBlocking, (bool blocking), (override));
   
-  MOCK_METHOD(optional<int>, domain, (), (const, override));
+  // domain method doesn't exist in IoHandle interface
   
   MOCK_METHOD(IoResult<Address::InstanceConstSharedPtr>, localAddress, (), (const, override));
   MOCK_METHOD(IoResult<Address::InstanceConstSharedPtr>, peerAddress, (), (const, override));
+  MOCK_METHOD(optional<std::string>, interfaceName, (), (const, override));
+  MOCK_METHOD(optional<std::chrono::milliseconds>, lastRoundTripTime, (), (const, override));
+  MOCK_METHOD(void, configureInitialCongestionWindow, (uint64_t, std::chrono::microseconds), (override));
+  MOCK_METHOD(IoResult<IoHandlePtr>, accept, (), (override));
   
   MOCK_METHOD(void, initializeFileEvent,
               (event::Dispatcher& dispatcher, event::FileReadyCb cb,
@@ -105,7 +118,7 @@ TEST_F(SocketTest, ConnectionInfoProvider) {
   EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_handle, fd()).WillRepeatedly(Return(5));
   
-  SocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
+  ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
   
   // Test ConnectionInfoProvider
   const auto& info = socket.connectionInfoProvider();
@@ -158,7 +171,7 @@ TEST_F(SocketTest, LocalAddressRestore) {
   auto mock_handle = std::make_unique<MockIoHandle>();
   EXPECT_CALL(*mock_handle, isOpen()).WillRepeatedly(Return(true));
   
-  SocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
+  ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
   auto& setter = socket.connectionInfoProvider();
   
   // Change local address
@@ -180,11 +193,11 @@ TEST_F(SocketTest, IoHandleOperations) {
   EXPECT_CALL(*handle_ptr, isOpen()).WillRepeatedly(Return(true));
   EXPECT_CALL(*handle_ptr, fd()).WillRepeatedly(Return(10));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   // Test IoHandle access
   EXPECT_EQ(&socket.ioHandle(), handle_ptr);
-  EXPECT_EQ(&const_cast<const SocketImpl&>(socket).ioHandle(), handle_ptr);
+  EXPECT_EQ(&const_cast<const ConnectionSocketImpl&>(socket).ioHandle(), handle_ptr);
   EXPECT_TRUE(socket.isOpen());
   
   // Test close
@@ -201,7 +214,7 @@ TEST_F(SocketTest, BindOperation) {
   EXPECT_CALL(*handle_ptr, bind(bind_addr))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.bind(bind_addr);
   EXPECT_TRUE(result.ok());
@@ -217,7 +230,7 @@ TEST_F(SocketTest, ListenOperation) {
   EXPECT_CALL(*handle_ptr, listen(128))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.listen(128);
   EXPECT_TRUE(result.ok());
@@ -232,7 +245,7 @@ TEST_F(SocketTest, ConnectOperation) {
   EXPECT_CALL(*handle_ptr, connect(connect_addr))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.connect(connect_addr);
   EXPECT_TRUE(result.ok());
@@ -250,7 +263,7 @@ TEST_F(SocketTest, SocketOptions) {
   EXPECT_CALL(*handle_ptr, setSocketOption(SOL_SOCKET, SO_REUSEADDR, _, sizeof(int)))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.setSocketOption(SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   EXPECT_TRUE(result.ok());
@@ -259,10 +272,11 @@ TEST_F(SocketTest, SocketOptions) {
   int value = 0;
   socklen_t len = sizeof(value);
   EXPECT_CALL(*handle_ptr, getSocketOption(SOL_SOCKET, SO_REUSEADDR, _, _))
-      .WillOnce(DoAll(
-          SetArgPointee<2>(1),
-          SetArgPointee<3>(sizeof(int)),
-          Return(IoResult<int>::success(0))));
+      .WillOnce([](int, int, void* optval, socklen_t* optlen) {
+          *static_cast<int*>(optval) = 1;
+          *optlen = sizeof(int);
+          return IoResult<int>::success(0);
+      });
   
   result = socket.getSocketOption(SOL_SOCKET, SO_REUSEADDR, &value, &len);
   EXPECT_TRUE(result.ok());
@@ -277,7 +291,7 @@ TEST_F(SocketTest, Ioctl) {
   EXPECT_CALL(*handle_ptr, ioctl(FIONREAD, &bytes_available))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.ioctl(FIONREAD, &bytes_available);
   EXPECT_TRUE(result.ok());
@@ -286,7 +300,7 @@ TEST_F(SocketTest, Ioctl) {
 TEST_F(SocketTest, AddOptions) {
   auto mock_handle = std::make_unique<MockIoHandle>();
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   // Add single option
   auto option1 = std::make_shared<BoolSocketOption>(SOCKET_SO_REUSEADDR, true);
@@ -318,7 +332,7 @@ TEST_F(SocketTest, Duplicate) {
   EXPECT_CALL(*handle_ptr, duplicate())
       .WillOnce(Return(ByMove(std::move(dup_handle))));
   
-  SocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
+  ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
   
   // Add some options
   socket.addOption(std::make_shared<BoolSocketOption>(SOCKET_SO_REUSEADDR, true));
@@ -339,7 +353,7 @@ TEST_F(SocketTest, SetBlocking) {
   EXPECT_CALL(*handle_ptr, setBlocking(false))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto result = socket.setBlocking(false);
   EXPECT_TRUE(result.ok());
@@ -479,7 +493,7 @@ TEST_F(SocketTest, ApplySocketOptions) {
   EXPECT_CALL(*handle_ptr, setSocketOption(IPPROTO_TCP, TCP_NODELAY, _, _))
       .WillOnce(Return(IoResult<int>::success(0)));
   
-  SocketImpl socket(std::move(mock_handle), nullptr, nullptr);
+  ConnectionSocketImpl socket(std::move(mock_handle), nullptr, nullptr);
   
   auto options = std::make_shared<std::vector<SocketOptionConstSharedPtr>>();
   options->push_back(std::make_shared<BoolSocketOption>(SOCKET_SO_REUSEADDR, true));
@@ -491,7 +505,7 @@ TEST_F(SocketTest, ApplySocketOptions) {
 
 TEST_F(SocketTest, ErrorHandling) {
   // Test null handle
-  SocketImpl socket(nullptr, nullptr, nullptr);
+  ConnectionSocketImpl socket(nullptr, nullptr, nullptr);
   
   EXPECT_FALSE(socket.isOpen());
   
@@ -536,7 +550,7 @@ TEST_F(SocketTest, ConnectionInfoProviderSharedPtr) {
   
   auto mock_handle = std::make_unique<MockIoHandle>();
   
-  SocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
+  ConnectionSocketImpl socket(std::move(mock_handle), local_addr, remote_addr);
   
   auto shared_info = socket.connectionInfoProviderSharedPtr();
   ASSERT_NE(shared_info, nullptr);

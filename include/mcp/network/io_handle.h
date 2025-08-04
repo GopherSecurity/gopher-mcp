@@ -69,7 +69,7 @@ using IoCallVoidResult = IoResult<void*>;  // void* to avoid void in templates
 // UDP receive message output
 struct RecvMsgOutput {
   struct ReceivedMessage {
-    Buffer::OwnedBuffer data;
+    OwnedBuffer data;
     Address::InstanceConstSharedPtr peer_address;
     Address::InstanceConstSharedPtr local_address;
     optional<uint32_t> packets_dropped;

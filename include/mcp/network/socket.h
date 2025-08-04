@@ -114,12 +114,12 @@ public:
   /**
    * Apply option before bind().
    */
-  virtual bool setOption(Socket& socket) const { return true; }
+  virtual bool setOption(Socket& socket) const { (void)socket; return true; }
   
   /**
    * Apply option after listen() for server sockets.
    */
-  virtual bool setOptionForListen(Socket& socket) const { return true; }
+  virtual bool setOptionForListen(Socket& socket) const { (void)socket; return true; }
   
   /**
    * Get option details for logging.

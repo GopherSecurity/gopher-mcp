@@ -1,9 +1,18 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <fcntl.h>
+#include <netinet/tcp.h>
+#endif
+
 #include "mcp/network/socket_interface_impl.h"
 #include "mcp/network/address_impl.h"
 
+using namespace mcp;
 using namespace mcp::network;
 using namespace testing;
 

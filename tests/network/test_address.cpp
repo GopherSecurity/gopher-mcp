@@ -1,8 +1,18 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/un.h>
+#endif
+
 #include "mcp/network/address_impl.h"
 
+using namespace mcp;
 using namespace mcp::network;
 using namespace mcp::network::Address;
 using namespace testing;
@@ -256,7 +266,7 @@ TEST_F(AddressTest, UnixSocketFromSockaddr) {
 
 TEST_F(AddressTest, UnixSocketPathTooLong) {
   std::string long_path(200, 'x');  // Exceeds sun_path size
-  EXPECT_THROW(PipeInstance(long_path), std::runtime_error);
+  EXPECT_THROW(PipeInstance{long_path}, std::runtime_error);
 }
 
 TEST_F(AddressTest, UnixSocketEquality) {

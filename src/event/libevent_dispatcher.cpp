@@ -124,7 +124,7 @@ void LibeventDispatcher::initializeLibevent() {
   event_add(wakeup_event_, nullptr);
 
   // Create buffer factory
-  buffer_factory_ = std::make_unique<Buffer::WatermarkFactory>();
+  buffer_factory_ = std::make_unique<WatermarkFactory>();
 
   // Create deferred delete callback
   deferred_delete_cb_ = std::make_unique<SchedulableCallbackImpl>(
@@ -263,7 +263,7 @@ void LibeventDispatcher::run(RunType type) {
   runPostCallbacks();
 }
 
-Buffer::WatermarkFactory& LibeventDispatcher::getWatermarkFactory() {
+WatermarkFactory& LibeventDispatcher::getWatermarkFactory() {
   return *buffer_factory_;
 }
 

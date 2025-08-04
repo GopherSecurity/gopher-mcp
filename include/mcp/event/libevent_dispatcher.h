@@ -61,7 +61,7 @@ class LibeventDispatcher : public Dispatcher {
 
   void run(RunType type) override;
 
-  Buffer::WatermarkFactory& getWatermarkFactory() override;
+  WatermarkFactory& getWatermarkFactory() override;
 
   void pushTrackedObject(const ScopeTrackedObject* object) override;
   void popTrackedObject(const ScopeTrackedObject* expected_object) override;
@@ -203,7 +203,7 @@ class LibeventDispatcher : public Dispatcher {
   DispatcherStats* stats_ = nullptr;
 
   // Buffer factory
-  std::unique_ptr<Buffer::WatermarkFactory> buffer_factory_;
+  std::unique_ptr<WatermarkFactory> buffer_factory_;
 };
 
 /**

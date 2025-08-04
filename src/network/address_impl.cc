@@ -269,6 +269,7 @@ InstanceConstSharedPtr parseInternetAddress(const std::string& address, uint16_t
 
 InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
                                                   uint16_t port, bool v6only) {
+  (void)v6only;  // Currently unused
   // Try IPv4 first
   try {
     return std::make_shared<Ipv4Instance>(address, port);

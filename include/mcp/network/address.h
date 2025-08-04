@@ -96,15 +96,6 @@ public:
   virtual std::string logicalName() const { return asString(); }
   
   /**
-   * Get socket type for this address.
-   * @param type Socket type hint
-   * @return Socket type
-   */
-  virtual SocketType socketType(SocketType type = SocketType::Stream) const {
-    return type;
-  }
-  
-  /**
    * Compare addresses.
    */
   virtual bool operator==(const Instance& rhs) const = 0;

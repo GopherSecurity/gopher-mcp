@@ -233,24 +233,9 @@ const SocketOptionsSharedPtr& SocketImpl::options() const {
 }
 
 SocketPtr SocketImpl::duplicate() {
-  if (!io_handle_) {
-    return nullptr;
-  }
-  
-  auto new_handle = io_handle_->duplicate();
-  if (!new_handle) {
-    return nullptr;
-  }
-  
-  auto new_socket = std::make_unique<SocketImpl>(
-      std::move(new_handle),
-      connection_info_provider_->localAddress(),
-      connection_info_provider_->remoteAddress());
-  
-  // Copy options
-  new_socket->options_ = options_;
-  
-  return new_socket;
+  // This should not be called on base class
+  // Derived classes override this method
+  return nullptr;
 }
 
 IoResult<int> SocketImpl::setBlocking(bool blocking) {
@@ -267,7 +252,10 @@ ConnectionSocketImpl::ConnectionSocketImpl(
     IoHandlePtr io_handle,
     const Address::InstanceConstSharedPtr& local_address,
     const Address::InstanceConstSharedPtr& remote_address)
-    : SocketImpl(std::move(io_handle), local_address, remote_address) {}
+    : io_handle_(std::move(io_handle)),
+      connection_info_provider_(
+          std::make_shared<ConnectionInfoSetterImpl>(local_address, remote_address)),
+      options_(std::make_shared<std::vector<SocketOptionConstSharedPtr>>()) {}
 
 std::string ConnectionSocketImpl::requestedServerName() const {
   return connectionInfoProvider().requestedServerName();
@@ -305,12 +293,149 @@ optional<Address::IpVersion> ConnectionSocketImpl::ipVersion() const {
   return nullopt;
 }
 
+// Socket interface implementations
+ConnectionInfoSetter& ConnectionSocketImpl::connectionInfoProvider() {
+  return *connection_info_provider_;
+}
+
+const ConnectionInfoProvider& ConnectionSocketImpl::connectionInfoProvider() const {
+  return *connection_info_provider_;
+}
+
+ConnectionInfoProviderSharedPtr ConnectionSocketImpl::connectionInfoProviderSharedPtr() const {
+  return connection_info_provider_;
+}
+
+IoHandle& ConnectionSocketImpl::ioHandle() {
+  return *io_handle_;
+}
+
+const IoHandle& ConnectionSocketImpl::ioHandle() const {
+  return *io_handle_;
+}
+
+void ConnectionSocketImpl::close() {
+  if (io_handle_) {
+    io_handle_->close();
+  }
+}
+
+bool ConnectionSocketImpl::isOpen() const {
+  return io_handle_ && io_handle_->isOpen();
+}
+
+IoResult<int> ConnectionSocketImpl::bind(const Address::InstanceConstSharedPtr& address) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  auto result = io_handle_->bind(address);
+  if (result.ok()) {
+    connection_info_provider_->setLocalAddress(address);
+  }
+  
+  return result;
+}
+
+IoResult<int> ConnectionSocketImpl::listen(int backlog) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->listen(backlog);
+}
+
+IoResult<int> ConnectionSocketImpl::connect(const Address::InstanceConstSharedPtr& address) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  auto result = io_handle_->connect(address);
+  if (result.ok()) {
+    connection_info_provider_->setRemoteAddress(address);
+  }
+  
+  return result;
+}
+
+IoResult<int> ConnectionSocketImpl::setSocketOption(int level, int optname,
+                                                    const void* optval, socklen_t optlen) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->setSocketOption(level, optname, optval, optlen);
+}
+
+IoResult<int> ConnectionSocketImpl::getSocketOption(int level, int optname,
+                                                    void* optval, socklen_t* optlen) const {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->getSocketOption(level, optname, optval, optlen);
+}
+
+IoResult<int> ConnectionSocketImpl::ioctl(unsigned long request, void* argp) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->ioctl(request, argp);
+}
+
+void ConnectionSocketImpl::addOption(const SocketOptionConstSharedPtr& option) {
+  options_->push_back(option);
+}
+
+void ConnectionSocketImpl::addOptions(const SocketOptionsSharedPtr& options) {
+  if (options) {
+    options_->insert(options_->end(), options->begin(), options->end());
+  }
+}
+
+const SocketOptionsSharedPtr& ConnectionSocketImpl::options() const {
+  return options_;
+}
+
+SocketPtr ConnectionSocketImpl::duplicate() {
+  if (!io_handle_) {
+    return nullptr;
+  }
+  
+  auto new_handle = io_handle_->duplicate();
+  if (!new_handle) {
+    return nullptr;
+  }
+  
+  auto new_socket = std::make_unique<ConnectionSocketImpl>(
+      std::move(new_handle),
+      connection_info_provider_->localAddress(),
+      connection_info_provider_->remoteAddress());
+  
+  // Copy options
+  new_socket->options_ = options_;
+  
+  return new_socket;
+}
+
+IoResult<int> ConnectionSocketImpl::setBlocking(bool blocking) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->setBlocking(blocking);
+}
+
 // ===== ListenSocketImpl =====
 
 ListenSocketImpl::ListenSocketImpl(
     IoHandlePtr io_handle,
     const Address::InstanceConstSharedPtr& local_address)
-    : SocketImpl(std::move(io_handle), local_address, nullptr) {}
+    : io_handle_(std::move(io_handle)),
+      connection_info_provider_(
+          std::make_shared<ConnectionInfoSetterImpl>(local_address, nullptr)),
+      options_(std::make_shared<std::vector<SocketOptionConstSharedPtr>>()) {}
 
 void ListenSocketImpl::setListenSocketOptions(const SocketCreationOptions& options) {
   auto socket_options = buildSocketOptions(options);
@@ -335,6 +460,139 @@ optional<Address::IpVersion> ListenSocketImpl::ipVersion() const {
     return connectionInfoProvider().localAddress()->ip()->version();
   }
   return nullopt;
+}
+
+// Socket interface implementations
+ConnectionInfoSetter& ListenSocketImpl::connectionInfoProvider() {
+  return *connection_info_provider_;
+}
+
+const ConnectionInfoProvider& ListenSocketImpl::connectionInfoProvider() const {
+  return *connection_info_provider_;
+}
+
+ConnectionInfoProviderSharedPtr ListenSocketImpl::connectionInfoProviderSharedPtr() const {
+  return connection_info_provider_;
+}
+
+IoHandle& ListenSocketImpl::ioHandle() {
+  return *io_handle_;
+}
+
+const IoHandle& ListenSocketImpl::ioHandle() const {
+  return *io_handle_;
+}
+
+void ListenSocketImpl::close() {
+  if (io_handle_) {
+    io_handle_->close();
+  }
+}
+
+bool ListenSocketImpl::isOpen() const {
+  return io_handle_ && io_handle_->isOpen();
+}
+
+IoResult<int> ListenSocketImpl::bind(const Address::InstanceConstSharedPtr& address) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  auto result = io_handle_->bind(address);
+  if (result.ok()) {
+    connection_info_provider_->setLocalAddress(address);
+  }
+  
+  return result;
+}
+
+IoResult<int> ListenSocketImpl::listen(int backlog) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->listen(backlog);
+}
+
+IoResult<int> ListenSocketImpl::connect(const Address::InstanceConstSharedPtr& address) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  auto result = io_handle_->connect(address);
+  if (result.ok()) {
+    connection_info_provider_->setRemoteAddress(address);
+  }
+  
+  return result;
+}
+
+IoResult<int> ListenSocketImpl::setSocketOption(int level, int optname,
+                                                const void* optval, socklen_t optlen) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->setSocketOption(level, optname, optval, optlen);
+}
+
+IoResult<int> ListenSocketImpl::getSocketOption(int level, int optname,
+                                                void* optval, socklen_t* optlen) const {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->getSocketOption(level, optname, optval, optlen);
+}
+
+IoResult<int> ListenSocketImpl::ioctl(unsigned long request, void* argp) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->ioctl(request, argp);
+}
+
+void ListenSocketImpl::addOption(const SocketOptionConstSharedPtr& option) {
+  options_->push_back(option);
+}
+
+void ListenSocketImpl::addOptions(const SocketOptionsSharedPtr& options) {
+  if (options) {
+    options_->insert(options_->end(), options->begin(), options->end());
+  }
+}
+
+const SocketOptionsSharedPtr& ListenSocketImpl::options() const {
+  return options_;
+}
+
+SocketPtr ListenSocketImpl::duplicate() {
+  if (!io_handle_) {
+    return nullptr;
+  }
+  
+  auto new_handle = io_handle_->duplicate();
+  if (!new_handle) {
+    return nullptr;
+  }
+  
+  auto new_socket = std::make_unique<ListenSocketImpl>(
+      std::move(new_handle),
+      connection_info_provider_->localAddress());
+  
+  // Copy options
+  new_socket->options_ = options_;
+  
+  return new_socket;
+}
+
+IoResult<int> ListenSocketImpl::setBlocking(bool blocking) {
+  if (!io_handle_) {
+    return IoResult<int>::error(EBADF);
+  }
+  
+  return io_handle_->setBlocking(blocking);
 }
 
 // ===== Factory Functions =====
@@ -448,6 +706,7 @@ SocketOptionsSharedPtr createSocketOptions(const SocketCreationOptions& options)
 bool applySocketOptions(Socket& socket,
                        const SocketOptionsSharedPtr& options,
                        SocketOptionName phase) {
+  (void)phase;  // Currently unused
   if (!options) {
     return true;
   }
