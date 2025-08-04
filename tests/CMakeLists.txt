@@ -12,6 +12,13 @@ add_executable(test_buffer test_buffer.cpp)
 add_executable(test_json test_json.cpp)
 add_executable(test_event_loop test_event_loop.cpp)
 
+# Network tests
+add_executable(test_io_socket_handle ../test/network/io_socket_handle_test.cc)
+add_executable(test_address ../test/network/address_test.cc)
+add_executable(test_socket ../test/network/socket_test.cc)
+add_executable(test_socket_interface ../test/network/socket_interface_test.cc)
+add_executable(test_socket_option ../test/network/socket_option_test.cc)
+
 # Link libraries
 target_link_libraries(test_variant 
     gtest 
@@ -91,6 +98,47 @@ target_link_libraries(test_event_loop
     Threads::Threads
 )
 
+# Network test libraries
+target_link_libraries(test_io_socket_handle
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_address
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_socket
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_socket_interface
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_socket_option
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -105,6 +153,13 @@ add_test(NAME BufferTest COMMAND test_buffer)
 add_test(NAME JsonTest COMMAND test_json)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 
+# Network tests
+add_test(NAME IoSocketHandleTest COMMAND test_io_socket_handle)
+add_test(NAME AddressTest COMMAND test_address)
+add_test(NAME SocketTest COMMAND test_socket)
+add_test(NAME SocketInterfaceTest COMMAND test_socket_interface)
+add_test(NAME SocketOptionTest COMMAND test_socket_option)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
@@ -118,6 +173,8 @@ add_custom_target(run_tests
             test_optional test_optional_extensive test_optional_advanced
             test_mcp_type_helpers test_mcp_types test_compat
             test_buffer test_json test_event_loop
+            test_io_socket_handle test_address test_socket
+            test_socket_interface test_socket_option
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
