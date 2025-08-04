@@ -1,0 +1,676 @@
+#include "mcp/network/socket_interface_impl.h"
+
+#include <cstring>
+#include <map>
+#include <mutex>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#endif
+
+#include "mcp/network/address_impl.h"
+#include "mcp/network/io_socket_handle_impl.h"
+
+namespace mcp {
+namespace network {
+
+namespace {
+
+// Platform-specific error codes
+#ifdef _WIN32
+constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
+constexpr int SOCKET_ERROR_INVAL = WSAEINVAL;
+constexpr int SOCKET_ERROR_AFNOSUPPORT = WSAEAFNOSUPPORT;
+
+int getLastSocketError() { return WSAGetLastError(); }
+
+class WinsockInitializer {
+public:
+  WinsockInitializer() {
+    WSADATA wsaData;
+    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (result != 0) {
+      throw std::runtime_error("WSAStartup failed");
+    }
+  }
+  
+  ~WinsockInitializer() {
+    WSACleanup();
+  }
+};
+
+// Initialize Winsock on Windows
+static WinsockInitializer winsock_init;
+
+#else
+constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
+constexpr int SOCKET_ERROR_INVAL = EINVAL;
+constexpr int SOCKET_ERROR_AFNOSUPPORT = EAFNOSUPPORT;
+
+int getLastSocketError() { return errno; }
+#endif
+
+// Convert address type and IP version to socket domain
+int addressTypeToDomain(Address::Type addr_type, 
+                       optional<Address::IpVersion> version = nullopt) {
+  switch (addr_type) {
+    case Address::Type::Ip:
+      if (version.has_value()) {
+        return (*version == Address::IpVersion::v4) ? AF_INET : AF_INET6;
+      }
+      return AF_INET;  // Default to IPv4
+      
+    case Address::Type::Pipe:
+#ifdef _WIN32
+      return -1;  // Not supported on Windows yet
+#else
+      return AF_UNIX;
+#endif
+      
+    default:
+      return -1;
+  }
+}
+
+// Convert socket type to system constant
+int socketTypeToInt(SocketType type) {
+  switch (type) {
+    case SocketType::Stream:
+      return SOCK_STREAM;
+    case SocketType::Datagram:
+      return SOCK_DGRAM;
+    case SocketType::Raw:
+      return SOCK_RAW;
+    default:
+      return -1;
+  }
+}
+
+// Singleton storage
+std::mutex g_socket_interface_mutex;
+SocketInterfacePtr g_socket_interface;
+std::map<std::string, SocketInterfaceLoaderPtr> g_socket_interface_loaders;
+
+}  // namespace
+
+/**
+ * Default socket interface implementation
+ */
+class SocketInterfaceImpl : public SocketInterface {
+public:
+  SocketInterfaceImpl() : platform_name_(detectPlatform()) {
+    initializeCapabilities();
+  }
+  
+  IoResult<os_fd_t> socket(SocketType type,
+                           Address::Type addr_type,
+                           optional<Address::IpVersion> version,
+                           bool socket_v6only) override {
+    int domain = addressTypeToDomain(addr_type, version);
+    if (domain < 0) {
+      return IoResult<os_fd_t>::error(SOCKET_ERROR_AFNOSUPPORT);
+    }
+    
+    int sock_type = socketTypeToInt(type);
+    if (sock_type < 0) {
+      return IoResult<os_fd_t>::error(SOCKET_ERROR_INVAL);
+    }
+    
+#ifdef __linux__
+    // Use SOCK_CLOEXEC and SOCK_NONBLOCK on Linux
+    sock_type |= SOCK_CLOEXEC | SOCK_NONBLOCK;
+#endif
+    
+    os_fd_t fd = ::socket(domain, sock_type, 0);
+    if (fd == INVALID_SOCKET_FD) {
+      return IoResult<os_fd_t>::error(getLastSocketError());
+    }
+    
+    // Set non-blocking and close-on-exec on other platforms
+#ifndef __linux__
+    setNonBlocking(fd);
+    setCloseOnExec(fd);
+#endif
+    
+    // Set IPv6-only option if requested
+    if (socket_v6only && domain == AF_INET6) {
+      int opt = 1;
+      ::setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, 
+                   reinterpret_cast<const char*>(&opt), sizeof(opt));
+    }
+    
+    return IoResult<os_fd_t>::success(fd);
+  }
+  
+  IoResult<int> socketPair(SocketType type, os_fd_t fds[2]) override {
+#ifdef _WIN32
+    // Windows doesn't have socketpair, emulate with TCP sockets
+    return emulateSocketPairWindows(type, fds);
+#else
+    int sock_type = socketTypeToInt(type);
+    if (sock_type < 0) {
+      return IoResult<int>::error(SOCKET_ERROR_INVAL);
+    }
+    
+#ifdef __linux__
+    sock_type |= SOCK_CLOEXEC | SOCK_NONBLOCK;
+#endif
+    
+    int result = ::socketpair(AF_UNIX, sock_type, 0, fds);
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    
+#ifndef __linux__
+    // Set non-blocking and close-on-exec
+    setNonBlocking(fds[0]);
+    setNonBlocking(fds[1]);
+    setCloseOnExec(fds[0]);
+    setCloseOnExec(fds[1]);
+#endif
+    
+    return IoResult<int>::success(0);
+#endif
+  }
+  
+  IoHandlePtr ioHandleForFd(os_fd_t fd,
+                           bool socket_v6only,
+                           optional<int> domain) override {
+    return std::make_unique<IoSocketHandleImpl>(fd, socket_v6only, domain);
+  }
+  
+  IoResult<int> close(os_fd_t fd) override {
+#ifdef _WIN32
+    int result = ::closesocket(fd);
+#else
+    int result = ::close(fd);
+#endif
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<os_fd_t> duplicate(os_fd_t fd) override {
+#ifdef _WIN32
+    // Windows socket duplication is more complex
+    WSAPROTOCOL_INFO info;
+    if (::WSADuplicateSocket(fd, ::GetCurrentProcessId(), &info) != 0) {
+      return IoResult<os_fd_t>::error(getLastSocketError());
+    }
+    
+    os_fd_t new_fd = ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
+                                 FROM_PROTOCOL_INFO, &info, 0, WSA_FLAG_OVERLAPPED);
+    if (new_fd == INVALID_SOCKET) {
+      return IoResult<os_fd_t>::error(getLastSocketError());
+    }
+    return IoResult<os_fd_t>::success(new_fd);
+#else
+    int new_fd = ::dup(fd);
+    if (new_fd < 0) {
+      return IoResult<os_fd_t>::error(getLastSocketError());
+    }
+    
+    setCloseOnExec(new_fd);
+    return IoResult<os_fd_t>::success(new_fd);
+#endif
+  }
+  
+  IoResult<int> setFileFlags(os_fd_t fd, int flags) override {
+#ifdef _WIN32
+    // Windows doesn't have fcntl, handle specific flags
+    if (flags & O_NONBLOCK) {
+      u_long mode = 1;
+      if (::ioctlsocket(fd, FIONBIO, &mode) != 0) {
+        return IoResult<int>::error(getLastSocketError());
+      }
+    }
+    return IoResult<int>::success(0);
+#else
+    int current = ::fcntl(fd, F_GETFL, 0);
+    if (current < 0) {
+      return IoResult<int>::error(errno);
+    }
+    
+    if (::fcntl(fd, F_SETFL, current | flags) < 0) {
+      return IoResult<int>::error(errno);
+    }
+    
+    // Handle FD_CLOEXEC separately
+    if (flags & FD_CLOEXEC) {
+      if (::fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+        return IoResult<int>::error(errno);
+      }
+    }
+    
+    return IoResult<int>::success(0);
+#endif
+  }
+  
+  IoResult<int> getFileFlags(os_fd_t fd) override {
+#ifdef _WIN32
+    // Limited flag support on Windows
+    return IoResult<int>::success(0);
+#else
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags < 0) {
+      return IoResult<int>::error(errno);
+    }
+    return IoResult<int>::success(flags);
+#endif
+  }
+  
+  IoResult<int> setsockopt(os_fd_t fd, int level, int optname,
+                          const void* optval, socklen_t optlen) override {
+#ifdef _WIN32
+    int result = ::setsockopt(fd, level, optname,
+                             static_cast<const char*>(optval), optlen);
+#else
+    int result = ::setsockopt(fd, level, optname, optval, optlen);
+#endif
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<int> getsockopt(os_fd_t fd, int level, int optname,
+                          void* optval, socklen_t* optlen) override {
+#ifdef _WIN32
+    int result = ::getsockopt(fd, level, optname,
+                             static_cast<char*>(optval), optlen);
+#else
+    int result = ::getsockopt(fd, level, optname, optval, optlen);
+#endif
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<int> bind(os_fd_t fd, const Address::Instance& addr) override {
+    int result = ::bind(fd, addr.sockAddr(), addr.sockAddrLen());
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<int> listen(os_fd_t fd, int backlog) override {
+    int result = ::listen(fd, backlog);
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<os_fd_t> accept(os_fd_t fd,
+                          sockaddr* addr,
+                          socklen_t* addrlen) override {
+#ifdef __linux__
+    // Use accept4 on Linux for SOCK_CLOEXEC and SOCK_NONBLOCK
+    os_fd_t new_fd = ::accept4(fd, addr, addrlen, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (new_fd < 0) {
+      // Fall back to accept if accept4 not available
+      if (errno == ENOSYS) {
+        new_fd = ::accept(fd, addr, addrlen);
+        if (new_fd >= 0) {
+          setNonBlocking(new_fd);
+          setCloseOnExec(new_fd);
+        }
+      }
+    }
+#else
+    os_fd_t new_fd = ::accept(fd, addr, addrlen);
+    if (new_fd != INVALID_SOCKET_FD) {
+      setNonBlocking(new_fd);
+      setCloseOnExec(new_fd);
+    }
+#endif
+    
+    if (new_fd == INVALID_SOCKET_FD) {
+      return IoResult<os_fd_t>::error(getLastSocketError());
+    }
+    return IoResult<os_fd_t>::success(new_fd);
+  }
+  
+  IoResult<int> connect(os_fd_t fd, const Address::Instance& addr) override {
+    int result = ::connect(fd, addr.sockAddr(), addr.sockAddrLen());
+    if (result < 0) {
+      int error = getLastSocketError();
+      // EINPROGRESS is expected for non-blocking connect
+      if (error == EINPROGRESS || error == SOCKET_ERROR_AGAIN) {
+        return IoResult<int>::success(0);
+      }
+      return IoResult<int>::error(error);
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<int> shutdown(os_fd_t fd, int how) override {
+    int result = ::shutdown(fd, how);
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  IoResult<Address::InstanceConstSharedPtr> localAddress(os_fd_t fd) override {
+    sockaddr_storage addr;
+    socklen_t addr_len = sizeof(addr);
+    
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &addr_len) < 0) {
+      return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
+    }
+    
+    return IoResult<Address::InstanceConstSharedPtr>::success(
+        Address::addressFromSockAddr(addr, addr_len, false));
+  }
+  
+  IoResult<Address::InstanceConstSharedPtr> peerAddress(os_fd_t fd) override {
+    sockaddr_storage addr;
+    socklen_t addr_len = sizeof(addr);
+    
+    if (::getpeername(fd, reinterpret_cast<sockaddr*>(&addr), &addr_len) < 0) {
+      return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
+    }
+    
+    return IoResult<Address::InstanceConstSharedPtr>::success(
+        Address::addressFromSockAddr(addr, addr_len, false));
+  }
+  
+  IoResult<int> ioctl(os_fd_t fd, unsigned long request, void* argp) override {
+#ifdef _WIN32
+    int result = ::ioctlsocket(fd, request, static_cast<u_long*>(argp));
+#else
+    int result = ::ioctl(fd, request, argp);
+#endif
+    if (result < 0) {
+      return IoResult<int>::error(getLastSocketError());
+    }
+    return IoResult<int>::success(0);
+  }
+  
+  optional<std::string> interfaceName(os_fd_t fd) override {
+    // TODO: Implement interface name retrieval
+    // This requires platform-specific implementation
+    (void)fd;
+    return nullopt;
+  }
+  
+  bool supportsSocketOption(int level, int optname) const override {
+    // Check common options
+    if (level == SOL_SOCKET) {
+      switch (optname) {
+        case SO_REUSEADDR:
+        case SO_KEEPALIVE:
+        case SO_RCVBUF:
+        case SO_SNDBUF:
+          return true;
+#ifdef SO_REUSEPORT
+        case SO_REUSEPORT:
+          return supports_reuse_port_;
+#endif
+        default:
+          break;
+      }
+    } else if (level == IPPROTO_TCP) {
+      switch (optname) {
+        case TCP_NODELAY:
+          return true;
+#ifdef TCP_KEEPIDLE
+        case TCP_KEEPIDLE:
+        case TCP_KEEPINTVL:
+        case TCP_KEEPCNT:
+          return true;
+#endif
+        default:
+          break;
+      }
+    } else if (level == IPPROTO_IP) {
+#ifdef IP_TRANSPARENT
+      if (optname == IP_TRANSPARENT) return supports_ip_transparent_;
+#endif
+#ifdef IP_FREEBIND
+      if (optname == IP_FREEBIND) return supports_ip_freebind_;
+#endif
+    }
+    
+    // For unknown options, assume not supported
+    return false;
+  }
+  
+  const std::string& platformName() const override {
+    return platform_name_;
+  }
+  
+  bool supportsIoUring() const override {
+    return supports_io_uring_;
+  }
+  
+  bool supportsUdpGro() const override {
+    return supports_udp_gro_;
+  }
+  
+  bool supportsUdpGso() const override {
+    return supports_udp_gso_;
+  }
+  
+  bool supportsIpPktInfo() const override {
+    return supports_ip_pktinfo_;
+  }
+  
+  bool supportsReusePort() const override {
+    return supports_reuse_port_;
+  }
+  
+private:
+  void setNonBlocking(os_fd_t fd) {
+#ifdef _WIN32
+    u_long mode = 1;
+    ::ioctlsocket(fd, FIONBIO, &mode);
+#else
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+      ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+#endif
+  }
+  
+  void setCloseOnExec(os_fd_t fd) {
+#ifndef _WIN32
+    ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
+  }
+  
+  std::string detectPlatform() {
+#ifdef _WIN32
+    return "windows";
+#elif __APPLE__
+    return "macos";
+#elif __linux__
+    return "linux";
+#elif __FreeBSD__
+    return "freebsd";
+#else
+    return "unknown";
+#endif
+  }
+  
+  void initializeCapabilities() {
+    // Detect platform capabilities
+#ifdef SO_REUSEPORT
+    supports_reuse_port_ = true;
+#endif
+
+#ifdef __linux__
+    // Check for io_uring support (kernel 5.1+)
+    // TODO: Actual runtime detection
+    supports_io_uring_ = false;
+    
+#ifdef UDP_GRO
+    supports_udp_gro_ = true;
+#endif
+
+#ifdef UDP_SEGMENT
+    supports_udp_gso_ = true;
+#endif
+
+#ifdef IP_TRANSPARENT
+    supports_ip_transparent_ = true;
+#endif
+
+#ifdef IP_FREEBIND
+    supports_ip_freebind_ = true;
+#endif
+#endif
+
+#ifdef IP_PKTINFO
+    supports_ip_pktinfo_ = true;
+#elif defined(IP_RECVDSTADDR)
+    supports_ip_pktinfo_ = true;
+#endif
+  }
+  
+#ifdef _WIN32
+  IoResult<int> emulateSocketPairWindows(SocketType type, os_fd_t fds[2]) {
+    // Create listening socket
+    auto listen_result = socket(type, Address::Type::Ip, Address::IpVersion::v4, false);
+    if (!listen_result.ok()) {
+      return IoResult<int>::error(*listen_result.error_code);
+    }
+    os_fd_t listen_fd = *listen_result;
+    
+    // Bind to loopback
+    auto addr = Address::loopbackAddress(Address::IpVersion::v4, 0);
+    if (::bind(listen_fd, addr->sockAddr(), addr->sockAddrLen()) < 0) {
+      ::closesocket(listen_fd);
+      return IoResult<int>::error(getLastSocketError());
+    }
+    
+    // Get assigned port
+    sockaddr_storage bound_addr;
+    socklen_t addr_len = sizeof(bound_addr);
+    if (::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&bound_addr), &addr_len) < 0) {
+      ::closesocket(listen_fd);
+      return IoResult<int>::error(getLastSocketError());
+    }
+    
+    // Listen
+    if (type == SocketType::Stream && ::listen(listen_fd, 1) < 0) {
+      ::closesocket(listen_fd);
+      return IoResult<int>::error(getLastSocketError());
+    }
+    
+    // Create connecting socket
+    auto connect_result = socket(type, Address::Type::Ip, Address::IpVersion::v4, false);
+    if (!connect_result.ok()) {
+      ::closesocket(listen_fd);
+      return IoResult<int>::error(*connect_result.error_code);
+    }
+    fds[0] = *connect_result;
+    
+    // Connect
+    auto connect_addr = Address::addressFromSockAddr(bound_addr, addr_len, false);
+    if (::connect(fds[0], connect_addr->sockAddr(), connect_addr->sockAddrLen()) < 0) {
+      int error = getLastSocketError();
+      if (error != WSAEWOULDBLOCK) {
+        ::closesocket(listen_fd);
+        ::closesocket(fds[0]);
+        return IoResult<int>::error(error);
+      }
+    }
+    
+    if (type == SocketType::Stream) {
+      // Accept connection
+      sockaddr_storage peer_addr;
+      socklen_t peer_len = sizeof(peer_addr);
+      fds[1] = ::accept(listen_fd, reinterpret_cast<sockaddr*>(&peer_addr), &peer_len);
+      ::closesocket(listen_fd);
+      
+      if (fds[1] == INVALID_SOCKET) {
+        ::closesocket(fds[0]);
+        return IoResult<int>::error(getLastSocketError());
+      }
+    } else {
+      // For datagram, both sockets are ready
+      fds[1] = listen_fd;
+    }
+    
+    setNonBlocking(fds[0]);
+    setNonBlocking(fds[1]);
+    
+    return IoResult<int>::success(0);
+  }
+#endif
+  
+  std::string platform_name_;
+  bool supports_reuse_port_ = false;
+  bool supports_io_uring_ = false;
+  bool supports_udp_gro_ = false;
+  bool supports_udp_gso_ = false;
+  bool supports_ip_transparent_ = false;
+  bool supports_ip_freebind_ = false;
+  bool supports_ip_pktinfo_ = false;
+};
+
+// ===== Global Functions =====
+
+SocketInterface& socketInterface() {
+  std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
+  if (!g_socket_interface) {
+    g_socket_interface = createDefaultSocketInterface();
+  }
+  return *g_socket_interface;
+}
+
+void setSocketInterface(SocketInterfacePtr interface) {
+  std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
+  g_socket_interface = std::move(interface);
+}
+
+void resetSocketInterface() {
+  std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
+  g_socket_interface.reset();
+}
+
+void registerSocketInterfaceLoader(SocketInterfaceLoaderPtr loader) {
+  std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
+  g_socket_interface_loaders[loader->name()] = std::move(loader);
+}
+
+std::vector<std::string> getSocketInterfaceLoaderNames() {
+  std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
+  std::vector<std::string> names;
+  for (const auto& [name, loader] : g_socket_interface_loaders) {
+    names.push_back(name);
+  }
+  return names;
+}
+
+SocketInterfacePtr createDefaultSocketInterface() {
+  return std::make_unique<SocketInterfaceImpl>();
+}
+
+#ifdef __linux__
+// Placeholder for io_uring implementation
+SocketInterfacePtr createIoUringSocketInterface() {
+  // TODO: Implement io_uring socket interface
+  return nullptr;
+}
+#endif
+
+}  // namespace network
+}  // namespace mcp
