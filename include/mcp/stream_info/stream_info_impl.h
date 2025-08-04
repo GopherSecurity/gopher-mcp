@@ -17,11 +17,11 @@ public:
   FilterStateImpl() = default;
 
   // FilterState interface
-  void setData(absl::string_view name, 
+  void setData(const std::string& name, 
                ObjectSharedPtr object,
                StateType state_type) override;
-  const Object* getData(absl::string_view name) const override;
-  bool hasData(absl::string_view name) const override;
+  const Object* getData(const std::string& name) const override;
+  bool hasData(const std::string& name) const override;
 
 private:
   struct StoredObject {
