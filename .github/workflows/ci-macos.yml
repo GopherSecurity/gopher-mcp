@@ -1,0 +1,44 @@
+name: CI (macOS)
+
+on:
+  push:
+    branches: [ main, master, develop, 'br_dev_*' ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  build-and-test:
+    name: Build and Test (macOS)
+    runs-on: macos-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Install dependencies
+      run: |
+        brew update
+        brew install cmake
+        
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        
+    - name: Build
+      run: |
+        cmake --build build --config ${{ matrix.build_type }} -j$(sysctl -n hw.ncpu)
+        
+    - name: Test
+      run: |
+        cd build
+        ctest -C ${{ matrix.build_type }} --output-on-failure --verbose
+        
+    - name: List all tests
+      if: always()
+      run: |
+        make test-list || true
