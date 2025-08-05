@@ -19,6 +19,20 @@ add_executable(test_socket network/test_socket.cc)
 add_executable(test_socket_interface network/test_socket_interface.cc)
 add_executable(test_socket_option network/test_socket_option.cc)
 add_executable(test_transport_socket network/test_transport_socket.cc)
+add_executable(test_filter network/test_filter.cc)
+add_executable(test_connection_impl network/test_connection_impl.cc)
+add_executable(test_listener_impl network/test_listener_impl.cc)
+add_executable(test_connection_manager_impl network/test_connection_manager_impl.cc)
+
+# Stream info tests
+add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
+
+# Transport tests
+add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
+add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
+
+# MCP tests
+add_executable(test_mcp_connection_manager test_mcp_connection_manager.cc)
 
 # Link libraries
 target_link_libraries(test_variant 
@@ -149,6 +163,73 @@ target_link_libraries(test_transport_socket
     Threads::Threads
 )
 
+target_link_libraries(test_filter
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_impl
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_listener_impl
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_manager_impl
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+# Stream info test libraries
+target_link_libraries(test_stream_info_impl
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+# Transport test libraries
+target_link_libraries(test_stdio_transport_socket
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_http_sse_transport_socket
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+# MCP test libraries
+target_link_libraries(test_mcp_connection_manager
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -170,6 +251,20 @@ add_test(NAME SocketTest COMMAND test_socket)
 add_test(NAME SocketInterfaceTest COMMAND test_socket_interface)
 add_test(NAME SocketOptionTest COMMAND test_socket_option)
 add_test(NAME TransportSocketTest COMMAND test_transport_socket)
+add_test(NAME FilterTest COMMAND test_filter)
+add_test(NAME ConnectionImplTest COMMAND test_connection_impl)
+add_test(NAME ListenerImplTest COMMAND test_listener_impl)
+add_test(NAME ConnectionManagerImplTest COMMAND test_connection_manager_impl)
+
+# Stream info tests
+add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
+
+# Transport tests
+add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
+add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
+
+# MCP tests
+add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
@@ -186,6 +281,10 @@ add_custom_target(run_tests
             test_buffer test_json test_event_loop
             test_io_socket_handle test_address test_socket
             test_socket_interface test_socket_option test_transport_socket
+            test_filter test_connection_impl test_listener_impl
+            test_connection_manager_impl test_stream_info_impl
+            test_stdio_transport_socket test_http_sse_transport_socket
+            test_mcp_connection_manager
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )

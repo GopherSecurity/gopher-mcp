@@ -22,6 +22,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Option to use std::optional/variant when available
 option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++17)" ON)
 
+# Option to enable strict warnings (disable for development)
+option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" ON)
+
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -29,10 +32,17 @@ endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
-    # Disable warnings for unused variables and fields (common in platform-specific code)
-    add_compile_options(-Wno-unused-variable -Wno-unused-const-variable)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+    
+    if(MCP_STRICT_WARNINGS)
+        add_compile_options(-Werror)
+    else()
+        # Disable warnings for unused entities during development
+        add_compile_options(-Wno-unused-parameter -Wno-unused-variable -Wno-unused-const-variable)
+        add_compile_options(-Wno-unused-function -Wno-unused-private-field)
+    endif()
+    
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MCP_STRICT_WARNINGS)
         add_compile_options(-Wno-unused-private-field)
     endif()
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -129,7 +139,14 @@ set(MCP_SDK_SOURCES
     src/network/socket_interface_impl.cc
     src/network/socket_option_impl.cc
     src/network/transport_socket.cc
+    src/network/filter_impl.cc
+    src/network/connection_impl.cc
+    src/network/listener_impl.cc
+    src/network/connection_manager_impl.cc
     src/stream_info/stream_info_impl.cc
+    src/transport/stdio_transport_socket.cc
+    src/transport/http_sse_transport_socket.cc
+    src/mcp_connection_manager.cc
 )
 
 # Event system source files
