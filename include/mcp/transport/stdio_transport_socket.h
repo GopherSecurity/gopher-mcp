@@ -28,12 +28,12 @@ public:
   // TransportSocket interface
   void setTransportSocketCallbacks(network::TransportSocketCallbacks& callbacks) override;
   std::string protocol() const override { return "stdio"; }
-  absl::string_view failureReason() const override { return failure_reason_; }
+  std::string failureReason() const override { return failure_reason_; }
   bool canFlushClose() override { return true; }
-  Result<void> connect(network::Socket& socket) override;
+  VoidResult connect(network::Socket& socket) override;
   void closeSocket(network::ConnectionEvent event) override;
-  network::IoResult doRead(Buffer& buffer) override;
-  network::IoResult doWrite(Buffer& buffer, bool end_stream) override;
+  TransportIoResult doRead(Buffer& buffer) override;
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
 
 private:
@@ -52,8 +52,8 @@ private:
   
   // Helper methods
   void setNonBlocking(int fd);
-  network::IoResult performRead(Buffer& buffer);
-  network::IoResult performWrite(Buffer& buffer);
+  TransportIoResult performRead(Buffer& buffer);
+  TransportIoResult performWrite(Buffer& buffer);
 };
 
 /**
@@ -65,7 +65,7 @@ public:
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override { return false; }
-  absl::string_view name() const override { return "stdio"; }
+  std::string name() const override { return "stdio"; }
 
   // ClientTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket(
@@ -83,7 +83,7 @@ private:
 /**
  * Create a stdio transport socket factory
  */
-inline std::unique_ptr<network::TransportSocketFactory> 
+inline std::unique_ptr<network::TransportSocketFactoryBase> 
 createStdioTransportSocketFactory(const StdioTransportSocketConfig& config = {}) {
   return std::make_unique<StdioTransportSocketFactory>(config);
 }
