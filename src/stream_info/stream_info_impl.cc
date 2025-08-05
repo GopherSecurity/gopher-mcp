@@ -11,7 +11,7 @@ void FilterStateImpl::setData(const std::string& name,
   data_[name] = StoredObject{object, state_type};
 }
 
-const Object* FilterStateImpl::getData(const std::string& name) const {
+const FilterState::Object* FilterStateImpl::getData(const std::string& name) const {
   auto it = data_.find(name);
   if (it == data_.end()) {
     return nullptr;
