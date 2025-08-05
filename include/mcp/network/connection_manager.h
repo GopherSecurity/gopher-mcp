@@ -15,11 +15,11 @@ namespace network {
 
 /**
  * Connection handler interface
- * 
+ *
  * Manages active connections and listeners
  */
 class ConnectionHandler {
-public:
+ public:
   virtual ~ConnectionHandler() = default;
 
   /**
@@ -63,7 +63,7 @@ public:
  */
 class ConnectionHandlerImpl : public ConnectionHandler,
                               public ListenerCallbacks {
-public:
+ public:
   ConnectionHandlerImpl(event::Dispatcher& dispatcher,
                         SocketInterface& socket_interface);
   ~ConnectionHandlerImpl() override;
@@ -75,7 +75,9 @@ public:
   void stopListeners() override;
   void disableListeners() override;
   void enableListeners() override;
-  void setListenerCallbacks(ListenerCallbacks& callbacks) override { listener_callbacks_ = &callbacks; }
+  void setListenerCallbacks(ListenerCallbacks& callbacks) override {
+    listener_callbacks_ = &callbacks;
+  }
 
   // ListenerCallbacks interface
   void onAccept(ConnectionSocketPtr&& socket) override;
@@ -84,19 +86,19 @@ public:
   // Remove a connection
   void removeConnection(Connection& connection);
 
-private:
+ private:
   event::Dispatcher& dispatcher_;
   SocketInterface& socket_interface_;
-  
+
   // Active listeners
   std::vector<ListenerPtr> listeners_;
-  
+
   // Active connections
   std::list<ConnectionPtr> connections_;
-  
+
   // Listener callbacks
   ListenerCallbacks* listener_callbacks_{nullptr};
-  
+
   // Whether listeners are disabled
   bool listeners_disabled_{false};
 };
@@ -107,28 +109,28 @@ private:
 struct ConnectionManagerConfig {
   // Maximum number of connections
   optional<uint32_t> max_connections;
-  
+
   // Connection timeout
   optional<std::chrono::milliseconds> connection_timeout;
-  
+
   // Buffer limits
-  uint32_t per_connection_buffer_limit{1024 * 1024}; // 1MB default
-  
+  uint32_t per_connection_buffer_limit{1024 * 1024};  // 1MB default
+
   // Transport socket factory
   ClientTransportSocketFactorySharedPtr client_transport_socket_factory;
   ServerTransportSocketFactorySharedPtr server_transport_socket_factory;
-  
+
   // Filter chain factory
   std::shared_ptr<FilterChainFactory> filter_chain_factory;
 };
 
 /**
  * Connection manager
- * 
+ *
  * High-level interface for managing connections
  */
 class ConnectionManager {
-public:
+ public:
   virtual ~ConnectionManager() = default;
 
   /**
@@ -165,7 +167,7 @@ public:
  */
 class ConnectionManagerImpl : public ConnectionManager,
                               public ConnectionCallbacks {
-public:
+ public:
   ConnectionManagerImpl(event::Dispatcher& dispatcher,
                         SocketInterface& socket_interface,
                         const ConnectionManagerConfig& config);
@@ -174,10 +176,13 @@ public:
   // ConnectionManager interface
   ClientConnectionPtr createClientConnection(
       const network::Address::InstanceConstSharedPtr& address,
-      const TransportSocketOptionsSharedPtr& transport_options = nullptr) override;
+      const TransportSocketOptionsSharedPtr& transport_options =
+          nullptr) override;
   ServerConnectionPtr createServerConnection(
       ConnectionSocketPtr&& socket) override;
-  void setConnectionCallbacks(ConnectionPoolCallbacks& callbacks) override { pool_callbacks_ = &callbacks; }
+  void setConnectionCallbacks(ConnectionPoolCallbacks& callbacks) override {
+    pool_callbacks_ = &callbacks;
+  }
   size_t numConnections() const override { return connections_.size(); }
   void closeAllConnections() override;
 
@@ -186,7 +191,7 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
-private:
+ private:
   // Helper to track connection
   void trackConnection(Connection* connection);
   void untrackConnection(Connection* connection);
@@ -202,38 +207,38 @@ private:
   event::Dispatcher& dispatcher_;
   SocketInterface& socket_interface_;
   ConnectionManagerConfig config_;
-  
+
   // Active connections
   std::unordered_map<Connection*, std::weak_ptr<Connection>> connections_;
-  
+
   // Callbacks
   ConnectionPoolCallbacks* pool_callbacks_{nullptr};
 };
 
 /**
  * Connection pool interface
- * 
+ *
  * Manages a pool of connections to a specific upstream
  */
 class ConnectionPool {
-public:
+ public:
   virtual ~ConnectionPool() = default;
 
   /**
    * Connection pool failure reasons
    */
   enum class PoolFailureReason {
-    Overflow,       // Connection limit reached
-    Timeout,        // Connection timeout
-    LocalFailure,   // Local connection failure
-    RemoteFailure   // Remote connection failure
+    Overflow,      // Connection limit reached
+    Timeout,       // Connection timeout
+    LocalFailure,  // Local connection failure
+    RemoteFailure  // Remote connection failure
   };
 
   /**
    * Pool callbacks for stream lifetime events
    */
   class Callbacks {
-  public:
+   public:
     virtual ~Callbacks() = default;
 
     /**
@@ -299,7 +304,7 @@ using ConnectionPoolPtr = std::unique_ptr<ConnectionPool>;
  * Factory for creating connection pools
  */
 class ConnectionPoolFactory {
-public:
+ public:
   virtual ~ConnectionPoolFactory() = default;
 
   /**
@@ -314,9 +319,8 @@ public:
 /**
  * Connection pool implementation
  */
-class ConnectionPoolImpl : public ConnectionPool,
-                           public ConnectionCallbacks {
-public:
+class ConnectionPoolImpl : public ConnectionPool, public ConnectionCallbacks {
+ public:
   ConnectionPoolImpl(event::Dispatcher& dispatcher,
                      const network::Address::InstanceConstSharedPtr& address,
                      const ConnectionManagerConfig& config,
@@ -325,9 +329,15 @@ public:
 
   // ConnectionPool interface
   void newConnection(Callbacks& callbacks) override;
-  size_t numActiveConnections() const override { return active_connections_.size(); }
-  size_t numPendingConnections() const override { return pending_connections_.size(); }
-  size_t numIdleConnections() const override { return idle_connections_.size(); }
+  size_t numActiveConnections() const override {
+    return active_connections_.size();
+  }
+  size_t numPendingConnections() const override {
+    return pending_connections_.size();
+  }
+  size_t numIdleConnections() const override {
+    return idle_connections_.size();
+  }
   void closeConnections() override;
   void addIdleCallback(IdleCb cb) override { idle_callbacks_.push_back(cb); }
   bool isIdle() const override;
@@ -338,7 +348,7 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
-private:
+ private:
   // Connection states
   struct PendingConnection {
     ClientConnectionPtr connection;
@@ -362,20 +372,20 @@ private:
   network::Address::InstanceConstSharedPtr address_;
   ConnectionManagerConfig config_;
   ConnectionManager& connection_manager_;
-  
+
   // Connection pools
   std::list<PendingConnection> pending_connections_;
   std::list<ActiveConnection> active_connections_;
   std::list<ClientConnectionPtr> idle_connections_;
-  
+
   // Callbacks
   std::vector<IdleCb> idle_callbacks_;
-  
+
   // State
   bool draining_{false};
 };
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
 
-#endif // MCP_NETWORK_CONNECTION_MANAGER_H
+#endif  // MCP_NETWORK_CONNECTION_MANAGER_H

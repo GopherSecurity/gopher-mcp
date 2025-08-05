@@ -40,7 +40,7 @@ enum class ListenerFilterStatus {
  * Listener filter callbacks
  */
 class ListenerFilterCallbacks {
-public:
+ public:
   virtual ~ListenerFilterCallbacks() = default;
 
   /**
@@ -61,17 +61,17 @@ public:
 
 /**
  * Listener filter interface
- * 
+ *
  * Filters that run before the connection is fully accepted
  * (e.g., for SNI inspection, PROXY protocol, etc.)
  */
 class ListenerFilter {
-public:
+ public:
   virtual ~ListenerFilter() = default;
 
   /**
    * Called when a new connection is accepted
-   * 
+   *
    * @param cb Callbacks for interacting with the listener
    * @return Status indicating whether to continue
    */
@@ -89,12 +89,12 @@ public:
  * Listener callbacks
  */
 class ListenerCallbacks {
-public:
+ public:
   virtual ~ListenerCallbacks() = default;
 
   /**
    * Called when a socket is accepted
-   * 
+   *
    * The socket may be passed through listener filters before
    * becoming a full connection
    */
@@ -102,7 +102,7 @@ public:
 
   /**
    * Called when a new connection is ready
-   * 
+   *
    * This is called after all listener filters have run
    */
   virtual void onNewConnection(ConnectionPtr&& connection) = 0;
@@ -114,42 +114,42 @@ public:
 struct ListenerConfig {
   // Listener name
   std::string name;
-  
+
   // Bind address
   network::Address::InstanceConstSharedPtr address;
-  
+
   // Socket options
   SocketOptionsSharedPtr socket_options;
-  
+
   // Whether to bind to port (vs using existing FD)
   bool bind_to_port{true};
-  
+
   // Whether to enable SO_REUSEPORT
   bool enable_reuse_port{false};
-  
+
   // Backlog size
   int backlog{128};
-  
+
   // Per-connection buffer limit
   uint32_t per_connection_buffer_limit{1024 * 1024};
-  
+
   // Listener filters
   std::vector<ListenerFilterPtr> listener_filters;
-  
+
   // Transport socket factory
   ServerTransportSocketFactorySharedPtr transport_socket_factory;
-  
+
   // Filter chain factory
   std::shared_ptr<FilterChainFactory> filter_chain_factory;
 };
 
 /**
  * Listener interface
- * 
+ *
  * Accepts new connections and creates connection objects
  */
 class Listener {
-public:
+ public:
   virtual ~Listener() = default;
 
   /**
@@ -196,12 +196,11 @@ public:
 
 /**
  * Active listener implementation
- * 
+ *
  * Handles accept() and connection creation
  */
-class ActiveListener : public Listener,
-                       public ListenerCallbacks {
-public:
+class ActiveListener : public Listener, public ListenerCallbacks {
+ public:
   ActiveListener(event::Dispatcher& dispatcher,
                  SocketInterface& socket_interface,
                  ListenerCallbacks& parent_callbacks,
@@ -223,14 +222,14 @@ public:
   void onAccept(ConnectionSocketPtr&& socket) override;
   void onNewConnection(ConnectionPtr&& connection) override;
 
-private:
+ private:
   // Accept handler
   void onSocketEvent(uint32_t events);
   void doAccept();
-  
+
   // Create connection from accepted socket
   void createConnection(ConnectionSocketPtr&& socket);
-  
+
   // Run listener filters
   void runListenerFilters(ConnectionSocketPtr&& socket);
 
@@ -238,35 +237,35 @@ private:
   SocketInterface& socket_interface_;
   ListenerCallbacks& parent_callbacks_;
   ListenerConfig config_;
-  
+
   // Listen socket
   SocketPtr socket_;
-  
+
   // File event for accept
   event::FileEventPtr file_event_;
-  
+
   // State
   bool enabled_{true};
   uint64_t num_connections_{0};
-  
+
   // Tags for stats/logging
   std::vector<std::string> tags_;
 };
 
 /**
  * Listener manager interface
- * 
+ *
  * Manages all listeners in the system
  */
 class ListenerManager {
-public:
+ public:
   virtual ~ListenerManager() = default;
 
   /**
    * Add a listener
    */
   virtual VoidResult addListener(ListenerConfig&& config,
-                                   ListenerCallbacks& callbacks) = 0;
+                                 ListenerCallbacks& callbacks) = 0;
 
   /**
    * Remove a listener
@@ -293,28 +292,28 @@ public:
  * Listener manager implementation
  */
 class ListenerManagerImpl : public ListenerManager {
-public:
+ public:
   ListenerManagerImpl(event::Dispatcher& dispatcher,
                       SocketInterface& socket_interface);
   ~ListenerManagerImpl() override;
 
   // ListenerManager interface
   VoidResult addListener(ListenerConfig&& config,
-                           ListenerCallbacks& callbacks) override;
+                         ListenerCallbacks& callbacks) override;
   void removeListener(const std::string& name) override;
   Listener* getListener(const std::string& name) override;
   std::vector<std::reference_wrapper<Listener>> getAllListeners() override;
   void stopListeners() override;
 
-private:
+ private:
   event::Dispatcher& dispatcher_;
   SocketInterface& socket_interface_;
-  
+
   // Active listeners by name
   std::map<std::string, std::unique_ptr<ActiveListener>> listeners_;
 };
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
 
-#endif // MCP_NETWORK_LISTENER_H
+#endif  // MCP_NETWORK_LISTENER_H

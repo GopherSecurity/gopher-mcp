@@ -7,10 +7,10 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/filter.h"
-#include "mcp/transport/stdio_transport_socket.h"
-#include "mcp/transport/http_sse_transport_socket.h"
-#include "mcp/types.h"
 #include "mcp/result.h"
+#include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/transport/stdio_transport_socket.h"
+#include "mcp/types.h"
 
 namespace mcp {
 
@@ -18,9 +18,9 @@ namespace mcp {
  * MCP transport type
  */
 enum class TransportType {
-  Stdio,    // Standard I/O transport
-  HttpSse,  // HTTP with Server-Sent Events
-  WebSocket // WebSocket transport (future)
+  Stdio,     // Standard I/O transport
+  HttpSse,   // HTTP with Server-Sent Events
+  WebSocket  // WebSocket transport (future)
 };
 
 /**
@@ -29,15 +29,15 @@ enum class TransportType {
 struct McpConnectionConfig {
   // Transport type
   TransportType transport_type{TransportType::Stdio};
-  
+
   // Transport-specific configuration
   optional<transport::StdioTransportSocketConfig> stdio_config;
   optional<transport::HttpSseTransportSocketConfig> http_sse_config;
-  
+
   // Connection settings
   uint32_t buffer_limit{1024 * 1024};  // 1MB default
   std::chrono::milliseconds connection_timeout{30000};
-  
+
   // Message framing
   bool use_message_framing{true};  // Add message length prefix
 };
@@ -46,7 +46,7 @@ struct McpConnectionConfig {
  * MCP message callbacks
  */
 class McpMessageCallbacks {
-public:
+ public:
   virtual ~McpMessageCallbacks() = default;
 
   /**
@@ -77,26 +77,26 @@ public:
 
 /**
  * JSON-RPC message filter for MCP
- * 
+ *
  * Handles JSON-RPC message framing and parsing
  */
 class JsonRpcMessageFilter : public network::NetworkFilterBase {
-public:
+ public:
   explicit JsonRpcMessageFilter(McpMessageCallbacks& callbacks);
 
   // Filter interface
   network::FilterStatus onData(Buffer& data, bool end_stream) override;
   network::FilterStatus onNewConnection() override;
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
-  
+
   // Configuration
   void setUseFraming(bool use_framing) { use_framing_ = use_framing; }
 
-private:
+ private:
   // Parse and dispatch messages
   void parseMessages(Buffer& data);
   bool parseMessage(const std::string& json_str);
-  
+
   // Frame outgoing messages
   void frameMessage(Buffer& data);
 
@@ -107,12 +107,12 @@ private:
 
 /**
  * MCP connection manager
- * 
+ *
  * High-level interface for managing MCP connections
  */
 class McpConnectionManager : public McpMessageCallbacks,
                              public network::ListenerCallbacks {
-public:
+ public:
   McpConnectionManager(event::Dispatcher& dispatcher,
                        network::SocketInterface& socket_interface,
                        const McpConnectionConfig& config);
@@ -156,7 +156,9 @@ public:
   /**
    * Set message callbacks
    */
-  void setMessageCallbacks(McpMessageCallbacks& callbacks) { message_callbacks_ = &callbacks; }
+  void setMessageCallbacks(McpMessageCallbacks& callbacks) {
+    message_callbacks_ = &callbacks;
+  }
 
   // McpMessageCallbacks interface (default implementations)
   void onRequest(const jsonrpc::Request& request) override;
@@ -164,32 +166,33 @@ public:
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
-  
+
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
   void onNewConnection(network::ConnectionPtr&& connection) override;
 
-private:
+ private:
   // Create transport socket factory
-  std::unique_ptr<network::TransportSocketFactoryBase> createTransportSocketFactory();
-  
+  std::unique_ptr<network::TransportSocketFactoryBase>
+  createTransportSocketFactory();
+
   // Create filter chain factory
   std::shared_ptr<network::FilterChainFactory> createFilterChainFactory();
-  
+
   // Send JSON message
   VoidResult sendJsonMessage(const nlohmann::json& message);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
   McpConnectionConfig config_;
-  
+
   // Connection management
   std::unique_ptr<network::ConnectionManager> connection_manager_;
   network::ConnectionPtr active_connection_;
-  
+
   // Message callbacks
   McpMessageCallbacks* message_callbacks_{nullptr};
-  
+
   // State
   bool is_server_{false};
   bool connected_{false};
@@ -198,46 +201,44 @@ private:
 /**
  * Factory function for creating MCP connection manager
  */
-inline std::unique_ptr<McpConnectionManager> 
-createMcpConnectionManager(event::Dispatcher& dispatcher,
-                           const McpConnectionConfig& config = {}) {
+inline std::unique_ptr<McpConnectionManager> createMcpConnectionManager(
+    event::Dispatcher& dispatcher, const McpConnectionConfig& config = {}) {
   return std::make_unique<McpConnectionManager>(
-      dispatcher, 
-      network::socketInterface(),
-      config);
+      dispatcher, network::socketInterface(), config);
 }
 
 /**
  * Example usage:
- * 
+ *
  * // Create event loop
- * auto dispatcher = event::createPlatformDefaultDispatcherFactory()->createDispatcher("main");
- * 
+ * auto dispatcher =
+ * event::createPlatformDefaultDispatcherFactory()->createDispatcher("main");
+ *
  * // Configure stdio transport
  * McpConnectionConfig config;
  * config.transport_type = TransportType::Stdio;
- * 
+ *
  * // Create connection manager
  * auto mcp_manager = createMcpConnectionManager(*dispatcher, config);
- * 
+ *
  * // Set callbacks
  * mcp_manager->setMessageCallbacks(my_callbacks);
- * 
+ *
  * // Connect (for stdio, this is immediate)
  * auto result = mcp_manager->connect();
  * if (is_error(result)) {
  *   // Handle error
  * }
- * 
+ *
  * // Send initialize request
- * auto init_request = make_initialize_request("2024-11-05", 
+ * auto init_request = make_initialize_request("2024-11-05",
  *     build_client_capabilities().build());
  * mcp_manager->sendRequest(init_request);
- * 
+ *
  * // Run event loop
  * dispatcher->run(event::RunType::Block);
  */
 
-} // namespace mcp
+}  // namespace mcp
 
-#endif // MCP_MCP_CONNECTION_MANAGER_H
+#endif  // MCP_MCP_CONNECTION_MANAGER_H

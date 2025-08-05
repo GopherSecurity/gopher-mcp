@@ -10,23 +10,24 @@ namespace transport {
  * StdIO transport socket configuration
  */
 struct StdioTransportSocketConfig {
-  int stdin_fd{0};   // File descriptor for stdin
-  int stdout_fd{1};  // File descriptor for stdout
+  int stdin_fd{0};          // File descriptor for stdin
+  int stdout_fd{1};         // File descriptor for stdout
   bool non_blocking{true};  // Whether to set non-blocking mode
 };
 
 /**
  * StdIO transport socket
- * 
+ *
  * Implements transport over stdin/stdout for stdio-based MCP servers
  */
 class StdioTransportSocket : public network::TransportSocket {
-public:
+ public:
   explicit StdioTransportSocket(const StdioTransportSocketConfig& config);
   ~StdioTransportSocket() override;
 
   // TransportSocket interface
-  void setTransportSocketCallbacks(network::TransportSocketCallbacks& callbacks) override;
+  void setTransportSocketCallbacks(
+      network::TransportSocketCallbacks& callbacks) override;
   std::string protocol() const override { return "stdio"; }
   std::string failureReason() const override { return failure_reason_; }
   bool canFlushClose() override { return true; }
@@ -36,20 +37,20 @@ public:
   TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
 
-private:
+ private:
   // Configuration
   StdioTransportSocketConfig config_;
-  
+
   // State
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
   bool connected_{false};
   bool shutdown_read_{false};
   bool shutdown_write_{false};
-  
+
   // Buffering for partial reads/writes
   std::unique_ptr<Buffer> read_buffer_;
-  
+
   // Helper methods
   void setNonBlocking(int fd);
   TransportIoResult performRead(Buffer& buffer);
@@ -59,9 +60,11 @@ private:
 /**
  * StdIO transport socket factory
  */
-class StdioTransportSocketFactory : public network::UniversalTransportSocketFactory {
-public:
-  explicit StdioTransportSocketFactory(const StdioTransportSocketConfig& config);
+class StdioTransportSocketFactory
+    : public network::UniversalTransportSocketFactory {
+ public:
+  explicit StdioTransportSocketFactory(
+      const StdioTransportSocketConfig& config);
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override { return false; }
@@ -76,19 +79,20 @@ public:
   // ServerTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket() const override;
 
-private:
+ private:
   StdioTransportSocketConfig config_;
 };
 
 /**
  * Create a stdio transport socket factory
  */
-inline std::unique_ptr<network::TransportSocketFactoryBase> 
-createStdioTransportSocketFactory(const StdioTransportSocketConfig& config = {}) {
+inline std::unique_ptr<network::TransportSocketFactoryBase>
+createStdioTransportSocketFactory(
+    const StdioTransportSocketConfig& config = {}) {
   return std::make_unique<StdioTransportSocketFactory>(config);
 }
 
-} // namespace transport
-} // namespace mcp
+}  // namespace transport
+}  // namespace mcp
 
-#endif // MCP_TRANSPORT_STDIO_TRANSPORT_SOCKET_H
+#endif  // MCP_TRANSPORT_STDIO_TRANSPORT_SOCKET_H

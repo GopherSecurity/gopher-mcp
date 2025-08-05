@@ -12,7 +12,7 @@ namespace network {
 
 /**
  * Connection implementation
- * 
+ *
  * This class implements the full connection abstraction, integrating:
  * - Event loop integration for async I/O
  * - Transport socket for encryption/protocol handling
@@ -20,11 +20,11 @@ namespace network {
  * - Buffer management with watermarks
  * - Connection lifecycle management
  */
-class ConnectionImpl : public ConnectionImplBase, 
+class ConnectionImpl : public ConnectionImplBase,
                        public ServerConnection,
                        public ClientConnection,
                        public std::enable_shared_from_this<ConnectionImpl> {
-public:
+ public:
   /**
    * Create a server connection
    */
@@ -35,7 +35,7 @@ public:
       stream_info::StreamInfo& stream_info);
 
   /**
-   * Create a client connection  
+   * Create a client connection
    */
   static std::unique_ptr<ClientConnection> createClientConnection(
       event::Dispatcher& dispatcher,
@@ -47,20 +47,27 @@ public:
                  SocketPtr&& socket,
                  TransportSocketPtr&& transport_socket,
                  bool connected);
-  
+
   ~ConnectionImpl() override;
 
   // Connection interface
   void close(ConnectionCloseType type) override;
   void close(ConnectionCloseType type, const std::string& details) override;
-  DetectedCloseType detectedCloseType() const override { return detected_close_type_; }
+  DetectedCloseType detectedCloseType() const override {
+    return detected_close_type_;
+  }
   void hashKey(std::vector<uint8_t>& hash) const override;
   void noDelay(bool enable) override;
   ReadDisableStatus readDisableWithStatus(bool disable) override;
-  void detectEarlyCloseWhenReadDisabled(bool should_detect) override { detect_early_close_ = should_detect; }
+  void detectEarlyCloseWhenReadDisabled(bool should_detect) override {
+    detect_early_close_ = should_detect;
+  }
   bool readEnabled() const override { return read_disable_count_ == 0; }
-  optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials() const override;
-  void setConnectionStats(const ConnectionStats& stats) override { stats_ = stats; }
+  optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials()
+      const override;
+  void setConnectionStats(const ConnectionStats& stats) override {
+    stats_ = stats;
+  }
   SslConnectionInfoConstSharedPtr ssl() const override;
   std::string requestedServerName() const override;
   ConnectionState state() const override { return state_; }
@@ -69,7 +76,9 @@ public:
   void setBufferLimits(uint32_t limit) override;
   uint32_t bufferLimit() const override { return buffer_limit_; }
   bool aboveHighWatermark() const override { return above_high_watermark_; }
-  const SocketOptionsSharedPtr& socketOptions() const override { return socket_options_; }
+  const SocketOptionsSharedPtr& socketOptions() const override {
+    return socket_options_;
+  }
   void setDelayedCloseTimeout(std::chrono::milliseconds timeout) override;
   bool startSecureTransport() override;
   optional<std::chrono::milliseconds> lastRoundTripTime() const override;
@@ -82,9 +91,9 @@ public:
   Buffer& writeBuffer() override { return write_buffer_; }
   bool readHalfClosed() const override { return read_half_closed_; }
   bool isClosed() const override { return state_ == ConnectionState::Closed; }
-  void readDisable(bool disable) override { 
+  void readDisable(bool disable) override {
     // Call the Connection version and ignore the return status
-    static_cast<void>(readDisableWithStatus(disable)); 
+    static_cast<void>(readDisableWithStatus(disable));
   }
   bool readDisabled() const override { return read_disable_count_ > 0; }
 
@@ -97,8 +106,9 @@ public:
   void raiseEvent(ConnectionEvent event) override;
   void flushWriteBuffer() override;
 
-  // ServerConnection interface  
-  void setTransportSocketConnectTimeout(std::chrono::milliseconds timeout) override;
+  // ServerConnection interface
+  void setTransportSocketConnectTimeout(
+      std::chrono::milliseconds timeout) override;
 
   // ClientConnection interface
   void connect() override;
@@ -110,7 +120,7 @@ public:
   void removeReadFilter(ReadFilterSharedPtr filter);
   bool initializeReadFilters();
 
-private:
+ private:
   // Event handlers
   void onFileEvent(uint32_t events);
   void onReadReady();
@@ -126,7 +136,7 @@ private:
   TransportIoResult doReadFromSocket();
   void processReadBuffer();
 
-  // Write path  
+  // Write path
   void doWrite();
   TransportIoResult doWriteToSocket();
   void handleWrite(bool all_data_sent);
@@ -151,7 +161,7 @@ private:
   bool immediate_error_event_{false};
   bool bind_error_{false};
   bool write_ready_{false};
-  
+
   // Socket options
   SocketOptionsSharedPtr socket_options_;
 
@@ -171,17 +181,17 @@ private:
 
   // Connection type
   bool is_server_connection_{false};
-  
+
   // Connection state
   bool connected_{false};
-  
+
   // Watermarks
   uint32_t high_watermark_{0};
   uint32_t low_watermark_{0};
-  
+
   // Watermark callbacks
   std::list<WatermarkCallbacks*> watermark_callbacks_;
-  
+
   // Connection callbacks
   std::list<ConnectionCallbacks*> connection_callbacks_;
 };
@@ -190,18 +200,19 @@ private:
  * Utility class for managing connection lifecycle
  */
 class ConnectionUtility {
-public:
+ public:
   /**
    * Update buffer stats for a connection
    */
-  static void updateBufferStats(uint64_t delta, uint64_t new_total, 
+  static void updateBufferStats(uint64_t delta,
+                                uint64_t new_total,
                                 uint64_t& previous_total,
                                 ConnectionStats& stats);
 
   /**
    * Set socket options on a socket
    */
-  static bool applySocketOptions(Socket& socket, 
+  static bool applySocketOptions(Socket& socket,
                                  const SocketOptionsSharedPtr& options);
 
   /**
@@ -220,7 +231,7 @@ public:
  * Connection event logger for debugging
  */
 class ConnectionEventLogger {
-public:
+ public:
   ConnectionEventLogger(const Connection& connection);
 
   void logEvent(ConnectionEvent event, const std::string& details = "");
@@ -228,12 +239,12 @@ public:
   void logWrite(size_t bytes_written, size_t buffer_size);
   void logError(const std::string& error);
 
-private:
+ private:
   const Connection& connection_;
   std::string connection_id_;
 };
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
 
-#endif // MCP_NETWORK_CONNECTION_IMPL_H
+#endif  // MCP_NETWORK_CONNECTION_IMPL_H
