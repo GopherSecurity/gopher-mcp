@@ -12,6 +12,122 @@
 namespace mcp {
 namespace network {
 
+// ConnectionImplBase implementation
+
+ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
+                                       SocketPtr&& socket,
+                                       TransportSocketPtr&& transport_socket)
+    : dispatcher_(dispatcher),
+      socket_(std::move(socket)),
+      transport_socket_(std::move(transport_socket)),
+      stream_info_(std::make_shared<stream_info::StreamInfoImpl>()),
+      filter_manager_(*this),
+      id_(next_connection_id_++),
+      read_buffer_([this]() { return onReadBufferLowWatermark(); },
+                   [this]() { return onReadBufferHighWatermark(); },
+                   []() { return false; }),  // below overflow not used for read
+      write_buffer_([this]() { return onWriteBufferLowWatermark(); },
+                    [this]() { return onWriteBufferHighWatermark(); },
+                    [this]() { return onWriteBufferBelowLowWatermark(); }) {
+}
+
+ConnectionImplBase::~ConnectionImplBase() = default;
+
+void ConnectionImplBase::addConnectionCallbacks(ConnectionCallbacks& cb) {
+  callbacks_.push_back(&cb);
+}
+
+void ConnectionImplBase::removeConnectionCallbacks(ConnectionCallbacks& cb) {
+  callbacks_.erase(
+      std::remove(callbacks_.begin(), callbacks_.end(), &cb),
+      callbacks_.end());
+}
+
+void ConnectionImplBase::addBytesSentCallback(BytesSentCb cb) {
+  bytes_sent_callbacks_.push_back(std::move(cb));
+}
+
+void ConnectionImplBase::closeConnectionImmediately() {
+  if (socket_ && socket_->isOpen()) {
+    socket_->close();
+  }
+}
+
+void ConnectionImplBase::raiseConnectionEvent(ConnectionEvent event) {
+  for (auto* cb : callbacks_) {
+    cb->onEvent(event);
+  }
+}
+
+void ConnectionImplBase::onReadReady() {
+  // Implemented in ConnectionImpl
+}
+
+void ConnectionImplBase::onWriteReady() {
+  // Implemented in ConnectionImpl
+}
+
+void ConnectionImplBase::updateReadBufferStats(uint64_t num_read, uint64_t new_size) {
+  (void)num_read;
+  (void)new_size;
+  // TODO: Implement stats tracking
+}
+
+void ConnectionImplBase::updateWriteBufferStats(uint64_t num_written, uint64_t new_size) {
+  (void)num_written;
+  (void)new_size;
+  // TODO: Implement stats tracking
+}
+
+void ConnectionImplBase::transportFailure() {
+  // Set transport failure reason in transport socket
+  // The actual failure reason is retrieved via transportFailureReason()
+}
+
+// Watermark callbacks
+void ConnectionImplBase::onReadBufferLowWatermark() {
+  // Resume reading when buffer drops below low watermark
+  if (read_disable_count_ == 0 && !socket_->isOpen()) {
+    return;
+  }
+  // Enable read events
+  if (file_event_) {
+    file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
+  }
+}
+
+void ConnectionImplBase::onReadBufferHighWatermark() {
+  // Stop reading when buffer is full
+  if (file_event_) {
+    file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Write) |
+                           static_cast<uint32_t>(event::FileReadyType::Closed));
+  }
+}
+
+void ConnectionImplBase::onWriteBufferLowWatermark() {
+  // Notify when write buffer drops below low watermark
+  above_high_watermark_ = false;
+  for (auto* cb : callbacks_) {
+    cb->onAboveWriteBufferHighWatermark();
+  }
+}
+
+void ConnectionImplBase::onWriteBufferHighWatermark() {
+  // Notify when write buffer goes above high watermark
+  above_high_watermark_ = true;
+  for (auto* cb : callbacks_) {
+    cb->onBelowWriteBufferLowWatermark();
+  }
+}
+
+void ConnectionImplBase::onWriteBufferBelowLowWatermark() {
+  // Additional handling when buffer is below low watermark
+  // Used for resuming writes
+}
+
+// Static member initialization
+std::atomic<uint64_t> ConnectionImplBase::next_connection_id_{1};
+
 // ConnectionImpl implementation
 
 std::unique_ptr<ServerConnection> ConnectionImpl::createServerConnection(
