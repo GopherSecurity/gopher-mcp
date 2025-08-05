@@ -198,9 +198,14 @@ TEST_F(ActiveListenerTest, AcceptConnection) {
   });
   
   // Run dispatcher briefly to accept connection
-  dispatcher_->run(event::RunType::NonBlock);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  dispatcher_->run(event::RunType::NonBlock);
+  // Give the client thread time to connect
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  
+  // Run dispatcher multiple times to ensure accept happens
+  for (int i = 0; i < 10; ++i) {
+    dispatcher_->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   
   client_thread.join();
   
