@@ -403,6 +403,9 @@ public:
   const stream_info::StreamInfo& streamInfo() const override { return *stream_info_; }
   std::string transportFailureReason() const override { return transport_socket_->failureReason(); }
   std::string localCloseReason() const override { return local_close_reason_; }
+  
+  // Get filter manager for filter chain setup
+  FilterManagerImpl& filterManager() { return filter_manager_; }
 
   // Note: TransportSocketCallbacks interface methods are implemented 
   // separately in ConnectionImpl to avoid conflicts
