@@ -99,6 +99,9 @@ protected:
     
     // Create listen address
     listen_addr_ = Address::parseInternetAddress("127.0.0.1", 0);
+    if (!listen_addr_) {
+      std::cerr << "Failed to parse address 127.0.0.1:0" << std::endl;
+    }
   }
   
   void TearDown() override {
@@ -130,6 +133,11 @@ TEST_F(ActiveListenerTest, CreateAndListen) {
   
   // Start listening
   auto result = listener_->listen();
+  if (result.holds_alternative<Error>()) {
+    const auto& error = result.get<Error>();
+    std::cerr << "Listen failed with error: code=" << error.code 
+              << ", message=" << error.message << std::endl;
+  }
   ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Verify listener state
