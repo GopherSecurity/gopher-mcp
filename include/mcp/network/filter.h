@@ -28,6 +28,7 @@ using WriteFilterSharedPtr = std::shared_ptr<WriteFilter>;
 using FilterSharedPtr = std::shared_ptr<Filter>;
 using FilterFactoryCb = std::function<FilterSharedPtr()>;
 
+
 /**
  * Filter status returned by filter operations
  */
@@ -234,6 +235,7 @@ public:
 
   /**
    * Enable/disable reading
+   * Note: For the full readDisable with return status, use Connection::readDisable
    */
   virtual void readDisable(bool disable) = 0;
 
