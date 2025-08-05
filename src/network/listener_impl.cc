@@ -270,6 +270,9 @@ VoidResult ListenerManagerImpl::addListener(ListenerConfig&& config,
     return makeVoidError(err);
   }
   
+  // Store the name before moving the config
+  std::string listener_name = config.name;
+  
   // Create listener
   auto listener = std::make_unique<ActiveListener>(
       dispatcher_, socket_interface_, callbacks, std::move(config));
@@ -279,9 +282,6 @@ VoidResult ListenerManagerImpl::addListener(ListenerConfig&& config,
   if (result.holds_alternative<Error>()) {
     return result;
   }
-  
-  // Store the name before moving the config
-  std::string listener_name = config.name;
   
   // Add to map
   listeners_[listener_name] = std::move(listener);
