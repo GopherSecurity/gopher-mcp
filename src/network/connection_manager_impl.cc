@@ -1,6 +1,7 @@
 #include "mcp/network/connection_manager.h"
 #include <sys/socket.h>
 #include "mcp/network/connection_impl.h"
+#include "mcp/network/socket_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
 #include <algorithm>
 
@@ -271,7 +272,11 @@ TransportSocketPtr ConnectionManagerImpl::createServerTransportSocket() {
 
 void ConnectionManagerImpl::applyFilterChain(Connection& connection) {
   if (config_.filter_chain_factory) {
-    // TODO: Filter chain creation needs FilterManager, not Connection
+    // Get the filter manager from ConnectionImplBase
+    auto* conn_impl_base = dynamic_cast<ConnectionImplBase*>(&connection);
+    if (conn_impl_base) {
+      config_.filter_chain_factory->createFilterChain(conn_impl_base->filterManager());
+    }
   }
 }
 
