@@ -417,6 +417,13 @@ protected:
   void updateWriteBufferStats(uint64_t num_written, uint64_t new_size);
   void transportFailure();
   void setLocalCloseReason(const std::string& reason) { local_close_reason_ = std::string(reason); }
+  
+  // Watermark callbacks
+  void onReadBufferLowWatermark();
+  void onReadBufferHighWatermark();
+  void onWriteBufferLowWatermark();
+  void onWriteBufferHighWatermark();
+  void onWriteBufferBelowLowWatermark();
 
   // Member variables
   event::Dispatcher& dispatcher_;
