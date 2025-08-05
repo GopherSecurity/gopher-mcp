@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "mcp/mcp_connection_manager.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/event/event_loop.h"
 #include "mcp/network/socket_impl.h"
 #include <memory>
 
@@ -80,7 +80,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.request_called_);
-  EXPECT_EQ(123, callbacks_.last_request_.id);
+  EXPECT_TRUE(callbacks_.last_request_.id.holds_alternative<int>());
+  EXPECT_EQ(123, callbacks_.last_request_.id.get<int>());
   EXPECT_EQ("test_method", callbacks_.last_request_.method);
   EXPECT_TRUE(callbacks_.last_request_.params.has_value());
 }
@@ -125,7 +126,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_EQ(456, callbacks_.last_response_.id);
+  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
+  EXPECT_EQ(456, callbacks_.last_response_.id.get<int>());
   EXPECT_TRUE(callbacks_.last_response_.result.has_value());
   EXPECT_FALSE(callbacks_.last_response_.error.has_value());
 }
@@ -152,7 +154,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseErrorResponse) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_EQ(789, callbacks_.last_response_.id);
+  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
+  EXPECT_EQ(789, callbacks_.last_response_.id.get<int>());
   EXPECT_FALSE(callbacks_.last_response_.result.has_value());
   EXPECT_TRUE(callbacks_.last_response_.error.has_value());
   EXPECT_EQ(-32601, callbacks_.last_response_.error->code);
@@ -191,7 +194,7 @@ TEST_F(JsonRpcMessageFilterTest, ParseInvalidJson) {
 
 TEST_F(JsonRpcMessageFilterTest, FramedMessages) {
   // Enable framing
-  filter_->use_framing_ = true;
+  filter_->setUseFraming(true);
   
   // Create framed message
   nlohmann::json request = {
@@ -223,7 +226,7 @@ TEST_F(JsonRpcMessageFilterTest, FramedMessages) {
 
 TEST_F(JsonRpcMessageFilterTest, WriteFraming) {
   // Enable framing
-  filter_->use_framing_ = true;
+  filter_->setUseFraming(true);
   
   // Create message
   auto buffer = std::make_unique<OwnedBuffer>();
@@ -243,7 +246,8 @@ TEST_F(JsonRpcMessageFilterTest, WriteFraming) {
 class McpConnectionManagerTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &network::socketInterface();
     
     // Create config for stdio transport
@@ -268,7 +272,7 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::DispatcherPtr dispatcher_;
   network::SocketInterface* socket_interface_;
   McpConnectionConfig config_;
   std::unique_ptr<McpConnectionManager> manager_;
@@ -282,7 +286,7 @@ TEST_F(McpConnectionManagerTest, InitialState) {
 TEST_F(McpConnectionManagerTest, ConnectStdio) {
   // Note: This test connects using stdio transport which doesn't do actual I/O
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok()) << result.error();
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Should be connected
   EXPECT_TRUE(manager_->isConnected());
@@ -295,38 +299,42 @@ TEST_F(McpConnectionManagerTest, ConnectStdio) {
 TEST_F(McpConnectionManagerTest, SendRequest) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Create request
   jsonrpc::Request request;
   request.id = 123;
   request.method = "initialize";
-  request.params = nlohmann::json{{"version", "1.0"}};
+  Metadata params;
+  params["version"] = MetadataValue(std::string("1.0"));
+  request.params = params;
   
   // Send request
   result = manager_->sendRequest(request);
-  EXPECT_TRUE(result.ok());
+  EXPECT_FALSE(result.holds_alternative<Error>());
 }
 
 TEST_F(McpConnectionManagerTest, SendNotification) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Create notification
   jsonrpc::Notification notification;
   notification.method = "progress";
-  notification.params = nlohmann::json{{"percent", 50}};
+  Metadata params;
+  params["percent"] = MetadataValue(int64_t(50));
+  notification.params = params;
   
   // Send notification
   result = manager_->sendNotification(notification);
-  EXPECT_TRUE(result.ok());
+  EXPECT_FALSE(result.holds_alternative<Error>());
 }
 
 TEST_F(McpConnectionManagerTest, SendResponse) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Create response
   jsonrpc::Response response;
@@ -335,26 +343,25 @@ TEST_F(McpConnectionManagerTest, SendResponse) {
   
   // Send response
   result = manager_->sendResponse(response);
-  EXPECT_TRUE(result.ok());
+  EXPECT_FALSE(result.holds_alternative<Error>());
 }
 
 TEST_F(McpConnectionManagerTest, SendErrorResponse) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Create error response
   jsonrpc::Response response;
   response.id = 789;
-  response.error = jsonrpc::Error{
-      .code = -32601,
-      .message = "Method not found",
-      .data = nlohmann::json{"unknown_method"}
-  };
+  Error err;
+  err.code = -32601;
+  err.message = "Method not found";
+  response.error = err;
   
   // Send response
   result = manager_->sendResponse(response);
-  EXPECT_TRUE(result.ok());
+  EXPECT_FALSE(result.holds_alternative<Error>());
 }
 
 TEST_F(McpConnectionManagerTest, CloseConnection) {
@@ -394,7 +401,8 @@ TEST_F(McpConnectionManagerTest, MessageCallbackForwarding) {
   manager_->onResponse(response);
   
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_EQ(2, callbacks_.last_response_.id);
+  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
+  EXPECT_EQ(2, callbacks_.last_response_.id.get<int>());
   
   // Simulate error
   Error error;
@@ -421,7 +429,7 @@ TEST_F(McpConnectionManagerTest, HttpSseConfig) {
   
   // Connect would fail in test environment
   auto result = http_manager->connect();
-  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(result.holds_alternative<Error>());
 }
 
 TEST_F(McpConnectionManagerTest, FactoryFunction) {
@@ -437,23 +445,23 @@ TEST_F(McpConnectionManagerTest, FactoryFunction) {
 TEST_F(McpConnectionManagerTest, UsageExample) {
   // Connect
   auto result = manager_->connect();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Send initialize request
   jsonrpc::Request init_request;
   init_request.id = 1;
   init_request.method = "initialize";
-  init_request.params = nlohmann::json{
-      {"protocol_version", "2024-11-05"},
-      {"capabilities", nlohmann::json::object()},
-      {"client_info", {
-          {"name", "test_client"},
-          {"version", "1.0.0"}
-      }}
-  };
+  Metadata init_params;
+  init_params["protocol_version"] = MetadataValue(std::string("2024-11-05"));
+  
+  // Note: Metadata doesn't support nested objects, so we'll just use simple values
+  init_params["client_name"] = MetadataValue(std::string("test_client"));
+  init_params["client_version"] = MetadataValue(std::string("1.0.0"));
+  
+  init_request.params = init_params;
   
   result = manager_->sendRequest(init_request);
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // In real usage, would run event loop and wait for response
   // dispatcher_->run(event::RunType::Block);
