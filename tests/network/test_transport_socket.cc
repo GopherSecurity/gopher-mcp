@@ -4,7 +4,9 @@
 #include <errno.h>
 
 #include "mcp/network/transport_socket.h"
+#include "mcp/network/connection.h"
 #include "mcp/network/socket_option_impl.h"
+#include "mcp/stream_info/stream_info.h"
 #include "mcp/buffer.h"
 
 using namespace mcp;
@@ -48,27 +50,97 @@ class MockIoHandle : public IoHandle {
   MOCK_METHOD(IoHandlePtr, duplicate, (), (override));
 };
 
+// Simplified mock connection for testing - only includes essential methods
+class TestConnection : public Connection {
+ public:
+  void addConnectionCallbacks(ConnectionCallbacks&) override {}
+  void removeConnectionCallbacks(ConnectionCallbacks&) override {}
+  void addBytesSentCallback(BytesSentCb) override {}
+  void enableHalfClose(bool) override {}
+  bool isHalfCloseEnabled() const override { return false; }
+  void close(ConnectionCloseType) override {}
+  void close(ConnectionCloseType, const std::string&) override {}
+  event::Dispatcher& dispatcher() const override { return *dispatcher_; }
+  uint64_t id() const override { return 1; }
+  void hashKey(std::vector<uint8_t>&) const override {}
+  std::string nextProtocol() const override { return ""; }
+  void noDelay(bool) override {}
+  void readDisable(bool) override {}
+  void detectEarlyCloseWhenReadDisabled(bool) override {}
+  bool readEnabled() const override { return true; }
+  ConnectionInfoSetter& connectionInfoSetter() override { return *info_setter_; }
+  const ConnectionInfoProvider& connectionInfoProvider() const override { return *info_provider_; }
+  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const override { return info_provider_; }
+  optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials() const override { return nullopt; }
+  void setConnectionStats(const ConnectionStats&) override {}
+  SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
+  std::string requestedServerName() const override { return ""; }
+  ConnectionState state() const override { return ConnectionState::Open; }
+  bool connecting() const override { return false; }
+  void write(Buffer&, bool) override {}
+  void setBufferLimits(uint32_t) override {}
+  uint32_t bufferLimit() const override { return 0; }
+  bool aboveHighWatermark() const override { return false; }
+  const SocketOptionsSharedPtr& socketOptions() const override { return socket_options_; }
+  stream_info::StreamInfo& streamInfo() override { return *stream_info_; }
+  const stream_info::StreamInfo& streamInfo() const override { return *stream_info_; }
+  void setDelayedCloseTimeout(std::chrono::milliseconds) override {}
+  std::string transportFailureReason() const override { return ""; }
+  std::string localCloseReason() const override { return ""; }
+  bool startSecureTransport() override { return false; }
+  Socket& socket() override { return *socket_; }
+  const Socket& socket() const override { return *socket_; }
+  TransportSocket& transportSocket() override { return *transport_socket_; }
+  const TransportSocket& transportSocket() const override { return *transport_socket_; }
+  optional<uint64_t> congestionWindowInBytes() const override { return nullopt; }
+  void flushWriteBuffer() override {}
+  DetectedCloseType detectedCloseType() const override { return DetectedCloseType::Normal; }
+  ReadDisableStatus readDisableWithStatus(bool) override { return ReadDisableStatus::NoTransition; }
+  optional<std::chrono::milliseconds> lastRoundTripTime() const override { return nullopt; }
+  void configureInitialCongestionWindow(uint64_t, std::chrono::microseconds) override {}
+  
+  // FilterManagerConnection interface
+  Buffer& readBuffer() override { return *read_buffer_; }
+  Buffer& writeBuffer() override { return *write_buffer_; }
+  bool readHalfClosed() const override { return false; }
+  bool isClosed() const override { return false; }
+  bool readDisabled() const override { return false; }
+  
+  // TransportSocketCallbacks interface (Connection inherits from this)
+  IoHandle& ioHandle() override { return *io_handle_; }
+  const IoHandle& ioHandle() const override { return *io_handle_; }
+  Connection& connection() override { return *this; }
+  bool shouldDrainReadBuffer() override { return false; }
+  void setTransportSocketIsReadable() override {}
+  void raiseEvent(ConnectionEvent) override {}
+  
+  // Test helpers
+  void setDispatcher(event::Dispatcher* d) { dispatcher_ = d; }
+  void setSocket(Socket* s) { socket_ = s; }
+  void setTransportSocket(TransportSocket* ts) { transport_socket_ = ts; }
+  void setStreamInfo(stream_info::StreamInfo* si) { stream_info_ = si; }
+  void setConnectionInfo(ConnectionInfoSetter* setter, ConnectionInfoProviderSharedPtr provider) {
+    info_setter_ = setter;
+    info_provider_ = provider;
+  }
+  void setIoHandle(IoHandle* handle) { io_handle_ = handle; }
+  
+ private:
+  event::Dispatcher* dispatcher_{nullptr};
+  Socket* socket_{nullptr};
+  TransportSocket* transport_socket_{nullptr};
+  stream_info::StreamInfo* stream_info_{nullptr};
+  ConnectionInfoSetter* info_setter_{nullptr};
+  ConnectionInfoProviderSharedPtr info_provider_;
+  SocketOptionsSharedPtr socket_options_;
+  IoHandle* io_handle_{nullptr};
+  std::unique_ptr<Buffer> read_buffer_{createBuffer()};
+  std::unique_ptr<Buffer> write_buffer_{createBuffer()};
+};
+
 // Minimal mock for TransportSocketCallbacks - don't mock Connection
 class MockTransportSocketCallbacks : public TransportSocketCallbacks {
  public:
-  // Stub Connection to avoid forward declaration issues
-  class StubConnection : public Connection {
-   public:
-    void close(ConnectionCloseType) override {}
-    void closeSocket(ConnectionEvent) override {}
-    uint64_t id() const override { return 0; }
-    void noDelay(bool) override {}
-    void readDisable(bool) override {}
-    bool readEnabled() const override { return true; }
-    const ConnectionSocketOptionsSharedPtr& socketOptions() const override {
-      static ConnectionSocketOptionsSharedPtr opts;
-      return opts;
-    }
-    std::string transportFailureReason() const override { return ""; }
-    bool startSecureTransport() override { return false; }
-    std::chrono::milliseconds lastRoundTripTime() override { return std::chrono::milliseconds(0); }
-  };
-
   MOCK_METHOD(IoHandle&, ioHandle, (), (override));
   MOCK_METHOD(const IoHandle&, ioHandle, (), (const, override));
   MOCK_METHOD(bool, shouldDrainReadBuffer, (), (override));
@@ -77,7 +149,7 @@ class MockTransportSocketCallbacks : public TransportSocketCallbacks {
   MOCK_METHOD(void, flushWriteBuffer, (), (override));
   
   Connection& connection() override { 
-    static StubConnection conn;
+    static TestConnection conn;
     return conn;
   }
 };
