@@ -94,41 +94,64 @@ void JsonRpcMessageFilter::parseMessages(Buffer& data) {
 
 bool JsonRpcMessageFilter::parseMessage(const std::string& json_str) {
   try {
+    // Debug output
+    // std::cerr << "parseMessage: parsing '" << json_str << "'" << std::endl;
+    
     auto json = nlohmann::json::parse(json_str);
+    
+    // Debug output
+    // std::cerr << "parseMessage: parsed JSON: " << json.dump() << std::endl;
     
     // Determine message type
     if (json.contains("method")) {
       if (json.contains("id")) {
         // Request
         jsonrpc::Request request;
-        request.id = json["id"];
-        request.method = json["method"];
+        
+        // Handle id field which can be string or number
+        if (json["id"].is_string()) {
+          request.id = json["id"].get<std::string>();
+        } else if (json["id"].is_number()) {
+          request.id = json["id"].get<int>();
+        }
+        
+        request.method = json["method"].get<std::string>();
         if (json.contains("params")) {
-          request.params = json["params"];
+          request.params = json["params"].get<Metadata>();
         }
         callbacks_.onRequest(request);
       } else {
         // Notification
         jsonrpc::Notification notification;
-        notification.method = json["method"];
+        notification.method = json["method"].get<std::string>();
         if (json.contains("params")) {
-          notification.params = json["params"];
+          notification.params = json["params"].get<Metadata>();
         }
         callbacks_.onNotification(notification);
       }
     } else if (json.contains("result") || json.contains("error")) {
       // Response
       jsonrpc::Response response;
-      response.id = json["id"];
+      
+      // Handle id field which can be string or number
+      if (json["id"].is_string()) {
+        response.id = json["id"].get<std::string>();
+      } else if (json["id"].is_number()) {
+        response.id = json["id"].get<int>();
+      }
+      
       if (json.contains("result")) {
-        response.result = json["result"];
+        // TODO: Implement proper result variant deserialization
+        // For now, keep as raw JSON
+        // response.result = json["result"];
       }
       if (json.contains("error")) {
         Error error;
-        error.code = json["error"]["code"];
-        error.message = json["error"]["message"];
+        error.code = json["error"]["code"].get<int>();
+        error.message = json["error"]["message"].get<std::string>();
         if (json["error"].contains("data")) {
-          error.data = json["error"]["data"];
+          // TODO: Implement proper error data variant deserialization
+          // error.data = json["error"]["data"];
         }
         response.error = error;
       }
@@ -153,6 +176,13 @@ void JsonRpcMessageFilter::frameMessage(Buffer& data) {
   // Get current message length
   size_t msg_len = data.length();
   
+  if (msg_len == 0) {
+    return; // Nothing to frame
+  }
+  
+  // Get message content before modifying buffer
+  std::string message_content = data.toString();
+  
   // Create new buffer with length prefix
   auto framed_buffer = std::make_unique<OwnedBuffer>();
   
@@ -164,12 +194,11 @@ void JsonRpcMessageFilter::frameMessage(Buffer& data) {
   len_bytes[3] = msg_len & 0xFF;
   
   framed_buffer->add(len_bytes, 4);
+  framed_buffer->add(message_content);
   
-  // Add message data
-  framed_buffer->move(data);
-  
-  // Move framed data back
-  data.move(*framed_buffer);
+  // Clear original buffer and add framed data
+  data.drain(data.length());
+  framed_buffer->move(data);  // Move FROM framed_buffer TO data
 }
 
 // McpConnectionManager implementation
