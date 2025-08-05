@@ -2,7 +2,9 @@
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/network/listener.h"
+#include "mcp/event/event_loop.h"
+#include "mcp/result.h"
 #include <memory>
 
 namespace mcp {
@@ -53,14 +55,14 @@ public:
       return makeVoidSuccess(); 
     }
     void closeSocket(ConnectionEvent event) override { (void)event; }
-    IoResult doRead(Buffer& buffer) override { 
+    TransportIoResult doRead(Buffer& buffer) override { 
       (void)buffer;
-      return IoResult::success(0); 
+      return TransportIoResult::success(0); 
     }
-    IoResult doWrite(Buffer& buffer, bool end_stream) override { 
+    TransportIoResult doWrite(Buffer& buffer, bool end_stream) override { 
       (void)buffer;
       (void)end_stream;
-      return IoResult::success(0); 
+      return TransportIoResult::success(0); 
     }
     void onConnected() override {}
     
@@ -98,17 +100,25 @@ public:
 // Mock connection pool callbacks
 class MockConnectionPoolCallbacks : public ConnectionPoolCallbacks {
 public:
-  void onConnectionEvent(ConnectionEvent event) override {
+  void onConnectionCreate(Connection& connection) override {
+    (void)connection;
+    create_called_++;
+  }
+  
+  void onConnectionEvent(Connection& connection, ConnectionEvent event) override {
+    (void)connection;
     events_.push_back(event);
   }
   
+  int create_called_{0};
   std::vector<ConnectionEvent> events_;
 };
 
 class ConnectionHandlerImplTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &socketInterface();
     handler_ = std::make_unique<ConnectionHandlerImpl>(*dispatcher_, *socket_interface_);
   }
@@ -118,7 +128,7 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::DispatcherPtr dispatcher_;
   SocketInterface* socket_interface_;
   std::unique_ptr<ConnectionHandlerImpl> handler_;
 };
@@ -131,10 +141,10 @@ TEST_F(ConnectionHandlerImplTest, ListenerManagement) {
   // Create mock listener
   ListenerConfig config;
   config.name = "test_listener";
-  config.address = Address::parseInternetAddress("127.0.0.1", 0, false);
+  config.address = Address::parseInternetAddress("127.0.0.1", 0);
   
   auto listener = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, *handler_, config);
+      *dispatcher_, *socket_interface_, *handler_, std::move(config));
   
   // Add listener
   handler_->addListener(std::move(listener));
@@ -159,7 +169,8 @@ TEST_F(ConnectionHandlerImplTest, DisableEnableListeners) {
 class ConnectionManagerImplTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &socketInterface();
     
     // Create config
@@ -190,7 +201,7 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::DispatcherPtr dispatcher_;
   SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
@@ -201,7 +212,7 @@ protected:
 };
 
 TEST_F(ConnectionManagerImplTest, CreateClientConnection) {
-  auto addr = Address::parseInternetAddress("127.0.0.1", 8080, false);
+  auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   manager_->setConnectionCallbacks(callbacks_);
   
@@ -219,7 +230,7 @@ TEST_F(ConnectionManagerImplTest, CreateClientConnection) {
 }
 
 TEST_F(ConnectionManagerImplTest, ConnectionLimit) {
-  auto addr = Address::parseInternetAddress("127.0.0.1", 8080, false);
+  auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create connections up to limit
   std::vector<ClientConnectionPtr> connections;
@@ -238,7 +249,7 @@ TEST_F(ConnectionManagerImplTest, ConnectionLimit) {
 }
 
 TEST_F(ConnectionManagerImplTest, CloseAllConnections) {
-  auto addr = Address::parseInternetAddress("127.0.0.1", 8080, false);
+  auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create some connections
   for (int i = 0; i < 5; ++i) {
@@ -255,7 +266,7 @@ TEST_F(ConnectionManagerImplTest, CloseAllConnections) {
 }
 
 TEST_F(ConnectionManagerImplTest, TransportSocketOptions) {
-  auto addr = Address::parseInternetAddress("127.0.0.1", 8080, false);
+  auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create connection with transport options
   auto options = std::make_shared<TransportSocketOptionsImpl>();
@@ -273,7 +284,8 @@ TEST_F(ConnectionManagerImplTest, TransportSocketOptions) {
 class ConnectionPoolImplTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &socketInterface();
     
     // Create config
@@ -285,7 +297,7 @@ protected:
         *dispatcher_, *socket_interface_, config_);
     
     // Create pool
-    addr_ = Address::parseInternetAddress("127.0.0.1", 8080, false);
+    addr_ = Address::parseInternetAddress("127.0.0.1", 8080);
     pool_ = std::make_unique<ConnectionPoolImpl>(
         *dispatcher_, addr_, config_, *manager_);
   }
@@ -296,7 +308,7 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::DispatcherPtr dispatcher_;
   SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
