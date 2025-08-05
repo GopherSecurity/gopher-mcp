@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 #include "mcp/network/listener.h"
 #include "mcp/network/socket_impl.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/network/socket_interface.h"
+#include "mcp/network/connection.h"
+#include "mcp/event/event_loop.h"
+#include "mcp/result.h"
 #include <memory>
 #include <thread>
 
@@ -55,62 +58,47 @@ public:
   ListenerFilterStatus return_status_{ListenerFilterStatus::Continue};
 };
 
-class ConnectionSocketImplTest : public ::testing::Test {
-protected:
-  void SetUp() override {
-    auto socket_result = socketInterface().socket(
-        Address::Type::IPv4,
-        Socket::Type::Stream,
-        SocketCreationOptions{
-            .non_blocking_ = true,
-            .close_on_exec_ = true
-        });
-    ASSERT_TRUE(socket_result.ok());
-    
-    socket_ = std::move(socket_result.value());
-    socket_options_ = std::make_shared<SocketOptions>();
-  }
+// Simple test for ConnectionSocketImpl
+TEST(ConnectionSocketImplTest, BasicOperations) {
+  // Create a real socket fd and IoHandle
+  auto socket_result = socketInterface().socket(
+      SocketType::Stream,
+      Address::Type::Ip,
+      Address::IpVersion::v4);
+  ASSERT_TRUE(socket_result.ok());
   
-  SocketPtr socket_;
-  SocketOptionsSharedPtr socket_options_;
-};
-
-TEST_F(ConnectionSocketImplTest, BasicOperations) {
-  ConnectionSocketImpl conn_socket(std::move(socket_), socket_options_);
+  auto io_handle = socketInterface().ioHandleForFd(*socket_result, false);
+  auto local_addr = Address::parseInternetAddress("127.0.0.1", 0);
+  auto remote_addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
-  // Test options
-  EXPECT_EQ(socket_options_, conn_socket.options());
-  
-  // Test transport protocol
-  EXPECT_TRUE(conn_socket.detectedTransportProtocol().empty());
-  conn_socket.setDetectedTransportProtocol("h2");
-  EXPECT_EQ("h2", conn_socket.detectedTransportProtocol());
+  ConnectionSocketImpl conn_socket(
+      std::move(io_handle),
+      local_addr,
+      remote_addr);
   
   // Test server name
   EXPECT_TRUE(conn_socket.requestedServerName().empty());
-  conn_socket.setRequestedServerName("example.com");
+  conn_socket.connectionInfoProvider().setRequestedServerName("example.com");
   EXPECT_EQ("example.com", conn_socket.requestedServerName());
   
-  // Test closed by peer (should be false for open socket)
-  EXPECT_FALSE(conn_socket.isClosedByPeer());
+  // Test half close
+  EXPECT_FALSE(conn_socket.isHalfClose());
+  conn_socket.setHalfClose(true);
+  EXPECT_TRUE(conn_socket.isHalfClose());
+  
+  // Close the socket
+  socketInterface().close(*socket_result);
 }
 
 class ActiveListenerTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &socketInterface();
     
     // Create listen address
-    listen_addr_ = Address::parseInternetAddress("127.0.0.1", 0, false);
-    
-    // Create listener config
-    config_.name = "test_listener";
-    config_.address = listen_addr_;
-    config_.bind_to_port = true;
-    config_.enable_reuse_port = false;
-    config_.backlog = 128;
-    config_.per_connection_buffer_limit = 1024 * 1024;
+    listen_addr_ = Address::parseInternetAddress("127.0.0.1", 0);
   }
   
   void TearDown() override {
@@ -118,21 +106,31 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  ListenerConfig makeConfig(const std::string& name = "test_listener") {
+    ListenerConfig config;
+    config.name = name;
+    config.address = listen_addr_;
+    config.bind_to_port = true;
+    config.enable_reuse_port = false;
+    config.backlog = 128;
+    config.per_connection_buffer_limit = 1024 * 1024;
+    return config;
+  }
+  
+  event::DispatcherPtr dispatcher_;
   SocketInterface* socket_interface_;
   Address::InstanceConstSharedPtr listen_addr_;
-  ListenerConfig config_;
   MockListenerCallbacks callbacks_;
   std::unique_ptr<ActiveListener> listener_;
 };
 
 TEST_F(ActiveListenerTest, CreateAndListen) {
   listener_ = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, callbacks_, config_);
+      *dispatcher_, *socket_interface_, callbacks_, makeConfig());
   
   // Start listening
   auto result = listener_->listen();
-  ASSERT_TRUE(result.ok()) << result.error();
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Verify listener state
   EXPECT_EQ("test_listener", listener_->name());
@@ -148,10 +146,10 @@ TEST_F(ActiveListenerTest, CreateAndListen) {
 
 TEST_F(ActiveListenerTest, DisableEnable) {
   listener_ = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, callbacks_, config_);
+      *dispatcher_, *socket_interface_, callbacks_, makeConfig());
   
   auto result = listener_->listen();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Initially enabled
   EXPECT_TRUE(listener_->isEnabled());
@@ -167,26 +165,27 @@ TEST_F(ActiveListenerTest, DisableEnable) {
 
 TEST_F(ActiveListenerTest, AcceptConnection) {
   listener_ = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, callbacks_, config_);
+      *dispatcher_, *socket_interface_, callbacks_, makeConfig());
   
   auto result = listener_->listen();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Get actual listen port
-  auto local_addr = listener_->socket().addressProvider().localAddress();
+  auto local_addr = listener_->socket().connectionInfoProvider().localAddress();
   ASSERT_NE(nullptr, local_addr);
   uint32_t port = local_addr->ip()->port();
   
   // Create client socket in separate thread
   std::thread client_thread([port]() {
-    auto client_addr = Address::parseInternetAddress("127.0.0.1", port, false);
+    auto client_addr = Address::parseInternetAddress("127.0.0.1", port);
     auto socket_result = socketInterface().socket(
-        Address::Type::IPv4,
-        Socket::Type::Stream,
-        SocketCreationOptions{});
+        SocketType::Stream,
+        Address::Type::Ip,
+        Address::IpVersion::v4);
     
     if (socket_result.ok()) {
-      socket_result.value()->connect(client_addr);
+      auto io_handle = socketInterface().ioHandleForFd(*socket_result, false);
+      io_handle->connect(client_addr);
     }
   });
   
@@ -205,12 +204,13 @@ TEST_F(ActiveListenerTest, AcceptConnection) {
 class ListenerManagerImplTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = event::createLibeventDispatcher("test");
+    auto factory = event::createPlatformDefaultDispatcherFactory();
+    dispatcher_ = factory->createDispatcher("test");
     socket_interface_ = &socketInterface();
     manager_ = std::make_unique<ListenerManagerImpl>(*dispatcher_, *socket_interface_);
     
     // Create listen address
-    listen_addr_ = Address::parseInternetAddress("127.0.0.1", 0, false);
+    listen_addr_ = Address::parseInternetAddress("127.0.0.1", 0);
   }
   
   void TearDown() override {
@@ -218,7 +218,7 @@ protected:
     dispatcher_->exit();
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::DispatcherPtr dispatcher_;
   SocketInterface* socket_interface_;
   std::unique_ptr<ListenerManagerImpl> manager_;
   Address::InstanceConstSharedPtr listen_addr_;
@@ -230,8 +230,8 @@ TEST_F(ListenerManagerImplTest, AddListener) {
   config.name = "listener1";
   config.address = listen_addr_;
   
-  auto result = manager_->addListener(config, callbacks_);
-  ASSERT_TRUE(result.ok());
+  auto result = manager_->addListener(std::move(config), callbacks_);
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Get listener
   auto* listener = manager_->getListener("listener1");
@@ -239,8 +239,11 @@ TEST_F(ListenerManagerImplTest, AddListener) {
   EXPECT_EQ("listener1", listener->name());
   
   // Try to add duplicate
-  result = manager_->addListener(config, callbacks_);
-  EXPECT_FALSE(result.ok());
+  ListenerConfig dup_config;
+  dup_config.name = "listener1";
+  dup_config.address = listen_addr_;
+  result = manager_->addListener(std::move(dup_config), callbacks_);
+  EXPECT_TRUE(result.holds_alternative<Error>());
 }
 
 TEST_F(ListenerManagerImplTest, RemoveListener) {
@@ -248,8 +251,8 @@ TEST_F(ListenerManagerImplTest, RemoveListener) {
   config.name = "listener1";
   config.address = listen_addr_;
   
-  auto result = manager_->addListener(config, callbacks_);
-  ASSERT_TRUE(result.ok());
+  auto result = manager_->addListener(std::move(config), callbacks_);
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Remove listener
   manager_->removeListener("listener1");
@@ -266,8 +269,8 @@ TEST_F(ListenerManagerImplTest, MultipleListeners) {
     config.name = "listener" + std::to_string(i);
     config.address = listen_addr_;
     
-    auto result = manager_->addListener(config, callbacks_);
-    ASSERT_TRUE(result.ok());
+    auto result = manager_->addListener(std::move(config), callbacks_);
+    ASSERT_FALSE(result.holds_alternative<Error>());
   }
   
   // Get all listeners
@@ -286,12 +289,12 @@ TEST_F(ListenerManagerImplTest, StopListeners) {
   ListenerConfig config1;
   config1.name = "listener1";
   config1.address = listen_addr_;
-  manager_->addListener(config1, callbacks_);
+  manager_->addListener(std::move(config1), callbacks_);
   
   ListenerConfig config2;
   config2.name = "listener2";
   config2.address = listen_addr_;
-  manager_->addListener(config2, callbacks_);
+  manager_->addListener(std::move(config2), callbacks_);
   
   // Stop all listeners
   manager_->stopListeners();
@@ -305,6 +308,8 @@ TEST_F(ListenerManagerImplTest, StopListeners) {
 
 // Test with listener filters
 TEST_F(ActiveListenerTest, ListenerFilterChain) {
+  auto config = makeConfig();
+  
   // Add listener filters to config
   auto filter1 = std::make_unique<MockListenerFilter>();
   auto filter2 = std::make_unique<MockListenerFilter>();
@@ -312,14 +317,14 @@ TEST_F(ActiveListenerTest, ListenerFilterChain) {
   auto* filter1_ptr = filter1.get();
   auto* filter2_ptr = filter2.get();
   
-  config_.listener_filters.push_back(std::move(filter1));
-  config_.listener_filters.push_back(std::move(filter2));
+  config.listener_filters.push_back(std::move(filter1));
+  config.listener_filters.push_back(std::move(filter2));
   
   listener_ = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, callbacks_, config_);
+      *dispatcher_, *socket_interface_, callbacks_, std::move(config));
   
   auto result = listener_->listen();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Note: Full test would require accepting a connection and verifying
   // filters are called. For now, verify filters are stored.
@@ -327,18 +332,20 @@ TEST_F(ActiveListenerTest, ListenerFilterChain) {
 
 // Test listener with socket options
 TEST_F(ActiveListenerTest, SocketOptions) {
-  // Create socket options
-  config_.socket_options = std::make_shared<SocketOptions>();
+  auto config = makeConfig();
   
-  // Add some options
-  config_.socket_options->push_back(std::make_shared<SocketOptionImpl>(
-      SOL_SOCKET, SO_REUSEADDR, 1));
+  // Create socket options
+  config.socket_options = std::make_shared<std::vector<SocketOptionConstSharedPtr>>();
+  
+  // TODO: Add socket option implementations once SocketOptionImpl is available
+  // config.socket_options->push_back(std::make_shared<SocketOptionImpl>(
+  //     SOL_SOCKET, SO_REUSEADDR, 1));
   
   listener_ = std::make_unique<ActiveListener>(
-      *dispatcher_, *socket_interface_, callbacks_, config_);
+      *dispatcher_, *socket_interface_, callbacks_, std::move(config));
   
   auto result = listener_->listen();
-  ASSERT_TRUE(result.ok());
+  ASSERT_FALSE(result.holds_alternative<Error>());
   
   // Socket should have options applied
   // Note: Actual verification would require checking socket state
