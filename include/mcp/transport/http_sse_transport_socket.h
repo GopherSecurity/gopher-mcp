@@ -49,12 +49,12 @@ public:
   // TransportSocket interface
   void setTransportSocketCallbacks(network::TransportSocketCallbacks& callbacks) override;
   std::string protocol() const override { return "http+sse"; }
-  absl::string_view failureReason() const override { return failure_reason_; }
+  std::string failureReason() const override { return failure_reason_; }
   bool canFlushClose() override { return true; }
-  Result<void> connect(network::Socket& socket) override;
+  VoidResult connect(network::Socket& socket) override;
   void closeSocket(network::ConnectionEvent event) override;
-  network::IoResult doRead(Buffer& buffer) override;
-  network::IoResult doWrite(Buffer& buffer, bool end_stream) override;
+  TransportIoResult doRead(Buffer& buffer) override;
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
 
 private:
@@ -113,13 +113,13 @@ public:
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override;
-  absl::string_view name() const override { return "http+sse"; }
+  std::string name() const override { return "http+sse"; }
 
   // ClientTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket(
       network::TransportSocketOptionsSharedPtr options) const override;
   bool supportsAlpn() const override { return true; }
-  absl::string_view defaultServerNameIndication() const override;
+  std::string defaultServerNameIndication() const override;
   void hashKey(std::vector<uint8_t>& key,
                network::TransportSocketOptionsSharedPtr options) const override;
 

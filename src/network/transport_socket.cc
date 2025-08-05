@@ -19,11 +19,11 @@ void RawBufferTransportSocket::setTransportSocketCallbacks(TransportSocketCallba
   callbacks_ = &callbacks;
 }
 
-Result<std::nullptr_t> RawBufferTransportSocket::connect(Socket& socket) {
+VoidResult RawBufferTransportSocket::connect(Socket& socket) {
   (void)socket; // Unused for raw transport
   // For raw buffer transport, connection is immediate
   connected_ = true;
-  return make_result(nullptr);
+  return makeVoidSuccess();
 }
 
 void RawBufferTransportSocket::closeSocket(ConnectionEvent event) {
