@@ -12,9 +12,36 @@ namespace mcp {
 // template <typename T>
 // using Result = variant<T, Error>;
 
-// Helper to create void results
-inline Result<std::nullptr_t> make_void_result() {
-  return Result<std::nullptr_t>(nullptr);
+// For cleaner API, we define a VoidResult type
+using VoidResult = Result<std::nullptr_t>;
+
+// Helper to create successful void results
+inline VoidResult makeVoidSuccess() {
+  return VoidResult(nullptr);
+}
+
+// Helper to create error void results
+inline VoidResult makeVoidError(const Error& error) {
+  return VoidResult(error);
+}
+
+// Convenience factory functions for Result<T>
+template <typename T>
+Result<T> makeSuccess(T&& value) {
+  return Result<T>(std::forward<T>(value));
+}
+
+template <typename T>
+Result<T> makeError(const Error& error) {
+  return Result<T>(error);
+}
+
+template <typename T>
+Result<T> makeError(int code, const std::string& message) {
+  Error err;
+  err.code = code;
+  err.message = message;
+  return Result<T>(err);
 }
 
 // Helper to convert IoResult to Result for protocol-level errors
