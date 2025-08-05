@@ -109,11 +109,11 @@ TEST_F(StreamInfoImplTest, ResponseFlags) {
   EXPECT_FALSE(flags.upstream_remote_reset);
   EXPECT_FALSE(flags.upstream_connection_failure);
   EXPECT_FALSE(flags.upstream_connection_termination);
-  EXPECT_FALSE(flags.upstream_overflow);
+  EXPECT_FALSE(flags.upstream_connection_pool_overflow);
   EXPECT_FALSE(flags.no_route_found);
-  EXPECT_FALSE(flags.delay_injected);
-  EXPECT_FALSE(flags.fault_injected);
-  EXPECT_FALSE(flags.rate_limited);
+  EXPECT_FALSE(flags.timeout);
+  EXPECT_FALSE(flags.upstream_request_timeout);
+  EXPECT_FALSE(flags.stream_idle_timeout);
   
   // Set some flags
   flags.failed_local_health_check = true;
