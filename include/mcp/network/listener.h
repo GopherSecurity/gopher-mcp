@@ -7,17 +7,23 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket.h"
+#include "mcp/network/socket_impl.h"
+#include "mcp/network/socket_interface.h"
+#include "mcp/network/transport_socket.h"
 
 namespace mcp {
 namespace network {
 
 // Forward declarations
+class Connection;
 class Listener;
 class ListenerCallbacks;
 class ListenerFilter;
 class ListenerFilterCallbacks;
 class ConnectionSocket;
+class SocketInterface;
 
+using ConnectionPtr = std::unique_ptr<Connection>;
 using ListenerPtr = std::unique_ptr<Listener>;
 using ListenerFilterPtr = std::unique_ptr<ListenerFilter>;
 using ConnectionSocketPtr = std::unique_ptr<ConnectionSocket>;
@@ -77,114 +83,7 @@ public:
   virtual void onDestroy() {}
 };
 
-/**
- * Connection socket interface
- * 
- * Represents an accepted but not yet fully initialized connection
- */
-class ConnectionSocket : public Socket {
-public:
-  virtual ~ConnectionSocket() = default;
-
-  /**
-   * Get the socket options set on this socket
-   */
-  virtual const SocketOptionsSharedPtr& options() const = 0;
-
-  /**
-   * Set socket options
-   */
-  virtual void setOptions(SocketOptionsSharedPtr options) = 0;
-
-  /**
-   * Get detected transport protocol (e.g., from ALPN)
-   */
-  virtual const std::string& detectedTransportProtocol() const = 0;
-
-  /**
-   * Set detected transport protocol
-   */
-  virtual void setDetectedTransportProtocol(const std::string& protocol) = 0;
-
-  /**
-   * Get requested server name (e.g., from SNI)
-   */
-  virtual const std::string& requestedServerName() const = 0;
-
-  /**
-   * Set requested server name
-   */
-  virtual void setRequestedServerName(const std::string& name) = 0;
-
-  /**
-   * Check if the socket has been closed during filter processing
-   */
-  virtual bool isClosedByPeer() const = 0;
-};
-
-/**
- * Connection socket implementation
- */
-class ConnectionSocketImpl : public ConnectionSocket {
-public:
-  ConnectionSocketImpl(SocketPtr&& socket,
-                       const SocketOptionsSharedPtr& options);
-
-  // Socket interface (delegation)
-  ConnectionInfoSetter& connectionInfoProvider() override { 
-    return socket_->connectionInfoProvider(); 
-  }
-  const ConnectionInfoProvider& connectionInfoProvider() const override { 
-    return socket_->connectionInfoProvider(); 
-  }
-  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const override {
-    return socket_->connectionInfoProviderSharedPtr();
-  }
-  IoHandle& ioHandle() override { return socket_->ioHandle(); }
-  const IoHandle& ioHandle() const override { return socket_->ioHandle(); }
-  Socket::Type socketType() const override { return socket_->socketType(); }
-  const Address::InstanceConstSharedPtr& addressProvider() const override {
-    return socket_->addressProvider();
-  }
-  void setLocalAddress(const Address::InstanceConstSharedPtr& address) override {
-    socket_->setLocalAddress(address);
-  }
-  bool isOpen() const override { return socket_->isOpen(); }
-  void close() override { socket_->close(); }
-  Result<void> bind(const Address::Instance& address) override {
-    return socket_->bind(address);
-  }
-  Result<void> listen(int backlog) override {
-    return socket_->listen(backlog);
-  }
-  Result<void> connect(const Address::Instance& address) override {
-    return socket_->connect(address);
-  }
-  Result<void> setSocketOption(const SocketOption& option) override {
-    return socket_->setSocketOption(option);
-  }
-  Result<int> getSocketOption(const SocketOptionName& option_name, void* value, socklen_t* len) override {
-    return socket_->getSocketOption(option_name, value, len);
-  }
-  Result<void> setBlockingForTest(bool blocking) override {
-    return socket_->setBlockingForTest(blocking);
-  }
-
-  // ConnectionSocket interface
-  const SocketOptionsSharedPtr& options() const override { return options_; }
-  void setOptions(SocketOptionsSharedPtr options) override { options_ = options; }
-  const std::string& detectedTransportProtocol() const override { return detected_transport_protocol_; }
-  void setDetectedTransportProtocol(const std::string& protocol) override { detected_transport_protocol_ = protocol; }
-  const std::string& requestedServerName() const override { return requested_server_name_; }
-  void setRequestedServerName(const std::string& name) override { requested_server_name_ = name; }
-  bool isClosedByPeer() const override;
-
-private:
-  SocketPtr socket_;
-  SocketOptionsSharedPtr options_;
-  std::string detected_transport_protocol_;
-  std::string requested_server_name_;
-};
+// Note: ConnectionSocketImpl is defined in socket_impl.h
 
 /**
  * Listener callbacks
@@ -261,7 +160,7 @@ public:
   /**
    * Start listening
    */
-  virtual Result<void> listen() = 0;
+  virtual VoidResult listen() = 0;
 
   /**
    * Disable the listener (stop accepting new connections)
@@ -306,12 +205,12 @@ public:
   ActiveListener(event::Dispatcher& dispatcher,
                  SocketInterface& socket_interface,
                  ListenerCallbacks& parent_callbacks,
-                 const ListenerConfig& config);
+                 ListenerConfig&& config);
   ~ActiveListener() override;
 
   // Listener interface
   const std::string& name() const override { return config_.name; }
-  Result<void> listen() override;
+  VoidResult listen() override;
   void disable() override;
   void enable() override;
   bool isEnabled() const override { return enabled_; }
@@ -366,7 +265,7 @@ public:
   /**
    * Add a listener
    */
-  virtual Result<void> addListener(const ListenerConfig& config,
+  virtual VoidResult addListener(ListenerConfig&& config,
                                    ListenerCallbacks& callbacks) = 0;
 
   /**
@@ -400,7 +299,7 @@ public:
   ~ListenerManagerImpl() override;
 
   // ListenerManager interface
-  Result<void> addListener(const ListenerConfig& config,
+  VoidResult addListener(ListenerConfig&& config,
                            ListenerCallbacks& callbacks) override;
   void removeListener(const std::string& name) override;
   Listener* getListener(const std::string& name) override;
