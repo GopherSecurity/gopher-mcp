@@ -15,6 +15,7 @@
 #include "mcp/network/transport_socket.h"
 #include "mcp/optional.h"
 #include "mcp/stream_info/stream_info.h"
+#include "mcp/stream_info/stream_info_impl.h"
 
 namespace mcp {
 namespace network {
@@ -72,6 +73,24 @@ enum class ConnectionState {
  * Bytes sent callback
  */
 using BytesSentCb = std::function<bool(uint64_t bytes_sent)>;
+
+/**
+ * Watermark callbacks interface
+ */
+class WatermarkCallbacks {
+public:
+  virtual ~WatermarkCallbacks() = default;
+
+  /**
+   * Called when write buffer goes above high watermark
+   */
+  virtual void onAboveWriteBufferHighWatermark() = 0;
+
+  /**
+   * Called when write buffer goes below low watermark
+   */
+  virtual void onBelowWriteBufferLowWatermark() = 0;
+};
 
 /**
  * Connection callbacks interface
@@ -136,7 +155,7 @@ public:
    * Close the connection
    */
   virtual void close(ConnectionCloseType type) = 0;
-  virtual void close(ConnectionCloseType type, absl::string_view details) = 0;
+  virtual void close(ConnectionCloseType type, const std::string& details) = 0;
 
   /**
    * Get the detected close type
@@ -170,8 +189,10 @@ public:
 
   /**
    * Disable/enable reading from the socket
+   * Note: This is a different method from FilterManagerConnection::readDisable
+   * Use readDisableWithStatus for the version that returns status
    */
-  virtual ReadDisableStatus readDisable(bool disable) = 0;
+  virtual ReadDisableStatus readDisableWithStatus(bool disable) = 0;
 
   /**
    * Enable/disable early close detection when read disabled
@@ -213,7 +234,7 @@ public:
   /**
    * Get requested server name (SNI)
    */
-  virtual absl::string_view requestedServerName() const = 0;
+  virtual std::string requestedServerName() const = 0;
 
   /**
    * Get connection state
@@ -264,12 +285,12 @@ public:
   /**
    * Get transport failure reason
    */
-  virtual absl::string_view transportFailureReason() const = 0;
+  virtual std::string transportFailureReason() const = 0;
 
   /**
    * Get local close reason
    */
-  virtual absl::string_view localCloseReason() const = 0;
+  virtual std::string localCloseReason() const = 0;
 
   /**
    * Start secure transport (STARTTLS)
@@ -297,7 +318,7 @@ public:
    */
   virtual Socket& socket() = 0;
   virtual const Socket& socket() const = 0;
-
+  
   /**
    * Get transport socket
    */
@@ -355,8 +376,7 @@ public:
 /**
  * Base implementation for connection
  */
-class ConnectionImplBase : public virtual Connection,
-                           public FilterManagerConnection {
+class ConnectionImplBase : public virtual Connection {
 public:
   ConnectionImplBase(event::Dispatcher& dispatcher,
                      SocketPtr&& socket,
@@ -381,13 +401,11 @@ public:
   const TransportSocket& transportSocket() const override { return *transport_socket_; }
   stream_info::StreamInfo& streamInfo() override { return *stream_info_; }
   const stream_info::StreamInfo& streamInfo() const override { return *stream_info_; }
-  absl::string_view transportFailureReason() const override { return transport_socket_->failureReason(); }
-  absl::string_view localCloseReason() const override { return local_close_reason_; }
+  std::string transportFailureReason() const override { return transport_socket_->failureReason(); }
+  std::string localCloseReason() const override { return local_close_reason_; }
 
-  // TransportSocketCallbacks interface (partial implementation)
-  IoHandle& ioHandle() override { return socket_->ioHandle(); }
-  const IoHandle& ioHandle() const override { return socket_->ioHandle(); }
-  Connection& connection() override { return *this; }
+  // Note: TransportSocketCallbacks interface methods are implemented 
+  // separately in ConnectionImpl to avoid conflicts
 
 protected:
   // Internal helper methods
@@ -398,13 +416,13 @@ protected:
   void updateReadBufferStats(uint64_t num_read, uint64_t new_size);
   void updateWriteBufferStats(uint64_t num_written, uint64_t new_size);
   void transportFailure();
-  void setLocalCloseReason(absl::string_view reason) { local_close_reason_ = std::string(reason); }
+  void setLocalCloseReason(const std::string& reason) { local_close_reason_ = std::string(reason); }
 
   // Member variables
   event::Dispatcher& dispatcher_;
   SocketPtr socket_;
   TransportSocketPtr transport_socket_;
-  stream_info::StreamInfoImpl::SharedPtr stream_info_;
+  stream_info::StreamInfoSharedPtr stream_info_;
   FilterManagerImpl filter_manager_;
   
   // Callbacks
@@ -416,7 +434,7 @@ protected:
   ConnectionState state_{ConnectionState::Open};
   bool enable_half_close_{false};
   bool connecting_{false};
-  bool read_disable_count_{0};
+  uint32_t read_disable_count_{0};
   bool detect_early_close_{true};
   bool above_high_watermark_{false};
   
