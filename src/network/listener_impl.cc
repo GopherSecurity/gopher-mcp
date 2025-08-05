@@ -77,23 +77,8 @@ VoidResult ActiveListener::listen() {
       socket_->setSocketOption(SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
     }
     
-    // Bind to address
-    auto bind_result = socket_->bind(config_.address);
-    if (!bind_result.ok()) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to bind";
-      return makeVoidError(err);
-    }
-    
-    // Start listening
-    auto listen_result = socket_->listen(config_.backlog);
-    if (!listen_result.ok()) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to listen";
-      return makeVoidError(err);
-    }
+    // createListenSocket already binds and listens if bind_to_port is true,
+    // so we don't need to do it again
   }
   
   // Create file event for accept
