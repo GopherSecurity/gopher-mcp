@@ -9,9 +9,9 @@
 #include "mcp/buffer.h"
 #include "mcp/compat.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/io_result.h"
 #include "mcp/network/address.h"
 #include "mcp/optional.h"
-#include "mcp/io_result.h"
 
 namespace mcp {
 namespace network {
@@ -30,8 +30,8 @@ constexpr os_fd_t INVALID_SOCKET_FD = -1;
 #endif
 
 // Bring IoResult types into this namespace
-using ::mcp::IoResult;
 using ::mcp::IoCallResult;
+using ::mcp::IoResult;
 using ::mcp::IoVoidResult;
 using ::mcp::SystemError;
 

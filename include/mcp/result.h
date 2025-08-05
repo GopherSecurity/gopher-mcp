@@ -2,9 +2,9 @@
 #define MCP_RESULT_H
 
 #include "mcp/compat.h"
-#include "mcp/types.h"
-#include "mcp/optional.h"
 #include "mcp/io_result.h"
+#include "mcp/optional.h"
+#include "mcp/types.h"
 
 namespace mcp {
 
@@ -16,9 +16,7 @@ namespace mcp {
 using VoidResult = Result<std::nullptr_t>;
 
 // Helper to create successful void results
-inline VoidResult makeVoidSuccess() {
-  return VoidResult(nullptr);
-}
+inline VoidResult makeVoidSuccess() { return VoidResult(nullptr); }
 
 // Helper to create error void results
 inline VoidResult makeVoidError(const Error& error) {
@@ -52,7 +50,8 @@ Result<T> ioResultToResult(const IoResult<T>& io_result) {
   } else {
     Error err;
     err.code = io_result.error_code();
-    err.message = io_result.error_info ? io_result.error_info->message : "Unknown error";
+    err.message =
+        io_result.error_info ? io_result.error_info->message : "Unknown error";
     return Result<T>(err);
   }
 }
@@ -60,9 +59,9 @@ Result<T> ioResultToResult(const IoResult<T>& io_result) {
 // Transport-specific result for higher-level operations
 struct TransportIoResult {
   enum PostIoAction {
-    CONTINUE,      // Continue processing
-    CLOSE,         // Close the connection
-    WRITE_AND_CLOSE // Write remaining data then close
+    CONTINUE,        // Continue processing
+    CLOSE,           // Close the connection
+    WRITE_AND_CLOSE  // Write remaining data then close
   };
 
   PostIoAction action_;
@@ -70,7 +69,8 @@ struct TransportIoResult {
   bool end_stream_read_;
   optional<Error> error_;  // Use MCP Error type for protocol errors
 
-  static TransportIoResult success(uint64_t bytes, PostIoAction action = CONTINUE) {
+  static TransportIoResult success(uint64_t bytes,
+                                   PostIoAction action = CONTINUE) {
     return TransportIoResult{action, bytes, false, nullopt};
   }
 
@@ -93,6 +93,6 @@ struct TransportIoResult {
   bool ok() const { return !error_.has_value(); }
 };
 
-} // namespace mcp
+}  // namespace mcp
 
-#endif // MCP_RESULT_H
+#endif  // MCP_RESULT_H

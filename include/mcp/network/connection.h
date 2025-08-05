@@ -44,29 +44,25 @@ struct ConnectionStats {
 /**
  * Connection close types
  */
-enum class DetectedCloseType {
-  Normal,
-  LocalReset,
-  RemoteReset
-};
+enum class DetectedCloseType { Normal, LocalReset, RemoteReset };
 
 /**
  * Read disable status
  */
 enum class ReadDisableStatus {
-  NoTransition,              // No change in read state
-  StillReadDisabled,         // Still disabled after this call
-  TransitionedToReadEnabled, // Transitioned from disabled to enabled
-  TransitionedToReadDisabled // Transitioned from enabled to disabled
+  NoTransition,               // No change in read state
+  StillReadDisabled,          // Still disabled after this call
+  TransitionedToReadEnabled,  // Transitioned from disabled to enabled
+  TransitionedToReadDisabled  // Transitioned from enabled to disabled
 };
 
 /**
  * Connection state
  */
 enum class ConnectionState {
-  Open,    // Connection is open
-  Closing, // Connection is closing
-  Closed   // Connection is closed
+  Open,     // Connection is open
+  Closing,  // Connection is closing
+  Closed    // Connection is closed
 };
 
 /**
@@ -78,7 +74,7 @@ using BytesSentCb = std::function<bool(uint64_t bytes_sent)>;
  * Watermark callbacks interface
  */
 class WatermarkCallbacks {
-public:
+ public:
   virtual ~WatermarkCallbacks() = default;
 
   /**
@@ -96,7 +92,7 @@ public:
  * Connection callbacks interface
  */
 class ConnectionCallbacks {
-public:
+ public:
   virtual ~ConnectionCallbacks() = default;
 
   /**
@@ -117,13 +113,13 @@ public:
 
 /**
  * Base connection interface
- * 
+ *
  * This combines the connection management, filter chain, and transport socket
  */
 class Connection : public event::DeferredDeletable,
                    public FilterManagerConnection,
                    public TransportSocketCallbacks {
-public:
+ public:
   virtual ~Connection() = default;
 
   /**
@@ -209,7 +205,8 @@ public:
    */
   virtual ConnectionInfoSetter& connectionInfoSetter() = 0;
   virtual const ConnectionInfoProvider& connectionInfoProvider() const = 0;
-  virtual ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const = 0;
+  virtual ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr()
+      const = 0;
 
   /**
    * Get Unix domain socket peer credentials (if applicable)
@@ -219,7 +216,8 @@ public:
     uint32_t uid;
     uint32_t gid;
   };
-  virtual optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials() const = 0;
+  virtual optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials()
+      const = 0;
 
   /**
    * Set connection statistics
@@ -305,8 +303,8 @@ public:
   /**
    * Configure initial congestion window
    */
-  virtual void configureInitialCongestionWindow(uint64_t bandwidth_bits_per_sec,
-                                                std::chrono::microseconds rtt) = 0;
+  virtual void configureInitialCongestionWindow(
+      uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) = 0;
 
   /**
    * Get congestion window in bytes
@@ -318,7 +316,7 @@ public:
    */
   virtual Socket& socket() = 0;
   virtual const Socket& socket() const = 0;
-  
+
   /**
    * Get transport socket
    */
@@ -330,20 +328,21 @@ public:
  * Server connection interface
  */
 class ServerConnection : public virtual Connection {
-public:
+ public:
   virtual ~ServerConnection() = default;
 
   /**
    * Set transport socket connect timeout
    */
-  virtual void setTransportSocketConnectTimeout(std::chrono::milliseconds timeout) = 0;
+  virtual void setTransportSocketConnectTimeout(
+      std::chrono::milliseconds timeout) = 0;
 };
 
 /**
  * Client connection interface
  */
 class ClientConnection : public virtual Connection {
-public:
+ public:
   virtual ~ClientConnection() = default;
 
   /**
@@ -359,7 +358,7 @@ using ClientConnectionPtr = std::unique_ptr<ClientConnection>;
  * Connection pool callbacks
  */
 class ConnectionPoolCallbacks {
-public:
+ public:
   virtual ~ConnectionPoolCallbacks() = default;
 
   /**
@@ -370,14 +369,15 @@ public:
   /**
    * Called when a connection event occurs
    */
-  virtual void onConnectionEvent(Connection& connection, ConnectionEvent event) = 0;
+  virtual void onConnectionEvent(Connection& connection,
+                                 ConnectionEvent event) = 0;
 };
 
 /**
  * Base implementation for connection
  */
 class ConnectionImplBase : public virtual Connection {
-public:
+ public:
   ConnectionImplBase(event::Dispatcher& dispatcher,
                      SocketPtr&& socket,
                      TransportSocketPtr&& transport_socket);
@@ -391,26 +391,41 @@ public:
   bool isHalfCloseEnabled() const override { return enable_half_close_; }
   event::Dispatcher& dispatcher() const override { return dispatcher_; }
   uint64_t id() const override { return id_; }
-  std::string nextProtocol() const override { return transport_socket_->protocol(); }
-  ConnectionInfoSetter& connectionInfoSetter() override { return socket_->connectionInfoProvider(); }
-  const ConnectionInfoProvider& connectionInfoProvider() const override { return socket_->connectionInfoProvider(); }
-  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr() const override { return socket_->connectionInfoProviderSharedPtr(); }
+  std::string nextProtocol() const override {
+    return transport_socket_->protocol();
+  }
+  ConnectionInfoSetter& connectionInfoSetter() override {
+    return socket_->connectionInfoProvider();
+  }
+  const ConnectionInfoProvider& connectionInfoProvider() const override {
+    return socket_->connectionInfoProvider();
+  }
+  ConnectionInfoProviderSharedPtr connectionInfoProviderSharedPtr()
+      const override {
+    return socket_->connectionInfoProviderSharedPtr();
+  }
   Socket& socket() override { return *socket_; }
   const Socket& socket() const override { return *socket_; }
   TransportSocket& transportSocket() override { return *transport_socket_; }
-  const TransportSocket& transportSocket() const override { return *transport_socket_; }
+  const TransportSocket& transportSocket() const override {
+    return *transport_socket_;
+  }
   stream_info::StreamInfo& streamInfo() override { return *stream_info_; }
-  const stream_info::StreamInfo& streamInfo() const override { return *stream_info_; }
-  std::string transportFailureReason() const override { return transport_socket_->failureReason(); }
+  const stream_info::StreamInfo& streamInfo() const override {
+    return *stream_info_;
+  }
+  std::string transportFailureReason() const override {
+    return transport_socket_->failureReason();
+  }
   std::string localCloseReason() const override { return local_close_reason_; }
-  
+
   // Get filter manager for filter chain setup
   FilterManagerImpl& filterManager() { return filter_manager_; }
 
-  // Note: TransportSocketCallbacks interface methods are implemented 
+  // Note: TransportSocketCallbacks interface methods are implemented
   // separately in ConnectionImpl to avoid conflicts
 
-protected:
+ protected:
   // Internal helper methods
   void closeConnectionImmediately();
   void raiseConnectionEvent(ConnectionEvent event);
@@ -419,8 +434,10 @@ protected:
   void updateReadBufferStats(uint64_t num_read, uint64_t new_size);
   void updateWriteBufferStats(uint64_t num_written, uint64_t new_size);
   void transportFailure();
-  void setLocalCloseReason(const std::string& reason) { local_close_reason_ = std::string(reason); }
-  
+  void setLocalCloseReason(const std::string& reason) {
+    local_close_reason_ = std::string(reason);
+  }
+
   // Watermark callbacks
   void onReadBufferLowWatermark();
   void onReadBufferHighWatermark();
@@ -434,11 +451,11 @@ protected:
   TransportSocketPtr transport_socket_;
   stream_info::StreamInfoSharedPtr stream_info_;
   FilterManagerImpl filter_manager_;
-  
+
   // Callbacks
   std::list<ConnectionCallbacks*> callbacks_;
   std::list<BytesSentCb> bytes_sent_callbacks_;
-  
+
   // State
   const uint64_t id_;
   ConnectionState state_{ConnectionState::Open};
@@ -447,33 +464,33 @@ protected:
   uint32_t read_disable_count_{0};
   bool detect_early_close_{true};
   bool above_high_watermark_{false};
-  
+
   // Buffers with watermarks
   WatermarkBuffer read_buffer_;
   WatermarkBuffer write_buffer_;
-  
+
   // Stats
   optional<ConnectionStats> stats_;
   uint64_t last_read_buffer_size_{0};
   uint64_t last_write_buffer_size_{0};
-  
+
   // Configuration
   uint32_t buffer_limit_{0};
   std::chrono::milliseconds delayed_close_timeout_{0};
   event::TimerPtr delayed_close_timer_;
-  
+
   // Close reasons
   std::string local_close_reason_;
   DetectedCloseType detected_close_type_{DetectedCloseType::Normal};
-  
+
   // File events
   event::FileEventPtr file_event_;
-  
+
   // Connection ID generator
   static std::atomic<uint64_t> next_connection_id_;
 };
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
 
-#endif // MCP_NETWORK_CONNECTION_H
+#endif  // MCP_NETWORK_CONNECTION_H

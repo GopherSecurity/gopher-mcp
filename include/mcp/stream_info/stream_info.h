@@ -14,28 +14,28 @@ namespace stream_info {
 
 /**
  * Filter state interface
- * 
+ *
  * Allows filters to store and share state within a request/connection context
  */
 class FilterState {
-public:
+ public:
   virtual ~FilterState() = default;
 
   /**
    * Object lifetime in the filter state
    */
   enum class StateType {
-    ReadOnly,     // Object is read-only after initial set
-    Mutable,      // Object can be modified
-    Connection,   // Object lives for connection lifetime
-    Request       // Object lives for request lifetime (HTTP)
+    ReadOnly,    // Object is read-only after initial set
+    Mutable,     // Object can be modified
+    Connection,  // Object lives for connection lifetime
+    Request      // Object lives for request lifetime (HTTP)
   };
 
   /**
    * Base class for objects stored in filter state
    */
   class Object {
-  public:
+   public:
     virtual ~Object() = default;
   };
 
@@ -44,7 +44,7 @@ public:
   /**
    * Set data in the filter state
    */
-  virtual void setData(const std::string& name, 
+  virtual void setData(const std::string& name,
                        ObjectSharedPtr object,
                        StateType state_type) = 0;
 
@@ -61,7 +61,7 @@ public:
   /**
    * Get data with type checking
    */
-  template<typename T>
+  template <typename T>
   const T* getDataTyped(const std::string& name) const {
     auto* obj = getData(name);
     return dynamic_cast<const T*>(obj);
@@ -70,11 +70,11 @@ public:
 
 /**
  * Dynamic metadata interface
- * 
+ *
  * Allows filters to set metadata that can be used for logging, stats, etc.
  */
 class DynamicMetadata {
-public:
+ public:
   virtual ~DynamicMetadata() = default;
 
   using MetadataMap = std::map<std::string, std::string>;
@@ -82,7 +82,7 @@ public:
   /**
    * Set metadata value
    */
-  virtual void setMetadata(const std::string& name, 
+  virtual void setMetadata(const std::string& name,
                            const std::string& value) = 0;
 
   /**
@@ -109,17 +109,17 @@ struct ResponseFlags {
   bool upstream_remote_reset{false};
   bool upstream_connection_pool_overflow{false};
   bool no_route_found{false};
-  
-  // Timeout failures  
+
+  // Timeout failures
   bool timeout{false};
   bool upstream_request_timeout{false};
   bool stream_idle_timeout{false};
-  
+
   // Protocol errors
   bool downstream_protocol_error{false};
   bool upstream_protocol_error{false};
   bool upstream_max_stream_duration_reached{false};
-  
+
   // Response properties
   bool response_from_cache{false};
   bool no_filter_config_found{false};
@@ -132,11 +132,11 @@ struct ResponseFlags {
 
 /**
  * Stream info interface
- * 
+ *
  * Provides information about a stream (connection or request)
  */
 class StreamInfo {
-public:
+ public:
   virtual ~StreamInfo() = default;
 
   /**
@@ -203,8 +203,10 @@ public:
   /**
    * Get/set upstream info
    */
-  virtual const network::Address::InstanceConstSharedPtr& upstreamAddress() const = 0;
-  virtual void setUpstreamAddress(const network::Address::InstanceConstSharedPtr& address) = 0;
+  virtual const network::Address::InstanceConstSharedPtr& upstreamAddress()
+      const = 0;
+  virtual void setUpstreamAddress(
+      const network::Address::InstanceConstSharedPtr& address) = 0;
 
   /**
    * Get/set upstream cluster
@@ -233,7 +235,7 @@ public:
 
 using StreamInfoSharedPtr = std::shared_ptr<StreamInfo>;
 
-} // namespace stream_info
-} // namespace mcp
+}  // namespace stream_info
+}  // namespace mcp
 
-#endif // MCP_STREAM_INFO_STREAM_INFO_H
+#endif  // MCP_STREAM_INFO_STREAM_INFO_H

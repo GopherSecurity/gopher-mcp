@@ -6,12 +6,12 @@
 #include <vector>
 
 #include "mcp/buffer.h"
+#include "mcp/compat.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
 #include "mcp/optional.h"
-#include "mcp/types.h"
-#include "mcp/compat.h"
 #include "mcp/result.h"
+#include "mcp/types.h"
 
 namespace mcp {
 namespace network {
@@ -26,13 +26,15 @@ class ClientTransportSocketFactory;
 class ServerTransportSocketFactory;
 
 // Type aliases from socket.h
-using ConnectionSocketOptionsSharedPtr = std::shared_ptr<const std::vector<SocketOptionConstSharedPtr>>;
+using ConnectionSocketOptionsSharedPtr =
+    std::shared_ptr<const std::vector<SocketOptionConstSharedPtr>>;
 
 using TransportSocketPtr = std::unique_ptr<TransportSocket>;
 using TransportSocketSharedPtr = std::shared_ptr<TransportSocket>;
 using TransportSocketFactoryPtr = std::unique_ptr<TransportSocketFactory>;
 using TransportSocketFactorySharedPtr = std::shared_ptr<TransportSocketFactory>;
-using TransportSocketOptionsSharedPtr = std::shared_ptr<const TransportSocketOptions>;
+using TransportSocketOptionsSharedPtr =
+    std::shared_ptr<const TransportSocketOptions>;
 
 // Bring TransportIoResult into this namespace
 using ::mcp::TransportIoResult;
@@ -41,11 +43,11 @@ using ::mcp::TransportIoResult;
  * Connection close types
  */
 enum class ConnectionCloseType {
-  FlushWrite,         // Flush pending write data before closing
-  NoFlush,            // Close immediately without flushing
-  FlushWriteAndDelay, // Flush and delay close
-  Abort,              // Abort immediately
-  AbortReset          // Abort with RST
+  FlushWrite,          // Flush pending write data before closing
+  NoFlush,             // Close immediately without flushing
+  FlushWriteAndDelay,  // Flush and delay close
+  Abort,               // Abort immediately
+  AbortReset           // Abort with RST
 };
 
 /**
@@ -63,11 +65,11 @@ class Connection;
 
 /**
  * Transport socket callbacks interface
- * 
+ *
  * Provides access to connection resources and event handling
  */
 class TransportSocketCallbacks {
-public:
+ public:
   virtual ~TransportSocketCallbacks() = default;
 
   /**
@@ -106,31 +108,33 @@ public:
  * SSL/TLS connection information
  */
 struct SslConnectionInfo {
-  std::string protocol;           // TLS version (e.g., "TLSv1.3")
-  std::string cipher_suite;       // Cipher suite name
-  std::string peer_certificate;   // PEM-encoded peer certificate
-  std::string alpn_protocol;      // Negotiated ALPN protocol
-  std::string server_name;        // SNI server name
-  bool session_reused{false};     // Whether session was reused
-  uint64_t session_id{0};         // Session ID for resumption
+  std::string protocol;          // TLS version (e.g., "TLSv1.3")
+  std::string cipher_suite;      // Cipher suite name
+  std::string peer_certificate;  // PEM-encoded peer certificate
+  std::string alpn_protocol;     // Negotiated ALPN protocol
+  std::string server_name;       // SNI server name
+  bool session_reused{false};    // Whether session was reused
+  uint64_t session_id{0};        // Session ID for resumption
 };
 
-using SslConnectionInfoConstSharedPtr = std::shared_ptr<const SslConnectionInfo>;
+using SslConnectionInfoConstSharedPtr =
+    std::shared_ptr<const SslConnectionInfo>;
 
 /**
  * Transport socket interface
- * 
+ *
  * Abstracts the actual network I/O and security layer (TLS, plaintext, etc.)
  */
 class TransportSocket {
-public:
+ public:
   virtual ~TransportSocket() = default;
 
   /**
    * Set the callbacks used to interact with the connection
    * Called once during initialization
    */
-  virtual void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) = 0;
+  virtual void setTransportSocketCallbacks(
+      TransportSocketCallbacks& callbacks) = 0;
 
   /**
    * Get the negotiated application protocol (e.g., from ALPN)
@@ -201,11 +205,11 @@ public:
 
 /**
  * Transport socket options
- * 
+ *
  * Configuration passed during transport socket creation
  */
 class TransportSocketOptions {
-public:
+ public:
   virtual ~TransportSocketOptions() = default;
 
   /**
@@ -216,17 +220,20 @@ public:
   /**
    * Subject alternative name list override for verification
    */
-  virtual const std::vector<std::string>& verifySubjectAltNameListOverride() const = 0;
+  virtual const std::vector<std::string>& verifySubjectAltNameListOverride()
+      const = 0;
 
   /**
    * Application protocol list override (ALPN)
    */
-  virtual const std::vector<std::string>& applicationProtocolListOverride() const = 0;
+  virtual const std::vector<std::string>& applicationProtocolListOverride()
+      const = 0;
 
   /**
    * Application protocol fallback
    */
-  virtual const std::vector<std::string>& applicationProtocolFallback() const = 0;
+  virtual const std::vector<std::string>& applicationProtocolFallback()
+      const = 0;
 
   /**
    * Additional socket options
@@ -238,7 +245,7 @@ public:
  * Default implementation of transport socket options
  */
 class TransportSocketOptionsImpl : public TransportSocketOptions {
-public:
+ public:
   TransportSocketOptionsImpl() = default;
 
   // Builder pattern
@@ -247,17 +254,20 @@ public:
     return *this;
   }
 
-  TransportSocketOptionsImpl& setVerifySubjectAltNameListOverride(const std::vector<std::string>& names) {
+  TransportSocketOptionsImpl& setVerifySubjectAltNameListOverride(
+      const std::vector<std::string>& names) {
     verify_san_list_override_ = names;
     return *this;
   }
 
-  TransportSocketOptionsImpl& setApplicationProtocolListOverride(const std::vector<std::string>& protocols) {
+  TransportSocketOptionsImpl& setApplicationProtocolListOverride(
+      const std::vector<std::string>& protocols) {
     alpn_list_override_ = protocols;
     return *this;
   }
 
-  TransportSocketOptionsImpl& setApplicationProtocolFallback(const std::vector<std::string>& protocols) {
+  TransportSocketOptionsImpl& setApplicationProtocolFallback(
+      const std::vector<std::string>& protocols) {
     alpn_fallback_ = protocols;
     return *this;
   }
@@ -268,13 +278,25 @@ public:
   }
 
   // TransportSocketOptions interface
-  const optional<std::string>& serverNameOverride() const override { return server_name_override_; }
-  const std::vector<std::string>& verifySubjectAltNameListOverride() const override { return verify_san_list_override_; }
-  const std::vector<std::string>& applicationProtocolListOverride() const override { return alpn_list_override_; }
-  const std::vector<std::string>& applicationProtocolFallback() const override { return alpn_fallback_; }
-  const SocketOptionsSharedPtr& socketOptions() const override { return socket_options_; }
+  const optional<std::string>& serverNameOverride() const override {
+    return server_name_override_;
+  }
+  const std::vector<std::string>& verifySubjectAltNameListOverride()
+      const override {
+    return verify_san_list_override_;
+  }
+  const std::vector<std::string>& applicationProtocolListOverride()
+      const override {
+    return alpn_list_override_;
+  }
+  const std::vector<std::string>& applicationProtocolFallback() const override {
+    return alpn_fallback_;
+  }
+  const SocketOptionsSharedPtr& socketOptions() const override {
+    return socket_options_;
+  }
 
-private:
+ private:
   optional<std::string> server_name_override_;
   std::vector<std::string> verify_san_list_override_;
   std::vector<std::string> alpn_list_override_;
@@ -294,7 +316,7 @@ struct TransportSocketFactoryConfig {
  * Base class for transport socket factories
  */
 class TransportSocketFactoryBase {
-public:
+ public:
   virtual ~TransportSocketFactoryBase() = default;
 
   /**
@@ -312,7 +334,7 @@ public:
  * Factory for creating client transport sockets
  */
 class ClientTransportSocketFactory : public virtual TransportSocketFactoryBase {
-public:
+ public:
   virtual ~ClientTransportSocketFactory() = default;
 
   /**
@@ -342,7 +364,7 @@ public:
  * Factory for creating server transport sockets
  */
 class ServerTransportSocketFactory : public virtual TransportSocketFactoryBase {
-public:
+ public:
   virtual ~ServerTransportSocketFactory() = default;
 
   /**
@@ -356,26 +378,31 @@ public:
  */
 class UniversalTransportSocketFactory : public ClientTransportSocketFactory,
                                         public ServerTransportSocketFactory {
-public:
+ public:
   virtual ~UniversalTransportSocketFactory() = default;
 };
 
 // Type aliases for client/server factories (must be after class declarations)
-using ClientTransportSocketFactoryPtr = std::unique_ptr<ClientTransportSocketFactory>;
-using ClientTransportSocketFactorySharedPtr = std::shared_ptr<ClientTransportSocketFactory>;
-using ServerTransportSocketFactoryPtr = std::unique_ptr<ServerTransportSocketFactory>;
-using ServerTransportSocketFactorySharedPtr = std::shared_ptr<ServerTransportSocketFactory>;
+using ClientTransportSocketFactoryPtr =
+    std::unique_ptr<ClientTransportSocketFactory>;
+using ClientTransportSocketFactorySharedPtr =
+    std::shared_ptr<ClientTransportSocketFactory>;
+using ServerTransportSocketFactoryPtr =
+    std::unique_ptr<ServerTransportSocketFactory>;
+using ServerTransportSocketFactorySharedPtr =
+    std::shared_ptr<ServerTransportSocketFactory>;
 
 /**
  * Raw buffer transport socket (no encryption)
  */
 class RawBufferTransportSocket : public TransportSocket {
-public:
+ public:
   RawBufferTransportSocket();
   ~RawBufferTransportSocket() override;
 
   // TransportSocket interface
-  void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override;
+  void setTransportSocketCallbacks(
+      TransportSocketCallbacks& callbacks) override;
   std::string protocol() const override { return ""; }
   std::string failureReason() const override { return failure_reason_; }
   bool canFlushClose() override { return true; }
@@ -385,7 +412,7 @@ public:
   TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
 
-private:
+ private:
   TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
   bool connected_{false};
@@ -397,7 +424,7 @@ private:
  * Raw buffer transport socket factory
  */
 class RawBufferTransportSocketFactory : public UniversalTransportSocketFactory {
-public:
+ public:
   RawBufferTransportSocketFactory() = default;
 
   // TransportSocketFactoryBase interface
@@ -417,11 +444,12 @@ public:
 /**
  * Create a raw buffer transport socket factory
  */
-inline std::unique_ptr<TransportSocketFactoryBase> createRawBufferTransportSocketFactory() {
+inline std::unique_ptr<TransportSocketFactoryBase>
+createRawBufferTransportSocketFactory() {
   return std::make_unique<RawBufferTransportSocketFactory>();
 }
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
 
-#endif // MCP_NETWORK_TRANSPORT_SOCKET_H
+#endif  // MCP_NETWORK_TRANSPORT_SOCKET_H
