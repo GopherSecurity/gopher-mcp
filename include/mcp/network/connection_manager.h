@@ -220,6 +220,16 @@ public:
   virtual ~ConnectionPool() = default;
 
   /**
+   * Connection pool failure reasons
+   */
+  enum class PoolFailureReason {
+    Overflow,       // Connection limit reached
+    Timeout,        // Connection timeout
+    LocalFailure,   // Local connection failure
+    RemoteFailure   // Remote connection failure
+  };
+
+  /**
    * Pool callbacks for stream lifetime events
    */
   class Callbacks {
@@ -236,18 +246,10 @@ public:
      * Called when pool fails to create connection
      */
     virtual void onPoolFailure(ConnectionPool::PoolFailureReason reason,
-                               absl::string_view failure_reason) = 0;
+                               const std::string& failure_reason) = 0;
   };
 
-  /**
-   * Connection pool failure reasons
-   */
-  enum class PoolFailureReason {
-    Overflow,       // Connection limit reached
-    Timeout,        // Connection timeout
-    LocalFailure,   // Local connection failure
-    RemoteFailure   // Remote connection failure
-  };
+  // Enum moved above
 
   /**
    * Create a new connection or return existing one
