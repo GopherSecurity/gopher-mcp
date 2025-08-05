@@ -165,7 +165,9 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   state_ = connected ? ConnectionState::Open : ConnectionState::Open;
   
   // Set up transport socket callbacks
-  transport_socket_->setTransportSocketCallbacks(static_cast<TransportSocketCallbacks&>(*this));
+  if (transport_socket_) {
+    transport_socket_->setTransportSocketCallbacks(static_cast<TransportSocketCallbacks&>(*this));
+  }
   
   // Configure socket
   // TODO: Implement ConnectionUtility
@@ -183,11 +185,11 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-    file_event_ = dispatcher_.createFileEvent(
-        socket_->ioHandle().fd(),
-        [this](uint32_t events) { onFileEvent(events); },
-        event::FileTriggerType::Edge,
-        static_cast<uint32_t>(event::FileReadyType::Closed));
+        file_event_ = dispatcher_.createFileEvent(
+            socket_->ioHandle().fd(),
+            [this](uint32_t events) { onFileEvent(events); },
+            event::FileTriggerType::Edge,
+            static_cast<uint32_t>(event::FileReadyType::Closed));
     
         // Enable read events initially
         if (connected) {
@@ -195,7 +197,7 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         }
       }
     } catch (...) {
-      // TODO: Socket doesn't support file events (e.g., mock socket in tests)
+      // Socket doesn't support file events (e.g., mock socket in tests)
     }
   }
 }
@@ -312,7 +314,8 @@ ConnectionImpl::unixSocketPeerCredentials() const {
 }
 
 SslConnectionInfoConstSharedPtr ConnectionImpl::ssl() const {
-  return transport_socket_->ssl();
+  static const SslConnectionInfoConstSharedPtr empty_ssl_info;
+  return transport_socket_ ? transport_socket_->ssl() : empty_ssl_info;
 }
 
 std::string ConnectionImpl::requestedServerName() const {
@@ -367,7 +370,7 @@ void ConnectionImpl::setDelayedCloseTimeout(std::chrono::milliseconds timeout) {
 }
 
 bool ConnectionImpl::startSecureTransport() {
-  return transport_socket_->startSecureTransport();
+  return transport_socket_ ? transport_socket_->startSecureTransport() : false;
 }
 
 optional<std::chrono::milliseconds> ConnectionImpl::lastRoundTripTime() const {
@@ -377,7 +380,9 @@ optional<std::chrono::milliseconds> ConnectionImpl::lastRoundTripTime() const {
 
 void ConnectionImpl::configureInitialCongestionWindow(
     uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) {
-  transport_socket_->configureInitialCongestionWindow(bandwidth_bits_per_sec, rtt);
+  if (transport_socket_) {
+    transport_socket_->configureInitialCongestionWindow(bandwidth_bits_per_sec, rtt);
+  }
 }
 
 optional<uint64_t> ConnectionImpl::congestionWindowInBytes() const {
@@ -490,7 +495,9 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   }
   
   // Close transport socket
-  transport_socket_->closeSocket(close_type);
+  if (transport_socket_) {
+    transport_socket_->closeSocket(close_type);
+  }
   
   // Close actual socket
   socket_->close();
@@ -573,6 +580,12 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket directly
   
   // Read from transport socket
+  if (!transport_socket_) {
+    Error err;
+    err.code = -1;
+    err.message = "Transport socket not initialized";
+    return TransportIoResult::error(err);
+  }
   return transport_socket_->doRead(read_buffer_);
 }
 
@@ -625,6 +638,12 @@ void ConnectionImpl::doWrite() {
 
 TransportIoResult ConnectionImpl::doWriteToSocket() {
   // Write through transport socket
+  if (!transport_socket_) {
+    Error err;
+    err.code = -1;
+    err.message = "Transport socket not initialized";
+    return TransportIoResult::error(err);
+  }
   return transport_socket_->doWrite(write_buffer_, write_half_closed_);
 }
 
