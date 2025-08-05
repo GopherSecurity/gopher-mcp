@@ -181,6 +181,13 @@ endif()
 # Enable testing
 enable_testing()
 
+# Test targets:
+# - make test          : Standard CMake test target (shows progress)
+# - make check         : Run tests with minimal output (recommended)
+# - make check-verbose : Run tests with detailed output
+# - make check-parallel: Run tests in parallel with minimal output
+# - ctest             : Direct CTest invocation (customizable)
+
 # Add test subdirectory
 add_subdirectory(tests)
 
@@ -209,4 +216,25 @@ add_custom_target(check-format
             -name "*.h" -o -name "*.cc" | xargs clang-format --dry-run --Werror
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Checking source file formatting with clang-format"
+)
+
+# Add custom target for running tests (quiet by default)
+add_custom_target(check
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running tests..."
+)
+
+# Add custom target for verbose test output
+add_custom_target(check-verbose
+    COMMAND ${CMAKE_CTEST_COMMAND} -V
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}  
+    COMMENT "Running tests with verbose output..."
+)
+
+# Add custom target that runs tests in parallel
+add_custom_target(check-parallel
+    COMMAND ${CMAKE_CTEST_COMMAND} -j8 --output-on-failure
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running tests in parallel..."
 )

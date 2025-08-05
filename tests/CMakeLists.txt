@@ -269,7 +269,6 @@ add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
-    ENVIRONMENT "GTEST_COLOR=1"
 )
 
 # Custom target to run tests with output
@@ -288,3 +287,4 @@ add_custom_target(run_tests
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
+
