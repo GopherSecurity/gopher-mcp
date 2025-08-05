@@ -121,20 +121,21 @@ FetchContent_MakeAvailable(googletest)
 
 # Source files
 set(MCP_SDK_SOURCES
-    src/buffer/buffer_impl.cpp
-    src/json.cpp
+    src/buffer/buffer_impl.cc
+    src/json.cc
     src/network/address_impl.cc
     src/network/io_socket_handle_impl.cc
     src/network/socket_impl.cc
     src/network/socket_interface_impl.cc
     src/network/socket_option_impl.cc
-    src/network/transport_socket.cpp
+    src/network/transport_socket.cc
+    src/stream_info/stream_info_impl.cc
 )
 
 # Event system source files
 set(MCP_EVENT_SOURCES
-    src/event/libevent_dispatcher.cpp
-    src/event/worker.cpp
+    src/event/libevent_dispatcher.cc
+    src/event/worker.cc
 )
 
 # Create MCP SDK library
@@ -169,7 +170,7 @@ add_subdirectory(tests)
 # Build examples (optional)
 option(BUILD_EXAMPLES "Build example programs" ON)
 if(BUILD_EXAMPLES)
-    add_executable(event_loop_example examples/event_loop_example.cpp)
+    add_executable(event_loop_example examples/event_loop_example.cc)
     target_link_libraries(event_loop_example 
         mcp-event 
         mcp-sdk 
@@ -180,7 +181,7 @@ endif()
 # Add custom target for formatting
 add_custom_target(format
     COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
-            -name "*.h" -o -name "*.cpp" | xargs clang-format -i
+            -name "*.h" -o -name "*.cc" | xargs clang-format -i
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Formatting all source files with clang-format"
 )
@@ -188,7 +189,7 @@ add_custom_target(format
 # Add custom target to check formatting without modifying files
 add_custom_target(check-format
     COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
-            -name "*.h" -o -name "*.cpp" | xargs clang-format --dry-run --Werror
+            -name "*.h" -o -name "*.cc" | xargs clang-format --dry-run --Werror
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Checking source file formatting with clang-format"
 )
