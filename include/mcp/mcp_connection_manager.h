@@ -10,6 +10,7 @@
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/types.h"
+#include "mcp/result.h"
 
 namespace mcp {
 
@@ -87,6 +88,9 @@ public:
   network::FilterStatus onData(Buffer& data, bool end_stream) override;
   network::FilterStatus onNewConnection() override;
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
+  
+  // Configuration
+  void setUseFraming(bool use_framing) { use_framing_ = use_framing; }
 
 private:
   // Parse and dispatch messages
@@ -106,7 +110,8 @@ private:
  * 
  * High-level interface for managing MCP connections
  */
-class McpConnectionManager : public McpMessageCallbacks {
+class McpConnectionManager : public McpMessageCallbacks,
+                             public network::ListenerCallbacks {
 public:
   McpConnectionManager(event::Dispatcher& dispatcher,
                        network::SocketInterface& socket_interface,
@@ -116,27 +121,27 @@ public:
   /**
    * Connect to MCP server (client mode)
    */
-  Result<void> connect();
+  VoidResult connect();
 
   /**
    * Listen for MCP connections (server mode)
    */
-  Result<void> listen(const network::Address::InstanceConstSharedPtr& address);
+  VoidResult listen(const network::Address::InstanceConstSharedPtr& address);
 
   /**
    * Send a request
    */
-  Result<void> sendRequest(const jsonrpc::Request& request);
+  VoidResult sendRequest(const jsonrpc::Request& request);
 
   /**
    * Send a notification
    */
-  Result<void> sendNotification(const jsonrpc::Notification& notification);
+  VoidResult sendNotification(const jsonrpc::Notification& notification);
 
   /**
    * Send a response
    */
-  Result<void> sendResponse(const jsonrpc::Response& response);
+  VoidResult sendResponse(const jsonrpc::Response& response);
 
   /**
    * Close the connection
@@ -159,16 +164,20 @@ public:
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
+  
+  // ListenerCallbacks interface
+  void onAccept(network::ConnectionSocketPtr&& socket) override;
+  void onNewConnection(network::ConnectionPtr&& connection) override;
 
 private:
   // Create transport socket factory
-  network::TransportSocketFactoryPtr createTransportSocketFactory();
+  std::unique_ptr<network::TransportSocketFactoryBase> createTransportSocketFactory();
   
   // Create filter chain factory
   std::shared_ptr<network::FilterChainFactory> createFilterChainFactory();
   
   // Send JSON message
-  Result<void> sendJsonMessage(const nlohmann::json& message);
+  VoidResult sendJsonMessage(const nlohmann::json& message);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
