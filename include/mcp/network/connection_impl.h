@@ -52,17 +52,17 @@ public:
 
   // Connection interface
   void close(ConnectionCloseType type) override;
-  void close(ConnectionCloseType type, absl::string_view details) override;
+  void close(ConnectionCloseType type, const std::string& details) override;
   DetectedCloseType detectedCloseType() const override { return detected_close_type_; }
   void hashKey(std::vector<uint8_t>& hash) const override;
   void noDelay(bool enable) override;
-  ReadDisableStatus readDisable(bool disable) override;
+  ReadDisableStatus readDisableWithStatus(bool disable) override;
   void detectEarlyCloseWhenReadDisabled(bool should_detect) override { detect_early_close_ = should_detect; }
   bool readEnabled() const override { return read_disable_count_ == 0; }
   optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials() const override;
   void setConnectionStats(const ConnectionStats& stats) override { stats_ = stats; }
   SslConnectionInfoConstSharedPtr ssl() const override;
-  absl::string_view requestedServerName() const override;
+  std::string requestedServerName() const override;
   ConnectionState state() const override { return state_; }
   bool connecting() const override { return connecting_; }
   void write(Buffer& data, bool end_stream) override;
@@ -80,15 +80,18 @@ public:
   // FilterManagerConnection interface
   Buffer& readBuffer() override { return read_buffer_; }
   Buffer& writeBuffer() override { return write_buffer_; }
-  void close(ConnectionCloseType type) { Connection::close(type); } // Disambiguate
   bool readHalfClosed() const override { return read_half_closed_; }
   bool isClosed() const override { return state_ == ConnectionState::Closed; }
-  void readDisable(bool disable) override { readDisable(disable); }
+  void readDisable(bool disable) override { 
+    // Call the Connection version and ignore the return status
+    static_cast<void>(readDisableWithStatus(disable)); 
+  }
   bool readDisabled() const override { return read_disable_count_ > 0; }
-  bool startSecureTransport() { return Connection::startSecureTransport(); } // Disambiguate
-  SslConnectionInfoConstSharedPtr ssl() const { return Connection::ssl(); } // Disambiguate
 
   // TransportSocketCallbacks interface
+  IoHandle& ioHandle() override { return socket_->ioHandle(); }
+  const IoHandle& ioHandle() const override { return socket_->ioHandle(); }
+  Connection& connection() override { return *this; }
   bool shouldDrainReadBuffer() override;
   void setTransportSocketIsReadable() override;
   void raiseEvent(ConnectionEvent event) override;
@@ -100,12 +103,12 @@ public:
   // ClientConnection interface
   void connect() override;
 
-  // FilterManager interface
-  void addWriteFilter(WriteFilterSharedPtr filter) override;
-  void addFilter(FilterSharedPtr filter) override;
-  void addReadFilter(ReadFilterSharedPtr filter) override;
-  void removeReadFilter(ReadFilterSharedPtr filter) override;
-  bool initializeReadFilters() override;
+  // FilterManager interface (not virtual in base Connection)
+  void addWriteFilter(WriteFilterSharedPtr filter);
+  void addFilter(FilterSharedPtr filter);
+  void addReadFilter(ReadFilterSharedPtr filter);
+  void removeReadFilter(ReadFilterSharedPtr filter);
+  bool initializeReadFilters();
 
 private:
   // Event handlers
@@ -120,12 +123,12 @@ private:
 
   // Read path
   void doRead();
-  IoResult doReadFromSocket();
+  TransportIoResult doReadFromSocket();
   void processReadBuffer();
 
   // Write path  
   void doWrite();
-  IoResult doWriteToSocket();
+  TransportIoResult doWriteToSocket();
   void handleWrite(bool all_data_sent);
 
   // Buffer management
@@ -168,6 +171,19 @@ private:
 
   // Connection type
   bool is_server_connection_{false};
+  
+  // Connection state
+  bool connected_{false};
+  
+  // Watermarks
+  uint32_t high_watermark_{0};
+  uint32_t low_watermark_{0};
+  
+  // Watermark callbacks
+  std::list<WatermarkCallbacks*> watermark_callbacks_;
+  
+  // Connection callbacks
+  std::list<ConnectionCallbacks*> connection_callbacks_;
 };
 
 /**
@@ -207,10 +223,10 @@ class ConnectionEventLogger {
 public:
   ConnectionEventLogger(const Connection& connection);
 
-  void logEvent(ConnectionEvent event, absl::string_view details = "");
+  void logEvent(ConnectionEvent event, const std::string& details = "");
   void logRead(size_t bytes_read, size_t buffer_size);
   void logWrite(size_t bytes_written, size_t buffer_size);
-  void logError(absl::string_view error);
+  void logError(const std::string& error);
 
 private:
   const Connection& connection_;
