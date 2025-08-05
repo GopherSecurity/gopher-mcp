@@ -54,6 +54,8 @@ class JsonRpcMessageFilterTest : public ::testing::Test {
 protected:
   void SetUp() override {
     filter_ = std::make_unique<JsonRpcMessageFilter>(callbacks_);
+    // Disable framing for tests (use newline-delimited JSON)
+    filter_->setUseFraming(false);
   }
   
   MockMcpMessageCallbacks callbacks_;
