@@ -22,8 +22,7 @@ network::FilterStatus JsonRpcMessageFilter::onData(Buffer& data, bool end_stream
   // Parse incoming JSON-RPC messages
   parseMessages(data);
   
-  // Clear the buffer since we've processed all messages
-  data.drain(data.length());
+  // Note: parseMessages already drains the buffer
   
   return network::FilterStatus::Continue;
 }
@@ -46,11 +45,16 @@ network::FilterStatus JsonRpcMessageFilter::onWrite(Buffer& data, bool end_strea
 }
 
 void JsonRpcMessageFilter::parseMessages(Buffer& data) {
-  // Convert buffer to string
+  // Convert buffer to string and drain it
   std::string buffer_str = data.toString();
+  data.drain(data.length());
   
   // Add to partial message
   partial_message_ += buffer_str;
+  
+  // Debug output
+  // std::cerr << "parseMessages: received '" << buffer_str << "'" << std::endl;
+  // std::cerr << "parseMessages: partial_message_ = '" << partial_message_ << "'" << std::endl;
   
   if (use_framing_) {
     // Parse with message framing (length prefix)
