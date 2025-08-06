@@ -667,7 +667,7 @@ JsonValue serialize_InitializeRequest(const InitializeRequest& request) {
   builder.add("protocolVersion", request.protocolVersion)
          .add("capabilities", serialize_ClientCapabilities(request.capabilities));
   if (request.clientInfo.has_value()) {
-    builder.add("clientInfo", JsonSerializer::serialize(request.clientInfo.value()));
+    builder.add("clientInfo", to_json(request.clientInfo.value()));
   }
   return builder.build();
 }
@@ -953,7 +953,7 @@ JsonValue serialize_InitializeResult(const InitializeResult& result) {
          .add("capabilities", serialize_ServerCapabilities(result.capabilities));
   
   if (result.serverInfo.has_value()) {
-    builder.add("serverInfo", JsonSerializer::serialize(result.serverInfo.value()));
+    builder.add("serverInfo", to_json(result.serverInfo.value()));
   }
   
   if (result.instructions.has_value()) {
@@ -1536,7 +1536,7 @@ InitializeRequest deserialize_InitializeRequest(const JsonValue& json) {
   request.capabilities = deserialize_ClientCapabilities(json.at("capabilities"));
   
   if (json.contains("clientInfo")) {
-    request.clientInfo = JsonDeserializer::deserialize<Implementation>(json["clientInfo"]);
+    request.clientInfo = from_json<Implementation>(json["clientInfo"]);
   }
   
   return request;
@@ -1820,7 +1820,7 @@ InitializeResult deserialize_InitializeResult(const JsonValue& json) {
   result.capabilities = deserialize_ServerCapabilities(json.at("capabilities"));
   
   if (json.contains("serverInfo")) {
-    result.serverInfo = JsonDeserializer::deserialize<Implementation>(json["serverInfo"]);
+    result.serverInfo = from_json<Implementation>(json["serverInfo"]);
   }
   
   if (json.contains("instructions")) {

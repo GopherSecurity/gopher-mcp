@@ -14,6 +14,7 @@ add_executable(test_json test_json.cc)
 # add_executable(test_mcp_serialization test_mcp_serialization.cc)
 # add_executable(test_mcp_serialization_extensive test_mcp_serialization_extensive.cc)
 add_executable(test_template_serialization test_template_serialization.cc)
+add_executable(test_short_json_api test_short_json_api.cc)
 add_executable(test_event_loop test_event_loop.cc)
 
 # Network tests
@@ -133,6 +134,13 @@ target_link_libraries(test_template_serialization
 
 target_link_libraries(test_event_loop
     mcp-event
+    mcp-sdk
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_short_json_api
     mcp-sdk
     gtest 
     gtest_main
