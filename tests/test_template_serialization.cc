@@ -1,203 +1,369 @@
-#include <iostream>
-#include <cassert>
+#include <gtest/gtest.h>
+#include <vector>
+#include <map>
 #include "mcp/json_serialization.h"
 #include "mcp/types.h"
 
 using namespace mcp;
 using namespace mcp::json;
 
-void testTemplateSerialization() {
-    // Test template-based serialization
-    {
-        TextContent content;
-        content.type = "text";
-        content.text = "Hello World";
-        
-        // Old way - specific function name
-        JsonValue json1 = JsonSerializer::serialize(content);
-        
-        // New way - template-based
-        JsonValue json2 = JsonSerializer::serialize<TextContent>(content);
-        
-        assert(json1.toString() == json2.toString());
-        std::cout << "✓ TextContent serialization works\n";
-    }
+// ============= Template Serialization Tests =============
+
+TEST(TemplateSerializationTest, SerializeTextContent) {
+    TextContent content;
+    content.type = "text";
+    content.text = "Hello World";
     
-    // Test vector serialization
-    {
-        std::vector<TextContent> contents;
-        TextContent c1, c2;
-        c1.type = "text";
-        c1.text = "Item 1";
-        c2.type = "text";
-        c2.text = "Item 2";
-        contents.push_back(c1);
-        contents.push_back(c2);
-        
-        // Template-based vector serialization
-        JsonValue jsonArray = JsonSerializer::serializeVector(contents);
-        
-        assert(jsonArray.isArray());
-        assert(jsonArray.size() == 2);
-        assert(jsonArray[0]["text"].getString() == "Item 1");
-        std::cout << "✓ Vector serialization works\n";
-    }
+    // Old way - specific function name
+    JsonValue json1 = JsonSerializer::serialize(content);
     
-    // Test optional serialization
-    {
-        Tool tool;
-        tool.name = "test-tool";
-        tool.description = make_optional(std::string("A test tool"));
-        
-        JsonObjectBuilder builder;
-        builder.add("name", tool.name);
-        JsonSerializer::serializeOptional(builder, "description", tool.description);
-        JsonValue json = builder.build();
-        
-        assert(json.contains("description"));
-        assert(json["description"].getString() == "A test tool");
-        std::cout << "✓ Optional serialization works\n";
-    }
+    // New way - template-based
+    JsonValue json2 = JsonSerializer::serialize<TextContent>(content);
     
-    // Test round-trip: serialize then deserialize
-    {
-        Error error;
-        error.code = -32601;
-        error.message = "Method not found";
-        
-        // Serialize using template
-        JsonValue json = JsonSerializer::serialize<Error>(error);
-        
-        // Deserialize using template
-        Error error2 = JsonDeserializer::deserialize<Error>(json);
-        
-        assert(error.code == error2.code);
-        assert(error.message == error2.message);
-        std::cout << "✓ Round-trip serialization/deserialization works\n";
-    }
-    
-    std::cout << "\n✅ All template serialization tests passed!\n\n";
+    EXPECT_EQ(json1.toString(), json2.toString());
 }
 
-void testTemplateDeserialization() {
-    // Example 1: Before - specific function for each type
-    {
-        JsonValue json = JsonObjectBuilder()
-            .add("type", "text")
-            .add("text", "Hello World")
-            .build();
-        
-        // Old way - specific function name
-        TextContent content1 = JsonDeserializer::deserializeTextContent(json);
-        
-        // New way - template-based
-        TextContent content2 = JsonDeserializer::deserialize<TextContent>(json);
-        
-        assert(content1.text == content2.text);
-        std::cout << "✓ TextContent deserialization works\n";
-    }
+TEST(TemplateSerializationTest, SerializeVector_Deprecated) {
+    std::vector<TextContent> contents;
+    TextContent c1, c2;
+    c1.type = "text";
+    c1.text = "Item 1";
+    c2.type = "text";
+    c2.text = "Item 2";
+    contents.push_back(c1);
+    contents.push_back(c2);
     
-    // Example 2: Simplified vector deserialization
-    {
-        JsonArrayBuilder builder;
-        builder.add(JsonObjectBuilder()
-            .add("type", "text")
-            .add("text", "Item 1")
-            .build());
-        builder.add(JsonObjectBuilder()
-            .add("type", "text")
-            .add("text", "Item 2")
-            .build());
-        JsonValue jsonArray = builder.build();
-        
-        // Old way - pass function pointer
-        std::vector<TextContent> contents1 = JsonDeserializer::deserializeVector(
-            jsonArray, &JsonDeserializer::deserializeTextContent);
-        
-        // New way - template-based
-        std::vector<TextContent> contents2 = JsonDeserializer::deserializeVector<TextContent>(jsonArray);
-        
-        assert(contents1.size() == contents2.size());
-        assert(contents1[0].text == contents2[0].text);
-        std::cout << "✓ Vector deserialization works\n";
-    }
+    // Old way - using deprecated helper
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    JsonValue jsonArray = JsonSerializer::serializeVector(contents);
+    #pragma GCC diagnostic pop
     
-    // Example 3: Optional deserialization
-    {
-        JsonValue json = JsonObjectBuilder()
-            .add("name", "test-tool")
-            .add("description", "A test tool")
-            .add("inputSchema", JsonObjectBuilder()
-                .add("type", "object")
-                .build())
-            .build();
-        
-        // New template-based optional deserialization
-        optional<std::string> description = JsonDeserializer::deserializeOptional<std::string>(json, "description");
-        optional<std::string> missing = JsonDeserializer::deserializeOptional<std::string>(json, "missing_field");
-        
-        assert(description.has_value());
-        assert(description.value() == "A test tool");
-        assert(!missing.has_value());
-        std::cout << "✓ Optional deserialization works\n";
-    }
-    
-    // Example 4: Complex nested types
-    {
-        JsonValue json = JsonObjectBuilder()
-            .add("name", "test-prompt")
-            .add("description", "Test prompt")
-            .add("arguments", JsonArrayBuilder()
-                .add(JsonObjectBuilder()
-                    .add("name", "arg1")
-                    .add("description", "First argument")
-                    .add("required", true)
-                    .build())
-                .build())
-            .build();
-        
-        // Both ways work, but template is more consistent
-        Prompt prompt1 = JsonDeserializer::deserializePrompt(json);
-        Prompt prompt2 = JsonDeserializer::deserialize<Prompt>(json);
-        
-        assert(prompt1.name == prompt2.name);
-        std::cout << "✓ Complex type deserialization works\n";
-    }
-    
-    // Example 5: Generic code that works with any deserializable type
-    {
-        std::string jsonStr = R"({
-            "code": -32601,
-            "message": "Method not found"
-        })";
-        
-        JsonValue json = JsonValue::parse(jsonStr);
-        Error error = JsonDeserializer::deserialize<Error>(json);
-        assert(error.code == -32601);
-        assert(error.message == "Method not found");
-        std::cout << "✓ Generic template function works\n";
-    }
-    
-    std::cout << "\n✅ All template deserialization tests passed!\n";
+    ASSERT_TRUE(jsonArray.isArray());
+    EXPECT_EQ(jsonArray.size(), 2u);
+    EXPECT_EQ(jsonArray[0]["text"].getString(), "Item 1");
 }
 
-int main() {
-    try {
-        testTemplateSerialization();
-        testTemplateDeserialization();
-        
-        std::cout << "\n📝 Benefits of template-based approach:\n";
-        std::cout << "1. Consistent API - serialize<T>() and deserialize<T>()\n";
-        std::cout << "2. Better for generic programming and template metaprogramming\n";
-        std::cout << "3. Easier to extend with new types - just add trait specialization\n";
-        std::cout << "4. Works seamlessly with containers (vector, optional, etc.)\n";
-        std::cout << "5. Type deduction in template contexts\n";
-        std::cout << "6. Backward compatible - old functions still work\n";
-        std::cout << "7. Symmetric API for both serialization and deserialization\n";
-        
-        return 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n";
-        return 1;
-    }
+TEST(TemplateSerializationTest, SerializeOptional) {
+    Tool tool;
+    tool.name = "test-tool";
+    tool.description = make_optional(std::string("A test tool"));
+    
+    // Test the new unified approach for optionals
+    JsonValue optJson = JsonSerializer::serialize(tool.description);
+    ASSERT_FALSE(optJson.isNull());
+    EXPECT_EQ(optJson.getString(), "A test tool");
+    
+    // Also test empty optional
+    optional<std::string> empty;
+    JsonValue emptyJson = JsonSerializer::serialize(empty);
+    EXPECT_TRUE(emptyJson.isNull());
+}
+
+TEST(TemplateSerializationTest, RoundTripSerialization) {
+    Error error;
+    error.code = -32601;
+    error.message = "Method not found";
+    
+    // Serialize using template
+    JsonValue json = JsonSerializer::serialize<Error>(error);
+    
+    // Deserialize using template
+    Error error2 = JsonDeserializer::deserialize<Error>(json);
+    
+    EXPECT_EQ(error.code, error2.code);
+    EXPECT_EQ(error.message, error2.message);
+}
+
+// ============= Template Deserialization Tests =============
+
+TEST(TemplateDeserializationTest, DeserializeTextContent) {
+    JsonValue json = JsonObjectBuilder()
+        .add("type", "text")
+        .add("text", "Hello World")
+        .build();
+    
+    // Old way - specific function name
+    TextContent content1 = JsonDeserializer::deserializeTextContent(json);
+    
+    // New way - template-based
+    TextContent content2 = JsonDeserializer::deserialize<TextContent>(json);
+    
+    EXPECT_EQ(content1.text, content2.text);
+}
+
+TEST(TemplateDeserializationTest, DeserializeVector) {
+    JsonArrayBuilder builder;
+    builder.add(JsonObjectBuilder()
+        .add("type", "text")
+        .add("text", "Item 1")
+        .build());
+    builder.add(JsonObjectBuilder()
+        .add("type", "text")
+        .add("text", "Item 2")
+        .build());
+    JsonValue jsonArray = builder.build();
+    
+    // Old way - using deprecated helper
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    std::vector<TextContent> contents1 = JsonDeserializer::deserializeVector(
+        jsonArray, &JsonDeserializer::deserializeTextContent);
+    #pragma GCC diagnostic pop
+    
+    // New unified way - direct deserialization
+    std::vector<TextContent> contents2 = JsonDeserializer::deserialize<std::vector<TextContent>>(jsonArray);
+    
+    ASSERT_EQ(contents1.size(), contents2.size());
+    EXPECT_EQ(contents1[0].text, contents2[0].text);
+}
+
+TEST(TemplateDeserializationTest, DeserializeOptional) {
+    // Test with value
+    JsonValue json = JsonValue("test value");
+    optional<std::string> result = JsonDeserializer::deserialize<optional<std::string>>(json);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result.value(), "test value");
+    
+    // Test with null
+    json = JsonValue::null();
+    result = JsonDeserializer::deserialize<optional<std::string>>(json);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(TemplateDeserializationTest, DeserializeComplexType) {
+    JsonValue json = JsonObjectBuilder()
+        .add("name", "test-prompt")
+        .add("description", "Test prompt")
+        .add("arguments", JsonArrayBuilder()
+            .add(JsonObjectBuilder()
+                .add("name", "arg1")
+                .add("description", "First argument")
+                .add("required", true)
+                .build())
+            .build())
+        .build();
+    
+    // Both ways work, but template is more consistent
+    Prompt prompt1 = JsonDeserializer::deserializePrompt(json);
+    Prompt prompt2 = JsonDeserializer::deserialize<Prompt>(json);
+    
+    EXPECT_EQ(prompt1.name, prompt2.name);
+}
+
+TEST(TemplateDeserializationTest, DeserializeFromString) {
+    std::string jsonStr = R"({
+        "code": -32601,
+        "message": "Method not found"
+    })";
+    
+    JsonValue json = JsonValue::parse(jsonStr);
+    Error error = JsonDeserializer::deserialize<Error>(json);
+    
+    EXPECT_EQ(error.code, -32601);
+    EXPECT_EQ(error.message, "Method not found");
+}
+
+// ============= Unified Container Serialization Tests =============
+
+TEST(UnifiedContainerTest, SerializeDeserializeVector) {
+    std::vector<std::string> original = {"hello", "world", "test"};
+    
+    // Direct serialization of vector
+    JsonValue json = JsonSerializer::serialize(original);
+    ASSERT_TRUE(json.isArray());
+    EXPECT_EQ(json.size(), 3u);
+    
+    // Direct deserialization of vector
+    std::vector<std::string> result = JsonDeserializer::deserialize<std::vector<std::string>>(json);
+    EXPECT_EQ(result, original);
+}
+
+TEST(UnifiedContainerTest, SerializeDeserializeMap) {
+    std::map<std::string, int> original = {
+        {"one", 1},
+        {"two", 2},
+        {"three", 3}
+    };
+    
+    JsonValue json = JsonSerializer::serialize(original);
+    ASSERT_TRUE(json.isObject());
+    EXPECT_EQ(json["one"].getInt(), 1);
+    EXPECT_EQ(json["two"].getInt(), 2);
+    EXPECT_EQ(json["three"].getInt(), 3);
+    
+    std::map<std::string, int> result = JsonDeserializer::deserialize<std::map<std::string, int>>(json);
+    EXPECT_EQ(result, original);
+}
+
+TEST(UnifiedContainerTest, NestedContainers) {
+    std::vector<optional<std::string>> original = {
+        "first",
+        nullopt,
+        "third"
+    };
+    
+    JsonValue json = JsonSerializer::serialize(original);
+    ASSERT_TRUE(json.isArray());
+    ASSERT_EQ(json.size(), 3u);
+    EXPECT_FALSE(json[0].isNull());
+    EXPECT_TRUE(json[1].isNull());
+    EXPECT_FALSE(json[2].isNull());
+    
+    auto result = JsonDeserializer::deserialize<std::vector<optional<std::string>>>(json);
+    ASSERT_EQ(result.size(), 3u);
+    ASSERT_TRUE(result[0].has_value());
+    EXPECT_EQ(result[0].value(), "first");
+    EXPECT_FALSE(result[1].has_value());
+    ASSERT_TRUE(result[2].has_value());
+    EXPECT_EQ(result[2].value(), "third");
+}
+
+TEST(UnifiedContainerTest, VectorOfMcpTypes) {
+    std::vector<Error> errors = {
+        {-32601, "Method not found"},
+        {-32700, "Parse error"}
+    };
+    
+    JsonValue json = JsonSerializer::serialize(errors);
+    ASSERT_TRUE(json.isArray());
+    EXPECT_EQ(json.size(), 2u);
+    
+    auto result = JsonDeserializer::deserialize<std::vector<Error>>(json);
+    ASSERT_EQ(result.size(), 2u);
+    EXPECT_EQ(result[0].code, -32601);
+    EXPECT_EQ(result[0].message, "Method not found");
+    EXPECT_EQ(result[1].code, -32700);
+    EXPECT_EQ(result[1].message, "Parse error");
+}
+
+TEST(UnifiedContainerTest, ComplexNestedStructure) {
+    std::map<std::string, std::vector<optional<int>>> complex = {
+        {"numbers", {1, nullopt, 3}},
+        {"empty", {}},
+        {"more", {42, 100}}
+    };
+    
+    JsonValue json = JsonSerializer::serialize(complex);
+    ASSERT_TRUE(json.isObject());
+    
+    // Check structure
+    ASSERT_TRUE(json.contains("numbers"));
+    ASSERT_TRUE(json["numbers"].isArray());
+    EXPECT_EQ(json["numbers"].size(), 3u);
+    EXPECT_FALSE(json["numbers"][0].isNull());
+    EXPECT_TRUE(json["numbers"][1].isNull());
+    
+    ASSERT_TRUE(json.contains("empty"));
+    ASSERT_TRUE(json["empty"].isArray());
+    EXPECT_EQ(json["empty"].size(), 0u);
+    
+    auto result = JsonDeserializer::deserialize<
+        std::map<std::string, std::vector<optional<int>>>>(json);
+    EXPECT_EQ(result, complex);
+}
+
+TEST(UnifiedContainerTest, OptionalMcpTypes) {
+    // Test with value
+    optional<Error> error = Error{-32601, "Method not found"};
+    
+    JsonValue json = JsonSerializer::serialize(error);
+    ASSERT_FALSE(json.isNull());
+    EXPECT_EQ(json["code"].getInt(), -32601);
+    EXPECT_EQ(json["message"].getString(), "Method not found");
+    
+    optional<Error> result = JsonDeserializer::deserialize<optional<Error>>(json);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result.value().code, -32601);
+    EXPECT_EQ(result.value().message, "Method not found");
+    
+    // Test empty optional
+    optional<Error> empty;
+    json = JsonSerializer::serialize(empty);
+    EXPECT_TRUE(json.isNull());
+    
+    result = JsonDeserializer::deserialize<optional<Error>>(json);
+    EXPECT_FALSE(result.has_value());
+}
+
+// ============= Backward Compatibility Tests =============
+
+TEST(BackwardCompatibilityTest, DeprecatedFunctionsStillWork) {
+    std::vector<TextContent> contents;
+    TextContent c;
+    c.type = "text";
+    c.text = "Test";
+    contents.push_back(c);
+    
+    // Old way (now deprecated)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    JsonValue json1 = JsonSerializer::serializeVector(contents);
+    std::vector<TextContent> result1 = JsonDeserializer::deserializeVector<TextContent>(json1);
+    #pragma GCC diagnostic pop
+    
+    // New way
+    JsonValue json2 = JsonSerializer::serialize(contents);
+    std::vector<TextContent> result2 = JsonDeserializer::deserialize<std::vector<TextContent>>(json2);
+    
+    EXPECT_EQ(json1.toString(), json2.toString());
+    ASSERT_EQ(result1.size(), result2.size());
+    EXPECT_EQ(result1[0].text, result2[0].text);
+}
+
+// ============= Edge Cases Tests =============
+
+TEST(EdgeCasesTest, EmptyContainers) {
+    // Empty vector
+    std::vector<int> emptyVec;
+    JsonValue json = JsonSerializer::serialize(emptyVec);
+    ASSERT_TRUE(json.isArray());
+    EXPECT_EQ(json.size(), 0u);
+    
+    auto resultVec = JsonDeserializer::deserialize<std::vector<int>>(json);
+    EXPECT_EQ(resultVec.size(), 0u);
+    
+    // Empty map
+    std::map<std::string, std::string> emptyMap;
+    json = JsonSerializer::serialize(emptyMap);
+    ASSERT_TRUE(json.isObject());
+    EXPECT_EQ(json.keys().size(), 0u);
+    
+    auto resultMap = JsonDeserializer::deserialize<std::map<std::string, std::string>>(json);
+    EXPECT_EQ(resultMap.size(), 0u);
+}
+
+TEST(EdgeCasesTest, VectorOfEmptyOptionals) {
+    std::vector<optional<int>> vec = {nullopt, nullopt, nullopt};
+    
+    JsonValue json = JsonSerializer::serialize(vec);
+    ASSERT_TRUE(json.isArray());
+    EXPECT_EQ(json.size(), 3u);
+    EXPECT_TRUE(json[0].isNull());
+    EXPECT_TRUE(json[1].isNull());
+    EXPECT_TRUE(json[2].isNull());
+    
+    auto result = JsonDeserializer::deserialize<std::vector<optional<int>>>(json);
+    ASSERT_EQ(result.size(), 3u);
+    EXPECT_FALSE(result[0].has_value());
+    EXPECT_FALSE(result[1].has_value());
+    EXPECT_FALSE(result[2].has_value());
+}
+
+TEST(EdgeCasesTest, MapWithMixedTypes) {
+    // Map with vector values
+    std::map<std::string, std::vector<int>> mapOfVectors = {
+        {"a", {1, 2, 3}},
+        {"b", {4, 5}},
+        {"c", {}}
+    };
+    
+    JsonValue json = JsonSerializer::serialize(mapOfVectors);
+    ASSERT_TRUE(json.isObject());
+    EXPECT_EQ(json["a"].size(), 3u);
+    EXPECT_EQ(json["b"].size(), 2u);
+    EXPECT_EQ(json["c"].size(), 0u);
+    
+    auto result = JsonDeserializer::deserialize<std::map<std::string, std::vector<int>>>(json);
+    EXPECT_EQ(result, mapOfVectors);
 }

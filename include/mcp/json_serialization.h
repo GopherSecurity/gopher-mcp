@@ -163,22 +163,11 @@ public:
   // Serialize Implementation
   static JsonValue serialize(const Implementation& impl);
   
-  // Generic vector serialization
+  // DEPRECATED: Use serialize(vector) instead
   template<typename T>
+  [[deprecated("Use serialize(vector) instead")]]
   static JsonValue serializeVector(const std::vector<T>& vec) {
-    JsonArrayBuilder builder;
-    for (const auto& item : vec) {
-      builder.add(serialize<T>(item));
-    }
-    return builder.build();
-  }
-  
-  // Template-based optional serialization
-  template<typename T>
-  static void serializeOptional(JsonObjectBuilder& builder, const std::string& key, const optional<T>& opt) {
-    if (opt.has_value()) {
-      builder.add(key, serialize<T>(opt.value()));
-    }
+    return serialize(vec);
   }
 };
 
@@ -334,8 +323,9 @@ public:
   // Deserialize Implementation
   static Implementation deserializeImplementation(const JsonValue& json);
   
-  // Generic vector deserialization
+  // DEPRECATED: Use deserialize<std::vector<T>>() instead
   template<typename T>
+  [[deprecated("Use deserialize<std::vector<T>>() instead")]]
   static std::vector<T> deserializeVector(const JsonValue& json, 
                                           T (*deserializeFunc)(const JsonValue&)) {
     std::vector<T> result;
@@ -351,29 +341,11 @@ public:
     return result;
   }
   
-  // Template-based vector deserialization
+  // DEPRECATED: Use deserialize<std::vector<T>>() instead
   template<typename T>
+  [[deprecated("Use deserialize<std::vector<T>>() instead")]]
   static std::vector<T> deserializeVector(const JsonValue& json) {
-    std::vector<T> result;
-    if (!json.isArray()) {
-      return result;
-    }
-    
-    size_t size = json.size();
-    result.reserve(size);
-    for (size_t i = 0; i < size; ++i) {
-      result.push_back(deserialize<T>(json[i]));
-    }
-    return result;
-  }
-  
-  // Template-based optional deserialization
-  template<typename T>
-  static optional<T> deserializeOptional(const JsonValue& json, const std::string& key) {
-    if (json.contains(key)) {
-      return make_optional(deserialize<T>(json[key]));
-    }
-    return nullopt;
+    return deserialize<std::vector<T>>(json);
   }
 };
 
@@ -456,6 +428,52 @@ template<>
 struct JsonSerializeTraits<bool> {
   static JsonValue serialize(bool value) {
     return JsonValue(value);
+  }
+};
+
+// Container specializations for serialization
+template<typename T>
+struct JsonSerializeTraits<std::vector<T>> {
+  static JsonValue serialize(const std::vector<T>& vec) {
+    JsonArrayBuilder builder;
+    for (const auto& item : vec) {
+      builder.add(JsonSerializer::serialize<T>(item));
+    }
+    return builder.build();
+  }
+};
+
+template<typename T>
+struct JsonSerializeTraits<optional<T>> {
+  static JsonValue serialize(const optional<T>& opt) {
+    if (opt.has_value()) {
+      return JsonSerializer::serialize<T>(opt.value());
+    }
+    return JsonValue::null();
+  }
+};
+
+template<typename K, typename V>
+struct JsonSerializeTraits<std::map<K, V>> {
+  static JsonValue serialize(const std::map<K, V>& map) {
+    JsonObjectBuilder builder;
+    for (const auto& kv : map) {
+      // Assume K can be converted to string for JSON keys
+      builder.add(std::to_string(kv.first), JsonSerializer::serialize<V>(kv.second));
+    }
+    return builder.build();
+  }
+};
+
+// Specialization for string keys (most common case)
+template<typename V>
+struct JsonSerializeTraits<std::map<std::string, V>> {
+  static JsonValue serialize(const std::map<std::string, V>& map) {
+    JsonObjectBuilder builder;
+    for (const auto& kv : map) {
+      builder.add(kv.first, JsonSerializer::serialize<V>(kv.second));
+    }
+    return builder.build();
   }
 };
 
@@ -592,13 +610,7 @@ struct JsonSerializeTraits<enums::LoggingLevel::Value> {
   }
 };
 
-// Special case for Cursor
-template<>
-struct JsonSerializeTraits<optional<Cursor>> {
-  static JsonValue serialize(const optional<Cursor>& value) {
-    return JsonSerializer::serializePaginationInfo(value);
-  }
-};
+// Remove special case - now handled by generic optional<T> specialization
 
 #undef DECLARE_SERIALIZE_TRAIT
 
@@ -637,6 +649,67 @@ template<>
 struct JsonDeserializeTraits<bool> {
   static bool deserialize(const JsonValue& json) {
     return json.getBool();
+  }
+};
+
+// Container specializations for deserialization
+template<typename T>
+struct JsonDeserializeTraits<std::vector<T>> {
+  static std::vector<T> deserialize(const JsonValue& json) {
+    std::vector<T> result;
+    if (!json.isArray()) {
+      return result;
+    }
+    
+    size_t size = json.size();
+    result.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+      result.push_back(JsonDeserializer::deserialize<T>(json[i]));
+    }
+    return result;
+  }
+};
+
+template<typename T>
+struct JsonDeserializeTraits<optional<T>> {
+  static optional<T> deserialize(const JsonValue& json) {
+    if (json.isNull()) {
+      return nullopt;
+    }
+    return make_optional(JsonDeserializer::deserialize<T>(json));
+  }
+};
+
+template<typename K, typename V>
+struct JsonDeserializeTraits<std::map<K, V>> {
+  static std::map<K, V> deserialize(const JsonValue& json) {
+    std::map<K, V> result;
+    if (!json.isObject()) {
+      return result;
+    }
+    
+    for (const auto& key : json.keys()) {
+      // This requires K to be constructible from string
+      // For numeric keys, might need std::stoi, std::stol, etc.
+      result[K(key)] = JsonDeserializer::deserialize<V>(json[key]);
+    }
+    return result;
+  }
+};
+
+// Specialization for string keys (most common case)
+template<typename V>
+struct JsonDeserializeTraits<std::map<std::string, V>> {
+  static std::map<std::string, V> deserialize(const JsonValue& json) {
+    std::map<std::string, V> result;
+    if (!json.isObject()) {
+      return result;
+    }
+    
+    for (const auto& key : json.keys()) {
+      result[key] = JsonDeserializer::deserialize<V>(json[key]);
+    }
+    return result;
   }
 };
 
@@ -795,13 +868,7 @@ struct JsonDeserializeTraits<enums::LoggingLevel::Value> {
   }
 };
 
-// Special case for Cursor (optional<string>)
-template<>
-struct JsonDeserializeTraits<optional<Cursor>> {
-  static optional<Cursor> deserialize(const JsonValue& json) {
-    return JsonDeserializer::deserializeCursor(json);
-  }
-};
+// Remove special case - now handled by generic optional<T> specialization
 
 // Clean up the macro
 #undef DECLARE_DESERIALIZE_TRAIT
