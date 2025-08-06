@@ -203,6 +203,174 @@ JsonValue serialize_ResourceContent(const ResourceContent& content) {
   return builder.build();
 }
 
+ResourceContent deserialize_ResourceContent(const JsonValue& json) {
+  ResourceContent content;
+  content.type = json["type"].toString();
+  content.resource = deserialize_Resource(json["resource"]);
+  return content;
+}
+
+// Empty result
+JsonValue serialize_EmptyResult(const EmptyResult&) {
+  return JsonObjectBuilder().build();
+}
+
+EmptyResult deserialize_EmptyResult(const JsonValue&) {
+  return EmptyResult();
+}
+
+
+// Schema serialization
+JsonValue serialize_StringSchema(const StringSchema& schema) {
+  JsonObjectBuilder builder;
+  builder.add("type", "string");
+  if (schema.description.has_value()) {
+    builder.add("description", schema.description.value());
+  }
+  if (schema.pattern.has_value()) {
+    builder.add("pattern", schema.pattern.value());
+  }
+  if (schema.minLength.has_value()) {
+    builder.add("minLength", schema.minLength.value());
+  }
+  if (schema.maxLength.has_value()) {
+    builder.add("maxLength", schema.maxLength.value());
+  }
+  return builder.build();
+}
+
+StringSchema deserialize_StringSchema(const JsonValue& json) {
+  StringSchema schema;
+  schema.type = json["type"].toString();
+  if (json.contains("description")) {
+    schema.description = make_optional(json["description"].toString());
+  }
+  if (json.contains("pattern")) {
+    schema.pattern = make_optional(json["pattern"].toString());
+  }
+  if (json.contains("minLength")) {
+    schema.minLength = make_optional(json["minLength"].getInt());
+  }
+  if (json.contains("maxLength")) {
+    schema.maxLength = make_optional(json["maxLength"].getInt());
+  }
+  return schema;
+}
+
+JsonValue serialize_NumberSchema(const NumberSchema& schema) {
+  JsonObjectBuilder builder;
+  builder.add("type", "number");
+  if (schema.description.has_value()) {
+    builder.add("description", schema.description.value());
+  }
+  if (schema.minimum.has_value()) {
+    builder.add("minimum", schema.minimum.value());
+  }
+  if (schema.maximum.has_value()) {
+    builder.add("maximum", schema.maximum.value());
+  }
+  if (schema.multipleOf.has_value()) {
+    builder.add("multipleOf", schema.multipleOf.value());
+  }
+  return builder.build();
+}
+
+NumberSchema deserialize_NumberSchema(const JsonValue& json) {
+  NumberSchema schema;
+  schema.type = json["type"].toString();
+  if (json.contains("description")) {
+    schema.description = make_optional(json["description"].toString());
+  }
+  if (json.contains("minimum")) {
+    schema.minimum = make_optional(json["minimum"].getFloat());
+  }
+  if (json.contains("maximum")) {
+    schema.maximum = make_optional(json["maximum"].getFloat());
+  }
+  if (json.contains("multipleOf")) {
+    schema.multipleOf = make_optional(json["multipleOf"].getFloat());
+  }
+  return schema;
+}
+
+JsonValue serialize_BooleanSchema(const BooleanSchema& schema) {
+  JsonObjectBuilder builder;
+  builder.add("type", "boolean");
+  if (schema.description.has_value()) {
+    builder.add("description", schema.description.value());
+  }
+  return builder.build();
+}
+
+BooleanSchema deserialize_BooleanSchema(const JsonValue& json) {
+  BooleanSchema schema;
+  schema.type = json["type"].toString();
+  if (json.contains("description")) {
+    schema.description = make_optional(json["description"].toString());
+  }
+  return schema;
+}
+
+JsonValue serialize_EnumSchema(const EnumSchema& schema) {
+  JsonObjectBuilder builder;
+  builder.add("type", "string");
+  if (schema.description.has_value()) {
+    builder.add("description", schema.description.value());
+  }
+  JsonArrayBuilder values;
+  for (const auto& val : schema.values) {
+    values.add(val);
+  }
+  builder.add("enum", values.build());
+  return builder.build();
+}
+
+EnumSchema deserialize_EnumSchema(const JsonValue& json) {
+  EnumSchema schema;
+  schema.type = "string"; // Enum type is always string
+  if (json.contains("description")) {
+    schema.description = make_optional(json["description"].toString());
+  }
+  if (json.contains("enum")) {
+    auto enumArray = json["enum"];
+    size_t size = enumArray.size();
+    for (size_t i = 0; i < size; ++i) {
+      schema.values.push_back(enumArray[i].toString());
+    }
+  }
+  return schema;
+}
+
+JsonValue serialize_PrimitiveSchemaDefinition(const PrimitiveSchemaDefinition& def) {
+  JsonValue result;
+  match(def,
+    [&result](const StringSchema& s) { result = serialize_StringSchema(s); },
+    [&result](const NumberSchema& n) { result = serialize_NumberSchema(n); },
+    [&result](const BooleanSchema& b) { result = serialize_BooleanSchema(b); },
+    [&result](const EnumSchema& e) { result = serialize_EnumSchema(e); }
+  );
+  return result;
+}
+
+PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(const JsonValue& json) {
+  std::string type = json["type"].toString();
+  
+  if (type == "string") {
+    if (json.contains("enum")) {
+      return deserialize_EnumSchema(json);
+    } else {
+      return deserialize_StringSchema(json);
+    }
+  } else if (type == "number") {
+    return deserialize_NumberSchema(json);
+  } else if (type == "boolean") {
+    return deserialize_BooleanSchema(json);
+  }
+  
+  // Default to string schema
+  return deserialize_StringSchema(json);
+}
+
 JsonValue serialize_ContentBlock(const ContentBlock& block) {
   JsonValue result;
   
@@ -582,6 +750,18 @@ ResourceLink deserialize_ResourceLink(const JsonValue& json) {
   return link;
 }
 
+JsonValue serialize_EmbeddedResource(const EmbeddedResource& embedded) {
+  JsonObjectBuilder builder;
+  builder.add("type", "embedded")
+         .add("resource", serialize_Resource(embedded.resource));
+  JsonArrayBuilder contentArray;
+  for (const auto& content : embedded.content) {
+    contentArray.add(serialize_ContentBlock(content));
+  }
+  builder.add("content", contentArray.build());
+  return builder.build();
+}
+
 EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json) {
   EmbeddedResource embedded;
   embedded.resource = deserialize_Resource(json.at("resource"));
@@ -644,15 +824,7 @@ JsonValue serialize_ExtendedContentBlock(const ExtendedContentBlock& block) {
       result = builder.build();
     },
     [&result](const EmbeddedResource& embedded) {
-      JsonObjectBuilder builder;
-      builder.add("type", "embedded")
-             .add("resource", serialize_Resource(embedded.resource));
-      JsonArrayBuilder contentArray;
-      for (const auto& content : embedded.content) {
-        contentArray.add(serialize_ContentBlock(content));
-      }
-      builder.add("content", contentArray.build());
-      result = builder.build();
+      result = serialize_EmbeddedResource(embedded);
     }
   );
   
