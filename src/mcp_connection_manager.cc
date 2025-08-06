@@ -6,7 +6,8 @@
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/transport/http_sse_transport_socket.h"
-#include "mcp/json.h"
+#include "mcp/json_bridge.h"
+#include "mcp/json_serialization.h"
 #include <sstream>
 
 namespace mcp {
@@ -97,68 +98,35 @@ bool JsonRpcMessageFilter::parseMessage(const std::string& json_str) {
     // Debug output
     // std::cerr << "parseMessage: parsing '" << json_str << "'" << std::endl;
     
-    auto json = nlohmann::json::parse(json_str);
+    auto json_val = json::JsonValue::parse(json_str);
     
     // Debug output
-    // std::cerr << "parseMessage: parsed JSON: " << json.dump() << std::endl;
+    // std::cerr << "parseMessage: parsed JSON: " << json_val.toString() << std::endl;
     
     // Determine message type
-    if (json.contains("method")) {
-      if (json.contains("id")) {
+    if (json_val.contains("method")) {
+      if (json_val.contains("id")) {
         // Request
-        jsonrpc::Request request;
-        
-        // Handle id field which can be string or number
-        if (json["id"].is_string()) {
-          request.id = json["id"].get<std::string>();
-        } else if (json["id"].is_number()) {
-          request.id = json["id"].get<int>();
-        }
-        
-        request.method = json["method"].get<std::string>();
-        if (json.contains("params")) {
-          request.params = json["params"].get<Metadata>();
-        }
+        jsonrpc::Request request = json::JsonDeserializer::deserializeRequest(json_val);
         callbacks_.onRequest(request);
       } else {
         // Notification
-        jsonrpc::Notification notification;
-        notification.method = json["method"].get<std::string>();
-        if (json.contains("params")) {
-          notification.params = json["params"].get<Metadata>();
-        }
+        jsonrpc::Notification notification = json::JsonDeserializer::deserializeNotification(json_val);
         callbacks_.onNotification(notification);
       }
-    } else if (json.contains("result") || json.contains("error")) {
+    } else if (json_val.contains("result") || json_val.contains("error")) {
       // Response
-      jsonrpc::Response response;
-      
-      // Handle id field which can be string or number
-      if (json["id"].is_string()) {
-        response.id = json["id"].get<std::string>();
-      } else if (json["id"].is_number()) {
-        response.id = json["id"].get<int>();
-      }
-      
-      if (json.contains("result")) {
-        // TODO: Implement proper result variant deserialization
-        // For now, keep as raw JSON
-        // response.result = json["result"];
-      }
-      if (json.contains("error")) {
-        Error error;
-        error.code = json["error"]["code"].get<int>();
-        error.message = json["error"]["message"].get<std::string>();
-        if (json["error"].contains("data")) {
-          // TODO: Implement proper error data variant deserialization
-          // error.data = json["error"]["data"];
-        }
-        response.error = error;
-      }
+      jsonrpc::Response response = json::JsonDeserializer::deserializeResponse(json_val);
       callbacks_.onResponse(response);
     }
     
     return true;
+  } catch (const json::JsonException& e) {
+    Error error;
+    error.code = -32700;  // Parse error
+    error.message = "JSON parse error: " + std::string(e.what());
+    callbacks_.onError(error);
+    return false;
   } catch (const std::exception& e) {
     Error error;
     error.code = -32700;  // Parse error
@@ -259,14 +227,6 @@ VoidResult McpConnectionManager::connect() {
     auto stream_info = stream_info::StreamInfoImpl::create();
     
     // Create transport socket
-    auto transport_factory = createTransportSocketFactory();
-    if (!transport_factory) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport factory";
-      return makeVoidError(err);
-    }
-    
     // Create IoHandle from fd
     auto io_handle = socket_interface_.ioHandleForFd(*socket);
     if (!io_handle) {
@@ -281,9 +241,27 @@ VoidResult McpConnectionManager::connect() {
     auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, nullptr);
     
-    // For client connections, we need to create the transport socket differently
-    // TODO: Implement proper client transport socket creation
+    // Create transport socket for client connection
+    auto transport_factory = createTransportSocketFactory();
+    if (!transport_factory) {
+      socket_interface_.close(*socket);
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create transport factory";
+      return makeVoidError(err);
+    }
+    
     network::TransportSocketPtr transport_socket;
+    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
+    if (client_factory) {
+      transport_socket = client_factory->createTransportSocket(nullptr);
+    } else {
+      socket_interface_.close(*socket);
+      Error err;
+      err.code = -1;
+      err.message = "Transport factory does not support client connections";
+      return makeVoidError(err);
+    }
     
     // Create connection
     active_connection_ = network::ConnectionImpl::createClientConnection(
@@ -353,8 +331,30 @@ VoidResult McpConnectionManager::listen(
   listener_config.name = "mcp_listener";
   listener_config.address = address;
   listener_config.per_connection_buffer_limit = config_.buffer_limit;
-  // TODO: Create proper server transport socket factory
-  // listener_config.transport_socket_factory = createServerTransportSocketFactory();
+  
+  // Create server transport socket factory
+  auto transport_factory = createTransportSocketFactory();
+  if (!transport_factory) {
+    Error err;
+    err.code = -1;
+    err.message = "Failed to create transport factory";
+    return makeVoidError(err);
+  }
+  
+  // Check if it supports server connections and convert to shared_ptr
+  auto server_factory = dynamic_cast<network::ServerTransportSocketFactory*>(transport_factory.get());
+  if (server_factory) {
+    // Release from unique_ptr and create shared_ptr
+    transport_factory.release();
+    listener_config.transport_socket_factory = 
+        std::shared_ptr<network::ServerTransportSocketFactory>(server_factory);
+  } else {
+    Error err;
+    err.code = -1;
+    err.message = "Transport factory does not support server connections";
+    return makeVoidError(err);
+  }
+  
   listener_config.filter_chain_factory = createFilterChainFactory();
   
   // Create listener manager
@@ -378,16 +378,10 @@ VoidResult McpConnectionManager::sendRequest(const jsonrpc::Request& request) {
     return makeVoidError(err);
   }
   
-  // Convert to JSON
-  nlohmann::json json;
-  json["jsonrpc"] = "2.0";
-  json["id"] = request.id;
-  json["method"] = request.method;
-  if (request.params.has_value()) {
-    json["params"] = request.params.value();
-  }
+  // Convert to JSON using the bridge
+  auto json_val = json::JsonSerializer::serialize(request);
   
-  return sendJsonMessage(json);
+  return sendJsonMessage(json_val);
 }
 
 VoidResult McpConnectionManager::sendNotification(const jsonrpc::Notification& notification) {
@@ -398,15 +392,10 @@ VoidResult McpConnectionManager::sendNotification(const jsonrpc::Notification& n
     return makeVoidError(err);
   }
   
-  // Convert to JSON
-  nlohmann::json json;
-  json["jsonrpc"] = "2.0";
-  json["method"] = notification.method;
-  if (notification.params.has_value()) {
-    json["params"] = notification.params.value();
-  }
+  // Convert to JSON using the bridge
+  auto json_val = json::JsonSerializer::serialize(notification);
   
-  return sendJsonMessage(json);
+  return sendJsonMessage(json_val);
 }
 
 VoidResult McpConnectionManager::sendResponse(const jsonrpc::Response& response) {
@@ -417,28 +406,10 @@ VoidResult McpConnectionManager::sendResponse(const jsonrpc::Response& response)
     return makeVoidError(err);
   }
   
-  // Convert to JSON
-  nlohmann::json json;
-  json["jsonrpc"] = "2.0";
-  json["id"] = response.id;
+  // Convert to JSON using the bridge - this properly handles variant serialization
+  auto json_val = json::JsonSerializer::serialize(response);
   
-  if (response.result.has_value()) {
-    // TODO: Implement variant serialization
-    json["result"] = nullptr;  // Placeholder
-  }
-  
-  if (response.error.has_value()) {
-    json["error"] = {
-        {"code", response.error->code},
-        {"message", response.error->message}
-    };
-    if (response.error->data.has_value()) {
-      // TODO: Implement variant serialization
-      json["error"]["data"] = nullptr;  // Placeholder
-    }
-  }
-  
-  return sendJsonMessage(json);
+  return sendJsonMessage(json_val);
 }
 
 void McpConnectionManager::close() {
@@ -537,9 +508,9 @@ std::shared_ptr<network::FilterChainFactory> McpConnectionManager::createFilterC
   return factory;
 }
 
-VoidResult McpConnectionManager::sendJsonMessage(const nlohmann::json& message) {
+VoidResult McpConnectionManager::sendJsonMessage(const json::JsonValue& message) {
   // Convert to string
-  std::string json_str = message.dump();
+  std::string json_str = message.toString();
   
   // Add newline for non-framed mode
   if (!config_.use_message_framing) {

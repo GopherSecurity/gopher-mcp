@@ -11,6 +11,7 @@
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/types.h"
+#include "mcp/json_bridge.h"
 
 namespace mcp {
 
@@ -180,7 +181,7 @@ class McpConnectionManager : public McpMessageCallbacks,
   std::shared_ptr<network::FilterChainFactory> createFilterChainFactory();
 
   // Send JSON message
-  VoidResult sendJsonMessage(const nlohmann::json& message);
+  VoidResult sendJsonMessage(const json::JsonValue& message);
 
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
