@@ -165,9 +165,18 @@ public:
   }
 };
 
+// Forward declaration for template specialization
+template<typename T>
+struct JsonDeserializeTraits;
+
 // Deserialization functions for MCP types
 class JsonDeserializer {
 public:
+  // Template-based deserialization
+  template<typename T>
+  static T deserialize(const JsonValue& json) {
+    return JsonDeserializeTraits<T>::deserialize(json);
+  }
   // Deserialize Error and ErrorData
   static Error deserializeError(const JsonValue& json);
   static ErrorData deserializeErrorData(const JsonValue& json);
@@ -324,6 +333,31 @@ public:
     }
     return result;
   }
+  
+  // Template-based vector deserialization
+  template<typename T>
+  static std::vector<T> deserializeVector(const JsonValue& json) {
+    std::vector<T> result;
+    if (!json.isArray()) {
+      return result;
+    }
+    
+    size_t size = json.size();
+    result.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+      result.push_back(deserialize<T>(json[i]));
+    }
+    return result;
+  }
+  
+  // Template-based optional deserialization
+  template<typename T>
+  static optional<T> deserializeOptional(const JsonValue& json, const std::string& key) {
+    if (json.contains(key)) {
+      return make_optional(deserialize<T>(json[key]));
+    }
+    return nullopt;
+  }
 };
 
 // Helper functions for common conversions
@@ -369,6 +403,208 @@ inline Metadata jsonToMetadata(const JsonValue& json) {
   }
   return metadata;
 }
+
+// Basic type specializations
+template<>
+struct JsonDeserializeTraits<std::string> {
+  static std::string deserialize(const JsonValue& json) {
+    return json.getString();
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<int> {
+  static int deserialize(const JsonValue& json) {
+    return json.getInt();
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<int64_t> {
+  static int64_t deserialize(const JsonValue& json) {
+    return json.getInt64();
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<double> {
+  static double deserialize(const JsonValue& json) {
+    return json.getFloat();
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<bool> {
+  static bool deserialize(const JsonValue& json) {
+    return json.getBool();
+  }
+};
+
+// Template specializations for all MCP types
+#define DECLARE_DESERIALIZE_TRAIT(Type) \
+  template<> \
+  struct JsonDeserializeTraits<Type> { \
+    static Type deserialize(const JsonValue& json) { \
+      return JsonDeserializer::deserialize##Type(json); \
+    } \
+  };
+
+// Error and ErrorData
+DECLARE_DESERIALIZE_TRAIT(Error)
+DECLARE_DESERIALIZE_TRAIT(ErrorData)
+
+// Request ID
+DECLARE_DESERIALIZE_TRAIT(RequestId)
+
+// Content types
+DECLARE_DESERIALIZE_TRAIT(TextContent)
+DECLARE_DESERIALIZE_TRAIT(ImageContent)
+DECLARE_DESERIALIZE_TRAIT(AudioContent)
+DECLARE_DESERIALIZE_TRAIT(ResourceLink)
+DECLARE_DESERIALIZE_TRAIT(EmbeddedResource)
+DECLARE_DESERIALIZE_TRAIT(ContentBlock)
+DECLARE_DESERIALIZE_TRAIT(ExtendedContentBlock)
+
+// Tools and Prompts
+DECLARE_DESERIALIZE_TRAIT(Tool)
+DECLARE_DESERIALIZE_TRAIT(Prompt)
+DECLARE_DESERIALIZE_TRAIT(PromptMessage)
+
+// Resources
+DECLARE_DESERIALIZE_TRAIT(Resource)
+DECLARE_DESERIALIZE_TRAIT(ResourceTemplate)
+DECLARE_DESERIALIZE_TRAIT(TextResourceContents)
+DECLARE_DESERIALIZE_TRAIT(BlobResourceContents)
+
+// Roots
+DECLARE_DESERIALIZE_TRAIT(Root)
+
+// Messages
+DECLARE_DESERIALIZE_TRAIT(Message)
+DECLARE_DESERIALIZE_TRAIT(SamplingMessage)
+DECLARE_DESERIALIZE_TRAIT(ModelPreferences)
+DECLARE_DESERIALIZE_TRAIT(ModelHint)
+
+// Annotations
+DECLARE_DESERIALIZE_TRAIT(Annotations)
+DECLARE_DESERIALIZE_TRAIT(ToolAnnotations)
+
+// References
+DECLARE_DESERIALIZE_TRAIT(PromptReference)
+DECLARE_DESERIALIZE_TRAIT(ResourceTemplateReference)
+
+// Capabilities
+DECLARE_DESERIALIZE_TRAIT(ServerCapabilities)
+DECLARE_DESERIALIZE_TRAIT(ClientCapabilities)
+DECLARE_DESERIALIZE_TRAIT(RootsCapability)
+DECLARE_DESERIALIZE_TRAIT(ResourcesCapability)
+DECLARE_DESERIALIZE_TRAIT(PromptsCapability)
+DECLARE_DESERIALIZE_TRAIT(EmptyCapability)
+DECLARE_DESERIALIZE_TRAIT(SamplingParams)
+
+// Implementation
+DECLARE_DESERIALIZE_TRAIT(Implementation)
+
+// Metadata
+DECLARE_DESERIALIZE_TRAIT(Metadata)
+
+// Request types
+DECLARE_DESERIALIZE_TRAIT(InitializeRequest)
+DECLARE_DESERIALIZE_TRAIT(PingRequest)
+DECLARE_DESERIALIZE_TRAIT(CompleteRequest)
+DECLARE_DESERIALIZE_TRAIT(SetLevelRequest)
+DECLARE_DESERIALIZE_TRAIT(CallToolRequest)
+DECLARE_DESERIALIZE_TRAIT(ListToolsRequest)
+DECLARE_DESERIALIZE_TRAIT(GetPromptRequest)
+DECLARE_DESERIALIZE_TRAIT(ListPromptsRequest)
+DECLARE_DESERIALIZE_TRAIT(ReadResourceRequest)
+DECLARE_DESERIALIZE_TRAIT(ListResourcesRequest)
+DECLARE_DESERIALIZE_TRAIT(ListResourceTemplatesRequest)
+DECLARE_DESERIALIZE_TRAIT(SubscribeRequest)
+DECLARE_DESERIALIZE_TRAIT(UnsubscribeRequest)
+DECLARE_DESERIALIZE_TRAIT(ListRootsRequest)
+DECLARE_DESERIALIZE_TRAIT(CreateMessageRequest)
+DECLARE_DESERIALIZE_TRAIT(ElicitRequest)
+
+// Result types
+DECLARE_DESERIALIZE_TRAIT(InitializeResult)
+DECLARE_DESERIALIZE_TRAIT(CompleteResult)
+DECLARE_DESERIALIZE_TRAIT(CallToolResult)
+DECLARE_DESERIALIZE_TRAIT(ListToolsResult)
+DECLARE_DESERIALIZE_TRAIT(GetPromptResult)
+DECLARE_DESERIALIZE_TRAIT(ListPromptsResult)
+DECLARE_DESERIALIZE_TRAIT(ReadResourceResult)
+DECLARE_DESERIALIZE_TRAIT(ListResourcesResult)
+DECLARE_DESERIALIZE_TRAIT(ListResourceTemplatesResult)
+DECLARE_DESERIALIZE_TRAIT(ListRootsResult)
+DECLARE_DESERIALIZE_TRAIT(CreateMessageResult)
+DECLARE_DESERIALIZE_TRAIT(ElicitResult)
+
+// Notification types
+DECLARE_DESERIALIZE_TRAIT(CancelledNotification)
+DECLARE_DESERIALIZE_TRAIT(ProgressNotification)
+DECLARE_DESERIALIZE_TRAIT(InitializedNotification)
+DECLARE_DESERIALIZE_TRAIT(RootsListChangedNotification)
+DECLARE_DESERIALIZE_TRAIT(LoggingMessageNotification)
+DECLARE_DESERIALIZE_TRAIT(ResourceUpdatedNotification)
+DECLARE_DESERIALIZE_TRAIT(ResourceListChangedNotification)
+DECLARE_DESERIALIZE_TRAIT(ToolListChangedNotification)
+DECLARE_DESERIALIZE_TRAIT(PromptListChangedNotification)
+
+// JSONRPC types - use fully qualified names
+template<>
+struct JsonDeserializeTraits<jsonrpc::Request> {
+  static jsonrpc::Request deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeRequest(json);
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<jsonrpc::Response> {
+  static jsonrpc::Response deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeResponse(json);
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<jsonrpc::ResponseResult> {
+  static jsonrpc::ResponseResult deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeResponseResult(json);
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<jsonrpc::Notification> {
+  static jsonrpc::Notification deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeNotification(json);
+  }
+};
+
+// Enum specializations
+template<>
+struct JsonDeserializeTraits<enums::Role::Value> {
+  static enums::Role::Value deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeRole(json);
+  }
+};
+
+template<>
+struct JsonDeserializeTraits<enums::LoggingLevel::Value> {
+  static enums::LoggingLevel::Value deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeLoggingLevel(json);
+  }
+};
+
+// Special case for Cursor (optional<string>)
+template<>
+struct JsonDeserializeTraits<optional<Cursor>> {
+  static optional<Cursor> deserialize(const JsonValue& json) {
+    return JsonDeserializer::deserializeCursor(json);
+  }
+};
+
+// Clean up the macro
+#undef DECLARE_DESERIALIZE_TRAIT
 
 }  // namespace json
 }  // namespace mcp
