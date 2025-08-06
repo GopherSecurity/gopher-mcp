@@ -32,6 +32,19 @@ public:
   }
 };
 
+// ============ SHORT ALIASES FOR CONVENIENCE ============
+// Much easier to type: to_json(value) and from_json<T>(json)
+
+template<typename T>
+inline JsonValue to_json(const T& value) {
+  return JsonSerializer::serialize<T>(value);
+}
+
+template<typename T>
+inline T from_json(const JsonValue& json) {
+  return JsonDeserializer::deserialize<T>(json);
+}
+
 // ============ BASIC TYPE TRAITS ============
 
 // Serialization traits for basic types

@@ -107,16 +107,16 @@ bool JsonRpcMessageFilter::parseMessage(const std::string& json_str) {
     if (json_val.contains("method")) {
       if (json_val.contains("id")) {
         // Request
-        jsonrpc::Request request = json::JsonDeserializer::deserialize<jsonrpc::Request>(json_val);
+        jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
         callbacks_.onRequest(request);
       } else {
         // Notification
-        jsonrpc::Notification notification = json::JsonDeserializer::deserialize<jsonrpc::Notification>(json_val);
+        jsonrpc::Notification notification = json::from_json<jsonrpc::Notification>(json_val);
         callbacks_.onNotification(notification);
       }
     } else if (json_val.contains("result") || json_val.contains("error")) {
       // Response
-      jsonrpc::Response response = json::JsonDeserializer::deserialize<jsonrpc::Response>(json_val);
+      jsonrpc::Response response = json::from_json<jsonrpc::Response>(json_val);
       callbacks_.onResponse(response);
     }
     
@@ -384,7 +384,7 @@ VoidResult McpConnectionManager::sendRequest(const jsonrpc::Request& request) {
   }
   
   // Convert to JSON using the bridge
-  auto json_val = json::JsonSerializer::serialize(request);
+  auto json_val = json::to_json(request);
   
   return sendJsonMessage(json_val);
 }
@@ -398,7 +398,7 @@ VoidResult McpConnectionManager::sendNotification(const jsonrpc::Notification& n
   }
   
   // Convert to JSON using the bridge
-  auto json_val = json::JsonSerializer::serialize(notification);
+  auto json_val = json::to_json(notification);
   
   return sendJsonMessage(json_val);
 }
@@ -412,7 +412,7 @@ VoidResult McpConnectionManager::sendResponse(const jsonrpc::Response& response)
   }
   
   // Convert to JSON using the bridge - this properly handles variant serialization
-  auto json_val = json::JsonSerializer::serialize(response);
+  auto json_val = json::to_json(response);
   
   return sendJsonMessage(json_val);
 }
