@@ -68,15 +68,15 @@ void ConnectionImplBase::onWriteReady() {
 }
 
 void ConnectionImplBase::updateReadBufferStats(uint64_t num_read, uint64_t new_size) {
-  (void)num_read;
-  (void)new_size;
-  // TODO: Implement stats tracking
+  // Update read statistics
+  stats_.read_total_ += num_read;
+  stats_.read_current_ = new_size;
 }
 
 void ConnectionImplBase::updateWriteBufferStats(uint64_t num_written, uint64_t new_size) {
-  (void)num_written;
-  (void)new_size;
-  // TODO: Implement stats tracking
+  // Update write statistics
+  stats_.write_total_ += num_written;
+  stats_.write_current_ = new_size;
 }
 
 void ConnectionImplBase::transportFailure() {
