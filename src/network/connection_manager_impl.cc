@@ -218,11 +218,16 @@ void ConnectionManagerImpl::closeAllConnections() {
   std::vector<Connection*> connections_to_close;
   for (auto& conn_pair : connections_) {
     auto& conn = conn_pair.first;
-    auto& weak_conn = conn_pair.second;
-    connections_to_close.push_back(conn);
+    // Since we're using unique_ptr, not shared_ptr, we can't use weak_ptr properly
+    // Just check if the pointer is non-null (it should be valid if it's in the map)
+    if (conn) {
+      connections_to_close.push_back(conn);
+    }
   }
   
   for (auto* conn : connections_to_close) {
+    // The connection might have been destroyed if it went out of scope
+    // But if it's still in our map, it should be valid
     conn->close(ConnectionCloseType::NoFlush);
   }
   
