@@ -11,6 +11,9 @@
 // nlohmann/json forward declared below
 
 #include "mcp/compat.h"
+#if !MCP_HAS_STD_VARIANT
+#include "mcp/variant.h"
+#endif
 
 namespace mcp {
 
@@ -264,6 +267,22 @@ template <typename T, typename U>
 using is_same_decayed = std::is_same<remove_cvref_t<T>, remove_cvref_t<U>>;
 
 // Helper for variant visitation with type safety
+#if MCP_HAS_STD_VARIANT
+// With std::variant, we need to use std::visit differently
+template <typename... Fs>
+struct overload : Fs... {
+  using Fs::operator()...;
+};
+
+template <typename... Fs>
+overload(Fs...) -> overload<Fs...>;
+
+template <typename Variant, typename... Visitors>
+auto match(Variant&& v, Visitors&&... visitors) {
+  return std::visit(overload{std::forward<Visitors>(visitors)...},
+                    std::forward<Variant>(v));
+}
+#else
 template <typename Variant, typename... Visitors>
 auto match(Variant&& v, Visitors&&... visitors)
     -> decltype(visit(make_overload(std::forward<Visitors>(visitors)...),
@@ -271,6 +290,7 @@ auto match(Variant&& v, Visitors&&... visitors)
   return visit(make_overload(std::forward<Visitors>(visitors)...),
                std::forward<Variant>(v));
 }
+#endif
 
 }  // namespace mcp
 
