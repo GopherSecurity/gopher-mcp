@@ -133,6 +133,7 @@ FetchContent_MakeAvailable(googletest)
 set(MCP_SDK_SOURCES
     src/buffer/buffer_impl.cc
     src/json.cc
+    src/json_bridge.cc
     src/network/address_impl.cc
     src/network/io_socket_handle_impl.cc
     src/network/socket_impl.cc
