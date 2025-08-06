@@ -5,6 +5,7 @@
 #include "mcp/network/listener.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/result.h"
+#include "../mocks/network_mocks.h"
 #include <memory>
 
 namespace mcp {
@@ -119,7 +120,8 @@ protected:
   void SetUp() override {
     auto factory = event::createPlatformDefaultDispatcherFactory();
     dispatcher_ = factory->createDispatcher("test");
-    socket_interface_ = &socketInterface();
+    mock_socket_interface_ = std::make_unique<test::MockSocketInterface>();
+    socket_interface_ = mock_socket_interface_.get();
     handler_ = std::make_unique<ConnectionHandlerImpl>(*dispatcher_, *socket_interface_);
   }
   
@@ -129,6 +131,7 @@ protected:
   }
   
   event::DispatcherPtr dispatcher_;
+  std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
   SocketInterface* socket_interface_;
   std::unique_ptr<ConnectionHandlerImpl> handler_;
 };
@@ -171,7 +174,8 @@ protected:
   void SetUp() override {
     auto factory = event::createPlatformDefaultDispatcherFactory();
     dispatcher_ = factory->createDispatcher("test");
-    socket_interface_ = &socketInterface();
+    mock_socket_interface_ = std::make_unique<test::MockSocketInterface>();
+    socket_interface_ = mock_socket_interface_.get();
     
     // Create config
     config_.max_connections = 10;
@@ -202,6 +206,7 @@ protected:
   }
   
   event::DispatcherPtr dispatcher_;
+  std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
   SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
@@ -211,9 +216,7 @@ protected:
   MockConnectionPoolCallbacks callbacks_;
 };
 
-TEST_F(ConnectionManagerImplTest, DISABLED_CreateClientConnection) {
-  // TODO: This test hangs because it creates real sockets and file events.
-  // Need to implement proper mocking for socket interface.
+TEST_F(ConnectionManagerImplTest, CreateClientConnection) {
   auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   manager_->setConnectionCallbacks(callbacks_);
@@ -231,7 +234,7 @@ TEST_F(ConnectionManagerImplTest, DISABLED_CreateClientConnection) {
   EXPECT_EQ(1, manager_->numConnections());
 }
 
-TEST_F(ConnectionManagerImplTest, DISABLED_ConnectionLimit) {
+TEST_F(ConnectionManagerImplTest, ConnectionLimit) {
   auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create connections up to limit
@@ -250,7 +253,7 @@ TEST_F(ConnectionManagerImplTest, DISABLED_ConnectionLimit) {
   EXPECT_EQ(config_.max_connections.value(), manager_->numConnections());
 }
 
-TEST_F(ConnectionManagerImplTest, DISABLED_CloseAllConnections) {
+TEST_F(ConnectionManagerImplTest, CloseAllConnections) {
   auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create some connections
@@ -267,7 +270,7 @@ TEST_F(ConnectionManagerImplTest, DISABLED_CloseAllConnections) {
   EXPECT_EQ(0, manager_->numConnections());
 }
 
-TEST_F(ConnectionManagerImplTest, DISABLED_TransportSocketOptions) {
+TEST_F(ConnectionManagerImplTest, TransportSocketOptions) {
   auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
   // Create connection with transport options
@@ -288,7 +291,8 @@ protected:
   void SetUp() override {
     auto factory = event::createPlatformDefaultDispatcherFactory();
     dispatcher_ = factory->createDispatcher("test");
-    socket_interface_ = &socketInterface();
+    mock_socket_interface_ = std::make_unique<test::MockSocketInterface>();
+    socket_interface_ = mock_socket_interface_.get();
     
     // Create config
     config_.max_connections = 5;
@@ -315,6 +319,7 @@ protected:
   }
   
   event::DispatcherPtr dispatcher_;
+  std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
   SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
@@ -353,9 +358,7 @@ TEST_F(ConnectionPoolImplTest, InitialState) {
   EXPECT_TRUE(pool_->isIdle());
 }
 
-TEST_F(ConnectionPoolImplTest, DISABLED_NewConnection) {
-  // TODO: This test hangs because createClientConnection creates real sockets.
-  // Need to implement proper socket mocking infrastructure.
+TEST_F(ConnectionPoolImplTest, NewConnection) {
   MockPoolCallbacks callbacks;
   
   // Request new connection
@@ -368,9 +371,7 @@ TEST_F(ConnectionPoolImplTest, DISABLED_NewConnection) {
   // Note: Full test would require simulating connection completion
 }
 
-TEST_F(ConnectionPoolImplTest, DISABLED_ConnectionLimit) {
-  // TODO: This test hangs because createClientConnection creates real sockets.
-  // Need to implement proper socket mocking infrastructure.
+TEST_F(ConnectionPoolImplTest, ConnectionLimit) {
   // Request connections up to limit
   std::vector<MockPoolCallbacks> callbacks(config_.max_connections.value() + 1);
   
@@ -388,9 +389,7 @@ TEST_F(ConnectionPoolImplTest, DISABLED_ConnectionLimit) {
             callbacks[config_.max_connections.value()].last_failure_reason_);
 }
 
-TEST_F(ConnectionPoolImplTest, DISABLED_CloseConnections) {
-  // TODO: This test hangs because createClientConnection creates real sockets.
-  // Need to implement proper socket mocking infrastructure.
+TEST_F(ConnectionPoolImplTest, CloseConnections) {
   MockPoolCallbacks callbacks;
   
   // Request some connections
@@ -407,9 +406,7 @@ TEST_F(ConnectionPoolImplTest, DISABLED_CloseConnections) {
   EXPECT_TRUE(pool_->isIdle());
 }
 
-TEST_F(ConnectionPoolImplTest, DISABLED_DrainConnections) {
-  // TODO: This test hangs because createClientConnection creates real sockets.
-  // Need to implement proper socket mocking infrastructure.
+TEST_F(ConnectionPoolImplTest, DrainConnections) {
   MockPoolCallbacks callbacks;
   
   // Request connection

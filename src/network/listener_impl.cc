@@ -225,14 +225,15 @@ void ActiveListener::createConnection(ConnectionSocketPtr&& socket) {
   // Set buffer limits
   connection->setBufferLimits(config_.per_connection_buffer_limit);
   
-  // Add filter chain
+  // Add filter chain and initialize filters
   if (config_.filter_chain_factory) {
-    // TODO: Apply filter chain to connection's filter manager
-    // config_.filter_chain_factory->createFilterChain(connection->filterManager());
+    // Cast to ConnectionImplBase to access filter manager
+    auto* conn_impl_base = dynamic_cast<ConnectionImplBase*>(connection.get());
+    if (conn_impl_base) {
+      config_.filter_chain_factory->createFilterChain(conn_impl_base->filterManager());
+      conn_impl_base->filterManager().initializeReadFilters();
+    }
   }
-  
-  // TODO: Initialize read filters on the filter manager
-  // connection->filterManager().initializeReadFilters();
   
   // Notify about new connection
   onNewConnection(std::move(connection));
