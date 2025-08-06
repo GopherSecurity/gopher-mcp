@@ -180,8 +180,8 @@ public:
     ON_CALL(*this, failureReason()).WillByDefault(Return(""));
     ON_CALL(*this, canFlushClose()).WillByDefault(Return(true));
     ON_CALL(*this, connect(_)).WillByDefault(Return(makeVoidSuccess()));
-    ON_CALL(*this, doRead(_)).WillByDefault(Return(TransportIoResult{TransportIoResult::CONTINUE, 0, false}));
-    ON_CALL(*this, doWrite(_, _)).WillByDefault(Return(TransportIoResult{TransportIoResult::CONTINUE, 0, false}));
+    ON_CALL(*this, doRead(_)).WillByDefault(Return(TransportIoResult{TransportIoResult::CONTINUE, 0, false, {}}));
+    ON_CALL(*this, doWrite(_, _)).WillByDefault(Return(TransportIoResult{TransportIoResult::CONTINUE, 0, false, {}}));
   }
 };
 

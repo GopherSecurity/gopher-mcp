@@ -214,23 +214,9 @@ ServerConnectionPtr ConnectionManagerImpl::createServerConnection(
 }
 
 void ConnectionManagerImpl::closeAllConnections() {
-  // Copy connections to avoid iterator invalidation
-  std::vector<Connection*> connections_to_close;
-  for (auto& conn_pair : connections_) {
-    auto& conn = conn_pair.first;
-    // Since we're using unique_ptr, not shared_ptr, we can't use weak_ptr properly
-    // Just check if the pointer is non-null (it should be valid if it's in the map)
-    if (conn) {
-      connections_to_close.push_back(conn);
-    }
-  }
-  
-  for (auto* conn : connections_to_close) {
-    // The connection might have been destroyed if it went out of scope
-    // But if it's still in our map, it should be valid
-    conn->close(ConnectionCloseType::NoFlush);
-  }
-  
+  // Clear the connections map first to avoid issues with destroyed connections
+  // Since we return unique_ptrs, we don't actually own the connections and
+  // they may have been destroyed already
   connections_.clear();
 }
 
