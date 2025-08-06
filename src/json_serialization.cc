@@ -238,6 +238,49 @@ JsonValue JsonSerializer::serialize(const Tool& tool) {
   return builder.build();
 }
 
+// Serialize Prompt
+JsonValue JsonSerializer::serialize(const Prompt& prompt) {
+  JsonObjectBuilder builder;
+  builder.add("name", prompt.name);
+  
+  if (prompt.description.has_value()) {
+    builder.add("description", prompt.description.value());
+  }
+  
+  if (prompt.arguments.has_value()) {
+    JsonArrayBuilder args;
+    for (const auto& arg : prompt.arguments.value()) {
+      JsonObjectBuilder argBuilder;
+      argBuilder.add("name", arg.name);
+      if (arg.description.has_value()) {
+        argBuilder.add("description", arg.description.value());
+      }
+      argBuilder.add("required", arg.required);
+      args.add(argBuilder.build());
+    }
+    builder.add("arguments", args.build());
+  }
+  
+  return builder.build();
+}
+
+// Serialize Resource
+JsonValue JsonSerializer::serialize(const Resource& resource) {
+  JsonObjectBuilder builder;
+  builder.add("uri", resource.uri);
+  builder.add("name", resource.name);
+  
+  if (resource.description.has_value()) {
+    builder.add("description", resource.description.value());
+  }
+  
+  if (resource.mimeType.has_value()) {
+    builder.add("mimeType", resource.mimeType.value());
+  }
+  
+  return builder.build();
+}
+
 // Serialize Metadata
 JsonValue JsonSerializer::serialize(const Metadata& metadata) {
   return metadataToJson(metadata);
