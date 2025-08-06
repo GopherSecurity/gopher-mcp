@@ -162,13 +162,6 @@ public:
   
   // Serialize Implementation
   static JsonValue serialize(const Implementation& impl);
-  
-  // DEPRECATED: Use serialize(vector) instead
-  template<typename T>
-  [[deprecated("Use serialize(vector) instead")]]
-  static JsonValue serializeVector(const std::vector<T>& vec) {
-    return serialize(vec);
-  }
 };
 
 // Forward declaration for template specialization
@@ -322,31 +315,6 @@ public:
   
   // Deserialize Implementation
   static Implementation deserializeImplementation(const JsonValue& json);
-  
-  // DEPRECATED: Use deserialize<std::vector<T>>() instead
-  template<typename T>
-  [[deprecated("Use deserialize<std::vector<T>>() instead")]]
-  static std::vector<T> deserializeVector(const JsonValue& json, 
-                                          T (*deserializeFunc)(const JsonValue&)) {
-    std::vector<T> result;
-    if (!json.isArray()) {
-      return result;
-    }
-    
-    size_t size = json.size();
-    result.reserve(size);
-    for (size_t i = 0; i < size; ++i) {
-      result.push_back(deserializeFunc(json[i]));
-    }
-    return result;
-  }
-  
-  // DEPRECATED: Use deserialize<std::vector<T>>() instead
-  template<typename T>
-  [[deprecated("Use deserialize<std::vector<T>>() instead")]]
-  static std::vector<T> deserializeVector(const JsonValue& json) {
-    return deserialize<std::vector<T>>(json);
-  }
 };
 
 // Helper functions for common conversions

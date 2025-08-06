@@ -23,7 +23,7 @@ TEST(TemplateSerializationTest, SerializeTextContent) {
     EXPECT_EQ(json1.toString(), json2.toString());
 }
 
-TEST(TemplateSerializationTest, SerializeVector_Deprecated) {
+TEST(TemplateSerializationTest, SerializeVector) {
     std::vector<TextContent> contents;
     TextContent c1, c2;
     c1.type = "text";
@@ -33,15 +33,13 @@ TEST(TemplateSerializationTest, SerializeVector_Deprecated) {
     contents.push_back(c1);
     contents.push_back(c2);
     
-    // Old way - using deprecated helper
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    JsonValue jsonArray = JsonSerializer::serializeVector(contents);
-    #pragma GCC diagnostic pop
+    // Direct serialization using unified template approach
+    JsonValue jsonArray = JsonSerializer::serialize(contents);
     
     ASSERT_TRUE(jsonArray.isArray());
     EXPECT_EQ(jsonArray.size(), 2u);
     EXPECT_EQ(jsonArray[0]["text"].getString(), "Item 1");
+    EXPECT_EQ(jsonArray[1]["text"].getString(), "Item 2");
 }
 
 TEST(TemplateSerializationTest, SerializeOptional) {
@@ -104,18 +102,12 @@ TEST(TemplateDeserializationTest, DeserializeVector) {
         .build());
     JsonValue jsonArray = builder.build();
     
-    // Old way - using deprecated helper
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    std::vector<TextContent> contents1 = JsonDeserializer::deserializeVector(
-        jsonArray, &JsonDeserializer::deserializeTextContent);
-    #pragma GCC diagnostic pop
+    // Direct deserialization using unified template approach
+    std::vector<TextContent> contents = JsonDeserializer::deserialize<std::vector<TextContent>>(jsonArray);
     
-    // New unified way - direct deserialization
-    std::vector<TextContent> contents2 = JsonDeserializer::deserialize<std::vector<TextContent>>(jsonArray);
-    
-    ASSERT_EQ(contents1.size(), contents2.size());
-    EXPECT_EQ(contents1[0].text, contents2[0].text);
+    ASSERT_EQ(contents.size(), 2u);
+    EXPECT_EQ(contents[0].text, "Item 1");
+    EXPECT_EQ(contents[1].text, "Item 2");
 }
 
 TEST(TemplateDeserializationTest, DeserializeOptional) {
@@ -284,31 +276,6 @@ TEST(UnifiedContainerTest, OptionalMcpTypes) {
     
     result = JsonDeserializer::deserialize<optional<Error>>(json);
     EXPECT_FALSE(result.has_value());
-}
-
-// ============= Backward Compatibility Tests =============
-
-TEST(BackwardCompatibilityTest, DeprecatedFunctionsStillWork) {
-    std::vector<TextContent> contents;
-    TextContent c;
-    c.type = "text";
-    c.text = "Test";
-    contents.push_back(c);
-    
-    // Old way (now deprecated)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    JsonValue json1 = JsonSerializer::serializeVector(contents);
-    std::vector<TextContent> result1 = JsonDeserializer::deserializeVector<TextContent>(json1);
-    #pragma GCC diagnostic pop
-    
-    // New way
-    JsonValue json2 = JsonSerializer::serialize(contents);
-    std::vector<TextContent> result2 = JsonDeserializer::deserialize<std::vector<TextContent>>(json2);
-    
-    EXPECT_EQ(json1.toString(), json2.toString());
-    ASSERT_EQ(result1.size(), result2.size());
-    EXPECT_EQ(result1[0].text, result2[0].text);
 }
 
 // ============= Edge Cases Tests =============
