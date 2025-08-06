@@ -608,17 +608,25 @@ TEST_F(MCPTypesTest, ErrorConstructionExtensive) {
   EXPECT_EQ(customErr.code, 1001);
   EXPECT_EQ(customErr.message, "Custom error");
 
-  // Test with data field
+  // Test with data field - using simplified ErrorData type
   Error errWithData(500, "Server error");
-  using DataType = variant<
-      std::nullptr_t, bool, int, double, std::string,
-      std::vector<variant<std::nullptr_t, bool, int, double, std::string>>,
-      std::map<std::string,
-               variant<std::nullptr_t, bool, int, double, std::string>>>;
-  errWithData.data =
-      make_optional(DataType(std::string("Additional error info")));
+  errWithData.data = make_optional(ErrorData(std::string("Additional error info")));
   ASSERT_TRUE(errWithData.data.has_value());
   EXPECT_TRUE(errWithData.data->holds_alternative<std::string>());
+  
+  // Test vector data
+  Error errWithVector(501, "Vector error");
+  std::vector<std::string> vecData = {"error1", "error2"};
+  errWithVector.data = make_optional(ErrorData(vecData));
+  ASSERT_TRUE(errWithVector.data.has_value());
+  EXPECT_TRUE(errWithVector.data->holds_alternative<std::vector<std::string>>());
+  
+  // Test map data
+  Error errWithMap(502, "Map error");
+  std::map<std::string, std::string> mapData = {{"key1", "value1"}, {"key2", "value2"}};
+  errWithMap.data = make_optional(ErrorData(mapData));
+  ASSERT_TRUE(errWithMap.data.has_value());
+  EXPECT_TRUE((errWithMap.data->holds_alternative<std::map<std::string, std::string>>()));
 }
 
 // Test Implementation info
@@ -1323,15 +1331,10 @@ TEST_F(MCPTypesTest, EdgeCasesAndBoundaryValues) {
   auto min_int_id = make_request_id(std::numeric_limits<int>::min());
   EXPECT_EQ(min_int_id.get<int>(), std::numeric_limits<int>::min());
 
-  // Error with data
+  // Error with data - using simplified ErrorData type
   Error error_with_data(400, "Bad request");
   error_with_data.data = make_optional(
-      variant<
-          std::nullptr_t, bool, int, double, std::string,
-          std::vector<variant<std::nullptr_t, bool, int, double, std::string>>,
-          std::map<std::string,
-                   variant<std::nullptr_t, bool, int, double, std::string>>>(
-          std::string("Additional error info")));
+      ErrorData(std::string("Additional error info")));
 
   ASSERT_TRUE(error_with_data.data.has_value());
   EXPECT_TRUE(error_with_data.data->holds_alternative<std::string>());
