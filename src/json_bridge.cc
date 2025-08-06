@@ -198,6 +198,11 @@ JsonValue& JsonValue::operator[](const std::string& key) {
       throw JsonException("Value is not an object");
     }
   }
+  
+  // Simple approach: when a value is assigned through operator[], 
+  // we need to handle it in the assignment operator
+  // For now, let's use a different approach in JsonObjectBuilder
+  
   static thread_local std::map<std::string, JsonValue> temp_map;
   if (temp_map.find(key) == temp_map.end() || 
       &temp_map[key].impl_->json_ != &impl_->json_[key]) {
@@ -245,6 +250,18 @@ void JsonValue::erase(const std::string& key) {
     throw JsonException("Value is not an object");
   }
   impl_->json_.erase(key);
+}
+
+void JsonValue::set(const std::string& key, const JsonValue& value) {
+  if (!isObject()) {
+    // Convert to object if null
+    if (isNull()) {
+      impl_->json_ = nlohmann::json::object();
+    } else {
+      throw JsonException("Value is not an object");
+    }
+  }
+  impl_->json_[key] = value.impl_->json_;
 }
 
 std::vector<std::string> JsonValue::keys() const {

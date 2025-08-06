@@ -81,13 +81,10 @@ TEST(TemplateDeserializationTest, DeserializeTextContent) {
         .add("text", "Hello World")
         .build();
     
-    // Old way - specific function name
-    TextContent content1 = JsonDeserializer::deserializeTextContent(json);
+    // Template-based deserialization
+    TextContent content = JsonDeserializer::deserialize<TextContent>(json);
     
-    // New way - template-based
-    TextContent content2 = JsonDeserializer::deserialize<TextContent>(json);
-    
-    EXPECT_EQ(content1.text, content2.text);
+    EXPECT_EQ(content.text, "Hello World");
 }
 
 TEST(TemplateDeserializationTest, DeserializeVector) {
@@ -137,7 +134,7 @@ TEST(TemplateDeserializationTest, DeserializeComplexType) {
         .build();
     
     // Both ways work, but template is more consistent
-    Prompt prompt1 = JsonDeserializer::deserializePrompt(json);
+    Prompt prompt1 = JsonDeserializer::deserialize<Prompt>(json);
     Prompt prompt2 = JsonDeserializer::deserialize<Prompt>(json);
     
     EXPECT_EQ(prompt1.name, prompt2.name);
