@@ -292,20 +292,21 @@ struct Prompt {
   explicit Prompt(const std::string& n) : name(n) {}
 };
 
+// Error data type
+using ErrorData = variant<
+    std::nullptr_t,
+    bool,
+    int,
+    double,
+    std::string,
+    std::vector<std::string>,  // Simplified: vector of strings instead of nested variant
+    std::map<std::string, std::string>>;  // Simplified: map of string to string
+
 // Error type
 struct Error {
   int code;
   std::string message;
-  optional<variant<
-      std::nullptr_t,
-      bool,
-      int,
-      double,
-      std::string,
-      std::vector<variant<std::nullptr_t, bool, int, double, std::string>>,
-      std::map<std::string,
-               variant<std::nullptr_t, bool, int, double, std::string>>>>
-      data;
+  optional<ErrorData> data;
 
   Error() = default;
   Error(int c, const std::string& m) : code(c), message(m) {}

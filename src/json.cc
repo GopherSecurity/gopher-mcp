@@ -270,37 +270,25 @@ void from_json(const json& j, Tool& tool) {
 void to_json(json& j, const Error& err) {
   j = json{{"code", err.code}, {"message", err.message}};
   if (err.data.has_value()) {
-    // Handle variant data - need to handle each type explicitly
+    // Handle variant data - simplified ErrorData type
     match(
-        err.data.value(), [&j](std::nullptr_t) { j["data"] = nullptr; },
-        [&j](bool val) { j["data"] = val; }, [&j](int val) { j["data"] = val; },
+        err.data.value(), 
+        [&j](std::nullptr_t) { j["data"] = nullptr; },
+        [&j](bool val) { j["data"] = val; }, 
+        [&j](int val) { j["data"] = val; },
         [&j](double val) { j["data"] = val; },
         [&j](const std::string& val) { j["data"] = val; },
-        [&j](const std::vector<
-             variant<std::nullptr_t, bool, int, double, std::string>>& vec) {
+        [&j](const std::vector<std::string>& vec) {
           json arr = json::array();
           for (const auto& item : vec) {
-            match(
-                item, [&arr](std::nullptr_t) { arr.push_back(nullptr); },
-                [&arr](bool v) { arr.push_back(v); },
-                [&arr](int v) { arr.push_back(v); },
-                [&arr](double v) { arr.push_back(v); },
-                [&arr](const std::string& v) { arr.push_back(v); });
+            arr.push_back(item);
           }
           j["data"] = arr;
         },
-        [&j](const std::map<std::string, variant<std::nullptr_t, bool, int,
-                                                 double, std::string>>& map) {
+        [&j](const std::map<std::string, std::string>& map) {
           json obj = json::object();
           for (const auto& kv : map) {
-            const std::string& key = kv.first;
-            const auto& value = kv.second;
-            match(
-                value, [&obj, &key](std::nullptr_t) { obj[key] = nullptr; },
-                [&obj, &key](bool v) { obj[key] = v; },
-                [&obj, &key](int v) { obj[key] = v; },
-                [&obj, &key](double v) { obj[key] = v; },
-                [&obj, &key](const std::string& v) { obj[key] = v; });
+            obj[kv.first] = kv.second;
           }
           j["data"] = obj;
         });
@@ -313,17 +301,52 @@ void from_json(const json& j, Error& err) {
   if (j.contains("data")) {
     const auto& data = j.at("data");
     if (data.is_null()) {
-      err.data = nullptr;
+      err.data = ErrorData(nullptr);
     } else if (data.is_boolean()) {
-      err.data = data.get<bool>();
+      err.data = ErrorData(data.get<bool>());
     } else if (data.is_number_integer()) {
-      err.data = data.get<int>();
+      err.data = ErrorData(data.get<int>());
     } else if (data.is_number_float()) {
-      err.data = data.get<double>();
+      err.data = ErrorData(data.get<double>());
     } else if (data.is_string()) {
-      err.data = data.get<std::string>();
+      err.data = ErrorData(data.get<std::string>());
+    } else if (data.is_array()) {
+      // Handle vector case - convert to vector of strings
+      std::vector<std::string> vec;
+      for (const auto& item : data) {
+        if (item.is_string()) {
+          vec.push_back(item.get<std::string>());
+        } else if (item.is_null()) {
+          vec.push_back("null");
+        } else if (item.is_boolean()) {
+          vec.push_back(item.get<bool>() ? "true" : "false");
+        } else if (item.is_number()) {
+          vec.push_back(std::to_string(item.get<double>()));
+        } else {
+          vec.push_back(item.dump());
+        }
+      }
+      err.data = ErrorData(vec);
+    } else if (data.is_object()) {
+      // Handle map case - convert to map of string to string
+      std::map<std::string, std::string> map;
+      for (auto& kv : data.items()) {
+        const std::string& key = kv.key();
+        const auto& value = kv.value();
+        if (value.is_string()) {
+          map[key] = value.get<std::string>();
+        } else if (value.is_null()) {
+          map[key] = "null";
+        } else if (value.is_boolean()) {
+          map[key] = value.get<bool>() ? "true" : "false";
+        } else if (value.is_number()) {
+          map[key] = std::to_string(value.get<double>());
+        } else {
+          map[key] = value.dump();
+        }
+      }
+      err.data = ErrorData(map);
     }
-    // TODO: Handle vector and map cases
   }
 }
 
