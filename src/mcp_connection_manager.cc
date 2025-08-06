@@ -277,14 +277,19 @@ VoidResult McpConnectionManager::connect() {
       return makeVoidError(err);
     }
     
-    // Apply filter chain
+    // Apply filter chain to the connection's filter manager
     auto filter_factory = createFilterChainFactory();
-    if (filter_factory) {
-      // TODO: Filter chain needs to be applied to FilterManager, not Connection directly
+    if (filter_factory && active_connection_) {
+      // Cast to ConnectionImplBase to access the filter manager
+      auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
+      if (conn_base) {
+        // Apply the filter chain
+        filter_factory->createFilterChain(conn_base->filterManager());
+        
+        // Initialize the read filters
+        conn_base->filterManager().initializeReadFilters();
+      }
     }
-    
-    // Initialize filters
-    // TODO: initializeReadFilters() needs to be called on the FilterManager
     
     // Mark as connected
     connected_ = true;
@@ -470,7 +475,27 @@ void McpConnectionManager::onNewConnection(network::ConnectionPtr&& connection) 
   // Store the new connection
   active_connection_ = std::move(connection);
   
-  // TODO: Add connection callbacks and filters
+  // Add connection callbacks
+  if (active_connection_) {
+    active_connection_->addConnectionCallbacks(*this);
+    
+    // Apply filter chain to the connection's filter manager
+    auto filter_factory = createFilterChainFactory();
+    if (filter_factory) {
+      auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
+      if (conn_base) {
+        filter_factory->createFilterChain(conn_base->filterManager());
+        conn_base->filterManager().initializeReadFilters();
+      }
+    }
+    
+    // Mark as connected
+    connected_ = true;
+    
+    // Notify transport socket
+    auto& transport = active_connection_->transportSocket();
+    transport.onConnected();
+  }
 }
 
 std::unique_ptr<network::TransportSocketFactoryBase> McpConnectionManager::createTransportSocketFactory() {

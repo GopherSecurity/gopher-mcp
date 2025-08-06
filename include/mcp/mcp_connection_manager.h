@@ -112,7 +112,8 @@ class JsonRpcMessageFilter : public network::NetworkFilterBase {
  * High-level interface for managing MCP connections
  */
 class McpConnectionManager : public McpMessageCallbacks,
-                             public network::ListenerCallbacks {
+                             public network::ListenerCallbacks,
+                             public network::ConnectionCallbacks {
  public:
   McpConnectionManager(event::Dispatcher& dispatcher,
                        network::SocketInterface& socket_interface,
@@ -171,6 +172,11 @@ class McpConnectionManager : public McpMessageCallbacks,
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
   void onNewConnection(network::ConnectionPtr&& connection) override;
+  
+  // ConnectionCallbacks interface
+  void onEvent(network::ConnectionEvent event) override { onConnectionEvent(event); }
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
 
  private:
   // Create transport socket factory

@@ -144,7 +144,10 @@ ClientConnectionPtr ConnectionManagerImpl::createClientConnection(
   applyFilterChain(*connection);
   
   // Initialize filters
-  // TODO: initializeReadFilters() is not in ServerConnection interface
+  auto* conn_impl_base = dynamic_cast<ConnectionImplBase*>(connection.get());
+  if (conn_impl_base) {
+    conn_impl_base->filterManager().initializeReadFilters();
+  }
   
   // Add connection callbacks
   connection->addConnectionCallbacks(*this);
@@ -196,7 +199,10 @@ ServerConnectionPtr ConnectionManagerImpl::createServerConnection(
   applyFilterChain(*connection);
   
   // Initialize filters
-  // TODO: initializeReadFilters() is not in ServerConnection interface
+  auto* conn_impl_base = dynamic_cast<ConnectionImplBase*>(connection.get());
+  if (conn_impl_base) {
+    conn_impl_base->filterManager().initializeReadFilters();
+  }
   
   // Add connection callbacks
   connection->addConnectionCallbacks(*this);
