@@ -12,9 +12,18 @@ namespace json {
 class JsonSerializer;
 class JsonDeserializer;
 
+// Forward declaration for template specialization
+template<typename T>
+struct JsonSerializeTraits;
+
 // Serialization functions for MCP types
 class JsonSerializer {
 public:
+  // Template-based serialization
+  template<typename T>
+  static JsonValue serialize(const T& value) {
+    return JsonSerializeTraits<T>::serialize(value);
+  }
   // Serialize Error and ErrorData
   static JsonValue serialize(const Error& error);
   static JsonValue serialize(const ErrorData& data);
@@ -159,9 +168,17 @@ public:
   static JsonValue serializeVector(const std::vector<T>& vec) {
     JsonArrayBuilder builder;
     for (const auto& item : vec) {
-      builder.add(serialize(item));
+      builder.add(serialize<T>(item));
     }
     return builder.build();
+  }
+  
+  // Template-based optional serialization
+  template<typename T>
+  static void serializeOptional(JsonObjectBuilder& builder, const std::string& key, const optional<T>& opt) {
+    if (opt.has_value()) {
+      builder.add(key, serialize<T>(opt.value()));
+    }
   }
 };
 
@@ -403,6 +420,189 @@ inline Metadata jsonToMetadata(const JsonValue& json) {
   }
   return metadata;
 }
+
+// ============ SERIALIZATION TRAITS ============
+
+// Basic type specializations for serialization
+template<>
+struct JsonSerializeTraits<std::string> {
+  static JsonValue serialize(const std::string& value) {
+    return JsonValue(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<int> {
+  static JsonValue serialize(int value) {
+    return JsonValue(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<int64_t> {
+  static JsonValue serialize(int64_t value) {
+    return JsonValue(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<double> {
+  static JsonValue serialize(double value) {
+    return JsonValue(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<bool> {
+  static JsonValue serialize(bool value) {
+    return JsonValue(value);
+  }
+};
+
+// Template macro for MCP type serialization traits
+#define DECLARE_SERIALIZE_TRAIT(Type) \
+  template<> \
+  struct JsonSerializeTraits<Type> { \
+    static JsonValue serialize(const Type& value) { \
+      return JsonSerializer::serialize(value); \
+    } \
+  };
+
+// Generate all MCP type serialize traits
+DECLARE_SERIALIZE_TRAIT(Error)
+DECLARE_SERIALIZE_TRAIT(ErrorData)
+DECLARE_SERIALIZE_TRAIT(RequestId)
+DECLARE_SERIALIZE_TRAIT(TextContent)
+DECLARE_SERIALIZE_TRAIT(ImageContent)
+DECLARE_SERIALIZE_TRAIT(AudioContent)
+DECLARE_SERIALIZE_TRAIT(ResourceContent)
+DECLARE_SERIALIZE_TRAIT(ContentBlock)
+DECLARE_SERIALIZE_TRAIT(ExtendedContentBlock)
+DECLARE_SERIALIZE_TRAIT(Tool)
+DECLARE_SERIALIZE_TRAIT(Prompt)
+DECLARE_SERIALIZE_TRAIT(PromptMessage)
+DECLARE_SERIALIZE_TRAIT(Resource)
+DECLARE_SERIALIZE_TRAIT(ResourceTemplate)
+DECLARE_SERIALIZE_TRAIT(ResourceContents)
+DECLARE_SERIALIZE_TRAIT(TextResourceContents)
+DECLARE_SERIALIZE_TRAIT(BlobResourceContents)
+DECLARE_SERIALIZE_TRAIT(Root)
+DECLARE_SERIALIZE_TRAIT(Message)
+DECLARE_SERIALIZE_TRAIT(SamplingMessage)
+DECLARE_SERIALIZE_TRAIT(ModelPreferences)
+DECLARE_SERIALIZE_TRAIT(ModelHint)
+DECLARE_SERIALIZE_TRAIT(Annotations)
+DECLARE_SERIALIZE_TRAIT(ToolAnnotations)
+DECLARE_SERIALIZE_TRAIT(PromptReference)
+DECLARE_SERIALIZE_TRAIT(ResourceTemplateReference)
+DECLARE_SERIALIZE_TRAIT(ServerCapabilities)
+DECLARE_SERIALIZE_TRAIT(ClientCapabilities)
+DECLARE_SERIALIZE_TRAIT(RootsCapability)
+DECLARE_SERIALIZE_TRAIT(ResourcesCapability)
+DECLARE_SERIALIZE_TRAIT(PromptsCapability)
+DECLARE_SERIALIZE_TRAIT(EmptyCapability)
+DECLARE_SERIALIZE_TRAIT(SamplingParams)
+DECLARE_SERIALIZE_TRAIT(Implementation)
+DECLARE_SERIALIZE_TRAIT(Metadata)
+
+// Request types
+DECLARE_SERIALIZE_TRAIT(InitializeRequest)
+DECLARE_SERIALIZE_TRAIT(PingRequest)
+DECLARE_SERIALIZE_TRAIT(CompleteRequest)
+DECLARE_SERIALIZE_TRAIT(SetLevelRequest)
+DECLARE_SERIALIZE_TRAIT(CallToolRequest)
+DECLARE_SERIALIZE_TRAIT(ListToolsRequest)
+DECLARE_SERIALIZE_TRAIT(GetPromptRequest)
+DECLARE_SERIALIZE_TRAIT(ListPromptsRequest)
+DECLARE_SERIALIZE_TRAIT(ReadResourceRequest)
+DECLARE_SERIALIZE_TRAIT(ListResourcesRequest)
+DECLARE_SERIALIZE_TRAIT(ListResourceTemplatesRequest)
+DECLARE_SERIALIZE_TRAIT(SubscribeRequest)
+DECLARE_SERIALIZE_TRAIT(UnsubscribeRequest)
+DECLARE_SERIALIZE_TRAIT(ListRootsRequest)
+DECLARE_SERIALIZE_TRAIT(CreateMessageRequest)
+DECLARE_SERIALIZE_TRAIT(ElicitRequest)
+
+// Result types  
+DECLARE_SERIALIZE_TRAIT(InitializeResult)
+DECLARE_SERIALIZE_TRAIT(CompleteResult)
+DECLARE_SERIALIZE_TRAIT(CallToolResult)
+DECLARE_SERIALIZE_TRAIT(ListToolsResult)
+DECLARE_SERIALIZE_TRAIT(GetPromptResult)
+DECLARE_SERIALIZE_TRAIT(ListPromptsResult)
+DECLARE_SERIALIZE_TRAIT(ReadResourceResult)
+DECLARE_SERIALIZE_TRAIT(ListResourcesResult)
+DECLARE_SERIALIZE_TRAIT(ListResourceTemplatesResult)
+DECLARE_SERIALIZE_TRAIT(ListRootsResult)
+DECLARE_SERIALIZE_TRAIT(CreateMessageResult)
+DECLARE_SERIALIZE_TRAIT(ElicitResult)
+
+// Notification types
+DECLARE_SERIALIZE_TRAIT(CancelledNotification)
+DECLARE_SERIALIZE_TRAIT(ProgressNotification)
+DECLARE_SERIALIZE_TRAIT(InitializedNotification)
+DECLARE_SERIALIZE_TRAIT(RootsListChangedNotification)
+DECLARE_SERIALIZE_TRAIT(LoggingMessageNotification)
+DECLARE_SERIALIZE_TRAIT(ResourceUpdatedNotification)
+DECLARE_SERIALIZE_TRAIT(ResourceListChangedNotification)
+DECLARE_SERIALIZE_TRAIT(ToolListChangedNotification)
+DECLARE_SERIALIZE_TRAIT(PromptListChangedNotification)
+
+// JSONRPC types
+template<>
+struct JsonSerializeTraits<jsonrpc::Request> {
+  static JsonValue serialize(const jsonrpc::Request& value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<jsonrpc::Response> {
+  static JsonValue serialize(const jsonrpc::Response& value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<jsonrpc::ResponseResult> {
+  static JsonValue serialize(const jsonrpc::ResponseResult& value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<jsonrpc::Notification> {
+  static JsonValue serialize(const jsonrpc::Notification& value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+// Enum specializations
+template<>
+struct JsonSerializeTraits<enums::Role::Value> {
+  static JsonValue serialize(enums::Role::Value value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+template<>
+struct JsonSerializeTraits<enums::LoggingLevel::Value> {
+  static JsonValue serialize(enums::LoggingLevel::Value value) {
+    return JsonSerializer::serialize(value);
+  }
+};
+
+// Special case for Cursor
+template<>
+struct JsonSerializeTraits<optional<Cursor>> {
+  static JsonValue serialize(const optional<Cursor>& value) {
+    return JsonSerializer::serializePaginationInfo(value);
+  }
+};
+
+#undef DECLARE_SERIALIZE_TRAIT
+
+// ============ DESERIALIZATION TRAITS ============
 
 // Basic type specializations
 template<>

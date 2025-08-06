@@ -13,7 +13,7 @@ add_executable(test_json test_json.cc)
 # Temporarily disabled - being refactored
 # add_executable(test_mcp_serialization test_mcp_serialization.cc)
 # add_executable(test_mcp_serialization_extensive test_mcp_serialization_extensive.cc)
-add_executable(test_template_deserialization test_template_deserialization.cc)
+add_executable(test_template_serialization test_template_serialization.cc)
 add_executable(test_event_loop test_event_loop.cc)
 
 # Network tests
@@ -124,7 +124,7 @@ target_link_libraries(test_json
 #     Threads::Threads
 # )
 
-target_link_libraries(test_template_deserialization
+target_link_libraries(test_template_serialization
     mcp-sdk
     gtest 
     gtest_main
@@ -271,7 +271,7 @@ add_test(NAME JsonTest COMMAND test_json)
 # Temporarily disabled - being refactored
 # add_test(NAME McpSerializationTest COMMAND test_mcp_serialization)
 # add_test(NAME McpSerializationExtensiveTest COMMAND test_mcp_serialization_extensive)
-add_test(NAME TemplateDeserializationTest COMMAND test_template_deserialization)
+add_test(NAME TemplateSerializationTest COMMAND test_template_serialization)
 add_test(NAME EventLoopTest COMMAND test_event_loop)
 
 # Network tests
@@ -307,7 +307,7 @@ add_custom_target(run_tests
     DEPENDS test_variant test_variant_extensive test_variant_advanced 
             test_optional test_optional_extensive test_optional_advanced
             test_mcp_type_helpers test_mcp_types test_compat
-            test_buffer test_json test_template_deserialization test_event_loop
+            test_buffer test_json test_template_serialization test_event_loop
             test_io_socket_handle test_address test_socket
             test_socket_interface test_socket_option test_transport_socket
             test_filter test_connection_impl test_listener_impl
