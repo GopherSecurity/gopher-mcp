@@ -6,6 +6,79 @@
 using namespace mcp;
 using namespace mcp::json;
 
+void testTemplateSerialization() {
+    // Test template-based serialization
+    {
+        TextContent content;
+        content.type = "text";
+        content.text = "Hello World";
+        
+        // Old way - specific function name
+        JsonValue json1 = JsonSerializer::serialize(content);
+        
+        // New way - template-based
+        JsonValue json2 = JsonSerializer::serialize<TextContent>(content);
+        
+        assert(json1.toString() == json2.toString());
+        std::cout << "✓ TextContent serialization works\n";
+    }
+    
+    // Test vector serialization
+    {
+        std::vector<TextContent> contents;
+        TextContent c1, c2;
+        c1.type = "text";
+        c1.text = "Item 1";
+        c2.type = "text";
+        c2.text = "Item 2";
+        contents.push_back(c1);
+        contents.push_back(c2);
+        
+        // Template-based vector serialization
+        JsonValue jsonArray = JsonSerializer::serializeVector(contents);
+        
+        assert(jsonArray.isArray());
+        assert(jsonArray.size() == 2);
+        assert(jsonArray[0]["text"].getString() == "Item 1");
+        std::cout << "✓ Vector serialization works\n";
+    }
+    
+    // Test optional serialization
+    {
+        Tool tool;
+        tool.name = "test-tool";
+        tool.description = make_optional(std::string("A test tool"));
+        
+        JsonObjectBuilder builder;
+        builder.add("name", tool.name);
+        JsonSerializer::serializeOptional(builder, "description", tool.description);
+        JsonValue json = builder.build();
+        
+        assert(json.contains("description"));
+        assert(json["description"].getString() == "A test tool");
+        std::cout << "✓ Optional serialization works\n";
+    }
+    
+    // Test round-trip: serialize then deserialize
+    {
+        Error error;
+        error.code = -32601;
+        error.message = "Method not found";
+        
+        // Serialize using template
+        JsonValue json = JsonSerializer::serialize<Error>(error);
+        
+        // Deserialize using template
+        Error error2 = JsonDeserializer::deserialize<Error>(json);
+        
+        assert(error.code == error2.code);
+        assert(error.message == error2.message);
+        std::cout << "✓ Round-trip serialization/deserialization works\n";
+    }
+    
+    std::cout << "\n✅ All template serialization tests passed!\n\n";
+}
+
 void testTemplateDeserialization() {
     // Example 1: Before - specific function for each type
     {
@@ -110,15 +183,17 @@ void testTemplateDeserialization() {
 
 int main() {
     try {
+        testTemplateSerialization();
         testTemplateDeserialization();
         
         std::cout << "\n📝 Benefits of template-based approach:\n";
-        std::cout << "1. Consistent API - always use deserialize<T>() instead of deserializeT()\n";
+        std::cout << "1. Consistent API - serialize<T>() and deserialize<T>()\n";
         std::cout << "2. Better for generic programming and template metaprogramming\n";
         std::cout << "3. Easier to extend with new types - just add trait specialization\n";
         std::cout << "4. Works seamlessly with containers (vector, optional, etc.)\n";
         std::cout << "5. Type deduction in template contexts\n";
         std::cout << "6. Backward compatible - old functions still work\n";
+        std::cout << "7. Symmetric API for both serialization and deserialization\n";
         
         return 0;
     } catch (const std::exception& e) {
