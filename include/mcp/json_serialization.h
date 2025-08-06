@@ -151,17 +151,7 @@ public:
   static JsonValue serialize(const EmptyCapability& cap);
   static JsonValue serialize(const SamplingParams& params);
   
-  // ===== Helper Functions =====
-  
-  // Serialize enums
-  static JsonValue serialize(enums::Role::Value role);
-  static JsonValue serialize(enums::LoggingLevel::Value level);
-  
-  // Serialize pagination info
-  static JsonValue serializePaginationInfo(const optional<Cursor>& cursor);
-  
-  // Serialize Implementation
-  static JsonValue serialize(const Implementation& impl);
+  // These will be removed - using template specializations instead
 };
 
 // Forward declaration for template specialization
@@ -304,17 +294,7 @@ public:
   static EmptyCapability deserializeEmptyCapability(const JsonValue& json);
   static SamplingParams deserializeSamplingParams(const JsonValue& json);
   
-  // ===== Helper Functions =====
-  
-  // Deserialize enums
-  static enums::Role::Value deserializeRole(const JsonValue& json);
-  static enums::LoggingLevel::Value deserializeLoggingLevel(const JsonValue& json);
-  
-  // Deserialize pagination info
-  static optional<Cursor> deserializeCursor(const JsonValue& json);
-  
-  // Deserialize Implementation
-  static Implementation deserializeImplementation(const JsonValue& json);
+  // These will be removed - using template specializations instead
 };
 
 // Helper functions for common conversions
@@ -488,7 +468,7 @@ DECLARE_SERIALIZE_TRAIT(ResourcesCapability)
 DECLARE_SERIALIZE_TRAIT(PromptsCapability)
 DECLARE_SERIALIZE_TRAIT(EmptyCapability)
 DECLARE_SERIALIZE_TRAIT(SamplingParams)
-DECLARE_SERIALIZE_TRAIT(Implementation)
+// Implementation has inline specialization below
 DECLARE_SERIALIZE_TRAIT(Metadata)
 
 // Request types
@@ -563,22 +543,31 @@ struct JsonSerializeTraits<jsonrpc::Notification> {
   }
 };
 
-// Enum specializations
+// Enum specializations with direct implementation
 template<>
 struct JsonSerializeTraits<enums::Role::Value> {
   static JsonValue serialize(enums::Role::Value value) {
-    return JsonSerializer::serialize(value);
+    return JsonValue(enums::Role::to_string(value));
   }
 };
 
 template<>
 struct JsonSerializeTraits<enums::LoggingLevel::Value> {
   static JsonValue serialize(enums::LoggingLevel::Value value) {
-    return JsonSerializer::serialize(value);
+    return JsonValue(enums::LoggingLevel::to_string(value));
   }
 };
 
-// Remove special case - now handled by generic optional<T> specialization
+// Implementation specialization
+template<>
+struct JsonSerializeTraits<Implementation> {
+  static JsonValue serialize(const Implementation& impl) {
+    JsonObjectBuilder builder;
+    builder.add("name", impl.name);
+    builder.add("version", impl.version);
+    return builder.build();
+  }
+};
 
 #undef DECLARE_SERIALIZE_TRAIT
 
@@ -744,7 +733,7 @@ DECLARE_DESERIALIZE_TRAIT(EmptyCapability)
 DECLARE_DESERIALIZE_TRAIT(SamplingParams)
 
 // Implementation
-DECLARE_DESERIALIZE_TRAIT(Implementation)
+// Implementation has inline specialization below
 
 // Metadata
 DECLARE_DESERIALIZE_TRAIT(Metadata)
@@ -821,22 +810,41 @@ struct JsonDeserializeTraits<jsonrpc::Notification> {
   }
 };
 
-// Enum specializations
+// Enum specializations with direct implementation
 template<>
 struct JsonDeserializeTraits<enums::Role::Value> {
   static enums::Role::Value deserialize(const JsonValue& json) {
-    return JsonDeserializer::deserializeRole(json);
+    auto role_str = json.getString();
+    auto role = enums::Role::from_string(role_str);
+    if (!role.has_value()) {
+      throw JsonException("Invalid role: " + role_str);
+    }
+    return role.value();
   }
 };
 
 template<>
 struct JsonDeserializeTraits<enums::LoggingLevel::Value> {
   static enums::LoggingLevel::Value deserialize(const JsonValue& json) {
-    return JsonDeserializer::deserializeLoggingLevel(json);
+    auto level_str = json.getString();
+    auto level = enums::LoggingLevel::from_string(level_str);
+    if (!level.has_value()) {
+      throw JsonException("Invalid logging level: " + level_str);
+    }
+    return level.value();
   }
 };
 
-// Remove special case - now handled by generic optional<T> specialization
+// Implementation specialization
+template<>
+struct JsonDeserializeTraits<Implementation> {
+  static Implementation deserialize(const JsonValue& json) {
+    Implementation impl;
+    impl.name = json.at("name").getString();
+    impl.version = json.at("version").getString();
+    return impl;
+  }
+};
 
 // Clean up the macro
 #undef DECLARE_DESERIALIZE_TRAIT

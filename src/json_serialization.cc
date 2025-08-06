@@ -1518,30 +1518,12 @@ JsonValue JsonSerializer::serialize(const SamplingParams& params) {
 // ===== Helper Functions Serialization =====
 
 // Serialize enums
-JsonValue JsonSerializer::serialize(enums::Role::Value role) {
-  return JsonValue(enums::Role::to_string(role));
-}
-
-JsonValue JsonSerializer::serialize(enums::LoggingLevel::Value level) {
-  return JsonValue(enums::LoggingLevel::to_string(level));
-}
+// Removed enum serializers - use template specializations
 
 // Serialize pagination info
-JsonValue JsonSerializer::serializePaginationInfo(const optional<Cursor>& cursor) {
-  JsonObjectBuilder builder;
-  if (cursor.has_value()) {
-    builder.add("cursor", cursor.value());
-  }
-  return builder.build();
-}
+// Removed serializePaginationInfo - use serialize(optional<Cursor>) directly
 
-// Serialize Implementation
-JsonValue JsonSerializer::serialize(const Implementation& impl) {
-  JsonObjectBuilder builder;
-  builder.add("name", impl.name)
-         .add("version", impl.version);
-  return builder.build();
-}
+// Removed serialize(Implementation) - use template specialization
 
 // Note: ProgressToken and RequestId are the same type, so we reuse serialize(RequestId)
 
@@ -1553,7 +1535,7 @@ InitializeRequest JsonDeserializer::deserializeInitializeRequest(const JsonValue
   request.capabilities = deserializeClientCapabilities(json.at("capabilities"));
   
   if (json.contains("clientInfo")) {
-    request.clientInfo = deserializeImplementation(json["clientInfo"]);
+    request.clientInfo = deserialize<Implementation>(json["clientInfo"]);
   }
   
   return request;
@@ -1837,7 +1819,7 @@ InitializeResult JsonDeserializer::deserializeInitializeResult(const JsonValue& 
   result.capabilities = deserializeServerCapabilities(json.at("capabilities"));
   
   if (json.contains("serverInfo")) {
-    result.serverInfo = deserializeImplementation(json["serverInfo"]);
+    result.serverInfo = deserialize<Implementation>(json["serverInfo"]);
   }
   
   if (json.contains("instructions")) {
@@ -2420,38 +2402,7 @@ SamplingParams JsonDeserializer::deserializeSamplingParams(const JsonValue& json
 
 // ===== Helper Functions Deserialization =====
 
-enums::Role::Value JsonDeserializer::deserializeRole(const JsonValue& json) {
-  auto role_str = json.getString();
-  auto role = enums::Role::from_string(role_str);
-  if (!role.has_value()) {
-    throw JsonException("Invalid role: " + role_str);
-  }
-  return role.value();
-}
-
-enums::LoggingLevel::Value JsonDeserializer::deserializeLoggingLevel(const JsonValue& json) {
-  auto level_str = json.getString();
-  auto level = enums::LoggingLevel::from_string(level_str);
-  if (!level.has_value()) {
-    throw JsonException("Invalid logging level: " + level_str);
-  }
-  return level.value();
-}
-
-optional<Cursor> JsonDeserializer::deserializeCursor(const JsonValue& json) {
-  if (json.contains("cursor")) {
-    return mcp::make_optional(json["cursor"].getString());
-  }
-  return nullopt;
-}
-
-// Deserialize Implementation
-Implementation JsonDeserializer::deserializeImplementation(const JsonValue& json) {
-  Implementation impl;
-  impl.name = json.at("name").getString();
-  impl.version = json.at("version").getString();
-  return impl;
-}
+// All helper functions removed - using template specializations in header
 
 }  // namespace json
 }  // namespace mcp
