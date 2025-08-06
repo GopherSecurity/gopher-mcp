@@ -96,6 +96,9 @@ public:
   void erase(const std::string& key);
   std::vector<std::string> keys() const;
   
+  // Direct key-value setting for objects
+  void set(const std::string& key, const JsonValue& value);
+  
   // Iteration support for objects
   class ObjectIterator {
   public:
@@ -136,37 +139,37 @@ public:
   JsonObjectBuilder() : value_(JsonValue::object()) {}
   
   JsonObjectBuilder& add(const std::string& key, const JsonValue& val) {
-    value_[key] = val;
+    value_.set(key, val);
     return *this;
   }
   
   JsonObjectBuilder& add(const std::string& key, bool val) {
-    value_[key] = JsonValue(val);
+    value_.set(key, JsonValue(val));
     return *this;
   }
   
   JsonObjectBuilder& add(const std::string& key, int val) {
-    value_[key] = JsonValue(val);
+    value_.set(key, JsonValue(val));
     return *this;
   }
   
   JsonObjectBuilder& add(const std::string& key, double val) {
-    value_[key] = JsonValue(val);
+    value_.set(key, JsonValue(val));
     return *this;
   }
   
   JsonObjectBuilder& add(const std::string& key, const std::string& val) {
-    value_[key] = JsonValue(val);
+    value_.set(key, JsonValue(val));
     return *this;
   }
   
   JsonObjectBuilder& add(const std::string& key, const char* val) {
-    value_[key] = JsonValue(val);
+    value_.set(key, JsonValue(val));
     return *this;
   }
   
   JsonObjectBuilder& addNull(const std::string& key) {
-    value_[key] = JsonValue::null();
+    value_.set(key, JsonValue::null());
     return *this;
   }
   

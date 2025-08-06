@@ -11,6 +11,7 @@ extern nlohmann::json toNlohmannJson(const JsonValue& value);
 
 namespace mcp {
 namespace json {
+namespace impl {
 
 // Helper function to handle optional fields
 template<typename T>
@@ -23,19 +24,19 @@ static void addOptional(JsonObjectBuilder& builder, const std::string& key,
 }
 
 // Serialize Error and ErrorData
-JsonValue JsonSerializer::serialize(const Error& error) {
+JsonValue serialize_Error(const Error& error) {
   JsonObjectBuilder builder;
   builder.add("code", error.code)
          .add("message", error.message);
   
   if (error.data.has_value()) {
-    builder.add("data", serialize(error.data.value()));
+    builder.add("data", serialize_ErrorData(error.data.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ErrorData& data) {
+JsonValue serialize_ErrorData(const ErrorData& data) {
   JsonValue result;
   
   match(data,
@@ -64,7 +65,7 @@ JsonValue JsonSerializer::serialize(const ErrorData& data) {
 }
 
 // Serialize jsonrpc types
-JsonValue JsonSerializer::serialize(const RequestId& id) {
+JsonValue serialize_RequestId(const RequestId& id) {
   JsonValue result;
   
   match(id,
@@ -75,10 +76,10 @@ JsonValue JsonSerializer::serialize(const RequestId& id) {
   return result;
 }
 
-JsonValue JsonSerializer::serialize(const jsonrpc::Request& request) {
+JsonValue serialize_Request(const jsonrpc::Request& request) {
   JsonObjectBuilder builder;
   builder.add("jsonrpc", request.jsonrpc)
-         .add("id", serialize(request.id))
+         .add("id", serialize_RequestId(request.id))
          .add("method", request.method);
   
   if (request.params.has_value()) {
@@ -88,23 +89,23 @@ JsonValue JsonSerializer::serialize(const jsonrpc::Request& request) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const jsonrpc::Response& response) {
+JsonValue serialize_Response(const jsonrpc::Response& response) {
   JsonObjectBuilder builder;
   builder.add("jsonrpc", response.jsonrpc)
-         .add("id", serialize(response.id));
+         .add("id", serialize_RequestId(response.id));
   
   if (response.result.has_value()) {
-    builder.add("result", serialize(response.result.value()));
+    builder.add("result", serialize_ResponseResult(response.result.value()));
   }
   
   if (response.error.has_value()) {
-    builder.add("error", serialize(response.error.value()));
+    builder.add("error", serialize_Error(response.error.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const jsonrpc::ResponseResult& result) {
+JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
   JsonValue json_result;
   
   match(result,
@@ -129,28 +130,28 @@ JsonValue JsonSerializer::serialize(const jsonrpc::ResponseResult& result) {
     [&json_result](const std::vector<ContentBlock>& blocks) {
       JsonArrayBuilder builder;
       for (const auto& block : blocks) {
-        builder.add(serialize(block));
+        builder.add(serialize_ContentBlock(block));
       }
       json_result = builder.build();
     },
     [&json_result](const std::vector<Tool>& tools) {
       JsonArrayBuilder builder;
       for (const auto& tool : tools) {
-        builder.add(serialize(tool));
+        builder.add(serialize_Tool(tool));
       }
       json_result = builder.build();
     },
     [&json_result](const std::vector<Prompt>& prompts) {
       JsonArrayBuilder builder;
       for (const auto& prompt : prompts) {
-        builder.add(serialize(prompt));
+        builder.add(serialize_Prompt(prompt));
       }
       json_result = builder.build();
     },
     [&json_result](const std::vector<Resource>& resources) {
       JsonArrayBuilder builder;
       for (const auto& resource : resources) {
-        builder.add(serialize(resource));
+        builder.add(serialize_Resource(resource));
       }
       json_result = builder.build();
     }
@@ -159,7 +160,7 @@ JsonValue JsonSerializer::serialize(const jsonrpc::ResponseResult& result) {
   return json_result;
 }
 
-JsonValue JsonSerializer::serialize(const jsonrpc::Notification& notification) {
+JsonValue serialize_Notification(const jsonrpc::Notification& notification) {
   JsonObjectBuilder builder;
   builder.add("jsonrpc", notification.jsonrpc)
          .add("method", notification.method);
@@ -172,14 +173,14 @@ JsonValue JsonSerializer::serialize(const jsonrpc::Notification& notification) {
 }
 
 // Serialize content types
-JsonValue JsonSerializer::serialize(const TextContent& content) {
+JsonValue serialize_TextContent(const TextContent& content) {
   JsonObjectBuilder builder;
   builder.add("type", "text")
          .add("text", content.text);
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ImageContent& content) {
+JsonValue serialize_ImageContent(const ImageContent& content) {
   JsonObjectBuilder builder;
   builder.add("type", "image")
          .add("mimeType", content.mimeType)
@@ -187,7 +188,7 @@ JsonValue JsonSerializer::serialize(const ImageContent& content) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const AudioContent& content) {
+JsonValue serialize_AudioContent(const AudioContent& content) {
   JsonObjectBuilder builder;
   builder.add("type", "audio")
          .add("mimeType", content.mimeType)
@@ -195,25 +196,25 @@ JsonValue JsonSerializer::serialize(const AudioContent& content) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ResourceContent& content) {
+JsonValue serialize_ResourceContent(const ResourceContent& content) {
   JsonObjectBuilder builder;
   builder.add("type", "resource")
-         .add("resource", serialize(content.resource));
+         .add("resource", serialize_Resource(content.resource));
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ContentBlock& block) {
+JsonValue serialize_ContentBlock(const ContentBlock& block) {
   JsonValue result;
   
   match(block,
     [&result](const TextContent& text) { 
-      result = serialize(text); 
+      result = serialize_TextContent(text); 
     },
     [&result](const ImageContent& image) { 
-      result = serialize(image); 
+      result = serialize_ImageContent(image); 
     },
     [&result](const ResourceContent& resource) { 
-      result = serialize(resource); 
+      result = serialize_ResourceContent(resource); 
     }
   );
   
@@ -221,7 +222,7 @@ JsonValue JsonSerializer::serialize(const ContentBlock& block) {
 }
 
 // Serialize Tool
-JsonValue JsonSerializer::serialize(const Tool& tool) {
+JsonValue serialize_Tool(const Tool& tool) {
   JsonObjectBuilder builder;
   builder.add("name", tool.name);
   
@@ -239,7 +240,7 @@ JsonValue JsonSerializer::serialize(const Tool& tool) {
 }
 
 // Serialize Prompt
-JsonValue JsonSerializer::serialize(const Prompt& prompt) {
+JsonValue serialize_Prompt(const Prompt& prompt) {
   JsonObjectBuilder builder;
   builder.add("name", prompt.name);
   
@@ -265,7 +266,7 @@ JsonValue JsonSerializer::serialize(const Prompt& prompt) {
 }
 
 // Serialize Resource
-JsonValue JsonSerializer::serialize(const Resource& resource) {
+JsonValue serialize_Resource(const Resource& resource) {
   JsonObjectBuilder builder;
   builder.add("uri", resource.uri);
   builder.add("name", resource.name);
@@ -282,24 +283,24 @@ JsonValue JsonSerializer::serialize(const Resource& resource) {
 }
 
 // Serialize Metadata
-JsonValue JsonSerializer::serialize(const Metadata& metadata) {
+JsonValue serialize_Metadata(const Metadata& metadata) {
   return metadataToJson(metadata);
 }
 
 // Deserialize Error and ErrorData
-Error JsonDeserializer::deserializeError(const JsonValue& json) {
+Error deserialize_Error(const JsonValue& json) {
   Error error;
   error.code = json.at("code").getInt();
   error.message = json.at("message").getString();
   
   if (json.contains("data")) {
-    error.data = deserializeErrorData(json["data"]);
+    error.data = deserialize_ErrorData(json["data"]);
   }
   
   return error;
 }
 
-ErrorData JsonDeserializer::deserializeErrorData(const JsonValue& json) {
+ErrorData deserialize_ErrorData(const JsonValue& json) {
   if (json.isNull()) {
     return ErrorData(nullptr);
   } else if (json.isBoolean()) {
@@ -329,7 +330,7 @@ ErrorData JsonDeserializer::deserializeErrorData(const JsonValue& json) {
 }
 
 // Deserialize jsonrpc types
-RequestId JsonDeserializer::deserializeRequestId(const JsonValue& json) {
+RequestId deserialize_RequestId(const JsonValue& json) {
   if (json.isString()) {
     return RequestId(json.getString());
   } else if (json.isInteger()) {
@@ -338,10 +339,10 @@ RequestId JsonDeserializer::deserializeRequestId(const JsonValue& json) {
   throw JsonException("Invalid RequestId type");
 }
 
-jsonrpc::Request JsonDeserializer::deserializeRequest(const JsonValue& json) {
+jsonrpc::Request deserialize_Request(const JsonValue& json) {
   jsonrpc::Request request;
   request.jsonrpc = json.at("jsonrpc").getString();
-  request.id = deserializeRequestId(json.at("id"));
+  request.id = deserialize_RequestId(json.at("id"));
   request.method = json.at("method").getString();
   
   if (json.contains("params")) {
@@ -351,23 +352,23 @@ jsonrpc::Request JsonDeserializer::deserializeRequest(const JsonValue& json) {
   return request;
 }
 
-jsonrpc::Response JsonDeserializer::deserializeResponse(const JsonValue& json) {
+jsonrpc::Response deserialize_Response(const JsonValue& json) {
   jsonrpc::Response response;
   response.jsonrpc = json.at("jsonrpc").getString();
-  response.id = deserializeRequestId(json.at("id"));
+  response.id = deserialize_RequestId(json.at("id"));
   
   if (json.contains("result")) {
-    response.result = deserializeResponseResult(json["result"]);
+    response.result = deserialize_ResponseResult(json["result"]);
   }
   
   if (json.contains("error")) {
-    response.error = deserializeError(json["error"]);
+    response.error = deserialize_Error(json["error"]);
   }
   
   return response;
 }
 
-jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonValue& json) {
+jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
   if (json.isNull()) {
     return jsonrpc::ResponseResult(nullptr);
   } else if (json.isBoolean()) {
@@ -385,7 +386,7 @@ jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonVa
       if (type == "text" || type == "image" || type == "resource") {
         // It's a single ContentBlock
         std::vector<ContentBlock> blocks;
-        blocks.push_back(deserializeContentBlock(json));
+        blocks.push_back(deserialize_ContentBlock(json));
         return jsonrpc::ResponseResult(blocks);
       }
     }
@@ -403,7 +404,7 @@ jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonVa
           std::vector<ContentBlock> blocks;
           size_t size = json.size();
           for (size_t i = 0; i < size; ++i) {
-            blocks.push_back(deserializeContentBlock(json[i]));
+            blocks.push_back(deserialize_ContentBlock(json[i]));
           }
           return jsonrpc::ResponseResult(blocks);
         }
@@ -412,7 +413,7 @@ jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonVa
         std::vector<Tool> tools;
         size_t size = json.size();
         for (size_t i = 0; i < size; ++i) {
-          tools.push_back(deserializeTool(json[i]));
+          tools.push_back(deserialize_Tool(json[i]));
         }
         return jsonrpc::ResponseResult(tools);
       } else if (first.contains("uri")) {
@@ -420,7 +421,7 @@ jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonVa
         std::vector<Resource> resources;
         size_t size = json.size();
         for (size_t i = 0; i < size; ++i) {
-          resources.push_back(deserializeResource(json[i]));
+          resources.push_back(deserialize_Resource(json[i]));
         }
         return jsonrpc::ResponseResult(resources);
       }
@@ -434,7 +435,7 @@ jsonrpc::ResponseResult JsonDeserializer::deserializeResponseResult(const JsonVa
   return jsonrpc::ResponseResult(nullptr);
 }
 
-jsonrpc::Notification JsonDeserializer::deserializeNotification(const JsonValue& json) {
+jsonrpc::Notification deserialize_Notification(const JsonValue& json) {
   jsonrpc::Notification notification;
   notification.jsonrpc = json.at("jsonrpc").getString();
   notification.method = json.at("method").getString();
@@ -447,7 +448,7 @@ jsonrpc::Notification JsonDeserializer::deserializeNotification(const JsonValue&
 }
 
 // Deserialize content types
-ContentBlock JsonDeserializer::deserializeContentBlock(const JsonValue& json) {
+ContentBlock deserialize_ContentBlock(const JsonValue& json) {
   std::string type = json.at("type").getString();
   
   if (type == "text") {
@@ -461,7 +462,7 @@ ContentBlock JsonDeserializer::deserializeContentBlock(const JsonValue& json) {
     return ContentBlock(image);
   } else if (type == "resource") {
     ResourceContent resource;
-    resource.resource = deserializeResource(json.at("resource"));
+    resource.resource = deserialize_Resource(json.at("resource"));
     return ContentBlock(resource);
   }
   
@@ -469,7 +470,7 @@ ContentBlock JsonDeserializer::deserializeContentBlock(const JsonValue& json) {
 }
 
 // Deserialize Tool
-Tool JsonDeserializer::deserializeTool(const JsonValue& json) {
+Tool deserialize_Tool(const JsonValue& json) {
   Tool tool;
   tool.name = json.at("name").getString();
   
@@ -486,7 +487,7 @@ Tool JsonDeserializer::deserializeTool(const JsonValue& json) {
 }
 
 // Deserialize Resource
-Resource JsonDeserializer::deserializeResource(const JsonValue& json) {
+Resource deserialize_Resource(const JsonValue& json) {
   Resource resource;
   resource.uri = json.at("uri").getString();
   
@@ -506,12 +507,12 @@ Resource JsonDeserializer::deserializeResource(const JsonValue& json) {
 }
 
 // Deserialize Metadata
-Metadata JsonDeserializer::deserializeMetadata(const JsonValue& json) {
+Metadata deserialize_Metadata(const JsonValue& json) {
   return jsonToMetadata(json);
 }
 
 // Deserialize Prompt
-Prompt JsonDeserializer::deserializePrompt(const JsonValue& json) {
+Prompt deserialize_Prompt(const JsonValue& json) {
   Prompt prompt;
   prompt.name = json.at("name").getString();
   
@@ -541,31 +542,31 @@ Prompt JsonDeserializer::deserializePrompt(const JsonValue& json) {
 }
 
 // Deserialize Extended Content Types
-TextContent JsonDeserializer::deserializeTextContent(const JsonValue& json) {
+TextContent deserialize_TextContent(const JsonValue& json) {
   TextContent content;
   content.text = json.at("text").getString();
   // Add annotations if present
   if (json.contains("annotations")) {
-    content.annotations = deserializeAnnotations(json["annotations"]);
+    content.annotations = deserialize_Annotations(json["annotations"]);
   }
   return content;
 }
 
-ImageContent JsonDeserializer::deserializeImageContent(const JsonValue& json) {
+ImageContent deserialize_ImageContent(const JsonValue& json) {
   ImageContent content;
   content.data = json.at("data").getString();
   content.mimeType = json.at("mimeType").getString();
   return content;
 }
 
-AudioContent JsonDeserializer::deserializeAudioContent(const JsonValue& json) {
+AudioContent deserialize_AudioContent(const JsonValue& json) {
   AudioContent content;
   content.data = json.at("data").getString();
   content.mimeType = json.at("mimeType").getString();
   return content;
 }
 
-ResourceLink JsonDeserializer::deserializeResourceLink(const JsonValue& json) {
+ResourceLink deserialize_ResourceLink(const JsonValue& json) {
   ResourceLink link;
   link.uri = json.at("uri").getString();
   link.name = json.at("name").getString();
@@ -581,34 +582,34 @@ ResourceLink JsonDeserializer::deserializeResourceLink(const JsonValue& json) {
   return link;
 }
 
-EmbeddedResource JsonDeserializer::deserializeEmbeddedResource(const JsonValue& json) {
+EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json) {
   EmbeddedResource embedded;
-  embedded.resource = deserializeResource(json.at("resource"));
+  embedded.resource = deserialize_Resource(json.at("resource"));
   
   if (json.contains("content")) {
     const auto& contentArray = json["content"];
     size_t size = contentArray.size();
     for (size_t i = 0; i < size; ++i) {
-      embedded.content.push_back(deserializeContentBlock(contentArray[i]));
+      embedded.content.push_back(deserialize_ContentBlock(contentArray[i]));
     }
   }
   
   return embedded;
 }
 
-ExtendedContentBlock JsonDeserializer::deserializeExtendedContentBlock(const JsonValue& json) {
+ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
   std::string type = json.at("type").getString();
   
   if (type == "text") {
-    return ExtendedContentBlock(deserializeTextContent(json));
+    return ExtendedContentBlock(deserialize_TextContent(json));
   } else if (type == "image") {
-    return ExtendedContentBlock(deserializeImageContent(json));
+    return ExtendedContentBlock(deserialize_ImageContent(json));
   } else if (type == "audio") {
-    return ExtendedContentBlock(deserializeAudioContent(json));
+    return ExtendedContentBlock(deserialize_AudioContent(json));
   } else if (type == "resource") {
-    return ExtendedContentBlock(deserializeResourceLink(json));
+    return ExtendedContentBlock(deserialize_ResourceLink(json));
   } else if (type == "embedded") {
-    return ExtendedContentBlock(deserializeEmbeddedResource(json));
+    return ExtendedContentBlock(deserialize_EmbeddedResource(json));
   }
   
   throw JsonException("Unknown extended content block type: " + type);
@@ -616,18 +617,18 @@ ExtendedContentBlock JsonDeserializer::deserializeExtendedContentBlock(const Jso
 
 // ===== Extended Content Block Serialization =====
 
-JsonValue JsonSerializer::serialize(const ExtendedContentBlock& block) {
+JsonValue serialize_ExtendedContentBlock(const ExtendedContentBlock& block) {
   JsonValue result;
   
   match(block,
     [&result](const TextContent& text) { 
-      result = serialize(text); 
+      result = serialize_TextContent(text); 
     },
     [&result](const ImageContent& image) { 
-      result = serialize(image); 
+      result = serialize_ImageContent(image); 
     },
     [&result](const AudioContent& audio) { 
-      result = serialize(audio); 
+      result = serialize_AudioContent(audio); 
     },
     [&result](const ResourceLink& link) {
       JsonObjectBuilder builder;
@@ -645,10 +646,10 @@ JsonValue JsonSerializer::serialize(const ExtendedContentBlock& block) {
     [&result](const EmbeddedResource& embedded) {
       JsonObjectBuilder builder;
       builder.add("type", "embedded")
-             .add("resource", serialize(embedded.resource));
+             .add("resource", serialize_Resource(embedded.resource));
       JsonArrayBuilder contentArray;
       for (const auto& content : embedded.content) {
-        contentArray.add(serialize(content));
+        contentArray.add(serialize_ContentBlock(content));
       }
       builder.add("content", contentArray.build());
       result = builder.build();
@@ -661,49 +662,49 @@ JsonValue JsonSerializer::serialize(const ExtendedContentBlock& block) {
 // ===== Request Types Serialization =====
 
 // Initialize and session requests
-JsonValue JsonSerializer::serialize(const InitializeRequest& request) {
+JsonValue serialize_InitializeRequest(const InitializeRequest& request) {
   JsonObjectBuilder builder;
   builder.add("protocolVersion", request.protocolVersion)
-         .add("capabilities", serialize(request.capabilities));
+         .add("capabilities", serialize_ClientCapabilities(request.capabilities));
   if (request.clientInfo.has_value()) {
-    builder.add("clientInfo", serialize(request.clientInfo.value()));
+    builder.add("clientInfo", JsonSerializer::serialize(request.clientInfo.value()));
   }
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const PingRequest& request) {
+JsonValue serialize_PingRequest(const PingRequest& request) {
   (void)request; // Empty params
   return JsonObjectBuilder().build();
 }
 
-JsonValue JsonSerializer::serialize(const CompleteRequest& request) {
+JsonValue serialize_CompleteRequest(const CompleteRequest& request) {
   JsonObjectBuilder builder;
-  builder.add("ref", serialize(request.ref));
+  builder.add("ref", serialize_PromptReference(request.ref));
   if (request.argument.has_value()) {
     builder.add("argument", request.argument.value());
   }
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const SetLevelRequest& request) {
+JsonValue serialize_SetLevelRequest(const SetLevelRequest& request) {
   JsonObjectBuilder builder;
   builder.add("level", enums::LoggingLevel::to_string(request.level));
   return builder.build();
 }
 
 // Tool requests
-JsonValue JsonSerializer::serialize(const CallToolRequest& request) {
+JsonValue serialize_CallToolRequest(const CallToolRequest& request) {
   JsonObjectBuilder builder;
   builder.add("name", request.name);
   
   if (request.arguments.has_value()) {
-    builder.add("arguments", serialize(request.arguments.value()));
+    builder.add("arguments", serialize_Metadata(request.arguments.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListToolsRequest& request) {
+JsonValue serialize_ListToolsRequest(const ListToolsRequest& request) {
   JsonObjectBuilder builder;
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
@@ -712,25 +713,25 @@ JsonValue JsonSerializer::serialize(const ListToolsRequest& request) {
 }
 
 // Prompt requests
-JsonValue JsonSerializer::serialize(const PromptMessage& message) {
+JsonValue serialize_PromptMessage(const PromptMessage& message) {
   JsonObjectBuilder builder;
   builder.add("role", enums::Role::to_string(message.role));
   
   // Handle variant content
   match(message.content,
     [&builder](const TextContent& text) {
-      builder.add("content", serialize(text));
+      builder.add("content", serialize_TextContent(text));
     },
     [&builder](const ImageContent& image) {
-      builder.add("content", serialize(image));
+      builder.add("content", serialize_ImageContent(image));
     },
     [&builder](const EmbeddedResource& embedded) {
       JsonObjectBuilder embBuilder;
       embBuilder.add("type", "embedded")
-                .add("resource", serialize(embedded.resource));
+                .add("resource", serialize_Resource(embedded.resource));
       JsonArrayBuilder contentArray;
       for (const auto& content : embedded.content) {
-        contentArray.add(serialize(content));
+        contentArray.add(serialize_ContentBlock(content));
       }
       embBuilder.add("content", contentArray.build());
       builder.add("content", embBuilder.build());
@@ -740,18 +741,18 @@ JsonValue JsonSerializer::serialize(const PromptMessage& message) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const GetPromptRequest& request) {
+JsonValue serialize_GetPromptRequest(const GetPromptRequest& request) {
   JsonObjectBuilder builder;
   builder.add("name", request.name);
   
   if (request.arguments.has_value()) {
-    builder.add("arguments", serialize(request.arguments.value()));
+    builder.add("arguments", serialize_Metadata(request.arguments.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListPromptsRequest& request) {
+JsonValue serialize_ListPromptsRequest(const ListPromptsRequest& request) {
   JsonObjectBuilder builder;
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
@@ -760,7 +761,7 @@ JsonValue JsonSerializer::serialize(const ListPromptsRequest& request) {
 }
 
 // Resource requests
-JsonValue JsonSerializer::serialize(const ResourceTemplate& resourceTemplate) {
+JsonValue serialize_ResourceTemplate(const ResourceTemplate& resourceTemplate) {
   JsonObjectBuilder builder;
   builder.add("uriTemplate", resourceTemplate.uriTemplate)
          .add("name", resourceTemplate.name);
@@ -776,13 +777,13 @@ JsonValue JsonSerializer::serialize(const ResourceTemplate& resourceTemplate) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ReadResourceRequest& request) {
+JsonValue serialize_ReadResourceRequest(const ReadResourceRequest& request) {
   JsonObjectBuilder builder;
   builder.add("uri", request.uri);
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListResourcesRequest& request) {
+JsonValue serialize_ListResourcesRequest(const ListResourcesRequest& request) {
   JsonObjectBuilder builder;
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
@@ -790,7 +791,7 @@ JsonValue JsonSerializer::serialize(const ListResourcesRequest& request) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListResourceTemplatesRequest& request) {
+JsonValue serialize_ListResourceTemplatesRequest(const ListResourceTemplatesRequest& request) {
   JsonObjectBuilder builder;
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
@@ -798,20 +799,20 @@ JsonValue JsonSerializer::serialize(const ListResourceTemplatesRequest& request)
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const SubscribeRequest& request) {
+JsonValue serialize_SubscribeRequest(const SubscribeRequest& request) {
   JsonObjectBuilder builder;
   builder.add("uri", request.uri);
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const UnsubscribeRequest& request) {
+JsonValue serialize_UnsubscribeRequest(const UnsubscribeRequest& request) {
   JsonObjectBuilder builder;
   builder.add("uri", request.uri);
   return builder.build();
 }
 
 // Root requests
-JsonValue JsonSerializer::serialize(const Root& root) {
+JsonValue serialize_Root(const Root& root) {
   JsonObjectBuilder builder;
   builder.add("uri", root.uri);
   
@@ -822,24 +823,24 @@ JsonValue JsonSerializer::serialize(const Root& root) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListRootsRequest& request) {
+JsonValue serialize_ListRootsRequest(const ListRootsRequest& request) {
   (void)request; // Empty params
   return JsonObjectBuilder().build();
 }
 
 // Message requests
-JsonValue JsonSerializer::serialize(const CreateMessageRequest& request) {
+JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
   JsonObjectBuilder builder;
   
   // Serialize messages array
   JsonArrayBuilder messages;
   for (const auto& msg : request.messages) {
-    messages.add(serialize(msg));
+    messages.add(serialize_SamplingMessage(msg));
   }
   builder.add("messages", messages.build());
   
   if (request.modelPreferences.has_value()) {
-    builder.add("modelPreferences", serialize(request.modelPreferences.value()));
+    builder.add("modelPreferences", serialize_ModelPreferences(request.modelPreferences.value()));
   }
   
   if (request.systemPrompt.has_value()) {
@@ -847,7 +848,7 @@ JsonValue JsonSerializer::serialize(const CreateMessageRequest& request) {
   }
   
   if (request.includeContext.has_value()) {
-    builder.add("includeContext", serialize(request.includeContext.value()));
+    builder.add("includeContext", serialize_Metadata(request.includeContext.value()));
   }
   
   if (request.temperature.has_value()) {
@@ -867,13 +868,13 @@ JsonValue JsonSerializer::serialize(const CreateMessageRequest& request) {
   }
   
   if (request.metadata.has_value()) {
-    builder.add("metadata", serialize(request.metadata.value()));
+    builder.add("metadata", serialize_Metadata(request.metadata.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ElicitRequest& request) {
+JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   JsonObjectBuilder builder;
   builder.add("name", request.name);
   
@@ -946,13 +947,13 @@ JsonValue JsonSerializer::serialize(const ElicitRequest& request) {
 // ===== Response/Result Types Serialization =====
 
 // Initialize and session results
-JsonValue JsonSerializer::serialize(const InitializeResult& result) {
+JsonValue serialize_InitializeResult(const InitializeResult& result) {
   JsonObjectBuilder builder;
   builder.add("protocolVersion", result.protocolVersion)
-         .add("capabilities", serialize(result.capabilities));
+         .add("capabilities", serialize_ServerCapabilities(result.capabilities));
   
   if (result.serverInfo.has_value()) {
-    builder.add("serverInfo", serialize(result.serverInfo.value()));
+    builder.add("serverInfo", JsonSerializer::serialize(result.serverInfo.value()));
   }
   
   if (result.instructions.has_value()) {
@@ -962,7 +963,7 @@ JsonValue JsonSerializer::serialize(const InitializeResult& result) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const CompleteResult& result) {
+JsonValue serialize_CompleteResult(const CompleteResult& result) {
   JsonObjectBuilder builder;
   JsonObjectBuilder completionBuilder;
   
@@ -983,12 +984,12 @@ JsonValue JsonSerializer::serialize(const CompleteResult& result) {
 }
 
 // Tool results
-JsonValue JsonSerializer::serialize(const CallToolResult& result) {
+JsonValue serialize_CallToolResult(const CallToolResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder content;
   for (const auto& block : result.content) {
-    content.add(serialize(block));
+    content.add(serialize_ExtendedContentBlock(block));
   }
   builder.add("content", content.build());
   
@@ -999,12 +1000,12 @@ JsonValue JsonSerializer::serialize(const CallToolResult& result) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListToolsResult& result) {
+JsonValue serialize_ListToolsResult(const ListToolsResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder tools;
   for (const auto& tool : result.tools) {
-    tools.add(serialize(tool));
+    tools.add(serialize_Tool(tool));
   }
   builder.add("tools", tools.build());
   
@@ -1012,7 +1013,7 @@ JsonValue JsonSerializer::serialize(const ListToolsResult& result) {
 }
 
 // Prompt results
-JsonValue JsonSerializer::serialize(const GetPromptResult& result) {
+JsonValue serialize_GetPromptResult(const GetPromptResult& result) {
   JsonObjectBuilder builder;
   
   if (result.description.has_value()) {
@@ -1021,19 +1022,19 @@ JsonValue JsonSerializer::serialize(const GetPromptResult& result) {
   
   JsonArrayBuilder messages;
   for (const auto& msg : result.messages) {
-    messages.add(serialize(msg));
+    messages.add(serialize_PromptMessage(msg));
   }
   builder.add("messages", messages.build());
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListPromptsResult& result) {
+JsonValue serialize_ListPromptsResult(const ListPromptsResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder prompts;
   for (const auto& prompt : result.prompts) {
-    prompts.add(serialize(prompt));
+    prompts.add(serialize_Prompt(prompt));
   }
   builder.add("prompts", prompts.build());
   
@@ -1045,17 +1046,17 @@ JsonValue JsonSerializer::serialize(const ListPromptsResult& result) {
 }
 
 // Resource results
-JsonValue JsonSerializer::serialize(const ReadResourceResult& result) {
+JsonValue serialize_ReadResourceResult(const ReadResourceResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder contents;
   for (const auto& content : result.contents) {
     match(content,
       [&contents](const TextResourceContents& text) {
-        contents.add(serialize(text));
+        contents.add(serialize_TextResourceContents(text));
       },
       [&contents](const BlobResourceContents& blob) {
-        contents.add(serialize(blob));
+        contents.add(serialize_BlobResourceContents(blob));
       }
     );
   }
@@ -1064,12 +1065,12 @@ JsonValue JsonSerializer::serialize(const ReadResourceResult& result) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListResourcesResult& result) {
+JsonValue serialize_ListResourcesResult(const ListResourcesResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder resources;
   for (const auto& resource : result.resources) {
-    resources.add(serialize(resource));
+    resources.add(serialize_Resource(resource));
   }
   builder.add("resources", resources.build());
   
@@ -1080,12 +1081,12 @@ JsonValue JsonSerializer::serialize(const ListResourcesResult& result) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ListResourceTemplatesResult& result) {
+JsonValue serialize_ListResourceTemplatesResult(const ListResourceTemplatesResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder templates;
   for (const auto& tmpl : result.resourceTemplates) {
-    templates.add(serialize(tmpl));
+    templates.add(serialize_ResourceTemplate(tmpl));
   }
   builder.add("resourceTemplates", templates.build());
   
@@ -1097,12 +1098,12 @@ JsonValue JsonSerializer::serialize(const ListResourceTemplatesResult& result) {
 }
 
 // Root results
-JsonValue JsonSerializer::serialize(const ListRootsResult& result) {
+JsonValue serialize_ListRootsResult(const ListRootsResult& result) {
   JsonObjectBuilder builder;
   
   JsonArrayBuilder roots;
   for (const auto& root : result.roots) {
-    roots.add(serialize(root));
+    roots.add(serialize_Root(root));
   }
   builder.add("roots", roots.build());
   
@@ -1110,20 +1111,20 @@ JsonValue JsonSerializer::serialize(const ListRootsResult& result) {
 }
 
 // Message results
-JsonValue JsonSerializer::serialize(const CreateMessageResult& result) {
+JsonValue serialize_CreateMessageResult(const CreateMessageResult& result) {
   JsonObjectBuilder builder;
   builder.add("role", enums::Role::to_string(result.role));
   
   // Serialize content
   match(result.content,
     [&builder](const TextContent& text) {
-      builder.add("content", serialize(text));
+      builder.add("content", serialize_TextContent(text));
     },
     [&builder](const ImageContent& image) {
-      builder.add("content", serialize(image));
+      builder.add("content", serialize_ImageContent(image));
     },
     [&builder](const AudioContent& audio) {
-      builder.add("content", serialize(audio));
+      builder.add("content", serialize_AudioContent(audio));
     }
   );
   
@@ -1136,7 +1137,7 @@ JsonValue JsonSerializer::serialize(const CreateMessageResult& result) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ElicitResult& result) {
+JsonValue serialize_ElicitResult(const ElicitResult& result) {
   JsonObjectBuilder builder;
   
   match(result.value,
@@ -1159,9 +1160,9 @@ JsonValue JsonSerializer::serialize(const ElicitResult& result) {
 
 // ===== Notification Types Serialization =====
 
-JsonValue JsonSerializer::serialize(const CancelledNotification& notification) {
+JsonValue serialize_CancelledNotification(const CancelledNotification& notification) {
   JsonObjectBuilder builder;
-  builder.add("requestId", serialize(notification.requestId));
+  builder.add("requestId", serialize_RequestId(notification.requestId));
   
   if (notification.reason.has_value()) {
     builder.add("reason", notification.reason.value());
@@ -1170,10 +1171,10 @@ JsonValue JsonSerializer::serialize(const CancelledNotification& notification) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ProgressNotification& notification) {
+JsonValue serialize_ProgressNotification(const ProgressNotification& notification) {
   JsonObjectBuilder builder;
   // ProgressToken is the same type as RequestId
-  builder.add("progressToken", serialize(static_cast<RequestId>(notification.progressToken)))
+  builder.add("progressToken", serialize_RequestId(static_cast<RequestId>(notification.progressToken)))
          .add("progress", notification.progress);
   
   if (notification.total.has_value()) {
@@ -1183,17 +1184,17 @@ JsonValue JsonSerializer::serialize(const ProgressNotification& notification) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const InitializedNotification& notification) {
+JsonValue serialize_InitializedNotification(const InitializedNotification& notification) {
   (void)notification; // Empty params
   return JsonObjectBuilder().build();
 }
 
-JsonValue JsonSerializer::serialize(const RootsListChangedNotification& notification) {
+JsonValue serialize_RootsListChangedNotification(const RootsListChangedNotification& notification) {
   (void)notification; // Empty params
   return JsonObjectBuilder().build();
 }
 
-JsonValue JsonSerializer::serialize(const LoggingMessageNotification& notification) {
+JsonValue serialize_LoggingMessageNotification(const LoggingMessageNotification& notification) {
   JsonObjectBuilder builder;
   builder.add("level", enums::LoggingLevel::to_string(notification.level));
   
@@ -1206,30 +1207,30 @@ JsonValue JsonSerializer::serialize(const LoggingMessageNotification& notificati
       builder.add("data", s);
     },
     [&builder](const Metadata& m) {
-      builder.add("data", serialize(m));
+      builder.add("data", serialize_Metadata(m));
     }
   );
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ResourceUpdatedNotification& notification) {
+JsonValue serialize_ResourceUpdatedNotification(const ResourceUpdatedNotification& notification) {
   JsonObjectBuilder builder;
   builder.add("uri", notification.uri);
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ResourceListChangedNotification& notification) {
+JsonValue serialize_ResourceListChangedNotification(const ResourceListChangedNotification& notification) {
   (void)notification; // Empty params
   return JsonObjectBuilder().build();
 }
 
-JsonValue JsonSerializer::serialize(const ToolListChangedNotification& notification) {
+JsonValue serialize_ToolListChangedNotification(const ToolListChangedNotification& notification) {
   (void)notification; // Empty params
   return JsonObjectBuilder().build();
 }
 
-JsonValue JsonSerializer::serialize(const PromptListChangedNotification& notification) {
+JsonValue serialize_PromptListChangedNotification(const PromptListChangedNotification& notification) {
   (void)notification; // Empty params
   return JsonObjectBuilder().build();
 }
@@ -1237,7 +1238,7 @@ JsonValue JsonSerializer::serialize(const PromptListChangedNotification& notific
 // ===== Core Data Structures Serialization =====
 
 // Resources
-JsonValue JsonSerializer::serialize(const ResourceContents& contents) {
+JsonValue serialize_ResourceContents(const ResourceContents& contents) {
   JsonObjectBuilder builder;
   
   if (contents.uri.has_value()) {
@@ -1251,7 +1252,7 @@ JsonValue JsonSerializer::serialize(const ResourceContents& contents) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const TextResourceContents& contents) {
+JsonValue serialize_TextResourceContents(const TextResourceContents& contents) {
   JsonObjectBuilder builder;
   builder.add("text", contents.text);
   
@@ -1266,7 +1267,7 @@ JsonValue JsonSerializer::serialize(const TextResourceContents& contents) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const BlobResourceContents& contents) {
+JsonValue serialize_BlobResourceContents(const BlobResourceContents& contents) {
   JsonObjectBuilder builder;
   builder.add("blob", contents.blob);
   
@@ -1282,39 +1283,39 @@ JsonValue JsonSerializer::serialize(const BlobResourceContents& contents) {
 }
 
 // Messages
-JsonValue JsonSerializer::serialize(const Message& message) {
+JsonValue serialize_Message(const Message& message) {
   JsonObjectBuilder builder;
   builder.add("role", enums::Role::to_string(message.role));
-  builder.add("content", serialize(message.content));
+  builder.add("content", serialize_ContentBlock(message.content));
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const SamplingMessage& message) {
+JsonValue serialize_SamplingMessage(const SamplingMessage& message) {
   JsonObjectBuilder builder;
   builder.add("role", enums::Role::to_string(message.role));
   
   match(message.content,
     [&builder](const TextContent& text) {
-      builder.add("content", serialize(text));
+      builder.add("content", serialize_TextContent(text));
     },
     [&builder](const ImageContent& image) {
-      builder.add("content", serialize(image));
+      builder.add("content", serialize_ImageContent(image));
     },
     [&builder](const AudioContent& audio) {
-      builder.add("content", serialize(audio));
+      builder.add("content", serialize_AudioContent(audio));
     }
   );
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ModelPreferences& prefs) {
+JsonValue serialize_ModelPreferences(const ModelPreferences& prefs) {
   JsonObjectBuilder builder;
   
   if (prefs.hints.has_value()) {
     JsonArrayBuilder hints;
     for (const auto& hint : prefs.hints.value()) {
-      hints.add(serialize(hint));
+      hints.add(serialize_ModelHint(hint));
     }
     builder.add("hints", hints.build());
   }
@@ -1334,7 +1335,7 @@ JsonValue JsonSerializer::serialize(const ModelPreferences& prefs) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ModelHint& hint) {
+JsonValue serialize_ModelHint(const ModelHint& hint) {
   JsonObjectBuilder builder;
   
   if (hint.name.has_value()) {
@@ -1345,7 +1346,7 @@ JsonValue JsonSerializer::serialize(const ModelHint& hint) {
 }
 
 // Annotations
-JsonValue JsonSerializer::serialize(const Annotations& annotations) {
+JsonValue serialize_Annotations(const Annotations& annotations) {
   JsonObjectBuilder builder;
   
   if (annotations.audience.has_value()) {
@@ -1363,7 +1364,7 @@ JsonValue JsonSerializer::serialize(const Annotations& annotations) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ToolAnnotations& annotations) {
+JsonValue serialize_ToolAnnotations(const ToolAnnotations& annotations) {
   JsonObjectBuilder builder;
   
   if (annotations.audience.has_value()) {
@@ -1378,14 +1379,14 @@ JsonValue JsonSerializer::serialize(const ToolAnnotations& annotations) {
 }
 
 // References
-JsonValue JsonSerializer::serialize(const PromptReference& ref) {
+JsonValue serialize_PromptReference(const PromptReference& ref) {
   JsonObjectBuilder builder;
   builder.add("type", ref.type)
          .add("name", ref.name);
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ResourceTemplateReference& ref) {
+JsonValue serialize_ResourceTemplateReference(const ResourceTemplateReference& ref) {
   JsonObjectBuilder builder;
   builder.add("type", ref.type)
          .add("name", ref.name);
@@ -1394,11 +1395,11 @@ JsonValue JsonSerializer::serialize(const ResourceTemplateReference& ref) {
 
 // ===== Capability Types Serialization =====
 
-JsonValue JsonSerializer::serialize(const ServerCapabilities& caps) {
+JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
   JsonObjectBuilder builder;
   
   if (caps.experimental.has_value()) {
-    builder.add("experimental", serialize(caps.experimental.value()));
+    builder.add("experimental", serialize_Metadata(caps.experimental.value()));
   }
   
   if (caps.resources.has_value()) {
@@ -1407,7 +1408,7 @@ JsonValue JsonSerializer::serialize(const ServerCapabilities& caps) {
         builder.add("resources", b);
       },
       [&builder](const ResourcesCapability& res) {
-        builder.add("resources", serialize(res));
+        builder.add("resources", serialize_ResourcesCapability(res));
       }
     );
   }
@@ -1427,59 +1428,59 @@ JsonValue JsonSerializer::serialize(const ServerCapabilities& caps) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ClientCapabilities& caps) {
+JsonValue serialize_ClientCapabilities(const ClientCapabilities& caps) {
   JsonObjectBuilder builder;
   
   if (caps.experimental.has_value()) {
-    builder.add("experimental", serialize(caps.experimental.value()));
+    builder.add("experimental", serialize_Metadata(caps.experimental.value()));
   }
   
   if (caps.sampling.has_value()) {
-    builder.add("sampling", serialize(caps.sampling.value()));
+    builder.add("sampling", serialize_SamplingParams(caps.sampling.value()));
   }
   
   if (caps.roots.has_value()) {
-    builder.add("roots", serialize(caps.roots.value()));
+    builder.add("roots", serialize_RootsCapability(caps.roots.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const RootsCapability& cap) {
+JsonValue serialize_RootsCapability(const RootsCapability& cap) {
   JsonObjectBuilder builder;
   
   if (cap.listChanged.has_value()) {
-    builder.add("listChanged", serialize(cap.listChanged.value()));
+    builder.add("listChanged", serialize_EmptyCapability(cap.listChanged.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const ResourcesCapability& cap) {
+JsonValue serialize_ResourcesCapability(const ResourcesCapability& cap) {
   JsonObjectBuilder builder;
   
   if (cap.subscribe.has_value()) {
-    builder.add("subscribe", serialize(cap.subscribe.value()));
+    builder.add("subscribe", serialize_EmptyCapability(cap.subscribe.value()));
   }
   
   if (cap.listChanged.has_value()) {
-    builder.add("listChanged", serialize(cap.listChanged.value()));
+    builder.add("listChanged", serialize_EmptyCapability(cap.listChanged.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const PromptsCapability& cap) {
+JsonValue serialize_PromptsCapability(const PromptsCapability& cap) {
   JsonObjectBuilder builder;
   
   if (cap.listChanged.has_value()) {
-    builder.add("listChanged", serialize(cap.listChanged.value()));
+    builder.add("listChanged", serialize_EmptyCapability(cap.listChanged.value()));
   }
   
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const EmptyCapability& cap) {
+JsonValue serialize_EmptyCapability(const EmptyCapability& cap) {
   JsonObjectBuilder builder;
   for (const auto& kv : cap) {
     // EmptyCapability is a map of string to nlohmann::json
@@ -1489,7 +1490,7 @@ JsonValue JsonSerializer::serialize(const EmptyCapability& cap) {
   return builder.build();
 }
 
-JsonValue JsonSerializer::serialize(const SamplingParams& params) {
+JsonValue serialize_SamplingParams(const SamplingParams& params) {
   JsonObjectBuilder builder;
   
   if (params.temperature.has_value()) {
@@ -1509,7 +1510,7 @@ JsonValue JsonSerializer::serialize(const SamplingParams& params) {
   }
   
   if (params.metadata.has_value()) {
-    builder.add("metadata", serialize(params.metadata.value()));
+    builder.add("metadata", serialize_Metadata(params.metadata.value()));
   }
   
   return builder.build();
@@ -1529,26 +1530,26 @@ JsonValue JsonSerializer::serialize(const SamplingParams& params) {
 
 // ===== Deserialization of Request Types =====
 
-InitializeRequest JsonDeserializer::deserializeInitializeRequest(const JsonValue& json) {
+InitializeRequest deserialize_InitializeRequest(const JsonValue& json) {
   InitializeRequest request;
   request.protocolVersion = json.at("protocolVersion").getString();
-  request.capabilities = deserializeClientCapabilities(json.at("capabilities"));
+  request.capabilities = deserialize_ClientCapabilities(json.at("capabilities"));
   
   if (json.contains("clientInfo")) {
-    request.clientInfo = deserialize<Implementation>(json["clientInfo"]);
+    request.clientInfo = JsonDeserializer::deserialize<Implementation>(json["clientInfo"]);
   }
   
   return request;
 }
 
-PingRequest JsonDeserializer::deserializePingRequest(const JsonValue& json) {
+PingRequest deserialize_PingRequest(const JsonValue& json) {
   (void)json;
   return PingRequest();
 }
 
-CompleteRequest JsonDeserializer::deserializeCompleteRequest(const JsonValue& json) {
+CompleteRequest deserialize_CompleteRequest(const JsonValue& json) {
   CompleteRequest request;
-  request.ref = deserializePromptReference(json.at("ref"));
+  request.ref = deserialize_PromptReference(json.at("ref"));
   
   if (json.contains("argument")) {
     request.argument = json["argument"].getString();
@@ -1557,7 +1558,7 @@ CompleteRequest JsonDeserializer::deserializeCompleteRequest(const JsonValue& js
   return request;
 }
 
-SetLevelRequest JsonDeserializer::deserializeSetLevelRequest(const JsonValue& json) {
+SetLevelRequest deserialize_SetLevelRequest(const JsonValue& json) {
   SetLevelRequest request;
   auto level_str = json.at("level").getString();
   auto level = enums::LoggingLevel::from_string(level_str);
@@ -1568,18 +1569,18 @@ SetLevelRequest JsonDeserializer::deserializeSetLevelRequest(const JsonValue& js
   return request;
 }
 
-CallToolRequest JsonDeserializer::deserializeCallToolRequest(const JsonValue& json) {
+CallToolRequest deserialize_CallToolRequest(const JsonValue& json) {
   CallToolRequest request;
   request.name = json.at("name").getString();
   
   if (json.contains("arguments")) {
-    request.arguments = deserializeMetadata(json["arguments"]);
+    request.arguments = deserialize_Metadata(json["arguments"]);
   }
   
   return request;
 }
 
-ListToolsRequest JsonDeserializer::deserializeListToolsRequest(const JsonValue& json) {
+ListToolsRequest deserialize_ListToolsRequest(const JsonValue& json) {
   ListToolsRequest request;
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
@@ -1587,7 +1588,7 @@ ListToolsRequest JsonDeserializer::deserializeListToolsRequest(const JsonValue& 
   return request;
 }
 
-PromptMessage JsonDeserializer::deserializePromptMessage(const JsonValue& json) {
+PromptMessage deserialize_PromptMessage(const JsonValue& json) {
   PromptMessage message;
   
   auto role_str = json.at("role").getString();
@@ -1601,11 +1602,11 @@ PromptMessage JsonDeserializer::deserializePromptMessage(const JsonValue& json) 
   if (content.isObject() && content.contains("type")) {
     std::string type = content["type"].getString();
     if (type == "text") {
-      message.content = deserializeTextContent(content);
+      message.content = deserialize_TextContent(content);
     } else if (type == "image") {
-      message.content = deserializeImageContent(content);
+      message.content = deserialize_ImageContent(content);
     } else if (type == "embedded") {
-      message.content = deserializeEmbeddedResource(content);
+      message.content = deserialize_EmbeddedResource(content);
     }
   } else if (content.isString()) {
     // Plain text content
@@ -1617,18 +1618,18 @@ PromptMessage JsonDeserializer::deserializePromptMessage(const JsonValue& json) 
   return message;
 }
 
-GetPromptRequest JsonDeserializer::deserializeGetPromptRequest(const JsonValue& json) {
+GetPromptRequest deserialize_GetPromptRequest(const JsonValue& json) {
   GetPromptRequest request;
   request.name = json.at("name").getString();
   
   if (json.contains("arguments")) {
-    request.arguments = deserializeMetadata(json["arguments"]);
+    request.arguments = deserialize_Metadata(json["arguments"]);
   }
   
   return request;
 }
 
-ListPromptsRequest JsonDeserializer::deserializeListPromptsRequest(const JsonValue& json) {
+ListPromptsRequest deserialize_ListPromptsRequest(const JsonValue& json) {
   ListPromptsRequest request;
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
@@ -1636,7 +1637,7 @@ ListPromptsRequest JsonDeserializer::deserializeListPromptsRequest(const JsonVal
   return request;
 }
 
-ResourceTemplate JsonDeserializer::deserializeResourceTemplate(const JsonValue& json) {
+ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
   ResourceTemplate tmpl;
   tmpl.uriTemplate = json.at("uriTemplate").getString();
   tmpl.name = json.at("name").getString();
@@ -1652,13 +1653,13 @@ ResourceTemplate JsonDeserializer::deserializeResourceTemplate(const JsonValue& 
   return tmpl;
 }
 
-ReadResourceRequest JsonDeserializer::deserializeReadResourceRequest(const JsonValue& json) {
+ReadResourceRequest deserialize_ReadResourceRequest(const JsonValue& json) {
   ReadResourceRequest request;
   request.uri = json.at("uri").getString();
   return request;
 }
 
-ListResourcesRequest JsonDeserializer::deserializeListResourcesRequest(const JsonValue& json) {
+ListResourcesRequest deserialize_ListResourcesRequest(const JsonValue& json) {
   ListResourcesRequest request;
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
@@ -1666,7 +1667,7 @@ ListResourcesRequest JsonDeserializer::deserializeListResourcesRequest(const Jso
   return request;
 }
 
-ListResourceTemplatesRequest JsonDeserializer::deserializeListResourceTemplatesRequest(const JsonValue& json) {
+ListResourceTemplatesRequest deserialize_ListResourceTemplatesRequest(const JsonValue& json) {
   ListResourceTemplatesRequest request;
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
@@ -1674,19 +1675,19 @@ ListResourceTemplatesRequest JsonDeserializer::deserializeListResourceTemplatesR
   return request;
 }
 
-SubscribeRequest JsonDeserializer::deserializeSubscribeRequest(const JsonValue& json) {
+SubscribeRequest deserialize_SubscribeRequest(const JsonValue& json) {
   SubscribeRequest request;
   request.uri = json.at("uri").getString();
   return request;
 }
 
-UnsubscribeRequest JsonDeserializer::deserializeUnsubscribeRequest(const JsonValue& json) {
+UnsubscribeRequest deserialize_UnsubscribeRequest(const JsonValue& json) {
   UnsubscribeRequest request;
   request.uri = json.at("uri").getString();
   return request;
 }
 
-Root JsonDeserializer::deserializeRoot(const JsonValue& json) {
+Root deserialize_Root(const JsonValue& json) {
   Root root;
   root.uri = json.at("uri").getString();
   
@@ -1697,22 +1698,22 @@ Root JsonDeserializer::deserializeRoot(const JsonValue& json) {
   return root;
 }
 
-ListRootsRequest JsonDeserializer::deserializeListRootsRequest(const JsonValue& json) {
+ListRootsRequest deserialize_ListRootsRequest(const JsonValue& json) {
   (void)json;
   return ListRootsRequest();
 }
 
-CreateMessageRequest JsonDeserializer::deserializeCreateMessageRequest(const JsonValue& json) {
+CreateMessageRequest deserialize_CreateMessageRequest(const JsonValue& json) {
   CreateMessageRequest request;
   
   const auto& messages = json.at("messages");
   size_t size = messages.size();
   for (size_t i = 0; i < size; ++i) {
-    request.messages.push_back(deserializeSamplingMessage(messages[i]));
+    request.messages.push_back(deserialize_SamplingMessage(messages[i]));
   }
   
   if (json.contains("modelPreferences")) {
-    request.modelPreferences = deserializeModelPreferences(json["modelPreferences"]);
+    request.modelPreferences = deserialize_ModelPreferences(json["modelPreferences"]);
   }
   
   if (json.contains("systemPrompt")) {
@@ -1720,7 +1721,7 @@ CreateMessageRequest JsonDeserializer::deserializeCreateMessageRequest(const Jso
   }
   
   if (json.contains("includeContext")) {
-    request.includeContext = deserializeMetadata(json["includeContext"]);
+    request.includeContext = deserialize_Metadata(json["includeContext"]);
   }
   
   if (json.contains("temperature")) {
@@ -1742,13 +1743,13 @@ CreateMessageRequest JsonDeserializer::deserializeCreateMessageRequest(const Jso
   }
   
   if (json.contains("metadata")) {
-    request.metadata = deserializeMetadata(json["metadata"]);
+    request.metadata = deserialize_Metadata(json["metadata"]);
   }
   
   return request;
 }
 
-ElicitRequest JsonDeserializer::deserializeElicitRequest(const JsonValue& json) {
+ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
   ElicitRequest request;
   request.name = json.at("name").getString();
   
@@ -1813,13 +1814,13 @@ ElicitRequest JsonDeserializer::deserializeElicitRequest(const JsonValue& json) 
 
 // ===== Deserialization of Response/Result Types =====
 
-InitializeResult JsonDeserializer::deserializeInitializeResult(const JsonValue& json) {
+InitializeResult deserialize_InitializeResult(const JsonValue& json) {
   InitializeResult result;
   result.protocolVersion = json.at("protocolVersion").getString();
-  result.capabilities = deserializeServerCapabilities(json.at("capabilities"));
+  result.capabilities = deserialize_ServerCapabilities(json.at("capabilities"));
   
   if (json.contains("serverInfo")) {
-    result.serverInfo = deserialize<Implementation>(json["serverInfo"]);
+    result.serverInfo = JsonDeserializer::deserialize<Implementation>(json["serverInfo"]);
   }
   
   if (json.contains("instructions")) {
@@ -1829,7 +1830,7 @@ InitializeResult JsonDeserializer::deserializeInitializeResult(const JsonValue& 
   return result;
 }
 
-CompleteResult JsonDeserializer::deserializeCompleteResult(const JsonValue& json) {
+CompleteResult deserialize_CompleteResult(const JsonValue& json) {
   CompleteResult result;
   
   const auto& completion = json.at("completion");
@@ -1850,13 +1851,13 @@ CompleteResult JsonDeserializer::deserializeCompleteResult(const JsonValue& json
   return result;
 }
 
-CallToolResult JsonDeserializer::deserializeCallToolResult(const JsonValue& json) {
+CallToolResult deserialize_CallToolResult(const JsonValue& json) {
   CallToolResult result;
   
   const auto& content = json.at("content");
   size_t size = content.size();
   for (size_t i = 0; i < size; ++i) {
-    result.content.push_back(deserializeExtendedContentBlock(content[i]));
+    result.content.push_back(deserialize_ExtendedContentBlock(content[i]));
   }
   
   if (json.contains("isError")) {
@@ -1866,19 +1867,19 @@ CallToolResult JsonDeserializer::deserializeCallToolResult(const JsonValue& json
   return result;
 }
 
-ListToolsResult JsonDeserializer::deserializeListToolsResult(const JsonValue& json) {
+ListToolsResult deserialize_ListToolsResult(const JsonValue& json) {
   ListToolsResult result;
   
   const auto& tools = json.at("tools");
   size_t size = tools.size();
   for (size_t i = 0; i < size; ++i) {
-    result.tools.push_back(deserializeTool(tools[i]));
+    result.tools.push_back(deserialize_Tool(tools[i]));
   }
   
   return result;
 }
 
-GetPromptResult JsonDeserializer::deserializeGetPromptResult(const JsonValue& json) {
+GetPromptResult deserialize_GetPromptResult(const JsonValue& json) {
   GetPromptResult result;
   
   if (json.contains("description")) {
@@ -1888,19 +1889,19 @@ GetPromptResult JsonDeserializer::deserializeGetPromptResult(const JsonValue& js
   const auto& messages = json.at("messages");
   size_t size = messages.size();
   for (size_t i = 0; i < size; ++i) {
-    result.messages.push_back(deserializePromptMessage(messages[i]));
+    result.messages.push_back(deserialize_PromptMessage(messages[i]));
   }
   
   return result;
 }
 
-ListPromptsResult JsonDeserializer::deserializeListPromptsResult(const JsonValue& json) {
+ListPromptsResult deserialize_ListPromptsResult(const JsonValue& json) {
   ListPromptsResult result;
   
   const auto& prompts = json.at("prompts");
   size_t size = prompts.size();
   for (size_t i = 0; i < size; ++i) {
-    result.prompts.push_back(deserializePrompt(prompts[i]));
+    result.prompts.push_back(deserialize_Prompt(prompts[i]));
   }
   
   if (json.contains("nextCursor")) {
@@ -1910,16 +1911,16 @@ ListPromptsResult JsonDeserializer::deserializeListPromptsResult(const JsonValue
   return result;
 }
 
-variant<TextResourceContents, BlobResourceContents> JsonDeserializer::deserializeResourceContents(const JsonValue& json) {
+variant<TextResourceContents, BlobResourceContents> deserialize_ResourceContents(const JsonValue& json) {
   if (json.contains("text")) {
-    return deserializeTextResourceContents(json);
+    return deserialize_TextResourceContents(json);
   } else if (json.contains("blob")) {
-    return deserializeBlobResourceContents(json);
+    return deserialize_BlobResourceContents(json);
   }
   throw JsonException("Invalid resource contents");
 }
 
-TextResourceContents JsonDeserializer::deserializeTextResourceContents(const JsonValue& json) {
+TextResourceContents deserialize_TextResourceContents(const JsonValue& json) {
   TextResourceContents contents;
   contents.text = json.at("text").getString();
   
@@ -1934,7 +1935,7 @@ TextResourceContents JsonDeserializer::deserializeTextResourceContents(const Jso
   return contents;
 }
 
-BlobResourceContents JsonDeserializer::deserializeBlobResourceContents(const JsonValue& json) {
+BlobResourceContents deserialize_BlobResourceContents(const JsonValue& json) {
   BlobResourceContents contents;
   contents.blob = json.at("blob").getString();
   
@@ -1949,25 +1950,25 @@ BlobResourceContents JsonDeserializer::deserializeBlobResourceContents(const Jso
   return contents;
 }
 
-ReadResourceResult JsonDeserializer::deserializeReadResourceResult(const JsonValue& json) {
+ReadResourceResult deserialize_ReadResourceResult(const JsonValue& json) {
   ReadResourceResult result;
   
   const auto& contents = json.at("contents");
   size_t size = contents.size();
   for (size_t i = 0; i < size; ++i) {
-    result.contents.push_back(deserializeResourceContents(contents[i]));
+    result.contents.push_back(deserialize_ResourceContents(contents[i]));
   }
   
   return result;
 }
 
-ListResourcesResult JsonDeserializer::deserializeListResourcesResult(const JsonValue& json) {
+ListResourcesResult deserialize_ListResourcesResult(const JsonValue& json) {
   ListResourcesResult result;
   
   const auto& resources = json.at("resources");
   size_t size = resources.size();
   for (size_t i = 0; i < size; ++i) {
-    result.resources.push_back(deserializeResource(resources[i]));
+    result.resources.push_back(deserialize_Resource(resources[i]));
   }
   
   if (json.contains("nextCursor")) {
@@ -1977,13 +1978,13 @@ ListResourcesResult JsonDeserializer::deserializeListResourcesResult(const JsonV
   return result;
 }
 
-ListResourceTemplatesResult JsonDeserializer::deserializeListResourceTemplatesResult(const JsonValue& json) {
+ListResourceTemplatesResult deserialize_ListResourceTemplatesResult(const JsonValue& json) {
   ListResourceTemplatesResult result;
   
   const auto& templates = json.at("resourceTemplates");
   size_t size = templates.size();
   for (size_t i = 0; i < size; ++i) {
-    result.resourceTemplates.push_back(deserializeResourceTemplate(templates[i]));
+    result.resourceTemplates.push_back(deserialize_ResourceTemplate(templates[i]));
   }
   
   if (json.contains("nextCursor")) {
@@ -1993,19 +1994,19 @@ ListResourceTemplatesResult JsonDeserializer::deserializeListResourceTemplatesRe
   return result;
 }
 
-ListRootsResult JsonDeserializer::deserializeListRootsResult(const JsonValue& json) {
+ListRootsResult deserialize_ListRootsResult(const JsonValue& json) {
   ListRootsResult result;
   
   const auto& roots = json.at("roots");
   size_t size = roots.size();
   for (size_t i = 0; i < size; ++i) {
-    result.roots.push_back(deserializeRoot(roots[i]));
+    result.roots.push_back(deserialize_Root(roots[i]));
   }
   
   return result;
 }
 
-CreateMessageResult JsonDeserializer::deserializeCreateMessageResult(const JsonValue& json) {
+CreateMessageResult deserialize_CreateMessageResult(const JsonValue& json) {
   CreateMessageResult result;
   
   auto role_str = json.at("role").getString();
@@ -2019,11 +2020,11 @@ CreateMessageResult JsonDeserializer::deserializeCreateMessageResult(const JsonV
   if (content.isObject() && content.contains("type")) {
     std::string type = content["type"].getString();
     if (type == "text") {
-      result.content = deserializeTextContent(content);
+      result.content = deserialize_TextContent(content);
     } else if (type == "image") {
-      result.content = deserializeImageContent(content);
+      result.content = deserialize_ImageContent(content);
     } else if (type == "audio") {
-      result.content = deserializeAudioContent(content);
+      result.content = deserialize_AudioContent(content);
     }
   }
   
@@ -2036,7 +2037,7 @@ CreateMessageResult JsonDeserializer::deserializeCreateMessageResult(const JsonV
   return result;
 }
 
-ElicitResult JsonDeserializer::deserializeElicitResult(const JsonValue& json) {
+ElicitResult deserialize_ElicitResult(const JsonValue& json) {
   ElicitResult result;
   
   const auto& value = json.at("value");
@@ -2055,9 +2056,9 @@ ElicitResult JsonDeserializer::deserializeElicitResult(const JsonValue& json) {
 
 // ===== Deserialization of Notification Types =====
 
-CancelledNotification JsonDeserializer::deserializeCancelledNotification(const JsonValue& json) {
+CancelledNotification deserialize_CancelledNotification(const JsonValue& json) {
   CancelledNotification notif;
-  notif.requestId = deserializeRequestId(json.at("requestId"));
+  notif.requestId = deserialize_RequestId(json.at("requestId"));
   
   if (json.contains("reason")) {
     notif.reason = json["reason"].getString();
@@ -2066,7 +2067,7 @@ CancelledNotification JsonDeserializer::deserializeCancelledNotification(const J
   return notif;
 }
 
-ProgressNotification JsonDeserializer::deserializeProgressNotification(const JsonValue& json) {
+ProgressNotification deserialize_ProgressNotification(const JsonValue& json) {
   ProgressNotification notif;
   
   const auto& token = json.at("progressToken");
@@ -2085,17 +2086,17 @@ ProgressNotification JsonDeserializer::deserializeProgressNotification(const Jso
   return notif;
 }
 
-InitializedNotification JsonDeserializer::deserializeInitializedNotification(const JsonValue& json) {
+InitializedNotification deserialize_InitializedNotification(const JsonValue& json) {
   (void)json;
   return InitializedNotification();
 }
 
-RootsListChangedNotification JsonDeserializer::deserializeRootsListChangedNotification(const JsonValue& json) {
+RootsListChangedNotification deserialize_RootsListChangedNotification(const JsonValue& json) {
   (void)json;
   return RootsListChangedNotification();
 }
 
-LoggingMessageNotification JsonDeserializer::deserializeLoggingMessageNotification(const JsonValue& json) {
+LoggingMessageNotification deserialize_LoggingMessageNotification(const JsonValue& json) {
   LoggingMessageNotification notif;
   
   auto level_str = json.at("level").getString();
@@ -2113,36 +2114,36 @@ LoggingMessageNotification JsonDeserializer::deserializeLoggingMessageNotificati
   if (data.isString()) {
     notif.data = variant<std::string, Metadata>(data.getString());
   } else if (data.isObject()) {
-    notif.data = variant<std::string, Metadata>(deserializeMetadata(data));
+    notif.data = variant<std::string, Metadata>(deserialize_Metadata(data));
   }
   
   return notif;
 }
 
-ResourceUpdatedNotification JsonDeserializer::deserializeResourceUpdatedNotification(const JsonValue& json) {
+ResourceUpdatedNotification deserialize_ResourceUpdatedNotification(const JsonValue& json) {
   ResourceUpdatedNotification notif;
   notif.uri = json.at("uri").getString();
   return notif;
 }
 
-ResourceListChangedNotification JsonDeserializer::deserializeResourceListChangedNotification(const JsonValue& json) {
+ResourceListChangedNotification deserialize_ResourceListChangedNotification(const JsonValue& json) {
   (void)json;
   return ResourceListChangedNotification();
 }
 
-ToolListChangedNotification JsonDeserializer::deserializeToolListChangedNotification(const JsonValue& json) {
+ToolListChangedNotification deserialize_ToolListChangedNotification(const JsonValue& json) {
   (void)json;
   return ToolListChangedNotification();
 }
 
-PromptListChangedNotification JsonDeserializer::deserializePromptListChangedNotification(const JsonValue& json) {
+PromptListChangedNotification deserialize_PromptListChangedNotification(const JsonValue& json) {
   (void)json;
   return PromptListChangedNotification();
 }
 
 // ===== Deserialization of Core Data Structures =====
 
-Message JsonDeserializer::deserializeMessage(const JsonValue& json) {
+Message deserialize_Message(const JsonValue& json) {
   Message message;
   
   auto role_str = json.at("role").getString();
@@ -2152,12 +2153,12 @@ Message JsonDeserializer::deserializeMessage(const JsonValue& json) {
   }
   message.role = role.value();
   
-  message.content = deserializeContentBlock(json.at("content"));
+  message.content = deserialize_ContentBlock(json.at("content"));
   
   return message;
 }
 
-SamplingMessage JsonDeserializer::deserializeSamplingMessage(const JsonValue& json) {
+SamplingMessage deserialize_SamplingMessage(const JsonValue& json) {
   SamplingMessage message;
   
   auto role_str = json.at("role").getString();
@@ -2171,18 +2172,18 @@ SamplingMessage JsonDeserializer::deserializeSamplingMessage(const JsonValue& js
   if (content.isObject() && content.contains("type")) {
     std::string type = content["type"].getString();
     if (type == "text") {
-      message.content = deserializeTextContent(content);
+      message.content = deserialize_TextContent(content);
     } else if (type == "image") {
-      message.content = deserializeImageContent(content);
+      message.content = deserialize_ImageContent(content);
     } else if (type == "audio") {
-      message.content = deserializeAudioContent(content);
+      message.content = deserialize_AudioContent(content);
     }
   }
   
   return message;
 }
 
-ModelPreferences JsonDeserializer::deserializeModelPreferences(const JsonValue& json) {
+ModelPreferences deserialize_ModelPreferences(const JsonValue& json) {
   ModelPreferences prefs;
   
   if (json.contains("hints")) {
@@ -2190,7 +2191,7 @@ ModelPreferences JsonDeserializer::deserializeModelPreferences(const JsonValue& 
     const auto& hintsArray = json["hints"];
     size_t size = hintsArray.size();
     for (size_t i = 0; i < size; ++i) {
-      hints.push_back(deserializeModelHint(hintsArray[i]));
+      hints.push_back(deserialize_ModelHint(hintsArray[i]));
     }
     prefs.hints = hints;
   }
@@ -2210,7 +2211,7 @@ ModelPreferences JsonDeserializer::deserializeModelPreferences(const JsonValue& 
   return prefs;
 }
 
-ModelHint JsonDeserializer::deserializeModelHint(const JsonValue& json) {
+ModelHint deserialize_ModelHint(const JsonValue& json) {
   ModelHint hint;
   
   if (json.contains("name")) {
@@ -2220,7 +2221,7 @@ ModelHint JsonDeserializer::deserializeModelHint(const JsonValue& json) {
   return hint;
 }
 
-Annotations JsonDeserializer::deserializeAnnotations(const JsonValue& json) {
+Annotations deserialize_Annotations(const JsonValue& json) {
   Annotations annotations;
   
   if (json.contains("audience")) {
@@ -2243,7 +2244,7 @@ Annotations JsonDeserializer::deserializeAnnotations(const JsonValue& json) {
   return annotations;
 }
 
-ToolAnnotations JsonDeserializer::deserializeToolAnnotations(const JsonValue& json) {
+ToolAnnotations deserialize_ToolAnnotations(const JsonValue& json) {
   ToolAnnotations annotations;
   
   if (json.contains("audience")) {
@@ -2262,14 +2263,14 @@ ToolAnnotations JsonDeserializer::deserializeToolAnnotations(const JsonValue& js
   return annotations;
 }
 
-PromptReference JsonDeserializer::deserializePromptReference(const JsonValue& json) {
+PromptReference deserialize_PromptReference(const JsonValue& json) {
   PromptReference ref;
   ref.type = json.at("type").getString();
   ref.name = json.at("name").getString();
   return ref;
 }
 
-ResourceTemplateReference JsonDeserializer::deserializeResourceTemplateReference(const JsonValue& json) {
+ResourceTemplateReference deserialize_ResourceTemplateReference(const JsonValue& json) {
   ResourceTemplateReference ref;
   ref.type = json.at("type").getString();
   ref.name = json.at("name").getString();
@@ -2278,11 +2279,11 @@ ResourceTemplateReference JsonDeserializer::deserializeResourceTemplateReference
 
 // ===== Deserialization of Capability Types =====
 
-ServerCapabilities JsonDeserializer::deserializeServerCapabilities(const JsonValue& json) {
+ServerCapabilities deserialize_ServerCapabilities(const JsonValue& json) {
   ServerCapabilities caps;
   
   if (json.contains("experimental")) {
-    caps.experimental = deserializeMetadata(json["experimental"]);
+    caps.experimental = deserialize_Metadata(json["experimental"]);
   }
   
   if (json.contains("resources")) {
@@ -2290,7 +2291,7 @@ ServerCapabilities JsonDeserializer::deserializeServerCapabilities(const JsonVal
     if (res.isBoolean()) {
       caps.resources = variant<bool, ResourcesCapability>(res.getBool());
     } else if (res.isObject()) {
-      caps.resources = variant<bool, ResourcesCapability>(deserializeResourcesCapability(res));
+      caps.resources = variant<bool, ResourcesCapability>(deserialize_ResourcesCapability(res));
     }
   }
   
@@ -2309,59 +2310,59 @@ ServerCapabilities JsonDeserializer::deserializeServerCapabilities(const JsonVal
   return caps;
 }
 
-ClientCapabilities JsonDeserializer::deserializeClientCapabilities(const JsonValue& json) {
+ClientCapabilities deserialize_ClientCapabilities(const JsonValue& json) {
   ClientCapabilities caps;
   
   if (json.contains("experimental")) {
-    caps.experimental = deserializeMetadata(json["experimental"]);
+    caps.experimental = deserialize_Metadata(json["experimental"]);
   }
   
   if (json.contains("sampling")) {
-    caps.sampling = deserializeSamplingParams(json["sampling"]);
+    caps.sampling = deserialize_SamplingParams(json["sampling"]);
   }
   
   if (json.contains("roots")) {
-    caps.roots = deserializeRootsCapability(json["roots"]);
+    caps.roots = deserialize_RootsCapability(json["roots"]);
   }
   
   return caps;
 }
 
-RootsCapability JsonDeserializer::deserializeRootsCapability(const JsonValue& json) {
+RootsCapability deserialize_RootsCapability(const JsonValue& json) {
   RootsCapability cap;
   
   if (json.contains("listChanged")) {
-    cap.listChanged = deserializeEmptyCapability(json["listChanged"]);
+    cap.listChanged = deserialize_EmptyCapability(json["listChanged"]);
   }
   
   return cap;
 }
 
-ResourcesCapability JsonDeserializer::deserializeResourcesCapability(const JsonValue& json) {
+ResourcesCapability deserialize_ResourcesCapability(const JsonValue& json) {
   ResourcesCapability cap;
   
   if (json.contains("subscribe")) {
-    cap.subscribe = deserializeEmptyCapability(json["subscribe"]);
+    cap.subscribe = deserialize_EmptyCapability(json["subscribe"]);
   }
   
   if (json.contains("listChanged")) {
-    cap.listChanged = deserializeEmptyCapability(json["listChanged"]);
+    cap.listChanged = deserialize_EmptyCapability(json["listChanged"]);
   }
   
   return cap;
 }
 
-PromptsCapability JsonDeserializer::deserializePromptsCapability(const JsonValue& json) {
+PromptsCapability deserialize_PromptsCapability(const JsonValue& json) {
   PromptsCapability cap;
   
   if (json.contains("listChanged")) {
-    cap.listChanged = deserializeEmptyCapability(json["listChanged"]);
+    cap.listChanged = deserialize_EmptyCapability(json["listChanged"]);
   }
   
   return cap;
 }
 
-EmptyCapability JsonDeserializer::deserializeEmptyCapability(const JsonValue& json) {
+EmptyCapability deserialize_EmptyCapability(const JsonValue& json) {
   EmptyCapability cap;
   
   for (const auto& key : json.keys()) {
@@ -2372,7 +2373,7 @@ EmptyCapability JsonDeserializer::deserializeEmptyCapability(const JsonValue& js
   return cap;
 }
 
-SamplingParams JsonDeserializer::deserializeSamplingParams(const JsonValue& json) {
+SamplingParams deserialize_SamplingParams(const JsonValue& json) {
   SamplingParams params;
   
   if (json.contains("temperature")) {
@@ -2394,7 +2395,7 @@ SamplingParams JsonDeserializer::deserializeSamplingParams(const JsonValue& json
   }
   
   if (json.contains("metadata")) {
-    params.metadata = deserializeMetadata(json["metadata"]);
+    params.metadata = deserialize_Metadata(json["metadata"]);
   }
   
   return params;
@@ -2404,5 +2405,6 @@ SamplingParams JsonDeserializer::deserializeSamplingParams(const JsonValue& json
 
 // All helper functions removed - using template specializations in header
 
+}  // namespace impl
 }  // namespace json
 }  // namespace mcp

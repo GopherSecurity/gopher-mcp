@@ -107,16 +107,16 @@ bool JsonRpcMessageFilter::parseMessage(const std::string& json_str) {
     if (json_val.contains("method")) {
       if (json_val.contains("id")) {
         // Request
-        jsonrpc::Request request = json::JsonDeserializer::deserializeRequest(json_val);
+        jsonrpc::Request request = json::JsonDeserializer::deserialize<jsonrpc::Request>(json_val);
         callbacks_.onRequest(request);
       } else {
         // Notification
-        jsonrpc::Notification notification = json::JsonDeserializer::deserializeNotification(json_val);
+        jsonrpc::Notification notification = json::JsonDeserializer::deserialize<jsonrpc::Notification>(json_val);
         callbacks_.onNotification(notification);
       }
     } else if (json_val.contains("result") || json_val.contains("error")) {
       // Response
-      jsonrpc::Response response = json::JsonDeserializer::deserializeResponse(json_val);
+      jsonrpc::Response response = json::JsonDeserializer::deserialize<jsonrpc::Response>(json_val);
       callbacks_.onResponse(response);
     }
     
