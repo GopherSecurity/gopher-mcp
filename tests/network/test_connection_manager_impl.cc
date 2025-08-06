@@ -132,7 +132,7 @@ protected:
   
   event::DispatcherPtr dispatcher_;
   std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
-  SocketInterface* socket_interface_;
+  network::SocketInterface* socket_interface_;
   std::unique_ptr<ConnectionHandlerImpl> handler_;
 };
 
@@ -207,7 +207,7 @@ protected:
   
   event::DispatcherPtr dispatcher_;
   std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
-  SocketInterface* socket_interface_;
+  network::SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
   MockTransportSocketFactory* mock_client_factory_;
@@ -256,9 +256,13 @@ TEST_F(ConnectionManagerImplTest, ConnectionLimit) {
 TEST_F(ConnectionManagerImplTest, CloseAllConnections) {
   auto addr = Address::parseInternetAddress("127.0.0.1", 8080);
   
-  // Create some connections
+  // Create some connections and keep them alive
+  std::vector<ClientConnectionPtr> connections;
   for (int i = 0; i < 5; ++i) {
-    manager_->createClientConnection(addr);
+    auto conn = manager_->createClientConnection(addr);
+    if (conn) {
+      connections.push_back(std::move(conn));
+    }
   }
   
   EXPECT_EQ(5, manager_->numConnections());
@@ -266,8 +270,12 @@ TEST_F(ConnectionManagerImplTest, CloseAllConnections) {
   // Close all
   manager_->closeAllConnections();
   
-  // Verify all closed
+  // After closeAllConnections, the map should be cleared
   EXPECT_EQ(0, manager_->numConnections());
+  
+  // The connections themselves are still alive (we hold the unique_ptrs)
+  // but they've been closed and removed from tracking
+  connections.clear();
 }
 
 TEST_F(ConnectionManagerImplTest, TransportSocketOptions) {
@@ -320,7 +328,7 @@ protected:
   
   event::DispatcherPtr dispatcher_;
   std::unique_ptr<test::MockSocketInterface> mock_socket_interface_;
-  SocketInterface* socket_interface_;
+  network::SocketInterface* socket_interface_;
   ConnectionManagerConfig config_;
   std::unique_ptr<ConnectionManagerImpl> manager_;
   Address::InstanceConstSharedPtr addr_;
