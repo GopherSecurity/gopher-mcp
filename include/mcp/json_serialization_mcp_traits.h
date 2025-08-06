@@ -27,6 +27,13 @@ namespace impl {
   AudioContent deserialize_AudioContent(const JsonValue& json);
   
   JsonValue serialize_ResourceContent(const ResourceContent& value);
+  ResourceContent deserialize_ResourceContent(const JsonValue& json);
+  
+  JsonValue serialize_EmptyResult(const EmptyResult& value);
+  EmptyResult deserialize_EmptyResult(const JsonValue& json);
+  
+  JsonValue serialize_EmbeddedResource(const EmbeddedResource& value);
+  EmbeddedResource deserialize_EmbeddedResource(const JsonValue& json);
   
   JsonValue serialize_ContentBlock(const ContentBlock& value);
   ContentBlock deserialize_ContentBlock(const JsonValue& json);
@@ -154,6 +161,22 @@ namespace impl {
   
   JsonValue serialize_ElicitRequest(const ElicitRequest& value);
   ElicitRequest deserialize_ElicitRequest(const JsonValue& json);
+
+  // Schema types
+  JsonValue serialize_StringSchema(const StringSchema& value);
+  StringSchema deserialize_StringSchema(const JsonValue& json);
+  
+  JsonValue serialize_NumberSchema(const NumberSchema& value);
+  NumberSchema deserialize_NumberSchema(const JsonValue& json);
+  
+  JsonValue serialize_BooleanSchema(const BooleanSchema& value);
+  BooleanSchema deserialize_BooleanSchema(const JsonValue& json);
+  
+  JsonValue serialize_EnumSchema(const EnumSchema& value);
+  EnumSchema deserialize_EnumSchema(const JsonValue& json);
+  
+  JsonValue serialize_PrimitiveSchemaDefinition(const PrimitiveSchemaDefinition& value);
+  PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(const JsonValue& json);
   
   // Result types
   JsonValue serialize_InitializeResult(const InitializeResult& value);
@@ -272,6 +295,9 @@ DESERIALIZE_TRAIT(ImageContent)
 SERIALIZE_TRAIT(AudioContent)
 DESERIALIZE_TRAIT(AudioContent)
 SERIALIZE_TRAIT(ResourceContent)
+DESERIALIZE_TRAIT(ResourceContent)
+SERIALIZE_TRAIT(EmptyResult)
+DESERIALIZE_TRAIT(EmptyResult)
 SERIALIZE_TRAIT(ContentBlock)
 DESERIALIZE_TRAIT(ContentBlock)
 SERIALIZE_TRAIT(ExtendedContentBlock)
@@ -369,6 +395,18 @@ DESERIALIZE_TRAIT(CreateMessageRequest)
 SERIALIZE_TRAIT(ElicitRequest)
 DESERIALIZE_TRAIT(ElicitRequest)
 
+// Schema types
+SERIALIZE_TRAIT(StringSchema)
+DESERIALIZE_TRAIT(StringSchema)
+SERIALIZE_TRAIT(NumberSchema)
+DESERIALIZE_TRAIT(NumberSchema)
+SERIALIZE_TRAIT(BooleanSchema)
+DESERIALIZE_TRAIT(BooleanSchema)
+SERIALIZE_TRAIT(EnumSchema)
+DESERIALIZE_TRAIT(EnumSchema)
+SERIALIZE_TRAIT(PrimitiveSchemaDefinition)
+DESERIALIZE_TRAIT(PrimitiveSchemaDefinition)
+
 // Result types
 SERIALIZE_TRAIT(InitializeResult)
 DESERIALIZE_TRAIT(InitializeResult)
@@ -464,6 +502,12 @@ template<> struct JsonDeserializeTraits<jsonrpc::Notification> {
 template<> struct JsonDeserializeTraits<ResourceLink> {
   static ResourceLink deserialize(const JsonValue& json) {
     return impl::deserialize_ResourceLink(json);
+  }
+};
+
+template<> struct JsonSerializeTraits<EmbeddedResource> {
+  static JsonValue serialize(const EmbeddedResource& value) {
+    return impl::serialize_EmbeddedResource(value);
   }
 };
 
