@@ -34,30 +34,125 @@ public:
   static JsonValue serialize(const ContentBlock& block);
   static JsonValue serialize(const ExtendedContentBlock& block);
   
-  // Serialize tool types
+  // ===== Request Types =====
+  
+  // Initialize and session requests
+  static JsonValue serialize(const InitializeRequest& request);
+  static JsonValue serialize(const PingRequest& request);
+  static JsonValue serialize(const CompleteRequest& request);
+  static JsonValue serialize(const SetLevelRequest& request);
+  
+  // Tool requests
   static JsonValue serialize(const Tool& tool);
   static JsonValue serialize(const CallToolRequest& request);
-  static JsonValue serialize(const CallToolResult& result);
+  static JsonValue serialize(const ListToolsRequest& request);
   
-  // Serialize prompt types
+  // Prompt requests
   static JsonValue serialize(const Prompt& prompt);
   static JsonValue serialize(const PromptMessage& message);
   static JsonValue serialize(const GetPromptRequest& request);
-  static JsonValue serialize(const GetPromptResult& result);
+  static JsonValue serialize(const ListPromptsRequest& request);
   
-  // Serialize resource types
+  // Resource requests
   static JsonValue serialize(const Resource& resource);
+  static JsonValue serialize(const ResourceTemplate& resourceTemplate);
   static JsonValue serialize(const ReadResourceRequest& request);
-  static JsonValue serialize(const ReadResourceResult& result);
   static JsonValue serialize(const ListResourcesRequest& request);
-  static JsonValue serialize(const ListResourcesResult& result);
+  static JsonValue serialize(const ListResourceTemplatesRequest& request);
+  static JsonValue serialize(const SubscribeRequest& request);
+  static JsonValue serialize(const UnsubscribeRequest& request);
   
-  // Serialize metadata
+  // Root requests
+  static JsonValue serialize(const Root& root);
+  static JsonValue serialize(const ListRootsRequest& request);
+  
+  // Message requests
+  static JsonValue serialize(const CreateMessageRequest& request);
+  static JsonValue serialize(const ElicitRequest& request);
+  
+  // ===== Response/Result Types =====
+  
+  // Initialize and session results
+  static JsonValue serialize(const InitializeResult& result);
+  static JsonValue serialize(const CompleteResult& result);
+  
+  // Tool results
+  static JsonValue serialize(const CallToolResult& result);
+  static JsonValue serialize(const ListToolsResult& result);
+  
+  // Prompt results
+  static JsonValue serialize(const GetPromptResult& result);
+  static JsonValue serialize(const ListPromptsResult& result);
+  
+  // Resource results
+  static JsonValue serialize(const ReadResourceResult& result);
+  static JsonValue serialize(const ListResourcesResult& result);
+  static JsonValue serialize(const ListResourceTemplatesResult& result);
+  
+  // Root results
+  static JsonValue serialize(const ListRootsResult& result);
+  
+  // Message results
+  static JsonValue serialize(const CreateMessageResult& result);
+  static JsonValue serialize(const ElicitResult& result);
+  
+  // ===== Notification Types =====
+  
+  static JsonValue serialize(const CancelledNotification& notification);
+  static JsonValue serialize(const ProgressNotification& notification);
+  static JsonValue serialize(const InitializedNotification& notification);
+  static JsonValue serialize(const RootsListChangedNotification& notification);
+  static JsonValue serialize(const LoggingMessageNotification& notification);
+  static JsonValue serialize(const ResourceUpdatedNotification& notification);
+  static JsonValue serialize(const ResourceListChangedNotification& notification);
+  static JsonValue serialize(const ToolListChangedNotification& notification);
+  static JsonValue serialize(const PromptListChangedNotification& notification);
+  
+  // ===== Core Data Structures =====
+  
+  // Metadata
   static JsonValue serialize(const Metadata& metadata);
   
-  // Serialize capabilities
+  // Resources
+  static JsonValue serialize(const ResourceContents& contents);
+  static JsonValue serialize(const TextResourceContents& contents);
+  static JsonValue serialize(const BlobResourceContents& contents);
+  
+  // Messages
+  static JsonValue serialize(const Message& message);
+  static JsonValue serialize(const SamplingMessage& message);
+  static JsonValue serialize(const ModelPreferences& prefs);
+  static JsonValue serialize(const ModelHint& hint);
+  
+  // Annotations
+  static JsonValue serialize(const Annotations& annotations);
+  static JsonValue serialize(const ToolAnnotations& annotations);
+  
+  // References
+  static JsonValue serialize(const PromptReference& ref);
+  static JsonValue serialize(const ResourceTemplateReference& ref);
+  
+  // ===== Capability Types =====
+  
   static JsonValue serialize(const ServerCapabilities& caps);
   static JsonValue serialize(const ClientCapabilities& caps);
+  static JsonValue serialize(const RootsCapability& cap);
+  static JsonValue serialize(const ResourcesCapability& cap);
+  static JsonValue serialize(const PromptsCapability& cap);
+  static JsonValue serialize(const EmptyCapability& cap);
+  static JsonValue serialize(const SamplingParams& params);
+  
+  // ===== Helper Functions =====
+  
+  // Serialize enums
+  static JsonValue serialize(enums::Role::Value role);
+  static JsonValue serialize(enums::LoggingLevel::Value level);
+  
+  // Serialize pagination info
+  static JsonValue serializePaginationInfo(const optional<Cursor>& cursor);
+  
+  // Serialize Implementation
+  static JsonValue serialize(const Implementation& impl);
   
   // Generic vector serialization
   template<typename T>
@@ -88,34 +183,130 @@ public:
   static TextContent deserializeTextContent(const JsonValue& json);
   static ImageContent deserializeImageContent(const JsonValue& json);
   static AudioContent deserializeAudioContent(const JsonValue& json);
-  static ResourceContent deserializeResourceContent(const JsonValue& json);
+  static ResourceLink deserializeResourceLink(const JsonValue& json);
+  static EmbeddedResource deserializeEmbeddedResource(const JsonValue& json);
   static ContentBlock deserializeContentBlock(const JsonValue& json);
   static ExtendedContentBlock deserializeExtendedContentBlock(const JsonValue& json);
   
-  // Deserialize tool types
+  // ===== Request Types =====
+  
+  // Initialize and session requests
+  static InitializeRequest deserializeInitializeRequest(const JsonValue& json);
+  static PingRequest deserializePingRequest(const JsonValue& json);
+  static CompleteRequest deserializeCompleteRequest(const JsonValue& json);
+  static SetLevelRequest deserializeSetLevelRequest(const JsonValue& json);
+  
+  // Tool requests
   static Tool deserializeTool(const JsonValue& json);
   static CallToolRequest deserializeCallToolRequest(const JsonValue& json);
-  static CallToolResult deserializeCallToolResult(const JsonValue& json);
+  static ListToolsRequest deserializeListToolsRequest(const JsonValue& json);
   
-  // Deserialize prompt types
+  // Prompt requests
   static Prompt deserializePrompt(const JsonValue& json);
   static PromptMessage deserializePromptMessage(const JsonValue& json);
   static GetPromptRequest deserializeGetPromptRequest(const JsonValue& json);
-  static GetPromptResult deserializeGetPromptResult(const JsonValue& json);
+  static ListPromptsRequest deserializeListPromptsRequest(const JsonValue& json);
   
-  // Deserialize resource types
+  // Resource requests
   static Resource deserializeResource(const JsonValue& json);
+  static ResourceTemplate deserializeResourceTemplate(const JsonValue& json);
   static ReadResourceRequest deserializeReadResourceRequest(const JsonValue& json);
-  static ReadResourceResult deserializeReadResourceResult(const JsonValue& json);
   static ListResourcesRequest deserializeListResourcesRequest(const JsonValue& json);
-  static ListResourcesResult deserializeListResourcesResult(const JsonValue& json);
+  static ListResourceTemplatesRequest deserializeListResourceTemplatesRequest(const JsonValue& json);
+  static SubscribeRequest deserializeSubscribeRequest(const JsonValue& json);
+  static UnsubscribeRequest deserializeUnsubscribeRequest(const JsonValue& json);
   
-  // Deserialize metadata
+  // Root requests
+  static Root deserializeRoot(const JsonValue& json);
+  static ListRootsRequest deserializeListRootsRequest(const JsonValue& json);
+  
+  // Message requests
+  static CreateMessageRequest deserializeCreateMessageRequest(const JsonValue& json);
+  static ElicitRequest deserializeElicitRequest(const JsonValue& json);
+  
+  // ===== Response/Result Types =====
+  
+  // Initialize and session results
+  static InitializeResult deserializeInitializeResult(const JsonValue& json);
+  static CompleteResult deserializeCompleteResult(const JsonValue& json);
+  
+  // Tool results
+  static CallToolResult deserializeCallToolResult(const JsonValue& json);
+  static ListToolsResult deserializeListToolsResult(const JsonValue& json);
+  
+  // Prompt results
+  static GetPromptResult deserializeGetPromptResult(const JsonValue& json);
+  static ListPromptsResult deserializeListPromptsResult(const JsonValue& json);
+  
+  // Resource results
+  static ReadResourceResult deserializeReadResourceResult(const JsonValue& json);
+  static ListResourcesResult deserializeListResourcesResult(const JsonValue& json);
+  static ListResourceTemplatesResult deserializeListResourceTemplatesResult(const JsonValue& json);
+  
+  // Root results
+  static ListRootsResult deserializeListRootsResult(const JsonValue& json);
+  
+  // Message results
+  static CreateMessageResult deserializeCreateMessageResult(const JsonValue& json);
+  static ElicitResult deserializeElicitResult(const JsonValue& json);
+  
+  // ===== Notification Types =====
+  
+  static CancelledNotification deserializeCancelledNotification(const JsonValue& json);
+  static ProgressNotification deserializeProgressNotification(const JsonValue& json);
+  static InitializedNotification deserializeInitializedNotification(const JsonValue& json);
+  static RootsListChangedNotification deserializeRootsListChangedNotification(const JsonValue& json);
+  static LoggingMessageNotification deserializeLoggingMessageNotification(const JsonValue& json);
+  static ResourceUpdatedNotification deserializeResourceUpdatedNotification(const JsonValue& json);
+  static ResourceListChangedNotification deserializeResourceListChangedNotification(const JsonValue& json);
+  static ToolListChangedNotification deserializeToolListChangedNotification(const JsonValue& json);
+  static PromptListChangedNotification deserializePromptListChangedNotification(const JsonValue& json);
+  
+  // ===== Core Data Structures =====
+  
+  // Metadata
   static Metadata deserializeMetadata(const JsonValue& json);
   
-  // Deserialize capabilities
+  // Resources
+  static variant<TextResourceContents, BlobResourceContents> deserializeResourceContents(const JsonValue& json);
+  static TextResourceContents deserializeTextResourceContents(const JsonValue& json);
+  static BlobResourceContents deserializeBlobResourceContents(const JsonValue& json);
+  
+  // Messages
+  static Message deserializeMessage(const JsonValue& json);
+  static SamplingMessage deserializeSamplingMessage(const JsonValue& json);
+  static ModelPreferences deserializeModelPreferences(const JsonValue& json);
+  static ModelHint deserializeModelHint(const JsonValue& json);
+  
+  // Annotations
+  static Annotations deserializeAnnotations(const JsonValue& json);
+  static ToolAnnotations deserializeToolAnnotations(const JsonValue& json);
+  
+  // References
+  static PromptReference deserializePromptReference(const JsonValue& json);
+  static ResourceTemplateReference deserializeResourceTemplateReference(const JsonValue& json);
+  
+  // ===== Capability Types =====
+  
   static ServerCapabilities deserializeServerCapabilities(const JsonValue& json);
   static ClientCapabilities deserializeClientCapabilities(const JsonValue& json);
+  static RootsCapability deserializeRootsCapability(const JsonValue& json);
+  static ResourcesCapability deserializeResourcesCapability(const JsonValue& json);
+  static PromptsCapability deserializePromptsCapability(const JsonValue& json);
+  static EmptyCapability deserializeEmptyCapability(const JsonValue& json);
+  static SamplingParams deserializeSamplingParams(const JsonValue& json);
+  
+  // ===== Helper Functions =====
+  
+  // Deserialize enums
+  static enums::Role::Value deserializeRole(const JsonValue& json);
+  static enums::LoggingLevel::Value deserializeLoggingLevel(const JsonValue& json);
+  
+  // Deserialize pagination info
+  static optional<Cursor> deserializeCursor(const JsonValue& json);
+  
+  // Deserialize Implementation
+  static Implementation deserializeImplementation(const JsonValue& json);
   
   // Generic vector deserialization
   template<typename T>
