@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include <nlohmann/json.hpp>  // Needed for JSON types used in Tool and other structures
+// nlohmann/json.hpp no longer needed - using JsonValue instead
 #include "mcp/json_bridge.h"   // For JsonValue
 
 #include "mcp/type_helpers.h"
@@ -964,8 +964,8 @@ struct PaginatedResult {
 // Type aliases for JSON compatibility
 using Cursor = std::string;
 using EmptyCapability =
-    std::map<std::string, nlohmann::json>;  // Empty capability objects
-using JSONObject = nlohmann::json;
+    std::map<std::string, mcp::json::JsonValue>;  // Empty capability objects
+// JSONObject type alias removed - use mcp::json::JsonValue instead
 
 // Complex capability types for JSON compatibility
 struct ResourcesCapability {

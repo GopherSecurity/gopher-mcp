@@ -3,6 +3,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/socket_impl.h"
 #include <memory>
+#include <string>
 
 namespace mcp {
 namespace {
@@ -64,16 +65,15 @@ protected:
 
 TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   // Create JSON-RPC request
-  nlohmann::json request = {
-      {"jsonrpc", "2.0"},
-      {"id", 123},
-      {"method", "test_method"},
-      {"params", {{"key", "value"}}}
-  };
+  std::string request_json = 
+      "{\"jsonrpc\":\"2.0\","
+      "\"id\":123,"
+      "\"method\":\"test_method\","
+      "\"params\":{\"key\":\"value\"}}";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
-  buffer->add(request.dump());
+  buffer->add(request_json);
   buffer->add("\n");
   
   // Process through filter
@@ -90,15 +90,14 @@ TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseNotification) {
   // Create JSON-RPC notification
-  nlohmann::json notification = {
-      {"jsonrpc", "2.0"},
-      {"method", "notification_method"},
-      {"params", {{"value1", 1}, {"value2", 2}, {"value3", 3}}}
-  };
+  std::string notification_json = 
+      "{\"jsonrpc\":\"2.0\","
+      "\"method\":\"notification_method\","
+      "\"params\":{\"value1\":1,\"value2\":2,\"value3\":3}}";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
-  buffer->add(notification.dump());
+  buffer->add(notification_json);
   buffer->add("\n");
   
   // Process through filter
@@ -112,15 +111,14 @@ TEST_F(JsonRpcMessageFilterTest, ParseNotification) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
   // Create JSON-RPC response
-  nlohmann::json response = {
-      {"jsonrpc", "2.0"},
-      {"id", 456},
-      {"result", {{"status", "ok"}}}
-  };
+  std::string response_json = 
+      "{\"jsonrpc\":\"2.0\","
+      "\"id\":456,"
+      "\"result\":{\"status\":\"ok\"}}";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
-  buffer->add(response.dump());
+  buffer->add(response_json);
   buffer->add("\n");
   
   // Process through filter
@@ -137,19 +135,17 @@ TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseErrorResponse) {
   // Create JSON-RPC error response
-  nlohmann::json response = {
-      {"jsonrpc", "2.0"},
-      {"id", 789},
-      {"error", {
-          {"code", -32601},
-          {"message", "Method not found"},
-          {"data", "test_method"}
-      }}
-  };
+  std::string response_json = 
+      "{\"jsonrpc\":\"2.0\","
+      "\"id\":789,"
+      "\"error\":{"
+      "\"code\":-32601,"
+      "\"message\":\"Method not found\","
+      "\"data\":\"test_method\"}}";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
-  buffer->add(response.dump());
+  buffer->add(response_json);
   buffer->add("\n");
   
   // Process through filter
@@ -200,12 +196,10 @@ TEST_F(JsonRpcMessageFilterTest, FramedMessages) {
   filter_->setUseFraming(true);
   
   // Create framed message
-  nlohmann::json request = {
-      {"jsonrpc", "2.0"},
-      {"id", 1},
-      {"method", "test"}
-  };
-  std::string json_str = request.dump();
+  std::string json_str = 
+      "{\"jsonrpc\":\"2.0\","
+      "\"id\":1,"
+      "\"method\":\"test\"}";
   
   // Add 4-byte length prefix
   auto buffer = std::make_unique<OwnedBuffer>();

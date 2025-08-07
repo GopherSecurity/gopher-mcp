@@ -1,13 +1,5 @@
 #include "mcp/json_serialization.h"
-#include <nlohmann/json.hpp>
 #include <sstream>
-
-// Internal helper from json_bridge.cc
-namespace mcp {
-namespace json {
-extern nlohmann::json toNlohmannJson(const JsonValue& value);
-}
-}
 
 namespace mcp {
 namespace json {
@@ -1749,9 +1741,8 @@ JsonValue serialize_PromptsCapability(const PromptsCapability& cap) {
 JsonValue serialize_EmptyCapability(const EmptyCapability& cap) {
   JsonObjectBuilder builder;
   for (const auto& kv : cap) {
-    // EmptyCapability is a map of string to nlohmann::json
-    auto json_str = kv.second.dump();
-    builder.add(kv.first, JsonValue::parse(json_str));
+    // EmptyCapability is a map of string to JsonValue
+    builder.add(kv.first, kv.second);
   }
   return builder.build();
 }
@@ -2715,8 +2706,8 @@ EmptyCapability deserialize_EmptyCapability(const JsonValue& json) {
   EmptyCapability cap;
   
   for (const auto& key : json.keys()) {
-    // Convert JsonValue to nlohmann::json
-    cap[key] = toNlohmannJson(json[key]);
+    // EmptyCapability is a map of string to JsonValue
+    cap[key] = json[key];
   }
   
   return cap;
