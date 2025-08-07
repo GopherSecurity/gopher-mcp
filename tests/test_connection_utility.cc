@@ -67,7 +67,8 @@ TEST_F(ConnectionUtilityTest, SetKeepAlive) {
     
     // Verify SO_KEEPALIVE is enabled
     int keepalive = getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE);
-    EXPECT_EQ(1, keepalive) << "SO_KEEPALIVE should be enabled";
+    // On macOS, SO_KEEPALIVE returns 8 when enabled, on Linux it returns 1
+    EXPECT_NE(0, keepalive) << "SO_KEEPALIVE should be enabled";
     
 #ifdef __linux__
     // On Linux, check specific keep-alive parameters
@@ -117,10 +118,10 @@ TEST_F(ConnectionUtilityTest, MultipleCallsIdempotent) {
     
     // Should still have correct settings
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-    EXPECT_EQ(1, nodelay);
+    EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
     
     int keepalive = getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE);
-    EXPECT_EQ(1, keepalive);
+    EXPECT_NE(0, keepalive) << "SO_KEEPALIVE should be enabled";
 }
 
 // Test with an actual Socket object
@@ -137,7 +138,7 @@ TEST_F(ConnectionUtilityTest, ConfigureSocketObject) {
     socklen_t len = sizeof(nodelay);
     auto result = socket->getSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, &len);
     EXPECT_TRUE(result.ok());
-    EXPECT_EQ(1, nodelay);
+    EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
 }
 
 // Test platform-specific optimizations
@@ -157,7 +158,7 @@ TEST_F(ConnectionUtilityTest, PlatformSpecificOptions) {
 #ifdef SO_NOSIGPIPE
     // Test macOS/BSD SO_NOSIGPIPE
     int nosigpipe = getSocketOption<int>(SOL_SOCKET, SO_NOSIGPIPE);
-    EXPECT_EQ(1, nosigpipe) << "SO_NOSIGPIPE should be enabled";
+    EXPECT_NE(0, nosigpipe) << "SO_NOSIGPIPE should be enabled";
 #endif
 }
 
@@ -210,7 +211,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationForDifferentConnectionTypes) {
     SocketConfigUtility::setSocketOptions(socket_fd_);
     
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-    EXPECT_EQ(1, nodelay);
+    EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
     
     // Test for server connection (might have different settings)
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -219,7 +220,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationForDifferentConnectionTypes) {
     SocketConfigUtility::setSocketOptions(server_socket);
     
     int server_nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-    EXPECT_EQ(1, server_nodelay);
+    EXPECT_NE(0, server_nodelay) << "TCP_NODELAY should be enabled";
     
     close(server_socket);
 }
@@ -237,10 +238,10 @@ TEST_F(ConnectionUtilityTest, OptionsPersistAfterConnection) {
     
     // Options should still be set
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-    EXPECT_EQ(1, nodelay);
+    EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
     
     int keepalive = getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE);
-    EXPECT_EQ(1, keepalive);
+    EXPECT_NE(0, keepalive) << "SO_KEEPALIVE should be enabled";
 }
 
 // Test comprehensive socket state validation
@@ -277,8 +278,15 @@ TEST_F(ConnectionUtilityTest, ComprehensiveSocketStateValidation) {
         int result = getsockopt(socket_fd_, opt.level, opt.optname, &value, &len);
         
         if (result == 0) {
-            EXPECT_EQ(opt.expected_value, value) 
-                << "Option " << opt.name << " has unexpected value";
+            // For boolean options on macOS, any non-zero value means enabled
+            if (opt.level == IPPROTO_TCP && opt.optname == TCP_NODELAY) {
+                EXPECT_NE(0, value) << "Option " << opt.name << " should be enabled";
+            } else if (opt.level == SOL_SOCKET && (opt.optname == SO_KEEPALIVE || opt.optname == SO_NOSIGPIPE)) {
+                EXPECT_NE(0, value) << "Option " << opt.name << " should be enabled";
+            } else {
+                EXPECT_EQ(opt.expected_value, value) 
+                    << "Option " << opt.name << " has unexpected value";
+            }
         }
     }
 }
@@ -308,8 +316,10 @@ TEST_F(ConnectionUtilityTest, DifferentAddressFamilies) {
     if (ipv6_socket >= 0) {
         SocketConfigUtility::setSocketOptions(ipv6_socket);
         
-        int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-        EXPECT_EQ(1, nodelay);
+        int nodelay = 0;
+        socklen_t len = sizeof(nodelay);
+        getsockopt(ipv6_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, &len);
+        EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
         
         close(ipv6_socket);
     }
@@ -341,7 +351,7 @@ TEST_F(ConnectionUtilityTest, ConcurrentSocketConfiguration) {
                     int nodelay = 0;
                     socklen_t len = sizeof(nodelay);
                     if (getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, 
-                                  &nodelay, &len) == 0 && nodelay == 1) {
+                                  &nodelay, &len) == 0 && nodelay != 0) {
                         success_count++;
                     }
                     
@@ -409,7 +419,7 @@ TEST_F(ConnectionUtilityTest, SystemResourceLimits) {
         int nodelay = 0;
         socklen_t len = sizeof(nodelay);
         EXPECT_EQ(0, getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, &len));
-        EXPECT_EQ(1, nodelay);
+        EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
     }
     
     // Cleanup
@@ -427,7 +437,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationAcrossFork) {
     if (pid == 0) {
         // Child process
         int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-        exit(nodelay == 1 ? 0 : 1);
+        exit(nodelay != 0 ? 0 : 1);
     } else if (pid > 0) {
         // Parent process
         int status;
@@ -443,7 +453,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationAcrossFork) {
 TEST_F(ConnectionUtilityTest, ConfigurationInDifferentStates) {
     // Test on newly created socket
     SocketConfigUtility::setSocketOptions(socket_fd_);
-    EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
+    EXPECT_NE(0, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY)) << "TCP_NODELAY should be enabled";
     
     // Test on listening socket
     int listen_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -457,11 +467,11 @@ TEST_F(ConnectionUtilityTest, ConfigurationInDifferentStates) {
     
     if (bind(listen_socket, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
         SocketConfigUtility::setSocketOptions(listen_socket);
-        EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
+        EXPECT_NE(0, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY)) << "TCP_NODELAY should be enabled";
         
         if (listen(listen_socket, 5) == 0) {
             // Options should persist after listen
-            EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
+            EXPECT_NE(0, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY)) << "TCP_NODELAY should be enabled";
         }
     }
     
@@ -508,8 +518,10 @@ TEST_F(ConnectionUtilityTest, RapidConfigurationChanges) {
             SocketConfigUtility::setSocketOptions(fd);
             
             // Should be back to configured state
-            int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-            EXPECT_EQ(1, nodelay);
+            int nodelay = 0;
+            socklen_t len = sizeof(nodelay);
+            getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, &len);
+            EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
             
             close(fd);
         }
@@ -527,8 +539,8 @@ TEST_F(ConnectionUtilityTest, SocketOptionConflicts) {
     SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Verify configuration won
-    EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
-    EXPECT_EQ(1, getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE));
+    EXPECT_NE(0, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY)) << "TCP_NODELAY should be enabled";
+    EXPECT_NE(0, getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE)) << "SO_KEEPALIVE should be enabled";
 }
 
 // Test memory and resource leak detection
