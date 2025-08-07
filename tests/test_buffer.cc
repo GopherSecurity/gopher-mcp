@@ -627,7 +627,7 @@ TEST(ExtensiveBuildersTest, ComplexCreateMessageRequest) {
 
   EXPECT_EQ(request.messages.size(), 1);
   EXPECT_EQ(request.messages[0].role, enums::Role::USER);
-  auto* msgContent = std::get_if<TextContent>(&request.messages[0].content);
+  auto* msgContent = mcp::get_if<TextContent>(&request.messages[0].content);
   ASSERT_NE(msgContent, nullptr);
   EXPECT_EQ(msgContent->text, "Complex message with annotations");
   ASSERT_TRUE(request.modelPreferences.has_value());
@@ -788,7 +788,7 @@ TEST(ExtensiveBuildersTest, ComplexCallToolResult) {
   EXPECT_FALSE(result.isError);
 
   // Verify we have multiple content items
-  auto* text1 = std::get_if<TextContent>(&result.content[0]);
+  auto* text1 = mcp::get_if<TextContent>(&result.content[0]);
   ASSERT_NE(text1, nullptr);
   EXPECT_EQ(text1->text, "Processing started...");
 }
@@ -813,14 +813,14 @@ TEST(ExtensiveBuildersTest, ComplexReadResourceResult) {
 
   // Verify first 3 are text
   for (int i = 0; i < 3; ++i) {
-    auto* textContent = std::get_if<TextResourceContents>(&finalResult.contents[i]);
+    auto* textContent = mcp::get_if<TextResourceContents>(&finalResult.contents[i]);
     ASSERT_NE(textContent, nullptr);
     EXPECT_EQ(textContent->text, "Text content #" + std::to_string(i));
   }
 
   // Verify last 2 are blobs
   for (int i = 0; i < 2; ++i) {
-    auto* blobContent = std::get_if<BlobResourceContents>(&finalResult.contents[3 + i]);
+    auto* blobContent = mcp::get_if<BlobResourceContents>(&finalResult.contents[3 + i]);
     ASSERT_NE(blobContent, nullptr);
     EXPECT_EQ(blobContent->blob, "Binary data #" + std::to_string(i));
   }
@@ -973,15 +973,15 @@ TEST(ExtensiveBuildersTest, ComplexLogMessage) {
   ASSERT_TRUE(notification.logger.has_value());
   EXPECT_EQ(notification.logger.value(), "system.core");
   
-  auto* metadata = std::get_if<Metadata>(&notification.data);
+  auto* metadata = mcp::get_if<Metadata>(&notification.data);
   ASSERT_NE(metadata, nullptr);
   EXPECT_EQ(metadata->size(), 5);
   
-  auto* timestamp = std::get_if<std::string>(&(*metadata)["timestamp"]);
+  auto* timestamp = mcp::get_if<std::string>(&(*metadata)["timestamp"]);
   ASSERT_NE(timestamp, nullptr);
   EXPECT_EQ(*timestamp, "2024-01-01T12:00:00Z");
   
-  auto* line = std::get_if<int64_t>(&(*metadata)["line"]);
+  auto* line = mcp::get_if<int64_t>(&(*metadata)["line"]);
   ASSERT_NE(line, nullptr);
   EXPECT_EQ(*line, 42);
 }
@@ -992,7 +992,7 @@ TEST(ExtensiveBuildersTest, ComplexProgressNotification) {
                           .total(1.0)
                           .build();
 
-  auto* token = std::get_if<std::string>(&notification.progressToken);
+  auto* token = mcp::get_if<std::string>(&notification.progressToken);
   ASSERT_NE(token, nullptr);
   EXPECT_EQ(*token, "task-12345");
   EXPECT_EQ(notification.progress, 0.75);
@@ -1019,7 +1019,7 @@ TEST(ExtensiveBuildersTest, ComplexElicitRequest) {
   ASSERT_TRUE(request.prompt.has_value());
   EXPECT_EQ(request.prompt.value(), "Please enter your email address:");
   
-  auto* stringSchema = std::get_if<StringSchema>(&request.schema);
+  auto* stringSchema = mcp::get_if<StringSchema>(&request.schema);
   ASSERT_NE(stringSchema, nullptr);
   ASSERT_TRUE(stringSchema->pattern.has_value());
 }
@@ -1101,7 +1101,7 @@ TEST(ExtensiveBuildersTest, MaximallyComplexMessage) {
 
   EXPECT_EQ(message.role, enums::Role::ASSISTANT);
   
-  auto* text = std::get_if<TextContent>(&message.content);
+  auto* text = mcp::get_if<TextContent>(&message.content);
   ASSERT_NE(text, nullptr);
   EXPECT_EQ(text->text, "Complex message with all features");
   ASSERT_TRUE(text->annotations.has_value());
