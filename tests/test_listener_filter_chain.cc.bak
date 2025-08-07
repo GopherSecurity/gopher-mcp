@@ -90,11 +90,6 @@ public:
 class ListenerFilterChainTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // NOTE: The issue is that ActiveListener creates file events in its constructor, 
-        // which must be called from the dispatcher thread. The tests are creating the 
-        // listener from the main thread. We need to either:
-        // 1. Create the listener within the dispatcher thread, or
-        // 2. Use a simpler test approach that doesn't require ActiveListener
         factory_ = createLibeventDispatcherFactory();
         dispatcher_ = factory_->createDispatcher("test");
         socket_interface_ = std::make_unique<SocketInterfaceImpl>();
@@ -147,10 +142,6 @@ protected:
 // Test empty filter chain - connection should pass through
 TEST_F(ListenerFilterChainTest, DISABLED_EmptyFilterChain) {
     // DISABLED: ActiveListener requires dispatcher thread context
-    // The test is failing because createFileEvent is being called from the wrong thread. 
-    // The ActiveListener constructor creates file events, but it expects to be called from 
-    // within the dispatcher's thread (where isThreadSafe() returns true). However, in the test, 
-    // we're creating the listener from the main test thread.
     createListener({});
     
     auto socket = createTestSocket();
@@ -162,9 +153,6 @@ TEST_F(ListenerFilterChainTest, DISABLED_EmptyFilterChain) {
 
 // Test single filter that continues
 TEST_F(ListenerFilterChainTest, DISABLED_SingleFilterContinue) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // createListener() calls ActiveListener constructor which creates file events,
-    // but this must happen within the dispatcher thread where isThreadSafe() returns true
     std::vector<ListenerFilterPtr> filters;
     auto filter = std::make_unique<MockListenerFilter>("filter1");
     auto* filter_ptr = filter.get();
@@ -183,9 +171,6 @@ TEST_F(ListenerFilterChainTest, DISABLED_SingleFilterContinue) {
 
 // Test multiple filters in chain
 TEST_F(ListenerFilterChainTest, DISABLED_MultipleFiltersChain) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The ActiveListener constructor creates file events which must be called from
-    // within the dispatcher thread where isThreadSafe() returns true
     std::vector<ListenerFilterPtr> filters;
     std::vector<MockListenerFilter*> filter_ptrs;
     
@@ -210,10 +195,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_MultipleFiltersChain) {
 }
 
 // Test filter that stops iteration (async)
-TEST_F(ListenerFilterChainTest, DISABLED_FilterStopsIteration) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // Cannot create ActiveListener from test thread as it needs to create file events
-    // within the dispatcher's thread context
+TEST_F(ListenerFilterChainTest, FilterStopsIteration) {
     std::vector<ListenerFilterPtr> filters;
     
     // First filter is async
@@ -248,10 +230,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterStopsIteration) {
 }
 
 // Test filter rejecting connection
-TEST_F(ListenerFilterChainTest, DISABLED_FilterRejectsConnection) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The test creates ActiveListener outside dispatcher thread, violating
-    // libevent's requirement that file events be created from dispatcher thread
+TEST_F(ListenerFilterChainTest, FilterRejectsConnection) {
     std::vector<ListenerFilterPtr> filters;
     
     // Filter that will reject
@@ -291,10 +270,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterRejectsConnection) {
 }
 
 // Test multiple connections through filter chain
-TEST_F(ListenerFilterChainTest, DISABLED_MultipleConcurrentConnections) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // createListener() calls ActiveListener constructor which attempts to
-    // create file events outside the dispatcher thread, causing assertion failure
+TEST_F(ListenerFilterChainTest, MultipleConcurrentConnections) {
     std::vector<ListenerFilterPtr> filters;
     
     auto filter = std::make_unique<MockListenerFilter>("concurrent_filter");
@@ -316,10 +292,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_MultipleConcurrentConnections) {
 }
 
 // Test filter accessing socket information
-TEST_F(ListenerFilterChainTest, DISABLED_FilterAccessesSocket) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // File event creation in ActiveListener constructor must happen within
-    // dispatcher thread but test creates listener from main thread
+TEST_F(ListenerFilterChainTest, FilterAccessesSocket) {
     std::vector<ListenerFilterPtr> filters;
     
     class SocketInspectingFilter : public ListenerFilter {
@@ -355,10 +328,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterAccessesSocket) {
 }
 
 // Test filter chain ordering
-TEST_F(ListenerFilterChainTest, DISABLED_FilterChainOrdering) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The test violates libevent's thread safety by creating ActiveListener
-    // (and its file events) outside the dispatcher's thread
+TEST_F(ListenerFilterChainTest, FilterChainOrdering) {
     std::vector<ListenerFilterPtr> filters;
     std::atomic<int> call_order{0};
     std::vector<int> filter_orders(3);
@@ -394,10 +364,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterChainOrdering) {
 }
 
 // Test filter cleanup on listener destruction
-TEST_F(ListenerFilterChainTest, DISABLED_FilterCleanupOnDestruction) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // ActiveListener's constructor creates file events which triggers
-    // isThreadSafe() assertion when called from test thread
+TEST_F(ListenerFilterChainTest, FilterCleanupOnDestruction) {
     std::vector<ListenerFilterPtr> filters;
     
     auto filter = std::make_unique<MockListenerFilter>("cleanup_filter");
@@ -420,10 +387,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterCleanupOnDestruction) {
 }
 
 // Test filter chain with priorities
-TEST_F(ListenerFilterChainTest, DISABLED_FilterChainPriorities) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // Cannot instantiate ActiveListener from test thread as it needs to
-    // create file events within dispatcher's thread context
+TEST_F(ListenerFilterChainTest, FilterChainPriorities) {
     class PriorityFilter : public ListenerFilter {
     public:
         PriorityFilter(int priority, std::vector<int>& execution_order)
@@ -460,10 +424,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterChainPriorities) {
 }
 
 // Test filter chain resilience to filter failures
-TEST_F(ListenerFilterChainTest, DISABLED_FilterChainResilience) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The test creates ActiveListener outside dispatcher thread which violates
-    // libevent's requirement for file event creation
+TEST_F(ListenerFilterChainTest, FilterChainResilience) {
     class FailingFilter : public ListenerFilter {
     public:
         FailingFilter(bool should_throw) : should_throw_(should_throw) {}
@@ -500,10 +461,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterChainResilience) {
 }
 
 // Test complex async filter scenarios
-TEST_F(ListenerFilterChainTest, DISABLED_ComplexAsyncFilterScenarios) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // createListener() attempts to create file events from wrong thread,
-    // causing assertion failure in libevent dispatcher
+TEST_F(ListenerFilterChainTest, ComplexAsyncFilterScenarios) {
     class ComplexAsyncFilter : public ListenerFilter {
     public:
         ComplexAsyncFilter(std::chrono::milliseconds delay, bool accept)
@@ -564,10 +522,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_ComplexAsyncFilterScenarios) {
 }
 
 // Test filter state management
-TEST_F(ListenerFilterChainTest, DISABLED_FilterStateManagement) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // ActiveListener constructor must be called from dispatcher thread
-    // to properly create file events with correct thread context
+TEST_F(ListenerFilterChainTest, FilterStateManagement) {
     class StatefulFilter : public ListenerFilter {
     public:
         enum State { INIT, PROCESSING, DONE };
@@ -610,10 +565,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterStateManagement) {
 }
 
 // Test filter chain with connection modification
-TEST_F(ListenerFilterChainTest, DISABLED_FilterChainConnectionModification) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // File events created in ActiveListener constructor require
-    // isThreadSafe() to return true, only possible in dispatcher thread
+TEST_F(ListenerFilterChainTest, FilterChainConnectionModification) {
     class ModifyingFilter : public ListenerFilter {
     public:
         ListenerFilterStatus onAccept(ListenerFilterCallbacks& cb) override {
@@ -647,10 +599,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterChainConnectionModification) {
 }
 
 // Test filter chain performance with many filters
-TEST_F(ListenerFilterChainTest, DISABLED_FilterChainPerformance) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // Test creates ActiveListener from main thread but file event
-    // creation requires dispatcher thread context
+TEST_F(ListenerFilterChainTest, FilterChainPerformance) {
     const int num_filters = 100;
     std::vector<ListenerFilterPtr> filters;
     std::vector<MockListenerFilter*> filter_ptrs;
@@ -684,10 +633,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterChainPerformance) {
 }
 
 // Test filter chain with mixed sync/async filters
-TEST_F(ListenerFilterChainTest, DISABLED_MixedSyncAsyncFilters) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The createListener() call violates thread safety by creating
-    // ActiveListener outside the dispatcher's thread
+TEST_F(ListenerFilterChainTest, MixedSyncAsyncFilters) {
     std::atomic<int> total_processed{0};
     
     class CountingFilter : public ListenerFilter {
@@ -741,10 +687,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_MixedSyncAsyncFilters) {
 }
 
 // Test filter chain error propagation
-TEST_F(ListenerFilterChainTest, DISABLED_ErrorPropagation) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // ActiveListener's file event creation triggers assertion failure
-    // when not called from dispatcher thread
+TEST_F(ListenerFilterChainTest, ErrorPropagation) {
     class ErrorGeneratingFilter : public ListenerFilter {
     public:
         enum ErrorType { NONE, EXCEPTION, REJECT };
@@ -837,10 +780,7 @@ std::atomic<int> ResourceTrackingFilter::creation_count_{0};
 std::atomic<int> ResourceTrackingFilter::destruction_count_{0};
 
 // Test filter chain resource management
-TEST_F(ListenerFilterChainTest, DISABLED_ResourceManagement) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // Cannot create ActiveListener from test thread due to libevent's
-    // thread safety requirements for file event creation
+TEST_F(ListenerFilterChainTest, ResourceManagement) {
     
     ResourceTrackingFilter::creation_count_ = 0;
     ResourceTrackingFilter::destruction_count_ = 0;
@@ -865,10 +805,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_ResourceManagement) {
 }
 
 // Test filter chain with large payloads
-TEST_F(ListenerFilterChainTest, DISABLED_LargePayloadHandling) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // The test violates thread context requirements by creating
-    // ActiveListener and its file events outside dispatcher thread
+TEST_F(ListenerFilterChainTest, LargePayloadHandling) {
     class PayloadFilter : public ListenerFilter {
     public:
         ListenerFilterStatus onAccept(ListenerFilterCallbacks& cb) override {
@@ -909,10 +846,7 @@ TEST_F(ListenerFilterChainTest, DISABLED_LargePayloadHandling) {
 }
 
 // Test filter chain thread safety
-TEST_F(ListenerFilterChainTest, DISABLED_ThreadSafetyStressTest) {
-    // DISABLED: ActiveListener requires dispatcher thread context
-    // createListener() creates ActiveListener which needs to create
-    // file events from within the dispatcher's thread context
+TEST_F(ListenerFilterChainTest, ThreadSafetyStressTest) {
     class ThreadSafeFilter : public ListenerFilter {
     public:
         ListenerFilterStatus onAccept(ListenerFilterCallbacks& cb) override {

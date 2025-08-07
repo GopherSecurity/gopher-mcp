@@ -19,6 +19,10 @@ using namespace std::chrono_literals;
 class ExtendedThreadSafetyTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        // NOTE: Libevent requires that certain operations (file events, timers, deferred deletion, 
+        // signal handling) must be performed from within the dispatcher's thread context where 
+        // isThreadSafe() returns true. This is enforced by assertions in the libevent_dispatcher.cc 
+        // implementation.
         factory_ = createLibeventDispatcherFactory();
     }
     
@@ -272,6 +276,10 @@ TEST_F(ExtendedThreadSafetyTest, ConcurrentThreadSafetyChecks) {
 // Test thread safety with nested callbacks
 TEST_F(ExtendedThreadSafetyTest, DISABLED_NestedCallbackThreadSafety) {
     // DISABLED: Complex nesting logic causes hang
+    // The nested_post function is first called from outside the dispatcher thread,
+    // and the recursive calls create a complex execution pattern that prevents
+    // depth_count from incrementing properly, causing dispatcher->exit() to never
+    // be called and the test to hang indefinitely
     auto dispatcher = factory_->createDispatcher("test");
     
     std::atomic<int> depth_count{0};
@@ -424,6 +432,9 @@ TEST_F(ExtendedThreadSafetyTest, StressTestThreadSafety) {
 // Test dispatcher state consistency
 TEST_F(ExtendedThreadSafetyTest, DISABLED_DispatcherStateConsistency) {
     // DISABLED: Hangs when run with other tests
+    // The dispatcher may not process the posted callback due to potential
+    // global state conflicts when multiple tests are run together, causing
+    // the test to wait indefinitely for state transitions
     auto dispatcher = factory_->createDispatcher("test");
     
     enum State { NOT_STARTED, RUNNING, STOPPED };
@@ -531,6 +542,9 @@ TEST_F(ExtendedThreadSafetyTest, DispatcherLifetimeWithPendingWork) {
 // Test thread safety with recursive posts
 TEST_F(ExtendedThreadSafetyTest, DISABLED_RecursivePostThreadSafety) {
     // DISABLED: Complex recursion logic causes hang
+    // The recursive_post function creates a chain of posted callbacks that
+    // may not execute in the expected order, preventing the recursion from
+    // reaching the target depth and calling dispatcher->exit()
     auto dispatcher = factory_->createDispatcher("test");
     
     std::atomic<int> depth{0};
@@ -573,6 +587,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_RecursivePostThreadSafety) {
 // Test thread safety with timer callbacks
 TEST_F(ExtendedThreadSafetyTest, DISABLED_TimerCallbackThreadSafety) {
     // DISABLED: createTimer requires dispatcher thread context
+    // The createTimer() call must be made from within the dispatcher thread
+    // where isThreadSafe() returns true, but the test attempts to create
+    // timers from the main test thread, violating libevent's thread safety
     auto dispatcher = factory_->createDispatcher("test");
     
     std::atomic<int> timer_fires{0};
@@ -607,6 +624,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_TimerCallbackThreadSafety) {
 // Test thread safety with file events
 TEST_F(ExtendedThreadSafetyTest, DISABLED_FileEventThreadSafety) {
     // DISABLED: createFileEvent requires dispatcher thread context
+    // The createFileEvent() call triggers an assertion failure because it
+    // must be called from within the dispatcher thread, but the test
+    // creates the file event from the main thread
     auto dispatcher = factory_->createDispatcher("test");
     
     // Create a pipe for testing
@@ -645,6 +665,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_FileEventThreadSafety) {
 // Test dispatcher migration between threads
 TEST_F(ExtendedThreadSafetyTest, DISABLED_DispatcherThreadMigration) {
     // DISABLED: Dispatcher cannot migrate between threads
+    // Once a dispatcher is bound to a thread by calling run(), it cannot
+    // be migrated to another thread. This test attempts to run the same
+    // dispatcher in different threads which violates libevent's design
     auto dispatcher = factory_->createDispatcher("test");
     
     std::vector<std::thread::id> thread_ids;
@@ -684,6 +707,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_DispatcherThreadMigration) {
 #ifndef _WIN32
 TEST_F(ExtendedThreadSafetyTest, DISABLED_SignalEventThreadSafety) {
     // DISABLED: listenForSignal requires dispatcher thread context
+    // The listenForSignal() call must be made from within the dispatcher
+    // thread to properly register signal handlers with libevent, but the
+    // test calls it from the main thread causing assertion failure
     auto dispatcher = factory_->createDispatcher("test");
     
     std::atomic<bool> signal_received{false};
@@ -715,6 +741,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_SignalEventThreadSafety) {
 // Test thread safety with deferred deletion
 TEST_F(ExtendedThreadSafetyTest, DISABLED_DeferredDeletionThreadSafety) {
     // DISABLED: deferredDelete requires dispatcher thread context
+    // The deferredDelete() call must be made from within the dispatcher
+    // thread where isThreadSafe() returns true, but the test attempts
+    // to schedule deletion from the main thread
     auto dispatcher = factory_->createDispatcher("test");
     
     struct TestObject : public DeferredDeletable {
@@ -755,6 +784,9 @@ TEST_F(ExtendedThreadSafetyTest, DISABLED_DeferredDeletionThreadSafety) {
 // Test thread safety with watchdog
 TEST_F(ExtendedThreadSafetyTest, DISABLED_WatchdogThreadSafety) {
     // DISABLED: registerWatchdog requires dispatcher thread context
+    // The registerWatchdog() call creates internal timers which require
+    // the dispatcher thread context, but the test registers the watchdog
+    // from outside the dispatcher thread causing assertion failure
     auto dispatcher = factory_->createDispatcher("test");
     
     class TestWatchdog : public WatchDog {
