@@ -8,6 +8,8 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <signal.h>
+#include <unistd.h>
 
 #include "mcp/event/libevent_dispatcher.h"
 

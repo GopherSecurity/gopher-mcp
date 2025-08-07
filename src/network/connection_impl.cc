@@ -175,7 +175,7 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   }
   
   // Configure socket with optimal settings
-  ConnectionUtility::configureSocket(*socket_, is_server_connection_);
+  SocketConfigUtility::configureSocket(*socket_, is_server_connection_);
   
   // Apply socket options if any
   // auto socket_options = socketOptions();
