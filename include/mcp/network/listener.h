@@ -227,10 +227,10 @@ class ActiveListener : public Listener, public ListenerCallbacks {
 
   // Allow filter context to access internals
   friend class ListenerFilterContext;
-  
+
   // Get dispatcher for filter context
   event::Dispatcher& dispatcher() { return dispatcher_; }
-  
+
   // Create connection from accepted socket (accessible to filter context)
   void createConnection(ConnectionSocketPtr&& socket);
 
@@ -259,7 +259,7 @@ class ActiveListener : public Listener, public ListenerCallbacks {
 
   // Tags for stats/logging
   std::vector<std::string> tags_;
-  
+
   // Pending filter contexts (connections being filtered)
   std::vector<std::unique_ptr<ListenerFilterContext>> pending_filter_contexts_;
 };
