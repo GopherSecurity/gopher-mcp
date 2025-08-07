@@ -132,7 +132,6 @@ FetchContent_MakeAvailable(googletest)
 # Source files
 set(MCP_SDK_SOURCES
     src/buffer/buffer_impl.cc
-    # src/json.cc  # Disabled - using new template-based serialization
     src/json_bridge.cc
     src/json_serialization.cc
     src/network/address_impl.cc

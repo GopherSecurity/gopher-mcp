@@ -361,11 +361,5 @@ JsonValue JsonValue::parse(const std::string& json_str) {
   }
 }
 
-// Helper to get the underlying nlohmann::json - for internal use only
-nlohmann::json toNlohmannJson(const JsonValue& value) {
-  auto* impl = static_cast<JsonValueImpl*>(value.getImpl());
-  return impl->json_;
-}
-
 }  // namespace json
 }  // namespace mcp

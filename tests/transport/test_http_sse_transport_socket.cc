@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/buffer.h"
+#include "mcp/json_bridge.h"
 
 namespace mcp {
 namespace transport {
@@ -79,9 +80,9 @@ TEST(HttpSseParsingTest, ParseSseEventData) {
   std::string json_str = sse_data.substr(start, end - start);
   
   // Parse JSON
-  auto json = nlohmann::json::parse(json_str);
-  EXPECT_EQ("2.0", json["jsonrpc"]);
-  EXPECT_EQ(1, json["id"]);
+  auto json = mcp::json::JsonValue::parse(json_str);
+  EXPECT_EQ("2.0", json["jsonrpc"].getString());
+  EXPECT_EQ(1, json["id"].getInt());
   EXPECT_TRUE(json.contains("result"));
 }
 
@@ -110,11 +111,11 @@ TEST(HttpSseParsingTest, ParseMultipleEvents) {
   
   ASSERT_EQ(2, events.size());
   
-  auto json1 = nlohmann::json::parse(events[0]);
-  EXPECT_EQ("notification1", json1["method"]);
+  auto json1 = mcp::json::JsonValue::parse(events[0]);
+  EXPECT_EQ("notification1", json1["method"].getString());
   
-  auto json2 = nlohmann::json::parse(events[1]);
-  EXPECT_EQ("notification2", json2["method"]);
+  auto json2 = mcp::json::JsonValue::parse(events[1]);
+  EXPECT_EQ("notification2", json2["method"].getString());
 }
 
 TEST(HttpSseParsingTest, ParseEventWithId) {
