@@ -8,7 +8,7 @@
 #include "mcp/network/address.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 
 namespace mcp {
 namespace network {

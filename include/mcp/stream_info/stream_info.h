@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "mcp/network/address.h"
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 
 namespace mcp {
 namespace stream_info {

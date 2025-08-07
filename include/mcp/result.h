@@ -3,7 +3,7 @@
 
 #include "mcp/compat.h"
 #include "mcp/io_result.h"
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 #include "mcp/types.h"
 
 namespace mcp {

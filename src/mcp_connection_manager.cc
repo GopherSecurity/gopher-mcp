@@ -368,7 +368,7 @@ VoidResult McpConnectionManager::listen(
   
   // Add listener with this as callbacks
   auto result = listener_manager->addListener(std::move(listener_config), *this);
-  if (result.holds_alternative<Error>()) {
+  if (mcp::holds_alternative<Error>(result)) {
     return result;
   }
   

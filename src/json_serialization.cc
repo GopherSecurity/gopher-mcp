@@ -39,7 +39,7 @@ JsonValue serialize_Error(const Error& error) {
 JsonValue serialize_ErrorData(const ErrorData& data) {
   JsonValue result;
   
-  match(data,
+  mcp::match(data,
     [&result](std::nullptr_t) { result = JsonValue::null(); },
     [&result](bool b) { result = JsonValue(b); },
     [&result](int i) { result = JsonValue(i); },
@@ -68,7 +68,7 @@ JsonValue serialize_ErrorData(const ErrorData& data) {
 JsonValue serialize_RequestId(const RequestId& id) {
   JsonValue result;
   
-  match(id,
+  mcp::match(id,
     [&result](const std::string& s) { result = JsonValue(s); },
     [&result](int i) { result = JsonValue(i); }
   );
@@ -108,7 +108,7 @@ JsonValue serialize_Response(const jsonrpc::Response& response) {
 JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
   JsonValue json_result;
   
-  match(result,
+  mcp::match(result,
     [&json_result](std::nullptr_t) { 
       json_result = JsonValue::null(); 
     },
@@ -205,7 +205,7 @@ JsonValue serialize_ResourceContent(const ResourceContent& content) {
 
 ResourceContent deserialize_ResourceContent(const JsonValue& json) {
   ResourceContent content;
-  content.type = json["type"].toString();
+  content.type = json["type"].getString();
   content.resource = deserialize_Resource(json["resource"]);
   return content;
 }
@@ -241,18 +241,18 @@ JsonValue serialize_StringSchema(const StringSchema& schema) {
 
 StringSchema deserialize_StringSchema(const JsonValue& json) {
   StringSchema schema;
-  schema.type = json["type"].toString();
+  schema.type = json["type"].getString();
   if (json.contains("description")) {
-    schema.description = make_optional(json["description"].toString());
+    schema.description = mcp::make_optional(json["description"].getString());
   }
   if (json.contains("pattern")) {
-    schema.pattern = make_optional(json["pattern"].toString());
+    schema.pattern = mcp::make_optional(json["pattern"].getString());
   }
   if (json.contains("minLength")) {
-    schema.minLength = make_optional(json["minLength"].getInt());
+    schema.minLength = mcp::make_optional(json["minLength"].getInt());
   }
   if (json.contains("maxLength")) {
-    schema.maxLength = make_optional(json["maxLength"].getInt());
+    schema.maxLength = mcp::make_optional(json["maxLength"].getInt());
   }
   return schema;
 }
@@ -277,18 +277,18 @@ JsonValue serialize_NumberSchema(const NumberSchema& schema) {
 
 NumberSchema deserialize_NumberSchema(const JsonValue& json) {
   NumberSchema schema;
-  schema.type = json["type"].toString();
+  schema.type = json["type"].getString();
   if (json.contains("description")) {
-    schema.description = make_optional(json["description"].toString());
+    schema.description = mcp::make_optional(json["description"].getString());
   }
   if (json.contains("minimum")) {
-    schema.minimum = make_optional(json["minimum"].getFloat());
+    schema.minimum = mcp::make_optional(json["minimum"].getFloat());
   }
   if (json.contains("maximum")) {
-    schema.maximum = make_optional(json["maximum"].getFloat());
+    schema.maximum = mcp::make_optional(json["maximum"].getFloat());
   }
   if (json.contains("multipleOf")) {
-    schema.multipleOf = make_optional(json["multipleOf"].getFloat());
+    schema.multipleOf = mcp::make_optional(json["multipleOf"].getFloat());
   }
   return schema;
 }
@@ -304,9 +304,9 @@ JsonValue serialize_BooleanSchema(const BooleanSchema& schema) {
 
 BooleanSchema deserialize_BooleanSchema(const JsonValue& json) {
   BooleanSchema schema;
-  schema.type = json["type"].toString();
+  schema.type = json["type"].getString();
   if (json.contains("description")) {
-    schema.description = make_optional(json["description"].toString());
+    schema.description = mcp::make_optional(json["description"].getString());
   }
   return schema;
 }
@@ -329,13 +329,13 @@ EnumSchema deserialize_EnumSchema(const JsonValue& json) {
   EnumSchema schema;
   schema.type = "string"; // Enum type is always string
   if (json.contains("description")) {
-    schema.description = make_optional(json["description"].toString());
+    schema.description = mcp::make_optional(json["description"].getString());
   }
   if (json.contains("enum")) {
     auto enumArray = json["enum"];
     size_t size = enumArray.size();
     for (size_t i = 0; i < size; ++i) {
-      schema.values.push_back(enumArray[i].toString());
+      schema.values.push_back(enumArray[i].getString());
     }
   }
   return schema;
@@ -343,7 +343,7 @@ EnumSchema deserialize_EnumSchema(const JsonValue& json) {
 
 JsonValue serialize_PrimitiveSchemaDefinition(const PrimitiveSchemaDefinition& def) {
   JsonValue result;
-  match(def,
+  mcp::match(def,
     [&result](const StringSchema& s) { result = serialize_StringSchema(s); },
     [&result](const NumberSchema& n) { result = serialize_NumberSchema(n); },
     [&result](const BooleanSchema& b) { result = serialize_BooleanSchema(b); },
@@ -353,7 +353,7 @@ JsonValue serialize_PrimitiveSchemaDefinition(const PrimitiveSchemaDefinition& d
 }
 
 PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(const JsonValue& json) {
-  std::string type = json["type"].toString();
+  std::string type = json["type"].getString();
   
   if (type == "string") {
     if (json.contains("enum")) {
@@ -374,7 +374,7 @@ PrimitiveSchemaDefinition deserialize_PrimitiveSchemaDefinition(const JsonValue&
 JsonValue serialize_ContentBlock(const ContentBlock& block) {
   JsonValue result;
   
-  match(block,
+  mcp::match(block,
     [&result](const TextContent& text) { 
       result = serialize_TextContent(text); 
     },
@@ -800,7 +800,7 @@ ExtendedContentBlock deserialize_ExtendedContentBlock(const JsonValue& json) {
 JsonValue serialize_ExtendedContentBlock(const ExtendedContentBlock& block) {
   JsonValue result;
   
-  match(block,
+  mcp::match(block,
     [&result](const TextContent& text) { 
       result = serialize_TextContent(text); 
     },
@@ -890,7 +890,7 @@ JsonValue serialize_PromptMessage(const PromptMessage& message) {
   builder.add("role", enums::Role::to_string(message.role));
   
   // Handle variant content
-  match(message.content,
+  mcp::match(message.content,
     [&builder](const TextContent& text) {
       builder.add("content", serialize_TextContent(text));
     },
@@ -1051,7 +1051,7 @@ JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   builder.add("name", request.name);
   
   // Serialize schema
-  match(request.schema,
+  mcp::match(request.schema,
     [&builder](const StringSchema& s) {
       JsonObjectBuilder schemaBuilder;
       schemaBuilder.add("type", "string");
@@ -1223,7 +1223,7 @@ JsonValue serialize_ReadResourceResult(const ReadResourceResult& result) {
   
   JsonArrayBuilder contents;
   for (const auto& content : result.contents) {
-    match(content,
+    mcp::match(content,
       [&contents](const TextResourceContents& text) {
         contents.add(serialize_TextResourceContents(text));
       },
@@ -1288,7 +1288,7 @@ JsonValue serialize_CreateMessageResult(const CreateMessageResult& result) {
   builder.add("role", enums::Role::to_string(result.role));
   
   // Serialize content
-  match(result.content,
+  mcp::match(result.content,
     [&builder](const TextContent& text) {
       builder.add("content", serialize_TextContent(text));
     },
@@ -1312,7 +1312,7 @@ JsonValue serialize_CreateMessageResult(const CreateMessageResult& result) {
 JsonValue serialize_ElicitResult(const ElicitResult& result) {
   JsonObjectBuilder builder;
   
-  match(result.value,
+  mcp::match(result.value,
     [&builder](const std::string& s) {
       builder.add("value", s);
     },
@@ -1374,7 +1374,7 @@ JsonValue serialize_LoggingMessageNotification(const LoggingMessageNotification&
     builder.add("logger", notification.logger.value());
   }
   
-  match(notification.data,
+  mcp::match(notification.data,
     [&builder](const std::string& s) {
       builder.add("data", s);
     },
@@ -1466,7 +1466,7 @@ JsonValue serialize_SamplingMessage(const SamplingMessage& message) {
   JsonObjectBuilder builder;
   builder.add("role", enums::Role::to_string(message.role));
   
-  match(message.content,
+  mcp::match(message.content,
     [&builder](const TextContent& text) {
       builder.add("content", serialize_TextContent(text));
     },
@@ -1575,7 +1575,7 @@ JsonValue serialize_ServerCapabilities(const ServerCapabilities& caps) {
   }
   
   if (caps.resources.has_value()) {
-    match(caps.resources.value(),
+    mcp::match(caps.resources.value(),
       [&builder](bool b) {
         builder.add("resources", b);
       },

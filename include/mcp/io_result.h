@@ -8,7 +8,7 @@
 #include <winsock2.h>
 #endif
 
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 
 namespace mcp {
 
