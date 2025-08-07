@@ -227,7 +227,7 @@ void ConnectionManagerImpl::onEvent(ConnectionEvent event) {
     // Find and remove closed connections
     for (auto it = connections_.begin(); it != connections_.end(); ) {
       Connection* conn = it->first;
-      if (conn && conn->state() == Connection::State::Closed) {
+      if (conn && conn->state() == ConnectionState::Closed) {
         // Notify pool callbacks before removing
         if (pool_callbacks_) {
           pool_callbacks_->onConnectionEvent(*conn, event);
@@ -240,7 +240,8 @@ void ConnectionManagerImpl::onEvent(ConnectionEvent event) {
   } else if (pool_callbacks_) {
     // TODO: For non-close events, notify for all connections (not ideal but safe)
     // TODO: In production, we'd use a per-connection callback wrapper
-    for (auto& [conn, weak_ptr] : connections_) {
+    for (auto& pair : connections_) {
+      Connection* conn = pair.first;
       if (conn) {
         pool_callbacks_->onConnectionEvent(*conn, event);
       }

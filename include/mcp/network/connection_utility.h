@@ -9,8 +9,14 @@ namespace network {
 /**
  * Utility class for configuring connection sockets
  */
-class ConnectionUtility {
+class SocketConfigUtility {
 public:
+  /**
+   * Set socket options optimized for performance (simple interface)
+   * @param fd The file descriptor to configure
+   */
+  static void setSocketOptions(int fd);
+  
   /**
    * Configure a socket for optimal connection settings
    * @param socket The socket to configure

@@ -5,6 +5,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <memory>
+#include <sys/wait.h>
+#include <cstring>
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <iostream>
 
 #include "mcp/network/connection_utility.h"
 #include "mcp/network/socket_impl.h"
@@ -33,9 +39,10 @@ protected:
     // Helper to get socket option value
     template<typename T>
     T getSocketOption(int level, int optname) {
-        T value;
+        T value = 0;
         socklen_t len = sizeof(value);
-        EXPECT_EQ(0, getsockopt(socket_fd_, level, optname, &value, &len));
+        int result = getsockopt(socket_fd_, level, optname, &value, &len);
+        EXPECT_EQ(0, result) << "Failed to get socket option " << optname;
         return value;
     }
     
@@ -45,16 +52,18 @@ protected:
 // Test TCP_NODELAY is set correctly
 TEST_F(ConnectionUtilityTest, SetTcpNoDelay) {
     // Apply socket configuration
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Verify TCP_NODELAY is enabled
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
-    EXPECT_EQ(1, nodelay) << "TCP_NODELAY should be enabled";
+    std::cout << "TCP_NODELAY value: " << nodelay << " (expected 1)" << std::endl;
+    // On macOS, the value might be different than 1, but non-zero means enabled
+    EXPECT_NE(0, nodelay) << "TCP_NODELAY should be enabled";
 }
 
 // Test keep-alive options are set
 TEST_F(ConnectionUtilityTest, SetKeepAlive) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Verify SO_KEEPALIVE is enabled
     int keepalive = getSocketOption<int>(SOL_SOCKET, SO_KEEPALIVE);
@@ -81,7 +90,7 @@ TEST_F(ConnectionUtilityTest, SetKeepAlive) {
 
 // Test socket buffer sizes are set
 TEST_F(ConnectionUtilityTest, SetBufferSizes) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Verify send buffer size
     int sndbuf = getSocketOption<int>(SOL_SOCKET, SO_SNDBUF);
@@ -95,16 +104,16 @@ TEST_F(ConnectionUtilityTest, SetBufferSizes) {
 // Test that setSocketOptions handles invalid file descriptor gracefully
 TEST_F(ConnectionUtilityTest, InvalidFileDescriptor) {
     // Should not crash or throw
-    ConnectionUtility::setSocketOptions(-1);
-    ConnectionUtility::setSocketOptions(999999);
+    SocketConfigUtility::setSocketOptions(-1);
+    SocketConfigUtility::setSocketOptions(999999);
 }
 
 // Test multiple calls to setSocketOptions
 TEST_F(ConnectionUtilityTest, MultipleCallsIdempotent) {
     // Apply configuration multiple times
-    ConnectionUtility::setSocketOptions(socket_fd_);
-    ConnectionUtility::setSocketOptions(socket_fd_);
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Should still have correct settings
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
@@ -121,18 +130,19 @@ TEST_F(ConnectionUtilityTest, ConfigureSocketObject) {
     ASSERT_NE(nullptr, socket);
     
     // Apply configuration
-    ConnectionUtility::setSocketOptions(socket->ioHandle().fd());
+    SocketConfigUtility::setSocketOptions(socket->ioHandle().fd());
     
     // Verify settings on the socket
     int nodelay = 0;
     socklen_t len = sizeof(nodelay);
-    EXPECT_EQ(0, socket->getSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, &len));
+    auto result = socket->getSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, &len);
+    EXPECT_TRUE(result.ok());
     EXPECT_EQ(1, nodelay);
 }
 
 // Test platform-specific optimizations
 TEST_F(ConnectionUtilityTest, PlatformSpecificOptions) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
 #ifdef __linux__
     // Test Linux-specific TCP_USER_TIMEOUT
@@ -166,7 +176,7 @@ TEST_F(ConnectionUtilityTest, PerformanceTest) {
     // Measure configuration time
     auto start = std::chrono::steady_clock::now();
     for (int fd : sockets) {
-        ConnectionUtility::setSocketOptions(fd);
+        SocketConfigUtility::setSocketOptions(fd);
     }
     auto end = std::chrono::steady_clock::now();
     
@@ -188,7 +198,7 @@ TEST_F(ConnectionUtilityTest, ClosedSocketHandling) {
     close(socket_fd_);
     
     // Should handle gracefully without crashing
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Mark as closed so TearDown doesn't try to close again
     socket_fd_ = -1;
@@ -197,7 +207,7 @@ TEST_F(ConnectionUtilityTest, ClosedSocketHandling) {
 // Test configuration for different connection types
 TEST_F(ConnectionUtilityTest, ConfigurationForDifferentConnectionTypes) {
     // Test for client connection
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
     EXPECT_EQ(1, nodelay);
@@ -206,7 +216,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationForDifferentConnectionTypes) {
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     ASSERT_GE(server_socket, 0);
     
-    ConnectionUtility::setSocketOptions(server_socket);
+    SocketConfigUtility::setSocketOptions(server_socket);
     
     int server_nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
     EXPECT_EQ(1, server_nodelay);
@@ -216,7 +226,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationForDifferentConnectionTypes) {
 
 // Test socket option persistence after connection
 TEST_F(ConnectionUtilityTest, OptionsPersistAfterConnection) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Simulate bind (for testing only, won't actually connect)
     struct sockaddr_in addr;
@@ -235,7 +245,7 @@ TEST_F(ConnectionUtilityTest, OptionsPersistAfterConnection) {
 
 // Test comprehensive socket state validation
 TEST_F(ConnectionUtilityTest, ComprehensiveSocketStateValidation) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Validate all options are set correctly
     struct {
@@ -280,7 +290,7 @@ TEST_F(ConnectionUtilityTest, ErrorRecoveryForOptionFailures) {
     ASSERT_GE(udp_socket, 0);
     
     // Should handle gracefully even if some options fail
-    ConnectionUtility::setSocketOptions(udp_socket);
+    SocketConfigUtility::setSocketOptions(udp_socket);
     
     // SO_KEEPALIVE should still be attempted
     int keepalive = 0;
@@ -296,7 +306,7 @@ TEST_F(ConnectionUtilityTest, DifferentAddressFamilies) {
     // Test with IPv6 socket
     int ipv6_socket = socket(AF_INET6, SOCK_STREAM, 0);
     if (ipv6_socket >= 0) {
-        ConnectionUtility::setSocketOptions(ipv6_socket);
+        SocketConfigUtility::setSocketOptions(ipv6_socket);
         
         int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
         EXPECT_EQ(1, nodelay);
@@ -308,7 +318,7 @@ TEST_F(ConnectionUtilityTest, DifferentAddressFamilies) {
     int unix_socket = socket(AF_UNIX, SOCK_STREAM, 0);
     if (unix_socket >= 0) {
         // Should handle gracefully (most TCP options won't apply)
-        ConnectionUtility::setSocketOptions(unix_socket);
+        SocketConfigUtility::setSocketOptions(unix_socket);
         close(unix_socket);
     }
 }
@@ -325,7 +335,7 @@ TEST_F(ConnectionUtilityTest, ConcurrentSocketConfiguration) {
             for (int i = 0; i < sockets_per_thread; ++i) {
                 int fd = socket(AF_INET, SOCK_STREAM, 0);
                 if (fd >= 0) {
-                    ConnectionUtility::setSocketOptions(fd);
+                    SocketConfigUtility::setSocketOptions(fd);
                     
                     // Verify configuration
                     int nodelay = 0;
@@ -351,7 +361,7 @@ TEST_F(ConnectionUtilityTest, ConcurrentSocketConfiguration) {
 
 // Test socket option boundaries and limits
 TEST_F(ConnectionUtilityTest, SocketOptionBoundaries) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Test buffer size limits
     int sndbuf = getSocketOption<int>(SOL_SOCKET, SO_SNDBUF);
@@ -390,7 +400,7 @@ TEST_F(ConnectionUtilityTest, SystemResourceLimits) {
             break; // Hit system limit
         }
         
-        ConnectionUtility::setSocketOptions(fd);
+        SocketConfigUtility::setSocketOptions(fd);
         sockets.push_back(fd);
     }
     
@@ -411,7 +421,7 @@ TEST_F(ConnectionUtilityTest, SystemResourceLimits) {
 // Test socket configuration persistence across fork
 #ifndef _WIN32
 TEST_F(ConnectionUtilityTest, ConfigurationAcrossFork) {
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     pid_t pid = fork();
     if (pid == 0) {
@@ -432,7 +442,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationAcrossFork) {
 // Test configuration with socket in different states
 TEST_F(ConnectionUtilityTest, ConfigurationInDifferentStates) {
     // Test on newly created socket
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
     
     // Test on listening socket
@@ -446,7 +456,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationInDifferentStates) {
     addr.sin_addr.s_addr = INADDR_ANY;
     
     if (bind(listen_socket, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-        ConnectionUtility::setSocketOptions(listen_socket);
+        SocketConfigUtility::setSocketOptions(listen_socket);
         EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
         
         if (listen(listen_socket, 5) == 0) {
@@ -464,7 +474,7 @@ TEST_F(ConnectionUtilityTest, ConfigurationImpactOnBehavior) {
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0) {
         // Configure one socket
-        ConnectionUtility::setSocketOptions(sv[0]);
+        SocketConfigUtility::setSocketOptions(sv[0]);
         
         // The configured socket should have different options
         int configured_nodelay = 0, unconfigured_nodelay = 0;
@@ -488,14 +498,14 @@ TEST_F(ConnectionUtilityTest, RapidConfigurationChanges) {
     for (int i = 0; i < num_iterations; ++i) {
         int fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd >= 0) {
-            ConnectionUtility::setSocketOptions(fd);
+            SocketConfigUtility::setSocketOptions(fd);
             
             // Rapidly change some options
             int value = i % 2;
             setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value));
             
             // Reconfigure
-            ConnectionUtility::setSocketOptions(fd);
+            SocketConfigUtility::setSocketOptions(fd);
             
             // Should be back to configured state
             int nodelay = getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY);
@@ -514,7 +524,7 @@ TEST_F(ConnectionUtilityTest, SocketOptionConflicts) {
     setsockopt(socket_fd_, SOL_SOCKET, SO_KEEPALIVE, &zero, sizeof(zero));
     
     // Configure should override
-    ConnectionUtility::setSocketOptions(socket_fd_);
+    SocketConfigUtility::setSocketOptions(socket_fd_);
     
     // Verify configuration won
     EXPECT_EQ(1, getSocketOption<int>(IPPROTO_TCP, TCP_NODELAY));
@@ -527,7 +537,7 @@ TEST_F(ConnectionUtilityTest, MemoryAndResourceLeakTest) {
     const int num_iterations = 10000;
     
     for (int i = 0; i < num_iterations; ++i) {
-        ConnectionUtility::setSocketOptions(socket_fd_);
+        SocketConfigUtility::setSocketOptions(socket_fd_);
         
         // Force some allocations/deallocations if any
         if (i % 1000 == 0) {
