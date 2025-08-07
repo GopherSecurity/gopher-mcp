@@ -199,6 +199,9 @@ class Listener {
  *
  * Handles accept() and connection creation
  */
+// Forward declaration
+class ListenerFilterContext;
+
 class ActiveListener : public Listener, public ListenerCallbacks {
  public:
   ActiveListener(event::Dispatcher& dispatcher,
@@ -222,13 +225,19 @@ class ActiveListener : public Listener, public ListenerCallbacks {
   void onAccept(ConnectionSocketPtr&& socket) override;
   void onNewConnection(ConnectionPtr&& connection) override;
 
+  // Allow filter context to access internals
+  friend class ListenerFilterContext;
+  
+  // Get dispatcher for filter context
+  event::Dispatcher& dispatcher() { return dispatcher_; }
+  
+  // Create connection from accepted socket (accessible to filter context)
+  void createConnection(ConnectionSocketPtr&& socket);
+
  private:
   // Accept handler
   void onSocketEvent(uint32_t events);
   void doAccept();
-
-  // Create connection from accepted socket
-  void createConnection(ConnectionSocketPtr&& socket);
 
   // Run listener filters
   void runListenerFilters(ConnectionSocketPtr&& socket);
@@ -250,6 +259,9 @@ class ActiveListener : public Listener, public ListenerCallbacks {
 
   // Tags for stats/logging
   std::vector<std::string> tags_;
+  
+  // Pending filter contexts (connections being filtered)
+  std::vector<std::unique_ptr<ListenerFilterContext>> pending_filter_contexts_;
 };
 
 /**

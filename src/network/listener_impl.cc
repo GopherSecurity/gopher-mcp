@@ -14,6 +14,75 @@ namespace network {
 
 // ConnectionSocketImpl is defined in socket_impl.h
 
+// Forward declaration
+class ActiveListener;
+
+/**
+ * Context for processing listener filter chain
+ */
+class ListenerFilterContext : public ListenerFilterCallbacks {
+public:
+  ListenerFilterContext(ActiveListener& listener,
+                       ConnectionSocketPtr&& socket,
+                       const std::vector<ListenerFilterPtr>& filters)
+      : listener_(listener),
+        socket_(std::move(socket)),
+        filters_(filters),
+        dispatcher_(listener.dispatcher()) {}
+
+  // Start processing the filter chain
+  void startFilterChain() {
+    processNextFilter();
+  }
+
+  // ListenerFilterCallbacks implementation
+  ConnectionSocket& socket() override {
+    return *socket_;
+  }
+
+  event::Dispatcher& dispatcher() override {
+    return dispatcher_;
+  }
+
+  void continueFilterChain(bool success) override {
+    if (!success) {
+      // Filter rejected the connection
+      socket_.reset();
+      return;
+    }
+    
+    // Continue to next filter
+    processNextFilter();
+  }
+
+private:
+  void processNextFilter() {
+    if (current_filter_index_ >= filters_.size()) {
+      // All filters passed, create the connection
+      listener_.createConnection(std::move(socket_));
+      return;
+    }
+
+    // Process current filter
+    auto& filter = filters_[current_filter_index_];
+    current_filter_index_++;
+    
+    auto status = filter->onAccept(*this);
+    
+    if (status == ListenerFilterStatus::Continue) {
+      // Continue to next filter immediately
+      processNextFilter();
+    }
+    // If StopIteration, wait for continueFilterChain() to be called
+  }
+
+  ActiveListener& listener_;
+  ConnectionSocketPtr socket_;
+  const std::vector<ListenerFilterPtr>& filters_;
+  event::Dispatcher& dispatcher_;
+  size_t current_filter_index_{0};
+};
+
 // ActiveListener implementation
 
 ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
@@ -246,9 +315,15 @@ void ActiveListener::runListenerFilters(ConnectionSocketPtr&& socket) {
     return;
   }
   
-  // TODO: Implement listener filter chain processing
-  // For now, skip filters and create connection directly
-  createConnection(std::move(socket));
+  // Create filter chain context for this connection
+  auto filter_context = std::make_unique<ListenerFilterContext>(
+      *this, std::move(socket), config_.listener_filters);
+  
+  // Start processing the filter chain
+  filter_context->startFilterChain();
+  
+  // Store the context (it will be removed when processing completes)
+  pending_filter_contexts_.push_back(std::move(filter_context));
 }
 
 // ListenerManagerImpl implementation
