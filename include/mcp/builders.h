@@ -3,6 +3,7 @@
 
 #include <type_traits>
 #include <utility>
+
 #include "mcp/types.h"
 
 namespace mcp {
@@ -60,9 +61,7 @@ class ResourceBuilder : public Builder<Resource, ResourceBuilder> {
 // Tool Builder (moved from types.h)
 class ToolBuilder : public Builder<Tool, ToolBuilder> {
  public:
-  explicit ToolBuilder(const std::string& name) {
-    value_.name = name;
-  }
+  explicit ToolBuilder(const std::string& name) { value_.name = name; }
 
   ToolBuilder& description(const std::string& desc) {
     value_.description = mcp::make_optional(desc);
@@ -75,8 +74,8 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
   }
 
   ToolBuilder& parameter(const std::string& name,
-                        const std::string& type,
-                        bool required = false) {
+                         const std::string& type,
+                         bool required = false) {
     if (!value_.parameters) {
       value_.parameters = mcp::make_optional(std::vector<ToolParameter>());
     }
@@ -85,9 +84,9 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
   }
 
   ToolBuilder& parameter(const std::string& name,
-                        const std::string& type,
-                        const std::string& desc,
-                        bool required = false) {
+                         const std::string& type,
+                         const std::string& desc,
+                         bool required = false) {
     if (!value_.parameters) {
       value_.parameters = mcp::make_optional(std::vector<ToolParameter>());
     }
@@ -98,7 +97,8 @@ class ToolBuilder : public Builder<Tool, ToolBuilder> {
 };
 
 // SamplingParams Builder (moved from types.h)
-class SamplingParamsBuilder : public Builder<SamplingParams, SamplingParamsBuilder> {
+class SamplingParamsBuilder
+    : public Builder<SamplingParams, SamplingParamsBuilder> {
  public:
   SamplingParamsBuilder() = default;
 
@@ -137,15 +137,13 @@ class SamplingParamsBuilder : public Builder<SamplingParams, SamplingParamsBuild
     add_metadata(*value_.metadata, key, std::forward<T>(val));
     return *this;
   }
-
 };
 
 // EmbeddedResource Builder (moved from types.h)
-class EmbeddedResourceBuilder : public Builder<EmbeddedResource, EmbeddedResourceBuilder> {
+class EmbeddedResourceBuilder
+    : public Builder<EmbeddedResource, EmbeddedResourceBuilder> {
  public:
-  explicit EmbeddedResourceBuilder(const Resource& r) {
-    value_.resource = r;
-  }
+  explicit EmbeddedResourceBuilder(const Resource& r) { value_.resource = r; }
 
   EmbeddedResourceBuilder& add_content(const ContentBlock& content) {
     value_.content.push_back(content);
@@ -162,11 +160,11 @@ class EmbeddedResourceBuilder : public Builder<EmbeddedResource, EmbeddedResourc
     value_.content.push_back(make_image_content(data, mime_type));
     return *this;
   }
-
 };
 
 // ModelPreferences Builder (moved from types.h)
-class ModelPreferencesBuilder : public Builder<ModelPreferences, ModelPreferencesBuilder> {
+class ModelPreferencesBuilder
+    : public Builder<ModelPreferences, ModelPreferencesBuilder> {
  public:
   ModelPreferencesBuilder() = default;
 
@@ -231,7 +229,8 @@ class StringSchemaBuilder : public Builder<StringSchema, StringSchemaBuilder> {
 };
 
 // ClientCapabilities Builder (moved from types.h)
-class ClientCapabilitiesBuilder : public Builder<ClientCapabilities, ClientCapabilitiesBuilder> {
+class ClientCapabilitiesBuilder
+    : public Builder<ClientCapabilities, ClientCapabilitiesBuilder> {
  public:
   ClientCapabilitiesBuilder() = default;
 
@@ -263,7 +262,8 @@ class ClientCapabilitiesBuilder : public Builder<ClientCapabilities, ClientCapab
 };
 
 // ServerCapabilities Builder (moved from types.h)
-class ServerCapabilitiesBuilder : public Builder<ServerCapabilities, ServerCapabilitiesBuilder> {
+class ServerCapabilitiesBuilder
+    : public Builder<ServerCapabilities, ServerCapabilitiesBuilder> {
  public:
   ServerCapabilitiesBuilder() = default;
 
@@ -301,7 +301,8 @@ class ServerCapabilitiesBuilder : public Builder<ServerCapabilities, ServerCapab
 };
 
 // CreateMessageRequest Builder (moved from types.h)
-class CreateMessageRequestBuilder : public Builder<CreateMessageRequest, CreateMessageRequestBuilder> {
+class CreateMessageRequestBuilder
+    : public Builder<CreateMessageRequest, CreateMessageRequestBuilder> {
  public:
   CreateMessageRequestBuilder() = default;
 
@@ -366,7 +367,8 @@ class CreateMessageRequestBuilder : public Builder<CreateMessageRequest, CreateM
 };
 
 // InitializeParams Builder (moved from types.h)
-class InitializeParamsBuilder : public Builder<InitializeParams, InitializeParamsBuilder> {
+class InitializeParamsBuilder
+    : public Builder<InitializeParams, InitializeParamsBuilder> {
  public:
   explicit InitializeParamsBuilder(const std::string& version) {
     value_.protocolVersion = version;
@@ -405,9 +407,7 @@ class InitializeParamsBuilder : public Builder<InitializeParams, InitializeParam
 // TextContent Builder
 class TextContentBuilder : public Builder<TextContent, TextContentBuilder> {
  public:
-  explicit TextContentBuilder(const std::string& text) {
-    value_.text = text;
-  }
+  explicit TextContentBuilder(const std::string& text) { value_.text = text; }
 
   TextContentBuilder& annotations(const Annotations& ann) {
     value_.annotations = mcp::make_optional(ann);
@@ -450,7 +450,8 @@ class AudioContentBuilder : public Builder<AudioContent, AudioContentBuilder> {
 };
 
 // ResourceContent Builder
-class ResourceContentBuilder : public Builder<ResourceContent, ResourceContentBuilder> {
+class ResourceContentBuilder
+    : public Builder<ResourceContent, ResourceContentBuilder> {
  public:
   explicit ResourceContentBuilder(const Resource& resource) {
     value_.resource = resource;
@@ -460,9 +461,7 @@ class ResourceContentBuilder : public Builder<ResourceContent, ResourceContentBu
 // Message Builder
 class MessageBuilder : public Builder<Message, MessageBuilder> {
  public:
-  explicit MessageBuilder(enums::Role::Value role) {
-    value_.role = role;
-  }
+  explicit MessageBuilder(enums::Role::Value role) { value_.role = role; }
 
   MessageBuilder& text(const std::string& text) {
     value_.content = ContentBlock(TextContent(text));
@@ -488,16 +487,15 @@ class MessageBuilder : public Builder<Message, MessageBuilder> {
 // Prompt Builder
 class PromptBuilder : public Builder<Prompt, PromptBuilder> {
  public:
-  explicit PromptBuilder(const std::string& name) {
-    value_.name = name;
-  }
+  explicit PromptBuilder(const std::string& name) { value_.name = name; }
 
   PromptBuilder& description(const std::string& d) {
     value_.description = mcp::make_optional(d);
     return *this;
   }
 
-  PromptBuilder& argument(const std::string& name, const std::string& desc = "",
+  PromptBuilder& argument(const std::string& name,
+                          const std::string& desc = "",
                           bool required = false) {
     if (!value_.arguments) {
       value_.arguments = mcp::make_optional(std::vector<PromptArgument>());
@@ -514,9 +512,11 @@ class PromptBuilder : public Builder<Prompt, PromptBuilder> {
 };
 
 // ResourceTemplate Builder
-class ResourceTemplateBuilder : public Builder<ResourceTemplate, ResourceTemplateBuilder> {
+class ResourceTemplateBuilder
+    : public Builder<ResourceTemplate, ResourceTemplateBuilder> {
  public:
-  ResourceTemplateBuilder(const std::string& uriTemplate, const std::string& name) {
+  ResourceTemplateBuilder(const std::string& uriTemplate,
+                          const std::string& name) {
     value_.uriTemplate = uriTemplate;
     value_.name = name;
   }
@@ -531,7 +531,8 @@ class ResourceTemplateBuilder : public Builder<ResourceTemplate, ResourceTemplat
     return *this;
   }
 
-  ResourceTemplateBuilder& metadata(const std::string& key, const std::string& val) {
+  ResourceTemplateBuilder& metadata(const std::string& key,
+                                    const std::string& val) {
     if (!value_._meta) {
       value_._meta = mcp::make_optional(Metadata());
     }
@@ -541,14 +542,16 @@ class ResourceTemplateBuilder : public Builder<ResourceTemplate, ResourceTemplat
 };
 
 // Implementation Builder
-class ImplementationBuilder : public Builder<Implementation, ImplementationBuilder> {
+class ImplementationBuilder
+    : public Builder<Implementation, ImplementationBuilder> {
  public:
   ImplementationBuilder(const std::string& name, const std::string& version) {
     value_.name = name;
     value_.version = version;
   }
 
-  ImplementationBuilder& metadata(const std::string& key, const std::string& val) {
+  ImplementationBuilder& metadata(const std::string& key,
+                                  const std::string& val) {
     if (!value_._meta) {
       value_._meta = mcp::make_optional(Metadata());
     }
@@ -560,9 +563,7 @@ class ImplementationBuilder : public Builder<Implementation, ImplementationBuild
 // Root Builder
 class RootBuilder : public Builder<Root, RootBuilder> {
  public:
-  explicit RootBuilder(const std::string& uri) {
-    value_.uri = uri;
-  }
+  explicit RootBuilder(const std::string& uri) { value_.uri = uri; }
 
   RootBuilder& name(const std::string& n) {
     value_.name = mcp::make_optional(n);
@@ -586,18 +587,18 @@ class ErrorBuilder : public Builder<Error, ErrorBuilder> {
 };
 
 // PromptMessage Builder
-class PromptMessageBuilder : public Builder<PromptMessage, PromptMessageBuilder> {
+class PromptMessageBuilder
+    : public Builder<PromptMessage, PromptMessageBuilder> {
  public:
-  explicit PromptMessageBuilder(enums::Role::Value role) {
-    value_.role = role;
-  }
+  explicit PromptMessageBuilder(enums::Role::Value role) { value_.role = role; }
 
   PromptMessageBuilder& text(const std::string& text) {
     value_.content = TextContent(text);
     return *this;
   }
 
-  PromptMessageBuilder& image(const std::string& data, const std::string& mimeType) {
+  PromptMessageBuilder& image(const std::string& data,
+                              const std::string& mimeType) {
     value_.content = ImageContent(data, mimeType);
     return *this;
   }
@@ -609,7 +610,8 @@ class PromptMessageBuilder : public Builder<PromptMessage, PromptMessageBuilder>
 };
 
 // SamplingMessage Builder
-class SamplingMessageBuilder : public Builder<SamplingMessage, SamplingMessageBuilder> {
+class SamplingMessageBuilder
+    : public Builder<SamplingMessage, SamplingMessageBuilder> {
  public:
   explicit SamplingMessageBuilder(enums::Role::Value role) {
     value_.role = role;
@@ -620,12 +622,14 @@ class SamplingMessageBuilder : public Builder<SamplingMessage, SamplingMessageBu
     return *this;
   }
 
-  SamplingMessageBuilder& image(const std::string& data, const std::string& mimeType) {
+  SamplingMessageBuilder& image(const std::string& data,
+                                const std::string& mimeType) {
     value_.content = ImageContent(data, mimeType);
     return *this;
   }
 
-  SamplingMessageBuilder& audio(const std::string& data, const std::string& mimeType) {
+  SamplingMessageBuilder& audio(const std::string& data,
+                                const std::string& mimeType) {
     value_.content = AudioContent(data, mimeType);
     return *this;
   }
@@ -633,7 +637,8 @@ class SamplingMessageBuilder : public Builder<SamplingMessage, SamplingMessageBu
 
 // Additional Result and Request Builders
 
-class InitializeRequestBuilder : public Builder<InitializeRequest, InitializeRequestBuilder> {
+class InitializeRequestBuilder
+    : public Builder<InitializeRequest, InitializeRequestBuilder> {
  public:
   InitializeRequestBuilder(const std::string& protocolVersion,
                            const ClientCapabilities& capabilities) {
@@ -653,7 +658,8 @@ class InitializeRequestBuilder : public Builder<InitializeRequest, InitializeReq
   }
 };
 
-class InitializeResultBuilder : public Builder<InitializeResult, InitializeResultBuilder> {
+class InitializeResultBuilder
+    : public Builder<InitializeResult, InitializeResultBuilder> {
  public:
   InitializeResultBuilder(const std::string& protocolVersion,
                           const ServerCapabilities& capabilities) {
@@ -678,7 +684,8 @@ class InitializeResultBuilder : public Builder<InitializeResult, InitializeResul
   }
 };
 
-class CallToolRequestBuilder : public Builder<CallToolRequest, CallToolRequestBuilder> {
+class CallToolRequestBuilder
+    : public Builder<CallToolRequest, CallToolRequestBuilder> {
  public:
   explicit CallToolRequestBuilder(const std::string& name) {
     value_.name = name;
@@ -694,7 +701,8 @@ class CallToolRequestBuilder : public Builder<CallToolRequest, CallToolRequestBu
   }
 };
 
-class CallToolResultBuilder : public Builder<CallToolResult, CallToolResultBuilder> {
+class CallToolResultBuilder
+    : public Builder<CallToolResult, CallToolResultBuilder> {
  public:
   CallToolResultBuilder() = default;
 
@@ -703,13 +711,17 @@ class CallToolResultBuilder : public Builder<CallToolResult, CallToolResultBuild
     return *this;
   }
 
-  CallToolResultBuilder& addImage(const std::string& data, const std::string& mimeType) {
-    value_.content.push_back(ExtendedContentBlock(ImageContent(data, mimeType)));
+  CallToolResultBuilder& addImage(const std::string& data,
+                                  const std::string& mimeType) {
+    value_.content.push_back(
+        ExtendedContentBlock(ImageContent(data, mimeType)));
     return *this;
   }
 
-  CallToolResultBuilder& addAudio(const std::string& data, const std::string& mimeType) {
-    value_.content.push_back(ExtendedContentBlock(AudioContent(data, mimeType)));
+  CallToolResultBuilder& addAudio(const std::string& data,
+                                  const std::string& mimeType) {
+    value_.content.push_back(
+        ExtendedContentBlock(AudioContent(data, mimeType)));
     return *this;
   }
 
@@ -729,7 +741,8 @@ class CallToolResultBuilder : public Builder<CallToolResult, CallToolResultBuild
   }
 };
 
-class GetPromptRequestBuilder : public Builder<GetPromptRequest, GetPromptRequestBuilder> {
+class GetPromptRequestBuilder
+    : public Builder<GetPromptRequest, GetPromptRequestBuilder> {
  public:
   explicit GetPromptRequestBuilder(const std::string& name) {
     value_.name = name;
@@ -745,7 +758,8 @@ class GetPromptRequestBuilder : public Builder<GetPromptRequest, GetPromptReques
   }
 };
 
-class GetPromptResultBuilder : public Builder<GetPromptResult, GetPromptResultBuilder> {
+class GetPromptResultBuilder
+    : public Builder<GetPromptResult, GetPromptResultBuilder> {
  public:
   GetPromptResultBuilder& description(const std::string& desc) {
     value_.description = mcp::make_optional(desc);
@@ -758,19 +772,23 @@ class GetPromptResultBuilder : public Builder<GetPromptResult, GetPromptResultBu
   }
 
   GetPromptResultBuilder& addUserMessage(const std::string& text) {
-    value_.messages.push_back(PromptMessage(enums::Role::USER, TextContent(text)));
+    value_.messages.push_back(
+        PromptMessage(enums::Role::USER, TextContent(text)));
     return *this;
   }
 
   GetPromptResultBuilder& addAssistantMessage(const std::string& text) {
-    value_.messages.push_back(PromptMessage(enums::Role::ASSISTANT, TextContent(text)));
+    value_.messages.push_back(
+        PromptMessage(enums::Role::ASSISTANT, TextContent(text)));
     return *this;
   }
 };
 
-class CreateMessageResultBuilder : public Builder<CreateMessageResult, CreateMessageResultBuilder> {
+class CreateMessageResultBuilder
+    : public Builder<CreateMessageResult, CreateMessageResultBuilder> {
  public:
-  CreateMessageResultBuilder(enums::Role::Value role, const std::string& model) {
+  CreateMessageResultBuilder(enums::Role::Value role,
+                             const std::string& model) {
     value_.role = role;
     value_.model = model;
   }
@@ -780,12 +798,14 @@ class CreateMessageResultBuilder : public Builder<CreateMessageResult, CreateMes
     return *this;
   }
 
-  CreateMessageResultBuilder& image(const std::string& data, const std::string& mimeType) {
+  CreateMessageResultBuilder& image(const std::string& data,
+                                    const std::string& mimeType) {
     value_.content = ImageContent(data, mimeType);
     return *this;
   }
 
-  CreateMessageResultBuilder& audio(const std::string& data, const std::string& mimeType) {
+  CreateMessageResultBuilder& audio(const std::string& data,
+                                    const std::string& mimeType) {
     value_.content = AudioContent(data, mimeType);
     return *this;
   }
@@ -796,7 +816,8 @@ class CreateMessageResultBuilder : public Builder<CreateMessageResult, CreateMes
   }
 };
 
-class ListResourcesResultBuilder : public Builder<ListResourcesResult, ListResourcesResultBuilder> {
+class ListResourcesResultBuilder
+    : public Builder<ListResourcesResult, ListResourcesResultBuilder> {
  public:
   ListResourcesResultBuilder& add(const Resource& resource) {
     value_.resources.push_back(resource);
@@ -809,7 +830,8 @@ class ListResourcesResultBuilder : public Builder<ListResourcesResult, ListResou
   }
 };
 
-class ListToolsResultBuilder : public Builder<ListToolsResult, ListToolsResultBuilder> {
+class ListToolsResultBuilder
+    : public Builder<ListToolsResult, ListToolsResultBuilder> {
  public:
   ListToolsResultBuilder& add(const Tool& tool) {
     value_.tools.push_back(tool);
@@ -817,7 +839,8 @@ class ListToolsResultBuilder : public Builder<ListToolsResult, ListToolsResultBu
   }
 };
 
-class ListPromptsResultBuilder : public Builder<ListPromptsResult, ListPromptsResultBuilder> {
+class ListPromptsResultBuilder
+    : public Builder<ListPromptsResult, ListPromptsResultBuilder> {
  public:
   ListPromptsResultBuilder& add(const Prompt& prompt) {
     value_.prompts.push_back(prompt);
@@ -830,7 +853,8 @@ class ListPromptsResultBuilder : public Builder<ListPromptsResult, ListPromptsRe
   }
 };
 
-class ListRootsResultBuilder : public Builder<ListRootsResult, ListRootsResultBuilder> {
+class ListRootsResultBuilder
+    : public Builder<ListRootsResult, ListRootsResultBuilder> {
  public:
   ListRootsResultBuilder& add(const Root& root) {
     value_.roots.push_back(root);
@@ -838,7 +862,8 @@ class ListRootsResultBuilder : public Builder<ListRootsResult, ListRootsResultBu
   }
 };
 
-class ReadResourceResultBuilder : public Builder<ReadResourceResult, ReadResourceResultBuilder> {
+class ReadResourceResultBuilder
+    : public Builder<ReadResourceResult, ReadResourceResultBuilder> {
  public:
   ReadResourceResultBuilder& addText(const std::string& text) {
     value_.contents.push_back(TextResourceContents(text));
@@ -851,7 +876,8 @@ class ReadResourceResultBuilder : public Builder<ReadResourceResult, ReadResourc
   }
 };
 
-class CompleteRequestBuilder : public Builder<CompleteRequest, CompleteRequestBuilder> {
+class CompleteRequestBuilder
+    : public Builder<CompleteRequest, CompleteRequestBuilder> {
  public:
   CompleteRequestBuilder(const std::string& type, const std::string& name) {
     value_.ref = PromptReference(type, name);
@@ -863,7 +889,8 @@ class CompleteRequestBuilder : public Builder<CompleteRequest, CompleteRequestBu
   }
 };
 
-class CompleteResultBuilder : public Builder<CompleteResult, CompleteResultBuilder> {
+class CompleteResultBuilder
+    : public Builder<CompleteResult, CompleteResultBuilder> {
  public:
   CompleteResultBuilder& addValue(const std::string& val) {
     value_.completion.values.push_back(val);
@@ -881,7 +908,9 @@ class CompleteResultBuilder : public Builder<CompleteResult, CompleteResultBuild
   }
 };
 
-class LoggingMessageNotificationBuilder : public Builder<LoggingMessageNotification, LoggingMessageNotificationBuilder> {
+class LoggingMessageNotificationBuilder
+    : public Builder<LoggingMessageNotification,
+                     LoggingMessageNotificationBuilder> {
  public:
   explicit LoggingMessageNotificationBuilder(enums::LoggingLevel::Value level) {
     value_.level = level;
@@ -899,7 +928,8 @@ class LoggingMessageNotificationBuilder : public Builder<LoggingMessageNotificat
   }
 };
 
-class ProgressNotificationBuilder : public Builder<ProgressNotification, ProgressNotificationBuilder> {
+class ProgressNotificationBuilder
+    : public Builder<ProgressNotification, ProgressNotificationBuilder> {
  public:
   ProgressNotificationBuilder(const ProgressToken& token, double progress) {
     value_.progressToken = token;
@@ -912,7 +942,8 @@ class ProgressNotificationBuilder : public Builder<ProgressNotification, Progres
   }
 };
 
-class CancelledNotificationBuilder : public Builder<CancelledNotification, CancelledNotificationBuilder> {
+class CancelledNotificationBuilder
+    : public Builder<CancelledNotification, CancelledNotificationBuilder> {
  public:
   explicit CancelledNotificationBuilder(const RequestId& id) {
     value_.requestId = id;
@@ -924,7 +955,9 @@ class CancelledNotificationBuilder : public Builder<CancelledNotification, Cance
   }
 };
 
-class ResourceUpdatedNotificationBuilder : public Builder<ResourceUpdatedNotification, ResourceUpdatedNotificationBuilder> {
+class ResourceUpdatedNotificationBuilder
+    : public Builder<ResourceUpdatedNotification,
+                     ResourceUpdatedNotificationBuilder> {
  public:
   explicit ResourceUpdatedNotificationBuilder(const std::string& uri) {
     value_.uri = uri;
@@ -954,7 +987,8 @@ class NumberSchemaBuilder : public Builder<NumberSchema, NumberSchemaBuilder> {
   }
 };
 
-class BooleanSchemaBuilder : public Builder<BooleanSchema, BooleanSchemaBuilder> {
+class BooleanSchemaBuilder
+    : public Builder<BooleanSchema, BooleanSchemaBuilder> {
  public:
   BooleanSchemaBuilder& description(const std::string& desc) {
     value_.description = mcp::make_optional(desc);
@@ -979,9 +1013,11 @@ class EnumSchemaBuilder : public Builder<EnumSchema, EnumSchemaBuilder> {
   }
 };
 
-class ElicitRequestBuilder : public Builder<ElicitRequest, ElicitRequestBuilder> {
+class ElicitRequestBuilder
+    : public Builder<ElicitRequest, ElicitRequestBuilder> {
  public:
-  ElicitRequestBuilder(const std::string& name, const PrimitiveSchemaDefinition& schema) {
+  ElicitRequestBuilder(const std::string& name,
+                       const PrimitiveSchemaDefinition& schema) {
     value_.name = name;
     value_.schema = schema;
   }
@@ -1009,7 +1045,7 @@ class AnnotationsBuilder : public Builder<Annotations, AnnotationsBuilder> {
     value_.audience = roles;
     return *this;
   }
-  
+
   AnnotationsBuilder& priority(double p) {
     value_.priority = p;
     return *this;
@@ -1024,9 +1060,11 @@ class BaseMetadataBuilder : public Builder<BaseMetadata, BaseMetadataBuilder> {
   }
 };
 
-class ToolAnnotationsBuilder : public Builder<ToolAnnotations, ToolAnnotationsBuilder> {
+class ToolAnnotationsBuilder
+    : public Builder<ToolAnnotations, ToolAnnotationsBuilder> {
  public:
-  ToolAnnotationsBuilder& audience(const std::vector<enums::Role::Value>& roles) {
+  ToolAnnotationsBuilder& audience(
+      const std::vector<enums::Role::Value>& roles) {
     value_.audience = roles;
     return *this;
   }
@@ -1038,31 +1076,32 @@ class ResourceLinkBuilder : public Builder<ResourceLink, ResourceLinkBuilder> {
     value_.uri = uri;
     value_.name = name;
   }
-  
+
   ResourceLinkBuilder& description(const std::string& desc) {
     value_.description = desc;
     return *this;
   }
-  
+
   ResourceLinkBuilder& mimeType(const std::string& mime) {
     value_.mimeType = mime;
     return *this;
   }
 };
 
-class ToolParameterBuilder : public Builder<ToolParameter, ToolParameterBuilder> {
+class ToolParameterBuilder
+    : public Builder<ToolParameter, ToolParameterBuilder> {
  public:
   ToolParameterBuilder(const std::string& name, const std::string& type) {
     value_.name = name;
     value_.type = type;
     value_.required = false;
   }
-  
+
   ToolParameterBuilder& description(const std::string& desc) {
     value_.description = desc;
     return *this;
   }
-  
+
   ToolParameterBuilder& required(bool req) {
     value_.required = req;
     return *this;
@@ -1071,80 +1110,86 @@ class ToolParameterBuilder : public Builder<ToolParameter, ToolParameterBuilder>
 
 class ModelHintBuilder : public Builder<ModelHint, ModelHintBuilder> {
  public:
-  explicit ModelHintBuilder(const std::string& name) {
-    value_.name = name;
-  }
+  explicit ModelHintBuilder(const std::string& name) { value_.name = name; }
 };
 
-class TextResourceContentsBuilder : public Builder<TextResourceContents, TextResourceContentsBuilder> {
+class TextResourceContentsBuilder
+    : public Builder<TextResourceContents, TextResourceContentsBuilder> {
  public:
   explicit TextResourceContentsBuilder(const std::string& uri) {
     value_.uri = uri;
   }
-  
+
   TextResourceContentsBuilder& text(const std::string& t) {
     value_.text = t;
     return *this;
   }
-  
+
   TextResourceContentsBuilder& mimeType(const std::string& mime) {
     value_.mimeType = mime;
     return *this;
   }
 };
 
-class BlobResourceContentsBuilder : public Builder<BlobResourceContents, BlobResourceContentsBuilder> {
+class BlobResourceContentsBuilder
+    : public Builder<BlobResourceContents, BlobResourceContentsBuilder> {
  public:
   explicit BlobResourceContentsBuilder(const std::string& uri) {
     value_.uri = uri;
   }
-  
+
   BlobResourceContentsBuilder& blob(const std::string& b) {
     value_.blob = b;
     return *this;
   }
-  
+
   BlobResourceContentsBuilder& mimeType(const std::string& mime) {
     value_.mimeType = mime;
     return *this;
   }
 };
 
-class ResourceTemplateReferenceBuilder : public Builder<ResourceTemplateReference, ResourceTemplateReferenceBuilder> {
+class ResourceTemplateReferenceBuilder
+    : public Builder<ResourceTemplateReference,
+                     ResourceTemplateReferenceBuilder> {
  public:
-  ResourceTemplateReferenceBuilder(const std::string& type, const std::string& name) {
+  ResourceTemplateReferenceBuilder(const std::string& type,
+                                   const std::string& name) {
     value_.type = type;
     value_.name = name;
   }
 };
 
-class PromptReferenceBuilder : public Builder<PromptReference, PromptReferenceBuilder> {
+class PromptReferenceBuilder
+    : public Builder<PromptReference, PromptReferenceBuilder> {
  public:
   PromptReferenceBuilder(const std::string& type, const std::string& name) {
     value_.type = type;
     value_.name = name;
   }
-  
+
   PromptReferenceBuilder& _meta(const Metadata& meta) {
     value_._meta = meta;
     return *this;
   }
 };
 
-class ResourcesCapabilityBuilder : public Builder<ResourcesCapability, ResourcesCapabilityBuilder> {
+class ResourcesCapabilityBuilder
+    : public Builder<ResourcesCapability, ResourcesCapabilityBuilder> {
  public:
   ResourcesCapabilityBuilder& subscribe(const EmptyCapability& cap) {
     value_.subscribe = cap;
     return *this;
   }
-  
+
   ResourcesCapabilityBuilder& listChanged(const EmptyCapability& cap) {
     value_.listChanged = cap;
     return *this;
   }
 };
 
-class PromptsCapabilityBuilder : public Builder<PromptsCapability, PromptsCapabilityBuilder> {
+class PromptsCapabilityBuilder
+    : public Builder<PromptsCapability, PromptsCapabilityBuilder> {
  public:
   PromptsCapabilityBuilder& listChanged(const EmptyCapability& cap) {
     value_.listChanged = cap;
@@ -1152,7 +1197,8 @@ class PromptsCapabilityBuilder : public Builder<PromptsCapability, PromptsCapabi
   }
 };
 
-class RootsCapabilityBuilder : public Builder<RootsCapability, RootsCapabilityBuilder> {
+class RootsCapabilityBuilder
+    : public Builder<RootsCapability, RootsCapabilityBuilder> {
  public:
   RootsCapabilityBuilder& listChanged(const EmptyCapability& cap) {
     value_.listChanged = cap;
@@ -1165,13 +1211,14 @@ class EmptyResultBuilder : public Builder<EmptyResult, EmptyResultBuilder> {
   // EmptyResult has no fields
 };
 
-class InitializedNotificationBuilder : public Builder<InitializedNotification, InitializedNotificationBuilder> {
+class InitializedNotificationBuilder
+    : public Builder<InitializedNotification, InitializedNotificationBuilder> {
  public:
   InitializedNotificationBuilder() {
     value_.method = "notifications/initialized";
     value_.params = Metadata();
   }
-  
+
   InitializedNotificationBuilder& meta(const BaseMetadata& meta) {
     value_.params = meta._meta.value_or(Metadata());
     return *this;
@@ -1180,77 +1227,81 @@ class InitializedNotificationBuilder : public Builder<InitializedNotification, I
 
 class PingRequestBuilder : public Builder<PingRequest, PingRequestBuilder> {
  public:
-  PingRequestBuilder() {
-    value_.method = "ping";
-  }
-  
+  PingRequestBuilder() { value_.method = "ping"; }
+
   PingRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class ListResourcesRequestBuilder : public Builder<ListResourcesRequest, ListResourcesRequestBuilder> {
+class ListResourcesRequestBuilder
+    : public Builder<ListResourcesRequest, ListResourcesRequestBuilder> {
  public:
-  ListResourcesRequestBuilder() {
-    value_.method = "resources/list";
-  }
-  
+  ListResourcesRequestBuilder() { value_.method = "resources/list"; }
+
   ListResourcesRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
-  
+
   ListResourcesRequestBuilder& cursor(const std::string& c) {
     value_.cursor = c;
     return *this;
   }
 };
 
-class ListResourceTemplatesRequestBuilder : public Builder<ListResourceTemplatesRequest, ListResourceTemplatesRequestBuilder> {
+class ListResourceTemplatesRequestBuilder
+    : public Builder<ListResourceTemplatesRequest,
+                     ListResourceTemplatesRequestBuilder> {
  public:
   ListResourceTemplatesRequestBuilder() {
     value_.method = "resources/templates/list";
   }
-  
+
   ListResourceTemplatesRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
-  
+
   ListResourceTemplatesRequestBuilder& cursor(const std::string& c) {
     value_.cursor = c;
     return *this;
   }
 };
 
-class ListResourceTemplatesResultBuilder : public Builder<ListResourceTemplatesResult, ListResourceTemplatesResultBuilder> {
+class ListResourceTemplatesResultBuilder
+    : public Builder<ListResourceTemplatesResult,
+                     ListResourceTemplatesResultBuilder> {
  public:
   ListResourceTemplatesResultBuilder& add(const ResourceTemplate& tmpl) {
     value_.resourceTemplates.push_back(tmpl);
     return *this;
   }
-  
+
   ListResourceTemplatesResultBuilder& nextCursor(const std::string& cursor) {
     value_.nextCursor = cursor;
     return *this;
   }
 };
 
-class ReadResourceRequestBuilder : public Builder<ReadResourceRequest, ReadResourceRequestBuilder> {
+class ReadResourceRequestBuilder
+    : public Builder<ReadResourceRequest, ReadResourceRequestBuilder> {
  public:
   explicit ReadResourceRequestBuilder(const std::string& uri) {
     value_.method = "resources/read";
     value_.uri = uri;
   }
-  
+
   ReadResourceRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class ResourceListChangedNotificationBuilder : public Builder<ResourceListChangedNotification, ResourceListChangedNotificationBuilder> {
+class ResourceListChangedNotificationBuilder
+    : public Builder<ResourceListChangedNotification,
+                     ResourceListChangedNotificationBuilder> {
  public:
   ResourceListChangedNotificationBuilder() {
     value_.method = "notifications/resources/list_changed";
@@ -1258,50 +1309,53 @@ class ResourceListChangedNotificationBuilder : public Builder<ResourceListChange
   }
 };
 
-class SubscribeRequestBuilder : public Builder<SubscribeRequest, SubscribeRequestBuilder> {
+class SubscribeRequestBuilder
+    : public Builder<SubscribeRequest, SubscribeRequestBuilder> {
  public:
   explicit SubscribeRequestBuilder(const std::string& uri) {
     value_.method = "resources/subscribe";
     value_.uri = uri;
   }
-  
+
   SubscribeRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class UnsubscribeRequestBuilder : public Builder<UnsubscribeRequest, UnsubscribeRequestBuilder> {
+class UnsubscribeRequestBuilder
+    : public Builder<UnsubscribeRequest, UnsubscribeRequestBuilder> {
  public:
   explicit UnsubscribeRequestBuilder(const std::string& uri) {
     value_.method = "resources/unsubscribe";
     value_.uri = uri;
   }
-  
+
   UnsubscribeRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class ListPromptsRequestBuilder : public Builder<ListPromptsRequest, ListPromptsRequestBuilder> {
+class ListPromptsRequestBuilder
+    : public Builder<ListPromptsRequest, ListPromptsRequestBuilder> {
  public:
-  ListPromptsRequestBuilder() {
-    value_.method = "prompts/list";
-  }
-  
+  ListPromptsRequestBuilder() { value_.method = "prompts/list"; }
+
   ListPromptsRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
-  
+
   ListPromptsRequestBuilder& cursor(const std::string& c) {
     value_.cursor = c;
     return *this;
   }
 };
 
-class PromptListChangedNotificationBuilder : public Builder<PromptListChangedNotification, PromptListChangedNotificationBuilder> {
+class PromptListChangedNotificationBuilder
+    : public Builder<PromptListChangedNotification,
+                     PromptListChangedNotificationBuilder> {
  public:
   PromptListChangedNotificationBuilder() {
     value_.method = "notifications/prompts/list_changed";
@@ -1309,24 +1363,25 @@ class PromptListChangedNotificationBuilder : public Builder<PromptListChangedNot
   }
 };
 
-class ListToolsRequestBuilder : public Builder<ListToolsRequest, ListToolsRequestBuilder> {
+class ListToolsRequestBuilder
+    : public Builder<ListToolsRequest, ListToolsRequestBuilder> {
  public:
-  ListToolsRequestBuilder() {
-    value_.method = "tools/list";
-  }
-  
+  ListToolsRequestBuilder() { value_.method = "tools/list"; }
+
   ListToolsRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
-  
+
   ListToolsRequestBuilder& cursor(const std::string& c) {
     value_.cursor = c;
     return *this;
   }
 };
 
-class ToolListChangedNotificationBuilder : public Builder<ToolListChangedNotification, ToolListChangedNotificationBuilder> {
+class ToolListChangedNotificationBuilder
+    : public Builder<ToolListChangedNotification,
+                     ToolListChangedNotificationBuilder> {
  public:
   ToolListChangedNotificationBuilder() {
     value_.method = "notifications/tools/list_changed";
@@ -1334,32 +1389,34 @@ class ToolListChangedNotificationBuilder : public Builder<ToolListChangedNotific
   }
 };
 
-class SetLevelRequestBuilder : public Builder<SetLevelRequest, SetLevelRequestBuilder> {
+class SetLevelRequestBuilder
+    : public Builder<SetLevelRequest, SetLevelRequestBuilder> {
  public:
   explicit SetLevelRequestBuilder(enums::LoggingLevel::Value level) {
     value_.method = "logging/setLevel";
     value_.level = level;
   }
-  
+
   SetLevelRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class ListRootsRequestBuilder : public Builder<ListRootsRequest, ListRootsRequestBuilder> {
+class ListRootsRequestBuilder
+    : public Builder<ListRootsRequest, ListRootsRequestBuilder> {
  public:
-  ListRootsRequestBuilder() {
-    value_.method = "roots/list";
-  }
-  
+  ListRootsRequestBuilder() { value_.method = "roots/list"; }
+
   ListRootsRequestBuilder& id(const RequestId& reqId) {
     value_.id = reqId;
     return *this;
   }
 };
 
-class RootsListChangedNotificationBuilder : public Builder<RootsListChangedNotification, RootsListChangedNotificationBuilder> {
+class RootsListChangedNotificationBuilder
+    : public Builder<RootsListChangedNotification,
+                     RootsListChangedNotificationBuilder> {
  public:
   RootsListChangedNotificationBuilder() {
     value_.method = "notifications/roots/list_changed";
