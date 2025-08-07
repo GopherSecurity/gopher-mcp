@@ -1904,6 +1904,14 @@ namespace detail {
   };
   
   template <>
+  struct MakeHelper<ResourceTemplate> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceTemplateBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
   struct MakeHelper<ModelHint> {
     template <typename... Args>
     static auto make(Args&&... args) {

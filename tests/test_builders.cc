@@ -92,7 +92,7 @@ TEST(BuildersTest, MessageBuilder) {
   auto message = make<Message>(enums::Role::USER).text("Hello").build();
 
   EXPECT_EQ(message.role, enums::Role::USER);
-  auto* textContent = std::get_if<TextContent>(&message.content);
+  auto* textContent = mcp::get_if<TextContent>(&message.content);
   ASSERT_NE(textContent, nullptr);
   EXPECT_EQ(textContent->text, "Hello");
 }
@@ -102,7 +102,7 @@ TEST(BuildersTest, MessageBuilderWithImage) {
       make<Message>(enums::Role::ASSISTANT).image("data", "image/jpeg").build();
 
   EXPECT_EQ(message.role, enums::Role::ASSISTANT);
-  auto* imageContent = std::get_if<ImageContent>(&message.content);
+  auto* imageContent = mcp::get_if<ImageContent>(&message.content);
   ASSERT_NE(imageContent, nullptr);
   EXPECT_EQ(imageContent->data, "data");
   EXPECT_EQ(imageContent->mimeType, "image/jpeg");
@@ -114,7 +114,7 @@ TEST(BuildersTest, ErrorBuilder) {
   EXPECT_EQ(error.code, 404);
   EXPECT_EQ(error.message, "Not Found");
   ASSERT_TRUE(error.data.has_value());
-  auto* stringData = std::get_if<std::string>(&error.data.value());
+  auto* stringData = mcp::get_if<std::string>(&error.data.value());
   ASSERT_NE(stringData, nullptr);
   EXPECT_EQ(*stringData, "resource-id-123");
 }
@@ -165,7 +165,7 @@ TEST(BuildersTest, CallToolResultBuilder) {
 
   EXPECT_EQ(result.content.size(), 1);
   EXPECT_FALSE(result.isError);
-  auto* textContent = std::get_if<TextContent>(&result.content[0]);
+  auto* textContent = mcp::get_if<TextContent>(&result.content[0]);
   ASSERT_NE(textContent, nullptr);
   EXPECT_EQ(textContent->text, "Result: 42");
 }
@@ -202,7 +202,7 @@ TEST(BuildersTest, CreateMessageResultBuilder) {
 
   EXPECT_EQ(result.role, enums::Role::ASSISTANT);
   EXPECT_EQ(result.model, "gpt-4");
-  auto* textContent = std::get_if<TextContent>(&result.content);
+  auto* textContent = mcp::get_if<TextContent>(&result.content);
   ASSERT_NE(textContent, nullptr);
   EXPECT_EQ(textContent->text, "Generated response");
   ASSERT_TRUE(result.stopReason.has_value());
@@ -247,10 +247,10 @@ TEST(BuildersTest, ReadResourceResultBuilder) {
                     .build();
 
   EXPECT_EQ(result.contents.size(), 2);
-  auto* textContent = std::get_if<TextResourceContents>(&result.contents[0]);
+  auto* textContent = mcp::get_if<TextResourceContents>(&result.contents[0]);
   ASSERT_NE(textContent, nullptr);
   EXPECT_EQ(textContent->text, "Text content");
-  auto* blobContent = std::get_if<BlobResourceContents>(&result.contents[1]);
+  auto* blobContent = mcp::get_if<BlobResourceContents>(&result.contents[1]);
   ASSERT_NE(blobContent, nullptr);
   EXPECT_EQ(blobContent->blob, "Binary content");
 }
@@ -291,7 +291,7 @@ TEST(BuildersTest, LoggingMessageNotificationBuilder) {
   EXPECT_EQ(notification.level, enums::LoggingLevel::INFO);
   ASSERT_TRUE(notification.logger.has_value());
   EXPECT_EQ(notification.logger.value(), "test-logger");
-  auto* stringData = std::get_if<std::string>(&notification.data);
+  auto* stringData = mcp::get_if<std::string>(&notification.data);
   ASSERT_NE(stringData, nullptr);
   EXPECT_EQ(*stringData, "Log message");
 }
@@ -301,7 +301,7 @@ TEST(BuildersTest, ProgressNotificationBuilder) {
                           .total(1.0)
                           .build();
 
-  auto* stringToken = std::get_if<std::string>(&notification.progressToken);
+  auto* stringToken = mcp::get_if<std::string>(&notification.progressToken);
   ASSERT_NE(stringToken, nullptr);
   EXPECT_EQ(*stringToken, "token-123");
   EXPECT_EQ(notification.progress, 0.5);
@@ -314,7 +314,7 @@ TEST(BuildersTest, CancelledNotificationBuilder) {
                           .reason("User cancelled")
                           .build();
 
-  auto* stringId = std::get_if<std::string>(&notification.requestId);
+  auto* stringId = mcp::get_if<std::string>(&notification.requestId);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "request-123");
   ASSERT_TRUE(notification.reason.has_value());
@@ -383,7 +383,7 @@ TEST(BuildersTest, ElicitRequestBuilder) {
 TEST(BuildersTest, ElicitResultBuilder) {
   auto result = make<ElicitResult>().value("user response").build();
 
-  auto* stringValue = std::get_if<std::string>(&result.value);
+  auto* stringValue = mcp::get_if<std::string>(&result.value);
   ASSERT_NE(stringValue, nullptr);
   EXPECT_EQ(*stringValue, "user response");
 }
@@ -558,7 +558,7 @@ TEST(BuildersTest, PingRequestBuilder) {
                      .build();
   
   EXPECT_EQ(request.method, "ping");
-  auto* stringId = std::get_if<std::string>(&request.id);
+  auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "ping-123");
 }
@@ -570,7 +570,7 @@ TEST(BuildersTest, ListResourcesRequestBuilder) {
                      .build();
   
   EXPECT_EQ(request.method, "resources/list");
-  auto* stringId = std::get_if<std::string>(&request.id);
+  auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "req-123");
   ASSERT_TRUE(request.cursor.has_value());
@@ -584,7 +584,7 @@ TEST(BuildersTest, ReadResourceRequestBuilder) {
   
   EXPECT_EQ(request.method, "resources/read");
   EXPECT_EQ(request.uri, "file:///test.txt");
-  auto* stringId = std::get_if<std::string>(&request.id);
+  auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "read-123");
 }
@@ -596,7 +596,7 @@ TEST(BuildersTest, SubscribeRequestBuilder) {
   
   EXPECT_EQ(request.method, "resources/subscribe");
   EXPECT_EQ(request.uri, "file:///monitored.txt");
-  auto* stringId = std::get_if<std::string>(&request.id);
+  auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "sub-123");
 }
@@ -608,7 +608,7 @@ TEST(BuildersTest, SetLevelRequestBuilder) {
   
   EXPECT_EQ(request.method, "logging/setLevel");
   EXPECT_EQ(request.level, enums::LoggingLevel::DEBUG);
-  auto* stringId = std::get_if<std::string>(&request.id);
+  auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
   EXPECT_EQ(*stringId, "log-123");
 }
