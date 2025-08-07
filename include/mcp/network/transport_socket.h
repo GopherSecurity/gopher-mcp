@@ -9,7 +9,6 @@
 #include "mcp/compat.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
-#include "mcp/compat.h"
 #include "mcp/result.h"
 #include "mcp/types.h"
 

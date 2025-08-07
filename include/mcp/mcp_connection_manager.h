@@ -5,13 +5,13 @@
 #include <memory>
 
 #include "mcp/event/event_loop.h"
+#include "mcp/json_bridge.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/result.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/types.h"
-#include "mcp/json_bridge.h"
 
 namespace mcp {
 
@@ -172,9 +172,11 @@ class McpConnectionManager : public McpMessageCallbacks,
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
   void onNewConnection(network::ConnectionPtr&& connection) override;
-  
+
   // ConnectionCallbacks interface
-  void onEvent(network::ConnectionEvent event) override { onConnectionEvent(event); }
+  void onEvent(network::ConnectionEvent event) override {
+    onConnectionEvent(event);
+  }
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
