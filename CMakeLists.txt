@@ -142,6 +142,7 @@ set(MCP_SDK_SOURCES
     src/network/transport_socket.cc
     src/network/filter_impl.cc
     src/network/connection_impl.cc
+    src/network/connection_utility.cc
     src/network/listener_impl.cc
     src/network/connection_manager_impl.cc
     src/stream_info/stream_info_impl.cc

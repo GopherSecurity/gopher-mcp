@@ -1,5 +1,6 @@
 #include "mcp/network/connection_impl.h"
 #include "mcp/buffer.h"
+#include "mcp/network/connection_utility.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/transport_socket.h"
 #include "mcp/event/event_loop.h"
@@ -173,9 +174,8 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     transport_socket_->setTransportSocketCallbacks(static_cast<TransportSocketCallbacks&>(*this));
   }
   
-  // Configure socket
-  // TODO: Implement ConnectionUtility
-  // ConnectionUtility::configureSocket(*socket_, is_server_connection_);
+  // Configure socket with optimal settings
+  ConnectionUtility::configureSocket(*socket_, is_server_connection_);
   
   // Apply socket options if any
   // auto socket_options = socketOptions();
