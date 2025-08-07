@@ -1,7 +1,8 @@
 #pragma once
 
-#include "mcp/network/socket.h"
 #include <chrono>
+
+#include "mcp/network/socket.h"
 
 namespace mcp {
 namespace network {
@@ -10,22 +11,22 @@ namespace network {
  * Utility class for configuring connection sockets
  */
 class SocketConfigUtility {
-public:
+ public:
   /**
    * Set socket options optimized for performance (simple interface)
    * @param fd The file descriptor to configure
    */
   static void setSocketOptions(int fd);
-  
+
   /**
    * Configure a socket for optimal connection settings
    * @param socket The socket to configure
    * @param is_server_connection Whether this is a server-side connection
    * @param no_delay Whether to enable TCP_NODELAY (disable Nagle's algorithm)
    */
-  static void configureSocket(Socket& socket, 
-                             bool is_server_connection,
-                             bool no_delay = true);
+  static void configureSocket(Socket& socket,
+                              bool is_server_connection,
+                              bool no_delay = true);
 
   /**
    * Configure keep-alive settings on a socket
@@ -35,11 +36,12 @@ public:
    * @param interval Interval between keep-alive probes
    * @param probes Number of probes before connection is dropped
    */
-  static void configureKeepAlive(Socket& socket,
-                                bool enable = true,
-                                std::chrono::seconds idle_time = std::chrono::seconds(7200),
-                                std::chrono::seconds interval = std::chrono::seconds(75),
-                                uint32_t probes = 9);
+  static void configureKeepAlive(
+      Socket& socket,
+      bool enable = true,
+      std::chrono::seconds idle_time = std::chrono::seconds(7200),
+      std::chrono::seconds interval = std::chrono::seconds(75),
+      uint32_t probes = 9);
 
   /**
    * Configure socket buffer sizes
@@ -48,8 +50,8 @@ public:
    * @param send_buffer_size Send buffer size (0 = system default)
    */
   static void configureBufferSizes(Socket& socket,
-                                  uint32_t receive_buffer_size,
-                                  uint32_t send_buffer_size);
+                                   uint32_t receive_buffer_size,
+                                   uint32_t send_buffer_size);
 
   /**
    * Configure socket for low latency
@@ -64,5 +66,5 @@ public:
   static void configureForHighThroughput(Socket& socket);
 };
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp
