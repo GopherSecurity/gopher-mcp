@@ -12,9 +12,9 @@ class MCPTypesTest : public ::testing::Test {
 // Test extended content block types
 TEST_F(MCPTypesTest, AudioContent) {
   auto audio = make_audio_content("base64audiodata", "audio/mp3");
-  EXPECT_TRUE(audio.holds_alternative<AudioContent>());
+  EXPECT_TRUE(mcp::holds_alternative<AudioContent>(audio));
 
-  auto& content = audio.get<AudioContent>();
+  auto& content = mcp::get<AudioContent>(audio);
   EXPECT_EQ(content.type, "audio");
   EXPECT_EQ(content.data, "base64audiodata");
   EXPECT_EQ(content.mimeType, "audio/mp3");
@@ -24,8 +24,8 @@ TEST_F(MCPTypesTest, ResourceLink) {
   auto resource = make_resource("file:///test.txt", "test.txt");
   auto link = make_resource_link(resource);
 
-  EXPECT_TRUE(link.holds_alternative<ResourceLink>());
-  auto& content = link.get<ResourceLink>();
+  EXPECT_TRUE(mcp::holds_alternative<ResourceLink>(link));
+  auto& content = mcp::get<ResourceLink>(link);
   EXPECT_EQ(content.type, "resource");
   EXPECT_EQ(content.uri, "file:///test.txt");
 }
@@ -41,8 +41,8 @@ TEST_F(MCPTypesTest, EmbeddedResource) {
 
   EXPECT_TRUE(embedded.resource.uri == "file:///doc.pdf");
   EXPECT_EQ(embedded.content.size(), 3u);
-  EXPECT_TRUE(embedded.content[0].holds_alternative<TextContent>());
-  EXPECT_TRUE(embedded.content[2].holds_alternative<ImageContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(embedded.content[0]));
+  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(embedded.content[2]));
 }
 
 // Test extended logging levels
@@ -88,8 +88,8 @@ TEST_F(MCPTypesTest, ServerCapabilities) {
 
   ASSERT_TRUE(caps.resources.has_value());
   // resources is now a variant<bool, ResourcesCapability>
-  ASSERT_TRUE(holds_alternative<bool>(caps.resources.value()));
-  EXPECT_TRUE(get<bool>(caps.resources.value()));
+  ASSERT_TRUE(mcp::holds_alternative<bool>(caps.resources.value()));
+  EXPECT_TRUE(mcp::get<bool>(caps.resources.value()));
   ASSERT_TRUE(caps.tools.has_value());
   EXPECT_TRUE(caps.tools.value());
   ASSERT_TRUE(caps.prompts.has_value());
@@ -130,8 +130,8 @@ TEST_F(MCPTypesTest, SchemaTypes) {
 
   // Enum schema
   auto enum_schema = make_enum_schema({"red", "green", "blue"});
-  EXPECT_TRUE(enum_schema.holds_alternative<EnumSchema>());
-  auto& enum_def = enum_schema.get<EnumSchema>();
+  EXPECT_TRUE(mcp::holds_alternative<EnumSchema>(enum_schema));
+  auto& enum_def = mcp::get<EnumSchema>(enum_schema);
   EXPECT_EQ(enum_def.values.size(), 3u);
   EXPECT_EQ(enum_def.values[1], "green");
 }
@@ -150,7 +150,7 @@ TEST_F(MCPTypesTest, ProgressNotification) {
       make_progress_notification(make_progress_token("task-123"), 0.75);
 
   EXPECT_EQ(notif.method, "notifications/progress");
-  EXPECT_TRUE(notif.progressToken.holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(notif.progressToken));
   EXPECT_DOUBLE_EQ(notif.progress, 0.75);
 }
 
@@ -170,7 +170,7 @@ TEST_F(MCPTypesTest, LoggingNotification) {
 
   EXPECT_EQ(notif.method, "notifications/message");
   EXPECT_EQ(notif.level, enums::LoggingLevel::WARNING);
-  EXPECT_TRUE(notif.data.holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(notif.data));
 }
 
 // Test CreateMessageRequest builder
@@ -257,14 +257,14 @@ TEST_F(MCPTypesTest, MessageUnions) {
 // Test pagination
 TEST_F(MCPTypesTest, Pagination) {
   ListResourcesRequest req;
-  req.cursor = make_optional(Cursor("next-page-token"));
+  req.cursor = mcp::make_optional(Cursor("next-page-token"));
 
   EXPECT_EQ(req.method, "resources/list");
   ASSERT_TRUE(req.cursor.has_value());
   EXPECT_EQ(req.cursor.value(), "next-page-token");
 
   ListResourcesResult result;
-  result.nextCursor = make_optional(Cursor("page-3-token"));
+  result.nextCursor = mcp::make_optional(Cursor("page-3-token"));
   result.resources.push_back(make_resource("file:///test.txt", "test"));
 
   ASSERT_TRUE(result.nextCursor.has_value());
@@ -331,43 +331,43 @@ TEST_F(MCPTypesTest, BaseMetadata) {
   tmpl.name = "file-template";
 
   // Add metadata
-  tmpl._meta = make_optional(make_metadata());
+  tmpl._meta = mcp::make_optional(make_metadata());
   add_metadata(*tmpl._meta, "version", "1.0");
   add_metadata(*tmpl._meta, "author", "test");
 
   ASSERT_TRUE(tmpl._meta.has_value());
   EXPECT_EQ(tmpl._meta->size(), 2u);
-  EXPECT_TRUE(tmpl._meta->at("version").holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(tmpl._meta->at("version")));
 }
 
 // Extensive tests for protocol type aliases
 TEST_F(MCPTypesTest, RequestIdTypeAlias) {
   // Test string variant
   RequestId stringId = std::string("request-123");
-  EXPECT_TRUE(stringId.holds_alternative<std::string>());
-  EXPECT_EQ(stringId.get<std::string>(), "request-123");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(stringId));
+  EXPECT_EQ(mcp::get<std::string>(stringId), "request-123");
 
   // Test int variant
   RequestId intId = 456;
-  EXPECT_TRUE(intId.holds_alternative<int>());
-  EXPECT_EQ(intId.get<int>(), 456);
+  EXPECT_TRUE(mcp::holds_alternative<int>(intId));
+  EXPECT_EQ(mcp::get<int>(intId), 456);
 
   // Test assignment
   stringId = 789;
-  EXPECT_TRUE(stringId.holds_alternative<int>());
-  EXPECT_EQ(stringId.get<int>(), 789);
+  EXPECT_TRUE(mcp::holds_alternative<int>(stringId));
+  EXPECT_EQ(mcp::get<int>(stringId), 789);
 }
 
 TEST_F(MCPTypesTest, ProgressTokenTypeAlias) {
   // Test string variant
   ProgressToken stringToken = std::string("progress-abc");
-  EXPECT_TRUE(stringToken.holds_alternative<std::string>());
-  EXPECT_EQ(stringToken.get<std::string>(), "progress-abc");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(stringToken));
+  EXPECT_EQ(mcp::get<std::string>(stringToken), "progress-abc");
 
   // Test int variant
   ProgressToken intToken = 999;
-  EXPECT_TRUE(intToken.holds_alternative<int>());
-  EXPECT_EQ(intToken.get<int>(), 999);
+  EXPECT_TRUE(mcp::holds_alternative<int>(intToken));
+  EXPECT_EQ(mcp::get<int>(intToken), 999);
 }
 
 TEST_F(MCPTypesTest, CursorTypeAlias) {
@@ -383,61 +383,61 @@ TEST_F(MCPTypesTest, CursorTypeAlias) {
 TEST_F(MCPTypesTest, RequestIdFactoriesExtensive) {
   // Test string factory
   auto id1 = make_request_id(std::string("req-001"));
-  EXPECT_TRUE(id1.holds_alternative<std::string>());
-  EXPECT_EQ(id1.get<std::string>(), "req-001");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id1));
+  EXPECT_EQ(mcp::get<std::string>(id1), "req-001");
 
   // Test C-string factory
   auto id2 = make_request_id("req-002");
-  EXPECT_TRUE(id2.holds_alternative<std::string>());
-  EXPECT_EQ(id2.get<std::string>(), "req-002");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id2));
+  EXPECT_EQ(mcp::get<std::string>(id2), "req-002");
 
   // Test int factory
   auto id3 = make_request_id(12345);
-  EXPECT_TRUE(id3.holds_alternative<int>());
-  EXPECT_EQ(id3.get<int>(), 12345);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id3));
+  EXPECT_EQ(mcp::get<int>(id3), 12345);
 
   // Test with empty string
   auto id4 = make_request_id("");
-  EXPECT_TRUE(id4.holds_alternative<std::string>());
-  EXPECT_EQ(id4.get<std::string>(), "");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id4));
+  EXPECT_EQ(mcp::get<std::string>(id4), "");
 
   // Test with negative int
   auto id5 = make_request_id(-1);
-  EXPECT_TRUE(id5.holds_alternative<int>());
-  EXPECT_EQ(id5.get<int>(), -1);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id5));
+  EXPECT_EQ(mcp::get<int>(id5), -1);
 
   // Test with max int
   auto id6 = make_request_id(std::numeric_limits<int>::max());
-  EXPECT_TRUE(id6.holds_alternative<int>());
-  EXPECT_EQ(id6.get<int>(), std::numeric_limits<int>::max());
+  EXPECT_TRUE(mcp::holds_alternative<int>(id6));
+  EXPECT_EQ(mcp::get<int>(id6), std::numeric_limits<int>::max());
 }
 
 // Extensive tests for ProgressToken factory functions
 TEST_F(MCPTypesTest, ProgressTokenFactoriesExtensive) {
   // Test string factory
   auto token1 = make_progress_token(std::string("progress-001"));
-  EXPECT_TRUE(token1.holds_alternative<std::string>());
-  EXPECT_EQ(token1.get<std::string>(), "progress-001");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token1));
+  EXPECT_EQ(mcp::get<std::string>(token1), "progress-001");
 
   // Test C-string factory
   auto token2 = make_progress_token("progress-002");
-  EXPECT_TRUE(token2.holds_alternative<std::string>());
-  EXPECT_EQ(token2.get<std::string>(), "progress-002");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token2));
+  EXPECT_EQ(mcp::get<std::string>(token2), "progress-002");
 
   // Test int factory
   auto token3 = make_progress_token(54321);
-  EXPECT_TRUE(token3.holds_alternative<int>());
-  EXPECT_EQ(token3.get<int>(), 54321);
+  EXPECT_TRUE(mcp::holds_alternative<int>(token3));
+  EXPECT_EQ(mcp::get<int>(token3), 54321);
 
   // Test with special characters in string
   auto token4 = make_progress_token("token-with-special-!@#$%^&*()");
-  EXPECT_TRUE(token4.holds_alternative<std::string>());
-  EXPECT_EQ(token4.get<std::string>(), "token-with-special-!@#$%^&*()");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token4));
+  EXPECT_EQ(mcp::get<std::string>(token4), "token-with-special-!@#$%^&*()");
 
   // Test with zero
   auto token5 = make_progress_token(0);
-  EXPECT_TRUE(token5.holds_alternative<int>());
-  EXPECT_EQ(token5.get<int>(), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int>(token5));
+  EXPECT_EQ(mcp::get<int>(token5), 0);
 }
 
 // Extensive tests for Role enum
@@ -540,16 +540,16 @@ TEST_F(MCPTypesTest, MakeMethodRequestExtensive) {
   auto req1 = make_method_request(make_request_id("req-123"), "test/method",
                                   TestParams{"test data"});
 
-  EXPECT_TRUE(req1.first.holds_alternative<std::string>());
-  EXPECT_EQ(req1.first.get<std::string>(), "req-123");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(req1.first));
+  EXPECT_EQ(mcp::get<std::string>(req1.first), "req-123");
   EXPECT_EQ(req1.second.method, "test/method");
   EXPECT_TRUE(req1.second.is_type<TestParams>());
 
   // Test with int RequestId
   auto req2 = make_method_request(make_request_id(456), "another/method", 42);
 
-  EXPECT_TRUE(req2.first.holds_alternative<int>());
-  EXPECT_EQ(req2.first.get<int>(), 456);
+  EXPECT_TRUE(mcp::holds_alternative<int>(req2.first));
+  EXPECT_EQ(mcp::get<int>(req2.first), 456);
   EXPECT_EQ(req2.second.method, "another/method");
   EXPECT_TRUE(req2.second.is_type<int>());
 
@@ -569,19 +569,19 @@ TEST_F(MCPTypesTest, MakeMethodRequestExtensive) {
 TEST_F(MCPTypesTest, ContentBlockCreationEdgeCases) {
   // Test with empty strings
   auto empty_text = make_text_content("");
-  EXPECT_TRUE(empty_text.holds_alternative<TextContent>());
-  EXPECT_EQ(empty_text.get<TextContent>().text, "");
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(empty_text));
+  EXPECT_EQ(mcp::get<TextContent>(empty_text).text, "");
 
   // Test with very long strings
   std::string longStr(10000, 'a');
   auto long_text = make_text_content(longStr);
-  EXPECT_TRUE(long_text.holds_alternative<TextContent>());
-  EXPECT_EQ(long_text.get<TextContent>().text.length(), 10000u);
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(long_text));
+  EXPECT_EQ(mcp::get<TextContent>(long_text).text.length(), 10000u);
 
   // Test image content with empty mime type
   auto img = make_image_content("data", "");
-  EXPECT_TRUE(img.holds_alternative<ImageContent>());
-  EXPECT_EQ(img.get<ImageContent>().mimeType, "");
+  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(img));
+  EXPECT_EQ(mcp::get<ImageContent>(img).mimeType, "");
 }
 
 // Test error construction and codes
@@ -610,23 +610,23 @@ TEST_F(MCPTypesTest, ErrorConstructionExtensive) {
 
   // Test with data field - using simplified ErrorData type
   Error errWithData(500, "Server error");
-  errWithData.data = make_optional(ErrorData(std::string("Additional error info")));
+  errWithData.data = mcp::make_optional(ErrorData(std::string("Additional error info")));
   ASSERT_TRUE(errWithData.data.has_value());
-  EXPECT_TRUE(errWithData.data->holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(*errWithData.data));
   
   // Test vector data
   Error errWithVector(501, "Vector error");
   std::vector<std::string> vecData = {"error1", "error2"};
-  errWithVector.data = make_optional(ErrorData(vecData));
+  errWithVector.data = mcp::make_optional(ErrorData(vecData));
   ASSERT_TRUE(errWithVector.data.has_value());
-  EXPECT_TRUE(errWithVector.data->holds_alternative<std::vector<std::string>>());
+  EXPECT_TRUE(mcp::holds_alternative<std::vector<std::string>>(*errWithVector.data));
   
   // Test map data
   Error errWithMap(502, "Map error");
   std::map<std::string, std::string> mapData = {{"key1", "value1"}, {"key2", "value2"}};
-  errWithMap.data = make_optional(ErrorData(mapData));
+  errWithMap.data = mcp::make_optional(ErrorData(mapData));
   ASSERT_TRUE(errWithMap.data.has_value());
-  EXPECT_TRUE((errWithMap.data->holds_alternative<std::map<std::string, std::string>>()));
+  EXPECT_TRUE((mcp::holds_alternative<std::map<std::string, std::string>>(*errWithMap.data)));
 }
 
 // Test Implementation info
@@ -652,22 +652,22 @@ TEST_F(MCPTypesTest, SamplingMessageExtensive) {
   // Test user message creation
   auto userMsg = make_user_message("Hello AI");
   EXPECT_EQ(userMsg.role, enums::Role::USER);
-  EXPECT_TRUE(userMsg.content.holds_alternative<TextContent>());
-  EXPECT_EQ(userMsg.content.get<TextContent>().text, "Hello AI");
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(userMsg.content));
+  EXPECT_EQ(mcp::get<TextContent>(userMsg.content).text, "Hello AI");
 
   // Test assistant message creation
   auto assistantMsg = make_assistant_message("Hello Human");
   EXPECT_EQ(assistantMsg.role, enums::Role::ASSISTANT);
-  EXPECT_TRUE(assistantMsg.content.holds_alternative<TextContent>());
-  EXPECT_EQ(assistantMsg.content.get<TextContent>().text, "Hello Human");
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(assistantMsg.content));
+  EXPECT_EQ(mcp::get<TextContent>(assistantMsg.content).text, "Hello Human");
 
   // Test with audio content
   SamplingMessage audioMsg;
   audioMsg.role = enums::Role::ASSISTANT;
   audioMsg.content = AudioContent("base64audio", "audio/mp3");
 
-  EXPECT_TRUE(audioMsg.content.holds_alternative<AudioContent>());
-  auto& audioContent = audioMsg.content.get<AudioContent>();
+  EXPECT_TRUE(mcp::holds_alternative<AudioContent>(audioMsg.content));
+  auto& audioContent = mcp::get<AudioContent>(audioMsg.content);
   EXPECT_EQ(audioContent.data, "base64audio");
   EXPECT_EQ(audioContent.mimeType, "audio/mp3");
 }
@@ -689,8 +689,8 @@ TEST_F(MCPTypesTest, PromptMessageReferences) {
   msg.role = enums::Role::USER;
   msg.content = TextContent("Hello from prompt");
 
-  EXPECT_TRUE(msg.content.holds_alternative<TextContent>());
-  auto& textContent = msg.content.get<TextContent>();
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(msg.content));
+  auto& textContent = mcp::get<TextContent>(msg.content);
   EXPECT_EQ(textContent.text, "Hello from prompt");
 }
 
@@ -715,7 +715,7 @@ TEST_F(MCPTypesTest, ModelPreferencesEdgeCases) {
   // Test hint without name
   ModelHint hint;
   ModelPreferences prefs3;
-  prefs3.hints = make_optional(std::vector<ModelHint>{hint});
+  prefs3.hints = mcp::make_optional(std::vector<ModelHint>{hint});
   EXPECT_FALSE(prefs3.hints->at(0).name.has_value());
 }
 
@@ -757,31 +757,31 @@ TEST_F(MCPTypesTest, RootTypeEdgeCases) {
 TEST_F(MCPTypesTest, SchemaTypesExtensive) {
   // Test number schema
   auto numSchema = make_number_schema();
-  EXPECT_TRUE(numSchema.holds_alternative<NumberSchema>());
-  auto& numDef = numSchema.get<NumberSchema>();
+  EXPECT_TRUE(mcp::holds_alternative<NumberSchema>(numSchema));
+  auto& numDef = mcp::get<NumberSchema>(numSchema);
   EXPECT_EQ(numDef.type, "number");
 
   // Test boolean schema
   auto boolSchema = make_boolean_schema();
-  EXPECT_TRUE(boolSchema.holds_alternative<BooleanSchema>());
-  auto& boolDef = boolSchema.get<BooleanSchema>();
+  EXPECT_TRUE(mcp::holds_alternative<BooleanSchema>(boolSchema));
+  auto& boolDef = mcp::get<BooleanSchema>(boolSchema);
   EXPECT_EQ(boolDef.type, "boolean");
 
   // Test enum schema with empty values
   auto emptyEnum = make_enum_schema({});
-  EXPECT_TRUE(emptyEnum.holds_alternative<EnumSchema>());
-  EXPECT_EQ(emptyEnum.get<EnumSchema>().values.size(), 0u);
+  EXPECT_TRUE(mcp::holds_alternative<EnumSchema>(emptyEnum));
+  EXPECT_EQ(mcp::get<EnumSchema>(emptyEnum).values.size(), 0u);
 
   // Test enum schema with duplicate values
   auto dupEnum = make_enum_schema({"red", "green", "red"});
-  EXPECT_EQ(dupEnum.get<EnumSchema>().values.size(), 3u);
+  EXPECT_EQ(mcp::get<EnumSchema>(dupEnum).values.size(), 3u);
 }
 
 // Test client/server message union edge cases
 TEST_F(MCPTypesTest, MessageUnionEdgeCases) {
   // Test ClientNotification variants
   ClientNotification notif1 = CancelledNotification();
-  notif1.get<CancelledNotification>().method = "cancelled";
+  mcp::get<CancelledNotification>(notif1).method = "cancelled";
 
   auto method1 = match(
       notif1, [](const CancelledNotification& n) { return n.method; },
@@ -797,7 +797,7 @@ TEST_F(MCPTypesTest, MessageUnionEdgeCases) {
   createReq.messages.push_back(samplingMsg);
 
   ServerRequest req = createReq;
-  EXPECT_TRUE(req.holds_alternative<CreateMessageRequest>());
+  EXPECT_TRUE(mcp::holds_alternative<CreateMessageRequest>(req));
 
   // Test method extraction
   auto method2 =
@@ -835,23 +835,23 @@ TEST_F(MCPTypesTest, NotificationCreationExtensive) {
 TEST_F(MCPTypesTest, ProtocolTypeAliases) {
   // RequestId - string variant
   RequestId id1 = std::string("request-123");
-  EXPECT_TRUE(id1.holds_alternative<std::string>());
-  EXPECT_EQ(id1.get<std::string>(), "request-123");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id1));
+  EXPECT_EQ(mcp::get<std::string>(id1), "request-123");
 
   // RequestId - int variant
   RequestId id2 = 42;
-  EXPECT_TRUE(id2.holds_alternative<int>());
-  EXPECT_EQ(id2.get<int>(), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
+  EXPECT_EQ(mcp::get<int>(id2), 42);
 
   // ProgressToken - string variant
   ProgressToken token1 = std::string("progress-abc");
-  EXPECT_TRUE(token1.holds_alternative<std::string>());
-  EXPECT_EQ(token1.get<std::string>(), "progress-abc");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token1));
+  EXPECT_EQ(mcp::get<std::string>(token1), "progress-abc");
 
   // ProgressToken - int variant
   ProgressToken token2 = 99;
-  EXPECT_TRUE(token2.holds_alternative<int>());
-  EXPECT_EQ(token2.get<int>(), 99);
+  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
+  EXPECT_EQ(mcp::get<int>(token2), 99);
 
   // Cursor (simple string alias)
   Cursor cursor = "cursor-token-xyz";
@@ -941,58 +941,58 @@ TEST_F(MCPTypesTest, LoggingLevelEnumComprehensive) {
 TEST_F(MCPTypesTest, RequestIdFactoriesComprehensive) {
   // Test string overload
   auto id1 = make_request_id(std::string("test-123"));
-  EXPECT_TRUE(id1.holds_alternative<std::string>());
-  EXPECT_EQ(id1.get<std::string>(), "test-123");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id1));
+  EXPECT_EQ(mcp::get<std::string>(id1), "test-123");
 
   // Test int overload
   auto id2 = make_request_id(42);
-  EXPECT_TRUE(id2.holds_alternative<int>());
-  EXPECT_EQ(id2.get<int>(), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
+  EXPECT_EQ(mcp::get<int>(id2), 42);
 
   // Test const char* overload
   auto id3 = make_request_id("literal-456");
-  EXPECT_TRUE(id3.holds_alternative<std::string>());
-  EXPECT_EQ(id3.get<std::string>(), "literal-456");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id3));
+  EXPECT_EQ(mcp::get<std::string>(id3), "literal-456");
 
   // Test edge cases
   auto id4 = make_request_id("");  // Empty string
-  EXPECT_TRUE(id4.holds_alternative<std::string>());
-  EXPECT_EQ(id4.get<std::string>(), "");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id4));
+  EXPECT_EQ(mcp::get<std::string>(id4), "");
 
   auto id5 = make_request_id(0);  // Zero
-  EXPECT_TRUE(id5.holds_alternative<int>());
-  EXPECT_EQ(id5.get<int>(), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id5));
+  EXPECT_EQ(mcp::get<int>(id5), 0);
 
   auto id6 = make_request_id(-1);  // Negative
-  EXPECT_TRUE(id6.holds_alternative<int>());
-  EXPECT_EQ(id6.get<int>(), -1);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id6));
+  EXPECT_EQ(mcp::get<int>(id6), -1);
 }
 
 // Test ProgressToken factory functions comprehensively
 TEST_F(MCPTypesTest, ProgressTokenFactoriesComprehensive) {
   // Test string overload
   auto token1 = make_progress_token(std::string("progress-xyz"));
-  EXPECT_TRUE(token1.holds_alternative<std::string>());
-  EXPECT_EQ(token1.get<std::string>(), "progress-xyz");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token1));
+  EXPECT_EQ(mcp::get<std::string>(token1), "progress-xyz");
 
   // Test int overload
   auto token2 = make_progress_token(100);
-  EXPECT_TRUE(token2.holds_alternative<int>());
-  EXPECT_EQ(token2.get<int>(), 100);
+  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
+  EXPECT_EQ(mcp::get<int>(token2), 100);
 
   // Test const char* overload
   auto token3 = make_progress_token("literal-token");
-  EXPECT_TRUE(token3.holds_alternative<std::string>());
-  EXPECT_EQ(token3.get<std::string>(), "literal-token");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token3));
+  EXPECT_EQ(mcp::get<std::string>(token3), "literal-token");
 
   // Test edge cases
   auto token4 = make_progress_token("");  // Empty string
-  EXPECT_TRUE(token4.holds_alternative<std::string>());
-  EXPECT_EQ(token4.get<std::string>(), "");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token4));
+  EXPECT_EQ(mcp::get<std::string>(token4), "");
 
   auto token5 = make_progress_token(0);  // Zero
-  EXPECT_TRUE(token5.holds_alternative<int>());
-  EXPECT_EQ(token5.get<int>(), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int>(token5));
+  EXPECT_EQ(mcp::get<int>(token5), 0);
 }
 
 // Test make_method_request function
@@ -1005,13 +1005,13 @@ TEST_F(MCPTypesTest, MakeMethodRequest) {
   auto id = make_request_id("test-req-1");
   auto result = make_method_request(id, "test/method", TestParams{"value", 42});
 
-  EXPECT_TRUE(result.first.holds_alternative<std::string>());
-  EXPECT_EQ(result.first.get<std::string>(), "test-req-1");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(result.first));
+  EXPECT_EQ(mcp::get<std::string>(result.first), "test-req-1");
 
   EXPECT_TRUE(result.second.has_method("test/method"));
   EXPECT_FALSE(result.second.has_method("other/method"));
 
-  auto params_ptr = result.second.template get_if<TestParams>();
+  auto params_ptr = result.second.get_if<TestParams>();
   ASSERT_NE(params_ptr, nullptr);
   EXPECT_EQ(params_ptr->param1, "value");
   EXPECT_EQ(params_ptr->param2, 42);
@@ -1091,7 +1091,7 @@ TEST_F(MCPTypesTest, AllMCPTypesComprehensive) {
   // Message
   Message msg1(enums::Role::USER, TextContent("Hello"));
   EXPECT_EQ(msg1.role, enums::Role::USER);
-  EXPECT_TRUE(msg1.content.holds_alternative<TextContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(msg1.content));
 
   auto msg2 = make_user_message("Hi there");
   EXPECT_EQ(msg2.role, enums::Role::USER);
@@ -1104,8 +1104,8 @@ TEST_F(MCPTypesTest, AllMCPTypesComprehensive) {
 TEST_F(MCPTypesTest, ExtendedContentTypesComprehensive) {
   // Audio content
   auto audio = make_audio_content("base64audio", "audio/wav");
-  EXPECT_TRUE(audio.holds_alternative<AudioContent>());
-  auto& audio_content = audio.get<AudioContent>();
+  EXPECT_TRUE(mcp::holds_alternative<AudioContent>(audio));
+  auto& audio_content = mcp::get<AudioContent>(audio);
   EXPECT_EQ(audio_content.type, "audio");
   EXPECT_EQ(audio_content.data, "base64audio");
   EXPECT_EQ(audio_content.mimeType, "audio/wav");
@@ -1113,16 +1113,16 @@ TEST_F(MCPTypesTest, ExtendedContentTypesComprehensive) {
   // Resource link
   auto resource = make_resource("http://example.com/file.pdf", "file.pdf");
   auto link = make_resource_link(resource);
-  EXPECT_TRUE(link.holds_alternative<ResourceLink>());
-  auto& link_content = link.get<ResourceLink>();
+  EXPECT_TRUE(mcp::holds_alternative<ResourceLink>(link));
+  auto& link_content = mcp::get<ResourceLink>(link);
   EXPECT_EQ(link_content.type, "resource");
   EXPECT_EQ(link_content.uri, "http://example.com/file.pdf");
   EXPECT_EQ(link_content.name, "file.pdf");
 
   // Embedded resource
   auto embedded = make_embedded_resource(resource);
-  EXPECT_TRUE(embedded.holds_alternative<EmbeddedResource>());
-  auto& embedded_content = embedded.get<EmbeddedResource>();
+  EXPECT_TRUE(mcp::holds_alternative<EmbeddedResource>(embedded));
+  auto& embedded_content = mcp::get<EmbeddedResource>(embedded);
   EXPECT_EQ(embedded_content.type, "embedded");
   EXPECT_EQ(embedded_content.resource.uri, "http://example.com/file.pdf");
   EXPECT_TRUE(embedded_content.content.empty());
@@ -1227,15 +1227,24 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(resource_move.uri, "file:///test.txt");
 
   // ToolBuilder
-  mcp::ToolInputSchema schema;
-  schema["type"] = "object";
-  schema["properties"]["expression"] = {{"type", "string"},
-                                        {"description", "Math expression"}};
-  schema["properties"]["precision"] = {
-      {"type", "number"}, {"description", "Precision for calculations"}};
-  schema["properties"]["format"] = {{"type", "string"},
-                                    {"description", "Output format"}};
-  schema["required"] = {"expression"};
+  mcp::ToolInputSchema schema = mcp::json::JsonValue::parse(R"({
+    "type": "object",
+    "properties": {
+      "expression": {
+        "type": "string",
+        "description": "Math expression"
+      },
+      "precision": {
+        "type": "number",
+        "description": "Precision for calculations"
+      },
+      "format": {
+        "type": "string",
+        "description": "Output format"
+      }
+    },
+    "required": ["expression"]
+  })");
 
   auto tool = build_tool("advanced_calc")
                   .description("Advanced calculator with multiple functions")
@@ -1247,10 +1256,10 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(tool.description.value(),
             "Advanced calculator with multiple functions");
   ASSERT_TRUE(tool.inputSchema.has_value());
-  EXPECT_EQ(tool.inputSchema.value()["type"], "object");
+  EXPECT_EQ(tool.inputSchema.value()["type"].getString(), "object");
   EXPECT_TRUE(tool.inputSchema.value().contains("properties"));
   EXPECT_TRUE(tool.inputSchema.value()["properties"].contains("expression"));
-  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"],
+  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"].getString(),
             "string");
 
   // Note: tool.parameters is not set by the builder, only inputSchema
@@ -1290,8 +1299,8 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(embedded_resource.type, "embedded");
   EXPECT_EQ(embedded_resource.resource.uri, "file:///complex.pdf");
   EXPECT_EQ(embedded_resource.content.size(), 4u);
-  EXPECT_TRUE(embedded_resource.content[0].holds_alternative<TextContent>());
-  EXPECT_TRUE(embedded_resource.content[2].holds_alternative<ImageContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(embedded_resource.content[0]));
+  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(embedded_resource.content[2]));
 }
 
 // Test edge cases and boundary values
@@ -1319,23 +1328,23 @@ TEST_F(MCPTypesTest, EdgeCasesAndBoundaryValues) {
 
   // Zero and negative numbers
   auto zero_id = make_request_id(0);
-  EXPECT_EQ(zero_id.get<int>(), 0);
+  EXPECT_EQ(mcp::get<int>(zero_id), 0);
 
   auto negative_id = make_request_id(-999);
-  EXPECT_EQ(negative_id.get<int>(), -999);
+  EXPECT_EQ(mcp::get<int>(negative_id), -999);
 
   // Maximum/minimum values
   auto max_int_id = make_request_id(std::numeric_limits<int>::max());
-  EXPECT_EQ(max_int_id.get<int>(), std::numeric_limits<int>::max());
+  EXPECT_EQ(mcp::get<int>(max_int_id), std::numeric_limits<int>::max());
 
   auto min_int_id = make_request_id(std::numeric_limits<int>::min());
-  EXPECT_EQ(min_int_id.get<int>(), std::numeric_limits<int>::min());
+  EXPECT_EQ(mcp::get<int>(min_int_id), std::numeric_limits<int>::min());
 
   // Error with data - using simplified ErrorData type
   Error error_with_data(400, "Bad request");
-  error_with_data.data = make_optional(
+  error_with_data.data = mcp::make_optional(
       ErrorData(std::string("Additional error info")));
 
   ASSERT_TRUE(error_with_data.data.has_value());
-  EXPECT_TRUE(error_with_data.data->holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(*error_with_data.data));
 }

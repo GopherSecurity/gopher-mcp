@@ -126,7 +126,7 @@ TEST_F(MCPSerializationTest, Tool) {
   // Tool with all fields
   Tool full_tool = build_tool("weather")
     .description("Get weather information")
-    .inputSchema(nlohmann::json::parse(R"({
+    .inputSchema(JsonValue::parse(R"({
       "type": "object",
       "properties": {
         "location": {"type": "string"}
@@ -1047,7 +1047,7 @@ TEST_F(MCPSerializationTest, ComplexToolCallSequence) {
   ListToolsResult list_result;
   Tool calc = build_tool("calculator")
     .description("Perform calculations")
-    .inputSchema(nlohmann::json::parse(R"({
+    .inputSchema(JsonValue::parse(R"({
       "type": "object",
       "properties": {
         "expression": {"type": "string"}

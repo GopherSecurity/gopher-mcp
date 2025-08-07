@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>  // Needed for JSON types used in Tool and other structures
+#include "mcp/json_bridge.h"   // For JsonValue
 
 #include "mcp/type_helpers.h"
 
@@ -257,7 +258,7 @@ inline ContentBlock make_image_content(const std::string& data,
 }
 
 // Tool definitions
-using ToolInputSchema = nlohmann::json;  // Tool input schema is a JSON object
+using ToolInputSchema = mcp::json::JsonValue;  // Tool input schema is a JSON object
 
 struct ToolParameter {
   std::string name;
@@ -407,27 +408,27 @@ Result<T> make_error_result(Error&& err) {
 // Helper to check result status
 template <typename T>
 bool is_success(const Result<T>& result) {
-  return result.template holds_alternative<T>();
+  return mcp::holds_alternative<T>(result);
 }
 
 template <typename T>
 bool is_error(const Result<T>& result) {
-  return result.template holds_alternative<Error>();
+  return mcp::holds_alternative<Error>(result);
 }
 
 template <typename T>
 const T* get_value(const Result<T>& result) {
-  return result.template get_if<T>();
+  return mcp::get_if<T>(&result);
 }
 
 template <typename T>
 T* get_value(Result<T>& result) {
-  return result.template get_if<T>();
+  return mcp::get_if<T>(&result);
 }
 
 template <typename T>
 const Error* get_error(const Result<T>& result) {
-  return result.template get_if<Error>();
+  return mcp::get_if<Error>(&result);
 }
 
 // Builder pattern for complex types

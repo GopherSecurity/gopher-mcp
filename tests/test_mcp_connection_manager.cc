@@ -82,8 +82,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.request_called_);
-  EXPECT_TRUE(callbacks_.last_request_.id.holds_alternative<int>());
-  EXPECT_EQ(123, callbacks_.last_request_.id.get<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_request_.id));
+  EXPECT_EQ(123, mcp::get<int>(callbacks_.last_request_.id));
   EXPECT_EQ("test_method", callbacks_.last_request_.method);
   EXPECT_TRUE(callbacks_.last_request_.params.has_value());
 }
@@ -128,8 +128,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
-  EXPECT_EQ(456, callbacks_.last_response_.id.get<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
+  EXPECT_EQ(456, mcp::get<int>(callbacks_.last_response_.id));
   // TODO: Enable when result deserialization is implemented
   // EXPECT_TRUE(callbacks_.last_response_.result.has_value());
   EXPECT_FALSE(callbacks_.last_response_.error.has_value());
@@ -157,8 +157,8 @@ TEST_F(JsonRpcMessageFilterTest, ParseErrorResponse) {
   
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
-  EXPECT_EQ(789, callbacks_.last_response_.id.get<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
+  EXPECT_EQ(789, mcp::get<int>(callbacks_.last_response_.id));
   EXPECT_FALSE(callbacks_.last_response_.result.has_value());
   EXPECT_TRUE(callbacks_.last_response_.error.has_value());
   EXPECT_EQ(-32601, callbacks_.last_response_.error->code);
@@ -308,7 +308,7 @@ TEST_F(McpConnectionManagerTest, DISABLED_ConnectStdio) {
   
   // Note: This test connects using stdio transport which doesn't do actual I/O
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Should be connected
   EXPECT_TRUE(manager_->isConnected());
@@ -321,7 +321,7 @@ TEST_F(McpConnectionManagerTest, DISABLED_ConnectStdio) {
 TEST_F(McpConnectionManagerTest, DISABLED_SendRequest) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Create request
   jsonrpc::Request request;
@@ -333,13 +333,13 @@ TEST_F(McpConnectionManagerTest, DISABLED_SendRequest) {
   
   // Send request
   result = manager_->sendRequest(request);
-  EXPECT_FALSE(result.holds_alternative<Error>());
+  EXPECT_FALSE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(McpConnectionManagerTest, DISABLED_SendNotification) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Create notification
   jsonrpc::Notification notification;
@@ -350,28 +350,28 @@ TEST_F(McpConnectionManagerTest, DISABLED_SendNotification) {
   
   // Send notification
   result = manager_->sendNotification(notification);
-  EXPECT_FALSE(result.holds_alternative<Error>());
+  EXPECT_FALSE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(McpConnectionManagerTest, DISABLED_SendResponse) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Create response
   jsonrpc::Response response;
   response.id = 456;
-  response.result = nlohmann::json{{"status", "success"}};
+  response.result = std::string("success");
   
   // Send response
   result = manager_->sendResponse(response);
-  EXPECT_FALSE(result.holds_alternative<Error>());
+  EXPECT_FALSE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(McpConnectionManagerTest, DISABLED_SendErrorResponse) {
   // Connect first
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Create error response
   jsonrpc::Response response;
@@ -383,7 +383,7 @@ TEST_F(McpConnectionManagerTest, DISABLED_SendErrorResponse) {
   
   // Send response
   result = manager_->sendResponse(response);
-  EXPECT_FALSE(result.holds_alternative<Error>());
+  EXPECT_FALSE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(McpConnectionManagerTest, DISABLED_CloseConnection) {
@@ -423,8 +423,8 @@ TEST_F(McpConnectionManagerTest, MessageCallbackForwarding) {
   manager_->onResponse(response);
   
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(callbacks_.last_response_.id.holds_alternative<int>());
-  EXPECT_EQ(2, callbacks_.last_response_.id.get<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
+  EXPECT_EQ(2, mcp::get<int>(callbacks_.last_response_.id));
   
   // Simulate error
   Error error;
@@ -451,7 +451,7 @@ TEST_F(McpConnectionManagerTest, HttpSseConfig) {
   
   // Connect would fail in test environment
   auto result = http_manager->connect();
-  EXPECT_TRUE(result.holds_alternative<Error>());
+  EXPECT_TRUE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(McpConnectionManagerTest, FactoryFunction) {
@@ -467,7 +467,7 @@ TEST_F(McpConnectionManagerTest, FactoryFunction) {
 TEST_F(McpConnectionManagerTest, DISABLED_UsageExample) {
   // Connect
   auto result = manager_->connect();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Send initialize request
   jsonrpc::Request init_request;
@@ -483,7 +483,7 @@ TEST_F(McpConnectionManagerTest, DISABLED_UsageExample) {
   init_request.params = init_params;
   
   result = manager_->sendRequest(init_request);
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // In real usage, would run event loop and wait for response
   // dispatcher_->run(event::RunType::Block);

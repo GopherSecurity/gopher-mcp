@@ -209,11 +209,11 @@ TEST_F(MCPTypeHelpersTest, MetadataBasic) {
   add_metadata(meta1, "string", std::string("test"));
 
   EXPECT_EQ(meta1.size(), 5u);
-  EXPECT_TRUE(meta1["null"].holds_alternative<std::nullptr_t>());
-  EXPECT_TRUE(meta1["bool"].holds_alternative<bool>());
-  EXPECT_TRUE(meta1["int"].holds_alternative<int64_t>());
-  EXPECT_TRUE(meta1["double"].holds_alternative<double>());
-  EXPECT_TRUE(meta1["string"].holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(meta1["null"]));
+  EXPECT_TRUE(mcp::holds_alternative<bool>(meta1["bool"]));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(meta1["int"]));
+  EXPECT_TRUE(mcp::holds_alternative<double>(meta1["double"]));
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(meta1["string"]));
 
   // Test additional basic metadata types
   add_metadata(meta1, "string_value", std::string("test_string"));
@@ -221,10 +221,10 @@ TEST_F(MCPTypeHelpersTest, MetadataBasic) {
   add_metadata(meta1, "bool_false", false);
   add_metadata(meta1, "null_value", nullptr);
 
-  EXPECT_TRUE(meta1["string_value"].holds_alternative<std::string>());
-  EXPECT_TRUE(meta1["int64_value"].holds_alternative<int64_t>());
-  EXPECT_TRUE(meta1["bool_false"].holds_alternative<bool>());
-  EXPECT_TRUE(meta1["null_value"].holds_alternative<std::nullptr_t>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(meta1["string_value"]));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(meta1["int64_value"]));
+  EXPECT_TRUE(mcp::holds_alternative<bool>(meta1["bool_false"]));
+  EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(meta1["null_value"]));
 }
 
 TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
@@ -232,19 +232,19 @@ TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
   auto meta = make_metadata();
   add_metadata(meta, "", "empty_key");
   EXPECT_TRUE(meta.count("") > 0);
-  EXPECT_TRUE(meta[""].holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(meta[""]));
 
   // Test overwriting values
   add_metadata(meta, "key", 1);
-  EXPECT_TRUE(meta["key"].holds_alternative<int64_t>());
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(meta["key"]));
 
   add_metadata(meta, "key", "overwritten");
-  EXPECT_FALSE(meta["key"].holds_alternative<int>());
-  EXPECT_TRUE(meta["key"].holds_alternative<std::string>());
+  EXPECT_FALSE(mcp::holds_alternative<int64_t>(meta["key"]));
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(meta["key"]));
 
   // Test with special characters in keys
   add_metadata(meta, "key!@#$%^&*()", "special");
-  EXPECT_TRUE(meta["key!@#$%^&*()"].holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(meta["key!@#$%^&*()"]));
 
   // Test large metadata
   for (int i = 0; i < 1000; ++i) {
@@ -311,12 +311,12 @@ TEST_F(MCPTypeHelpersTest, CapabilityComplex) {
 TEST_F(MCPTypeHelpersTest, ResultType) {
   // Test Result type alias
   Result<int> result1 = 42;
-  EXPECT_TRUE(result1.holds_alternative<int>());
-  EXPECT_EQ(result1.get<int>(), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int>(result1));
+  EXPECT_EQ(mcp::get<int>(result1), 42);
 
   Result<int> result2 = Error(404, "Not found");
-  EXPECT_TRUE(result2.holds_alternative<Error>());
-  EXPECT_EQ(result2.get<Error>().code, 404);
+  EXPECT_TRUE(mcp::holds_alternative<Error>(result2));
+  EXPECT_EQ(mcp::get<Error>(result2).code, 404);
 
   // Test with complex types
   struct Data {
@@ -325,18 +325,18 @@ TEST_F(MCPTypeHelpersTest, ResultType) {
   };
 
   Result<Data> result3 = Data{"id-123", {1, 2, 3}};
-  EXPECT_TRUE(result3.holds_alternative<Data>());
+  EXPECT_TRUE(mcp::holds_alternative<Data>(result3));
 
-  auto& data = result3.get<Data>();
+  auto& data = mcp::get<Data>(result3);
   EXPECT_EQ(data.id, "id-123");
   EXPECT_EQ(data.values.size(), 3u);
 
   // Test with void-like result (using nullptr)
   Result<std::nullptr_t> result4 = nullptr;
-  EXPECT_TRUE(result4.holds_alternative<std::nullptr_t>());
+  EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(result4));
 
   Result<std::nullptr_t> result5 = Error(500, "Internal error");
-  EXPECT_TRUE(result5.holds_alternative<Error>());
+  EXPECT_TRUE(mcp::holds_alternative<Error>(result5));
 }
 
 // ==================== ARRAY FACTORIES ====================
@@ -571,7 +571,7 @@ TEST_F(MCPTypeHelpersTest, MatchHelper) {
   match(
       v4, [](int& i) { i *= 2; }, [](double& d) { d *= 2; },
       [](std::string& s) { s += s; }, [](bool& b) { b = !b; });
-  EXPECT_DOUBLE_EQ(v4.get<double>(), 6.28);
+  EXPECT_DOUBLE_EQ(mcp::get<double>(v4), 6.28);
 }
 
 TEST_F(MCPTypeHelpersTest, MatchComplexTypes) {
@@ -657,7 +657,7 @@ TEST_F(MCPTypeHelpersTest, IntegrationComplexScenario) {
 
   // Create result
   RpcResult result = user;
-  EXPECT_TRUE(result.holds_alternative<User>());
+  EXPECT_TRUE(mcp::holds_alternative<User>(result));
 
   // Process result using match
   auto summary = match(
@@ -797,47 +797,47 @@ TEST_F(MCPTypeHelpersTest, PerformanceObjectBuilder) {
 TEST_F(MCPTypeHelpersTest, RequestIdFactories) {
   // String ID
   auto id1 = make_request_id("req-123");
-  EXPECT_TRUE(id1.holds_alternative<std::string>());
-  EXPECT_EQ(id1.get<std::string>(), "req-123");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id1));
+  EXPECT_EQ(mcp::get<std::string>(id1), "req-123");
 
   // Integer ID
   auto id2 = make_request_id(42);
-  EXPECT_TRUE(id2.holds_alternative<int>());
-  EXPECT_EQ(id2.get<int>(), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
+  EXPECT_EQ(mcp::get<int>(id2), 42);
 
   // C-string ID (should convert to std::string)
   auto id3 = make_request_id("req-456");
-  EXPECT_TRUE(id3.holds_alternative<std::string>());
-  EXPECT_EQ(id3.get<std::string>(), "req-456");
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(id3));
+  EXPECT_EQ(mcp::get<std::string>(id3), "req-456");
 }
 
 // Test ProgressToken factory functions
 TEST_F(MCPTypeHelpersTest, ProgressTokenFactories) {
   auto token1 = make_progress_token("progress-1");
-  EXPECT_TRUE(token1.holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(token1));
 
   auto token2 = make_progress_token(100);
-  EXPECT_TRUE(token2.holds_alternative<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
 }
 
 // Test ContentBlock factories
 TEST_F(MCPTypeHelpersTest, ContentBlockFactories) {
   // Text content
   auto text = make_text_content("Hello, world!");
-  EXPECT_TRUE(text.holds_alternative<TextContent>());
-  EXPECT_EQ(text.get<TextContent>().text, "Hello, world!");
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(text));
+  EXPECT_EQ(mcp::get<TextContent>(text).text, "Hello, world!");
 
   // Image content
   auto image = make_image_content("base64data", "image/png");
-  EXPECT_TRUE(image.holds_alternative<ImageContent>());
-  EXPECT_EQ(image.get<ImageContent>().data, "base64data");
-  EXPECT_EQ(image.get<ImageContent>().mimeType, "image/png");
+  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(image));
+  EXPECT_EQ(mcp::get<ImageContent>(image).data, "base64data");
+  EXPECT_EQ(mcp::get<ImageContent>(image).mimeType, "image/png");
 
   // Resource content
   Resource res("file:///test.txt", "test.txt");
   auto resource = make_resource_content(res);
-  EXPECT_TRUE(resource.holds_alternative<ResourceContent>());
-  EXPECT_EQ(resource.get<ResourceContent>().resource.uri, "file:///test.txt");
+  EXPECT_TRUE(mcp::holds_alternative<ResourceContent>(resource));
+  EXPECT_EQ(mcp::get<ResourceContent>(resource).resource.uri, "file:///test.txt");
 }
 
 // Test enum helpers
@@ -869,11 +869,11 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   // Test simple message creation
   auto msg1 = make_user_message("Hello");
   EXPECT_EQ(msg1.role, enums::Role::USER);
-  EXPECT_TRUE(msg1.content.holds_alternative<TextContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(msg1.content));
 
   auto msg2 = make_assistant_message("Hi there");
   EXPECT_EQ(msg2.role, enums::Role::ASSISTANT);
-  EXPECT_TRUE(msg2.content.holds_alternative<TextContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(msg2.content));
 
   // Test resource builder
   auto resource = build_resource("file:///doc.pdf", "document.pdf")
@@ -889,11 +889,16 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   EXPECT_EQ(resource.mimeType.value(), "application/pdf");
 
   // Test tool builder
-  mcp::ToolInputSchema schema;
-  schema["type"] = "object";
-  schema["properties"]["expression"] = {
-      {"type", "string"}, {"description", "The math expression to evaluate"}};
-  schema["required"] = {"expression"};
+  mcp::ToolInputSchema schema = mcp::json::JsonValue::parse(R"({
+    "type": "object",
+    "properties": {
+      "expression": {
+        "type": "string",
+        "description": "The math expression to evaluate"
+      }
+    },
+    "required": ["expression"]
+  })");
 
   auto tool = build_tool("calculator")
                   .description("Performs mathematical calculations")
@@ -904,7 +909,7 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   ASSERT_TRUE(tool.description.has_value());
   EXPECT_EQ(tool.description.value(), "Performs mathematical calculations");
   ASSERT_TRUE(tool.inputSchema.has_value());
-  EXPECT_EQ(tool.inputSchema.value()["type"], "object");
+  EXPECT_EQ(tool.inputSchema.value()["type"].getString(), "object");
 
   // Test sampling params builder
   auto params = build_sampling_params()
@@ -923,8 +928,8 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   ASSERT_TRUE(params.stopSequences.has_value());
   EXPECT_EQ(params.stopSequences->size(), 2u);
   ASSERT_TRUE(params.metadata.has_value());
-  EXPECT_TRUE(params.metadata->at("model").holds_alternative<std::string>());
-  EXPECT_TRUE(params.metadata->at("stream").holds_alternative<bool>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(params.metadata->at("model")));
+  EXPECT_TRUE(mcp::holds_alternative<bool>(params.metadata->at("stream")));
 }
 
 // Test JSON-RPC factories
@@ -934,7 +939,7 @@ TEST_F(MCPTypeHelpersTest, JSONRPCFactories) {
   // Test request creation
   auto req1 = make_request(make_request_id(1), "initialize");
   EXPECT_EQ(req1.jsonrpc, "2.0");
-  EXPECT_TRUE(req1.id.holds_alternative<int>());
+  EXPECT_TRUE(mcp::holds_alternative<int>(req1.id));
   EXPECT_EQ(req1.method, "initialize");
   EXPECT_FALSE(req1.params.has_value());
 
@@ -974,7 +979,7 @@ TEST_F(MCPTypeHelpersTest, ProtocolMessageFactories) {
   ASSERT_TRUE(init_params.clientName.has_value());
   EXPECT_EQ(init_params.clientName.value(), "test-client");
   ASSERT_TRUE(init_params.capabilities.has_value());
-  EXPECT_TRUE(init_params.capabilities->at("tools").holds_alternative<bool>());
+  EXPECT_TRUE(mcp::holds_alternative<bool>(init_params.capabilities->at("tools")));
 
   // Test tool call
   auto call1 = make_tool_call("calculator");
@@ -991,7 +996,7 @@ TEST_F(MCPTypeHelpersTest, ProtocolMessageFactories) {
   content.push_back(make_text_content("Result: 4"));
   auto result = make_tool_result(std::move(content));
   EXPECT_EQ(result.content.size(), 1u);
-  EXPECT_TRUE(result.content[0].holds_alternative<TextContent>());
+  EXPECT_TRUE(mcp::holds_alternative<TextContent>(result.content[0]));
 }
 
 // Integration test - Building a complete MCP request
@@ -1011,7 +1016,7 @@ TEST_F(MCPTypeHelpersTest, IntegrationCompleteRequest) {
   request.id = make_request_id("req-calc-1");
 
   EXPECT_EQ(request.method, "tools/call");
-  EXPECT_TRUE(request.id.holds_alternative<std::string>());
+  EXPECT_TRUE(mcp::holds_alternative<std::string>(request.id));
 
   // Simulate response with content blocks
   std::vector<ContentBlock> result_content;
@@ -1024,5 +1029,5 @@ TEST_F(MCPTypeHelpersTest, IntegrationCompleteRequest) {
   EXPECT_FALSE(response.error.has_value());
 
   // Check that result contains vector of ContentBlocks
-  EXPECT_TRUE(response.result->holds_alternative<std::vector<ContentBlock>>());
+  EXPECT_TRUE(mcp::holds_alternative<std::vector<ContentBlock>>(*response.result));
 }
