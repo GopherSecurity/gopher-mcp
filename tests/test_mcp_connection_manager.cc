@@ -65,11 +65,7 @@ protected:
 
 TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   // Create JSON-RPC request
-  std::string request_json = 
-      "{\"jsonrpc\":\"2.0\","
-      "\"id\":123,"
-      "\"method\":\"test_method\","
-      "\"params\":{\"key\":\"value\"}}";
+  std::string request_json = R"({"jsonrpc":"2.0","id":123,"method":"test_method","params":{"key":"value"}})";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
@@ -90,10 +86,7 @@ TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseNotification) {
   // Create JSON-RPC notification
-  std::string notification_json = 
-      "{\"jsonrpc\":\"2.0\","
-      "\"method\":\"notification_method\","
-      "\"params\":{\"value1\":1,\"value2\":2,\"value3\":3}}";
+  std::string notification_json = R"({"jsonrpc":"2.0","method":"notification_method","params":{"value1":1,"value2":2,"value3":3}})";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
@@ -111,10 +104,7 @@ TEST_F(JsonRpcMessageFilterTest, ParseNotification) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
   // Create JSON-RPC response
-  std::string response_json = 
-      "{\"jsonrpc\":\"2.0\","
-      "\"id\":456,"
-      "\"result\":{\"status\":\"ok\"}}";
+  std::string response_json = R"({"jsonrpc":"2.0","id":456,"result":{"status":"ok"}})";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
@@ -135,13 +125,7 @@ TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
 
 TEST_F(JsonRpcMessageFilterTest, ParseErrorResponse) {
   // Create JSON-RPC error response
-  std::string response_json = 
-      "{\"jsonrpc\":\"2.0\","
-      "\"id\":789,"
-      "\"error\":{"
-      "\"code\":-32601,"
-      "\"message\":\"Method not found\","
-      "\"data\":\"test_method\"}}";
+  std::string response_json = R"({"jsonrpc":"2.0","id":789,"error":{"code":-32601,"message":"Method not found","data":"test_method"}})";
   
   // Add to buffer
   auto buffer = std::make_unique<OwnedBuffer>();
@@ -165,9 +149,9 @@ TEST_F(JsonRpcMessageFilterTest, ParseMultipleMessages) {
   // Add multiple messages
   auto buffer = std::make_unique<OwnedBuffer>();
   
-  buffer->add("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"method1\"}\n");
-  buffer->add("{\"jsonrpc\":\"2.0\",\"method\":\"notification1\"}\n");
-  buffer->add("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"ok\"}\n");
+  buffer->add(R"({"jsonrpc":"2.0","id":1,"method":"method1"})" "\n");
+  buffer->add(R"({"jsonrpc":"2.0","method":"notification1"})" "\n");
+  buffer->add(R"({"jsonrpc":"2.0","id":2,"result":"ok"})" "\n");
   
   // Process all at once
   filter_->onData(*buffer, false);
@@ -196,10 +180,7 @@ TEST_F(JsonRpcMessageFilterTest, FramedMessages) {
   filter_->setUseFraming(true);
   
   // Create framed message
-  std::string json_str = 
-      "{\"jsonrpc\":\"2.0\","
-      "\"id\":1,"
-      "\"method\":\"test\"}";
+  std::string json_str = R"({"jsonrpc":"2.0","id":1,"method":"test"})";
   
   // Add 4-byte length prefix
   auto buffer = std::make_unique<OwnedBuffer>();
