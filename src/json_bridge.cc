@@ -285,7 +285,9 @@ public:
       : iter_(is_end ? j.end() : j.begin()), end_(j.end()) {}
 };
 
-JsonValue::ObjectIterator::ObjectIterator(void* impl, bool is_end) : impl_(impl) {}
+JsonValue::ObjectIterator::ObjectIterator(void* impl, bool is_end) : impl_(impl) {
+    (void)is_end; // Suppress unused parameter warning
+}
 
 JsonValue::ObjectIterator::~ObjectIterator() {
   delete static_cast<ObjectIteratorImpl*>(impl_);
