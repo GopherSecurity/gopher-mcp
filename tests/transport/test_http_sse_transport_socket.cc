@@ -67,9 +67,10 @@ TEST_F(HttpSseTransportSocketFactoryTest, FactoryFunction) {
 // Test SSE parsing logic
 TEST(HttpSseParsingTest, ParseSseEventData) {
   // Test parsing SSE event format
-  std::string sse_data = 
-      "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n"
-      "\n";
+  std::string sse_data = R"(
+data: {"jsonrpc":"2.0","id":1,"result":{}}
+
+)";
   
   // This would be parsed by the transport to extract the JSON-RPC message
   size_t data_pos = sse_data.find("data: ");
@@ -88,11 +89,12 @@ TEST(HttpSseParsingTest, ParseSseEventData) {
 
 TEST(HttpSseParsingTest, ParseMultipleEvents) {
   // Test parsing multiple SSE events
-  std::string sse_data = 
-      "data: {\"jsonrpc\":\"2.0\",\"method\":\"notification1\"}\n"
-      "\n"
-      "data: {\"jsonrpc\":\"2.0\",\"method\":\"notification2\"}\n"
-      "\n";
+  std::string sse_data = R"(
+data: {"jsonrpc":"2.0","method":"notification1"}
+
+data: {"jsonrpc":"2.0","method":"notification2"}
+
+)";
   
   std::vector<std::string> events;
   size_t pos = 0;
@@ -149,7 +151,7 @@ TEST(HttpSseParsingTest, ParseEventWithId) {
 
 // Test HTTP request building
 TEST(HttpRequestBuildingTest, BuildPostRequest) {
-  std::string body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"test\"}";
+  std::string body = R"({"jsonrpc":"2.0","id":1,"method":"test"})";
   std::string endpoint = "/api/mcp";
   
   std::stringstream request;

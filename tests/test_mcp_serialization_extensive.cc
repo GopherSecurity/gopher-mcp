@@ -377,10 +377,10 @@ TEST_F(MCPSerializationExtensiveTest, AllNotificationTypes) {
 TEST_F(MCPSerializationExtensiveTest, MalformedJsonRecovery) {
   // Test that we handle various malformed JSON inputs gracefully
   std::vector<std::string> malformed_jsons = {
-    "{\"type\": \"text\"}", // Missing required "text" field
-    "{\"type\": \"image\", \"data\": \"xyz\"}", // Missing mimeType
-    "{\"type\": \"unknown\", \"data\": \"xyz\"}", // Unknown type
-    "{\"type\": 123}", // Wrong type for "type" field
+    R"({"type": "text"})", // Missing required "text" field
+    R"({"type": "image", "data": "xyz"})", // Missing mimeType
+    R"({"type": "unknown", "data": "xyz"})", // Unknown type
+    R"({"type": 123})", // Wrong type for "type" field
     "[]", // Array instead of object
     "null", // Null value
     "\"string\"", // Plain string
