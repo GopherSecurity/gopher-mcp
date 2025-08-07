@@ -482,3 +482,140 @@ TEST(BuildersTest, ServerCapabilitiesBuilder) {
   ASSERT_TRUE(caps.logging.has_value());
   EXPECT_FALSE(caps.logging.value());
 }
+
+TEST(BuildersTest, AnnotationsBuilder) {
+  auto annotations = make<Annotations>()
+                         .audience({enums::Role::USER, enums::Role::ASSISTANT})
+                         .priority(0.9)
+                         .build();
+  
+  ASSERT_TRUE(annotations.audience.has_value());
+  EXPECT_EQ(annotations.audience->size(), 2);
+  ASSERT_TRUE(annotations.priority.has_value());
+  EXPECT_EQ(annotations.priority.value(), 0.9);
+}
+
+TEST(BuildersTest, ToolParameterBuilder) {
+  auto param = make<ToolParameter>("input", "string")
+                   .description("Input parameter")
+                   .required(true)
+                   .build();
+  
+  EXPECT_EQ(param.name, "input");
+  EXPECT_EQ(param.type, "string");
+  ASSERT_TRUE(param.description.has_value());
+  EXPECT_EQ(param.description.value(), "Input parameter");
+  EXPECT_TRUE(param.required);
+}
+
+TEST(BuildersTest, ResourceLinkBuilder) {
+  auto link = make<ResourceLink>("file:///path/to/file", "my-file")
+                  .description("A linked file")
+                  .mimeType("text/plain")
+                  .build();
+  
+  EXPECT_EQ(link.uri, "file:///path/to/file");
+  EXPECT_EQ(link.name, "my-file");
+  ASSERT_TRUE(link.description.has_value());
+  EXPECT_EQ(link.description.value(), "A linked file");
+  ASSERT_TRUE(link.mimeType.has_value());
+  EXPECT_EQ(link.mimeType.value(), "text/plain");
+}
+
+TEST(BuildersTest, ModelHintBuilder) {
+  auto hint = make<ModelHint>("gpt-4").build();
+  
+  EXPECT_EQ(hint.name, "gpt-4");
+}
+
+TEST(BuildersTest, TextResourceContentsBuilder) {
+  auto contents = make<TextResourceContents>("file:///test.txt")
+                      .text("File contents")
+                      .mimeType("text/plain")
+                      .build();
+  
+  EXPECT_EQ(contents.uri, "file:///test.txt");
+  EXPECT_EQ(contents.text, "File contents");
+  ASSERT_TRUE(contents.mimeType.has_value());
+  EXPECT_EQ(contents.mimeType.value(), "text/plain");
+}
+
+TEST(BuildersTest, BlobResourceContentsBuilder) {
+  auto contents = make<BlobResourceContents>("file:///binary.dat")
+                      .blob("binary data")
+                      .mimeType("application/octet-stream")
+                      .build();
+  
+  EXPECT_EQ(contents.uri, "file:///binary.dat");
+  EXPECT_EQ(contents.blob, "binary data");
+  ASSERT_TRUE(contents.mimeType.has_value());
+  EXPECT_EQ(contents.mimeType.value(), "application/octet-stream");
+}
+
+TEST(BuildersTest, PingRequestBuilder) {
+  auto request = make<PingRequest>()
+                     .id("ping-123")
+                     .build();
+  
+  EXPECT_EQ(request.method, "ping");
+  auto* stringId = std::get_if<std::string>(&request.id);
+  ASSERT_NE(stringId, nullptr);
+  EXPECT_EQ(*stringId, "ping-123");
+}
+
+TEST(BuildersTest, ListResourcesRequestBuilder) {
+  auto request = make<ListResourcesRequest>()
+                     .id("req-123")
+                     .cursor("next-page")
+                     .build();
+  
+  EXPECT_EQ(request.method, "resources/list");
+  auto* stringId = std::get_if<std::string>(&request.id);
+  ASSERT_NE(stringId, nullptr);
+  EXPECT_EQ(*stringId, "req-123");
+  ASSERT_TRUE(request.cursor.has_value());
+  EXPECT_EQ(request.cursor.value(), "next-page");
+}
+
+TEST(BuildersTest, ReadResourceRequestBuilder) {
+  auto request = make<ReadResourceRequest>("file:///test.txt")
+                     .id("read-123")
+                     .build();
+  
+  EXPECT_EQ(request.method, "resources/read");
+  EXPECT_EQ(request.uri, "file:///test.txt");
+  auto* stringId = std::get_if<std::string>(&request.id);
+  ASSERT_NE(stringId, nullptr);
+  EXPECT_EQ(*stringId, "read-123");
+}
+
+TEST(BuildersTest, SubscribeRequestBuilder) {
+  auto request = make<SubscribeRequest>("file:///monitored.txt")
+                     .id("sub-123")
+                     .build();
+  
+  EXPECT_EQ(request.method, "resources/subscribe");
+  EXPECT_EQ(request.uri, "file:///monitored.txt");
+  auto* stringId = std::get_if<std::string>(&request.id);
+  ASSERT_NE(stringId, nullptr);
+  EXPECT_EQ(*stringId, "sub-123");
+}
+
+TEST(BuildersTest, SetLevelRequestBuilder) {
+  auto request = make<SetLevelRequest>(enums::LoggingLevel::DEBUG)
+                     .id("log-123")
+                     .build();
+  
+  EXPECT_EQ(request.method, "logging/setLevel");
+  EXPECT_EQ(request.level, enums::LoggingLevel::DEBUG);
+  auto* stringId = std::get_if<std::string>(&request.id);
+  ASSERT_NE(stringId, nullptr);
+  EXPECT_EQ(*stringId, "log-123");
+}
+
+TEST(BuildersTest, EmptyResultBuilder) {
+  auto result = make<EmptyResult>().build();
+  
+  // EmptyResult has no fields to test, just ensure it compiles
+  (void)result;
+}
