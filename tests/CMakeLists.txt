@@ -9,7 +9,7 @@ add_executable(test_mcp_type_helpers test_mcp_type_helpers.cc)
 add_executable(test_mcp_types test_mcp_types.cc)
 add_executable(test_compat test_compat.cc)
 add_executable(test_buffer test_buffer.cc)
-add_executable(test_json test_json.cc)
+# add_executable(test_json test_json.cc)  # Disabled - using template-based serialization tests instead
 # MCP serialization tests
 add_executable(test_mcp_serialization test_mcp_serialization.cc)
 add_executable(test_mcp_serialization_extensive test_mcp_serialization_extensive.cc)
@@ -77,6 +77,7 @@ target_link_libraries(test_optional_advanced
 )
 
 target_link_libraries(test_mcp_type_helpers
+    mcp-sdk
     gtest 
     gtest_main
     Threads::Threads
@@ -84,6 +85,7 @@ target_link_libraries(test_mcp_type_helpers
 )
 
 target_link_libraries(test_mcp_types
+    mcp-sdk
     gtest 
     gtest_main
     Threads::Threads
@@ -103,12 +105,12 @@ target_link_libraries(test_buffer
     Threads::Threads
 )
 
-target_link_libraries(test_json
-    mcp-sdk
-    gtest 
-    gtest_main
-    Threads::Threads
-)
+# target_link_libraries(test_json
+#     mcp-sdk
+#     gtest 
+#     gtest_main
+#     Threads::Threads
+# )
 
 target_link_libraries(test_mcp_serialization
     mcp-sdk
@@ -274,7 +276,7 @@ add_test(NAME MCPTypeHelpersTest COMMAND test_mcp_type_helpers)
 add_test(NAME MCPTypesTest COMMAND test_mcp_types)
 add_test(NAME CompatTest COMMAND test_compat)
 add_test(NAME BufferTest COMMAND test_buffer)
-add_test(NAME JsonTest COMMAND test_json)
+# add_test(NAME JsonTest COMMAND test_json)  # Disabled - using template-based serialization tests
 add_test(NAME McpSerializationTest COMMAND test_mcp_serialization)
 add_test(NAME McpSerializationExtensiveTest COMMAND test_mcp_serialization_extensive)
 add_test(NAME TemplateSerializationTest COMMAND test_template_serialization)
@@ -313,7 +315,7 @@ add_custom_target(run_tests
     DEPENDS test_variant test_variant_extensive test_variant_advanced 
             test_optional test_optional_extensive test_optional_advanced
             test_mcp_type_helpers test_mcp_types test_compat
-            test_buffer test_json test_template_serialization test_event_loop
+            test_buffer test_template_serialization test_event_loop
             test_io_socket_handle test_address test_socket
             test_socket_interface test_socket_option test_transport_socket
             test_filter test_connection_impl test_listener_impl

@@ -127,7 +127,7 @@ struct JsonDeserializeTraits<optional<T>> {
     if (json.isNull()) {
       return nullopt;
     }
-    return make_optional(JsonDeserializer::deserialize<T>(json));
+    return mcp::make_optional(JsonDeserializer::deserialize<T>(json));
   }
 };
 

@@ -134,12 +134,12 @@ TEST_F(ActiveListenerTest, CreateAndListen) {
   
   // Start listening
   auto result = listener_->listen();
-  if (result.holds_alternative<Error>()) {
-    const auto& error = result.get<Error>();
+  if (mcp::holds_alternative<Error>(result)) {
+    const auto& error = mcp::get<Error>(result);
     std::cerr << "Listen failed with error: code=" << error.code 
               << ", message=" << error.message << std::endl;
   }
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Verify listener state
   EXPECT_EQ("test_listener", listener_->name());
@@ -158,7 +158,7 @@ TEST_F(ActiveListenerTest, DisableEnable) {
       *dispatcher_, *socket_interface_, callbacks_, makeConfig());
   
   auto result = listener_->listen();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Initially enabled
   EXPECT_TRUE(listener_->isEnabled());
@@ -179,7 +179,7 @@ TEST_F(ActiveListenerTest, DISABLED_AcceptConnection) {
       *dispatcher_, *socket_interface_, callbacks_, makeConfig());
   
   auto result = listener_->listen();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Get actual listen port
   auto local_addr = listener_->socket().connectionInfoProvider().localAddress();
@@ -254,7 +254,7 @@ TEST_F(ListenerManagerImplTest, AddListener) {
   config.address = listen_addr_;
   
   auto result = manager_->addListener(std::move(config), callbacks_);
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Get listener
   auto* listener = manager_->getListener("listener1");
@@ -266,7 +266,7 @@ TEST_F(ListenerManagerImplTest, AddListener) {
   dup_config.name = "listener1";
   dup_config.address = listen_addr_;
   result = manager_->addListener(std::move(dup_config), callbacks_);
-  EXPECT_TRUE(result.holds_alternative<Error>());
+  EXPECT_TRUE(mcp::holds_alternative<Error>(result));
 }
 
 TEST_F(ListenerManagerImplTest, RemoveListener) {
@@ -275,7 +275,7 @@ TEST_F(ListenerManagerImplTest, RemoveListener) {
   config.address = listen_addr_;
   
   auto result = manager_->addListener(std::move(config), callbacks_);
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Remove listener
   manager_->removeListener("listener1");
@@ -293,7 +293,7 @@ TEST_F(ListenerManagerImplTest, MultipleListeners) {
     config.address = listen_addr_;
     
     auto result = manager_->addListener(std::move(config), callbacks_);
-    ASSERT_FALSE(result.holds_alternative<Error>());
+    ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   }
   
   // Get all listeners
@@ -347,7 +347,7 @@ TEST_F(ActiveListenerTest, ListenerFilterChain) {
       *dispatcher_, *socket_interface_, callbacks_, std::move(config));
   
   auto result = listener_->listen();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Note: Full test would require accepting a connection and verifying
   // filters are called. For now, verify filters are stored.
@@ -368,7 +368,7 @@ TEST_F(ActiveListenerTest, SocketOptions) {
       *dispatcher_, *socket_interface_, callbacks_, std::move(config));
   
   auto result = listener_->listen();
-  ASSERT_FALSE(result.holds_alternative<Error>());
+  ASSERT_FALSE(mcp::holds_alternative<Error>(result));
   
   // Socket should have options applied
   // Note: Actual verification would require checking socket state

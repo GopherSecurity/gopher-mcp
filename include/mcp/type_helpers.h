@@ -64,17 +64,17 @@ struct TypeDiscriminator {
 
   template <typename T>
   static bool is_type(const VariantType& v) {
-    return v.template holds_alternative<T>();
+    return mcp::holds_alternative<T>(v);
   }
 
   template <typename T>
   static const T* get_if(const VariantType& v) {
-    return v.template get_if<T>();
+    return mcp::get_if<T>(&v);
   }
 
   template <typename T>
   static T* get_if(VariantType& v) {
-    return v.template get_if<T>();
+    return mcp::get_if<T>(&v);
   }
 };
 
@@ -98,17 +98,17 @@ struct MethodDiscriminator {
 
   template <typename T>
   bool is_type() const {
-    return data.template holds_alternative<T>();
+    return mcp::holds_alternative<T>(data);
   }
 
   template <typename T>
   const T* get_if() const {
-    return data.template get_if<T>();
+    return mcp::get_if<T>(&data);
   }
 
   template <typename T>
   T* get_if() {
-    return data.template get_if<T>();
+    return mcp::get_if<T>(&data);
   }
 };
 
@@ -215,7 +215,7 @@ class ObjectBuilder {
 
   template <typename U>
   ObjectBuilder& set_optional(optional<U> T::*member, U&& value) {
-    object.*member = make_optional(std::forward<U>(value));
+    object.*member = mcp::make_optional(std::forward<U>(value));
     return *this;
   }
 

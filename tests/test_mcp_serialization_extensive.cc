@@ -21,16 +21,16 @@ class MCPSerializationExtensiveTest : public ::testing::Test {
   void verifyJsonStructure(const JsonValue& j, const std::string& expected_type) {
     if (expected_type == "text") {
       EXPECT_TRUE(j.contains("type"));
-      EXPECT_EQ(j["type"].toString(), "text"));
+      EXPECT_EQ(j["type"].getString(), "text");
       EXPECT_TRUE(j.contains("text"));
     } else if (expected_type == "image") {
       EXPECT_TRUE(j.contains("type"));
-      EXPECT_EQ(j["type"].toString(), "image"));
+      EXPECT_EQ(j["type"].getString(), "image");
       EXPECT_TRUE(j.contains("data"));
       EXPECT_TRUE(j.contains("mimeType"));
     } else if (expected_type == "resource") {
       EXPECT_TRUE(j.contains("type"));
-      EXPECT_EQ(j["type"].toString(), "resource"));
+      EXPECT_EQ(j["type"].getString(), "resource");
       EXPECT_TRUE(j.contains("resource"));
     }
   }
@@ -75,8 +75,8 @@ TEST_F(MCPSerializationExtensiveTest, MassiveArrays) {
   // Add 10000 resources
   for (int i = 0; i < 10000; ++i) {
     Resource res("file:///path/file" + std::to_string(i), "file" + std::to_string(i));
-    res.description = make_optional(std::string("Description " + std::to_string(i)));
-    res.mimeType = make_optional(std::string("text/plain"));
+    res.description = mcp::make_optional(std::string("Description " + std::to_string(i)));
+    res.mimeType = mcp::make_optional(std::string("text/plain"));
     result.resources.push_back(res);
   }
   
@@ -115,21 +115,21 @@ TEST_F(MCPSerializationExtensiveTest, NumericBoundaries) {
   
   // Test in metadata
   Metadata meta = make_metadata();
-  add_metadata(meta, "max_int", std::numeric_limits<int>::max();
-  add_metadata(meta, "min_int", std::numeric_limits<int>::min();
-  add_metadata(meta, "max_long", std::numeric_limits<long long>::max();
-  add_metadata(meta, "min_long", std::numeric_limits<long long>::min();
+  add_metadata(meta, "max_int", std::numeric_limits<int>::max());
+  add_metadata(meta, "min_int", std::numeric_limits<int>::min());
+  add_metadata(meta, "max_long", std::numeric_limits<long long>::max());
+  add_metadata(meta, "min_long", std::numeric_limits<long long>::min());
   
   // Note: JSON doesn't support Infinity or NaN directly
-  add_metadata(meta, "max_double", std::numeric_limits<double>::max();
-  add_metadata(meta, "min_double", std::numeric_limits<double>::lowest();
-  add_metadata(meta, "epsilon", std::numeric_limits<double>::epsilon();
+  add_metadata(meta, "max_double", std::numeric_limits<double>::max());
+  add_metadata(meta, "min_double", std::numeric_limits<double>::lowest());
+  add_metadata(meta, "epsilon", std::numeric_limits<double>::epsilon());
   
   JsonValue j = to_json(meta);
   Metadata deserialized = from_json<Metadata>(j);
   
-  EXPECT_EQ(deserialized["max_int"].get<int64_t>(), std::numeric_limits<int>::max();
-  EXPECT_EQ(deserialized["min_int"].get<int64_t>(), std::numeric_limits<int>::min();
+  EXPECT_EQ(mcp::get<int64_t>(deserialized["max_int"]), std::numeric_limits<int>::max());
+  EXPECT_EQ(mcp::get<int64_t>(deserialized["min_int"]), std::numeric_limits<int>::min());
 }
 
 // =============================================================================
@@ -210,8 +210,8 @@ TEST_F(MCPSerializationExtensiveTest, EscapeSequences) {
     "Unicode: \u0041\u0042\u0043";
   
   TextContent content(escape_test);
-  std::string json_str = mcp::json::to_json(content).toString();
-  TextContent deserialized = from_json<TextContent>(mcp::json::JsonValue::parse(json_str);
+  std::string json_str = mcp::json::to_json(content).getString();
+  TextContent deserialized = from_json<TextContent>(mcp::json::JsonValue::parse(json_str));
   EXPECT_EQ(deserialized.text, escape_test);
 }
 
@@ -226,28 +226,28 @@ TEST_F(MCPSerializationExtensiveTest, AllContentBlockCombinations) {
   // Text with all annotation combinations
   for (int priority = 0; priority <= 2; ++priority) {
     for (int audience = 0; audience <= 3; ++audience) {
-      TextContent text("Text variant " + std::to_string(priority * 4 + audience);
+      TextContent text("Text variant " + std::to_string(priority * 4 + audience));
       
       if (priority > 0) {
         if (!text.annotations) {
-          text.annotations = make_optional(Annotations());
+          text.annotations = mcp::make_optional(Annotations());
         }
-        text.annotations->priority = make_optional(priority == 1 ? 0.5 : 1.0);
+        text.annotations->priority = mcp::make_optional(priority == 1 ? 0.5 : 1.0);
       }
       
       if (audience > 0) {
         if (!text.annotations) {
-          text.annotations = make_optional(Annotations());
+          text.annotations = mcp::make_optional(Annotations());
         }
         std::vector<enums::Role::Value> roles;
         if (audience & 1) roles.push_back(enums::Role::USER);
         if (audience & 2) roles.push_back(enums::Role::ASSISTANT);
         if (!roles.empty()) {
-          text.annotations->audience = make_optional(roles);
+          text.annotations->audience = mcp::make_optional(roles);
         }
       }
       
-      blocks.push_back(ContentBlock(text);
+      blocks.push_back(ContentBlock(text));
     }
   }
   
@@ -258,21 +258,21 @@ TEST_F(MCPSerializationExtensiveTest, AllContentBlockCombinations) {
   };
   
   for (const auto& mime : mime_types) {
-    blocks.push_back(make_image_content("imagedata_" + mime, mime);
+    blocks.push_back(make_image_content("imagedata_" + mime, mime));
   }
   
   // Resource with all optional field combinations
   for (int has_desc = 0; has_desc <= 1; ++has_desc) {
     for (int has_mime = 0; has_mime <= 1; ++has_mime) {
       Resource res("uri://resource/" + std::to_string(has_desc * 2 + has_mime),
-                   "Resource " + std::to_string(has_desc * 2 + has_mime);
+                   "Resource " + std::to_string(has_desc * 2 + has_mime));
       if (has_desc) {
-        res.description = make_optional(std::string("Description"));
+        res.description = mcp::make_optional(std::string("Description"));
       }
       if (has_mime) {
-        res.mimeType = make_optional(std::string("application/octet-stream"));
+        res.mimeType = mcp::make_optional(std::string("application/octet-stream"));
       }
-      blocks.push_back(make_resource_content(res);
+      blocks.push_back(make_resource_content(res));
     }
   }
   
@@ -281,7 +281,7 @@ TEST_F(MCPSerializationExtensiveTest, AllContentBlockCombinations) {
     JsonValue j = to_json(block);
     ContentBlock deserialized = from_json<ContentBlock>(j);
     JsonValue j2 = to_json(deserialized);
-    EXPECT_EQ(j, j2);
+    EXPECT_EQ(j.toString(), j2.toString());
   }
 }
 
@@ -292,13 +292,13 @@ TEST_F(MCPSerializationExtensiveTest, AllContentBlockCombinations) {
 TEST_F(MCPSerializationExtensiveTest, AllRequestTypeCombinations) {
   // Test all request types with various ID types
   std::vector<RequestId> ids = {
-    make_request_id(0),
-    make_request_id(-1),
-    make_request_id(999999),
-    make_request_id(""),
-    make_request_id("simple"),
-    make_request_id("with-dashes-and-numbers-123"),
-    make_request_id("unicode-你好-мир-🌍")
+    mcp::make_request_id(0),
+    mcp::make_request_id(-1),
+    mcp::make_request_id(999999),
+    mcp::make_request_id(""),
+    mcp::make_request_id("simple"),
+    mcp::make_request_id("with-dashes-and-numbers-123"),
+    mcp::make_request_id("unicode-你好-мир-🌍")
   };
   
   for (const auto& id : ids) {
@@ -309,21 +309,21 @@ TEST_F(MCPSerializationExtensiveTest, AllRequestTypeCombinations) {
     init_req.capabilities = ClientCapabilities();
     JsonValue j = to_json(init_req);
     InitializeRequest init_des = from_json<InitializeRequest>(j);
-    EXPECT_EQ(to_json(init_des.id).toString(), to_json(id).toString());
+    EXPECT_EQ(to_json(init_des.id).getString(), to_json(id).getString());
     
     // Ping request
     PingRequest ping_req;
     ping_req.id = id;
     j = to_json(ping_req);
     PingRequest ping_des = from_json<PingRequest>(j);
-    EXPECT_EQ(to_json(ping_des.id).toString(), to_json(id).toString());
+    EXPECT_EQ(to_json(ping_des.id).getString(), to_json(id).getString());
     
     // List resources request
     ListResourcesRequest list_req;
     list_req.id = id;
     j = to_json(list_req);
     ListResourcesRequest list_des = from_json<ListResourcesRequest>(j);
-    EXPECT_EQ(to_json(list_des.id).toString(), to_json(id).toString());
+    EXPECT_EQ(to_json(list_des.id).getString(), to_json(id).getString());
   }
 }
 
@@ -345,20 +345,20 @@ TEST_F(MCPSerializationExtensiveTest, AllNotificationTypes) {
     if (method == "initialized") {
       InitializedNotification notif;
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"], "initialized"));
+      EXPECT_EQ(j["method"].getString(), "initialized");
     } else if (method == "cancelled") {
       CancelledNotification notif;
-      notif.requestId = make_request_id("test"));
-      notif.reason = make_optional(std::string("Test reason"));
+      notif.requestId = mcp::make_request_id("test");
+      notif.reason = mcp::make_optional(std::string("Test reason"));
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"], "notifications/cancelled"));
+      EXPECT_EQ(j["method"].getString(), "notifications/cancelled");
     } else if (method == "progress") {
       ProgressNotification notif;
-      notif.progressToken = make_progress_token("token"));
+      notif.progressToken = make_progress_token("token");
       notif.progress = 0.5;
-      notif.total = make_optional(100.0);
+      notif.total = mcp::make_optional(100.0);
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"], "notifications/progress"));
+      EXPECT_EQ(j["method"].getString(), "notifications/progress");
     }
     // Continue for other notification types...
   }
@@ -385,10 +385,10 @@ TEST_F(MCPSerializationExtensiveTest, MalformedJsonRecovery) {
     try {
       JsonValue j = JsonValue::parse(bad_json);
       // Attempt to deserialize - should either throw or handle gracefully
-      if (j.is_object() && j.contains("type")) {
-        if (j["type"] == "text") {
+      if (j.isObject() && j.contains("type")) {
+        if (j["type"].getString() == "text") {
           EXPECT_THROW(from_json<TextContent>(j), std::exception);
-        } else if (j["type"] == "image") {
+        } else if (j["type"].getString() == "image") {
           EXPECT_THROW(from_json<ImageContent>(j), std::exception);
         }
       }
@@ -472,8 +472,8 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
       .tools(true)
       .build()
   );
-  init_req.id = make_request_id(1);
-  init_req.clientInfo = make_optional(Implementation("TestClient", "1.0.0"));
+  init_req.id = mcp::make_request_id(1);
+  init_req.clientInfo = mcp::make_optional(Implementation("TestClient", "1.0.0"));
   
   JsonValue init_req_json = to_json(init_req);
   InitializeRequest init_req_des = from_json<InitializeRequest>(init_req_json);
@@ -486,7 +486,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
     .tools(true)
     .prompts(true)
     .build();
-  init_result.serverInfo = make_optional(Implementation("TestServer", "1.0.0"));
+  init_result.serverInfo = mcp::make_optional(Implementation("TestServer", "1.0.0"));
   
   JsonValue init_result_json = to_json(init_result);
   InitializeResult init_result_des = from_json<InitializeResult>(init_result_json);
@@ -497,7 +497,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   
   // 4. Client lists available tools
   ListToolsRequest list_tools;
-  list_tools.id = make_request_id(2);
+  list_tools.id = mcp::make_request_id(2);
   JsonValue list_tools_json = to_json(list_tools);
   
   // 5. Server responds with tools
@@ -524,23 +524,23 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   
   // 6. Client calls a tool
   Metadata calc_args = make_metadata();
-  add_metadata(calc_args, "expression", "2 + 2 * 3"));
+  add_metadata(calc_args, "expression", "2 + 2 * 3");
   CallToolRequest call_tool = make_call_tool_request("calculator", calc_args);
-  call_tool.id = make_request_id(3);
+  call_tool.id = mcp::make_request_id(3);
   
   JsonValue call_tool_json = to_json(call_tool);
   CallToolRequest call_tool_des = from_json<CallToolRequest>(call_tool_json);
   
   // 7. Server responds with result
   CallToolResult tool_result;
-  tool_result.content.push_back(ExtendedContentBlock(TextContent("8"));
+  tool_result.content.push_back(ExtendedContentBlock(TextContent("8")));
   
   JsonValue tool_result_json = to_json(tool_result);
   CallToolResult tool_result_des = from_json<CallToolResult>(tool_result_json);
   
   // 8. Client requests resource list
   ListResourcesRequest list_res;
-  list_res.id = make_request_id(4);
+  list_res.id = mcp::make_request_id(4);
   
   JsonValue list_res_json = to_json(list_res);
   
@@ -555,7 +555,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
         .build()
     );
   }
-  res_result.nextCursor = make_optional(Cursor("page2"));
+  res_result.nextCursor = mcp::make_optional(Cursor("page2"));
   
   JsonValue res_result_json = to_json(res_result);
   ListResourcesResult res_result_des = from_json<ListResourcesResult>(res_result_json);
@@ -564,20 +564,20 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   ProgressNotification progress1 = make_progress_notification(
     make_progress_token("operation-1"), 0.25
   );
-  progress1.total = make_optional(100.0);
+  progress1.total = mcp::make_optional(100.0);
   
   JsonValue progress1_json = to_json(progress1);
   
   ProgressNotification progress2 = make_progress_notification(
     make_progress_token("operation-1"), 0.75
   );
-  progress2.total = make_optional(100.0);
+  progress2.total = mcp::make_optional(100.0);
   
   JsonValue progress2_json = to_json(progress2);
   
   // Verify all messages were properly serialized/deserialized
-  EXPECT_EQ(init_req_des.protocolVersion, "1.0.0"));
-  EXPECT_EQ(init_result_des.protocolVersion, "1.0.0"));
+  EXPECT_EQ(init_req_des.protocolVersion, "1.0.0");
+  EXPECT_EQ(init_result_des.protocolVersion, "1.0.0");
   EXPECT_EQ(tools_result_des.tools.size(), 2);
   EXPECT_EQ(tool_result_des.content.size(), 1);
   EXPECT_EQ(res_result_des.resources.size(), 100);
@@ -592,18 +592,18 @@ TEST_F(MCPSerializationExtensiveTest, ValidateJsonSchema) {
   // Ensure serialized JSON matches expected MCP schema structure
   
   // Test TextContent schema
-  TextContent text("Hello"));
+  TextContent text("Hello");
   JsonValue text_json = to_json(text);
-  EXPECT_EQ(text_json["type"], "text"));
+  EXPECT_EQ(text_json["type"].getString(), "text");
   EXPECT_TRUE(text_json.contains("text"));
-  EXPECT_EQ(text_json["text"], "Hello"));
+  EXPECT_EQ(text_json["text"].getString(), "Hello");
   
   // Test with annotations
-  text.annotations = make_optional(Annotations());
-  text.annotations->priority = make_optional(0.8);
+  text.annotations = mcp::make_optional(Annotations());
+  text.annotations->priority = mcp::make_optional(0.8);
   text_json = to_json(text);
   EXPECT_TRUE(text_json.contains("annotations"));
-  EXPECT_EQ(text_json["annotations"]["priority"], 0.8);
+  EXPECT_EQ(text_json["annotations"]["priority"].getFloat(), 0.8);
   
   // Test Tool schema
   Tool tool = build_tool("test_tool")
@@ -612,38 +612,38 @@ TEST_F(MCPSerializationExtensiveTest, ValidateJsonSchema) {
     .build();
   
   JsonValue tool_json = to_json(tool);
-  EXPECT_EQ(tool_json["name"], "test_tool"));
-  EXPECT_EQ(tool_json["description"], "A test tool"));
+  EXPECT_EQ(tool_json["name"].getString(), "test_tool");
+  EXPECT_EQ(tool_json["description"].getString(), "A test tool");
   EXPECT_TRUE(tool_json.contains("inputSchema"));
-  EXPECT_EQ(tool_json["inputSchema"]["type"], "object"));
+  EXPECT_EQ(tool_json["inputSchema"]["type"].getString(), "object");
   
   // Test Request schema
-  jsonrpc::Request req(make_request_id(123), "test_method"));
+  jsonrpc::Request req(mcp::make_request_id(123), "test_method");
   JsonValue req_json = to_json(req);
-  EXPECT_EQ(req_json["jsonrpc"], "2.0"));
-  EXPECT_EQ(req_json["id"], 123);
-  EXPECT_EQ(req_json["method"], "test_method"));
+  EXPECT_EQ(req_json["jsonrpc"].getString(), "2.0");
+  EXPECT_EQ(req_json["id"].getInt(), 123);
+  EXPECT_EQ(req_json["method"].getString(), "test_method");
   
   // Test Response schema
-  auto response = jsonrpc::Response::success(make_request_id("resp-1"), std::string("result"));
+  auto response = jsonrpc::Response::success(mcp::make_request_id("resp-1"), std::string("result"));
   JsonValue resp_json = to_json(response);
-  EXPECT_EQ(resp_json["jsonrpc"], "2.0"));
-  EXPECT_EQ(resp_json["id"], "resp-1"));
+  EXPECT_EQ(resp_json["jsonrpc"].getString(), "2.0");
+  EXPECT_EQ(resp_json["id"].getString(), "resp-1");
   EXPECT_TRUE(resp_json.contains("result"));
   EXPECT_FALSE(resp_json.contains("error"));
   
   // Test Error Response schema
   auto error_response = jsonrpc::Response::make_error(
-    make_request_id("resp-2"),
+    mcp::make_request_id("resp-2"),
     Error(jsonrpc::INVALID_PARAMS, "Invalid parameters")
   );
   JsonValue err_resp_json = to_json(error_response);
-  EXPECT_EQ(err_resp_json["jsonrpc"], "2.0"));
-  EXPECT_EQ(err_resp_json["id"], "resp-2"));
+  EXPECT_EQ(err_resp_json["jsonrpc"].getString(), "2.0");
+  EXPECT_EQ(err_resp_json["id"].getString(), "resp-2");
   EXPECT_FALSE(err_resp_json.contains("result"));
   EXPECT_TRUE(err_resp_json.contains("error"));
-  EXPECT_EQ(err_resp_json["error"]["code"], jsonrpc::INVALID_PARAMS);
-  EXPECT_EQ(err_resp_json["error"]["message"], "Invalid parameters"));
+  EXPECT_EQ(err_resp_json["error"]["code"].getInt(), jsonrpc::INVALID_PARAMS);
+  EXPECT_EQ(err_resp_json["error"]["message"].getString(), "Invalid parameters");
 }
 
 // =============================================================================
@@ -664,8 +664,8 @@ TEST_F(MCPSerializationExtensiveTest, AllCapabilityCombinations) {
     .build();
   
   // Add roots capability
-  full_client.roots = make_optional(RootsCapability();
-  full_client.roots->listChanged = make_optional(EmptyCapability();
+  full_client.roots = mcp::make_optional(RootsCapability());
+  full_client.roots->listChanged = mcp::make_optional(EmptyCapability());
   
   JsonValue client_json = to_json(full_client);
   ClientCapabilities client_des = from_json<ClientCapabilities>(client_json);
@@ -673,14 +673,14 @@ TEST_F(MCPSerializationExtensiveTest, AllCapabilityCombinations) {
   // Server capabilities with ResourcesCapability
   ServerCapabilities server_with_resources;
   ResourcesCapability res_cap;
-  res_cap.subscribe = make_optional(EmptyCapability();
-  res_cap.listChanged = make_optional(EmptyCapability();
-  server_with_resources.resources = make_optional(
+  res_cap.subscribe = mcp::make_optional(EmptyCapability());
+  res_cap.listChanged = mcp::make_optional(EmptyCapability());
+  server_with_resources.resources = mcp::make_optional(
     variant<bool, ResourcesCapability>(res_cap)
   );
-  server_with_resources.tools = make_optional(true);
-  server_with_resources.prompts = make_optional(true);
-  server_with_resources.logging = make_optional(true);
+  server_with_resources.tools = mcp::make_optional(true);
+  server_with_resources.prompts = mcp::make_optional(true);
+  server_with_resources.logging = mcp::make_optional(true);
   
   JsonValue server_json = to_json(server_with_resources);
   ServerCapabilities server_des = from_json<ServerCapabilities>(server_json);
@@ -744,53 +744,53 @@ TEST_F(MCPSerializationExtensiveTest, ComplexModelPreferences) {
   );
   
   // Empty preferences
-  preferences.push_back(ModelPreferences();
+  preferences.push_back(ModelPreferences());
   
   for (const auto& pref : preferences) {
     JsonValue j = to_json(pref);
     ModelPreferences deserialized = from_json<ModelPreferences>(j);
     JsonValue j2 = to_json(deserialized);
-    EXPECT_EQ(j, j2);
+    EXPECT_EQ(j.toString(), j2.toString());
   }
 }
 
 TEST_F(MCPSerializationExtensiveTest, ComplexSamplingMessages) {
   // Create complex sampling message request
   CreateMessageRequest req;
-  req.id = make_request_id("sampling-1"));
+  req.id = mcp::make_request_id("sampling-1");
   
   // Add various message types
   SamplingMessage msg1;
   msg1.role = enums::Role::USER;
-  msg1.content = TextContent("What's the weather?"));
+  msg1.content = TextContent("What's the weather?");
   req.messages.push_back(msg1);
   
   SamplingMessage msg2;
   msg2.role = enums::Role::ASSISTANT;
-  msg2.content = ImageContent("weathermap", "image/png"));
+  msg2.content = ImageContent("weathermap", "image/png");
   req.messages.push_back(msg2);
   
   SamplingMessage msg3;
   msg3.role = enums::Role::USER;
-  msg3.content = AudioContent("audioquery", "audio/mp3"));
+  msg3.content = AudioContent("audioquery", "audio/mp3");
   req.messages.push_back(msg3);
   
   // Set all optional fields
-  req.modelPreferences = make_optional(
+  req.modelPreferences = mcp::make_optional(
     build_model_preferences()
       .add_hint("gpt-4")
       .cost_priority(0.3)
       .build()
   );
-  req.systemPrompt = make_optional(std::string("You are a weather assistant"));
-  req.includeContext = make_optional(make_metadata();
-  add_metadata(*req.includeContext, "location", "San Francisco"));
-  add_metadata(*req.includeContext, "units", "metric"));
-  req.temperature = make_optional(0.7);
-  req.maxTokens = make_optional(500);
-  req.stopSequences = make_optional(std::vector<std::string>{"END", "STOP"});
-  req.metadata = make_optional(make_metadata();
-  add_metadata(*req.metadata, "request_id", "weather-123"));
+  req.systemPrompt = mcp::make_optional(std::string("You are a weather assistant"));
+  req.includeContext = mcp::make_optional(make_metadata());
+  add_metadata(*req.includeContext, "location", "San Francisco");
+  add_metadata(*req.includeContext, "units", "metric");
+  req.temperature = mcp::make_optional(0.7);
+  req.maxTokens = mcp::make_optional(500);
+  req.stopSequences = mcp::make_optional(std::vector<std::string>{"END", "STOP"});
+  req.metadata = mcp::make_optional(make_metadata());
+  add_metadata(*req.metadata, "request_id", "weather-123");
   
   JsonValue j = to_json(req);
   CreateMessageRequest deserialized = from_json<CreateMessageRequest>(j);
@@ -811,8 +811,8 @@ TEST_F(MCPSerializationExtensiveTest, ComplexSamplingMessages) {
 TEST_F(MCPSerializationExtensiveTest, ResourceTemplatesAndPagination) {
   // Test resource templates
   ListResourceTemplatesRequest tmpl_req;
-  tmpl_req.id = make_request_id("tmpl-1"));
-  tmpl_req.cursor = make_optional(Cursor("page1"));
+  tmpl_req.id = mcp::make_request_id("tmpl-1");
+  tmpl_req.cursor = mcp::make_optional(Cursor("page1"));
   
   JsonValue tmpl_req_json = to_json(tmpl_req);
   ListResourceTemplatesRequest tmpl_req_des = 
@@ -824,17 +824,17 @@ TEST_F(MCPSerializationExtensiveTest, ResourceTemplatesAndPagination) {
   ResourceTemplate tmpl1;
   tmpl1.uriTemplate = "file:///{path}";
   tmpl1.name = "File Template";
-  tmpl1.description = make_optional(std::string("Access local files"));
-  tmpl1.mimeType = make_optional(std::string("text/plain"));
+  tmpl1.description = mcp::make_optional(std::string("Access local files"));
+  tmpl1.mimeType = mcp::make_optional(std::string("text/plain"));
   tmpl_result.resourceTemplates.push_back(tmpl1);
   
   ResourceTemplate tmpl2;
   tmpl2.uriTemplate = "http://api.example.com/{endpoint}/{id}";
   tmpl2.name = "API Template";
-  tmpl2.description = make_optional(std::string("Access API endpoints"));
+  tmpl2.description = mcp::make_optional(std::string("Access API endpoints"));
   tmpl_result.resourceTemplates.push_back(tmpl2);
   
-  tmpl_result.nextCursor = make_optional(Cursor("page2"));
+  tmpl_result.nextCursor = mcp::make_optional(Cursor("page2"));
   
   JsonValue tmpl_result_json = to_json(tmpl_result);
   ListResourceTemplatesResult tmpl_result_des = 
@@ -865,10 +865,10 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
   
   // Number schema with all constraints
   NumberSchema num_schema;
-  num_schema.description = make_optional(std::string("Enter age"));
-  num_schema.minimum = make_optional(0.0);
-  num_schema.maximum = make_optional(150.0);
-  num_schema.multipleOf = make_optional(1.0);
+  num_schema.description = mcp::make_optional(std::string("Enter age"));
+  num_schema.minimum = mcp::make_optional(0.0);
+  num_schema.maximum = mcp::make_optional(150.0);
+  num_schema.multipleOf = mcp::make_optional(1.0);
   
   PrimitiveSchemaDefinition num_def(num_schema);
   JsonValue num_json = to_json(num_def);
@@ -876,7 +876,7 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
   
   // Boolean schema
   BooleanSchema bool_schema;
-  bool_schema.description = make_optional(std::string("Agree to terms?"));
+  bool_schema.description = mcp::make_optional(std::string("Agree to terms?"));
   
   PrimitiveSchemaDefinition bool_def(bool_schema);
   JsonValue bool_json = to_json(bool_def);
@@ -887,8 +887,8 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
     "red", "green", "blue", "yellow", "orange", "purple",
     "black", "white", "gray", "brown", "pink", "cyan"
   };
-  EnumSchema enum_schema(std::move(colors);
-  enum_schema.description = make_optional(std::string("Select a color"));
+  EnumSchema enum_schema(std::move(colors));
+  enum_schema.description = mcp::make_optional(std::string("Select a color"));
   
   PrimitiveSchemaDefinition enum_def(enum_schema);
   JsonValue enum_json = to_json(enum_def);
@@ -899,10 +899,10 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
   
   for (size_t i = 0; i < schemas.size(); ++i) {
     ElicitRequest req;
-    req.id = make_request_id("elicit-" + std::to_string(i);
+    req.id = mcp::make_request_id("elicit-" + std::to_string(i));
     req.name = "field_" + std::to_string(i);
     req.schema = schemas[i];
-    req.prompt = make_optional(std::string("Please provide input"));
+    req.prompt = mcp::make_optional(std::string("Please provide input"));
     
     JsonValue req_json = to_json(req);
     ElicitRequest req_des = from_json<ElicitRequest>(req_json);

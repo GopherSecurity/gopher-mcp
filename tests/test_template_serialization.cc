@@ -45,7 +45,7 @@ TEST(TemplateSerializationTest, SerializeVector) {
 TEST(TemplateSerializationTest, SerializeOptional) {
     Tool tool;
     tool.name = "test-tool";
-    tool.description = make_optional(std::string("A test tool"));
+    tool.description = mcp::make_optional(std::string("A test tool"));
     
     // Test the new unified approach for optionals
     JsonValue optJson = JsonSerializer::serialize(tool.description);

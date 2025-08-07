@@ -399,9 +399,8 @@ JsonValue serialize_Tool(const Tool& tool) {
   }
   
   if (tool.inputSchema.has_value()) {
-    // inputSchema is nlohmann::json - convert to JsonValue
-    auto json_str = tool.inputSchema.value().dump();
-    builder.add("inputSchema", JsonValue::parse(json_str));
+    // inputSchema is already JsonValue
+    builder.add("inputSchema", tool.inputSchema.value());
   }
   
   return builder.build();
@@ -647,8 +646,8 @@ Tool deserialize_Tool(const JsonValue& json) {
   }
   
   if (json.contains("inputSchema")) {
-    // ToolInputSchema is nlohmann::json, so we need to convert
-    tool.inputSchema = toNlohmannJson(json["inputSchema"]);
+    // ToolInputSchema is JsonValue
+    tool.inputSchema = json["inputSchema"];
   }
   
   return tool;
