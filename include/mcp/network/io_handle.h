@@ -11,7 +11,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/io_result.h"
 #include "mcp/network/address.h"
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 
 namespace mcp {
 namespace network {

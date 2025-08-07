@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "mcp/compat.h"
-#include "mcp/optional.h"
 
 // Platform-specific includes
 #ifdef _WIN32

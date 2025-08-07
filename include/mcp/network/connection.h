@@ -13,7 +13,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/optional.h"
+#include "mcp/compat.h"
 #include "mcp/stream_info/stream_info.h"
 #include "mcp/stream_info/stream_info_impl.h"
 

@@ -280,7 +280,7 @@ VoidResult ListenerManagerImpl::addListener(ListenerConfig&& config,
   
   // Start listening
   auto result = listener->listen();
-  if (result.holds_alternative<Error>()) {
+  if (mcp::holds_alternative<Error>(result)) {
     return result;
   }
   
