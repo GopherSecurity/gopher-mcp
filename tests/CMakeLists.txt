@@ -43,6 +43,7 @@ add_executable(test_builders test_builders.cc)
 add_executable(test_connection_pool_callbacks test_connection_pool_callbacks.cc)
 add_executable(test_connection_utility test_connection_utility.cc)
 add_executable(test_listener_filter_chain test_listener_filter_chain.cc)
+add_executable(test_listener_filter_chain_simple test_listener_filter_chain_simple.cc)
 add_executable(test_thread_safety_extended test_thread_safety_extended.cc)
 
 # Link libraries
@@ -295,6 +296,13 @@ target_link_libraries(test_listener_filter_chain
     Threads::Threads
 )
 
+target_link_libraries(test_listener_filter_chain_simple
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_thread_safety_extended
     mcp-event
     mcp-sdk
@@ -346,6 +354,7 @@ add_test(NAME BuildersTest COMMAND test_builders)
 add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)
 add_test(NAME ConnectionUtilityTest COMMAND test_connection_utility)
 add_test(NAME ListenerFilterChainTest COMMAND test_listener_filter_chain)
+add_test(NAME ListenerFilterChainSimpleTest COMMAND test_listener_filter_chain_simple)
 add_test(NAME ThreadSafetyExtendedTest COMMAND test_thread_safety_extended)
 
 # Set test properties
