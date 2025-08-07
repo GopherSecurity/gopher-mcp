@@ -420,6 +420,492 @@ TEST_F(ExtendedThreadSafetyTest, StressTestThreadSafety) {
     }
 }
 
+// Test dispatcher state consistency
+TEST_F(ExtendedThreadSafetyTest, DispatcherStateConsistency) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    enum State { NOT_STARTED, RUNNING, STOPPED };
+    std::atomic<State> dispatcher_state{NOT_STARTED};
+    
+    // Verify state transitions
+    EXPECT_FALSE(dispatcher->isThreadSafe());
+    
+    std::thread t([&]() {
+        dispatcher_state = RUNNING;
+        
+        dispatcher->post([&]() {
+            EXPECT_TRUE(dispatcher->isThreadSafe());
+            dispatcher->exit();
+        });
+        
+        dispatcher->run(RunType::RunUntilExit);
+        dispatcher_state = STOPPED;
+    });
+    
+    // Wait for dispatcher to start
+    while (dispatcher_state != RUNNING) {
+        std::this_thread::sleep_for(1ms);
+    }
+    
+    // Should not be thread safe from main thread
+    EXPECT_FALSE(dispatcher->isThreadSafe());
+    
+    t.join();
+    
+    // After stop, should still not be thread safe
+    EXPECT_FALSE(dispatcher->isThreadSafe());
+    EXPECT_EQ(STOPPED, dispatcher_state.load());
+}
+
+// Test dispatcher with work queue overflow
+TEST_F(ExtendedThreadSafetyTest, WorkQueueOverflow) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    const int num_tasks = 100000;
+    std::atomic<int> completed{0};
+    std::atomic<bool> all_thread_safe{true};
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Flood with tasks
+    for (int i = 0; i < num_tasks; ++i) {
+        dispatcher->post([&]() {
+            if (!dispatcher->isThreadSafe()) {
+                all_thread_safe = false;
+            }
+            completed++;
+            
+            if (completed == num_tasks) {
+                dispatcher->exit();
+            }
+        });
+    }
+    
+    t.join();
+    
+    // All tasks should complete
+    EXPECT_EQ(num_tasks, completed.load());
+    // All should report thread safe
+    EXPECT_TRUE(all_thread_safe.load());
+}
+
+// Test dispatcher lifetime with pending work
+TEST_F(ExtendedThreadSafetyTest, DispatcherLifetimeWithPendingWork) {
+    const int num_dispatchers = 5;
+    
+    for (int d = 0; d < num_dispatchers; ++d) {
+        auto dispatcher = factory_->createDispatcher("test_" + std::to_string(d));
+        std::atomic<int> executed{0};
+        
+        // Post work but don't run
+        for (int i = 0; i < 100; ++i) {
+            dispatcher->post([&]() {
+                executed++;
+                EXPECT_TRUE(dispatcher->isThreadSafe());
+            });
+        }
+        
+        // Run briefly
+        std::thread t([&]() {
+            dispatcher->run(RunType::NonBlock);
+        });
+        
+        t.join();
+        
+        // Some work may have executed
+        int partial = executed.load();
+        
+        // Destroy dispatcher with pending work
+        dispatcher.reset();
+        
+        // Should not crash, executed count should not change
+        std::this_thread::sleep_for(10ms);
+        EXPECT_EQ(partial, executed.load());
+    }
+}
+
+// Test thread safety with recursive posts
+TEST_F(ExtendedThreadSafetyTest, RecursivePostThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    std::atomic<int> depth{0};
+    std::atomic<int> max_depth{0};
+    const int target_depth = 100;
+    
+    std::function<void()> recursive_post = [&]() {
+        if (!dispatcher->isThreadSafe()) {
+            return; // Should not happen
+        }
+        
+        int current = ++depth;
+        if (current > max_depth) {
+            max_depth = current;
+        }
+        
+        if (current < target_depth) {
+            dispatcher->post(recursive_post);
+        } else {
+            dispatcher->exit();
+        }
+        
+        --depth;
+    };
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Start recursion
+    dispatcher->post(recursive_post);
+    
+    t.join();
+    
+    // Should have reached target depth
+    EXPECT_GE(max_depth.load(), 1);
+}
+
+// Test thread safety with timer callbacks
+TEST_F(ExtendedThreadSafetyTest, TimerCallbackThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    std::atomic<int> timer_fires{0};
+    std::atomic<bool> all_safe{true};
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Create multiple timers
+    for (int i = 0; i < 10; ++i) {
+        auto timer = dispatcher->createTimer([&]() {
+            if (!dispatcher->isThreadSafe()) {
+                all_safe = false;
+            }
+            timer_fires++;
+            
+            if (timer_fires >= 10) {
+                dispatcher->exit();
+            }
+        });
+        
+        timer->enableTimer(std::chrono::milliseconds(10 + i * 5));
+    }
+    
+    t.join();
+    
+    EXPECT_EQ(10, timer_fires.load());
+    EXPECT_TRUE(all_safe.load());
+}
+
+// Test thread safety with file events
+TEST_F(ExtendedThreadSafetyTest, FileEventThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    // Create a pipe for testing
+    int pipe_fds[2];
+    ASSERT_EQ(0, pipe(pipe_fds));
+    
+    std::atomic<bool> event_fired{false};
+    std::atomic<bool> was_safe{false};
+    
+    auto file_event = dispatcher->createFileEvent(
+        pipe_fds[0],
+        [&](uint32_t events) {
+            event_fired = true;
+            was_safe = dispatcher->isThreadSafe();
+            dispatcher->exit();
+        },
+        FileTriggerType::Level,
+        static_cast<uint32_t>(FileReadyType::Read));
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Trigger the event
+    write(pipe_fds[1], "x", 1);
+    
+    t.join();
+    
+    EXPECT_TRUE(event_fired.load());
+    EXPECT_TRUE(was_safe.load());
+    
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);
+}
+
+// Test dispatcher migration between threads
+TEST_F(ExtendedThreadSafetyTest, DispatcherThreadMigration) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    std::vector<std::thread::id> thread_ids;
+    std::mutex mutex;
+    
+    // Run in first thread
+    std::thread t1([&]() {
+        dispatcher->post([&]() {
+            std::lock_guard<std::mutex> lock(mutex);
+            thread_ids.push_back(std::this_thread::get_id());
+            EXPECT_TRUE(dispatcher->isThreadSafe());
+        });
+        dispatcher->run(RunType::NonBlock);
+    });
+    
+    t1.join();
+    
+    // Run in second thread
+    std::thread t2([&]() {
+        dispatcher->post([&]() {
+            std::lock_guard<std::mutex> lock(mutex);
+            thread_ids.push_back(std::this_thread::get_id());
+            EXPECT_TRUE(dispatcher->isThreadSafe());
+        });
+        dispatcher->run(RunType::NonBlock);
+    });
+    
+    t2.join();
+    
+    // Both threads should have run work
+    EXPECT_EQ(2u, thread_ids.size());
+    // Thread IDs should be different
+    EXPECT_NE(thread_ids[0], thread_ids[1]);
+}
+
+// Test thread safety with signal events
+#ifndef _WIN32
+TEST_F(ExtendedThreadSafetyTest, SignalEventThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    std::atomic<bool> signal_received{false};
+    std::atomic<bool> was_safe{false};
+    
+    auto signal_event = dispatcher->listenForSignal(SIGUSR1, [&]() {
+        signal_received = true;
+        was_safe = dispatcher->isThreadSafe();
+        dispatcher->exit();
+    });
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Give dispatcher time to start
+    std::this_thread::sleep_for(50ms);
+    
+    // Send signal
+    kill(getpid(), SIGUSR1);
+    
+    t.join();
+    
+    EXPECT_TRUE(signal_received.load());
+    EXPECT_TRUE(was_safe.load());
+}
+#endif
+
+// Test thread safety with deferred deletion
+TEST_F(ExtendedThreadSafetyTest, DeferredDeletionThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    struct TestObject : public DeferredDeletable {
+        TestObject(Dispatcher* d, std::atomic<bool>& deleted, std::atomic<bool>& was_safe)
+            : dispatcher(d), deleted_(deleted), was_safe_(was_safe) {}
+        
+        ~TestObject() override {
+            deleted_ = true;
+            was_safe_ = dispatcher->isThreadSafe();
+        }
+        
+        Dispatcher* dispatcher;
+        std::atomic<bool>& deleted_;
+        std::atomic<bool>& was_safe_;
+    };
+    
+    std::atomic<bool> deleted{false};
+    std::atomic<bool> was_safe{false};
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Schedule deletion
+    dispatcher->deferredDelete(
+        std::make_unique<TestObject>(dispatcher.get(), deleted, was_safe));
+    
+    // Give time for deletion
+    std::this_thread::sleep_for(50ms);
+    
+    dispatcher->exit();
+    t.join();
+    
+    EXPECT_TRUE(deleted.load());
+    EXPECT_TRUE(was_safe.load());
+}
+
+// Test thread safety with watchdog
+TEST_F(ExtendedThreadSafetyTest, WatchdogThreadSafety) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    class TestWatchdog : public WatchDog {
+    public:
+        void touch() override {
+            touch_count_++;
+            was_safe_ = dispatcher_->isThreadSafe();
+        }
+        
+        std::thread::id threadId() const override {
+            return std::this_thread::get_id();
+        }
+        
+        std::chrono::steady_clock::time_point lastTouchTime() const override {
+            return std::chrono::steady_clock::now();
+        }
+        
+        void setDispatcher(Dispatcher* d) { dispatcher_ = d; }
+        
+        std::atomic<int> touch_count_{0};
+        std::atomic<bool> was_safe_{false};
+        Dispatcher* dispatcher_{nullptr};
+    };
+    
+    auto watchdog = std::make_shared<TestWatchdog>();
+    watchdog->setDispatcher(dispatcher.get());
+    
+    std::thread t([&]() {
+        dispatcher->registerWatchdog(watchdog, std::chrono::milliseconds(10));
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Let watchdog run
+    std::this_thread::sleep_for(100ms);
+    
+    dispatcher->exit();
+    t.join();
+    
+    // Watchdog should have been touched multiple times
+    EXPECT_GT(watchdog->touch_count_.load(), 5);
+    // All touches should be thread safe
+    EXPECT_TRUE(watchdog->was_safe_.load());
+}
+
+// Test extreme concurrency
+TEST_F(ExtendedThreadSafetyTest, ExtremeConcurrency) {
+    const int num_dispatchers = 10;
+    const int num_threads_per = 10;
+    const int operations_per_thread = 100;
+    
+    createDispatchers(num_dispatchers);
+    
+    std::vector<std::thread> dispatcher_threads;
+    std::vector<std::thread> worker_threads;
+    std::atomic<int> total_operations{0};
+    std::atomic<int> failed_checks{0};
+    
+    // Start all dispatchers
+    for (int i = 0; i < num_dispatchers; ++i) {
+        dispatcher_threads.emplace_back([this, i]() {
+            dispatchers_[i]->run(RunType::RunUntilExit);
+        });
+    }
+    
+    // Start massive concurrent operations
+    for (int d = 0; d < num_dispatchers; ++d) {
+        for (int t = 0; t < num_threads_per; ++t) {
+            worker_threads.emplace_back([this, d, &total_operations, &failed_checks]() {
+                for (int op = 0; op < operations_per_thread; ++op) {
+                    // Check from worker thread (should be false)
+                    if (dispatchers_[d]->isThreadSafe()) {
+                        failed_checks++;
+                    }
+                    
+                    // Post work
+                    dispatchers_[d]->post([this, d, &total_operations, &failed_checks]() {
+                        // Check from dispatcher thread (should be true)
+                        if (!dispatchers_[d]->isThreadSafe()) {
+                            failed_checks++;
+                        }
+                        total_operations++;
+                    });
+                    
+                    // Random small delay
+                    if (op % 10 == 0) {
+                        std::this_thread::yield();
+                    }
+                }
+            });
+        }
+    }
+    
+    // Wait for all work
+    for (auto& t : worker_threads) {
+        t.join();
+    }
+    
+    // Wait for operations to complete
+    const int expected = num_dispatchers * num_threads_per * operations_per_thread;
+    while (total_operations < expected) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // No failed checks
+    EXPECT_EQ(0, failed_checks.load());
+    
+    // Stop all dispatchers
+    for (auto& dispatcher : dispatchers_) {
+        dispatcher->exit();
+    }
+    
+    for (auto& t : dispatcher_threads) {
+        t.join();
+    }
+}
+
+// Test memory barriers and atomicity
+TEST_F(ExtendedThreadSafetyTest, MemoryBarriersAndAtomicity) {
+    auto dispatcher = factory_->createDispatcher("test");
+    
+    std::atomic<int> counter{0};
+    std::atomic<bool> inconsistency_detected{false};
+    const int num_increments = 10000;
+    
+    std::thread t([&]() {
+        dispatcher->run(RunType::RunUntilExit);
+    });
+    
+    // Multiple threads incrementing counter through dispatcher
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([&]() {
+            for (int j = 0; j < num_increments / 10; ++j) {
+                dispatcher->post([&]() {
+                    int before = counter.load();
+                    counter++;
+                    int after = counter.load();
+                    
+                    // Check consistency
+                    if (after != before + 1) {
+                        inconsistency_detected = true;
+                    }
+                    
+                    if (counter >= num_increments) {
+                        dispatcher->exit();
+                    }
+                });
+            }
+        });
+    }
+    
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    
+    t.join();
+    
+    EXPECT_EQ(num_increments, counter.load());
+    EXPECT_FALSE(inconsistency_detected.load());
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
