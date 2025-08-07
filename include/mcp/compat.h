@@ -5,6 +5,7 @@
 // falling back to mcp:: implementations for C++14
 
 #include <cstddef>
+#include <type_traits>
 
 // Check C++ version and feature availability
 // Can be overridden by CMake definition
@@ -210,6 +211,20 @@ template <typename Visitor, typename Variant>
 constexpr decltype(auto) visit(Visitor&& vis, Variant&& var) {
   return var.visit(std::forward<Visitor>(vis));
 }
+#endif
+
+// Type traits compatibility for C++14/17
+// C++17 has std::is_same_v, C++14 needs ::value
+#if __cplusplus >= 201703L
+template <typename T, typename U>
+inline constexpr bool is_same_v = std::is_same_v<T, U>;
+#else
+template <typename T, typename U>
+struct is_same_v_helper {
+  static constexpr bool value = std::is_same<T, U>::value;
+};
+template <typename T, typename U>
+constexpr bool is_same_v = is_same_v_helper<T, U>::value;
 #endif
 
 }  // namespace mcp

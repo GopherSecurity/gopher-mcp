@@ -1430,155 +1430,155 @@ class RootsListChangedNotificationBuilder
 // C++17 version using if constexpr
 template <typename T, typename... Args>
 auto make(Args&&... args) {
-  if constexpr (std::is_same_v<T, TextContent>) {
+  if constexpr (mcp::is_same_v<T, TextContent>) {
     return TextContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ImageContent>) {
+  } else if constexpr (mcp::is_same_v<T, ImageContent>) {
     return ImageContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, AudioContent>) {
+  } else if constexpr (mcp::is_same_v<T, AudioContent>) {
     return AudioContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Resource>) {
+  } else if constexpr (mcp::is_same_v<T, Resource>) {
     return ResourceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceContent>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceContent>) {
     return ResourceContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Tool>) {
+  } else if constexpr (mcp::is_same_v<T, Tool>) {
     return ToolBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Prompt>) {
+  } else if constexpr (mcp::is_same_v<T, Prompt>) {
     return PromptBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceTemplate>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceTemplate>) {
     return ResourceTemplateBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Implementation>) {
+  } else if constexpr (mcp::is_same_v<T, Implementation>) {
     return ImplementationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Root>) {
+  } else if constexpr (mcp::is_same_v<T, Root>) {
     return RootBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Message>) {
+  } else if constexpr (mcp::is_same_v<T, Message>) {
     return MessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Error>) {
+  } else if constexpr (mcp::is_same_v<T, Error>) {
     return ErrorBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, EmbeddedResource>) {
+  } else if constexpr (mcp::is_same_v<T, EmbeddedResource>) {
     return EmbeddedResourceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, PromptMessage>) {
+  } else if constexpr (mcp::is_same_v<T, PromptMessage>) {
     return PromptMessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, SamplingMessage>) {
+  } else if constexpr (mcp::is_same_v<T, SamplingMessage>) {
     return SamplingMessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, InitializeRequest>) {
+  } else if constexpr (mcp::is_same_v<T, InitializeRequest>) {
     return InitializeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, InitializeResult>) {
+  } else if constexpr (mcp::is_same_v<T, InitializeResult>) {
     return InitializeResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CallToolRequest>) {
+  } else if constexpr (mcp::is_same_v<T, CallToolRequest>) {
     return CallToolRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CallToolResult>) {
+  } else if constexpr (mcp::is_same_v<T, CallToolResult>) {
     return CallToolResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, GetPromptRequest>) {
+  } else if constexpr (mcp::is_same_v<T, GetPromptRequest>) {
     return GetPromptRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, GetPromptResult>) {
+  } else if constexpr (mcp::is_same_v<T, GetPromptResult>) {
     return GetPromptResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CreateMessageRequest>) {
+  } else if constexpr (mcp::is_same_v<T, CreateMessageRequest>) {
     return CreateMessageRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CreateMessageResult>) {
+  } else if constexpr (mcp::is_same_v<T, CreateMessageResult>) {
     return CreateMessageResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListResourcesResult>) {
+  } else if constexpr (mcp::is_same_v<T, ListResourcesResult>) {
     return ListResourcesResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListToolsResult>) {
+  } else if constexpr (mcp::is_same_v<T, ListToolsResult>) {
     return ListToolsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListPromptsResult>) {
+  } else if constexpr (mcp::is_same_v<T, ListPromptsResult>) {
     return ListPromptsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListRootsResult>) {
+  } else if constexpr (mcp::is_same_v<T, ListRootsResult>) {
     return ListRootsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ReadResourceResult>) {
+  } else if constexpr (mcp::is_same_v<T, ReadResourceResult>) {
     return ReadResourceResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CompleteRequest>) {
+  } else if constexpr (mcp::is_same_v<T, CompleteRequest>) {
     return CompleteRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CompleteResult>) {
+  } else if constexpr (mcp::is_same_v<T, CompleteResult>) {
     return CompleteResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, LoggingMessageNotification>) {
+  } else if constexpr (mcp::is_same_v<T, LoggingMessageNotification>) {
     return LoggingMessageNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ProgressNotification>) {
+  } else if constexpr (mcp::is_same_v<T, ProgressNotification>) {
     return ProgressNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, CancelledNotification>) {
+  } else if constexpr (mcp::is_same_v<T, CancelledNotification>) {
     return CancelledNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceUpdatedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceUpdatedNotification>) {
     return ResourceUpdatedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, StringSchema>) {
+  } else if constexpr (mcp::is_same_v<T, StringSchema>) {
     return StringSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, NumberSchema>) {
+  } else if constexpr (mcp::is_same_v<T, NumberSchema>) {
     return NumberSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, BooleanSchema>) {
+  } else if constexpr (mcp::is_same_v<T, BooleanSchema>) {
     return BooleanSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, EnumSchema>) {
+  } else if constexpr (mcp::is_same_v<T, EnumSchema>) {
     return EnumSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ElicitRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ElicitRequest>) {
     return ElicitRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ElicitResult>) {
+  } else if constexpr (mcp::is_same_v<T, ElicitResult>) {
     return ElicitResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, SamplingParams>) {
+  } else if constexpr (mcp::is_same_v<T, SamplingParams>) {
     return SamplingParamsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ModelPreferences>) {
+  } else if constexpr (mcp::is_same_v<T, ModelPreferences>) {
     return ModelPreferencesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ClientCapabilities>) {
+  } else if constexpr (mcp::is_same_v<T, ClientCapabilities>) {
     return ClientCapabilitiesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ServerCapabilities>) {
+  } else if constexpr (mcp::is_same_v<T, ServerCapabilities>) {
     return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, InitializeParams>) {
+  } else if constexpr (mcp::is_same_v<T, InitializeParams>) {
     return InitializeParamsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, Annotations>) {
+  } else if constexpr (mcp::is_same_v<T, Annotations>) {
     return AnnotationsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, BaseMetadata>) {
+  } else if constexpr (mcp::is_same_v<T, BaseMetadata>) {
     return BaseMetadataBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ToolAnnotations>) {
+  } else if constexpr (mcp::is_same_v<T, ToolAnnotations>) {
     return ToolAnnotationsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceLink>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceLink>) {
     return ResourceLinkBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ToolParameter>) {
+  } else if constexpr (mcp::is_same_v<T, ToolParameter>) {
     return ToolParameterBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ModelHint>) {
+  } else if constexpr (mcp::is_same_v<T, ModelHint>) {
     return ModelHintBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, TextResourceContents>) {
+  } else if constexpr (mcp::is_same_v<T, TextResourceContents>) {
     return TextResourceContentsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, BlobResourceContents>) {
+  } else if constexpr (mcp::is_same_v<T, BlobResourceContents>) {
     return BlobResourceContentsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceTemplateReference>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceTemplateReference>) {
     return ResourceTemplateReferenceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, PromptReference>) {
+  } else if constexpr (mcp::is_same_v<T, PromptReference>) {
     return PromptReferenceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourcesCapability>) {
+  } else if constexpr (mcp::is_same_v<T, ResourcesCapability>) {
     return ResourcesCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, PromptsCapability>) {
+  } else if constexpr (mcp::is_same_v<T, PromptsCapability>) {
     return PromptsCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, RootsCapability>) {
+  } else if constexpr (mcp::is_same_v<T, RootsCapability>) {
     return RootsCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, EmptyResult>) {
+  } else if constexpr (mcp::is_same_v<T, EmptyResult>) {
     return EmptyResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, InitializedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, InitializedNotification>) {
     return InitializedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, PingRequest>) {
+  } else if constexpr (mcp::is_same_v<T, PingRequest>) {
     return PingRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListResourcesRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ListResourcesRequest>) {
     return ListResourcesRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListResourceTemplatesRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ListResourceTemplatesRequest>) {
     return ListResourceTemplatesRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListResourceTemplatesResult>) {
+  } else if constexpr (mcp::is_same_v<T, ListResourceTemplatesResult>) {
     return ListResourceTemplatesResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ReadResourceRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ReadResourceRequest>) {
     return ReadResourceRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ResourceListChangedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, ResourceListChangedNotification>) {
     return ResourceListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, SubscribeRequest>) {
+  } else if constexpr (mcp::is_same_v<T, SubscribeRequest>) {
     return SubscribeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, UnsubscribeRequest>) {
+  } else if constexpr (mcp::is_same_v<T, UnsubscribeRequest>) {
     return UnsubscribeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListPromptsRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ListPromptsRequest>) {
     return ListPromptsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, PromptListChangedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, PromptListChangedNotification>) {
     return PromptListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListToolsRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ListToolsRequest>) {
     return ListToolsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ToolListChangedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, ToolListChangedNotification>) {
     return ToolListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, SetLevelRequest>) {
+  } else if constexpr (mcp::is_same_v<T, SetLevelRequest>) {
     return SetLevelRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, ListRootsRequest>) {
+  } else if constexpr (mcp::is_same_v<T, ListRootsRequest>) {
     return ListRootsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (std::is_same_v<T, RootsListChangedNotification>) {
+  } else if constexpr (mcp::is_same_v<T, RootsListChangedNotification>) {
     return RootsListChangedNotificationBuilder(std::forward<Args>(args)...);
   }
 }
