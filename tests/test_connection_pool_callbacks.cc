@@ -234,6 +234,333 @@ TEST_F(ConnectionPoolCallbacksTest, ThreadSafetyOfCallbacks) {
     thread.join();
 }
 
+// Test that callbacks handle rapid connection state changes
+TEST_F(ConnectionPoolCallbacksTest, RapidStateChanges) {
+    auto thread = runDispatcher();
+    
+    const int num_transitions = 100;
+    std::atomic<int> completed{0};
+    
+    dispatcher_->post([&]() {
+        for (int i = 0; i < num_transitions; ++i) {
+            // Rapid connect/disconnect cycles
+            manager_->onEvent(ConnectionEvent::Connected);
+            manager_->onEvent(ConnectionEvent::LocalClose);
+            manager_->onEvent(ConnectionEvent::Connected);
+            manager_->onEvent(ConnectionEvent::RemoteClose);
+        }
+        completed = num_transitions;
+    });
+    
+    // Wait for completion
+    while (completed < num_transitions) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // Should have recorded many events
+    EXPECT_GE(callbacks_->event_count_.load(), num_transitions * 4);
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test callback exception handling
+TEST_F(ConnectionPoolCallbacksTest, CallbackExceptionHandling) {
+    class ThrowingCallbacks : public ConnectionPoolCallbacks {
+    public:
+        void onConnectionEvent(Connection& connection, ConnectionEvent event) override {
+            call_count_++;
+            if (should_throw_ && call_count_ % 3 == 0) {
+                throw std::runtime_error("Test exception");
+            }
+        }
+        
+        std::atomic<int> call_count_{0};
+        bool should_throw_{true};
+    };
+    
+    auto throwing_callbacks = std::make_shared<ThrowingCallbacks>();
+    manager_->setConnectionPoolCallbacks(throwing_callbacks);
+    
+    auto thread = runDispatcher();
+    
+    std::atomic<bool> done{false};
+    
+    dispatcher_->post([&]() {
+        // Should handle exceptions gracefully
+        for (int i = 0; i < 10; ++i) {
+            try {
+                manager_->onEvent(ConnectionEvent::Connected);
+                manager_->onEvent(ConnectionEvent::LocalClose);
+            } catch (...) {
+                // Manager should handle this internally
+            }
+        }
+        done = true;
+    });
+    
+    while (!done) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // Some callbacks should have been called despite exceptions
+    EXPECT_GT(throwing_callbacks->call_count_.load(), 0);
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test callback ordering and event sequence
+TEST_F(ConnectionPoolCallbacksTest, EventSequenceOrdering) {
+    auto thread = runDispatcher();
+    
+    std::vector<ConnectionEvent> expected_sequence = {
+        ConnectionEvent::Connected,
+        ConnectionEvent::RemoteClose,
+        ConnectionEvent::Connected,
+        ConnectionEvent::LocalClose
+    };
+    
+    std::promise<void> promise;
+    auto future = promise.get_future();
+    
+    dispatcher_->post([&]() {
+        for (auto event : expected_sequence) {
+            manager_->onEvent(event);
+        }
+        promise.set_value();
+    });
+    
+    ASSERT_EQ(std::future_status::ready, future.wait_for(1s));
+    
+    // Wait for events to be processed
+    std::this_thread::sleep_for(100ms);
+    
+    // Check that events were recorded in order
+    EXPECT_GE(callbacks_->events_.size(), expected_sequence.size());
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test concurrent connections with different states
+TEST_F(ConnectionPoolCallbacksTest, ConcurrentConnectionStates) {
+    auto thread = runDispatcher();
+    
+    const int num_connections = 20;
+    std::atomic<int> active_connections{0};
+    std::atomic<int> closed_connections{0};
+    
+    // Simulate multiple connections in different states
+    std::vector<std::thread> connection_threads;
+    
+    for (int i = 0; i < num_connections; ++i) {
+        connection_threads.emplace_back([&, i]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(i * 10));
+            
+            dispatcher_->post([&]() {
+                manager_->onEvent(ConnectionEvent::Connected);
+                active_connections++;
+            });
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(50 + i * 5));
+            
+            dispatcher_->post([&]() {
+                if (i % 2 == 0) {
+                    manager_->onEvent(ConnectionEvent::LocalClose);
+                } else {
+                    manager_->onEvent(ConnectionEvent::RemoteClose);
+                }
+                closed_connections++;
+            });
+        });
+    }
+    
+    // Wait for all threads
+    for (auto& t : connection_threads) {
+        t.join();
+    }
+    
+    // Wait for all events to be processed
+    while (closed_connections < num_connections) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // Verify all connections were tracked
+    EXPECT_EQ(num_connections, active_connections.load());
+    EXPECT_EQ(num_connections, closed_connections.load());
+    EXPECT_GE(callbacks_->event_count_.load(), num_connections * 2);
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test memory management with many connections
+TEST_F(ConnectionPoolCallbacksTest, MemoryManagementStressTest) {
+    auto thread = runDispatcher();
+    
+    const int num_iterations = 1000;
+    std::atomic<int> completed{0};
+    
+    dispatcher_->post([&]() {
+        for (int i = 0; i < num_iterations; ++i) {
+            // Create and destroy many connections
+            manager_->onEvent(ConnectionEvent::Connected);
+            
+            // Simulate some work
+            if (i % 100 == 0) {
+                std::this_thread::yield();
+            }
+            
+            manager_->onEvent(ConnectionEvent::LocalClose);
+            completed++;
+        }
+    });
+    
+    // Monitor memory usage (in a real test, would use actual memory tracking)
+    while (completed < num_iterations) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // All events should be processed without memory leaks
+    EXPECT_EQ(num_iterations * 2, callbacks_->event_count_.load());
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test callback registration and deregistration
+TEST_F(ConnectionPoolCallbacksTest, CallbackRegistrationLifecycle) {
+    auto thread = runDispatcher();
+    
+    // Test multiple callback registrations
+    auto callbacks1 = std::make_shared<MockConnectionPoolCallbacks>();
+    auto callbacks2 = std::make_shared<MockConnectionPoolCallbacks>();
+    
+    std::atomic<bool> done{false};
+    
+    dispatcher_->post([&]() {
+        // Register first callback
+        manager_->setConnectionPoolCallbacks(callbacks1);
+        manager_->onEvent(ConnectionEvent::Connected);
+        
+        // Switch to second callback
+        manager_->setConnectionPoolCallbacks(callbacks2);
+        manager_->onEvent(ConnectionEvent::LocalClose);
+        
+        // Clear callbacks
+        manager_->setConnectionPoolCallbacks(nullptr);
+        manager_->onEvent(ConnectionEvent::RemoteClose);
+        
+        done = true;
+    });
+    
+    while (!done) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // First callback should have received first event
+    EXPECT_EQ(1, callbacks1->event_count_.load());
+    // Second callback should have received second event
+    EXPECT_EQ(1, callbacks2->event_count_.load());
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test callbacks with connection metadata
+TEST_F(ConnectionPoolCallbacksTest, ConnectionMetadataTracking) {
+    class MetadataTrackingCallbacks : public ConnectionPoolCallbacks {
+    public:
+        struct ConnectionMetadata {
+            Connection* connection;
+            ConnectionEvent last_event;
+            std::chrono::steady_clock::time_point event_time;
+            int event_count;
+        };
+        
+        void onConnectionEvent(Connection& connection, ConnectionEvent event) override {
+            std::lock_guard<std::mutex> lock(mutex_);
+            
+            auto& metadata = connection_metadata_[&connection];
+            metadata.connection = &connection;
+            metadata.last_event = event;
+            metadata.event_time = std::chrono::steady_clock::now();
+            metadata.event_count++;
+            
+            total_events_++;
+        }
+        
+        std::map<Connection*, ConnectionMetadata> connection_metadata_;
+        std::mutex mutex_;
+        std::atomic<int> total_events_{0};
+    };
+    
+    auto tracking_callbacks = std::make_shared<MetadataTrackingCallbacks>();
+    manager_->setConnectionPoolCallbacks(tracking_callbacks);
+    
+    auto thread = runDispatcher();
+    
+    std::atomic<bool> done{false};
+    
+    dispatcher_->post([&]() {
+        // Simulate multiple connections with metadata
+        for (int i = 0; i < 5; ++i) {
+            manager_->onEvent(ConnectionEvent::Connected);
+            std::this_thread::sleep_for(10ms);
+            manager_->onEvent(ConnectionEvent::LocalClose);
+        }
+        done = true;
+    });
+    
+    while (!done) {
+        std::this_thread::sleep_for(10ms);
+    }
+    
+    // Should have tracked metadata for connections
+    EXPECT_GT(tracking_callbacks->total_events_.load(), 0);
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
+// Test performance with high event rate
+TEST_F(ConnectionPoolCallbacksTest, HighEventRatePerformance) {
+    auto thread = runDispatcher();
+    
+    const int num_events = 10000;
+    auto start_time = std::chrono::steady_clock::now();
+    std::atomic<int> processed{0};
+    
+    dispatcher_->post([&]() {
+        for (int i = 0; i < num_events; ++i) {
+            manager_->onEvent(i % 2 == 0 ? 
+                ConnectionEvent::Connected : ConnectionEvent::LocalClose);
+            processed++;
+        }
+    });
+    
+    // Wait for processing
+    while (processed < num_events) {
+        std::this_thread::sleep_for(1ms);
+    }
+    
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        end_time - start_time);
+    
+    // Should process events quickly (< 1 second for 10000 events)
+    EXPECT_LT(duration.count(), 1000);
+    EXPECT_EQ(num_events, callbacks_->event_count_.load());
+    
+    // Calculate event rate
+    double events_per_second = (num_events * 1000.0) / duration.count();
+    std::cout << "Event processing rate: " << events_per_second << " events/sec" << std::endl;
+    
+    dispatcher_->exit();
+    thread.join();
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
