@@ -418,7 +418,7 @@ TEST_F(MCPSerializationExtensiveTest, RapidSerializationDeserialization) {
     CreateMessageRequest req = build_create_message_request()
       .add_user_message("Message " + std::to_string(i))
       .temperature(0.5 + (i % 10) * 0.05)
-      .max_tokens(100 + i % 900)
+      .maxTokens(100 + i % 900)
       .build();
     
     // Serialize and deserialize
