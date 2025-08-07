@@ -221,17 +221,30 @@ void ConnectionManagerImpl::closeAllConnections() {
 }
 
 void ConnectionManagerImpl::onEvent(ConnectionEvent event) {
+  // This callback is called per-connection, but we need to identify which one.
+  // For now, we'll iterate through tracked connections to find the one that's closing
   if (event == ConnectionEvent::LocalClose || event == ConnectionEvent::RemoteClose) {
-    // Connection closed, remove from tracking
-    // Note: We need to identify which connection triggered this
-    // In real implementation, we'd have context about the connection
-  }
-  
-  // Notify pool callbacks if set
-  if (pool_callbacks_) {
-    // TODO: We need the actual connection here, not the manager
-    // This is a design issue - ConnectionCallbacks::onEvent doesn't provide the connection
-    // pool_callbacks_->onConnectionEvent(connection, event);
+    // Find and remove closed connections
+    for (auto it = connections_.begin(); it != connections_.end(); ) {
+      Connection* conn = it->first;
+      if (conn && conn->state() == Connection::State::Closed) {
+        // Notify pool callbacks before removing
+        if (pool_callbacks_) {
+          pool_callbacks_->onConnectionEvent(*conn, event);
+        }
+        it = connections_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  } else if (pool_callbacks_) {
+    // TODO: For non-close events, notify for all connections (not ideal but safe)
+    // TODO: In production, we'd use a per-connection callback wrapper
+    for (auto& [conn, weak_ptr] : connections_) {
+      if (conn) {
+        pool_callbacks_->onConnectionEvent(*conn, event);
+      }
+    }
   }
 }
 
