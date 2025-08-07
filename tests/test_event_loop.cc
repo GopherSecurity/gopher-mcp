@@ -61,11 +61,7 @@ class EventLoopTest : public ::testing::Test {
 TEST_F(EventLoopTest, BasicProperties) {
   EXPECT_EQ("test", dispatcher_->name());
   EXPECT_EQ("libevent", factory_->backendName());
-  // TODO: Fix this test - In libevent implementation, the thread_id is set in
-  // constructor so isThreadSafe() returns true if called from the same thread
-  // that created the dispatcher. This differs from the classical behavior where
-  // thread_id is only set when run() is called.
-  // EXPECT_FALSE(dispatcher_->isThreadSafe()); // Not in dispatcher thread yet
+  EXPECT_FALSE(dispatcher_->isThreadSafe()); // Not in dispatcher thread yet
 }
 
 // Test post callback functionality
@@ -606,10 +602,6 @@ TEST_F(EventLoopTest, HighLoad) {
 
 // Test thread safety of isThreadSafe()
 TEST_F(EventLoopTest, ThreadSafetyCheck) {
-  // TODO: Fix this test - Similar to BasicProperties test, the libevent
-  // implementation sets thread_id in constructor, not when run() is called.
-  // This test expects classical behavior where thread_id is only set in run().
-
   std::atomic<bool> is_thread_safe{false};
   std::promise<void> promise;
   auto future = promise.get_future();
