@@ -179,15 +179,15 @@ TEST_F(MCPTypesTest, CreateMessageRequest) {
                  .add_user_message("What is 2+2?")
                  .add_assistant_message("2+2 equals 4.")
                  .add_user_message("What about 3+3?")
-                 .model_preferences(build_model_preferences()
+                 .modelPreferences(build_model_preferences()
                                         .add_hint("gpt-4")
                                         .intelligence_priority(0.8)
                                         .build())
                  .temperature(0.7)
-                 .max_tokens(150)
-                 .stop_sequence("\\n\\n")
-                 .stop_sequence("END")
-                 .system_prompt("You are a helpful math tutor.")
+                 .maxTokens(150)
+                 .stopSequence("\\n\\n")
+                 .stopSequence("END")
+                 .systemPrompt("You are a helpful math tutor.")
                  .build();
 
   EXPECT_EQ(req.method, "sampling/createMessage");

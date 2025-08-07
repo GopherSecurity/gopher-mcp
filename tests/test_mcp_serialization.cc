@@ -541,14 +541,14 @@ TEST_F(MCPSerializationTest, CreateMessageRequest) {
   CreateMessageRequest req = build_create_message_request()
     .add_user_message("Hello")
     .add_assistant_message("Hi there!")
-    .model_preferences(build_model_preferences()
+    .modelPreferences(build_model_preferences()
       .add_hint("gpt-4")
       .cost_priority(0.5)
       .build())
-    .system_prompt("You are a helpful assistant")
+    .systemPrompt("You are a helpful assistant")
     .temperature(0.8)
-    .max_tokens(500)
-    .stop_sequence("END")
+    .maxTokens(500)
+    .stopSequence("END")
     .build();
   req.id = make_request_id("msg-1");
   testRoundTrip(req);
