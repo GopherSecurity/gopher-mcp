@@ -1001,6 +1001,372 @@ class ElicitResultBuilder : public Builder<ElicitResult, ElicitResultBuilder> {
   }
 };
 
+// Additional builders for missing types
+
+class AnnotationsBuilder : public Builder<Annotations, AnnotationsBuilder> {
+ public:
+  AnnotationsBuilder& audience(const std::vector<enums::Role::Value>& roles) {
+    value_.audience = roles;
+    return *this;
+  }
+  
+  AnnotationsBuilder& priority(double p) {
+    value_.priority = p;
+    return *this;
+  }
+};
+
+class BaseMetadataBuilder : public Builder<BaseMetadata, BaseMetadataBuilder> {
+ public:
+  BaseMetadataBuilder& _meta(const Metadata& meta) {
+    value_._meta = meta;
+    return *this;
+  }
+};
+
+class ToolAnnotationsBuilder : public Builder<ToolAnnotations, ToolAnnotationsBuilder> {
+ public:
+  ToolAnnotationsBuilder& audience(const std::vector<enums::Role::Value>& roles) {
+    value_.audience = roles;
+    return *this;
+  }
+};
+
+class ResourceLinkBuilder : public Builder<ResourceLink, ResourceLinkBuilder> {
+ public:
+  ResourceLinkBuilder(const std::string& uri, const std::string& name) {
+    value_.uri = uri;
+    value_.name = name;
+  }
+  
+  ResourceLinkBuilder& description(const std::string& desc) {
+    value_.description = desc;
+    return *this;
+  }
+  
+  ResourceLinkBuilder& mimeType(const std::string& mime) {
+    value_.mimeType = mime;
+    return *this;
+  }
+};
+
+class ToolParameterBuilder : public Builder<ToolParameter, ToolParameterBuilder> {
+ public:
+  ToolParameterBuilder(const std::string& name, const std::string& type) {
+    value_.name = name;
+    value_.type = type;
+    value_.required = false;
+  }
+  
+  ToolParameterBuilder& description(const std::string& desc) {
+    value_.description = desc;
+    return *this;
+  }
+  
+  ToolParameterBuilder& required(bool req) {
+    value_.required = req;
+    return *this;
+  }
+};
+
+class ModelHintBuilder : public Builder<ModelHint, ModelHintBuilder> {
+ public:
+  explicit ModelHintBuilder(const std::string& name) {
+    value_.name = name;
+  }
+};
+
+class TextResourceContentsBuilder : public Builder<TextResourceContents, TextResourceContentsBuilder> {
+ public:
+  explicit TextResourceContentsBuilder(const std::string& uri) {
+    value_.uri = uri;
+  }
+  
+  TextResourceContentsBuilder& text(const std::string& t) {
+    value_.text = t;
+    return *this;
+  }
+  
+  TextResourceContentsBuilder& mimeType(const std::string& mime) {
+    value_.mimeType = mime;
+    return *this;
+  }
+};
+
+class BlobResourceContentsBuilder : public Builder<BlobResourceContents, BlobResourceContentsBuilder> {
+ public:
+  explicit BlobResourceContentsBuilder(const std::string& uri) {
+    value_.uri = uri;
+  }
+  
+  BlobResourceContentsBuilder& blob(const std::string& b) {
+    value_.blob = b;
+    return *this;
+  }
+  
+  BlobResourceContentsBuilder& mimeType(const std::string& mime) {
+    value_.mimeType = mime;
+    return *this;
+  }
+};
+
+class ResourceTemplateReferenceBuilder : public Builder<ResourceTemplateReference, ResourceTemplateReferenceBuilder> {
+ public:
+  ResourceTemplateReferenceBuilder(const std::string& type, const std::string& name) {
+    value_.type = type;
+    value_.name = name;
+  }
+};
+
+class PromptReferenceBuilder : public Builder<PromptReference, PromptReferenceBuilder> {
+ public:
+  PromptReferenceBuilder(const std::string& type, const std::string& name) {
+    value_.type = type;
+    value_.name = name;
+  }
+  
+  PromptReferenceBuilder& _meta(const Metadata& meta) {
+    value_._meta = meta;
+    return *this;
+  }
+};
+
+class ResourcesCapabilityBuilder : public Builder<ResourcesCapability, ResourcesCapabilityBuilder> {
+ public:
+  ResourcesCapabilityBuilder& subscribe(const EmptyCapability& cap) {
+    value_.subscribe = cap;
+    return *this;
+  }
+  
+  ResourcesCapabilityBuilder& listChanged(const EmptyCapability& cap) {
+    value_.listChanged = cap;
+    return *this;
+  }
+};
+
+class PromptsCapabilityBuilder : public Builder<PromptsCapability, PromptsCapabilityBuilder> {
+ public:
+  PromptsCapabilityBuilder& listChanged(const EmptyCapability& cap) {
+    value_.listChanged = cap;
+    return *this;
+  }
+};
+
+class RootsCapabilityBuilder : public Builder<RootsCapability, RootsCapabilityBuilder> {
+ public:
+  RootsCapabilityBuilder& listChanged(const EmptyCapability& cap) {
+    value_.listChanged = cap;
+    return *this;
+  }
+};
+
+class EmptyResultBuilder : public Builder<EmptyResult, EmptyResultBuilder> {
+ public:
+  // EmptyResult has no fields
+};
+
+class InitializedNotificationBuilder : public Builder<InitializedNotification, InitializedNotificationBuilder> {
+ public:
+  InitializedNotificationBuilder() {
+    value_.method = "notifications/initialized";
+    value_.params = Metadata();
+  }
+  
+  InitializedNotificationBuilder& meta(const BaseMetadata& meta) {
+    value_.params = meta._meta.value_or(Metadata());
+    return *this;
+  }
+};
+
+class PingRequestBuilder : public Builder<PingRequest, PingRequestBuilder> {
+ public:
+  PingRequestBuilder() {
+    value_.method = "ping";
+  }
+  
+  PingRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class ListResourcesRequestBuilder : public Builder<ListResourcesRequest, ListResourcesRequestBuilder> {
+ public:
+  ListResourcesRequestBuilder() {
+    value_.method = "resources/list";
+  }
+  
+  ListResourcesRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+  
+  ListResourcesRequestBuilder& cursor(const std::string& c) {
+    value_.cursor = c;
+    return *this;
+  }
+};
+
+class ListResourceTemplatesRequestBuilder : public Builder<ListResourceTemplatesRequest, ListResourceTemplatesRequestBuilder> {
+ public:
+  ListResourceTemplatesRequestBuilder() {
+    value_.method = "resources/templates/list";
+  }
+  
+  ListResourceTemplatesRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+  
+  ListResourceTemplatesRequestBuilder& cursor(const std::string& c) {
+    value_.cursor = c;
+    return *this;
+  }
+};
+
+class ListResourceTemplatesResultBuilder : public Builder<ListResourceTemplatesResult, ListResourceTemplatesResultBuilder> {
+ public:
+  ListResourceTemplatesResultBuilder& add(const ResourceTemplate& tmpl) {
+    value_.resourceTemplates.push_back(tmpl);
+    return *this;
+  }
+  
+  ListResourceTemplatesResultBuilder& nextCursor(const std::string& cursor) {
+    value_.nextCursor = cursor;
+    return *this;
+  }
+};
+
+class ReadResourceRequestBuilder : public Builder<ReadResourceRequest, ReadResourceRequestBuilder> {
+ public:
+  explicit ReadResourceRequestBuilder(const std::string& uri) {
+    value_.method = "resources/read";
+    value_.uri = uri;
+  }
+  
+  ReadResourceRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class ResourceListChangedNotificationBuilder : public Builder<ResourceListChangedNotification, ResourceListChangedNotificationBuilder> {
+ public:
+  ResourceListChangedNotificationBuilder() {
+    value_.method = "notifications/resources/list_changed";
+    value_.params = Metadata();
+  }
+};
+
+class SubscribeRequestBuilder : public Builder<SubscribeRequest, SubscribeRequestBuilder> {
+ public:
+  explicit SubscribeRequestBuilder(const std::string& uri) {
+    value_.method = "resources/subscribe";
+    value_.uri = uri;
+  }
+  
+  SubscribeRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class UnsubscribeRequestBuilder : public Builder<UnsubscribeRequest, UnsubscribeRequestBuilder> {
+ public:
+  explicit UnsubscribeRequestBuilder(const std::string& uri) {
+    value_.method = "resources/unsubscribe";
+    value_.uri = uri;
+  }
+  
+  UnsubscribeRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class ListPromptsRequestBuilder : public Builder<ListPromptsRequest, ListPromptsRequestBuilder> {
+ public:
+  ListPromptsRequestBuilder() {
+    value_.method = "prompts/list";
+  }
+  
+  ListPromptsRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+  
+  ListPromptsRequestBuilder& cursor(const std::string& c) {
+    value_.cursor = c;
+    return *this;
+  }
+};
+
+class PromptListChangedNotificationBuilder : public Builder<PromptListChangedNotification, PromptListChangedNotificationBuilder> {
+ public:
+  PromptListChangedNotificationBuilder() {
+    value_.method = "notifications/prompts/list_changed";
+    value_.params = Metadata();
+  }
+};
+
+class ListToolsRequestBuilder : public Builder<ListToolsRequest, ListToolsRequestBuilder> {
+ public:
+  ListToolsRequestBuilder() {
+    value_.method = "tools/list";
+  }
+  
+  ListToolsRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+  
+  ListToolsRequestBuilder& cursor(const std::string& c) {
+    value_.cursor = c;
+    return *this;
+  }
+};
+
+class ToolListChangedNotificationBuilder : public Builder<ToolListChangedNotification, ToolListChangedNotificationBuilder> {
+ public:
+  ToolListChangedNotificationBuilder() {
+    value_.method = "notifications/tools/list_changed";
+    value_.params = Metadata();
+  }
+};
+
+class SetLevelRequestBuilder : public Builder<SetLevelRequest, SetLevelRequestBuilder> {
+ public:
+  explicit SetLevelRequestBuilder(enums::LoggingLevel::Value level) {
+    value_.method = "logging/setLevel";
+    value_.level = level;
+  }
+  
+  SetLevelRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class ListRootsRequestBuilder : public Builder<ListRootsRequest, ListRootsRequestBuilder> {
+ public:
+  ListRootsRequestBuilder() {
+    value_.method = "roots/list";
+  }
+  
+  ListRootsRequestBuilder& id(const RequestId& reqId) {
+    value_.id = reqId;
+    return *this;
+  }
+};
+
+class RootsListChangedNotificationBuilder : public Builder<RootsListChangedNotification, RootsListChangedNotificationBuilder> {
+ public:
+  RootsListChangedNotificationBuilder() {
+    value_.method = "notifications/roots/list_changed";
+    value_.params = Metadata();
+  }
+};
+
 // Factory functions (compatibility with existing code)
 inline ResourceBuilder build_resource(const std::string& uri,
                                       const std::string& name) {
@@ -1136,6 +1502,66 @@ auto make(Args&&... args) {
     return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
   } else if constexpr (std::is_same_v<T, InitializeParams>) {
     return InitializeParamsBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, Annotations>) {
+    return AnnotationsBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, BaseMetadata>) {
+    return BaseMetadataBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ToolAnnotations>) {
+    return ToolAnnotationsBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ResourceLink>) {
+    return ResourceLinkBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ToolParameter>) {
+    return ToolParameterBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ModelHint>) {
+    return ModelHintBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, TextResourceContents>) {
+    return TextResourceContentsBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, BlobResourceContents>) {
+    return BlobResourceContentsBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ResourceTemplateReference>) {
+    return ResourceTemplateReferenceBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, PromptReference>) {
+    return PromptReferenceBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ResourcesCapability>) {
+    return ResourcesCapabilityBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, PromptsCapability>) {
+    return PromptsCapabilityBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, RootsCapability>) {
+    return RootsCapabilityBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, EmptyResult>) {
+    return EmptyResultBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, InitializedNotification>) {
+    return InitializedNotificationBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, PingRequest>) {
+    return PingRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListResourcesRequest>) {
+    return ListResourcesRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListResourceTemplatesRequest>) {
+    return ListResourceTemplatesRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListResourceTemplatesResult>) {
+    return ListResourceTemplatesResultBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ReadResourceRequest>) {
+    return ReadResourceRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ResourceListChangedNotification>) {
+    return ResourceListChangedNotificationBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, SubscribeRequest>) {
+    return SubscribeRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, UnsubscribeRequest>) {
+    return UnsubscribeRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListPromptsRequest>) {
+    return ListPromptsRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, PromptListChangedNotification>) {
+    return PromptListChangedNotificationBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListToolsRequest>) {
+    return ListToolsRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ToolListChangedNotification>) {
+    return ToolListChangedNotificationBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, SetLevelRequest>) {
+    return SetLevelRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, ListRootsRequest>) {
+    return ListRootsRequestBuilder(std::forward<Args>(args)...);
+  } else if constexpr (std::is_same_v<T, RootsListChangedNotification>) {
+    return RootsListChangedNotificationBuilder(std::forward<Args>(args)...);
   }
 }
 
