@@ -118,8 +118,7 @@ TEST_F(JsonRpcMessageFilterTest, ParseResponse) {
   EXPECT_EQ(1, callbacks_.response_called_);
   EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
   EXPECT_EQ(456, mcp::get<int>(callbacks_.last_response_.id));
-  // TODO: Enable when result deserialization is implemented
-  // EXPECT_TRUE(callbacks_.last_response_.result.has_value());
+  EXPECT_TRUE(callbacks_.last_response_.result.has_value());
   EXPECT_FALSE(callbacks_.last_response_.error.has_value());
 }
 
