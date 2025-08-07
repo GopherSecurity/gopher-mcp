@@ -177,6 +177,11 @@ JsonValue serialize_TextContent(const TextContent& content) {
   JsonObjectBuilder builder;
   builder.add("type", "text")
          .add("text", content.text);
+  
+  if (content.annotations.has_value()) {
+    builder.add("annotations", serialize_Annotations(content.annotations.value()));
+  }
+  
   return builder.build();
 }
 
@@ -619,14 +624,9 @@ ContentBlock deserialize_ContentBlock(const JsonValue& json) {
   std::string type = json.at("type").getString();
   
   if (type == "text") {
-    TextContent text;
-    text.text = json.at("text").getString();
-    return ContentBlock(text);
+    return ContentBlock(deserialize_TextContent(json));
   } else if (type == "image") {
-    ImageContent image;
-    image.mimeType = json.at("mimeType").getString();
-    image.data = json.at("data").getString();
-    return ContentBlock(image);
+    return ContentBlock(deserialize_ImageContent(json));
   } else if (type == "resource") {
     ResourceContent resource;
     resource.resource = deserialize_Resource(json.at("resource"));
@@ -835,6 +835,12 @@ JsonValue serialize_ExtendedContentBlock(const ExtendedContentBlock& block) {
 // Initialize and session requests
 JsonValue serialize_InitializeRequest(const InitializeRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("protocolVersion", request.protocolVersion)
          .add("capabilities", serialize_ClientCapabilities(request.capabilities));
   if (request.clientInfo.has_value()) {
@@ -844,12 +850,24 @@ JsonValue serialize_InitializeRequest(const InitializeRequest& request) {
 }
 
 JsonValue serialize_PingRequest(const PingRequest& request) {
-  (void)request; // Empty params
-  return JsonObjectBuilder().build();
+  JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
+  return builder.build();
 }
 
 JsonValue serialize_CompleteRequest(const CompleteRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("ref", serialize_PromptReference(request.ref));
   if (request.argument.has_value()) {
     builder.add("argument", request.argument.value());
@@ -859,6 +877,12 @@ JsonValue serialize_CompleteRequest(const CompleteRequest& request) {
 
 JsonValue serialize_SetLevelRequest(const SetLevelRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("level", enums::LoggingLevel::to_string(request.level));
   return builder.build();
 }
@@ -866,6 +890,12 @@ JsonValue serialize_SetLevelRequest(const SetLevelRequest& request) {
 // Tool requests
 JsonValue serialize_CallToolRequest(const CallToolRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("name", request.name);
   
   if (request.arguments.has_value()) {
@@ -877,6 +907,12 @@ JsonValue serialize_CallToolRequest(const CallToolRequest& request) {
 
 JsonValue serialize_ListToolsRequest(const ListToolsRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
   }
@@ -914,6 +950,12 @@ JsonValue serialize_PromptMessage(const PromptMessage& message) {
 
 JsonValue serialize_GetPromptRequest(const GetPromptRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("name", request.name);
   
   if (request.arguments.has_value()) {
@@ -925,6 +967,12 @@ JsonValue serialize_GetPromptRequest(const GetPromptRequest& request) {
 
 JsonValue serialize_ListPromptsRequest(const ListPromptsRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
   }
@@ -950,12 +998,24 @@ JsonValue serialize_ResourceTemplate(const ResourceTemplate& resourceTemplate) {
 
 JsonValue serialize_ReadResourceRequest(const ReadResourceRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("uri", request.uri);
   return builder.build();
 }
 
 JsonValue serialize_ListResourcesRequest(const ListResourcesRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
   }
@@ -964,6 +1024,12 @@ JsonValue serialize_ListResourcesRequest(const ListResourcesRequest& request) {
 
 JsonValue serialize_ListResourceTemplatesRequest(const ListResourceTemplatesRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   if (request.cursor.has_value()) {
     builder.add("cursor", request.cursor.value());
   }
@@ -972,12 +1038,24 @@ JsonValue serialize_ListResourceTemplatesRequest(const ListResourceTemplatesRequ
 
 JsonValue serialize_SubscribeRequest(const SubscribeRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("uri", request.uri);
   return builder.build();
 }
 
 JsonValue serialize_UnsubscribeRequest(const UnsubscribeRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("uri", request.uri);
   return builder.build();
 }
@@ -995,13 +1073,24 @@ JsonValue serialize_Root(const Root& root) {
 }
 
 JsonValue serialize_ListRootsRequest(const ListRootsRequest& request) {
-  (void)request; // Empty params
-  return JsonObjectBuilder().build();
+  JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
+  return builder.build();
 }
 
 // Message requests
 JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
   
   // Serialize messages array
   JsonArrayBuilder messages;
@@ -1047,6 +1136,12 @@ JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
 
 JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   JsonObjectBuilder builder;
+  
+  // Add base class ID if present
+  if ((mcp::holds_alternative<std::string>(request.id) && !mcp::get<std::string>(request.id).empty()) || mcp::holds_alternative<int>(request.id)) {
+    builder.add("id", serialize_RequestId(request.id));
+  }
+  
   builder.add("name", request.name);
   
   // Serialize schema
@@ -1703,6 +1798,12 @@ JsonValue serialize_SamplingParams(const SamplingParams& params) {
 
 InitializeRequest deserialize_InitializeRequest(const JsonValue& json) {
   InitializeRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
+  
   request.protocolVersion = json.at("protocolVersion").getString();
   request.capabilities = deserialize_ClientCapabilities(json.at("capabilities"));
   
@@ -1714,12 +1815,23 @@ InitializeRequest deserialize_InitializeRequest(const JsonValue& json) {
 }
 
 PingRequest deserialize_PingRequest(const JsonValue& json) {
-  (void)json;
-  return PingRequest();
+  PingRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
+  
+  return request;
 }
 
 CompleteRequest deserialize_CompleteRequest(const JsonValue& json) {
   CompleteRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.ref = deserialize_PromptReference(json.at("ref"));
   
   if (json.contains("argument")) {
@@ -1731,6 +1843,11 @@ CompleteRequest deserialize_CompleteRequest(const JsonValue& json) {
 
 SetLevelRequest deserialize_SetLevelRequest(const JsonValue& json) {
   SetLevelRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   auto level_str = json.at("level").getString();
   auto level = enums::LoggingLevel::from_string(level_str);
   if (!level.has_value()) {
@@ -1742,6 +1859,11 @@ SetLevelRequest deserialize_SetLevelRequest(const JsonValue& json) {
 
 CallToolRequest deserialize_CallToolRequest(const JsonValue& json) {
   CallToolRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.name = json.at("name").getString();
   
   if (json.contains("arguments")) {
@@ -1753,6 +1875,11 @@ CallToolRequest deserialize_CallToolRequest(const JsonValue& json) {
 
 ListToolsRequest deserialize_ListToolsRequest(const JsonValue& json) {
   ListToolsRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
   }
@@ -1791,6 +1918,11 @@ PromptMessage deserialize_PromptMessage(const JsonValue& json) {
 
 GetPromptRequest deserialize_GetPromptRequest(const JsonValue& json) {
   GetPromptRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.name = json.at("name").getString();
   
   if (json.contains("arguments")) {
@@ -1802,6 +1934,11 @@ GetPromptRequest deserialize_GetPromptRequest(const JsonValue& json) {
 
 ListPromptsRequest deserialize_ListPromptsRequest(const JsonValue& json) {
   ListPromptsRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
   }
@@ -1826,12 +1963,22 @@ ResourceTemplate deserialize_ResourceTemplate(const JsonValue& json) {
 
 ReadResourceRequest deserialize_ReadResourceRequest(const JsonValue& json) {
   ReadResourceRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.uri = json.at("uri").getString();
   return request;
 }
 
 ListResourcesRequest deserialize_ListResourcesRequest(const JsonValue& json) {
   ListResourcesRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
   }
@@ -1840,6 +1987,11 @@ ListResourcesRequest deserialize_ListResourcesRequest(const JsonValue& json) {
 
 ListResourceTemplatesRequest deserialize_ListResourceTemplatesRequest(const JsonValue& json) {
   ListResourceTemplatesRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   if (json.contains("cursor")) {
     request.cursor = json["cursor"].getString();
   }
@@ -1848,12 +2000,22 @@ ListResourceTemplatesRequest deserialize_ListResourceTemplatesRequest(const Json
 
 SubscribeRequest deserialize_SubscribeRequest(const JsonValue& json) {
   SubscribeRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.uri = json.at("uri").getString();
   return request;
 }
 
 UnsubscribeRequest deserialize_UnsubscribeRequest(const JsonValue& json) {
   UnsubscribeRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.uri = json.at("uri").getString();
   return request;
 }
@@ -1870,12 +2032,23 @@ Root deserialize_Root(const JsonValue& json) {
 }
 
 ListRootsRequest deserialize_ListRootsRequest(const JsonValue& json) {
-  (void)json;
-  return ListRootsRequest();
+  ListRootsRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
+  
+  return request;
 }
 
 CreateMessageRequest deserialize_CreateMessageRequest(const JsonValue& json) {
   CreateMessageRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   
   const auto& messages = json.at("messages");
   size_t size = messages.size();
@@ -1922,6 +2095,11 @@ CreateMessageRequest deserialize_CreateMessageRequest(const JsonValue& json) {
 
 ElicitRequest deserialize_ElicitRequest(const JsonValue& json) {
   ElicitRequest request;
+  
+  // Deserialize base class ID if present
+  if (json.contains("id")) {
+    request.id = deserialize_RequestId(json["id"]);
+  }
   request.name = json.at("name").getString();
   
   const auto& schema = json.at("schema");
