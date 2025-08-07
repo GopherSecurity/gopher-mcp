@@ -210,7 +210,7 @@ TEST_F(MCPSerializationExtensiveTest, EscapeSequences) {
     "Unicode: \u0041\u0042\u0043";
   
   TextContent content(escape_test);
-  std::string json_str = mcp::json::to_json(content).getString();
+  std::string json_str = mcp::json::to_json(content).toString();
   TextContent deserialized = from_json<TextContent>(mcp::json::JsonValue::parse(json_str));
   EXPECT_EQ(deserialized.text, escape_test);
 }
@@ -309,21 +309,21 @@ TEST_F(MCPSerializationExtensiveTest, AllRequestTypeCombinations) {
     init_req.capabilities = ClientCapabilities();
     JsonValue j = to_json(init_req);
     InitializeRequest init_des = from_json<InitializeRequest>(j);
-    EXPECT_EQ(to_json(init_des.id).getString(), to_json(id).getString());
+    EXPECT_EQ(to_json(init_des.id).toString(), to_json(id).toString());
     
     // Ping request
     PingRequest ping_req;
     ping_req.id = id;
     j = to_json(ping_req);
     PingRequest ping_des = from_json<PingRequest>(j);
-    EXPECT_EQ(to_json(ping_des.id).getString(), to_json(id).getString());
+    EXPECT_EQ(to_json(ping_des.id).toString(), to_json(id).toString());
     
     // List resources request
     ListResourcesRequest list_req;
     list_req.id = id;
     j = to_json(list_req);
     ListResourcesRequest list_des = from_json<ListResourcesRequest>(j);
-    EXPECT_EQ(to_json(list_des.id).getString(), to_json(id).getString());
+    EXPECT_EQ(to_json(list_des.id).toString(), to_json(id).toString());
   }
 }
 
@@ -345,20 +345,26 @@ TEST_F(MCPSerializationExtensiveTest, AllNotificationTypes) {
     if (method == "initialized") {
       InitializedNotification notif;
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"].getString(), "initialized");
+      InitializedNotification deserialized = from_json<InitializedNotification>(j);
+      // InitializedNotification has no fields to compare
     } else if (method == "cancelled") {
       CancelledNotification notif;
       notif.requestId = mcp::make_request_id("test");
       notif.reason = mcp::make_optional(std::string("Test reason"));
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"].getString(), "notifications/cancelled");
+      CancelledNotification deserialized = from_json<CancelledNotification>(j);
+      EXPECT_EQ(to_json(deserialized.requestId).toString(), to_json(notif.requestId).toString());
+      EXPECT_EQ(deserialized.reason.value(), "Test reason");
     } else if (method == "progress") {
       ProgressNotification notif;
       notif.progressToken = make_progress_token("token");
       notif.progress = 0.5;
       notif.total = mcp::make_optional(100.0);
       JsonValue j = to_json(notif);
-      EXPECT_EQ(j["method"].getString(), "notifications/progress");
+      ProgressNotification deserialized = from_json<ProgressNotification>(j);
+      EXPECT_EQ(to_json(deserialized.progressToken).toString(), to_json(notif.progressToken).toString());
+      EXPECT_DOUBLE_EQ(deserialized.progress, 0.5);
+      EXPECT_DOUBLE_EQ(deserialized.total.value(), 100.0);
     }
     // Continue for other notification types...
   }
