@@ -1426,168 +1426,19 @@ class RootsListChangedNotificationBuilder
 
 // Deprecated factory functions removed - use make<T>() instead
 
-#if __cplusplus >= 201703L
-// C++17 version using if constexpr
-template <typename T, typename... Args>
-auto make(Args&&... args) {
-  if constexpr (mcp::is_same_v<T, TextContent>) {
-    return TextContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ImageContent>) {
-    return ImageContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, AudioContent>) {
-    return AudioContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Resource>) {
-    return ResourceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceContent>) {
-    return ResourceContentBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Tool>) {
-    return ToolBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Prompt>) {
-    return PromptBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceTemplate>) {
-    return ResourceTemplateBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Implementation>) {
-    return ImplementationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Root>) {
-    return RootBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Message>) {
-    return MessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Error>) {
-    return ErrorBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, EmbeddedResource>) {
-    return EmbeddedResourceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, PromptMessage>) {
-    return PromptMessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, SamplingMessage>) {
-    return SamplingMessageBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, InitializeRequest>) {
-    return InitializeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, InitializeResult>) {
-    return InitializeResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CallToolRequest>) {
-    return CallToolRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CallToolResult>) {
-    return CallToolResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, GetPromptRequest>) {
-    return GetPromptRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, GetPromptResult>) {
-    return GetPromptResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CreateMessageRequest>) {
-    return CreateMessageRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CreateMessageResult>) {
-    return CreateMessageResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListResourcesResult>) {
-    return ListResourcesResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListToolsResult>) {
-    return ListToolsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListPromptsResult>) {
-    return ListPromptsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListRootsResult>) {
-    return ListRootsResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ReadResourceResult>) {
-    return ReadResourceResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CompleteRequest>) {
-    return CompleteRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CompleteResult>) {
-    return CompleteResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, LoggingMessageNotification>) {
-    return LoggingMessageNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ProgressNotification>) {
-    return ProgressNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, CancelledNotification>) {
-    return CancelledNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceUpdatedNotification>) {
-    return ResourceUpdatedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, StringSchema>) {
-    return StringSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, NumberSchema>) {
-    return NumberSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, BooleanSchema>) {
-    return BooleanSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, EnumSchema>) {
-    return EnumSchemaBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ElicitRequest>) {
-    return ElicitRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ElicitResult>) {
-    return ElicitResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, SamplingParams>) {
-    return SamplingParamsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ModelPreferences>) {
-    return ModelPreferencesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ClientCapabilities>) {
-    return ClientCapabilitiesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ServerCapabilities>) {
-    return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, InitializeParams>) {
-    return InitializeParamsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, Annotations>) {
-    return AnnotationsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, BaseMetadata>) {
-    return BaseMetadataBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ToolAnnotations>) {
-    return ToolAnnotationsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceLink>) {
-    return ResourceLinkBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ToolParameter>) {
-    return ToolParameterBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ModelHint>) {
-    return ModelHintBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, TextResourceContents>) {
-    return TextResourceContentsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, BlobResourceContents>) {
-    return BlobResourceContentsBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceTemplateReference>) {
-    return ResourceTemplateReferenceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, PromptReference>) {
-    return PromptReferenceBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourcesCapability>) {
-    return ResourcesCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, PromptsCapability>) {
-    return PromptsCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, RootsCapability>) {
-    return RootsCapabilityBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, EmptyResult>) {
-    return EmptyResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, InitializedNotification>) {
-    return InitializedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, PingRequest>) {
-    return PingRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListResourcesRequest>) {
-    return ListResourcesRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListResourceTemplatesRequest>) {
-    return ListResourceTemplatesRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListResourceTemplatesResult>) {
-    return ListResourceTemplatesResultBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ReadResourceRequest>) {
-    return ReadResourceRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ResourceListChangedNotification>) {
-    return ResourceListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, SubscribeRequest>) {
-    return SubscribeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, UnsubscribeRequest>) {
-    return UnsubscribeRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListPromptsRequest>) {
-    return ListPromptsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, PromptListChangedNotification>) {
-    return PromptListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListToolsRequest>) {
-    return ListToolsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ToolListChangedNotification>) {
-    return ToolListChangedNotificationBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, SetLevelRequest>) {
-    return SetLevelRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, ListRootsRequest>) {
-    return ListRootsRequestBuilder(std::forward<Args>(args)...);
-  } else if constexpr (mcp::is_same_v<T, RootsListChangedNotification>) {
-    return RootsListChangedNotificationBuilder(std::forward<Args>(args)...);
-  }
-}
-
-#else
-// C++14 version using template specialization
+// Unified make<T>() implementation for C++14/17
 namespace detail {
   template <typename T>
   struct MakeHelper;
+}
+
+template <typename T, typename... Args>
+auto make(Args&&... args) {
+  return detail::MakeHelper<T>::make(std::forward<Args>(args)...);
+}
+
+// Template specializations for all supported types
+namespace detail {
   
   template <>
   struct MakeHelper<TextContent> {
@@ -1622,6 +1473,14 @@ namespace detail {
   };
   
   template <>
+  struct MakeHelper<ResourceContent> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceContentBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
   struct MakeHelper<Tool> {
     template <typename... Args>
     static auto make(Args&&... args) {
@@ -1630,70 +1489,36 @@ namespace detail {
   };
   
   template <>
-  struct MakeHelper<SamplingParams> {
+  struct MakeHelper<Prompt> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return SamplingParamsBuilder(std::forward<Args>(args)...);
+      return PromptBuilder(std::forward<Args>(args)...);
     }
   };
   
   template <>
-  struct MakeHelper<ModelPreferences> {
+  struct MakeHelper<ResourceTemplate> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return ModelPreferencesBuilder(std::forward<Args>(args)...);
+      return ResourceTemplateBuilder(std::forward<Args>(args)...);
     }
   };
   
   template <>
-  struct MakeHelper<ClientCapabilities> {
+  struct MakeHelper<Implementation> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return ClientCapabilitiesBuilder(std::forward<Args>(args)...);
+      return ImplementationBuilder(std::forward<Args>(args)...);
     }
   };
   
   template <>
-  struct MakeHelper<ServerCapabilities> {
+  struct MakeHelper<Root> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
+      return RootBuilder(std::forward<Args>(args)...);
     }
   };
-  
-  template <>
-  struct MakeHelper<CreateMessageRequest> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return CreateMessageRequestBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<StringSchema> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return StringSchemaBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<EmbeddedResource> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return EmbeddedResourceBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<InitializeParams> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return InitializeParamsBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  // Add ALL type specializations for complete C++14 support
   
   template <>
   struct MakeHelper<Message> {
@@ -1712,6 +1537,31 @@ namespace detail {
   };
   
   template <>
+  struct MakeHelper<EmbeddedResource> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return EmbeddedResourceBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<PromptMessage> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PromptMessageBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<SamplingMessage> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return SamplingMessageBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  // Add all remaining type specializations here
+  template <>
   struct MakeHelper<InitializeRequest> {
     template <typename... Args>
     static auto make(Args&&... args) {
@@ -1724,6 +1574,14 @@ namespace detail {
     template <typename... Args>
     static auto make(Args&&... args) {
       return InitializeResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<InitializeParams> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return InitializeParamsBuilder(std::forward<Args>(args)...);
     }
   };
   
@@ -1760,10 +1618,26 @@ namespace detail {
   };
   
   template <>
+  struct MakeHelper<CreateMessageRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CreateMessageRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
   struct MakeHelper<CreateMessageResult> {
     template <typename... Args>
     static auto make(Args&&... args) {
       return CreateMessageResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListResourcesRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListResourcesRequestBuilder(std::forward<Args>(args)...);
     }
   };
   
@@ -1776,10 +1650,42 @@ namespace detail {
   };
   
   template <>
+  struct MakeHelper<ListToolsRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListToolsRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
   struct MakeHelper<ListToolsResult> {
     template <typename... Args>
     static auto make(Args&&... args) {
       return ListToolsResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListPromptsRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListPromptsRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListPromptsResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListPromptsResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ReadResourceRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ReadResourceRequestBuilder(std::forward<Args>(args)...);
     }
   };
   
@@ -1804,6 +1710,70 @@ namespace detail {
     template <typename... Args>
     static auto make(Args&&... args) {
       return CompleteResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<SamplingParams> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return SamplingParamsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ModelPreferences> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ModelPreferencesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ClientCapabilities> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ClientCapabilitiesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ServerCapabilities> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<StringSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return StringSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<NumberSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return NumberSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<BooleanSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return BooleanSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<EnumSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return EnumSchemaBuilder(std::forward<Args>(args)...);
     }
   };
   
@@ -1836,30 +1806,6 @@ namespace detail {
     template <typename... Args>
     static auto make(Args&&... args) {
       return ResourceUpdatedNotificationBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<NumberSchema> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return NumberSchemaBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<BooleanSchema> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return BooleanSchemaBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<EnumSchema> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return EnumSchemaBuilder(std::forward<Args>(args)...);
     }
   };
   
@@ -1904,14 +1850,6 @@ namespace detail {
   };
   
   template <>
-  struct MakeHelper<ResourceTemplate> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return ResourceTemplateBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
   struct MakeHelper<ModelHint> {
     template <typename... Args>
     static auto make(Args&&... args) {
@@ -1944,22 +1882,6 @@ namespace detail {
   };
   
   template <>
-  struct MakeHelper<ListResourcesRequest> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return ListResourcesRequestBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
-  struct MakeHelper<ReadResourceRequest> {
-    template <typename... Args>
-    static auto make(Args&&... args) {
-      return ReadResourceRequestBuilder(std::forward<Args>(args)...);
-    }
-  };
-  
-  template <>
   struct MakeHelper<SubscribeRequest> {
     template <typename... Args>
     static auto make(Args&&... args) {
@@ -1984,27 +1906,142 @@ namespace detail {
   };
   
   template <>
-  struct MakeHelper<Prompt> {
+  struct MakeHelper<UnsubscribeRequest> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return PromptBuilder(std::forward<Args>(args)...);
+      return UnsubscribeRequestBuilder(std::forward<Args>(args)...);
     }
   };
   
   template <>
-  struct MakeHelper<ListPromptsResult> {
+  struct MakeHelper<ListRootsRequest> {
     template <typename... Args>
     static auto make(Args&&... args) {
-      return ListPromptsResultBuilder(std::forward<Args>(args)...);
+      return ListRootsRequestBuilder(std::forward<Args>(args)...);
     }
   };
-}
-
-template <typename T, typename... Args>
-auto make(Args&&... args) {
-  return detail::MakeHelper<T>::make(std::forward<Args>(args)...);
-}
-#endif
+  
+  template <>
+  struct MakeHelper<ListRootsResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListRootsResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListResourceTemplatesRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListResourceTemplatesRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListResourceTemplatesResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListResourceTemplatesResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<InitializedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return InitializedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ResourceListChangedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceListChangedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<PromptListChangedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PromptListChangedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ToolListChangedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ToolListChangedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<RootsListChangedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return RootsListChangedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ResourceTemplateReference> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceTemplateReferenceBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<PromptReference> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PromptReferenceBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ResourcesCapability> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourcesCapabilityBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<PromptsCapability> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PromptsCapabilityBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<RootsCapability> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return RootsCapabilityBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<BaseMetadata> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return BaseMetadataBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ToolAnnotations> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ToolAnnotationsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+}  // namespace detail
 
 }  // namespace mcp
 
