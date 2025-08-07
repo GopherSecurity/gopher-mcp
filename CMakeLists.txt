@@ -202,6 +202,27 @@ if(BUILD_EXAMPLES)
         mcp-sdk 
         Threads::Threads
     )
+    
+    # Add stdio echo examples
+    add_executable(stdio_echo_server examples/stdio_echo_server.cc)
+    target_link_libraries(stdio_echo_server
+        mcp-event
+        mcp-sdk
+        Threads::Threads
+    )
+    
+    add_executable(stdio_echo_client examples/stdio_echo_client.cc)
+    target_link_libraries(stdio_echo_client
+        mcp-event
+        mcp-sdk
+        Threads::Threads
+    )
+    
+    add_executable(test_echo_integration examples/test_echo_integration.cc)
+    target_link_libraries(test_echo_integration
+        mcp-sdk
+        Threads::Threads
+    )
 endif()
 
 # Add custom target for formatting
