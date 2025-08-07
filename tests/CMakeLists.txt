@@ -39,6 +39,12 @@ add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_
 add_executable(test_mcp_connection_manager test_mcp_connection_manager.cc)
 add_executable(test_builders test_builders.cc)
 
+# New tests for recent fixes
+add_executable(test_connection_pool_callbacks test_connection_pool_callbacks.cc)
+add_executable(test_connection_utility test_connection_utility.cc)
+add_executable(test_listener_filter_chain test_listener_filter_chain.cc)
+add_executable(test_thread_safety_extended test_thread_safety_extended.cc)
+
 # Link libraries
 target_link_libraries(test_variant 
     gtest 
@@ -265,6 +271,38 @@ target_link_libraries(test_builders
     Threads::Threads
 )
 
+# Link libraries for new tests
+target_link_libraries(test_connection_pool_callbacks
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_utility
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_listener_filter_chain
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_thread_safety_extended
+    mcp-event
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -303,6 +341,12 @@ add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
 add_test(NAME BuildersTest COMMAND test_builders)
+
+# New tests for recent fixes
+add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)
+add_test(NAME ConnectionUtilityTest COMMAND test_connection_utility)
+add_test(NAME ListenerFilterChainTest COMMAND test_listener_filter_chain)
+add_test(NAME ThreadSafetyExtendedTest COMMAND test_thread_safety_extended)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
