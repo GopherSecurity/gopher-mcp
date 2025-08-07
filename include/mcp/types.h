@@ -8,8 +8,7 @@
 #include <vector>
 
 // nlohmann/json.hpp no longer needed - using JsonValue instead
-#include "mcp/json_bridge.h"   // For JsonValue
-
+#include "mcp/json_bridge.h"  // For JsonValue
 #include "mcp/type_helpers.h"
 
 namespace mcp {
@@ -258,7 +257,8 @@ inline ContentBlock make_image_content(const std::string& data,
 }
 
 // Tool definitions
-using ToolInputSchema = mcp::json::JsonValue;  // Tool input schema is a JSON object
+using ToolInputSchema =
+    mcp::json::JsonValue;  // Tool input schema is a JSON object
 
 struct ToolParameter {
   std::string name;
@@ -294,14 +294,16 @@ struct Prompt {
 };
 
 // Error data type
-using ErrorData = variant<
-    std::nullptr_t,
-    bool,
-    int,
-    double,
-    std::string,
-    std::vector<std::string>,  // Simplified: vector of strings instead of nested variant
-    std::map<std::string, std::string>>;  // Simplified: map of string to string
+using ErrorData =
+    variant<std::nullptr_t,
+            bool,
+            int,
+            double,
+            std::string,
+            std::vector<std::string>,  // Simplified: vector of strings instead
+                                       // of nested variant
+            std::map<std::string, std::string>>;  // Simplified: map of string
+                                                  // to string
 
 // Error type
 struct Error {

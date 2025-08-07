@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "mcp/network/address.h"
 #include "mcp/compat.h"
+#include "mcp/network/address.h"
 
 namespace mcp {
 namespace stream_info {

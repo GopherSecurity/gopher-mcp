@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "mcp/buffer.h"
-#include "mcp/network/transport_socket.h"
 #include "mcp/compat.h"
+#include "mcp/network/transport_socket.h"
 
 namespace mcp {
 namespace network {
