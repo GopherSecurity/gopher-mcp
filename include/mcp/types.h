@@ -435,9 +435,6 @@ const Error* get_error(const Result<T>& result) {
 
 // Builder pattern for complex types
 
-
-
-
 // JSON-RPC message types
 namespace jsonrpc {
 
@@ -621,7 +618,6 @@ struct ModelPreferences {
   ModelPreferences() = default;
 };
 
-
 // Root type for filesystem-like structures
 struct Root {
   std::string uri;
@@ -782,7 +778,6 @@ struct ServerCapabilities {
 };
 
 // Builder for capabilities
-
 
 // Protocol message types
 
@@ -1156,7 +1151,6 @@ inline LoggingMessageNotification make_log_notification(
   notif.data = message;
   return notif;
 }
-
 
 // Additional factory functions for protocol types
 inline CallToolRequest make_tool_call(const std::string& name) {
