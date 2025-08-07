@@ -1426,7 +1426,8 @@ class RootsListChangedNotificationBuilder
 
 // Deprecated factory functions removed - use make<T>() instead
 
-// Template factory function
+#if __cplusplus >= 201703L
+// C++17 version using if constexpr
 template <typename T, typename... Args>
 auto make(Args&&... args) {
   if constexpr (std::is_same_v<T, TextContent>) {
@@ -1581,6 +1582,421 @@ auto make(Args&&... args) {
     return RootsListChangedNotificationBuilder(std::forward<Args>(args)...);
   }
 }
+
+#else
+// C++14 version using template specialization
+namespace detail {
+  template <typename T>
+  struct MakeHelper;
+  
+  template <>
+  struct MakeHelper<TextContent> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return TextContentBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ImageContent> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ImageContentBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<AudioContent> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return AudioContentBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<Resource> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<Tool> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ToolBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<SamplingParams> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return SamplingParamsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ModelPreferences> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ModelPreferencesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ClientCapabilities> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ClientCapabilitiesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ServerCapabilities> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ServerCapabilitiesBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CreateMessageRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CreateMessageRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<StringSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return StringSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<EmbeddedResource> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return EmbeddedResourceBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<InitializeParams> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return InitializeParamsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  // Add ALL type specializations for complete C++14 support
+  
+  template <>
+  struct MakeHelper<Message> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return MessageBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<Error> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ErrorBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<InitializeRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return InitializeRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<InitializeResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return InitializeResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CallToolRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CallToolRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CallToolResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CallToolResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<GetPromptRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return GetPromptRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<GetPromptResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return GetPromptResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CreateMessageResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CreateMessageResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListResourcesResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListResourcesResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListToolsResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListToolsResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ReadResourceResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ReadResourceResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CompleteRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CompleteRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CompleteResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CompleteResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<LoggingMessageNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return LoggingMessageNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ProgressNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ProgressNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<CancelledNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return CancelledNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ResourceUpdatedNotification> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceUpdatedNotificationBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<NumberSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return NumberSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<BooleanSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return BooleanSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<EnumSchema> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return EnumSchemaBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ElicitRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ElicitRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ElicitResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ElicitResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<Annotations> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return AnnotationsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ToolParameter> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ToolParameterBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ResourceLink> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ResourceLinkBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ModelHint> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ModelHintBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<TextResourceContents> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return TextResourceContentsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<BlobResourceContents> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return BlobResourceContentsBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<PingRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PingRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListResourcesRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListResourcesRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ReadResourceRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ReadResourceRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<SubscribeRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return SubscribeRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<SetLevelRequest> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return SetLevelRequestBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<EmptyResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return EmptyResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<Prompt> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return PromptBuilder(std::forward<Args>(args)...);
+    }
+  };
+  
+  template <>
+  struct MakeHelper<ListPromptsResult> {
+    template <typename... Args>
+    static auto make(Args&&... args) {
+      return ListPromptsResultBuilder(std::forward<Args>(args)...);
+    }
+  };
+}
+
+template <typename T, typename... Args>
+auto make(Args&&... args) {
+  return detail::MakeHelper<T>::make(std::forward<Args>(args)...);
+}
+#endif
 
 }  // namespace mcp
 
