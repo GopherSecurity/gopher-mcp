@@ -37,6 +37,7 @@ add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_
 
 # MCP tests
 add_executable(test_mcp_connection_manager test_mcp_connection_manager.cc)
+add_executable(test_builders test_builders.cc)
 
 # Link libraries
 target_link_libraries(test_variant 
@@ -257,6 +258,13 @@ target_link_libraries(test_mcp_connection_manager
     Threads::Threads
 )
 
+target_link_libraries(test_builders
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -294,6 +302,7 @@ add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
 
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
+add_test(NAME BuildersTest COMMAND test_builders)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
@@ -312,7 +321,7 @@ add_custom_target(run_tests
             test_filter test_connection_impl test_listener_impl
             test_connection_manager_impl test_stream_info_impl
             test_stdio_transport_socket test_http_sse_transport_socket
-            test_mcp_connection_manager
+            test_mcp_connection_manager test_builders
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )

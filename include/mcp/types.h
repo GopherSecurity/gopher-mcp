@@ -434,160 +434,9 @@ const Error* get_error(const Result<T>& result) {
 }
 
 // Builder pattern for complex types
-class ResourceBuilder {
-  Resource resource_;
 
- public:
-  ResourceBuilder(const std::string& uri, const std::string& name)
-      : resource_(uri, name) {}
 
-  ResourceBuilder& description(const std::string& desc) {
-    resource_.description = mcp::make_optional(desc);
-    return *this;
-  }
 
-  ResourceBuilder& mimeType(const std::string& mime) {
-    resource_.mimeType = mcp::make_optional(mime);
-    return *this;
-  }
-
-  Resource build() && { return std::move(resource_); }
-  Resource build() const& { return resource_; }
-};
-
-inline ResourceBuilder build_resource(const std::string& uri,
-                                      const std::string& name) {
-  return ResourceBuilder(uri, name);
-}
-
-class ToolBuilder {
-  Tool tool_;
-
- public:
-  explicit ToolBuilder(const std::string& name) : tool_(name) {}
-
-  ToolBuilder& description(const std::string& desc) {
-    tool_.description = mcp::make_optional(desc);
-    return *this;
-  }
-
-  ToolBuilder& inputSchema(const ToolInputSchema& schema) {
-    tool_.inputSchema = mcp::make_optional(schema);
-    return *this;
-  }
-
-  // Legacy parameter support
-  ToolBuilder& parameter(const std::string& name,
-                         const std::string& type,
-                         bool required = false) {
-    if (!tool_.parameters) {
-      tool_.parameters = mcp::make_optional(std::vector<ToolParameter>());
-    }
-    tool_.parameters->push_back(ToolParameter{name, type, nullopt, required});
-    return *this;
-  }
-
-  ToolBuilder& parameter(const std::string& name,
-                         const std::string& type,
-                         const std::string& desc,
-                         bool required = false) {
-    if (!tool_.parameters) {
-      tool_.parameters = mcp::make_optional(std::vector<ToolParameter>());
-    }
-    tool_.parameters->push_back(
-        ToolParameter{name, type, mcp::make_optional(desc), required});
-    return *this;
-  }
-
-  Tool build() && { return std::move(tool_); }
-  Tool build() const& { return tool_; }
-};
-
-inline ToolBuilder build_tool(const std::string& name) {
-  return ToolBuilder(name);
-}
-
-class SamplingParamsBuilder {
-  SamplingParams params_;
-
- public:
-  SamplingParamsBuilder() = default;
-
-  SamplingParamsBuilder& temperature(double temp) {
-    params_.temperature = mcp::make_optional(temp);
-    return *this;
-  }
-
-  SamplingParamsBuilder& maxTokens(int max) {
-    params_.maxTokens = mcp::make_optional(max);
-    return *this;
-  }
-
-  SamplingParamsBuilder& stopSequence(const std::string& seq) {
-    if (!params_.stopSequences) {
-      params_.stopSequences = mcp::make_optional(std::vector<std::string>());
-    }
-    params_.stopSequences->push_back(seq);
-    return *this;
-  }
-
-  SamplingParamsBuilder& metadata(const std::string& key,
-                                  const std::string& value) {
-    if (!params_.metadata) {
-      params_.metadata = mcp::make_optional(Metadata());
-    }
-    add_metadata(*params_.metadata, key, value);
-    return *this;
-  }
-
-  template <typename T>
-  SamplingParamsBuilder& metadata(const std::string& key, T&& value) {
-    if (!params_.metadata) {
-      params_.metadata = mcp::make_optional(Metadata());
-    }
-    add_metadata(*params_.metadata, key, std::forward<T>(value));
-    return *this;
-  }
-
-  SamplingParams build() && { return std::move(params_); }
-  SamplingParams build() const& { return params_; }
-};
-
-inline SamplingParamsBuilder build_sampling_params() {
-  return SamplingParamsBuilder();
-}
-
-// Builder for EmbeddedResource
-class EmbeddedResourceBuilder {
-  EmbeddedResource resource_;
-
- public:
-  explicit EmbeddedResourceBuilder(const Resource& r) : resource_(r) {}
-
-  EmbeddedResourceBuilder& add_content(const ContentBlock& content) {
-    resource_.content.push_back(content);
-    return *this;
-  }
-
-  EmbeddedResourceBuilder& add_text(const std::string& text) {
-    resource_.content.push_back(make_text_content(text));
-    return *this;
-  }
-
-  EmbeddedResourceBuilder& add_image(const std::string& data,
-                                     const std::string& mime_type) {
-    resource_.content.push_back(make_image_content(data, mime_type));
-    return *this;
-  }
-
-  EmbeddedResource build() && { return std::move(resource_); }
-  EmbeddedResource build() const& { return resource_; }
-};
-
-inline EmbeddedResourceBuilder build_embedded_resource(
-    const Resource& resource) {
-  return EmbeddedResourceBuilder(resource);
-}
 
 // JSON-RPC message types
 namespace jsonrpc {
@@ -772,43 +621,6 @@ struct ModelPreferences {
   ModelPreferences() = default;
 };
 
-// Builder for model preferences
-class ModelPreferencesBuilder {
-  ModelPreferences prefs_;
-
- public:
-  ModelPreferencesBuilder() = default;
-
-  ModelPreferencesBuilder& add_hint(const std::string& model_name) {
-    if (!prefs_.hints) {
-      prefs_.hints = mcp::make_optional(std::vector<ModelHint>());
-    }
-    prefs_.hints->push_back(ModelHint(model_name));
-    return *this;
-  }
-
-  ModelPreferencesBuilder& cost_priority(double priority) {
-    prefs_.costPriority = mcp::make_optional(priority);
-    return *this;
-  }
-
-  ModelPreferencesBuilder& speed_priority(double priority) {
-    prefs_.speedPriority = mcp::make_optional(priority);
-    return *this;
-  }
-
-  ModelPreferencesBuilder& intelligence_priority(double priority) {
-    prefs_.intelligencePriority = mcp::make_optional(priority);
-    return *this;
-  }
-
-  ModelPreferences build() && { return std::move(prefs_); }
-  ModelPreferences build() const& { return prefs_; }
-};
-
-inline ModelPreferencesBuilder build_model_preferences() {
-  return ModelPreferencesBuilder();
-}
 
 // Root type for filesystem-like structures
 struct Root {
@@ -886,39 +698,6 @@ inline PrimitiveSchemaDefinition make_enum_schema(
 }
 
 // Schema builders
-class StringSchemaBuilder {
-  StringSchema schema_;
-
- public:
-  StringSchemaBuilder() = default;
-
-  StringSchemaBuilder& description(const std::string& desc) {
-    schema_.description = mcp::make_optional(desc);
-    return *this;
-  }
-
-  StringSchemaBuilder& pattern(const std::string& regex) {
-    schema_.pattern = mcp::make_optional(regex);
-    return *this;
-  }
-
-  StringSchemaBuilder& min_length(int len) {
-    schema_.minLength = mcp::make_optional(len);
-    return *this;
-  }
-
-  StringSchemaBuilder& max_length(int len) {
-    schema_.maxLength = mcp::make_optional(len);
-    return *this;
-  }
-
-  StringSchema build() && { return std::move(schema_); }
-  StringSchema build() const& { return schema_; }
-};
-
-inline StringSchemaBuilder build_string_schema() {
-  return StringSchemaBuilder();
-}
 
 // Reference types
 struct ResourceTemplateReference {
@@ -1003,92 +782,7 @@ struct ServerCapabilities {
 };
 
 // Builder for capabilities
-class ClientCapabilitiesBuilder {
-  ClientCapabilities caps_;
 
- public:
-  ClientCapabilitiesBuilder() = default;
-
-  ClientCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    caps_.experimental = mcp::make_optional(metadata);
-    return *this;
-  }
-
-  ClientCapabilitiesBuilder& sampling(const SamplingParams& params) {
-    caps_.sampling = mcp::make_optional(params);
-    return *this;
-  }
-
-  // Add missing methods that tests expect
-  ClientCapabilitiesBuilder& resources(bool enabled) {
-    if (!caps_.experimental) {
-      caps_.experimental = mcp::make_optional(Metadata());
-    }
-    add_metadata(*caps_.experimental, "resources", enabled);
-    return *this;
-  }
-
-  ClientCapabilitiesBuilder& tools(bool enabled) {
-    if (!caps_.experimental) {
-      caps_.experimental = mcp::make_optional(Metadata());
-    }
-    add_metadata(*caps_.experimental, "tools", enabled);
-    return *this;
-  }
-
-  ClientCapabilities build() && { return std::move(caps_); }
-  ClientCapabilities build() const& { return caps_; }
-};
-
-inline ClientCapabilitiesBuilder build_client_capabilities() {
-  return ClientCapabilitiesBuilder();
-}
-
-class ServerCapabilitiesBuilder {
-  ServerCapabilities caps_;
-
- public:
-  ServerCapabilitiesBuilder() = default;
-
-  ServerCapabilitiesBuilder& experimental(const Metadata& metadata) {
-    caps_.experimental = mcp::make_optional(metadata);
-    return *this;
-  }
-
-  ServerCapabilitiesBuilder& resources(bool enabled) {
-    caps_.resources =
-        mcp::make_optional(variant<bool, ResourcesCapability>(enabled));
-    return *this;
-  }
-
-  ServerCapabilitiesBuilder& resources(const ResourcesCapability& res_caps) {
-    caps_.resources =
-        mcp::make_optional(variant<bool, ResourcesCapability>(res_caps));
-    return *this;
-  }
-
-  ServerCapabilitiesBuilder& tools(bool enabled) {
-    caps_.tools = mcp::make_optional(enabled);
-    return *this;
-  }
-
-  ServerCapabilitiesBuilder& prompts(bool enabled) {
-    caps_.prompts = mcp::make_optional(enabled);
-    return *this;
-  }
-
-  ServerCapabilitiesBuilder& logging(bool enabled) {
-    caps_.logging = mcp::make_optional(enabled);
-    return *this;
-  }
-
-  ServerCapabilities build() && { return std::move(caps_); }
-  ServerCapabilities build() const& { return caps_; }
-};
-
-inline ServerCapabilitiesBuilder build_server_capabilities() {
-  return ServerCapabilitiesBuilder();
-}
 
 // Protocol message types
 
@@ -1463,70 +1157,6 @@ inline LoggingMessageNotification make_log_notification(
   return notif;
 }
 
-// Builder for CreateMessageRequest
-class CreateMessageRequestBuilder {
-  CreateMessageRequest request_;
-
- public:
-  CreateMessageRequestBuilder() = default;
-
-  CreateMessageRequestBuilder& add_message(const SamplingMessage& msg) {
-    request_.messages.push_back(msg);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& add_user_message(const std::string& text) {
-    SamplingMessage msg;
-    msg.role = enums::Role::USER;
-    msg.content = TextContent(text);
-    request_.messages.push_back(msg);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& add_assistant_message(const std::string& text) {
-    SamplingMessage msg;
-    msg.role = enums::Role::ASSISTANT;
-    msg.content = TextContent(text);
-    request_.messages.push_back(msg);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& model_preferences(
-      const ModelPreferences& prefs) {
-    request_.modelPreferences = mcp::make_optional(prefs);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& system_prompt(const std::string& prompt) {
-    request_.systemPrompt = mcp::make_optional(prompt);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& temperature(double temp) {
-    request_.temperature = mcp::make_optional(temp);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& max_tokens(int tokens) {
-    request_.maxTokens = mcp::make_optional(tokens);
-    return *this;
-  }
-
-  CreateMessageRequestBuilder& stop_sequence(const std::string& seq) {
-    if (!request_.stopSequences) {
-      request_.stopSequences = mcp::make_optional(std::vector<std::string>());
-    }
-    request_.stopSequences->push_back(seq);
-    return *this;
-  }
-
-  CreateMessageRequest build() && { return std::move(request_); }
-  CreateMessageRequest build() const& { return request_; }
-};
-
-inline CreateMessageRequestBuilder build_create_message_request() {
-  return CreateMessageRequestBuilder();
-}
 
 // Additional factory functions for protocol types
 inline CallToolRequest make_tool_call(const std::string& name) {
@@ -1573,50 +1203,6 @@ struct InitializeParams {
   optional<std::string> clientVersion;
   optional<Metadata> capabilities;
 };
-
-class InitializeParamsBuilder {
-  InitializeParams params_;
-
- public:
-  explicit InitializeParamsBuilder(const std::string& version) {
-    params_.protocolVersion = version;
-  }
-
-  InitializeParamsBuilder& clientName(const std::string& name) {
-    params_.clientName = mcp::make_optional(name);
-    return *this;
-  }
-
-  InitializeParamsBuilder& clientVersion(const std::string& version) {
-    params_.clientVersion = mcp::make_optional(version);
-    return *this;
-  }
-
-  InitializeParamsBuilder& capability(const std::string& key, bool value) {
-    if (!params_.capabilities) {
-      params_.capabilities = mcp::make_optional(Metadata());
-    }
-    add_metadata(*params_.capabilities, key, value);
-    return *this;
-  }
-
-  template <typename T>
-  InitializeParamsBuilder& capability(const std::string& key, T&& value) {
-    if (!params_.capabilities) {
-      params_.capabilities = mcp::make_optional(Metadata());
-    }
-    add_metadata(*params_.capabilities, key, std::forward<T>(value));
-    return *this;
-  }
-
-  InitializeParams build() && { return std::move(params_); }
-  InitializeParams build() const& { return params_; }
-};
-
-inline InitializeParamsBuilder build_initialize_params(
-    const std::string& version) {
-  return InitializeParamsBuilder(version);
-}
 
 // Type unions for client/server messages
 using ClientRequest = variant<InitializeRequest,
@@ -1692,5 +1278,8 @@ auto make_method_request(const RequestId& id,
 }
 
 }  // namespace mcp
+
+// Include builders after all types are defined
+#include "mcp/builders.h"
 
 #endif  // MCP_TYPES_H
