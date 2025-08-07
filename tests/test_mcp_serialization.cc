@@ -123,7 +123,7 @@ TEST_F(MCPSerializationTest, Tool) {
   testRoundTrip(simple_tool);
   
   // Tool with all fields
-  Tool full_tool = build_tool("weather")
+  Tool full_tool = make<Tool>("weather")
     .description("Get weather information")
     .inputSchema(JsonValue::parse(R"({
       "type": "object",
@@ -136,7 +136,7 @@ TEST_F(MCPSerializationTest, Tool) {
   testRoundTrip(full_tool);
   
   // Tool with legacy parameters
-  Tool legacy_tool = build_tool("search")
+  Tool legacy_tool = make<Tool>("search")
     .parameter("query", "string", "Search query", true)
     .parameter("limit", "number", false)
     .build();
@@ -307,7 +307,7 @@ TEST_F(MCPSerializationTest, InitializeRequest) {
   InitializeRequest req;
   req.id = make_request_id(1);
   req.protocolVersion = "1.0.0";
-  req.capabilities = build_client_capabilities()
+  req.capabilities = make<ClientCapabilities>()
     .resources(true)
     .tools(true)
     .build();
@@ -325,7 +325,7 @@ TEST_F(MCPSerializationTest, InitializeRequest) {
 TEST_F(MCPSerializationTest, InitializeResult) {
   InitializeResult result;
   result.protocolVersion = "1.0.0";
-  result.capabilities = build_server_capabilities()
+  result.capabilities = make<ServerCapabilities>()
     .resources(true)
     .tools(true)
     .prompts(true)
@@ -443,7 +443,7 @@ TEST_F(MCPSerializationTest, ListToolsRequest) {
 TEST_F(MCPSerializationTest, ListToolsResult) {
   ListToolsResult result;
   result.tools.push_back(make_tool("calculator"));
-  result.tools.push_back(build_tool("weather")
+  result.tools.push_back(make<Tool>("weather")
     .description("Get weather info")
     .build());
   testRoundTrip(result);
@@ -515,7 +515,7 @@ TEST_F(MCPSerializationTest, LoggingMessageNotification) {
 // =============================================================================
 
 TEST_F(MCPSerializationTest, ModelPreferences) {
-  ModelPreferences prefs = build_model_preferences()
+  ModelPreferences prefs = make<ModelPreferences>()
     .add_hint("gpt-4")
     .add_hint("claude-3")
     .cost_priority(0.3)
@@ -526,7 +526,7 @@ TEST_F(MCPSerializationTest, ModelPreferences) {
 }
 
 TEST_F(MCPSerializationTest, SamplingParams) {
-  SamplingParams params = build_sampling_params()
+  SamplingParams params = make<SamplingParams>()
     .temperature(0.7)
     .maxTokens(1000)
     .stopSequence("</end>")
@@ -538,10 +538,10 @@ TEST_F(MCPSerializationTest, SamplingParams) {
 }
 
 TEST_F(MCPSerializationTest, CreateMessageRequest) {
-  CreateMessageRequest req = build_create_message_request()
+  CreateMessageRequest req = make<CreateMessageRequest>()
     .add_user_message("Hello")
     .add_assistant_message("Hi there!")
-    .modelPreferences(build_model_preferences()
+    .modelPreferences(make<ModelPreferences>()
       .add_hint("gpt-4")
       .cost_priority(0.5)
       .build())
@@ -568,7 +568,7 @@ TEST_F(MCPSerializationTest, CreateMessageResult) {
 // =============================================================================
 
 TEST_F(MCPSerializationTest, StringSchema) {
-  StringSchema schema = build_string_schema()
+  StringSchema schema = make<StringSchema>()
     .description("User input")
     .pattern("^[a-zA-Z]+$")
     .min_length(3)
@@ -606,9 +606,9 @@ TEST_F(MCPSerializationTest, EnumSchema) {
 // =============================================================================
 
 TEST_F(MCPSerializationTest, ClientCapabilities) {
-  ClientCapabilities caps = build_client_capabilities()
+  ClientCapabilities caps = make<ClientCapabilities>()
     .experimental(make_metadata())
-    .sampling(build_sampling_params()
+    .sampling(make<SamplingParams>()
       .temperature(0.5)
       .build())
     .build();
@@ -621,7 +621,7 @@ TEST_F(MCPSerializationTest, ClientCapabilities) {
 }
 
 TEST_F(MCPSerializationTest, ServerCapabilities) {
-  ServerCapabilities caps = build_server_capabilities()
+  ServerCapabilities caps = make<ServerCapabilities>()
     .resources(true)
     .tools(true)
     .prompts(true)
@@ -1010,7 +1010,7 @@ TEST_F(MCPSerializationTest, ComplexInitializeSequence) {
   InitializeRequest init_req;
   init_req.id = make_request_id(1);
   init_req.protocolVersion = "1.0.0";
-  init_req.capabilities = build_client_capabilities()
+  init_req.capabilities = make<ClientCapabilities>()
     .experimental(make_metadata())
     .resources(true)
     .tools(true)
@@ -1021,7 +1021,7 @@ TEST_F(MCPSerializationTest, ComplexInitializeSequence) {
   // Server responds with result
   InitializeResult init_result;
   init_result.protocolVersion = "1.0.0";
-  init_result.capabilities = build_server_capabilities()
+  init_result.capabilities = make<ServerCapabilities>()
     .resources(true)
     .tools(true)
     .prompts(true)
@@ -1044,7 +1044,7 @@ TEST_F(MCPSerializationTest, ComplexToolCallSequence) {
   
   // List tools result
   ListToolsResult list_result;
-  Tool calc = build_tool("calculator")
+  Tool calc = make<Tool>("calculator")
     .description("Perform calculations")
     .inputSchema(JsonValue::parse(R"({
       "type": "object",

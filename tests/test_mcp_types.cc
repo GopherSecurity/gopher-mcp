@@ -33,7 +33,7 @@ TEST_F(MCPTypesTest, ResourceLink) {
 TEST_F(MCPTypesTest, EmbeddedResource) {
   auto resource = make_resource("file:///doc.pdf", "document.pdf");
 
-  auto embedded = build_embedded_resource(resource)
+  auto embedded = make<EmbeddedResource>(resource)
                       .add_text("This is page 1")
                       .add_text("This is page 2")
                       .add_image("base64imagedata", "image/png")
@@ -66,10 +66,10 @@ TEST_F(MCPTypesTest, ExtendedLoggingLevels) {
 // Test capability builders
 TEST_F(MCPTypesTest, ClientCapabilities) {
   auto caps =
-      build_client_capabilities()
+      make<ClientCapabilities>()
           .experimental(make_metadata())
           .sampling(
-              build_sampling_params().temperature(0.7).maxTokens(1000).build())
+              make<SamplingParams>().temperature(0.7).maxTokens(1000).build())
           .build();
 
   EXPECT_TRUE(caps.experimental.has_value());
@@ -79,7 +79,7 @@ TEST_F(MCPTypesTest, ClientCapabilities) {
 }
 
 TEST_F(MCPTypesTest, ServerCapabilities) {
-  auto caps = build_server_capabilities()
+  auto caps = make<ServerCapabilities>()
                   .resources(true)
                   .tools(true)
                   .prompts(false)
@@ -98,7 +98,7 @@ TEST_F(MCPTypesTest, ServerCapabilities) {
 
 // Test model preferences
 TEST_F(MCPTypesTest, ModelPreferences) {
-  auto prefs = build_model_preferences()
+  auto prefs = make<ModelPreferences>()
                    .add_hint("gpt-4")
                    .add_hint("claude-3")
                    .cost_priority(0.3)
@@ -117,7 +117,7 @@ TEST_F(MCPTypesTest, ModelPreferences) {
 // Test schema types
 TEST_F(MCPTypesTest, SchemaTypes) {
   // String schema
-  auto string_schema = build_string_schema()
+  auto string_schema = make<StringSchema>()
                            .description("Email address")
                            .pattern("^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$")
                            .min_length(5)
@@ -138,7 +138,7 @@ TEST_F(MCPTypesTest, SchemaTypes) {
 
 // Test request types
 TEST_F(MCPTypesTest, InitializeRequest) {
-  auto caps = build_client_capabilities().resources(true).build();
+  auto caps = make<ClientCapabilities>().resources(true).build();
 
   auto req = make_initialize_request("2025-06-18", caps);
   EXPECT_EQ(req.method, "initialize");
@@ -175,11 +175,11 @@ TEST_F(MCPTypesTest, LoggingNotification) {
 
 // Test CreateMessageRequest builder
 TEST_F(MCPTypesTest, CreateMessageRequest) {
-  auto req = build_create_message_request()
+  auto req = make<CreateMessageRequest>()
                  .add_user_message("What is 2+2?")
                  .add_assistant_message("2+2 equals 4.")
                  .add_user_message("What about 3+3?")
-                 .modelPreferences(build_model_preferences()
+                 .modelPreferences(make<ModelPreferences>()
                                         .add_hint("gpt-4")
                                         .intelligence_priority(0.8)
                                         .build())
@@ -276,12 +276,12 @@ TEST_F(MCPTypesTest, IntegrationRequestResponse) {
   // Initialize request
   auto init_req = make_initialize_request(
       "2025-06-18",
-      build_client_capabilities().tools(true).resources(true).build());
+      make<ClientCapabilities>().tools(true).resources(true).build());
 
   // Simulate server response
   InitializeResult init_result;
   init_result.protocolVersion = "2025-06-18";
-  init_result.capabilities = build_server_capabilities()
+  init_result.capabilities = make<ServerCapabilities>()
                                  .tools(true)
                                  .resources(true)
                                  .logging(true)
@@ -697,12 +697,12 @@ TEST_F(MCPTypesTest, PromptMessageReferences) {
 // Test model preferences edge cases
 TEST_F(MCPTypesTest, ModelPreferencesEdgeCases) {
   // Test with empty hints
-  auto prefs1 = build_model_preferences().build();
+  auto prefs1 = make<ModelPreferences>().build();
   EXPECT_FALSE(prefs1.hints.has_value());
   EXPECT_FALSE(prefs1.costPriority.has_value());
 
   // Test with multiple priorities
-  auto prefs2 = build_model_preferences()
+  auto prefs2 = make<ModelPreferences>()
                     .cost_priority(0.0)          // minimum
                     .speed_priority(1.0)         // maximum
                     .intelligence_priority(0.5)  // middle
@@ -1206,7 +1206,7 @@ TEST_F(MCPTypesTest, ResultErrorPatternComprehensive) {
 // Test all builder patterns comprehensively
 TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   // ResourceBuilder
-  auto resource = build_resource("file:///complex.pdf", "complex.pdf")
+  auto resource = make<Resource>("file:///complex.pdf", "complex.pdf")
                       .description("A complex document")
                       .mimeType("application/pdf")
                       .build();
@@ -1219,7 +1219,7 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(resource.mimeType.value(), "application/pdf");
 
   // Test rvalue and lvalue build()
-  auto builder = build_resource("file:///test.txt", "test.txt");
+  auto builder = make<Resource>("file:///test.txt", "test.txt");
   auto resource_copy = builder.build();             // lvalue build
   auto resource_move = std::move(builder).build();  // rvalue build
 
@@ -1246,7 +1246,7 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
     "required": ["expression"]
   })");
 
-  auto tool = build_tool("advanced_calc")
+  auto tool = make<Tool>("advanced_calc")
                   .description("Advanced calculator with multiple functions")
                   .inputSchema(schema)
                   .build();
@@ -1266,7 +1266,7 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_FALSE(tool.parameters.has_value());
 
   // SamplingParamsBuilder
-  auto params = build_sampling_params()
+  auto params = make<SamplingParams>()
                     .temperature(0.8)
                     .maxTokens(2000)
                     .stopSequence("\n\n")
@@ -1289,7 +1289,7 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(params.metadata->size(), 3u);
 
   // EmbeddedResourceBuilder
-  auto embedded_resource = build_embedded_resource(resource)
+  auto embedded_resource = make<EmbeddedResource>(resource)
                                .add_text("Page 1 content")
                                .add_text("Page 2 content")
                                .add_image("img1_data", "image/png")
