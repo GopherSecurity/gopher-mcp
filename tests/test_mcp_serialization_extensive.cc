@@ -415,7 +415,7 @@ TEST_F(MCPSerializationExtensiveTest, RapidSerializationDeserialization) {
   
   for (int i = 0; i < iterations; ++i) {
     // Create complex object
-    CreateMessageRequest req = build_create_message_request()
+    CreateMessageRequest req = make<CreateMessageRequest>()
       .add_user_message("Message " + std::to_string(i))
       .temperature(0.5 + (i % 10) * 0.05)
       .maxTokens(100 + i % 900)
@@ -473,7 +473,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   // 1. Client connects and initializes
   InitializeRequest init_req = make_initialize_request(
     "1.0.0",
-    build_client_capabilities()
+    make<ClientCapabilities>()
       .resources(true)
       .tools(true)
       .build()
@@ -487,7 +487,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   // 2. Server responds
   InitializeResult init_result;
   init_result.protocolVersion = "1.0.0";
-  init_result.capabilities = build_server_capabilities()
+  init_result.capabilities = make<ServerCapabilities>()
     .resources(true)
     .tools(true)
     .prompts(true)
@@ -509,7 +509,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   // 5. Server responds with tools
   ListToolsResult tools_result;
   tools_result.tools.push_back(
-    build_tool("calculator")
+    make<Tool>("calculator")
       .description("Performs calculations")
       .inputSchema(JsonValue::parse(R"({
         "type": "object",
@@ -520,7 +520,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
       .build()
   );
   tools_result.tools.push_back(
-    build_tool("weather")
+    make<Tool>("weather")
       .description("Gets weather information")
       .build()
   );
@@ -554,7 +554,7 @@ TEST_F(MCPSerializationExtensiveTest, CompleteProtocolSession) {
   ListResourcesResult res_result;
   for (int i = 0; i < 100; ++i) {
     res_result.resources.push_back(
-      build_resource("file:///doc" + std::to_string(i) + ".txt", 
+      make<Resource>("file:///doc" + std::to_string(i) + ".txt", 
                      "Document " + std::to_string(i))
         .description("Description of document " + std::to_string(i))
         .mimeType("text/plain")
@@ -612,7 +612,7 @@ TEST_F(MCPSerializationExtensiveTest, ValidateJsonSchema) {
   EXPECT_EQ(text_json["annotations"]["priority"].getFloat(), 0.8);
   
   // Test Tool schema
-  Tool tool = build_tool("test_tool")
+  Tool tool = make<Tool>("test_tool")
     .description("A test tool")
     .inputSchema(JsonValue::parse(R"({"type": "object"})"))
     .build();
@@ -660,9 +660,9 @@ TEST_F(MCPSerializationExtensiveTest, AllCapabilityCombinations) {
   // Test all possible capability combinations
   
   // Client capabilities with all features
-  ClientCapabilities full_client = build_client_capabilities()
+  ClientCapabilities full_client = make<ClientCapabilities>()
     .experimental(make_metadata())
-    .sampling(build_sampling_params()
+    .sampling(make<SamplingParams>()
       .temperature(0.7)
       .maxTokens(1000)
       .stopSequence("STOP")
@@ -692,7 +692,7 @@ TEST_F(MCPSerializationExtensiveTest, AllCapabilityCombinations) {
   ServerCapabilities server_des = from_json<ServerCapabilities>(server_json);
   
   // Server capabilities with bool resources
-  ServerCapabilities server_with_bool = build_server_capabilities()
+  ServerCapabilities server_with_bool = make<ServerCapabilities>()
     .resources(true)
     .tools(false)
     .prompts(true)
@@ -723,7 +723,7 @@ TEST_F(MCPSerializationExtensiveTest, ComplexModelPreferences) {
   
   // All priorities set
   preferences.push_back(
-    build_model_preferences()
+    make<ModelPreferences>()
       .add_hint("gpt-4")
       .add_hint("claude-3-opus")
       .add_hint("gemini-ultra")
@@ -735,14 +735,14 @@ TEST_F(MCPSerializationExtensiveTest, ComplexModelPreferences) {
   
   // Only hints
   preferences.push_back(
-    build_model_preferences()
+    make<ModelPreferences>()
       .add_hint("llama-70b")
       .build()
   );
   
   // Only priorities
   preferences.push_back(
-    build_model_preferences()
+    make<ModelPreferences>()
       .cost_priority(1.0)
       .speed_priority(0.0)
       .intelligence_priority(1.0)
@@ -783,7 +783,7 @@ TEST_F(MCPSerializationExtensiveTest, ComplexSamplingMessages) {
   
   // Set all optional fields
   req.modelPreferences = mcp::make_optional(
-    build_model_preferences()
+    make<ModelPreferences>()
       .add_hint("gpt-4")
       .cost_priority(0.3)
       .build()
@@ -858,7 +858,7 @@ TEST_F(MCPSerializationExtensiveTest, AllElicitationSchemas) {
   // Test all schema types with all options
   
   // String schema with all constraints
-  StringSchema str_schema = build_string_schema()
+  StringSchema str_schema = make<StringSchema>()
     .description("Enter your name")
     .pattern("^[A-Za-z ]+$")
     .min_length(2)

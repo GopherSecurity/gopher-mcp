@@ -876,7 +876,7 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   EXPECT_TRUE(mcp::holds_alternative<TextContent>(msg2.content));
 
   // Test resource builder
-  auto resource = build_resource("file:///doc.pdf", "document.pdf")
+  auto resource = make<Resource>("file:///doc.pdf", "document.pdf")
                       .description("Important document")
                       .mimeType("application/pdf")
                       .build();
@@ -900,7 +900,7 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
     "required": ["expression"]
   })");
 
-  auto tool = build_tool("calculator")
+  auto tool = make<Tool>("calculator")
                   .description("Performs mathematical calculations")
                   .inputSchema(schema)
                   .build();
@@ -912,7 +912,7 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   EXPECT_EQ(tool.inputSchema.value()["type"].getString(), "object");
 
   // Test sampling params builder
-  auto params = build_sampling_params()
+  auto params = make<SamplingParams>()
                     .temperature(0.7)
                     .maxTokens(1000)
                     .stopSequence("\\n\\n")
@@ -968,7 +968,7 @@ TEST_F(MCPTypeHelpersTest, JSONRPCFactories) {
 // Test protocol message factories
 TEST_F(MCPTypeHelpersTest, ProtocolMessageFactories) {
   // Test initialize params builder
-  auto init_params = build_initialize_params("1.0.0")
+  auto init_params = make<InitializeParams>("1.0.0")
                          .clientName("test-client")
                          .clientVersion("0.1.0")
                          .capability("tools", true)

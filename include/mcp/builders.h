@@ -1367,47 +1367,7 @@ class RootsListChangedNotificationBuilder : public Builder<RootsListChangedNotif
   }
 };
 
-// Factory functions (compatibility with existing code)
-inline ResourceBuilder build_resource(const std::string& uri,
-                                      const std::string& name) {
-  return ResourceBuilder(uri, name);
-}
-
-inline ToolBuilder build_tool(const std::string& name) {
-  return ToolBuilder(name);
-}
-
-inline SamplingParamsBuilder build_sampling_params() {
-  return SamplingParamsBuilder();
-}
-
-inline EmbeddedResourceBuilder build_embedded_resource(const Resource& resource) {
-  return EmbeddedResourceBuilder(resource);
-}
-
-inline ModelPreferencesBuilder build_model_preferences() {
-  return ModelPreferencesBuilder();
-}
-
-inline StringSchemaBuilder build_string_schema() {
-  return StringSchemaBuilder();
-}
-
-inline ClientCapabilitiesBuilder build_client_capabilities() {
-  return ClientCapabilitiesBuilder();
-}
-
-inline ServerCapabilitiesBuilder build_server_capabilities() {
-  return ServerCapabilitiesBuilder();
-}
-
-inline CreateMessageRequestBuilder build_create_message_request() {
-  return CreateMessageRequestBuilder();
-}
-
-inline InitializeParamsBuilder build_initialize_params(const std::string& version) {
-  return InitializeParamsBuilder(version);
-}
+// Deprecated factory functions removed - use make<T>() instead
 
 // Template factory function
 template <typename T, typename... Args>

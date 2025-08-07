@@ -241,7 +241,7 @@ inline std::unique_ptr<McpConnectionManager> createMcpConnectionManager(
  *
  * // Send initialize request
  * auto init_request = make_initialize_request("2024-11-05",
- *     build_client_capabilities().build());
+ *     make<ClientCapabilities>().build());
  * mcp_manager->sendRequest(init_request);
  *
  * // Run event loop
