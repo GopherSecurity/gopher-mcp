@@ -34,6 +34,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
+add_executable(test_stdio_pipe_bridge test_stdio_pipe_bridge.cc)
 
 # Echo server/client tests
 add_executable(test_stdio_echo_server test_stdio_echo_server.cc)
@@ -280,6 +281,16 @@ target_link_libraries(test_stdio_echo_client
     nlohmann_json::nlohmann_json
 )
 
+target_link_libraries(test_stdio_pipe_bridge
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
     mcp-sdk
@@ -369,6 +380,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 # Transport tests
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
+add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 add_test(NAME StdioEchoServerTest COMMAND test_stdio_echo_server)
 add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
 
