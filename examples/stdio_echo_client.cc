@@ -20,7 +20,18 @@ namespace examples {
 
 /**
  * Echo client implementation for MCP over stdio transport
- * Sends JSON-RPC messages and receives echo responses using builder pattern
+ * 
+ * Architecture:
+ * - Communicates via stdin/stdout using JSON-RPC protocol
+ * - Sends requests and tracks responses by ID for correlation
+ * - Demonstrates builder pattern for constructing messages
+ * - Uses libevent dispatcher for async I/O handling
+ * 
+ * Message Flow:
+ * 1. Client sends request/notification to stdout
+ * 2. Server reads from its stdin (connected to client's stdout)
+ * 3. Server processes and sends response to its stdout
+ * 4. Client reads response from stdin (connected to server's stdout)
  */
 class StdioEchoClient : public McpMessageCallbacks {
 public:
@@ -60,9 +71,12 @@ public:
     
     std::cerr << "Starting stdio echo client...\n";
     
-    // Thread safety fix - same issue as server:
-    // Must defer connection until dispatcher->run() sets thread_id_
-    // Otherwise createFileEvent() will fail its isThreadSafe() check
+    // Thread Safety Critical Section:
+    // Must defer connection to dispatcher thread for thread safety.
+    // The dispatcher's thread_id_ is only set when run() is called.
+    // If we connect before run(), createFileEvent() will fail its
+    // isThreadSafe() check. Using post() ensures connection happens
+    // in the correct thread context after run() starts.
     dispatcher_.post([this]() {
       // Connect using stdio transport
       auto result = connection_manager_->connect();
@@ -104,6 +118,13 @@ public:
   
   /**
    * Send a test request to the server
+   * 
+   * Flow:
+   * 1. Generate unique request ID for correlation
+   * 2. Build request using builder pattern
+   * 3. Track request in pending_requests_ map
+   * 4. Send via connection_manager (writes to stdout)
+   * 5. Response will arrive asynchronously via onResponse()
    */
   void sendTestRequest(const std::string& method, const Metadata& params = {}) {
     if (!running_) {
@@ -162,6 +183,13 @@ public:
   
   /**
    * Run automated test sequence
+   * 
+   * Demonstrates various message patterns:
+   * - Simple requests without parameters
+   * - Requests with complex parameters
+   * - Fire-and-forget notifications
+   * - Rapid sequential requests
+   * - Builder pattern usage for message construction
    */
   void runTestSequence() {
     std::cerr << "\n=== Starting test sequence ===\n";
@@ -234,7 +262,9 @@ public:
     std::cerr << "Pending requests: " << pending_requests_.size() << "\n";
   }
 
-  // McpMessageCallbacks interface
+  // McpMessageCallbacks interface implementation
+  // Note: Clients typically don't receive requests from servers,
+  // but we handle them for completeness
   void onRequest(const jsonrpc::Request& request) override {
     std::cerr << "Received unexpected request from server: " 
               << request.method << "\n";
@@ -262,7 +292,12 @@ public:
   }
   
   void onResponse(const jsonrpc::Response& response) override {
-    // Extract request ID
+    // Response correlation flow:
+    // 1. Extract request ID from response
+    // 2. Look up in pending_requests_ map
+    // 3. Calculate round-trip time
+    // 4. Remove from pending requests
+    
     int request_id = -1;
     if (mcp::holds_alternative<int>(response.id)) {
       request_id = mcp::get<int>(response.id);
@@ -362,6 +397,15 @@ void printUsage() {
 }
 
 int main(int argc, char* argv[]) {
+  // Client initialization and mode selection
+  // Flow:
+  // 1. Parse command-line arguments for mode selection
+  // 2. Set up signal handlers for graceful shutdown
+  // 3. Create libevent dispatcher for async I/O
+  // 4. Create and start echo client
+  // 5. Execute mode-specific logic (auto/manual/interactive)
+  // 6. Run event loop until shutdown
+  
   std::string mode = "auto";
   if (argc > 1) {
     mode = argv[1];
@@ -434,7 +478,11 @@ int main(int argc, char* argv[]) {
     std::cerr << "Use 'auto' or 'manual' mode instead.\n";
   }
   
-  // Run event loop
+  // Main event loop:
+  // - Process I/O events and timers via dispatcher
+  // - Check for shutdown signal or connection close
+  // - Small sleep to prevent CPU spinning
+  // - NonBlock mode allows periodic status checks
   while (!g_shutdown && g_client->isRunning()) {
     dispatcher->run(mcp::event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
