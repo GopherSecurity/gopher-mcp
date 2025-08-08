@@ -119,12 +119,14 @@ class ConnectionImpl : public ConnectionImplBase,
   void addReadFilter(ReadFilterSharedPtr filter);
   void removeReadFilter(ReadFilterSharedPtr filter);
   bool initializeReadFilters();
+  
+  // Event handlers (public for stdio transport initialization)
+  void onReadReady();
+  void onWriteReady();
 
  private:
   // Event handlers
   void onFileEvent(uint32_t events);
-  void onReadReady();
-  void onWriteReady();
 
   // Connection lifecycle
   void closeSocket(ConnectionEvent close_type);
