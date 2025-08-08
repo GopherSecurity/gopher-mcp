@@ -178,27 +178,110 @@ void StdioPipeTransport::closeSocket(network::ConnectionEvent event) {
 }
 
 TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
-  // This is called by ConnectionImpl to read data
-  // The data has already been bridged from stdin to the pipe
-  // ConnectionImpl will read directly from the pipe via IoHandle
-  // This method shouldn't be called if we're using the pipe properly
+  // This is called by ConnectionImpl to read data from the transport
+  // We read from the callbacks' io_handle which has the pipe FD
   
-  // Just return success with no data
-  return TransportIoResult::success(0);
+  if (!callbacks_) {
+    return TransportIoResult::stop();
+  }
+  
+  const size_t max_slice_size = 65536; // 64KB at a time
+  RawSlice slice;
+  
+  // Reserve space in the buffer
+  void* mem = buffer.reserveSingleSlice(max_slice_size, slice);
+  if (!mem) {
+    return TransportIoResult::stop();
+  }
+  
+  // Read from the io_handle (which has stdin_to_conn_pipe_[0])
+  network::IoHandle& io_handle = callbacks_->ioHandle();
+  auto result = io_handle.readv(slice.len_, &slice, 1);
+  
+  if (!result.ok()) {
+    buffer.commit(slice, 0);
+    
+    // Handle would-block
+    if (result.wouldBlock()) {
+      return TransportIoResult::stop();
+    }
+    
+    // Handle connection reset
+    if (result.error_code() == ECONNRESET) {
+      return TransportIoResult::close();
+    }
+    
+    // Other errors
+    failure_reason_ = "Read error: " + std::string(strerror(result.error_code()));
+    Error err;
+    err.code = result.error_code();
+    err.message = failure_reason_;
+    return TransportIoResult::error(err);
+  }
+  
+  size_t bytes_read = *result;
+  
+  // Handle EOF
+  if (bytes_read == 0) {
+    buffer.commit(slice, 0);
+    return TransportIoResult::endStream(0);
+  }
+  
+  // Commit the read data
+  buffer.commit(slice, bytes_read);
+  
+  // Mark socket as readable if edge-triggered
+  callbacks_->setTransportSocketIsReadable();
+  
+  return TransportIoResult::success(bytes_read);
 }
 
 TransportIoResult StdioPipeTransport::doWrite(Buffer& buffer, bool end_stream) {
-  // This is called by ConnectionImpl to write data
-  // The data will be written to the pipe and bridged to stdout
-  // ConnectionImpl will write directly to the pipe via IoHandle
-  // This method shouldn't be called if we're using the pipe properly
+  // This is called by ConnectionImpl to write data to the transport
+  // We write to the callbacks' io_handle which has the pipe FD
   
   (void)end_stream;
   
-  // Just drain the buffer and return success
-  size_t len = buffer.length();
-  buffer.drain(len);
-  return TransportIoResult::success(len);
+  if (!callbacks_) {
+    return TransportIoResult::stop();
+  }
+  
+  // Get slices to write
+  constexpr size_t max_slices = 16;
+  ConstRawSlice slices[max_slices];
+  const size_t num_slices = buffer.getRawSlices(slices, max_slices);
+  
+  if (num_slices == 0) {
+    return TransportIoResult::success(0);
+  }
+  
+  // Write to the io_handle (which has conn_to_stdout_pipe_[1])
+  network::IoHandle& io_handle = callbacks_->ioHandle();
+  auto result = io_handle.writev(slices, num_slices);
+  
+  if (!result.ok()) {
+    // Handle would-block
+    if (result.wouldBlock()) {
+      return TransportIoResult::stop();
+    }
+    
+    // Handle broken pipe
+    if (result.error_code() == EPIPE) {
+      return TransportIoResult::close();
+    }
+    
+    // Other errors
+    failure_reason_ = "Write error: " + std::string(strerror(result.error_code()));
+    Error err;
+    err.code = result.error_code();
+    err.message = failure_reason_;
+    return TransportIoResult::error(err);
+  }
+  
+  size_t bytes_written = *result;
+  buffer.drain(bytes_written);
+  
+  return TransportIoResult::success(bytes_written);
 }
 
 void StdioPipeTransport::onConnected() {

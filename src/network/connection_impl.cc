@@ -189,10 +189,16 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
+        // For pipe sockets, use level-triggered events to ensure we don't miss data
+        // that's already in the buffer when we set up the event
+        auto trigger_type = (socket_->addressType() == network::Address::Type::Pipe)
+            ? event::FileTriggerType::Level
+            : event::FileTriggerType::Edge;
+        
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
             [this](uint32_t events) { onFileEvent(events); },
-            event::FileTriggerType::Edge,
+            trigger_type,
             static_cast<uint32_t>(event::FileReadyType::Closed));
     
         // Enable read events initially
