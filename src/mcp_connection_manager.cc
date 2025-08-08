@@ -5,6 +5,7 @@
 #include "mcp/network/listener.h"
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/stdio_transport_socket.h"
+#include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/json_bridge.h"
 #include "mcp/json_serialization.h"
@@ -210,58 +211,42 @@ VoidResult McpConnectionManager::connect() {
   is_server_ = false;
   
   if (config_.transport_type == TransportType::Stdio) {
-    // For stdio, we create a "fake" connection that wraps stdin/stdout
-    // Create a dummy socket
-    auto socket = socket_interface_.socket(
-        network::SocketType::Stream,
-        network::Address::Type::Pipe);
-    
-    if (!socket.ok()) {
+    // For stdio, we use the pipe bridge pattern
+    if (!config_.stdio_config.has_value()) {
       Error err;
       err.code = -1;
-      err.message = "Failed to create socket";
+      err.message = "Stdio config not set";
       return makeVoidError(err);
     }
     
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
     
-    // Create transport socket
-    // Create IoHandle from fd
-    auto io_handle = socket_interface_.ioHandleForFd(*socket);
-    if (!io_handle) {
-      socket_interface_.close(*socket);
+    // Create and initialize the pipe transport
+    transport::StdioPipeTransportConfig pipe_config;
+    pipe_config.stdin_fd = config_.stdio_config->stdin_fd;
+    pipe_config.stdout_fd = config_.stdio_config->stdout_fd;
+    pipe_config.non_blocking = config_.stdio_config->non_blocking;
+    
+    auto pipe_transport = std::make_unique<transport::StdioPipeTransport>(pipe_config);
+    
+    // Initialize the pipe transport (creates pipes and starts bridge threads)
+    auto init_result = pipe_transport->initialize();
+    if (holds_alternative<Error>(init_result)) {
+      return init_result;
+    }
+    
+    // Get the pipe socket that ConnectionImpl will use
+    auto socket_wrapper = pipe_transport->takePipeSocket();
+    if (!socket_wrapper) {
       Error err;
       err.code = -1;
-      err.message = "Failed to create IO handle";
+      err.message = "Failed to get pipe socket from transport";
       return makeVoidError(err);
     }
     
-    // Create socket wrapper
-    auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(io_handle), nullptr, nullptr);
-    
-    // Create transport socket for client connection
-    auto transport_factory = createTransportSocketFactory();
-    if (!transport_factory) {
-      socket_interface_.close(*socket);
-      Error err;
-      err.code = -1;
-      err.message = "Failed to create transport factory";
-      return makeVoidError(err);
-    }
-    
-    network::TransportSocketPtr transport_socket;
-    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
-    if (client_factory) {
-      transport_socket = client_factory->createTransportSocket(nullptr);
-    } else {
-      socket_interface_.close(*socket);
-      Error err;
-      err.code = -1;
-      err.message = "Transport factory does not support client connections";
-      return makeVoidError(err);
-    }
+    // Use the pipe transport as the transport socket
+    network::TransportSocketPtr transport_socket = std::move(pipe_transport);
     
     // Create connection
     active_connection_ = network::ConnectionImpl::createClientConnection(
@@ -293,7 +278,7 @@ VoidResult McpConnectionManager::connect() {
     
     // Mark as connected
     connected_ = true;
-    // Transport socket should be notified instead
+    // The pipe transport is already initialized and running
     if (active_connection_) {
       auto& transport = active_connection_->transportSocket();
       transport.onConnected();
