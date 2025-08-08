@@ -11,7 +11,7 @@
  * - Batched request processing
  */
 
-#include "mcp_application_base.h"
+#include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/json/json_serialization.h"
