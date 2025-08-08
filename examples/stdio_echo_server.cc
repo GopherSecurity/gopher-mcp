@@ -34,7 +34,7 @@ public:
         .stdout_fd = STDOUT_FILENO,
         .non_blocking = true
     };
-    config.use_message_framing = true;
+    config.use_message_framing = false;  // Disable framing for simpler testing
     
     // Create socket interface
     socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
@@ -58,16 +58,41 @@ public:
     
     std::cerr << "Starting stdio echo server...\n";
     
-    // Connect using stdio transport
-    auto result = connection_manager_->connect();
-    if (holds_alternative<Error>(result)) {
-      std::cerr << "Failed to start stdio transport: " 
-                << get<Error>(result).message << "\n";
-      return false;
-    }
+    // Thread safety fix - Current problematic flow:
+    // 1. main() creates dispatcher but doesn't call run() yet
+    // 2. start() calls connection_manager_->connect()
+    // 3. connect() creates StdioTransportSocket
+    // 4. StdioTransportSocket constructor calls dispatcher->createFileEvent() for stdin/stdout
+    // 5. createFileEvent() has assert(isThreadSafe())
+    // 6. isThreadSafe() checks: current_thread == thread_id_
+    // 7. But thread_id_ is ONLY set when dispatcher->run() is called!
+    // 8. ASSERTION FAILS because thread_id_ is not set yet
+    //
+    // Fixed flow using post():
+    // 1. main() creates dispatcher
+    // 2. start() uses dispatcher_.post() to defer connection
+    // 3. main() calls dispatcher->run() which sets thread_id_ = current_thread
+    // 4. Now posted callback executes IN the dispatcher thread
+    // 5. connection_manager_->connect() called from dispatcher thread
+    // 6. createFileEvent() called, isThreadSafe() returns true
+    // 7. Everything works!
+    dispatcher_.post([this]() {
+      // Connect using stdio transport
+      auto result = connection_manager_->connect();
+      if (holds_alternative<Error>(result)) {
+        std::cerr << "Failed to start stdio transport: " 
+                  << get<Error>(result).message << "\n";
+        running_ = false;
+        return;
+      }
+      
+      running_ = true;
+      std::cerr << "Echo server started. Waiting for JSON-RPC messages on stdin...\n";
+    });
     
+    // Set running_ to true optimistically since post() was successful
+    // The actual connection will happen in the dispatcher thread
     running_ = true;
-    std::cerr << "Echo server started. Waiting for JSON-RPC messages on stdin...\n";
     return true;
   }
   
