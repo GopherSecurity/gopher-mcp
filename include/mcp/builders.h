@@ -2057,14 +2057,14 @@ class JsonRpcRequestBuilder : public Builder<jsonrpc::Request, JsonRpcRequestBui
   }
   
   JsonRpcRequestBuilder& params(const Metadata& p) {
-    value_.params = make_optional(p);
+    value_.params = mcp::make_optional(p);
     return *this;
   }
   
   template<typename K, typename V>
   JsonRpcRequestBuilder& param(const K& key, V&& value) {
     if (!value_.params) {
-      value_.params = make_optional(make_metadata());
+      value_.params = mcp::make_optional(make_metadata());
     }
     add_metadata(*value_.params, key, std::forward<V>(value));
     return *this;
@@ -2082,17 +2082,17 @@ class JsonRpcResponseBuilder : public Builder<jsonrpc::Response, JsonRpcResponse
   }
   
   JsonRpcResponseBuilder& result(const jsonrpc::ResponseResult& r) {
-    value_.result = make_optional(r);
+    value_.result = mcp::make_optional(r);
     return *this;
   }
   
   JsonRpcResponseBuilder& error(const Error& e) {
-    value_.error = make_optional(e);
+    value_.error = mcp::make_optional(e);
     return *this;
   }
   
   JsonRpcResponseBuilder& error(int code, const std::string& message) {
-    value_.error = make_optional(Error(code, message));
+    value_.error = mcp::make_optional(Error(code, message));
     return *this;
   }
 };
@@ -2108,14 +2108,14 @@ class JsonRpcNotificationBuilder : public Builder<jsonrpc::Notification, JsonRpc
   }
   
   JsonRpcNotificationBuilder& params(const Metadata& p) {
-    value_.params = make_optional(p);
+    value_.params = mcp::make_optional(p);
     return *this;
   }
   
   template<typename K, typename V>
   JsonRpcNotificationBuilder& param(const K& key, V&& value) {
     if (!value_.params) {
-      value_.params = make_optional(make_metadata());
+      value_.params = mcp::make_optional(make_metadata());
     }
     add_metadata(*value_.params, key, std::forward<V>(value));
     return *this;
