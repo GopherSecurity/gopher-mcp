@@ -48,8 +48,8 @@ public:
   
 private:
   // Bridge functions run in separate threads
-  void bridgeStdinToPipe();
-  void bridgePipeToStdout();
+  void bridgeStdinToPipe(int stdin_fd, int write_pipe_fd, std::atomic<bool>* running);
+  void bridgePipeToStdout(int read_pipe_fd, int stdout_fd, std::atomic<bool>* running);
   void setNonBlocking(int fd);
   
   StdioPipeTransportConfig config_;

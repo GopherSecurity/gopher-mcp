@@ -125,11 +125,12 @@ IoCallResult IoSocketHandleImpl::readv(size_t max_length, RawSlice* slices,
 #else
   // Optimize single slice case
   if (num_slices_to_read == 1) {
-    ssize_t result = ::recv(fd_, slices[0].mem_, slices[0].len_, 0);
+    // Use read() instead of recv() for pipes (recv gives ENOTSOCK on pipes)
+    ssize_t result = ::read(fd_, slices[0].mem_, slices[0].len_);
     if (result >= 0) {
       return IoCallResult::success(static_cast<size_t>(result));
     } else {
-      return IoCallResult::error(getLastSocketError());
+      return IoCallResult::error(errno);
     }
   }
 

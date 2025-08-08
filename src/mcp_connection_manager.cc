@@ -10,6 +10,7 @@
 #include "mcp/json_bridge.h"
 #include "mcp/json_serialization.h"
 #include <sstream>
+#include <iostream>
 
 namespace mcp {
 
@@ -289,15 +290,7 @@ VoidResult McpConnectionManager::connect() {
       
       // For stdio pipes with level-triggered events, schedule an initial read
       // This ensures we process any data that might already be in the pipe
-      dispatcher_.post([this]() {
-        if (active_connection_ && connected_) {
-          // Trigger read by calling onReadReady on the connection
-          auto* conn_impl = dynamic_cast<network::ConnectionImpl*>(active_connection_.get());
-          if (conn_impl) {
-            conn_impl->onReadReady();
-          }
-        }
-      });
+      // Note: The initial read trigger was causing closeSocket to be called, but we need it for level-triggered events
     }
     
     // Notify callbacks
