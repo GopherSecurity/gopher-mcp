@@ -2043,6 +2043,138 @@ struct MakeHelper<ToolAnnotations> {
 
 }  // namespace detail
 
+// Generic JSON-RPC Builders
+
+/**
+ * Generic JSON-RPC Request Builder
+ */
+class JsonRpcRequestBuilder : public Builder<jsonrpc::Request, JsonRpcRequestBuilder> {
+ public:
+  JsonRpcRequestBuilder(const RequestId& id, const std::string& method) {
+    value_.jsonrpc = "2.0";
+    value_.id = id;
+    value_.method = method;
+  }
+  
+  JsonRpcRequestBuilder& params(const Metadata& p) {
+    value_.params = make_optional(p);
+    return *this;
+  }
+  
+  template<typename K, typename V>
+  JsonRpcRequestBuilder& param(const K& key, V&& value) {
+    if (!value_.params) {
+      value_.params = make_optional(make_metadata());
+    }
+    add_metadata(*value_.params, key, std::forward<V>(value));
+    return *this;
+  }
+};
+
+/**
+ * Generic JSON-RPC Response Builder
+ */
+class JsonRpcResponseBuilder : public Builder<jsonrpc::Response, JsonRpcResponseBuilder> {
+ public:
+  explicit JsonRpcResponseBuilder(const RequestId& id) {
+    value_.jsonrpc = "2.0";
+    value_.id = id;
+  }
+  
+  JsonRpcResponseBuilder& result(const jsonrpc::ResponseResult& r) {
+    value_.result = make_optional(r);
+    return *this;
+  }
+  
+  JsonRpcResponseBuilder& error(const Error& e) {
+    value_.error = make_optional(e);
+    return *this;
+  }
+  
+  JsonRpcResponseBuilder& error(int code, const std::string& message) {
+    value_.error = make_optional(Error(code, message));
+    return *this;
+  }
+};
+
+/**
+ * Generic JSON-RPC Notification Builder
+ */
+class JsonRpcNotificationBuilder : public Builder<jsonrpc::Notification, JsonRpcNotificationBuilder> {
+ public:
+  explicit JsonRpcNotificationBuilder(const std::string& method) {
+    value_.jsonrpc = "2.0";
+    value_.method = method;
+  }
+  
+  JsonRpcNotificationBuilder& params(const Metadata& p) {
+    value_.params = make_optional(p);
+    return *this;
+  }
+  
+  template<typename K, typename V>
+  JsonRpcNotificationBuilder& param(const K& key, V&& value) {
+    if (!value_.params) {
+      value_.params = make_optional(make_metadata());
+    }
+    add_metadata(*value_.params, key, std::forward<V>(value));
+    return *this;
+  }
+};
+
+/**
+ * Generic Metadata Builder
+ */
+class MetadataBuilder : public Builder<Metadata, MetadataBuilder> {
+ public:
+  MetadataBuilder() {
+    value_ = make_metadata();
+  }
+  
+  template<typename K, typename V>
+  MetadataBuilder& add(const K& key, V&& value) {
+    add_metadata(value_, key, std::forward<V>(value));
+    return *this;
+  }
+};
+
+// Add to detail namespace for make<> support
+namespace detail {
+
+template <>
+struct MakeHelper<jsonrpc::Request> {
+  template <typename... Args>
+  static auto make(Args&&... args) {
+    return JsonRpcRequestBuilder(std::forward<Args>(args)...);
+  }
+};
+
+template <>
+struct MakeHelper<jsonrpc::Response> {
+  template <typename... Args>
+  static auto make(Args&&... args) {
+    return JsonRpcResponseBuilder(std::forward<Args>(args)...);
+  }
+};
+
+template <>
+struct MakeHelper<jsonrpc::Notification> {
+  template <typename... Args>
+  static auto make(Args&&... args) {
+    return JsonRpcNotificationBuilder(std::forward<Args>(args)...);
+  }
+};
+
+template <>
+struct MakeHelper<Metadata> {
+  static auto make() {
+    return MetadataBuilder();
+  }
+};
+
+}  // namespace detail
+
+
 }  // namespace mcp
 
 #endif  // MCP_BUILDERS_H
