@@ -328,6 +328,15 @@ public:
     }
     
     response.result = make_optional(jsonrpc::ResponseResult(result));
+    
+    // Send response - this writes to the connection's write buffer
+    // The data flows as follows:
+    // 1. sendResponse() -> sendJsonMessage() -> connection->write()
+    // 2. write() adds data to ConnectionImpl's write_buffer_
+    // 3. ConnectionImpl schedules doWrite() via dispatcher post
+    // 4. doWrite() calls transport_socket_->doWrite()
+    // 5. StdioPipeTransport::doWrite() writes to conn_to_stdout_pipe_[1]
+    // 6. Bridge thread reads from conn_to_stdout_pipe_[0] and writes to stdout_fd
     connection_manager_->sendResponse(response);
   }
   
@@ -416,6 +425,15 @@ private:
 
 TEST_F(StdioPipeBridgeTest, JsonRpcMessageFlow) {
   // Test complete JSON-RPC message flow through the pipe bridge
+  // Flow Explanation:
+  // 1. MockBridgeEchoServer creates McpConnectionManager with stdio transport
+  // 2. Transport creates bridge threads to transfer data between stdio and pipes
+  // 3. Test writes JSON-RPC request to test_stdin_pipe_[1]
+  // 4. Bridge thread reads from stdin_fd and writes to internal pipe
+  // 5. ConnectionImpl reads from pipe and processes through filter chain
+  // 6. Server's onRequest callback sends response
+  // 7. Response flows back through connection -> transport -> bridge -> stdout
+  
   MockBridgeEchoServer server(*dispatcher_, test_stdin_pipe_[0], test_stdout_pipe_[1]);
   
   ASSERT_TRUE(server.start());
@@ -434,7 +452,9 @@ TEST_F(StdioPipeBridgeTest, JsonRpcMessageFlow) {
   std::string request_json = R"({"jsonrpc":"2.0","id":1,"method":"test.echo","params":{"msg":"hello"}})";
   writeMessage(test_stdin_pipe_[1], request_json);
   
-  // Process the message
+  // Process the message - need to give dispatcher time to:
+  // 1. Process file events for pipe reads
+  // 2. Execute posted callbacks for writes
   for (int i = 0; i < 20; ++i) {
     dispatcher_->run(event::RunType::NonBlock);
     if (server.getRequestCount() > 0) break;
@@ -445,6 +465,17 @@ TEST_F(StdioPipeBridgeTest, JsonRpcMessageFlow) {
   EXPECT_EQ(1, server.getRequestCount());
   ASSERT_TRUE(server.getLastRequest().has_value());
   EXPECT_EQ("test.echo", server.getLastRequest()->method);
+  
+  // Process any pending writes from the response
+  // The response is queued in the write buffer and needs dispatcher runs to flush
+  // CRITICAL: We need multiple dispatcher runs because:
+  // 1. First run: processes the posted doWrite() callback
+  // 2. doWrite() calls transport->doWrite() which writes to pipe
+  // 3. Bridge thread then transfers from pipe to stdout
+  for (int i = 0; i < 20; ++i) {
+    dispatcher_->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Give bridge thread time to transfer data
+  }
   
   // Read response
   std::string response = readMessage(test_stdout_pipe_[0]);

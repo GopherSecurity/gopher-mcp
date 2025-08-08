@@ -207,7 +207,9 @@ IoCallResult IoSocketHandleImpl::writev(const ConstRawSlice* slices,
 #else
   // Optimize single slice case
   if (num_slices == 1) {
-    ssize_t result = ::send(fd_, slices[0].mem_, slices[0].len_, MSG_NOSIGNAL);
+    // Use write() for pipes instead of send() to avoid ENOTSOCK error
+    // Pipes don't support socket operations like send()
+    ssize_t result = ::write(fd_, slices[0].mem_, slices[0].len_);
     if (result >= 0) {
       return IoCallResult::success(static_cast<size_t>(result));
     } else {

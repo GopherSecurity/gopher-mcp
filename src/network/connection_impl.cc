@@ -347,7 +347,10 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   filter_manager_.onWrite();
   
   // Move data to write buffer
-  write_buffer_.move(data);
+  // CRITICAL: The move() function moves data FROM the source TO the destination
+  // We need to move FROM data TO write_buffer_, so data should be the source
+  // The correct call is: data.move(write_buffer_) not write_buffer_.move(data)
+  data.move(write_buffer_);  // Move FROM data TO write_buffer_
   
   // Update stats
   updateWriteBufferStats(data.length(), write_buffer_.length());
@@ -554,24 +557,36 @@ void ConnectionImpl::doRead() {
     // Read from socket into buffer
     auto result = doReadFromSocket();
     
+    // Check for errors
     if (!result.ok()) {
-      // Error or would block
-      if (!result.ok() && result.error_ && result.error_->code == EAGAIN) {
-        // No more data available
-        break;
-      } else {
-        // Socket error
+      // Socket error - close the connection
+      closeSocket(ConnectionEvent::RemoteClose);
+      return;
+    }
+    
+    // Check the action to take based on the result
+    if (result.action_ == TransportIoResult::CLOSE) {
+      // Transport indicated connection should be closed
+      closeSocket(ConnectionEvent::RemoteClose);
+      return;
+    }
+    
+    // Check if we got any data
+    if (result.bytes_processed_ == 0) {
+      // No data available right now (EAGAIN case handled by transport returning stop())
+      // or EOF (handled by transport returning endStream with end_stream_read_ = true)
+      
+      if (result.end_stream_read_) {
+        // This is a real EOF - the other end closed the connection
+        read_half_closed_ = true;
+        detected_close_type_ = DetectedCloseType::RemoteReset;
         closeSocket(ConnectionEvent::RemoteClose);
         return;
       }
-    }
-    
-    if (result.bytes_processed_ == 0) {
-      // EOF
-      read_half_closed_ = true;
-      detected_close_type_ = DetectedCloseType::RemoteReset;
-      closeSocket(ConnectionEvent::RemoteClose);
-      return;
+      
+      // No data available, but not EOF - just stop reading for now
+      // The event loop will trigger another read when data is available
+      break;
     }
     
     // Update stats
