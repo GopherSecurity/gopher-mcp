@@ -24,32 +24,41 @@ StdioPipeTransport::StdioPipeTransport(const StdioPipeTransportConfig& config)
 }
 
 StdioPipeTransport::~StdioPipeTransport() {
-  if (running_) {
-    running_ = false;
-    
-    // Close pipes to wake up threads
-    if (stdin_to_conn_pipe_[1] != -1) {
-      ::close(stdin_to_conn_pipe_[1]);
-    }
-    if (conn_to_stdout_pipe_[0] != -1) {
-      ::close(conn_to_stdout_pipe_[0]);
-    }
-    
-    // Wait for threads to finish
-    if (stdin_bridge_thread_.joinable()) {
-      stdin_bridge_thread_.join();
-    }
-    if (stdout_bridge_thread_.joinable()) {
-      stdout_bridge_thread_.join();
-    }
-    
-    // Close remaining pipe ends
-    if (stdin_to_conn_pipe_[0] != -1) {
-      ::close(stdin_to_conn_pipe_[0]);
-    }
-    if (conn_to_stdout_pipe_[1] != -1) {
-      ::close(conn_to_stdout_pipe_[1]);
-    }
+  // Signal threads to stop
+  running_ = false;
+  
+  // Close write end of stdin pipe to signal EOF to the reader thread
+  // This will wake up the bridgeStdinToPipe thread if it's blocked on write()
+  if (stdin_to_conn_pipe_[1] != -1) {
+    ::close(stdin_to_conn_pipe_[1]);
+    stdin_to_conn_pipe_[1] = -1;
+  }
+  
+  // Close read end of stdout pipe to signal EOF to the writer thread  
+  // This will wake up the bridgePipeToStdout thread if it's blocked on read()
+  if (conn_to_stdout_pipe_[0] != -1) {
+    ::close(conn_to_stdout_pipe_[0]);
+    conn_to_stdout_pipe_[0] = -1;
+  }
+  
+  // Wait for threads to finish if they're joinable
+  // The threads should exit cleanly after we closed the pipes above
+  if (stdin_bridge_thread_.joinable()) {
+    stdin_bridge_thread_.join();
+  }
+  if (stdout_bridge_thread_.joinable()) {
+    stdout_bridge_thread_.join();
+  }
+  
+  // Close remaining pipe ends that weren't transferred to ConnectionSocketImpl
+  // Only close if fd != -1 (i.e., not transferred via takePipeSocket)
+  if (stdin_to_conn_pipe_[0] != -1) {
+    ::close(stdin_to_conn_pipe_[0]);
+    stdin_to_conn_pipe_[0] = -1;
+  }
+  if (conn_to_stdout_pipe_[1] != -1) {
+    ::close(conn_to_stdout_pipe_[1]);
+    conn_to_stdout_pipe_[1] = -1;
   }
 }
 
@@ -103,6 +112,9 @@ VoidResult StdioPipeTransport::initialize() {
   auto remote_address = std::make_shared<network::Address::PipeInstance>("/tmp/mcp_stdio_out");
   
   // Create the connection socket that ConnectionImpl will use
+  // IMPORTANT: The io_handle takes ownership of stdin_to_conn_pipe_[0] and conn_to_stdout_pipe_[1]
+  // These fds will be managed by ConnectionSocketImpl and closed when it's destroyed
+  // We must NOT close these fds in our destructor to avoid double-close errors
   pipe_socket_ = std::make_unique<network::ConnectionSocketImpl>(
       std::move(io_handle), local_address, remote_address);
   
@@ -121,6 +133,16 @@ VoidResult StdioPipeTransport::initialize() {
 }
 
 std::unique_ptr<network::ConnectionSocketImpl> StdioPipeTransport::takePipeSocket() {
+  // When we transfer ownership of the pipe socket to the caller,
+  // we need to mark the file descriptors that were moved to the io_handle
+  // as invalid (-1) so our destructor doesn't try to close them.
+  // This prevents double-close errors since ConnectionSocketImpl's io_handle
+  // will close these fds when it's destroyed.
+  if (pipe_socket_) {
+    // These fds are now owned by the ConnectionSocketImpl's io_handle
+    stdin_to_conn_pipe_[0] = -1;  // Read end used by ConnectionImpl
+    conn_to_stdout_pipe_[1] = -1;  // Write end used by ConnectionImpl
+  }
   return std::move(pipe_socket_);
 }
 
