@@ -6,6 +6,7 @@
 #include "mcp/event/event_loop.h"
 #include <algorithm>
 #include <sstream>
+#include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -197,12 +198,16 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
-            [this](uint32_t events) { onFileEvent(events); },
+            [this](uint32_t events) { 
+              std::cerr << "[FILE-EVENT] Triggered with events=" << events << "\n";
+              onFileEvent(events); 
+            },
             trigger_type,
             static_cast<uint32_t>(event::FileReadyType::Closed));
     
         // Enable read events initially
         if (connected) {
+          std::cerr << "[CONNECTION] Enabling read events on fd=" << socket_->ioHandle().fd() << "\n";
           enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
         }
       }
