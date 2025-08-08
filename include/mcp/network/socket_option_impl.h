@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #include "mcp/network/socket.h"
 
 namespace mcp {

@@ -4,7 +4,7 @@
 #include "mcp/network/socket_interface_impl.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/buffer.h"
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/builders.h"
 #include <iostream>
 #include <signal.h>

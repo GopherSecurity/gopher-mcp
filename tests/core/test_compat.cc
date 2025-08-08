@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 
 class CompatTest : public ::testing::Test {
  protected:

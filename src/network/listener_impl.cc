@@ -3,7 +3,7 @@
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
-#include "mcp/result.h"
+#include "mcp/core/result.h"
 #include <errno.h>
 #include <sys/socket.h>
 #include <sys/types.h>

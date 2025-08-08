@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/type_helpers.h"
+#include "mcp/core/type_helpers.h"
 #include "mcp/types.h"
 
 using namespace mcp;

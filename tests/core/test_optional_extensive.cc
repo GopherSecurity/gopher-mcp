@@ -12,8 +12,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/optional.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/optional.h"
 
 // Test suite inspired by C++17 std::optional test patterns
 // Tests edge cases, SFINAE, and complex type interactions

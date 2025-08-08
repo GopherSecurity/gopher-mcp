@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 
 // Platform-specific includes
 #ifdef _WIN32

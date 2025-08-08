@@ -132,8 +132,8 @@ FetchContent_MakeAvailable(googletest)
 # Source files
 set(MCP_SDK_SOURCES
     src/buffer/buffer_impl.cc
-    src/json_bridge.cc
-    src/json_serialization.cc
+    src/json/json_bridge.cc
+    src/json/json_serialization.cc
     src/network/address_impl.cc
     src/network/io_socket_handle_impl.cc
     src/network/socket_impl.cc

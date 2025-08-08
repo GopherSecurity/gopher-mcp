@@ -4,7 +4,7 @@
 #include "mcp/network/transport_socket.h"
 #include "mcp/network/listener.h"
 #include "mcp/event/event_loop.h"
-#include "mcp/result.h"
+#include "mcp/core/result.h"
 #include "../mocks/network_mocks.h"
 #include <memory>
 

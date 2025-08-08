@@ -7,8 +7,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/optional.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/optional.h"
 
 // Test helpers
 struct NonTrivial {

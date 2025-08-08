@@ -1,20 +1,22 @@
 # Test executables
-add_executable(test_variant test_variant.cc)
-add_executable(test_variant_extensive test_variant_extensive.cc)
-add_executable(test_variant_advanced test_variant_advanced.cc)
-add_executable(test_optional test_optional.cc)
-add_executable(test_optional_extensive test_optional_extensive.cc)
-add_executable(test_optional_advanced test_optional_advanced.cc)
-add_executable(test_mcp_type_helpers test_mcp_type_helpers.cc)
-add_executable(test_mcp_types test_mcp_types.cc)
-add_executable(test_compat test_compat.cc)
-add_executable(test_buffer test_buffer.cc)
-# MCP serialization tests
-add_executable(test_mcp_serialization test_mcp_serialization.cc)
-add_executable(test_mcp_serialization_extensive test_mcp_serialization_extensive.cc)
-add_executable(test_template_serialization test_template_serialization.cc)
-add_executable(test_short_json_api test_short_json_api.cc)
-add_executable(test_event_loop test_event_loop.cc)
+# Core tests
+add_executable(test_variant core/test_variant.cc)
+add_executable(test_variant_extensive core/test_variant_extensive.cc)
+add_executable(test_variant_advanced core/test_variant_advanced.cc)
+add_executable(test_optional core/test_optional.cc)
+add_executable(test_optional_extensive core/test_optional_extensive.cc)
+add_executable(test_optional_advanced core/test_optional_advanced.cc)
+add_executable(test_mcp_type_helpers core/test_mcp_type_helpers.cc)
+add_executable(test_mcp_types core/test_mcp_types.cc)
+add_executable(test_compat core/test_compat.cc)
+add_executable(test_buffer core/test_buffer.cc)
+# JSON serialization tests
+add_executable(test_mcp_serialization json/test_mcp_serialization.cc)
+add_executable(test_mcp_serialization_extensive json/test_mcp_serialization_extensive.cc)
+add_executable(test_template_serialization json/test_template_serialization.cc)
+add_executable(test_short_json_api json/test_short_json_api.cc)
+# Event tests
+add_executable(test_event_loop event/test_event_loop.cc)
 
 # Network tests
 add_executable(test_io_socket_handle network/test_io_socket_handle.cc)
@@ -34,22 +36,22 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
-add_executable(test_stdio_pipe_bridge test_stdio_pipe_bridge.cc)
+add_executable(test_stdio_pipe_bridge integration/test_stdio_pipe_bridge.cc)
 
-# Echo server/client tests
-add_executable(test_stdio_echo_server test_stdio_echo_server.cc)
-add_executable(test_stdio_echo_client test_stdio_echo_client.cc)
+# Integration tests
+add_executable(test_stdio_echo_server integration/test_stdio_echo_server.cc)
+add_executable(test_stdio_echo_client integration/test_stdio_echo_client.cc)
 
 # MCP tests
-add_executable(test_mcp_connection_manager test_mcp_connection_manager.cc)
-add_executable(test_builders test_builders.cc)
+add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
+add_executable(test_builders core/test_builders.cc)
 
-# New tests for recent fixes
-add_executable(test_connection_pool_callbacks test_connection_pool_callbacks.cc)
-add_executable(test_connection_utility test_connection_utility.cc)
-add_executable(test_listener_filter_chain test_listener_filter_chain.cc)
-add_executable(test_listener_filter_chain_simple test_listener_filter_chain_simple.cc)
-add_executable(test_thread_safety_extended test_thread_safety_extended.cc)
+# Network tests for recent fixes
+add_executable(test_connection_pool_callbacks network/test_connection_pool_callbacks.cc)
+add_executable(test_connection_utility network/test_connection_utility.cc)
+add_executable(test_listener_filter_chain network/test_listener_filter_chain.cc)
+add_executable(test_listener_filter_chain_simple network/test_listener_filter_chain_simple.cc)
+add_executable(test_thread_safety_extended network/test_thread_safety_extended.cc)
 
 # Link libraries
 target_link_libraries(test_variant 

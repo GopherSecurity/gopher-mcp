@@ -10,8 +10,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/variant.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/variant.h"
 
 // Test fixture for tracking construction/destruction
 struct LifecycleTracker {
