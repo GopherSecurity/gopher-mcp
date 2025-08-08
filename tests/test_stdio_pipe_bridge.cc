@@ -1039,32 +1039,53 @@ TEST_F(StdioPipeBridgeTest, MultipleSequentialRequests) {
   
   EXPECT_TRUE(server.isConnected());
   
-  // Send multiple requests
+  // Send and process requests one by one
+  // Flow for each request:
+  // 1. Write request to stdin pipe
+  // 2. Run dispatcher to process the request
+  // 3. Run dispatcher to flush the response
+  // 4. Read the response from stdout pipe
+  // 
+  // CRITICAL: Process each request-response pair individually
+  // This ensures the write buffer is flushed and the bridge thread
+  // has time to transfer data between pipes.
+  std::vector<std::string> responses;
+  
   for (int i = 1; i <= 5; ++i) {
+    // Send request
     std::string request = R"({"jsonrpc":"2.0","id":)" + std::to_string(i) + 
                          R"(,"method":"test.)" + std::to_string(i) + R"("})";
     writeMessage(test_stdin_pipe_[1], request);
-  }
-  
-  // Process all messages
-  for (int i = 0; i < 30; ++i) {
-    dispatcher_->run(event::RunType::NonBlock);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  
-  // Verify all requests were received
-  EXPECT_EQ(5, server.getRequestCount());
-  
-  // Read all responses
-  int response_count = 0;
-  while (true) {
+    
+    // Process request and response
+    // Multiple dispatcher runs ensure:
+    // - Request is read from pipe and processed
+    // - Response is written to write buffer
+    // - doWrite() is called to flush to transport
+    // - Bridge thread transfers data to stdout
+    for (int j = 0; j < 10; ++j) {
+      dispatcher_->run(event::RunType::NonBlock);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    
+    // Read response for this specific request
     std::string response = readMessage(test_stdout_pipe_[0], 100);
-    if (response.empty()) break;
-    response_count++;
+    if (!response.empty()) {
+      responses.push_back(response);
+    }
   }
   
-  EXPECT_EQ(5, response_count);
+  // Verify all requests were received and responded to
+  EXPECT_EQ(5, server.getRequestCount());
+  EXPECT_EQ(5, responses.size());
   
+  // Verify response IDs match request IDs
+  for (size_t i = 0; i < responses.size(); ++i) {
+    auto response_json = json::JsonValue::parse(responses[i]);
+    jsonrpc::Response parsed = json::from_json<jsonrpc::Response>(response_json);
+    EXPECT_TRUE(holds_alternative<int>(parsed.id));
+    EXPECT_EQ(static_cast<int>(i + 1), get<int>(parsed.id));
+  }  
   server.stop();
 }
 
