@@ -147,6 +147,7 @@ set(MCP_SDK_SOURCES
     src/network/connection_manager_impl.cc
     src/stream_info/stream_info_impl.cc
     src/transport/stdio_transport_socket.cc
+    src/transport/stdio_pipe_transport.cc
     src/transport/http_sse_transport_socket.cc
     src/mcp_connection_manager.cc
 )
