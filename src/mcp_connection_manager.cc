@@ -286,6 +286,18 @@ VoidResult McpConnectionManager::connect() {
     if (active_connection_) {
       auto& transport = active_connection_->transportSocket();
       transport.onConnected();
+      
+      // For stdio pipes with level-triggered events, schedule an initial read
+      // This ensures we process any data that might already be in the pipe
+      dispatcher_.post([this]() {
+        if (active_connection_ && connected_) {
+          // Trigger read by calling onReadReady on the connection
+          auto* conn_impl = dynamic_cast<network::ConnectionImpl*>(active_connection_.get());
+          if (conn_impl) {
+            conn_impl->onReadReady();
+          }
+        }
+      });
     }
     
     // Notify callbacks
