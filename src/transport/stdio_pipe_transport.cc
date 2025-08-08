@@ -16,7 +16,7 @@ namespace transport {
 
 StdioPipeTransport::StdioPipeTransport(const StdioPipeTransportConfig& config)
     : config_(config), connected_(false) {
-  std::cerr << "[CONSTRUCTOR] Called, this=" << this << "\n";
+  // Constructor
   read_buffer_ = std::make_unique<OwnedBuffer>();
   stdin_to_conn_pipe_[0] = -1;
   stdin_to_conn_pipe_[1] = -1;
@@ -25,7 +25,6 @@ StdioPipeTransport::StdioPipeTransport(const StdioPipeTransportConfig& config)
 }
 
 StdioPipeTransport::~StdioPipeTransport() {
-  std::cerr << "[DESTRUCTOR] Called, stdin_to_conn_pipe_[1]=" << stdin_to_conn_pipe_[1] << "\n";
   // Signal threads to stop
   running_ = false;
   
@@ -123,8 +122,6 @@ VoidResult StdioPipeTransport::initialize() {
   // Start bridge threads
   running_ = true;
   
-  std::cerr << "[INIT] Before starting threads: stdin_to_conn_pipe[0]=" << stdin_to_conn_pipe_[0]
-            << " stdin_to_conn_pipe[1]=" << stdin_to_conn_pipe_[1] << "\n";
   
   // Capture FD values to avoid race conditions
   int stdin_fd = config_.stdin_fd;
@@ -150,13 +147,9 @@ std::unique_ptr<network::ConnectionSocketImpl> StdioPipeTransport::takePipeSocke
   // This prevents double-close errors since ConnectionSocketImpl's io_handle
   // will close these fds when it's destroyed.
   if (pipe_socket_) {
-    std::cerr << "[TAKE] Before clearing FDs: stdin_to_conn_pipe[0]=" << stdin_to_conn_pipe_[0]
-              << " stdin_to_conn_pipe[1]=" << stdin_to_conn_pipe_[1] << "\n";
     // These fds are now owned by the ConnectionSocketImpl's io_handle
     stdin_to_conn_pipe_[0] = -1;  // Read end used by ConnectionImpl
     conn_to_stdout_pipe_[1] = -1;  // Write end used by ConnectionImpl
-    std::cerr << "[TAKE] After clearing FDs: stdin_to_conn_pipe[0]=" << stdin_to_conn_pipe_[0]
-              << " stdin_to_conn_pipe[1]=" << stdin_to_conn_pipe_[1] << "\n";
   }
   return std::move(pipe_socket_);
 }
@@ -173,14 +166,11 @@ VoidResult StdioPipeTransport::connect(network::Socket& socket) {
 }
 
 void StdioPipeTransport::closeSocket(network::ConnectionEvent event) {
-  std::cerr << "[CLOSE] closeSocket called, event=" << (int)event << " connected_=" << connected_ << "\n";
   if (!connected_) {
-    std::cerr << "[CLOSE] Returning early (not connected)\n";
     return;
   }
   
   connected_ = false;
-  std::cerr << "[CLOSE] Setting running_ = false\n";
   running_ = false;
   
   // Close write end of stdin pipe to signal EOF to ConnectionImpl
@@ -199,9 +189,7 @@ TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
   // This is called by ConnectionImpl to read data from the transport
   // We read from the callbacks' io_handle which has the pipe FD
   
-  std::cerr << "[TRANSPORT] doRead called\n";
   if (!callbacks_) {
-    std::cerr << "[TRANSPORT] No callbacks!\n";
     return TransportIoResult::stop();
   }
   
@@ -211,17 +199,12 @@ TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
   // Reserve space in the buffer
   void* mem = buffer.reserveSingleSlice(max_slice_size, slice);
   if (!mem) {
-    std::cerr << "[TRANSPORT] Failed to reserve buffer slice\n";
     return TransportIoResult::stop();
   }
   
   // Read from the io_handle (which has stdin_to_conn_pipe_[0])
   network::IoHandle& io_handle = callbacks_->ioHandle();
   auto result = io_handle.readv(slice.len_, &slice, 1);
-  std::cerr << "[TRANSPORT] readv returned: ok=" << result.ok() 
-            << " wouldBlock=" << result.wouldBlock()
-            << " errno=" << result.error_code()
-            << " bytes=" << (result.ok() ? *result : 0) << "\n";
   
   if (!result.ok()) {
     buffer.commit(slice, 0);
@@ -321,18 +304,11 @@ void StdioPipeTransport::onConnected() {
 void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd, int write_pipe_fd, std::atomic<bool>* running) {
   // This thread reads from stdin and writes to the pipe
   std::vector<char> buffer(config_.buffer_size);
-  std::cerr << "[BRIDGE-IN] Starting, this=" << this 
-            << " reading from fd=" << stdin_fd 
-            << " writing to fd=" << write_pipe_fd 
-            << " running=" << *running << "\n";
   
   while (*running) {
-    std::cerr << "[BRIDGE-IN] About to call read() on fd=" << stdin_fd << "\n";
     ssize_t bytes_read = ::read(stdin_fd, buffer.data(), buffer.size());
-    std::cerr << "[BRIDGE-IN] read() returned " << bytes_read << " errno=" << errno << "\n";
     
     if (bytes_read > 0) {
-      std::cerr << "[BRIDGE] Read " << bytes_read << " bytes from stdin\n";
       // Write all data to the pipe
       size_t total_written = 0;
       while (total_written < static_cast<size_t>(bytes_read) && *running) {
@@ -342,7 +318,6 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd, int write_pipe_fd, std:
         
         if (bytes_written > 0) {
           total_written += bytes_written;
-          std::cerr << "[BRIDGE] Wrote " << bytes_written << " bytes to pipe\n";
         } else if (bytes_written == -1) {
           int err = errno;
           if (err != EAGAIN && err != EWOULDBLOCK) {
