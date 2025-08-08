@@ -119,7 +119,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void addReadFilter(ReadFilterSharedPtr filter);
   void removeReadFilter(ReadFilterSharedPtr filter);
   bool initializeReadFilters();
-  
+
   // Event handlers (public for stdio transport initialization)
   void onReadReady();
   void onWriteReady();
