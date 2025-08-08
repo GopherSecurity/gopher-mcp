@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <future>
 
 namespace mcp {
 namespace test {
@@ -79,8 +80,24 @@ protected:
     }
     
     bool start() {
-      auto result = connection_manager_->connect();
-      return !holds_alternative<Error>(result);
+      // Defer connection to dispatcher thread to ensure thread safety
+      // The connection must be established from within the dispatcher thread
+      std::promise<bool> connected_promise;
+      auto connected_future = connected_promise.get_future();
+      
+      dispatcher_.post([this, &connected_promise]() {
+        auto result = connection_manager_->connect();
+        connected_promise.set_value(!holds_alternative<Error>(result));
+      });
+      
+      // Process the posted task
+      dispatcher_.run(event::RunType::NonBlock);
+      
+      // Wait for connection result
+      if (connected_future.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready) {
+        return connected_future.get();
+      }
+      return false;
     }
     
     void stop() {
@@ -245,10 +262,14 @@ TEST_F(StdioEchoServerTest, StartupShutdown) {
                        server_stdin_pipe_[0],
                        server_stdout_pipe_[1]);
   
+  // Start server (connection happens in dispatcher thread)
   EXPECT_TRUE(server.start());
   
-  // Run dispatcher briefly
-  dispatcher_->run(event::RunType::NonBlock);
+  // Run dispatcher briefly to process any remaining events
+  for (int i = 0; i < 3; ++i) {
+    dispatcher_->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   
   server.stop();
   

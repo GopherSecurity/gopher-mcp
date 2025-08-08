@@ -13,6 +13,7 @@
 #include <atomic>
 #include <queue>
 #include <mutex>
+#include <future>
 
 namespace mcp {
 namespace test {
@@ -74,9 +75,26 @@ protected:
     }
     
     bool start() {
-      auto result = connection_manager_->connect();
-      running_ = !holds_alternative<Error>(result);
-      return running_;
+      // Defer connection to dispatcher thread to ensure thread safety
+      // The connection must be established from within the dispatcher thread
+      std::promise<bool> connected_promise;
+      auto connected_future = connected_promise.get_future();
+      
+      dispatcher_.post([this, &connected_promise]() {
+        auto result = connection_manager_->connect();
+        bool success = !holds_alternative<Error>(result);
+        running_ = success;
+        connected_promise.set_value(success);
+      });
+      
+      // Process the posted task
+      dispatcher_.run(event::RunType::NonBlock);
+      
+      // Wait for connection result
+      if (connected_future.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready) {
+        return connected_future.get();
+      }
+      return false;
     }
     
     void stop() {
