@@ -2048,20 +2048,21 @@ struct MakeHelper<ToolAnnotations> {
 /**
  * Generic JSON-RPC Request Builder
  */
-class JsonRpcRequestBuilder : public Builder<jsonrpc::Request, JsonRpcRequestBuilder> {
+class JsonRpcRequestBuilder
+    : public Builder<jsonrpc::Request, JsonRpcRequestBuilder> {
  public:
   JsonRpcRequestBuilder(const RequestId& id, const std::string& method) {
     value_.jsonrpc = "2.0";
     value_.id = id;
     value_.method = method;
   }
-  
+
   JsonRpcRequestBuilder& params(const Metadata& p) {
     value_.params = mcp::make_optional(p);
     return *this;
   }
-  
-  template<typename K, typename V>
+
+  template <typename K, typename V>
   JsonRpcRequestBuilder& param(const K& key, V&& value) {
     if (!value_.params) {
       value_.params = mcp::make_optional(make_metadata());
@@ -2074,23 +2075,24 @@ class JsonRpcRequestBuilder : public Builder<jsonrpc::Request, JsonRpcRequestBui
 /**
  * Generic JSON-RPC Response Builder
  */
-class JsonRpcResponseBuilder : public Builder<jsonrpc::Response, JsonRpcResponseBuilder> {
+class JsonRpcResponseBuilder
+    : public Builder<jsonrpc::Response, JsonRpcResponseBuilder> {
  public:
   explicit JsonRpcResponseBuilder(const RequestId& id) {
     value_.jsonrpc = "2.0";
     value_.id = id;
   }
-  
+
   JsonRpcResponseBuilder& result(const jsonrpc::ResponseResult& r) {
     value_.result = mcp::make_optional(r);
     return *this;
   }
-  
+
   JsonRpcResponseBuilder& error(const Error& e) {
     value_.error = mcp::make_optional(e);
     return *this;
   }
-  
+
   JsonRpcResponseBuilder& error(int code, const std::string& message) {
     value_.error = mcp::make_optional(Error(code, message));
     return *this;
@@ -2100,19 +2102,20 @@ class JsonRpcResponseBuilder : public Builder<jsonrpc::Response, JsonRpcResponse
 /**
  * Generic JSON-RPC Notification Builder
  */
-class JsonRpcNotificationBuilder : public Builder<jsonrpc::Notification, JsonRpcNotificationBuilder> {
+class JsonRpcNotificationBuilder
+    : public Builder<jsonrpc::Notification, JsonRpcNotificationBuilder> {
  public:
   explicit JsonRpcNotificationBuilder(const std::string& method) {
     value_.jsonrpc = "2.0";
     value_.method = method;
   }
-  
+
   JsonRpcNotificationBuilder& params(const Metadata& p) {
     value_.params = mcp::make_optional(p);
     return *this;
   }
-  
-  template<typename K, typename V>
+
+  template <typename K, typename V>
   JsonRpcNotificationBuilder& param(const K& key, V&& value) {
     if (!value_.params) {
       value_.params = mcp::make_optional(make_metadata());
@@ -2127,11 +2130,9 @@ class JsonRpcNotificationBuilder : public Builder<jsonrpc::Notification, JsonRpc
  */
 class MetadataBuilder : public Builder<Metadata, MetadataBuilder> {
  public:
-  MetadataBuilder() {
-    value_ = make_metadata();
-  }
-  
-  template<typename K, typename V>
+  MetadataBuilder() { value_ = make_metadata(); }
+
+  template <typename K, typename V>
   MetadataBuilder& add(const K& key, V&& value) {
     add_metadata(value_, key, std::forward<V>(value));
     return *this;
@@ -2167,13 +2168,10 @@ struct MakeHelper<jsonrpc::Notification> {
 
 template <>
 struct MakeHelper<Metadata> {
-  static auto make() {
-    return MetadataBuilder();
-  }
+  static auto make() { return MetadataBuilder(); }
 };
 
 }  // namespace detail
-
 
 }  // namespace mcp
 
