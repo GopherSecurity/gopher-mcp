@@ -6,6 +6,7 @@
 #include "mcp/network/socket_impl.h"
 #include "mcp/buffer.h"
 #include "mcp/optional.h"
+#include "mcp/transport/pipe_io_handle.h"
 #include <thread>
 #include <atomic>
 #include <memory>
@@ -22,6 +23,35 @@ struct StdioPipeTransportConfig {
   size_t buffer_size = 65536;  // 64KB buffer
 };
 
+/**
+ * StdioPipeTransport - Bridges stdio file descriptors to internal pipes for use with ConnectionImpl
+ * 
+ * Architecture Overview:
+ * ======================
+ * This transport creates a bridge between stdio (stdin/stdout) and internal pipes that
+ * ConnectionImpl can use with its event-driven I/O model.
+ * 
+ * Data Flow:
+ * ----------
+ * 1. Input path (stdin -> application):
+ *    stdin_fd -> [bridge thread] -> stdin_to_conn_pipe[1] -> stdin_to_conn_pipe[0] -> ConnectionImpl
+ *    
+ * 2. Output path (application -> stdout):
+ *    ConnectionImpl -> conn_to_stdout_pipe[1] -> conn_to_stdout_pipe[0] -> [bridge thread] -> stdout_fd
+ * 
+ * Why This Design?
+ * ----------------
+ * - ConnectionImpl expects a socket-like interface with file events (epoll/kqueue)
+ * - stdin/stdout are regular file descriptors that may not support event notification
+ * - Pipes DO support event notification and can be used with epoll/kqueue
+ * - Bridge threads handle the blocking I/O on stdio, while ConnectionImpl uses non-blocking I/O on pipes
+ * 
+ * Thread Safety:
+ * --------------
+ * - Bridge threads run independently and communicate via pipes
+ * - File descriptors are captured by value to avoid race conditions
+ * - Atomic flags coordinate shutdown
+ */
 // Transport socket that bridges stdio to pipes
 class StdioPipeTransport : public network::TransportSocket {
 public:

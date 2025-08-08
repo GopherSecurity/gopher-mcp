@@ -1,7 +1,6 @@
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/network/address.h"
 #include "mcp/network/address_impl.h"
-#include "mcp/network/socket_interface_impl.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -91,12 +90,12 @@ VoidResult StdioPipeTransport::initialize() {
     setNonBlocking(conn_to_stdout_pipe_[1]); // Write end for ConnectionImpl
   }
   
-  // Create socket interface to create IO handle
-  network::SocketInterfaceImpl socket_interface;
+  // Create custom PipeIoHandle that supports separate read/write FDs
+  // Flow: stdin_to_conn_pipe_[0] for reading, conn_to_stdout_pipe_[1] for writing
+  auto io_handle = std::make_unique<PipeIoHandle>(stdin_to_conn_pipe_[0], conn_to_stdout_pipe_[1]);
   
-  // Create IO handle from the pipe fds
-  auto io_handle = socket_interface.ioHandleForFd(stdin_to_conn_pipe_[0], conn_to_stdout_pipe_[1]);
-  if (!io_handle) {
+  // Verify the handle was created successfully
+  if (!io_handle || !io_handle->isOpen()) {
     ::close(stdin_to_conn_pipe_[0]);
     ::close(stdin_to_conn_pipe_[1]);
     ::close(conn_to_stdout_pipe_[0]);
@@ -141,15 +140,25 @@ VoidResult StdioPipeTransport::initialize() {
 }
 
 std::unique_ptr<network::ConnectionSocketImpl> StdioPipeTransport::takePipeSocket() {
-  // When we transfer ownership of the pipe socket to the caller,
-  // we need to mark the file descriptors that were moved to the io_handle
-  // as invalid (-1) so our destructor doesn't try to close them.
-  // This prevents double-close errors since ConnectionSocketImpl's io_handle
-  // will close these fds when it's destroyed.
+  // CRITICAL: File Descriptor Ownership Transfer
+  // =============================================
+  // This function transfers ownership of specific pipe FDs to ConnectionImpl
+  // 
+  // FD Ownership After This Call:
+  // - stdin_to_conn_pipe_[0]: Owned by ConnectionSocketImpl (for reading)
+  // - stdin_to_conn_pipe_[1]: Still owned by us (bridge thread writes here)
+  // - conn_to_stdout_pipe_[0]: Still owned by us (bridge thread reads here)
+  // - conn_to_stdout_pipe_[1]: Owned by ConnectionSocketImpl (for writing)
+  //
+  // Why mark FDs as -1?
+  // - Prevents double-close in destructor
+  // - ConnectionSocketImpl's IoHandle will close them
+  // - Bridge threads captured FDs by value, so they're unaffected
+  
   if (pipe_socket_) {
-    // These fds are now owned by the ConnectionSocketImpl's io_handle
-    stdin_to_conn_pipe_[0] = -1;  // Read end used by ConnectionImpl
-    conn_to_stdout_pipe_[1] = -1;  // Write end used by ConnectionImpl
+    // Mark transferred FDs as invalid to prevent double-close
+    stdin_to_conn_pipe_[0] = -1;  // Now owned by ConnectionSocketImpl
+    conn_to_stdout_pipe_[1] = -1;  // Now owned by ConnectionSocketImpl
   }
   return std::move(pipe_socket_);
 }
@@ -161,7 +170,16 @@ void StdioPipeTransport::setTransportSocketCallbacks(
 
 VoidResult StdioPipeTransport::connect(network::Socket& socket) {
   (void)socket;
-  // Don't set connected_ here - wait for onConnected() to be called
+  // IMPORTANT: Don't set connected_ = true here
+  // ==========================================
+  // Reason: If we set connected_ here, closeSocket() won't return early
+  // when called during initialization, which would set running_ = false
+  // and prevent bridge threads from working.
+  //
+  // The correct flow is:
+  // 1. connect() is called (we return success but don't set connected_)
+  // 2. onConnected() is called later (sets connected_ = true)
+  // 3. This ensures closeSocket() returns early if called before onConnected()
   return makeVoidSuccess();
 }
 
@@ -209,7 +227,9 @@ TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
   if (!result.ok()) {
     buffer.commit(slice, 0);
     
-    // Handle would-block
+    // Handle would-block (EAGAIN/EWOULDBLOCK)
+    // This is NOT an error or EOF - it just means no data is available right now
+    // The event loop will trigger another read when data becomes available
     if (result.wouldBlock()) {
       return TransportIoResult::stop();
     }
@@ -229,7 +249,9 @@ TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
   
   size_t bytes_read = *result;
   
-  // Handle EOF
+  // Handle EOF - for pipes, this means the write end was closed
+  // IMPORTANT: Only treat 0 bytes as EOF if read() actually returned 0,
+  // not if it returned -1 with EAGAIN (which is handled above)
   if (bytes_read == 0) {
     buffer.commit(slice, 0);
     return TransportIoResult::endStream(0);
@@ -246,7 +268,8 @@ TransportIoResult StdioPipeTransport::doRead(Buffer& buffer) {
 
 TransportIoResult StdioPipeTransport::doWrite(Buffer& buffer, bool end_stream) {
   // This is called by ConnectionImpl to write data to the transport
-  // We write to the callbacks' io_handle which has the pipe FD
+  // Flow: ConnectionImpl -> doWrite() -> io_handle.writev() -> conn_to_stdout_pipe_[1]
+  //       -> bridge thread -> stdout_fd
   
   (void)end_stream;
   
@@ -262,6 +285,7 @@ TransportIoResult StdioPipeTransport::doWrite(Buffer& buffer, bool end_stream) {
   if (num_slices == 0) {
     return TransportIoResult::success(0);
   }
+  
   
   // Write to the io_handle (which has conn_to_stdout_pipe_[1])
   network::IoHandle& io_handle = callbacks_->ioHandle();
@@ -302,7 +326,18 @@ void StdioPipeTransport::onConnected() {
 }
 
 void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd, int write_pipe_fd, std::atomic<bool>* running) {
-  // This thread reads from stdin and writes to the pipe
+  // Bridge Thread: Transfers data from stdin to internal pipe
+  // ============================================================
+  // Purpose: This thread reads from stdin (which may block) and writes to the pipe
+  //          that ConnectionImpl reads from (non-blocking)
+  //
+  // Why a separate thread?
+  // - stdin is often a blocking file descriptor (terminal, file, etc.)
+  // - ConnectionImpl needs non-blocking I/O for its event-driven model
+  // - The bridge thread handles the blocking read, allowing ConnectionImpl to use events
+  //
+  // Flow: stdin_fd -> [blocking read] -> buffer -> [write] -> write_pipe_fd -> ConnectionImpl
+  
   std::vector<char> buffer(config_.buffer_size);
   
   while (*running) {
@@ -355,7 +390,12 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd, int write_pipe_fd, std:
 }
 
 void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd, int stdout_fd, std::atomic<bool>* running) {
-  // This thread reads from the pipe and writes to stdout
+  // Bridge Thread: Transfers data from internal pipe to stdout
+  // Flow: ConnectionImpl -> conn_to_stdout_pipe_[1] -> conn_to_stdout_pipe_[0] -> stdout_fd
+  //
+  // This thread blocks on reading from the pipe and writes to stdout
+  // It ensures responses reach the test's stdout pipe
+  
   std::vector<char> buffer(config_.buffer_size);
   
   while (*running) {
@@ -371,8 +411,10 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd, int stdout_fd, std
         
         if (bytes_written > 0) {
           total_written += bytes_written;
+          
           // Flush stdout after each write to ensure data is sent immediately
-          if (config_.stdout_fd == 1) {
+          // This is critical for tests to receive the data
+          if (stdout_fd == 1) {
             fflush(stdout);
           }
         } else if (bytes_written == -1) {
