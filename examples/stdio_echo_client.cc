@@ -36,7 +36,7 @@ public:
         .stdout_fd = STDOUT_FILENO,
         .non_blocking = true
     };
-    config.use_message_framing = true;
+    config.use_message_framing = false;  // Disable framing for simpler testing
     
     // Create socket interface
     socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
@@ -60,16 +60,26 @@ public:
     
     std::cerr << "Starting stdio echo client...\n";
     
-    // Connect using stdio transport
-    auto result = connection_manager_->connect();
-    if (holds_alternative<Error>(result)) {
-      std::cerr << "Failed to start stdio transport: " 
-                << get<Error>(result).message << "\n";
-      return false;
-    }
+    // Thread safety fix - same issue as server:
+    // Must defer connection until dispatcher->run() sets thread_id_
+    // Otherwise createFileEvent() will fail its isThreadSafe() check
+    dispatcher_.post([this]() {
+      // Connect using stdio transport
+      auto result = connection_manager_->connect();
+      if (holds_alternative<Error>(result)) {
+        std::cerr << "Failed to start stdio transport: " 
+                  << get<Error>(result).message << "\n";
+        running_ = false;
+        return;
+      }
+      
+      running_ = true;
+      std::cerr << "Echo client started.\n";
+    });
     
+    // Set running_ to true optimistically since post() was successful
+    // The actual connection will happen in the dispatcher thread
     running_ = true;
-    std::cerr << "Echo client started.\n";
     return true;
   }
   
