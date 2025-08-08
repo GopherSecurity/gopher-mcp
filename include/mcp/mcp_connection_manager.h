@@ -5,10 +5,10 @@
 #include <memory>
 
 #include "mcp/event/event_loop.h"
-#include "mcp/json_bridge.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/filter.h"
-#include "mcp/result.h"
+#include "mcp/core/result.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/types.h"

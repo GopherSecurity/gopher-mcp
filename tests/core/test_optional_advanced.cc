@@ -18,8 +18,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/optional.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/optional.h"
 
 // Advanced test scenarios for mcp::optional
 // Focus on stress tests, performance, and complex interactions

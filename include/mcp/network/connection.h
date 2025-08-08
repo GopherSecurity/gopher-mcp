@@ -9,7 +9,7 @@
 #include <string>
 
 #include "mcp/buffer.h"
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket.h"

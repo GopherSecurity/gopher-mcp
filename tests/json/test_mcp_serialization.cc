@@ -2,8 +2,8 @@
 #include <string>
 #include <vector>
 
-#include "mcp/json_bridge.h"
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_bridge.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/types.h"
 
 using namespace mcp;

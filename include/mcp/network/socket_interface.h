@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #include "mcp/network/address.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"

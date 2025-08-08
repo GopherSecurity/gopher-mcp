@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/buffer.h"
-#include "mcp/json_bridge.h"
+#include "mcp/json/json_bridge.h"
 
 namespace mcp {
 namespace transport {

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 
 namespace mcp {
 namespace json {

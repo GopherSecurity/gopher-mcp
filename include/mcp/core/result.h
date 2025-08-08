@@ -1,7 +1,7 @@
 #ifndef MCP_RESULT_H
 #define MCP_RESULT_H
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #include "mcp/io_result.h"
 #include "mcp/types.h"
 

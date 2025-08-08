@@ -1,4 +1,4 @@
-#include "mcp/json_bridge.h"
+#include "mcp/json/json_bridge.h"
 #include <nlohmann/json.hpp>
 #include <sstream>
 

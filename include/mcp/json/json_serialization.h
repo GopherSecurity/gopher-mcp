@@ -3,7 +3,7 @@
 #include <map>
 #include <vector>
 
-#include "mcp/json_bridge.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -297,4 +297,4 @@ inline Metadata jsonToMetadata(const JsonValue& json) {
 
 // Include the generated traits for all MCP types
 // This keeps the main header clean and allows easy regeneration
-#include "mcp/json_serialization_mcp_traits.h"
+#include "mcp/json/json_serialization_mcp_traits.h"

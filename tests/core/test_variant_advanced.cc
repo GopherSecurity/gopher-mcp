@@ -9,8 +9,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/variant.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/variant.h"
 
 // Advanced test scenarios for mcp::variant
 // Focus on edge cases, SFINAE, and complex type interactions

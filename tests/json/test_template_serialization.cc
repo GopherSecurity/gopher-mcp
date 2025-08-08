@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <map>
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/types.h"
 
 using namespace mcp;

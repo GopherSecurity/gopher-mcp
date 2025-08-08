@@ -10,9 +10,9 @@
 
 // nlohmann/json forward declared below
 
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #if !MCP_HAS_STD_VARIANT
-#include "mcp/variant.h"
+#include "mcp/core/variant.h"
 #endif
 
 namespace mcp {

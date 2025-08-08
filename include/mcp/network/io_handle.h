@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "mcp/buffer.h"
-#include "mcp/compat.h"
+#include "mcp/core/compat.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/io_result.h"
 #include "mcp/network/address.h"

@@ -4,7 +4,7 @@
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/connection.h"
 #include "mcp/event/event_loop.h"
-#include "mcp/result.h"
+#include "mcp/core/result.h"
 #include <memory>
 #include <thread>
 #include <iostream>

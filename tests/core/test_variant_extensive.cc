@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include "mcp/memory_utils.h"
-#include "mcp/variant.h"
+#include "mcp/core/memory_utils.h"
+#include "mcp/core/variant.h"
 
 // Test suite inspired by C++17 std::variant test patterns
 // Adapted for C++11 compatibility

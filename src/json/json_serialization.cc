@@ -1,4 +1,4 @@
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include <sstream>
 
 namespace mcp {

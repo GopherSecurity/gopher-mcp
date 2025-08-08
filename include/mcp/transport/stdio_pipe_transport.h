@@ -9,7 +9,7 @@
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/optional.h"
+#include "mcp/core/optional.h"
 #include "mcp/transport/pipe_io_handle.h"
 
 namespace mcp {

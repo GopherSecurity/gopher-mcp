@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/types.h"
 
 using namespace mcp;

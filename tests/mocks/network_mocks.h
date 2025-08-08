@@ -8,7 +8,7 @@
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/result.h"
+#include "mcp/core/result.h"
 
 namespace mcp {
 namespace test {

@@ -5,7 +5,7 @@
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/network/socket_interface_impl.h"
 #include "mcp/buffer.h"
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <thread>

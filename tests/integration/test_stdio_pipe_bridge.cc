@@ -12,7 +12,7 @@
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/filter.h"
 #include "mcp/buffer.h"
-#include "mcp/json_serialization.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/builders.h"
 #include <unistd.h>
 #include <fcntl.h>
