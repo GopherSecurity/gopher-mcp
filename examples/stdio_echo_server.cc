@@ -19,7 +19,24 @@ namespace examples {
 
 /**
  * Echo server implementation for MCP over stdio transport
- * Receives JSON-RPC messages and echoes them back using builder pattern
+ * 
+ * Architecture:
+ * - Listens for JSON-RPC messages on stdin
+ * - Echoes responses/notifications back to stdout
+ * - Demonstrates builder pattern for message construction
+ * - Uses libevent dispatcher for async I/O handling
+ * 
+ * Message Flow:
+ * 1. Server reads JSON-RPC message from stdin
+ * 2. Dispatcher invokes appropriate callback (onRequest/onNotification)
+ * 3. Server constructs echo response with metadata
+ * 4. Response is written to stdout for client to read
+ * 
+ * Protocol:
+ * - Each JSON-RPC message is newline-delimited
+ * - Requests get responses with matching IDs
+ * - Notifications get echo notifications with "echo/" prefix
+ * - "shutdown" notification triggers graceful shutdown
  */
 class StdioEchoServer : public McpMessageCallbacks {
 public:
@@ -58,24 +75,24 @@ public:
     
     std::cerr << "Starting stdio echo server...\n";
     
-    // Thread safety fix - Current problematic flow:
-    // 1. main() creates dispatcher but doesn't call run() yet
-    // 2. start() calls connection_manager_->connect()
-    // 3. connect() creates StdioTransportSocket
-    // 4. StdioTransportSocket constructor calls dispatcher->createFileEvent() for stdin/stdout
-    // 5. createFileEvent() has assert(isThreadSafe())
-    // 6. isThreadSafe() checks: current_thread == thread_id_
-    // 7. But thread_id_ is ONLY set when dispatcher->run() is called!
-    // 8. ASSERTION FAILS because thread_id_ is not set yet
-    //
-    // Fixed flow using post():
+    // Thread Safety Critical Section - Detailed Flow:
+    // 
+    // Problem: Dispatcher requires all I/O operations to happen on its thread.
+    // The thread_id_ is set when dispatcher->run() is first called.
+    // 
+    // Without post():
+    // 1. main() creates dispatcher (thread_id_ not set)
+    // 2. start() calls connect() from main thread
+    // 3. connect() tries to create file events
+    // 4. createFileEvent() checks isThreadSafe()
+    // 5. FAILS: current_thread != thread_id_ (which is unset)
+    // 
+    // With post():
     // 1. main() creates dispatcher
-    // 2. start() uses dispatcher_.post() to defer connection
-    // 3. main() calls dispatcher->run() which sets thread_id_ = current_thread
-    // 4. Now posted callback executes IN the dispatcher thread
-    // 5. connection_manager_->connect() called from dispatcher thread
-    // 6. createFileEvent() called, isThreadSafe() returns true
-    // 7. Everything works!
+    // 2. start() posts connection task
+    // 3. main() calls run(), setting thread_id_
+    // 4. Posted task executes in dispatcher thread
+    // 5. connect() succeeds: current_thread == thread_id_
     dispatcher_.post([this]() {
       // Connect using stdio transport
       auto result = connection_manager_->connect();
@@ -108,7 +125,12 @@ public:
     return running_;
   }
 
-  // McpMessageCallbacks interface
+  // McpMessageCallbacks interface implementation
+  // 
+  // Request handling flow:
+  // 1. Log received request with method and ID
+  // 2. Build echo response with metadata
+  // 3. Send response back to client via stdout
   void onRequest(const jsonrpc::Request& request) override {
     std::cerr << "Received request: " << request.method 
               << " (id: " << serializeRequestId(request.id) << ")\n";
@@ -130,6 +152,11 @@ public:
   
   void onNotification(const jsonrpc::Notification& notification) override {
     std::cerr << "Received notification: " << notification.method << "\n";
+    
+    // Notification handling flow:
+    // 1. Check for special "shutdown" notification
+    // 2. For others, create echo with "echo/" prefix
+    // 3. Send echo notification back to client
     
     // Check for shutdown notification
     if (notification.method == "shutdown") {
@@ -183,6 +210,7 @@ public:
   }
 
 private:
+  // Helper to create echo response with metadata about the original request
   jsonrpc::ResponseResult createEchoResult(const std::string& method,
                                           const optional<Metadata>& params) {
     // Build result metadata using builder pattern
@@ -239,6 +267,14 @@ void signalHandler(int signal) {
 }
 
 int main(int argc, char* argv[]) {
+  // Server initialization and event loop
+  // Flow:
+  // 1. Set up signal handlers for graceful shutdown
+  // 2. Create libevent dispatcher for async I/O
+  // 3. Create and start echo server
+  // 4. Run event loop until shutdown signal
+  // 5. Clean up and exit
+  
   std::cerr << "MCP Stdio Echo Server\n";
   std::cerr << "=====================\n";
   std::cerr << "This server echoes all JSON-RPC messages received on stdin\n";
@@ -266,6 +302,10 @@ int main(int argc, char* argv[]) {
   std::cerr << "Send JSON-RPC messages to stdin, e.g.:\n";
   std::cerr << R"({"jsonrpc":"2.0","id":1,"method":"test","params":{"hello":"world"}})" << "\n\n";
   
+  // Main event loop:
+  // - Process I/O events via dispatcher
+  // - Check for shutdown signal
+  // - Small sleep to prevent CPU spinning
   while (!g_shutdown && g_server->isRunning()) {
     dispatcher->run(mcp::event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
