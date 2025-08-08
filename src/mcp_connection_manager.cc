@@ -248,12 +248,16 @@ VoidResult McpConnectionManager::connect() {
     // Use the pipe transport as the transport socket
     network::TransportSocketPtr transport_socket = std::move(pipe_transport);
     
-    // Create connection
-    active_connection_ = network::ConnectionImpl::createClientConnection(
+    // Create connection - for stdio, we're already "connected" since the pipes are ready
+    // So we create it similar to a server connection but mark it as client
+    auto connection = std::make_unique<network::ConnectionImpl>(
         dispatcher_,
         std::move(socket_wrapper),
         std::move(transport_socket),
-        *stream_info);
+        true);  // Pass true for connected since stdio transport is already ready
+    
+    // Cast to ClientConnection interface
+    active_connection_ = std::unique_ptr<network::ClientConnection>(std::move(connection));
     
     if (!active_connection_) {
       Error err;
@@ -282,6 +286,18 @@ VoidResult McpConnectionManager::connect() {
     if (active_connection_) {
       auto& transport = active_connection_->transportSocket();
       transport.onConnected();
+      
+      // For stdio transport with pipes, we need to trigger an initial read
+      // since there's no actual network event to trigger it
+      dispatcher_.post([this]() {
+        if (active_connection_) {
+          // Trigger a read by simulating a read ready event
+          auto* conn_impl = dynamic_cast<network::ConnectionImpl*>(active_connection_.get());
+          if (conn_impl) {
+            conn_impl->onReadReady();
+          }
+        }
+      });
     }
     
     // Notify callbacks
