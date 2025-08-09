@@ -24,7 +24,7 @@
  * - Supports both requests (with responses) and notifications
  */
 
-#include "mcp/echo/echo_base.h"
+#include "mcp/echo/echo_basic.h"
 #include "mcp/echo/stdio_transport.h"
 #include <iostream>
 #include <signal.h>
@@ -66,7 +66,7 @@ void signalHandler(int signal) {
  */
 class BasicEchoClient : public echo::EchoClientBase {
 public:
-  BasicEchoClient(echo::EchoTransportPtr transport)
+  BasicEchoClient(echo::EchoTransportBasePtr transport)
       : EchoClientBase(std::move(transport)) {
     // Configure base settings
     config_.client_name = "Basic MCP Echo Client";

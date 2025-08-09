@@ -24,7 +24,7 @@
  * - "shutdown" notification triggers graceful shutdown
  */
 
-#include "mcp/echo/echo_base.h"
+#include "mcp/echo/echo_basic.h"
 #include "mcp/echo/stdio_transport.h"
 #include <iostream>
 #include <signal.h>
@@ -62,7 +62,7 @@ void signalHandler(int signal) {
  */
 class BasicEchoServer : public echo::EchoServerBase {
 public:
-  BasicEchoServer(echo::EchoTransportPtr transport)
+  BasicEchoServer(echo::EchoTransportBasePtr transport)
       : EchoServerBase(std::move(transport)) {
     // Configure base settings
     config_.server_name = "Basic MCP Echo Server";
