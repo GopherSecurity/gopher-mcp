@@ -1,13 +1,28 @@
 /**
  * @file test_stdio_echo_server_basic.cc
- * @brief Comprehensive unit tests for stdio_echo_server.cc
+ * @brief APPLICATION LEVEL TESTS for basic echo server binary
  * 
- * Test Coverage:
- * - Server binary execution
- * - Request handling and echo responses
- * - Notification handling
- * - Shutdown handling
- * - Signal handling
+ * TEST LEVEL: End-to-end application testing
+ * 
+ * This file tests the actual basic echo server application binary by spawning
+ * processes and testing through stdio pipes. It validates the complete
+ * application behavior from startup to JSON-RPC message processing.
+ * 
+ * What this tests:
+ * - Basic echo server binary execution
+ * - End-to-end JSON-RPC request/response flows
+ * - Application-level notification handling
+ * - Process lifecycle (startup, shutdown, signals)
+ * - Real stdio communication
+ * - Application error handling
+ * 
+ * What this does NOT test:
+ * - Transport layer internals (pipes, sockets, events)
+ * - Connection manager implementation details  
+ * - Low-level I/O mechanisms
+ * 
+ * For transport-level testing, see:
+ * - tests/integration/test_stdio_echo_server.cc (transport layer tests)
  */
 
 #include <gtest/gtest.h>

@@ -1,6 +1,29 @@
 /**
  * @file test_stdio_echo_server_advanced.cc
- * @brief Unit tests for Advanced MCP Echo Server
+ * @brief APPLICATION LEVEL TESTS for advanced echo server binary
+ * 
+ * TEST LEVEL: End-to-end application testing
+ * 
+ * This file tests the actual advanced echo server application binary by
+ * spawning processes and testing through stdio pipes. It validates advanced
+ * server features like worker threads, flow control, and metrics.
+ * 
+ * What this tests:
+ * - Advanced echo server binary execution
+ * - End-to-end JSON-RPC flows with advanced features
+ * - Worker thread pool behavior
+ * - Flow control and backpressure handling
+ * - Connection management and scaling
+ * - Metrics collection and reporting
+ * - Advanced error handling and recovery
+ * 
+ * What this does NOT test:
+ * - Transport layer internals (pipes, sockets, events)
+ * - Connection manager implementation details
+ * - Low-level I/O mechanisms
+ * 
+ * For transport-level testing, see:
+ * - tests/integration/test_stdio_echo_server.cc (transport layer tests)
  */
 
 #include <gtest/gtest.h>
