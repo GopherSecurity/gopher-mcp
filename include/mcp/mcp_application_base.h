@@ -347,6 +347,11 @@ public:
       main_dispatcher_->exit();
     }
     
+    // Stop metrics thread
+    if (metrics_thread_.joinable()) {
+      metrics_thread_.join();
+    }
+    
     // Final metrics report
     if (config_.enable_metrics) {
       reportFinalMetrics();
@@ -405,8 +410,18 @@ private:
   void startMetricsCollection() {
     metrics_thread_ = std::thread([this]() {
       while (running_) {
-        std::this_thread::sleep_for(config_.metrics_interval);
-        reportMetrics();
+        // Sleep in small increments to allow quick shutdown
+        auto remaining = config_.metrics_interval;
+        while (running_ && remaining > std::chrono::milliseconds(100)) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          remaining -= std::chrono::milliseconds(100);
+        }
+        if (running_ && remaining > std::chrono::milliseconds(0)) {
+          std::this_thread::sleep_for(remaining);
+        }
+        if (running_) {
+          reportMetrics();
+        }
       }
     });
   }

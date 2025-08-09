@@ -24,16 +24,7 @@ target_link_libraries(stdio_echo_client_advanced
     nlohmann_json::nlohmann_json
 )
 
-# Set C++ standard
-set_target_properties(stdio_echo_server_advanced PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
-
-set_target_properties(stdio_echo_client_advanced PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
+# C++ standard is inherited from parent CMakeLists.txt
 
 # Add include directories
 target_include_directories(stdio_echo_server_advanced PRIVATE

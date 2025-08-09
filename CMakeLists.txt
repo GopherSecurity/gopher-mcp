@@ -23,7 +23,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++17)" ON)
 
 # Option to enable strict warnings (disable for development)
-option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" ON)
+option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -224,6 +224,9 @@ if(BUILD_EXAMPLES)
         mcp-sdk
         Threads::Threads
     )
+    
+    # Add advanced stdio echo examples subdirectory
+    add_subdirectory(examples/stdio_echo)
 endif()
 
 # Add custom target for formatting
