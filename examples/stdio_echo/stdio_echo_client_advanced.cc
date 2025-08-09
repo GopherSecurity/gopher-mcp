@@ -14,6 +14,8 @@
 #include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/transport/stdio_pipe_transport.h"
+#include "mcp/network/connection_impl.h"
+#include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/builders.h"
 #include <iostream>
@@ -419,8 +421,7 @@ public:
     auto request_ctx = request_manager_.getRequest(id);
     
     // Build JSON-RPC request
-    auto request = make<jsonrpc::Request>(id)
-        .method(method)
+    auto request = mcp::make<mcp::jsonrpc::Request>(id, method)
         .params(params)
         .build();
     
@@ -434,11 +435,13 @@ public:
   
   // Send a batch of requests
   std::vector<std::future<jsonrpc::Response>> sendBatch(
-      const std::vector<std::pair<std::string, Metadata>>& requests) {
+      const std::vector<std::pair<std::string, mcp::Metadata>>& requests) {
     
-    std::vector<std::future<jsonrpc::Response>> futures;
+    std::vector<std::future<mcp::jsonrpc::Response>> futures;
     
-    for (const auto& [method, params] : requests) {
+    for (const auto& request_pair : requests) {
+      const auto& method = request_pair.first;
+      const auto& params = request_pair.second;
       futures.push_back(sendRequest(method, params));
     }
     
@@ -593,13 +596,13 @@ int main(int argc, char* argv[]) {
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     
     // Send test requests
-    std::vector<std::future<jsonrpc::Response>> futures;
+    std::vector<std::future<mcp::jsonrpc::Response>> futures;
     
     if (batch_mode) {
       // Prepare batch
-      std::vector<std::pair<std::string, Metadata>> batch;
+      std::vector<std::pair<std::string, mcp::Metadata>> batch;
       for (int i = 0; i < num_requests; ++i) {
-        auto params = make<Metadata>()
+        auto params = mcp::make<mcp::Metadata>()
             .add("index", i)
             .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
             .build();
@@ -613,7 +616,7 @@ int main(int argc, char* argv[]) {
     } else {
       // Send requests sequentially
       for (int i = 0; i < num_requests; ++i) {
-        auto params = make<Metadata>()
+        auto params = mcp::make<mcp::Metadata>()
             .add("index", i)
             .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
             .build();
