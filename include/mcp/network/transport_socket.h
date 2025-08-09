@@ -7,9 +7,9 @@
 
 #include "mcp/buffer.h"
 #include "mcp/core/compat.h"
+#include "mcp/core/result.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
-#include "mcp/core/result.h"
 #include "mcp/types.h"
 
 namespace mcp {
