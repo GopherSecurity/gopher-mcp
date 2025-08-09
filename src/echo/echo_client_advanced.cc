@@ -158,11 +158,11 @@ variant<Success, Error> AdvancedEchoClient::start(const std::string& endpoint) {
   }
   
   // Set callbacks
-  EchoTransport::Callbacks callbacks;
+  EchoTransportAdvanced::Callbacks callbacks;
   callbacks.onDataReceived = [this](const std::string& data) {
     handleDataReceived(data);
   };
-  callbacks.onStatusChange = [this](EchoTransport::Status status) {
+  callbacks.onStatusChange = [this](EchoTransportAdvanced::Status status) {
     handleStatusChange(status);
   };
   callbacks.onError = [this](const Error& error) {
@@ -331,9 +331,9 @@ void AdvancedEchoClient::handleDataReceived(const std::string& data) {
   }
 }
 
-void AdvancedEchoClient::handleStatusChange(EchoTransport::Status status) {
-  if (status == EchoTransport::Status::Error ||
-      status == EchoTransport::Status::Disconnected) {
+void AdvancedEchoClient::handleStatusChange(EchoTransportAdvanced::Status status) {
+  if (status == EchoTransportAdvanced::Status::Error ||
+      status == EchoTransportAdvanced::Status::Disconnected) {
     circuit_breaker_->recordFailure();
   }
 }

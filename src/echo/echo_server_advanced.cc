@@ -142,11 +142,11 @@ variant<Success, Error> AdvancedEchoServer::start(const std::string& endpoint) {
   }
   
   // Set callbacks
-  EchoTransport::Callbacks callbacks;
+  EchoTransportAdvanced::Callbacks callbacks;
   callbacks.onDataReceived = [this](const std::string& data) {
     handleDataReceived(data);
   };
-  callbacks.onStatusChange = [this](EchoTransport::Status status) {
+  callbacks.onStatusChange = [this](EchoTransportAdvanced::Status status) {
     handleStatusChange(status);
   };
   callbacks.onError = [this](const Error& error) {
@@ -267,11 +267,11 @@ void AdvancedEchoServer::handleDataReceived(const std::string& data) {
   }
 }
 
-void AdvancedEchoServer::handleStatusChange(EchoTransport::Status status) {
-  if (status == EchoTransport::Status::Connected) {
+void AdvancedEchoServer::handleStatusChange(EchoTransportAdvanced::Status status) {
+  if (status == EchoTransportAdvanced::Status::Connected) {
     stats_.connections_total++;
     stats_.connections_active++;
-  } else if (status == EchoTransport::Status::Disconnected) {
+  } else if (status == EchoTransportAdvanced::Status::Disconnected) {
     if (stats_.connections_active > 0) {
       stats_.connections_active--;
     }

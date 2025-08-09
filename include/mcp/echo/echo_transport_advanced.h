@@ -27,7 +27,7 @@ struct Success {};
  * sophisticated features like circuit breakers, flow control, and metrics.
  * For basic usage, see EchoTransportBase in echo_basic.h
  */
-class EchoTransport {
+class EchoTransportAdvanced {
 public:
   enum class Status {
     Disconnected,
@@ -45,7 +45,7 @@ public:
     std::function<void(const Error& error)> onError;
   };
   
-  virtual ~EchoTransport() = default;
+  virtual ~EchoTransportAdvanced() = default;
   
   /**
    * @brief Initialize the transport
@@ -104,7 +104,7 @@ public:
   virtual std::string getTransportType() const = 0;
 };
 
-using EchoTransportPtr = std::shared_ptr<EchoTransport>;
+using EchoTransportPtr = std::shared_ptr<EchoTransportAdvanced>;
 
 } // namespace echo
 } // namespace mcp

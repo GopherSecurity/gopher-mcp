@@ -19,12 +19,12 @@ namespace echo {
  * Uses stdin/stdout for bidirectional communication.
  * Suitable for command-line echo applications and testing.
  */
-class StdioEchoTransport : public EchoTransport {
+class StdioEchoTransport : public EchoTransportAdvanced {
 public:
   StdioEchoTransport();
   ~StdioEchoTransport() override;
   
-  // EchoTransport interface
+  // EchoTransportAdvanced interface
   variant<Success, Error> initialize() override;
   variant<Success, Error> connect(const std::string& endpoint) override;
   variant<Success, Error> listen(const std::string& endpoint) override;
