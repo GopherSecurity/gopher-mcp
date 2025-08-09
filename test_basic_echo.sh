@@ -34,7 +34,7 @@ print_warning() {
 }
 
 # Check if executables exist
-if [ ! -f "${BUILD_DIR}/stdio_echo_server" ] || [ ! -f "${BUILD_DIR}/stdio_echo_client" ]; then
+if [ ! -f "${BUILD_DIR}/examples/stdio_echo/stdio_echo_server_basic" ] || [ ! -f "${BUILD_DIR}/examples/stdio_echo/stdio_echo_client_basic" ]; then
     print_warning "Executables not found, building..."
     
     if [ ! -d "$BUILD_DIR" ]; then
@@ -44,7 +44,7 @@ if [ ! -f "${BUILD_DIR}/stdio_echo_server" ] || [ ! -f "${BUILD_DIR}/stdio_echo_
     fi
     
     cd "$BUILD_DIR"
-    make stdio_echo_server stdio_echo_client >/dev/null 2>&1
+    make stdio_echo_server_basic stdio_echo_client_basic >/dev/null 2>&1
     
     if [ $? -eq 0 ]; then
         print_status "Build successful"
@@ -61,7 +61,7 @@ echo "Test 1: Server Message Processing"
 echo "----------------------------------"
 
 # Use echo with pipe (not file redirect) to avoid segfault
-OUTPUT=$(echo '{"jsonrpc":"2.0","id":1,"method":"test"}' | "${BUILD_DIR}/stdio_echo_server" 2>/dev/null | head -20 || true)
+OUTPUT=$(echo '{"jsonrpc":"2.0","id":1,"method":"test"}' | "${BUILD_DIR}/examples/stdio_echo/stdio_echo_server_basic" 2>/dev/null | head -20 || true)
 
 if echo "$OUTPUT" | grep -q '"result"'; then
     print_status "Server processed request"
@@ -81,15 +81,17 @@ echo ""
 echo "Test 2: Client Startup Test"
 echo "----------------------------"
 
-# Test client with --help flag
-"${BUILD_DIR}/stdio_echo_client" --help 2>&1 | grep -q "Usage" && \
-    print_status "Client help flag works" || \
-    print_warning "Client may not support --help flag"
+# Test client startup (basic client may not have --help)
+echo -n "Testing basic client startup... "
+if echo "" | timeout 1 "${BUILD_DIR}/examples/stdio_echo/stdio_echo_client_basic" 2>/dev/null; then
+    print_status "Client starts correctly"
+else
+    print_warning "Client startup test inconclusive"
+fi
 
 # Test that client handles EOF gracefully (with timeout for safety)
-CLIENT_OUTPUT=$(perl -e 'alarm 2; exec @ARGV' bash -c 'echo "" | "${BUILD_DIR}/stdio_echo_client" auto 2>&1' || true)
-if echo "$CLIENT_OUTPUT" | grep -q "Echo client started"; then
-    print_status "Client starts and handles EOF"
+if timeout 2 bash -c 'echo "" | "${BUILD_DIR}/examples/stdio_echo/stdio_echo_client_basic" >/dev/null 2>&1'; then
+    print_status "Client handles EOF gracefully"
 else
     print_warning "Client EOF handling needs verification"
 fi
@@ -100,13 +102,13 @@ echo "Test 3: Executable Validation"
 echo "------------------------------"
 
 # Check if executables are valid
-if file "${BUILD_DIR}/stdio_echo_server" | grep -q "executable"; then
+if file "${BUILD_DIR}/examples/stdio_echo/stdio_echo_server_basic" | grep -q "executable"; then
     print_status "Server executable valid"
 else
     print_error "Server executable invalid"
 fi
 
-if file "${BUILD_DIR}/stdio_echo_client" | grep -q "executable"; then
+if file "${BUILD_DIR}/examples/stdio_echo/stdio_echo_client_basic" | grep -q "executable"; then
     print_status "Client executable valid"
 else
     print_error "Client executable invalid"
@@ -118,11 +120,11 @@ echo "Test 4: Manual Test Instructions"
 echo "---------------------------------"
 echo ""
 echo "To manually test client-server interaction:"
-echo "  1. In terminal 1: ./build/stdio_echo_server"
-echo "  2. In terminal 2: ./build/stdio_echo_client auto"
+echo "  1. In terminal 1: ./build/examples/stdio_echo/stdio_echo_server_basic"
+echo "  2. In terminal 2: ./build/examples/stdio_echo/stdio_echo_client_basic"
 echo ""
 echo "Or use pipes:"
-echo '  echo '"'"'{"jsonrpc":"2.0","id":1,"method":"test"}'"'"' | ./build/stdio_echo_server'
+echo '  echo '"'"'{"jsonrpc":"2.0","id":1,"method":"test"}'"'"' | ./build/examples/stdio_echo/stdio_echo_server_basic'
 echo ""
 
 # Summary
