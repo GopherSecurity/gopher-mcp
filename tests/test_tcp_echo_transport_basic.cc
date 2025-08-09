@@ -160,8 +160,8 @@ TEST_F(TCPTransportTest, ClientServerConnection) {
   auto server_future = server_connected_promise.get_future();
   auto client_future = client_connected_promise.get_future();
   
-  EXPECT_TRUE(server_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
-  EXPECT_TRUE(client_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+  EXPECT_TRUE(server_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+  EXPECT_TRUE(client_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
   
   EXPECT_TRUE(server_future.get());
   EXPECT_TRUE(client_future.get());
@@ -210,7 +210,7 @@ TEST_F(TCPTransportTest, DataTransmissionClientToServer) {
   
   // Wait for connections
   auto conn_future = connection_promise.get_future();
-  ASSERT_TRUE(conn_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+  ASSERT_TRUE(conn_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
   
   // Send data from client to server
   const std::string test_data = "Hello from TCP client!";
@@ -218,7 +218,7 @@ TEST_F(TCPTransportTest, DataTransmissionClientToServer) {
   
   // Wait for data to arrive at server
   auto data_future = data_promise.get_future();
-  ASSERT_TRUE(data_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+  ASSERT_TRUE(data_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
   
   EXPECT_EQ(data_future.get(), test_data);
 }
@@ -346,7 +346,7 @@ TEST_F(TCPTransportTest, JSONRPCIntegration) {
   
   // Verify JSON-RPC message received
   auto json_future = json_promise.get_future();
-  ASSERT_TRUE(json_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+  ASSERT_TRUE(json_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
   
   std::string received = json_future.get();
   EXPECT_EQ(received, json_request + "\n");
