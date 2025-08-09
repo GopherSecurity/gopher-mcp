@@ -1,505 +1,237 @@
 /**
  * @file stdio_echo_server_advanced.cc
- * @brief State-of-the-art MCP echo server implementation following the best patterns
+ * @brief Advanced echo server using new reusable transport-agnostic components
  * 
- * Features:
- * - Worker thread model with dedicated dispatcher threads
- * - Filter chain architecture for modular message processing
- * - Enhanced error handling with detailed failure tracking
- * - Flow control with watermark-based backpressure
- * - Built-in observability (metrics, logging, tracing)
- * - Graceful shutdown and resource cleanup
+ * This example demonstrates using the refactored echo architecture with:
+ * - Transport-agnostic design (currently using stdio)
+ * - Reusable AdvancedEchoServer with all advanced features
+ * - Clean separation of transport and application logic
+ * 
+ * Original implementation backed up in stdio_echo_server_advanced.cc.backup
  */
 
-#include "mcp/mcp_application_base.h"
-#include "mcp/mcp_connection_manager.h"
-#include "mcp/transport/stdio_pipe_transport.h"
-#include "mcp/network/connection_impl.h"
-#include "mcp/stream_info/stream_info_impl.h"
-#include "mcp/json/json_serialization.h"
-#include "mcp/builders.h"
+#include "mcp/echo/echo_server_advanced.h"
+#include "mcp/echo/echo_stdio_transport_advanced.h"
 #include <iostream>
-#include <csignal>
-#include <atomic>
+#include <thread>
+#include <chrono>
+#include <signal.h>
+#include <algorithm>
 
-namespace mcp {
-namespace examples {
+using namespace mcp;
+using namespace mcp::echo;
 
-using namespace application;
+namespace {
 
-/**
- * MCP protocol filter for processing JSON-RPC messages
- */
-class McpProtocolFilter : public network::Filter, public McpMessageCallbacks {
-public:
-  McpProtocolFilter(ApplicationStats& stats, 
-                    std::function<void(const FailureReason&)> failure_callback)
-      : stats_(stats), 
-        failure_callback_(failure_callback),
-        request_start_time_{} {}
-  
-  // Filter interface
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    // Parse JSON-RPC messages from buffer
-    std::string buffer_str = data.toString();
-    data.drain(data.length());
-    
-    partial_message_ += buffer_str;
-    
-    // Process newline-delimited messages
-    size_t pos = 0;
-    while ((pos = partial_message_.find('\n')) != std::string::npos) {
-      std::string message = partial_message_.substr(0, pos);
-      partial_message_.erase(0, pos + 1);
-      
-      if (!message.empty()) {
-        processMessage(message);
-      }
-    }
-    
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onNewConnection() override {
-    stats_.connections_active++;
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    // Add framing for outgoing messages if needed
-    return network::FilterStatus::Continue;
-  }
-  
-  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
-    read_callbacks_ = &callbacks;
-  }
-  
-  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {
-    write_callbacks_ = &callbacks;
-  }
-  
-  // McpMessageCallbacks interface
-  void onRequest(const jsonrpc::Request& request) override {
-    request_start_time_ = std::chrono::steady_clock::now();
-    stats_.requests_total++;
-    
-    try {
-      // Create echo response
-      auto response = mcp::make<mcp::jsonrpc::Response>(request.id)
-          .result(jsonrpc::ResponseResult(make<Metadata>()
-              .add("echo", true)
-              .add("method", request.method)
-              .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
-              .build()))
-          .build();
-      
-      sendResponse(response);
-      
-      // Track metrics
-      auto duration = std::chrono::steady_clock::now() - request_start_time_;
-      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-      updateLatencyMetrics(duration_ms);
-      
-      stats_.requests_success++;
-      
-    } catch (const std::exception& e) {
-      stats_.requests_failed++;
-      
-      FailureReason failure(FailureReason::Type::ProtocolError,
-                           std::string("Failed to process request: ") + e.what());
-      failure.addContext("method", request.method);
-      failure_callback_(failure);
-      
-      // Send error response
-      auto error_response = mcp::make<mcp::jsonrpc::Response>(request.id)
-          .error(mcp::Error(mcp::jsonrpc::INTERNAL_ERROR, e.what()))
-          .build();
-      
-      sendResponse(error_response);
-    }
-  }
-  
-  void onNotification(const jsonrpc::Notification& notification) override {
-    // Handle special notifications
-    if (notification.method == "shutdown") {
-      // Initiate graceful shutdown
-      if (read_callbacks_) {
-        read_callbacks_->connection().close(network::ConnectionCloseType::FlushWrite);
-      }
-      return;
-    }
-    
-    // Echo notification back with prefix
-    auto echo = mcp::make<mcp::jsonrpc::Notification>("echo/" + notification.method)
-        .params(mcp::make<mcp::Metadata>()
-            .add("original_method", notification.method)
-            .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
-            .build())
-        .build();
-    
-    sendNotification(echo);
-  }
-  
-  void onResponse(const jsonrpc::Response& response) override {
-    // Server shouldn't receive responses, log anomaly
-    FailureReason failure(FailureReason::Type::ProtocolError,
-                         "Server received unexpected response");
-    failure_callback_(failure);
-  }
-  
-  void onConnectionEvent(network::ConnectionEvent event) override {
-    if (event == network::ConnectionEvent::RemoteClose ||
-        event == network::ConnectionEvent::LocalClose) {
-      stats_.connections_active--;
-    }
-  }
-  
-  void onError(const Error& error) override {
-    FailureReason failure(FailureReason::Type::ProtocolError,
-                         error.message);
-    failure.addContext("code", std::to_string(error.code));
-    failure_callback_(failure);
-  }
-  
-private:
-  void processMessage(const std::string& message) {
-    try {
-      auto json_val = json::JsonValue::parse(message);
-      
-      // Determine message type and dispatch
-      if (json_val.contains("method")) {
-        if (json_val.contains("id")) {
-          auto request = json::from_json<jsonrpc::Request>(json_val);
-          onRequest(request);
-        } else {
-          auto notification = json::from_json<jsonrpc::Notification>(json_val);
-          onNotification(notification);
-        }
-      } else if (json_val.contains("result") || json_val.contains("error")) {
-        auto response = json::from_json<jsonrpc::Response>(json_val);
-        onResponse(response);
-      }
-    } catch (const std::exception& e) {
-      onError(Error(jsonrpc::PARSE_ERROR, e.what()));
-    }
-  }
-  
-  void sendResponse(const jsonrpc::Response& response) {
-    auto json_val = json::to_json(response);
-    std::string message = json_val.toString() + "\n";
-    
-    auto buffer = std::make_unique<OwnedBuffer>();
-    buffer->add(message);
-    
-    if (read_callbacks_) {
-      read_callbacks_->connection().write(*buffer, false);
-    }
-  }
-  
-  void sendNotification(const jsonrpc::Notification& notification) {
-    auto json_val = json::to_json(notification);
-    std::string message = json_val.toString() + "\n";
-    
-    auto buffer = std::make_unique<OwnedBuffer>();
-    buffer->add(message);
-    
-    if (read_callbacks_) {
-      read_callbacks_->connection().write(*buffer, false);
-    }
-  }
-  
-  void updateLatencyMetrics(uint64_t duration_ms) {
-    stats_.request_duration_ms_total += duration_ms;
-    
-    uint64_t current_max = stats_.request_duration_ms_max;
-    while (duration_ms > current_max && 
-           !stats_.request_duration_ms_max.compare_exchange_weak(current_max, duration_ms));
-    
-    uint64_t current_min = stats_.request_duration_ms_min;
-    while (duration_ms < current_min && 
-           !stats_.request_duration_ms_min.compare_exchange_weak(current_min, duration_ms));
-  }
-  
-  ApplicationStats& stats_;
-  std::function<void(const FailureReason&)> failure_callback_;
-  network::ReadFilterCallbacks* read_callbacks_ = nullptr;
-  network::WriteFilterCallbacks* write_callbacks_ = nullptr;
-  std::string partial_message_;
-  std::chrono::steady_clock::time_point request_start_time_;
-};
+// Global server for signal handling
+std::shared_ptr<AdvancedEchoServer> g_server;
+std::atomic<bool> g_shutdown(false);
 
-/**
- * Flow control filter implementing watermark-based backpressure
- */
-class FlowControlFilter : public network::Filter {
-public:
-  FlowControlFilter(uint32_t high_watermark, uint32_t low_watermark)
-      : high_watermark_(high_watermark),
-        low_watermark_(low_watermark),
-        buffer_size_(0),
-        above_watermark_(false) {}
-  
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    buffer_size_ += data.length();
-    
-    // Check if we exceeded high watermark
-    if (!above_watermark_ && buffer_size_ > high_watermark_) {
-      above_watermark_ = true;
-      if (read_callbacks_) {
-        // Disable reading from socket
-        read_callbacks_->connection().readDisable(true);
-      }
-    }
-    
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onNewConnection() override {
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    // Data is being written out, reduce buffer size
-    size_t written = data.length();
-    if (written <= buffer_size_) {
-      buffer_size_ -= written;
-    } else {
-      buffer_size_ = 0;
-    }
-    
-    // Check if we dropped below low watermark
-    if (above_watermark_ && buffer_size_ < low_watermark_) {
-      above_watermark_ = false;
-      if (read_callbacks_) {
-        // Re-enable reading from socket
-        read_callbacks_->connection().readDisable(false);
-      }
-    }
-    
-    return network::FilterStatus::Continue;
-  }
-  
-  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
-    read_callbacks_ = &callbacks;
-  }
-  
-  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {}
-  
-private:
-  uint32_t high_watermark_;
-  uint32_t low_watermark_;
-  std::atomic<size_t> buffer_size_;
-  std::atomic<bool> above_watermark_;
-  network::ReadFilterCallbacks* read_callbacks_ = nullptr;
-};
-
-/**
- * Advanced MCP Echo Server Application
- */
-class AdvancedEchoServer : public ApplicationBase {
-public:
-  AdvancedEchoServer(const Config& config) 
-      : ApplicationBase(config),
-        stdio_transport_created_(false) {
-    // Setup the filter chain with our custom filters
-    setupFilterChain(filter_chain_builder_);
-  }
-  
-protected:
-  void initializeWorker(WorkerContext& worker) override {
-    // Each worker gets its own connection manager
-    // For stdio, only the first worker handles it
-    if (!stdio_transport_created_.exchange(true)) {
-      // IMPORTANT: We must delay connection creation until the dispatcher is running.
-      // The connection creation requires thread-safe dispatcher operations.
-      // 
-      // This method is called during ApplicationBase::start() BEFORE the worker thread starts.
-      // The worker thread will start the dispatcher's event loop after this returns.
-      // Therefore, we post the setup to run once the dispatcher is active.
-      //
-      // We store a pointer to the worker context for use in the lambda.
-      // This is safe because workers are stored in ApplicationBase and remain valid
-      // for the lifetime of the application.
-      WorkerContext* worker_ptr = &worker;
-      
-      worker.getDispatcher().post([this, worker_ptr]() {
-        // Now we're running in the dispatcher thread, safe to create connections
-        setupStdioConnection(*worker_ptr);
-      });
-    }
-  }
-  
-  void setupFilterChain(FilterChainBuilder& builder) override {
-    // Add base filters
-    ApplicationBase::setupFilterChain(builder);
-    
-    // Add flow control filter
-    builder.addFilter([this]() {
-      return std::make_shared<FlowControlFilter>(
-          config_.buffer_high_watermark,
-          config_.buffer_low_watermark);
-    });
-    
-    // Add MCP protocol filter
-    builder.addFilter([this]() {
-      return std::make_shared<McpProtocolFilter>(
-          stats_,
-          [this](const FailureReason& failure) { trackFailure(failure); });
-    });
-  }
-  
-private:
-  void setupStdioConnection(WorkerContext& worker) {
-    // Create stdio pipe transport configuration
-    transport::StdioPipeTransportConfig transport_config;
-    transport_config.stdin_fd = STDIN_FILENO;
-    transport_config.stdout_fd = STDOUT_FILENO;
-    transport_config.non_blocking = true;
-    transport_config.buffer_size = 8192;
-    
-    // Create and initialize transport
-    auto transport = std::make_unique<transport::StdioPipeTransport>(transport_config);
-    auto init_result = transport->initialize();
-    
-    if (holds_alternative<Error>(init_result)) {
-      auto& error = get<Error>(init_result);
-      FailureReason failure(FailureReason::Type::ConnectionFailure,
-                           "Failed to initialize stdio transport: " + error.message);
-      trackFailure(failure);
-      return;
-    }
-    
-    // Get the pipe socket
-    auto socket = transport->takePipeSocket();
-    if (!socket) {
-      FailureReason failure(FailureReason::Type::ConnectionFailure,
-                           "Failed to get pipe socket from transport");
-      trackFailure(failure);
-      return;
-    }
-    
-    // Create stream info
-    auto stream_info = stream_info::StreamInfoImpl::create();
-    
-    // Create connection - now safe because we're running in the dispatcher thread
-    auto connection = network::ConnectionImpl::createServerConnection(
-        worker.getDispatcher(),
-        std::move(socket),
-        std::move(transport),
-        *stream_info);
-    
-    if (!connection) {
-      FailureReason failure(FailureReason::Type::ConnectionFailure,
-                           "Failed to create server connection");
-      trackFailure(failure);
-      return;
-    }
-    
-    // Apply filter chain
-    auto* conn_impl = dynamic_cast<network::ConnectionImplBase*>(connection.get());
-    if (conn_impl) {
-      filter_chain_builder_.buildChain(conn_impl->filterManager());
-    }
-    
-    // Store connection
-    stdio_connection_ = std::move(connection);
-    
-    // Notify transport of connection
-    stdio_connection_->transportSocket().onConnected();
-    
-    // Enable reading from the connection
-    stdio_connection_->readDisable(false);
-    
-    std::cerr << "[INFO] Stdio echo server ready on worker " 
-              << worker.getName() << std::endl;
-  }
-  
-  std::atomic<bool> stdio_transport_created_;
-  std::shared_ptr<network::Connection> stdio_connection_;
-};
-
-// Global server instance for signal handling
-std::unique_ptr<AdvancedEchoServer> g_server;
-
-void signalHandler(int signal) {
-  if (signal == SIGINT || signal == SIGTERM) {
-    std::cerr << "\n[INFO] Received signal " << signal 
-              << ", initiating graceful shutdown..." << std::endl;
-    if (g_server) {
-      g_server->stop();
-    }
+void signal_handler(int signal) {
+  std::cerr << "\n[INFO] Received signal " << signal << ", initiating shutdown..." << std::endl;
+  g_shutdown = true;
+  if (g_server) {
+    g_server->stop();
   }
 }
 
-} // namespace examples
-} // namespace mcp
+} // namespace
 
 int main(int argc, char* argv[]) {
-  using namespace mcp::examples;
+  // Install signal handlers
+  signal(SIGINT, signal_handler);
+  signal(SIGTERM, signal_handler);
   
-  // Configure server
-  ApplicationBase::Config config;
-  config.num_workers = 2;  // Use 2 worker threads for stdio
-  config.max_connections_per_worker = 10;
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "Advanced Echo Server (Refactored with Transport Abstraction)" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "Features:" << std::endl;
+  std::cerr << "  - Transport-agnostic architecture (stdio, tcp, http ready)" << std::endl;
+  std::cerr << "  - Flow control with watermark-based backpressure" << std::endl;
+  std::cerr << "  - Worker thread model for scalability" << std::endl;
+  std::cerr << "  - Request/notification processing" << std::endl;
+  std::cerr << "  - Comprehensive metrics and monitoring" << std::endl;
+  std::cerr << "  - Custom handler registration" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  
+  // Configure the server
+  EchoServerConfig config;
+  config.enable_metrics = true;
+  config.metrics_interval = std::chrono::seconds(30);
+  config.num_workers = 2;
   config.buffer_high_watermark = 1024 * 1024;  // 1MB
   config.buffer_low_watermark = 256 * 1024;    // 256KB
-  config.enable_metrics = true;
-  config.metrics_interval = std::chrono::seconds(10);
+  config.request_timeout = std::chrono::seconds(30);
+  config.echo_requests = true;
+  config.echo_notifications = true;
+  config.add_timestamp = true;
+  config.add_server_info = true;
   
-  // Parse command line arguments
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--workers" && i + 1 < argc) {
-      config.num_workers = std::stoul(argv[++i]);
-    } else if (arg == "--metrics-interval" && i + 1 < argc) {
-      config.metrics_interval = std::chrono::seconds(std::stoul(argv[++i]));
-    } else if (arg == "--no-metrics") {
-      config.enable_metrics = false;
-    } else if (arg == "--help") {
-      std::cout << "Usage: " << argv[0] << " [options]\n"
-                << "Options:\n"
-                << "  --workers N           Number of worker threads (default: 2)\n"
-                << "  --metrics-interval S  Metrics reporting interval in seconds (default: 10)\n"
-                << "  --no-metrics         Disable metrics collection\n"
-                << "  --help              Show this help message\n";
-      return 0;
+  // Create stdio transport (can easily swap with TCP, HTTP, etc.)
+  auto transport = std::make_shared<StdioEchoTransport>();
+  
+  // Create the advanced echo server
+  g_server = std::make_shared<AdvancedEchoServer>(transport, config);
+  
+  // Register custom handlers
+  
+  // Custom ping handler
+  g_server->registerHandler("ping", [](const jsonrpc::Request& request) {
+    return make<jsonrpc::Response>(request.id)
+        .result(jsonrpc::ResponseResult(make<Metadata>()
+            .add("pong", true)
+            .add("timestamp", std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count())
+            .build()))
+        .build();
+  });
+  
+  // Custom stats handler
+  g_server->registerHandler("server/stats", [](const jsonrpc::Request& request) {
+    const auto& stats = g_server->getStats();
+    return make<jsonrpc::Response>(request.id)
+        .result(jsonrpc::ResponseResult(make<Metadata>()
+            .add("connections_total", static_cast<int64_t>(stats.connections_total.load()))
+            .add("connections_active", static_cast<int64_t>(stats.connections_active.load()))
+            .add("requests_total", static_cast<int64_t>(stats.requests_total.load()))
+            .add("requests_success", static_cast<int64_t>(stats.requests_success.load()))
+            .add("requests_failed", static_cast<int64_t>(stats.requests_failed.load()))
+            .add("notifications_total", static_cast<int64_t>(stats.notifications_total.load()))
+            .add("bytes_received", static_cast<int64_t>(stats.bytes_received.load()))
+            .add("bytes_sent", static_cast<int64_t>(stats.bytes_sent.load()))
+            .build()))
+        .build();
+  });
+  
+  // Custom echo with modification
+  g_server->registerHandler("echo/uppercase", [](const jsonrpc::Request& request) {
+    std::string message = "ECHO";
+    if (request.params.has_value()) {
+      auto params = request.params.value();
+      auto it = params.find("message");
+      if (it != params.end()) {
+        auto msg_val = it->second;
+        if (holds_alternative<std::string>(msg_val)) {
+          message = get<std::string>(msg_val);
+          // Convert to uppercase
+          std::transform(message.begin(), message.end(), message.begin(), ::toupper);
+        }
+      }
     }
-  }
+    
+    return make<jsonrpc::Response>(request.id)
+        .result(jsonrpc::ResponseResult(make<Metadata>()
+            .add("echo", true)
+            .add("message", message)
+            .add("transformed", "uppercase")
+            .build()))
+        .build();
+  });
   
-  // Setup signal handlers
-  signal(SIGINT, mcp::examples::signalHandler);
-  signal(SIGTERM, mcp::examples::signalHandler);
-  signal(SIGPIPE, SIG_IGN);  // Ignore broken pipe
+  // Custom notification handler for logging
+  g_server->registerNotificationHandler("log", [](const jsonrpc::Notification& notification) {
+    std::cerr << "[LOG] Received log notification: " << notification.method;
+    if (notification.params.has_value()) {
+      auto params = notification.params.value();
+      auto level_it = params.find("level");
+      if (level_it != params.end()) {
+        if (holds_alternative<std::string>(level_it->second)) {
+          std::cerr << " [" << get<std::string>(level_it->second) << "]";
+        }
+      }
+      auto msg_it = params.find("message");
+      if (msg_it != params.end()) {
+        if (holds_alternative<std::string>(msg_it->second)) {
+          std::cerr << " - " << get<std::string>(msg_it->second);
+        }
+      }
+    }
+    std::cerr << std::endl;
+  });
   
-  try {
-    // Create and start server
-    std::cerr << "[INFO] Starting Advanced MCP Echo Server\n"
-              << "[INFO] Configuration:\n"
-              << "[INFO]   Workers: " << config.num_workers << "\n"
-              << "[INFO]   Buffer high watermark: " << config.buffer_high_watermark << " bytes\n"
-              << "[INFO]   Buffer low watermark: " << config.buffer_low_watermark << " bytes\n"
-              << "[INFO]   Metrics: " << (config.enable_metrics ? "enabled" : "disabled") << "\n";
-    
-    mcp::examples::g_server = std::make_unique<AdvancedEchoServer>(config);
-    mcp::examples::g_server->start();  // Blocks until stop() is called
-    
-    // Print final statistics
-    const auto& stats = mcp::examples::g_server->getStats();
-    std::cerr << "\n[INFO] Server shutdown complete\n"
-              << "[INFO] Final statistics:\n"
-              << "[INFO]   Total connections: " << stats.connections_total << "\n"
-              << "[INFO]   Total requests: " << stats.requests_total << "\n"
-              << "[INFO]   Successful requests: " << stats.requests_success << "\n"
-              << "[INFO]   Failed requests: " << stats.requests_failed << "\n"
-              << "[INFO]   Total errors: " << stats.errors_total << "\n";
-    
-  } catch (const std::exception& e) {
-    std::cerr << "[ERROR] Server failed: " << e.what() << std::endl;
+  // Custom heartbeat handler
+  g_server->registerNotificationHandler("heartbeat", [](const jsonrpc::Notification& notification) {
+    static int heartbeat_count = 0;
+    heartbeat_count++;
+    if (heartbeat_count % 10 == 0) {
+      std::cerr << "[HEARTBEAT] Received " << heartbeat_count << " heartbeats" << std::endl;
+    }
+  });
+  
+  // Start the server
+  auto start_result = g_server->start("stdio://localhost");
+  if (holds_alternative<Error>(start_result)) {
+    std::cerr << "[ERROR] Failed to start server: " 
+              << get<Error>(start_result).message << std::endl;
     return 1;
   }
   
-  // Explicitly reset the server to ensure clean shutdown
-  mcp::examples::g_server.reset();
+  std::cerr << "[INFO] Server started successfully" << std::endl;
+  std::cerr << "[INFO] Transport type: " << transport->getTransportType() << std::endl;
+  std::cerr << "[INFO] Number of workers: " << config.num_workers << std::endl;
+  std::cerr << "[INFO] Flow control watermarks: " 
+            << "High=" << config.buffer_high_watermark 
+            << ", Low=" << config.buffer_low_watermark << std::endl;
+  std::cerr << "[INFO] Custom handlers registered: ping, server/stats, echo/uppercase" << std::endl;
+  std::cerr << "[INFO] Press Ctrl+C to shutdown" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  
+  // Main server loop
+  while (!g_shutdown && g_server->isRunning()) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    
+    // Periodic health check
+    const auto& stats = g_server->getStats();
+    
+    // Alert on high error rate
+    if (stats.errors_total > 100) {
+      std::cerr << "[WARN] High error count detected: " 
+                << stats.errors_total << " errors" << std::endl;
+    }
+    
+    // Alert on high failure rate
+    if (stats.requests_failed > 0 && stats.requests_total > 0) {
+      double failure_rate = static_cast<double>(stats.requests_failed) / 
+                            static_cast<double>(stats.requests_total);
+      if (failure_rate > 0.1) {  // More than 10% failure rate
+        std::cerr << "[WARN] High failure rate: " 
+                  << (failure_rate * 100) << "%" << std::endl;
+      }
+    }
+  }
+  
+  // Graceful shutdown
+  std::cerr << "\n[INFO] Shutting down server..." << std::endl;
+  g_server->stop();
+  
+  // Print final statistics
+  const auto& stats = g_server->getStats();
+  std::cerr << "\n==================================================================" << std::endl;
+  std::cerr << "Final Statistics:" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "  Total connections: " << stats.connections_total << std::endl;
+  std::cerr << "  Active connections: " << stats.connections_active << std::endl;
+  std::cerr << "  Total requests processed: " << stats.requests_total << std::endl;
+  std::cerr << "  Successful requests: " << stats.requests_success << std::endl;
+  std::cerr << "  Failed requests: " << stats.requests_failed << std::endl;
+  std::cerr << "  Total notifications: " << stats.notifications_total << std::endl;
+  std::cerr << "  Total errors: " << stats.errors_total << std::endl;
+  std::cerr << "  Total bytes received: " << stats.bytes_received << std::endl;
+  std::cerr << "  Total bytes sent: " << stats.bytes_sent << std::endl;
+  
+  if (stats.requests_success > 0) {
+    uint64_t avg_latency = stats.request_duration_ms_total / stats.requests_success;
+    std::cerr << "  Average request latency: " << avg_latency << " ms" << std::endl;
+    std::cerr << "  Min request latency: " << stats.request_duration_ms_min << " ms" << std::endl;
+    std::cerr << "  Max request latency: " << stats.request_duration_ms_max << " ms" << std::endl;
+  }
+  
+  // Calculate uptime
+  auto now = std::chrono::steady_clock::now();
+  // Note: Actual uptime calculation would need start time tracking
+  
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "[INFO] Server shutdown complete" << std::endl;
   
   return 0;
 }
