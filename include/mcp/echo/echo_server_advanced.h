@@ -174,7 +174,7 @@ public:
   
 private:
   void handleDataReceived(const std::string& data);
-  void handleStatusChange(EchoTransport::Status status);
+  void handleStatusChange(EchoTransportAdvanced::Status status);
   void handleError(const Error& error);
   void processMessage(const std::string& message, ConnectionContext* context);
   void handleRequest(const jsonrpc::Request& request, ConnectionContext* context);

@@ -112,7 +112,7 @@ void StdioEchoTransport::close() {
   }
 }
 
-EchoTransport::Status StdioEchoTransport::getStatus() const {
+EchoTransportAdvanced::Status StdioEchoTransport::getStatus() const {
   return status_;
 }
 
