@@ -1,3 +1,31 @@
+/**
+ * @file test_stdio_echo_server.cc
+ * @brief TRANSPORT LAYER TESTS for stdio echo server functionality
+ * 
+ * TEST LEVEL: Low-level transport/infrastructure testing
+ * 
+ * This file tests the underlying transport mechanisms, pipes, sockets, and 
+ * connection management components that enable stdio communication. It does
+ * NOT test the actual echo application binaries.
+ * 
+ * What this tests:
+ * - StdioTransportSocket functionality
+ * - Pipe-based bidirectional communication
+ * - Event dispatching and async I/O
+ * - Connection manager internals
+ * - Transport-level message handling
+ * - Mock server callback mechanisms
+ * 
+ * What this does NOT test:
+ * - Actual echo server/client applications  
+ * - End-to-end JSON-RPC application flows
+ * - Application-level business logic
+ * 
+ * For application-level testing, see:
+ * - tests/test_stdio_echo_server_basic.cc (basic application tests)
+ * - tests/test_stdio_echo_server_advanced.cc (advanced application tests)
+ */
+
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "mcp/transport/stdio_transport_socket.h"

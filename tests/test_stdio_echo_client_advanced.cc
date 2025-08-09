@@ -1,6 +1,29 @@
 /**
  * @file test_stdio_echo_client_advanced.cc
- * @brief Unit tests for Advanced MCP Echo Client
+ * @brief APPLICATION LEVEL TESTS for advanced echo client binary
+ * 
+ * TEST LEVEL: End-to-end application testing
+ * 
+ * This file tests the actual advanced echo client application binary by 
+ * spawning processes and testing through stdio pipes. It validates advanced
+ * client features like circuit breaking, retry logic, and batch processing.
+ * 
+ * What this tests:
+ * - Advanced echo client binary execution
+ * - End-to-end JSON-RPC flows with advanced features
+ * - Circuit breaker pattern behavior
+ * - Retry and timeout mechanisms
+ * - Batch request processing
+ * - Advanced error handling and recovery
+ * - Metrics collection and reporting
+ * 
+ * What this does NOT test:
+ * - Transport layer internals (pipes, sockets, events)
+ * - Connection manager implementation details
+ * - Low-level I/O mechanisms
+ * 
+ * For transport-level testing, see:
+ * - tests/integration/test_stdio_echo_client.cc (transport layer tests)
  */
 
 #include <gtest/gtest.h>

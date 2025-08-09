@@ -1,13 +1,28 @@
 /**
  * @file test_stdio_echo_client_basic.cc
- * @brief Comprehensive unit tests for stdio_echo_client.cc
+ * @brief APPLICATION LEVEL TESTS for basic echo client binary
  * 
- * Test Coverage:
- * - Client binary execution
- * - Request/response handling
- * - Notification handling
- * - Error handling
- * - Signal handling
+ * TEST LEVEL: End-to-end application testing
+ * 
+ * This file tests the actual basic echo client application binary by spawning
+ * processes and testing through stdio pipes. It validates the complete 
+ * application behavior from command-line invocation to JSON-RPC responses.
+ * 
+ * What this tests:
+ * - Basic echo client binary execution
+ * - End-to-end JSON-RPC request/response flows  
+ * - Application-level error handling
+ * - Process lifecycle (startup, shutdown, signals)
+ * - Command-line argument parsing
+ * - Real stdio communication
+ * 
+ * What this does NOT test:
+ * - Transport layer internals (pipes, sockets, events)
+ * - Connection manager implementation details
+ * - Low-level I/O mechanisms
+ * 
+ * For transport-level testing, see:
+ * - tests/integration/test_stdio_echo_client.cc (transport layer tests)
  */
 
 #include <gtest/gtest.h>

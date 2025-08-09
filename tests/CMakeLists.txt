@@ -36,11 +36,11 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
-add_executable(test_stdio_pipe_bridge integration/test_stdio_pipe_bridge.cc)
+add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
-# Integration tests
-add_executable(test_stdio_echo_server integration/test_stdio_echo_server.cc)
-add_executable(test_stdio_echo_client integration/test_stdio_echo_client.cc)
+# Transport layer tests (low-level transport/pipe/socket testing)
+add_executable(test_stdio_echo_server transport/test_stdio_echo_server.cc)
+add_executable(test_stdio_echo_client transport/test_stdio_echo_client.cc)
 
 # Advanced example tests
 add_executable(test_stdio_echo_client_advanced test_stdio_echo_client_advanced.cc)
