@@ -253,6 +253,7 @@ int main(int argc, char* argv[]) {
   // Parse command line arguments
   std::string host = "localhost";
   int port = 3000;
+  int num_requests = 5;
   bool interactive = false;
 
   for (int i = 1; i < argc; i++) {
@@ -261,6 +262,8 @@ int main(int argc, char* argv[]) {
       host = argv[++i];
     } else if (arg == "--port" && i + 1 < argc) {
       port = std::stoi(argv[++i]);
+    } else if (arg == "--requests" && i + 1 < argc) {
+      num_requests = std::stoi(argv[++i]);
     } else if (arg == "--interactive") {
       interactive = true;
     } else if (arg == "--help") {
@@ -269,6 +272,7 @@ int main(int argc, char* argv[]) {
                 << "Options:\n"
                 << "  --host <address>  Server address (default: localhost)\n"
                 << "  --port <port>     Server port (default: 3000)\n"
+                << "  --requests <n>    Number of test requests (default: 5)\n"
                 << "  --interactive     Interactive mode\n"
                 << "  --help           Show this help message\n";
       return 0;
@@ -332,18 +336,67 @@ int main(int argc, char* argv[]) {
         client_thread.join();
       }
     } else {
-      // Non-interactive mode - send a test message
-      client.sendRequest("echo", "Hello from network-based TCP client!");
+      // Non-interactive mode - send multiple test messages
+      std::cout << "Sending " << num_requests << " test requests..." << std::endl;
       
-      // Run for a short time
-      auto start = std::chrono::steady_clock::now();
-      while (!g_shutdown && 
-             std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
-        dispatcher->run(event::Dispatcher::RunType::NonBlock);
+      // Run client in background thread
+      std::thread client_thread([&client]() {
+        client.run();
+      });
+      
+      // Send test requests
+      std::vector<std::future<optional<json::JsonValue>>> futures;
+      
+      for (int i = 1; i <= num_requests && !g_shutdown; i++) {
+        std::string message = "Test message #" + std::to_string(i) + " from network-based TCP client!";
+        auto future = client.sendRequest("echo", message);
+        futures.push_back(std::move(future));
+        
+        std::cout << "Sent request #" << i << std::endl;
+        
+        // Small delay between requests
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
       
+      // Collect responses
+      int successful = 0;
+      int failed = 0;
+      
+      for (size_t i = 0; i < futures.size() && !g_shutdown; i++) {
+        try {
+          auto status = futures[i].wait_for(std::chrono::seconds(5));
+          if (status == std::future_status::ready) {
+            auto response = futures[i].get();
+            if (response.has_value()) {
+              std::cout << "Request #" << (i + 1) << " succeeded: " 
+                        << response.value().asString() << std::endl;
+              successful++;
+            } else {
+              std::cout << "Request #" << (i + 1) << " failed: no response" << std::endl;
+              failed++;
+            }
+          } else {
+            std::cout << "Request #" << (i + 1) << " timed out" << std::endl;
+            failed++;
+          }
+        } catch (const std::exception& e) {
+          std::cout << "Request #" << (i + 1) << " exception: " << e.what() << std::endl;
+          failed++;
+        }
+      }
+      
+      // Print summary
+      std::cout << "\n=== Results ===" << std::endl;
+      std::cout << "Successful: " << successful << std::endl;
+      std::cout << "Failed: " << failed << std::endl;
+      std::cout << "Total: " << (successful + failed) << std::endl;
+      
+      g_shutdown = true;
       client.stop();
+      
+      if (client_thread.joinable()) {
+        client_thread.join();
+      }
     }
 
   } catch (const std::exception& e) {
