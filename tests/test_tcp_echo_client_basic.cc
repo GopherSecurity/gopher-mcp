@@ -265,7 +265,7 @@ TEST_F(TCPEchoClientBasicTest, ClientConnectsToServer) {
   
   // Wait for connection
   std::string all_output;
-  for (int i = 0; i < 30; ++i) {  // Wait up to 3 seconds
+  for (int i = 0; i < 15; ++i) {  // Wait up to 1.5 seconds (reduced from 3s)
     char buffer[4096];
     ssize_t n = read(pipe_err[0], buffer, sizeof(buffer) - 1);
     if (n > 0) {
@@ -332,7 +332,7 @@ TEST_F(TCPEchoClientBasicTest, ClientHandlesConnectionFailure) {
   
   // Collect output
   std::string all_output;
-  for (int i = 0; i < 20; ++i) {  // Wait up to 2 seconds
+  for (int i = 0; i < 10; ++i) {  // Wait up to 1 second (reduced from 2s)
     char buffer[4096];
     ssize_t n = read(pipe_err[0], buffer, sizeof(buffer) - 1);
     if (n > 0) {

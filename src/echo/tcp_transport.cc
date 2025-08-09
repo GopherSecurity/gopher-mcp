@@ -6,6 +6,7 @@
 #include "mcp/echo/tcp_transport.h"
 #include <iostream>
 #include <sstream>
+#include <netdb.h>
 
 namespace mcp {
 namespace echo {
@@ -24,6 +25,14 @@ bool TCPTransport::start() {
   if (mode_ == Mode::Server && port_ <= 0) {
     std::cerr << "[ERROR] TCP Server: Port must be set before starting" << std::endl;
     return false;
+  }
+  
+  // For server mode, try to create and bind the socket immediately
+  if (mode_ == Mode::Server) {
+    if (!createServerSocket(port_, bind_address_)) {
+      std::cerr << "[ERROR] TCP Server: Failed to create server socket" << std::endl;
+      return false;
+    }
   }
   
   running_ = true;
@@ -82,7 +91,8 @@ bool TCPTransport::listen(int port, const std::string& bind_address) {
 }
 
 void TCPTransport::readLoop() {
-  const int RECONNECT_DELAY_MS = 5000; // 5 second reconnect delay
+  const int RECONNECT_DELAY_MS = 1000; // 1 second reconnect delay (reduced from 5s)
+  const int RECONNECT_CHECK_INTERVAL_MS = 100; // Check running_ flag every 100ms
   
   while (running_) {
     if (!connected_) {
@@ -103,8 +113,10 @@ void TCPTransport::readLoop() {
         std::cerr << "[INFO] TCP " << (mode_ == Mode::Client ? "Client" : "Server") 
                   << ": Connected" << std::endl;
       } else {
-        // Wait before retrying
-        std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS));
+        // Wait before retrying, but check running_ flag frequently
+        for (int i = 0; i < RECONNECT_DELAY_MS / RECONNECT_CHECK_INTERVAL_MS && running_; ++i) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_CHECK_INTERVAL_MS));
+        }
         continue;
       }
     }
@@ -201,11 +213,16 @@ bool TCPTransport::createClientSocket(const std::string& host, int port) {
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(port);
   
-  // Convert hostname to IP
+  // Convert hostname to IP - first try as IP address
   if (inet_pton(AF_INET, host.c_str(), &server_addr.sin_addr) <= 0) {
-    std::cerr << "[ERROR] TCP Client: Invalid address: " << host << std::endl;
-    close(sock);
-    return false;
+    // Not an IP address, try hostname resolution
+    struct hostent* he = gethostbyname(host.c_str());
+    if (he == nullptr) {
+      std::cerr << "[ERROR] TCP Client: Cannot resolve host: " << host << std::endl;
+      close(sock);
+      return false;
+    }
+    memcpy(&server_addr.sin_addr, he->h_addr, he->h_length);
   }
   
   // Connect (non-blocking)
@@ -222,7 +239,7 @@ bool TCPTransport::createClientSocket(const std::string& host, int port) {
     pfd.fd = sock;
     pfd.events = POLLOUT;
     
-    int poll_result = poll(&pfd, 1, 5000); // 5 second timeout
+    int poll_result = poll(&pfd, 1, 1000); // 1 second timeout (reduced from 5s)
     if (poll_result <= 0) {
       std::cerr << "[ERROR] TCP Client: Connection timeout to " << host << ":" << port << std::endl;
       close(sock);
@@ -245,6 +262,11 @@ bool TCPTransport::createClientSocket(const std::string& host, int port) {
 }
 
 bool TCPTransport::createServerSocket(int port, const std::string& bind_address) {
+  // Don't retry if bind already failed
+  if (bind_failed_) {
+    return false;
+  }
+  
   // Create server socket if not already created
   if (server_fd_ == -1) {
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -291,6 +313,7 @@ bool TCPTransport::createServerSocket(int port, const std::string& bind_address)
                 << ": " << strerror(errno) << std::endl;
       close(server_fd_);
       server_fd_ = -1;
+      bind_failed_ = true;  // Mark bind as failed to avoid retrying
       return false;
     }
     
@@ -310,6 +333,17 @@ bool TCPTransport::createServerSocket(int port, const std::string& bind_address)
 
 bool TCPTransport::acceptConnection() {
   if (server_fd_ == -1) {
+    return false;
+  }
+  
+  // Poll for incoming connections with timeout
+  struct pollfd pfd;
+  pfd.fd = server_fd_;
+  pfd.events = POLLIN;
+  
+  int poll_result = poll(&pfd, 1, 100); // 100ms timeout
+  if (poll_result <= 0) {
+    // No connection ready or error
     return false;
   }
   

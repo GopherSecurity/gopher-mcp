@@ -128,6 +128,8 @@ private:
   
   DataCallback data_callback_;
   ConnectionCallback connection_callback_;
+  
+  bool bind_failed_ = false;  // Track if bind has failed to avoid retrying
 };
 
 /**
