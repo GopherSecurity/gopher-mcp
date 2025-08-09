@@ -300,7 +300,10 @@ class AdvancedEchoServer : public ApplicationBase {
 public:
   AdvancedEchoServer(const Config& config) 
       : ApplicationBase(config),
-        stdio_transport_created_(false) {}
+        stdio_transport_created_(false) {
+    // Setup the filter chain with our custom filters
+    setupFilterChain(filter_chain_builder_);
+  }
   
 protected:
   void initializeWorker(WorkerContext& worker) override {
@@ -378,8 +381,7 @@ private:
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
     
-    // Create connection directly during initialization
-    // Note: The worker dispatcher isn't running yet, so we can't post to it
+    // Create connection - now safe because we're running in the dispatcher thread
     auto connection = network::ConnectionImpl::createServerConnection(
         worker.getDispatcher(),
         std::move(socket),
@@ -404,6 +406,9 @@ private:
     
     // Notify transport of connection
     stdio_connection_->transportSocket().onConnected();
+    
+    // Enable reading from the connection
+    stdio_connection_->readDisable(false);
     
     std::cerr << "[INFO] Stdio echo server ready on worker " 
               << worker.getName() << std::endl;
