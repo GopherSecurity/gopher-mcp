@@ -18,10 +18,14 @@ namespace echo {
 struct Success {};
 
 /**
- * @brief Abstract transport interface for echo communication
+ * @brief Advanced transport interface for echo communication
  * 
  * This interface allows echo client and server to work with different
  * transport mechanisms (stdio, TCP, HTTP, WebSocket, etc.) transparently.
+ * 
+ * This is the advanced interface used by advanced echo examples with
+ * sophisticated features like circuit breakers, flow control, and metrics.
+ * For basic usage, see EchoTransportBase in echo_basic.h
  */
 class EchoTransport {
 public:
