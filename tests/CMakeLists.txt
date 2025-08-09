@@ -42,6 +42,10 @@ add_executable(test_stdio_pipe_bridge integration/test_stdio_pipe_bridge.cc)
 add_executable(test_stdio_echo_server integration/test_stdio_echo_server.cc)
 add_executable(test_stdio_echo_client integration/test_stdio_echo_client.cc)
 
+# Advanced example tests
+add_executable(test_stdio_echo_client_advanced test_stdio_echo_client_advanced.cc)
+add_executable(test_stdio_echo_server_advanced test_stdio_echo_server_advanced.cc)
+
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
 add_executable(test_builders core/test_builders.cc)
@@ -293,6 +297,27 @@ target_link_libraries(test_stdio_pipe_bridge
     nlohmann_json::nlohmann_json
 )
 
+# Advanced example test libraries
+target_link_libraries(test_stdio_echo_client_advanced
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_stdio_echo_server_advanced
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
     mcp-sdk
@@ -385,6 +410,10 @@ add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 add_test(NAME StdioEchoServerTest COMMAND test_stdio_echo_server)
 add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
+
+# Advanced example tests
+add_test(NAME StdioEchoClientAdvancedTest COMMAND test_stdio_echo_client_advanced)
+add_test(NAME StdioEchoServerAdvancedTest COMMAND test_stdio_echo_server_advanced)
 
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
