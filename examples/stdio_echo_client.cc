@@ -1,385 +1,49 @@
-#include "mcp/transport/stdio_transport_socket.h"
-#include "mcp/mcp_connection_manager.h"
-#include "mcp/event/libevent_dispatcher.h"
-#include "mcp/network/socket_interface_impl.h"
-#include "mcp/network/address_impl.h"
-#include "mcp/buffer.h"
-#include "mcp/json/json_serialization.h"
-#include "mcp/builders.h"
+/**
+ * @file stdio_echo_client.cc
+ * @brief Basic MCP echo client using reusable components
+ * 
+ * This demonstrates the original basic echo client refactored to use
+ * the new transport-agnostic base classes with stdio transport.
+ * 
+ * Architecture:
+ * - Uses transport-agnostic base classes for echo functionality
+ * - Stdio transport handles stdin/stdout communication
+ * - Async request/response tracking with futures
+ * - Demonstrates builder pattern for message construction
+ * 
+ * Message Flow:
+ * 1. Client sends JSON-RPC request/notification to stdout
+ * 2. Request is tracked with unique ID for async response matching
+ * 3. Server processes request and sends response
+ * 4. Client reads response from stdin via StdioTransport
+ * 5. Base class matches response by ID and completes promise
+ * 
+ * Protocol:
+ * - Each JSON-RPC message is newline-delimited
+ * - Requests are tracked by ID for async response handling
+ * - Supports both requests (with responses) and notifications
+ */
+
+#include "mcp/echo/echo_base.h"
+#include "mcp/echo/stdio_transport.h"
 #include <iostream>
 #include <signal.h>
-#include <atomic>
 #include <memory>
-#include <unordered_map>
-#include <chrono>
 #include <thread>
-#include <unistd.h>
+#include <chrono>
+#include <vector>
 
 namespace mcp {
 namespace examples {
 
-/**
- * Echo client implementation for MCP over stdio transport
- * 
- * Architecture:
- * - Communicates via stdin/stdout using JSON-RPC protocol
- * - Sends requests and tracks responses by ID for correlation
- * - Demonstrates builder pattern for constructing messages
- * - Uses libevent dispatcher for async I/O handling
- * 
- * Message Flow:
- * 1. Client sends request/notification to stdout
- * 2. Server reads from its stdin (connected to client's stdout)
- * 3. Server processes and sends response to its stdout
- * 4. Client reads response from stdin (connected to server's stdout)
- */
-class StdioEchoClient : public McpMessageCallbacks {
-public:
-  StdioEchoClient(event::Dispatcher& dispatcher)
-      : dispatcher_(dispatcher),
-        running_(false),
-        next_request_id_(1) {
-    // Initialize connection config for stdio
-    McpConnectionConfig config;
-    config.transport_type = TransportType::Stdio;
-    config.stdio_config = transport::StdioTransportSocketConfig{
-        .stdin_fd = STDIN_FILENO,
-        .stdout_fd = STDOUT_FILENO,
-        .non_blocking = true
-    };
-    config.use_message_framing = false;  // Disable framing for simpler testing
-    
-    // Create socket interface
-    socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
-    
-    // Create connection manager
-    connection_manager_ = std::make_unique<McpConnectionManager>(
-        dispatcher_, *socket_interface_, config);
-    
-    // Set this as the message callback handler
-    connection_manager_->setMessageCallbacks(*this);
-  }
-  
-  ~StdioEchoClient() {
-    stop();
-  }
-  
-  bool start() {
-    if (running_) {
-      return true;
-    }
-    
-    std::cerr << "Starting stdio echo client...\n";
-    
-    // Thread Safety Critical Section:
-    // Must defer connection to dispatcher thread for thread safety.
-    // The dispatcher's thread_id_ is only set when run() is called.
-    // If we connect before run(), createFileEvent() will fail its
-    // isThreadSafe() check. Using post() ensures connection happens
-    // in the correct thread context after run() starts.
-    dispatcher_.post([this]() {
-      // Connect using stdio transport
-      auto result = connection_manager_->connect();
-      if (holds_alternative<Error>(result)) {
-        std::cerr << "Failed to start stdio transport: " 
-                  << get<Error>(result).message << "\n";
-        running_ = false;
-        return;
-      }
-      
-      running_ = true;
-      std::cerr << "Echo client started.\n";
-    });
-    
-    // Set running_ to true optimistically since post() was successful
-    // The actual connection will happen in the dispatcher thread
-    running_ = true;
-    return true;
-  }
-  
-  void stop() {
-    if (running_) {
-      std::cerr << "Stopping echo client...\n";
-      
-      // Send shutdown notification
-      sendShutdownNotification();
-      
-      // Give time for shutdown to be sent
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      
-      connection_manager_->close();
-      running_ = false;
-    }
-  }
-  
-  bool isRunning() const {
-    return running_;
-  }
-  
-  /**
-   * Send a test request to the server
-   * 
-   * Flow:
-   * 1. Generate unique request ID for correlation
-   * 2. Build request using builder pattern
-   * 3. Track request in pending_requests_ map
-   * 4. Send via connection_manager (writes to stdout)
-   * 5. Response will arrive asynchronously via onResponse()
-   */
-  void sendTestRequest(const std::string& method, const Metadata& params = {}) {
-    if (!running_) {
-      std::cerr << "Client not running\n";
-      return;
-    }
-    
-    int request_id = next_request_id_++;
-    
-    // Build request using builder pattern from builders.h
-    auto builder = make<jsonrpc::Request>(make_request_id(request_id), method);
-    if (!params.empty()) {
-      builder.params(params);
-    }
-    auto request = builder.build();
-    
-    // Track pending request
-    auto start_time = std::chrono::steady_clock::now();
-    pending_requests_[request_id] = {method, start_time};
-    
-    std::cerr << "Sending request #" << request_id 
-              << " (method: " << method << ")\n";
-    
-    auto result = connection_manager_->sendRequest(request);
-    if (holds_alternative<Error>(result)) {
-      std::cerr << "Failed to send request: " 
-                << get<Error>(result).message << "\n";
-      pending_requests_.erase(request_id);
-    }
-  }
-  
-  /**
-   * Send a test notification to the server
-   */
-  void sendTestNotification(const std::string& method, const Metadata& params = {}) {
-    if (!running_) {
-      std::cerr << "Client not running\n";
-      return;
-    }
-    
-    // Build notification using builder pattern from builders.h
-    auto builder = make<jsonrpc::Notification>(method);
-    if (!params.empty()) {
-      builder.params(params);
-    }
-    auto notification = builder.build();
-    
-    std::cerr << "Sending notification: " << method << "\n";
-    
-    auto result = connection_manager_->sendNotification(notification);
-    if (holds_alternative<Error>(result)) {
-      std::cerr << "Failed to send notification: " 
-                << get<Error>(result).message << "\n";
-    }
-  }
-  
-  /**
-   * Run automated test sequence
-   * 
-   * Demonstrates various message patterns:
-   * - Simple requests without parameters
-   * - Requests with complex parameters
-   * - Fire-and-forget notifications
-   * - Rapid sequential requests
-   * - Builder pattern usage for message construction
-   */
-  void runTestSequence() {
-    std::cerr << "\n=== Starting test sequence ===\n";
-    
-    // Test 1: Simple request without params
-    std::cerr << "\nTest 1: Simple request\n";
-    sendTestRequest("ping");
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    // Test 2: Request with params using builder pattern
-    std::cerr << "\nTest 2: Request with params\n";
-    auto params2 = make<Metadata>()
-        .add("message", "Hello, Echo Server!")
-        .add("count", 42)
-        .build();
-    sendTestRequest("echo.test", params2);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    // Test 3: Notification using builder
-    std::cerr << "\nTest 3: Notification\n";
-    auto params3 = make<Metadata>()
-        .add("level", "info")
-        .add("message", "Test notification from client")
-        .build();
-    sendTestNotification("log", params3);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    // Test 4: Multiple requests in sequence
-    std::cerr << "\nTest 4: Multiple rapid requests\n";
-    for (int i = 0; i < 5; ++i) {
-      auto params = make<Metadata>()
-          .add("index", i)
-          .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
-          .build();
-      sendTestRequest("batch.test", params);
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
-    // Test 5: Complex nested params using various builders
-    std::cerr << "\nTest 5: Complex params with builders\n";
-    
-    // Use SamplingParamsBuilder as an example
-    auto sampling = SamplingParamsBuilder()
-        .temperature(0.7)
-        .maxTokens(100)
-        .stopSequence("END")
-        .metadata("test_key", "test_value")
-        .build();
-    
-    // Use ToolBuilder as another example
-    auto tool = ToolBuilder("calculator")
-        .description("A simple calculator tool")
-        .parameter("expression", "string", "Mathematical expression to evaluate", true)
-        .build();
-    
-    // Build complex params with multiple builder results
-    auto complex_params = make<Metadata>()
-        .add("string_value", "test")
-        .add("number_value", 3.14159)
-        .add("boolean_value", true)
-        .build();
-    
-    // Note: In a real implementation, you'd serialize the complex objects
-    // For now, just send the params
-    sendTestRequest("complex.test", complex_params);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    std::cerr << "\n=== Test sequence complete ===\n";
-    std::cerr << "Pending requests: " << pending_requests_.size() << "\n";
-  }
-
-  // McpMessageCallbacks interface implementation
-  // Note: Clients typically don't receive requests from servers,
-  // but we handle them for completeness
-  void onRequest(const jsonrpc::Request& request) override {
-    std::cerr << "Received unexpected request from server: " 
-              << request.method << "\n";
-    
-    // Clients typically don't receive requests, but we'll respond anyway
-    auto response = make<jsonrpc::Response>(request.id)
-        .result(jsonrpc::ResponseResult(
-            make<Metadata>()
-                .add("unexpected", true)
-                .add("message", "Client received unexpected request")
-                .build()))
-        .build();
-    
-    connection_manager_->sendResponse(response);
-  }
-  
-  void onNotification(const jsonrpc::Notification& notification) override {
-    std::cerr << "Received notification: " << notification.method;
-    
-    if (notification.params.has_value()) {
-      // Try to extract some info from params
-      std::cerr << " (has params)";
-    }
-    std::cerr << "\n";
-  }
-  
-  void onResponse(const jsonrpc::Response& response) override {
-    // Response correlation flow:
-    // 1. Extract request ID from response
-    // 2. Look up in pending_requests_ map
-    // 3. Calculate round-trip time
-    // 4. Remove from pending requests
-    
-    int request_id = -1;
-    if (mcp::holds_alternative<int>(response.id)) {
-      request_id = mcp::get<int>(response.id);
-    }
-    
-    std::cerr << "Received response for request #" << request_id;
-    
-    // Check if we have this pending request
-    auto it = pending_requests_.find(request_id);
-    if (it != pending_requests_.end()) {
-      auto elapsed = std::chrono::steady_clock::now() - it->second.start_time;
-      auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-      
-      std::cerr << " (method: " << it->second.method 
-                << ", RTT: " << ms << "ms)";
-      
-      pending_requests_.erase(it);
-    }
-    
-    if (response.error.has_value()) {
-      std::cerr << " - ERROR: " << response.error.value().message;
-    } else if (response.result.has_value()) {
-      std::cerr << " - SUCCESS";
-    }
-    
-    std::cerr << "\n";
-  }
-  
-  void onConnectionEvent(network::ConnectionEvent event) override {
-    switch (event) {
-      case network::ConnectionEvent::Connected:
-        std::cerr << "Connection established\n";
-        break;
-      case network::ConnectionEvent::RemoteClose:
-        std::cerr << "Connection closed by server\n";
-        dispatcher_.post([this]() { 
-          running_ = false;
-        });
-        break;
-      case network::ConnectionEvent::LocalClose:
-        std::cerr << "Connection closed locally\n";
-        break;
-      case network::ConnectionEvent::ConnectedZeroRtt:
-        std::cerr << "Connection established (Zero-RTT)\n";
-        break;
-    }
-  }
-  
-  void onError(const Error& error) override {
-    std::cerr << "Connection error: " << error.message 
-              << " (code: " << error.code << ")\n";
-  }
-
-private:
-  void sendShutdownNotification() {
-    auto shutdown = make<jsonrpc::Notification>("shutdown").build();
-    connection_manager_->sendNotification(shutdown);
-  }
-  
-  struct PendingRequest {
-    std::string method;
-    std::chrono::steady_clock::time_point start_time;
-  };
-  
-  event::Dispatcher& dispatcher_;
-  std::unique_ptr<network::SocketInterface> socket_interface_;
-  std::unique_ptr<McpConnectionManager> connection_manager_;
-  std::atomic<bool> running_;
-  std::atomic<int> next_request_id_;
-  std::unordered_map<int, PendingRequest> pending_requests_;
-};
-
-} // namespace examples
-} // namespace mcp
-
 // Global client instance for signal handling
-std::unique_ptr<mcp::examples::StdioEchoClient> g_client;
+std::unique_ptr<echo::EchoClientBase> g_client;
 std::atomic<bool> g_shutdown(false);
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    std::cerr << "\nReceived signal " << signal << ", shutting down...\n";
+    std::cerr << "\n[INFO] Received signal " << signal 
+              << ", shutting down..." << std::endl;
     g_shutdown = true;
     if (g_client) {
       g_client->stop();
@@ -387,107 +51,305 @@ void signalHandler(int signal) {
   }
 }
 
-void printUsage() {
-  std::cerr << "Usage:\n";
-  std::cerr << "  stdio_echo_client [mode]\n\n";
-  std::cerr << "Modes:\n";
-  std::cerr << "  auto       - Run automated test sequence (default)\n";
-  std::cerr << "  manual     - Send manual test messages\n";
-  std::cerr << "  interactive - Interactive mode (send custom messages)\n\n";
-}
-
-int main(int argc, char* argv[]) {
-  // Client initialization and mode selection
-  // Flow:
-  // 1. Parse command-line arguments for mode selection
-  // 2. Set up signal handlers for graceful shutdown
-  // 3. Create libevent dispatcher for async I/O
-  // 4. Create and start echo client
-  // 5. Execute mode-specific logic (auto/manual/interactive)
-  // 6. Run event loop until shutdown
+/**
+ * Basic echo client using reusable base class
+ * 
+ * This is the simplified version that uses transport-agnostic base classes.
+ * All the complex connection management, thread safety, request tracking,
+ * and I/O handling is encapsulated in the base classes.
+ * 
+ * The original thread safety requirements are now handled by:
+ * 1. StdioTransport runs a separate read thread for stdin
+ * 2. Base class manages pending requests with thread-safe map
+ * 3. Futures provide clean async response handling
+ * 4. No dispatcher/event loop needed for basic functionality
+ */
+class BasicEchoClient : public echo::EchoClientBase {
+public:
+  BasicEchoClient(echo::EchoTransportPtr transport)
+      : EchoClientBase(std::move(transport)) {
+    // Configure base settings
+    config_.client_name = "Basic MCP Echo Client";
+    config_.enable_logging = true;
+  }
   
-  std::string mode = "auto";
-  if (argc > 1) {
-    mode = argv[1];
-    if (mode == "-h" || mode == "--help") {
-      printUsage();
-      return 0;
+protected:
+  // Override handleNotification to add custom behavior
+  // Notification handling flow:
+  // 1. Log received notification
+  // 2. Check for echo notifications ("echo/" prefix)
+  // 3. Handle special server messages (e.g., "server.ready")
+  void handleNotification(const jsonrpc::Notification& notification) override {
+    logInfo("Received notification: " + notification.method);
+    
+    // Special handling for echo notifications
+    if (notification.method.find("echo/") == 0) {
+      std::string original_method = notification.method.substr(5);
+      logInfo("Server echoed our '" + original_method + "' notification");
+    }
+    
+    // Special handling for server messages
+    if (notification.method == "server.ready") {
+      logInfo("Server is ready to accept requests");
+    } else if (notification.method == "pong") {
+      logInfo("Received pong response");
     }
   }
   
-  std::cerr << "MCP Stdio Echo Client\n";
-  std::cerr << "=====================\n";
-  std::cerr << "Mode: " << mode << "\n\n";
+public:
   
-  // Set up signal handlers
+  // Run automated test sequence
+  // Demonstrates various message patterns:
+  // - Simple requests without parameters
+  // - Requests with complex parameters
+  // - Fire-and-forget notifications
+  // - Multiple concurrent requests with futures
+  // - Builder pattern usage for message construction
+  void runTestSequence() {
+    logInfo("Starting test sequence...");
+    
+    // Test 1: Simple request
+    {
+      logInfo("Test 1: Simple ping request");
+      auto future = sendRequest("ping");
+      
+      try {
+        auto response = future.get();
+        if (!response.error.has_value()) {
+          logInfo("Ping successful!");
+        }
+      } catch (const std::exception& e) {
+        logError("Ping failed: " + std::string(e.what()));
+      }
+    }
+    
+    // Test 2: Request with parameters
+    {
+      logInfo("Test 2: Request with params");
+      auto params = make<Metadata>()
+          .add("message", "Hello, Echo Server!")
+          .add("count", 42)
+          .build();
+      
+      auto future = sendRequest("echo.test", params);
+      
+      try {
+        auto response = future.get();
+        if (!response.error.has_value()) {
+          logInfo("Echo test successful!");
+        }
+      } catch (const std::exception& e) {
+        logError("Echo test failed: " + std::string(e.what()));
+      }
+    }
+    
+    // Test 3: Notification
+    {
+      logInfo("Test 3: Sending notification");
+      auto params = make<Metadata>()
+          .add("level", "info")
+          .add("message", "Test notification from client")
+          .build();
+      
+      sendNotification("log", params);
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    // Test 4: Multiple concurrent requests
+    {
+      logInfo("Test 4: Multiple concurrent requests");
+      std::vector<std::future<jsonrpc::Response>> futures;
+      
+      for (int i = 0; i < 5; ++i) {
+        auto params = make<Metadata>()
+            .add("index", i)
+            .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
+            .build();
+        
+        futures.push_back(sendRequest("batch.test", params));
+      }
+      
+      // Wait for all responses
+      int success_count = 0;
+      for (size_t i = 0; i < futures.size(); ++i) {
+        try {
+          auto response = futures[i].get();
+          if (!response.error.has_value()) {
+            success_count++;
+          }
+        } catch (...) {
+          // Request failed
+        }
+      }
+      
+      logInfo("Batch test: " + std::to_string(success_count) + "/" + 
+              std::to_string(futures.size()) + " requests succeeded");
+    }
+    
+    // Test 5: Ping-pong test
+    {
+      logInfo("Test 5: Ping notification (expecting pong)");
+      sendNotification("ping");
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    logInfo("Test sequence complete");
+  }
+
+  // Run manual test mode
+  void runManualTests() {
+    logInfo("Running manual tests...");
+    
+    // Send a simple test request
+    auto params = make<Metadata>()
+        .add("message", "Hello from manual mode!")
+        .build();
+    
+    auto future = sendRequest("manual.test", params);
+    
+    try {
+      auto response = future.get();
+      if (!response.error.has_value()) {
+        logInfo("Manual test succeeded!");
+      }
+    } catch (const std::exception& e) {
+      logError("Manual test failed: " + std::string(e.what()));
+    }
+    
+    // Send periodic pings
+    for (int i = 0; i < 3; ++i) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      
+      auto ping_params = make<Metadata>()
+          .add("count", i + 1)
+          .build();
+      
+      sendNotification("ping", ping_params);
+    }
+    
+    logInfo("Manual tests complete");
+  }
+};
+
+} // namespace examples
+} // namespace mcp
+
+void printUsage(const char* program) {
+  std::cout << "Usage: " << program << " [options] [mode]\n"
+            << "Options:\n"
+            << "  -v, --verbose    Enable verbose logging\n"
+            << "  -h, --help       Show this help message\n"
+            << "Modes:\n"
+            << "  auto             Run automated test sequence (default)\n"
+            << "  manual           Send manual test messages\n"
+            << "  interactive      Interactive mode (not yet implemented)\n";
+}
+
+int main(int argc, char* argv[]) {
+  // Client initialization and mode selection flow:
+  // 1. Parse command-line arguments for mode selection
+  // 2. Set up signal handlers for graceful shutdown
+  // 3. Create stdio transport for I/O handling
+  // 4. Create and configure echo client
+  // 5. Start client (connects via stdio)
+  // 6. Execute mode-specific logic (auto/manual/interactive)
+  // 7. Run until shutdown signal or completion
+  // 8. Clean up and exit
+  
+  using namespace mcp;
+  using namespace mcp::examples;
+  
+  // Parse command line arguments
+  std::string mode = "auto";
+  bool verbose = false;
+  
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--verbose" || arg == "-v") {
+      verbose = true;
+    } else if (arg == "--help" || arg == "-h") {
+      printUsage(argv[0]);
+      return 0;
+    } else if (arg == "auto" || arg == "manual" || arg == "interactive") {
+      mode = arg;
+    }
+  }
+  
+  // Setup signal handlers
   signal(SIGINT, signalHandler);
   signal(SIGTERM, signalHandler);
   signal(SIGPIPE, SIG_IGN);
   
-  // Create event loop
-  auto dispatcher_factory = mcp::event::createLibeventDispatcherFactory();
-  auto dispatcher = dispatcher_factory->createDispatcher("echo-client");
-  
-  // Create and start client
-  g_client = std::make_unique<mcp::examples::StdioEchoClient>(*dispatcher);
-  
-  if (!g_client->start()) {
-    std::cerr << "Failed to start echo client\n";
+  try {
+    std::cerr << "MCP Stdio Echo Client (Basic)\n"
+              << "==============================\n"
+              << "Mode: " << mode << "\n";
+    
+    std::cerr << "Starting stdio echo client...\n";
+    
+    // Create stdio transport
+    auto transport = echo::createStdioTransport();
+    
+    // Create and start client
+    g_client = std::make_unique<BasicEchoClient>(std::move(transport));
+    
+    echo::EchoClientBase::Config config;
+    config.enable_logging = verbose;
+    
+    if (!g_client->start()) {
+      std::cerr << "Failed to start echo client\n";
+      return 1;
+    }
+    
+    std::cerr << "Echo client started.\n";
+    std::cerr << "Connected to server via stdio.\n\n";
+    
+    // Get basic client for running tests
+    auto basic_client = static_cast<BasicEchoClient*>(g_client.get());
+    
+    // Run mode-specific logic
+    if (mode == "auto") {
+      // Run automated test sequence
+      basic_client->runTestSequence();
+      
+      // Wait a bit then shutdown (but exit early if disconnected)
+      for (int i = 0; i < 20 && g_client->isRunning(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      std::cerr << "\nTest sequence finished. Shutting down...\n";
+      g_shutdown = true;
+      
+    } else if (mode == "manual") {
+      // Run manual tests
+      basic_client->runManualTests();
+      
+      // Keep running for a while
+      std::cerr << "\nManual tests complete. Press Ctrl+C to exit.\n";
+      while (!g_shutdown && g_client->isRunning()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      
+    } else if (mode == "interactive") {
+      std::cerr << "Interactive mode not yet implemented.\n"
+                << "Use 'auto' or 'manual' mode instead.\n"
+                << "Press Ctrl+C to exit.\n";
+      
+      while (!g_shutdown && g_client->isRunning()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
+    
+    // Stop client if not already stopped
+    if (g_client && g_client->isRunning()) {
+      g_client->stop();
+    }
+    
+    std::cerr << "\nClient stopped.\n";
+    
+  } catch (const std::exception& e) {
+    std::cerr << "Error: " << e.what() << std::endl;
     return 1;
   }
   
-  if (mode == "auto") {
-    // Run automated test sequence
-    dispatcher->post([&]() {
-      g_client->runTestSequence();
-      
-      // Schedule shutdown after tests complete
-      dispatcher->createTimer([&]() {
-        std::cerr << "\nTest sequence finished. Shutting down...\n";
-        g_shutdown = true;
-        g_client->stop();
-      })->enableTimer(std::chrono::seconds(2));
-    });
-  } else if (mode == "manual") {
-    // Send a few manual test messages using builders
-    dispatcher->post([&]() {
-      auto params = mcp::make<mcp::Metadata>()
-          .add("message", "Hello from manual mode!")
-          .build();
-      g_client->sendTestRequest("manual.test", params);
-    });
-    
-    // Schedule periodic pings
-    auto ping_timer = dispatcher->createTimer([&]() {
-      static int ping_count = 0;
-      auto params = mcp::make<mcp::Metadata>()
-          .add("count", ++ping_count)
-          .build();
-      g_client->sendTestRequest("ping", params);
-    });
-    ping_timer->enableTimer(std::chrono::seconds(5));
-  } else if (mode == "interactive") {
-    std::cerr << "Interactive mode. Commands:\n";
-    std::cerr << "  request <method> [json_params]  - Send request\n";
-    std::cerr << "  notify <method> [json_params]   - Send notification\n";
-    std::cerr << "  quit                            - Exit\n\n";
-    
-    // Note: In a real implementation, you'd read from a separate input
-    // For this example, we'll just demonstrate the structure
-    std::cerr << "Interactive mode not fully implemented in this example.\n";
-    std::cerr << "Use 'auto' or 'manual' mode instead.\n";
-  }
-  
-  // Main event loop:
-  // - Process I/O events and timers via dispatcher
-  // - Check for shutdown signal or connection close
-  // - Small sleep to prevent CPU spinning
-  // - NonBlock mode allows periodic status checks
-  while (!g_shutdown && g_client->isRunning()) {
-    dispatcher->run(mcp::event::RunType::NonBlock);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  
-  std::cerr << "Client stopped.\n";
   return 0;
 }

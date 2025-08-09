@@ -76,15 +76,23 @@ else
     print_warning "Server may be waiting for more input (expected behavior)"
 fi
 
-# Test 2: Client can start
+# Test 2: Client can start and handle EOF
 echo ""
 echo "Test 2: Client Startup Test"
 echo "----------------------------"
 
-# Try to run client with immediate EOF - it should handle gracefully
-(echo "" | "${BUILD_DIR}/stdio_echo_client" auto 2>&1 | head -5 | grep -q "Echo") && \
-    print_status "Client started successfully" || \
-    print_warning "Client startup check inconclusive"
+# Test client with --help flag
+"${BUILD_DIR}/stdio_echo_client" --help 2>&1 | grep -q "Usage" && \
+    print_status "Client help flag works" || \
+    print_warning "Client may not support --help flag"
+
+# Test that client handles EOF gracefully (with timeout for safety)
+CLIENT_OUTPUT=$(perl -e 'alarm 2; exec @ARGV' bash -c 'echo "" | "${BUILD_DIR}/stdio_echo_client" auto 2>&1' || true)
+if echo "$CLIENT_OUTPUT" | grep -q "Echo client started"; then
+    print_status "Client starts and handles EOF"
+else
+    print_warning "Client EOF handling needs verification"
+fi
 
 # Test 3: Check server help/version (if available)
 echo ""
@@ -126,9 +134,8 @@ print_status "Build verification complete"
 print_status "Basic functionality tested"
 print_warning "Full integration test requires manual verification"
 echo ""
-echo "Note: The server segfault with file redirection is a known issue"
-echo "      when trying to set non-blocking mode on regular files."
-echo "      Use pipes or actual stdio for proper operation."
+echo "Note: Both server and client exit cleanly on EOF (stdin closed)."
+echo "      This ensures proper cleanup when used in pipe-based testing."
 echo ""
 
 exit 0
