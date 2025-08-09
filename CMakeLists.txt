@@ -204,7 +204,7 @@ if(BUILD_EXAMPLES)
         Threads::Threads
     )
     
-    # Add stdio echo examples
+    # Add stdio echo examples (now using reusable transport-agnostic components)
     add_executable(stdio_echo_server examples/stdio_echo_server.cc)
     target_link_libraries(stdio_echo_server
         mcp-event
