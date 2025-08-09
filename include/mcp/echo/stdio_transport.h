@@ -15,7 +15,7 @@
 #ifndef MCP_ECHO_STDIO_TRANSPORT_H
 #define MCP_ECHO_STDIO_TRANSPORT_H
 
-#include "mcp/echo/echo_base.h"
+#include "mcp/echo/echo_basic.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include <thread>
 #include <atomic>
@@ -44,7 +44,7 @@ namespace echo {
  * that runs the event loop. This version avoids that complexity
  * by using a dedicated read thread instead.
  */
-class StdioTransport : public EchoTransport {
+class StdioTransport : public EchoTransportBase {
 public:
   StdioTransport() 
       : running_(false),
@@ -179,7 +179,7 @@ private:
 /**
  * Factory function for stdio transport
  */
-inline EchoTransportPtr createStdioTransport() {
+inline EchoTransportBasePtr createStdioTransport() {
   return std::make_unique<StdioTransport>();
 }
 

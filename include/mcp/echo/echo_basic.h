@@ -1,5 +1,5 @@
 /**
- * @file echo_base.h
+ * @file echo_basic.h
  * @brief Reusable transport-agnostic echo server and client base classes
  * 
  * This provides abstract base classes for echo implementations that can
@@ -18,8 +18,8 @@
  * - Future-based async request/response handling
  */
 
-#ifndef MCP_ECHO_BASE_H
-#define MCP_ECHO_BASE_H
+#ifndef MCP_ECHO_BASIC_H
+#define MCP_ECHO_BASIC_H
 
 #include <functional>
 #include <memory>
@@ -41,9 +41,11 @@ namespace mcp {
 namespace echo {
 
 /**
- * Transport interface for echo implementations
+ * Basic transport interface for echo implementations
  * 
  * This abstracts the underlying transport mechanism (stdio, TCP, etc.)
+ * This is the simpler interface used by basic echo examples.
+ * For advanced features, see EchoTransport in echo_transport_advanced.h
  * 
  * Thread Safety Requirements:
  * - Implementations must be thread-safe for send()
@@ -51,9 +53,9 @@ namespace echo {
  * - Connection state changes must be atomic
  * - start()/stop() must be idempotent
  */
-class EchoTransport {
+class EchoTransportBase {
 public:
-  virtual ~EchoTransport() = default;
+  virtual ~EchoTransportBase() = default;
   
   /**
    * Send data through the transport
@@ -93,7 +95,7 @@ public:
   virtual std::string getTransportType() const = 0;
 };
 
-using EchoTransportPtr = std::unique_ptr<EchoTransport>;
+using EchoTransportBasePtr = std::unique_ptr<EchoTransportBase>;
 
 /**
  * Base class for echo server implementations
@@ -124,7 +126,7 @@ public:
           server_name("MCP Echo Server") {}
   };
   
-  EchoServerBase(EchoTransportPtr transport, const Config& config = Config())
+  EchoServerBase(EchoTransportBasePtr transport, const Config& config = Config())
       : transport_(std::move(transport)),
         config_(config),
         running_(false) {
@@ -346,7 +348,7 @@ private:
     sendNotification(notification);
   }
   
-  EchoTransportPtr transport_;
+  EchoTransportBasePtr transport_;
   bool running_;
   std::string partial_message_;
 };
@@ -381,7 +383,7 @@ public:
           request_timeout(30000) {}
   };
   
-  EchoClientBase(EchoTransportPtr transport, const Config& config = Config())
+  EchoClientBase(EchoTransportBasePtr transport, const Config& config = Config())
       : transport_(std::move(transport)),
         config_(config),
         running_(false),
@@ -664,7 +666,7 @@ private:
     }
   }
   
-  EchoTransportPtr transport_;
+  EchoTransportBasePtr transport_;
   bool running_;
   std::string partial_message_;
   std::atomic<int> next_request_id_;
@@ -675,4 +677,4 @@ private:
 } // namespace echo
 } // namespace mcp
 
-#endif // MCP_ECHO_BASE_H
+#endif // MCP_ECHO_BASIC_H
