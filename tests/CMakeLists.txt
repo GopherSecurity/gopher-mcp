@@ -52,6 +52,8 @@ add_executable(test_stdio_echo_server_basic test_stdio_echo_server_basic.cc)
 
 # TCP echo transport tests
 add_executable(test_tcp_echo_transport_basic test_tcp_echo_transport_basic.cc)
+add_executable(test_tcp_echo_client_basic test_tcp_echo_client_basic.cc)
+add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
@@ -356,6 +358,20 @@ target_link_libraries(test_tcp_echo_transport_basic
     nlohmann_json::nlohmann_json
 )
 
+target_link_libraries(test_tcp_echo_client_basic
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_tcp_echo_server_basic
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
     mcp-sdk
@@ -459,6 +475,8 @@ add_test(NAME StdioEchoServerBasicTest COMMAND test_stdio_echo_server_basic)
 
 # TCP echo transport tests
 add_test(NAME TCPEchoTransportBasicTest COMMAND test_tcp_echo_transport_basic)
+add_test(NAME TCPEchoClientBasicTest COMMAND test_tcp_echo_client_basic)
+add_test(NAME TCPEchoServerBasicTest COMMAND test_tcp_echo_server_basic)
 
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
