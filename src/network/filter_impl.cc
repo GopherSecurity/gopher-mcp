@@ -1,4 +1,5 @@
 #include "mcp/network/filter.h"
+#include "mcp/network/connection.h"
 #include "mcp/buffer.h"
 #include <algorithm>
 #include <list>
@@ -149,8 +150,9 @@ void FilterManagerImpl::callOnConnectionEvent(ConnectionEvent event) {
 }
 
 Connection& FilterManagerImpl::connection() {
-  // This is a placeholder - will be properly implemented when Connection is fully implemented
-  throw std::runtime_error("Connection interface not yet implemented");
+  // The connection_ member is a FilterManagerConnection& which is actually a Connection&
+  // since Connection inherits from FilterManagerConnection
+  return dynamic_cast<Connection&>(connection_);
 }
 
 void FilterManagerImpl::continueReading() {
