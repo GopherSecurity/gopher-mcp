@@ -330,6 +330,11 @@ public:
     
     LOG_INFO("Stopping application");
     
+    // Stop main dispatcher first to unblock start()
+    if (main_dispatcher_) {
+      main_dispatcher_->exit();
+    }
+    
     // Stop workers
     for (auto& worker : workers_) {
       worker->stop();
@@ -340,11 +345,6 @@ public:
       if (thread.joinable()) {
         thread.join();
       }
-    }
-    
-    // Stop main dispatcher
-    if (main_dispatcher_) {
-      main_dispatcher_->exit();
     }
     
     // Stop metrics thread
