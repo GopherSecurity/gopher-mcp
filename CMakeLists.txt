@@ -150,6 +150,8 @@ set(MCP_SDK_SOURCES
     src/transport/stdio_pipe_transport.cc
     src/transport/http_sse_transport_socket.cc
     src/mcp_connection_manager.cc
+    # TCP transport for basic echo system
+    src/echo/tcp_transport.cc
 )
 
 # Echo library source files (transport-agnostic advanced)
@@ -226,6 +228,9 @@ if(BUILD_EXAMPLES)
     
     # Add advanced stdio echo examples subdirectory
     add_subdirectory(examples/stdio_echo)
+    
+    # Add TCP echo examples subdirectory
+    add_subdirectory(examples/tcp_echo)
 endif()
 
 # Add custom target for formatting
