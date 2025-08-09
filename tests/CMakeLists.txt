@@ -55,6 +55,11 @@ add_executable(test_tcp_echo_transport_basic test_tcp_echo_transport_basic.cc)
 add_executable(test_tcp_echo_client_basic test_tcp_echo_client_basic.cc)
 add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
+# TCP echo extensive tests
+add_executable(test_tcp_echo_transport_extensive test_tcp_echo_transport_extensive.cc)
+add_executable(test_tcp_echo_integration test_tcp_echo_integration.cc)
+add_executable(test_tcp_echo_stress test_tcp_echo_stress.cc)
+
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
 add_executable(test_builders core/test_builders.cc)
@@ -366,6 +371,28 @@ target_link_libraries(test_tcp_echo_client_basic
 )
 
 target_link_libraries(test_tcp_echo_server_basic
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_tcp_echo_transport_extensive
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_tcp_echo_integration
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_tcp_echo_stress
     mcp-sdk
     gtest
     gtest_main
