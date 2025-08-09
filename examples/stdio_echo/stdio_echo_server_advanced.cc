@@ -14,6 +14,8 @@
 #include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/transport/stdio_pipe_transport.h"
+#include "mcp/network/connection_impl.h"
+#include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/builders.h"
 #include <iostream>
@@ -83,7 +85,7 @@ public:
     
     try {
       // Create echo response
-      auto response = make<jsonrpc::Response>(request.id)
+      auto response = mcp::make<mcp::jsonrpc::Response>(request.id)
           .result(jsonrpc::ResponseResult(make<Metadata>()
               .add("echo", true)
               .add("method", request.method)
@@ -109,8 +111,8 @@ public:
       failure_callback_(failure);
       
       // Send error response
-      auto error_response = make<jsonrpc::Response>(request.id)
-          .error(Error(jsonrpc::INTERNAL_ERROR, e.what()))
+      auto error_response = mcp::make<mcp::jsonrpc::Response>(request.id)
+          .error(mcp::Error(mcp::jsonrpc::INTERNAL_ERROR, e.what()))
           .build();
       
       sendResponse(error_response);
@@ -128,9 +130,8 @@ public:
     }
     
     // Echo notification back with prefix
-    auto echo = make<jsonrpc::Notification>()
-        .method("echo/" + notification.method)
-        .params(make<Metadata>()
+    auto echo = mcp::make<mcp::jsonrpc::Notification>("echo/" + notification.method)
+        .params(mcp::make<mcp::Metadata>()
             .add("original_method", notification.method)
             .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
             .build())
@@ -362,15 +363,17 @@ private:
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
     
+    // Wrap unique_ptrs in shared_ptrs for lambda capture (C++14 compatibility)
+    auto socket_ptr = std::make_shared<std::unique_ptr<network::ConnectionSocketImpl>>(std::move(socket));
+    auto transport_ptr = std::make_shared<std::unique_ptr<transport::StdioPipeTransport>>(std::move(transport));
+    
     // Post connection creation to worker's dispatcher
-    worker.getDispatcher().post([this, &worker, socket = std::move(socket), 
-                                 transport = std::move(transport), 
-                                 stream_info = std::move(stream_info)]() mutable {
+    worker.getDispatcher().post([this, &worker, socket_ptr, transport_ptr, stream_info]() mutable {
       // Create connection in dispatcher thread
       auto connection = network::ConnectionImpl::createServerConnection(
           worker.getDispatcher(),
-          std::move(socket),
-          std::move(transport),
+          std::move(*socket_ptr),
+          std::move(*transport_ptr),
           *stream_info);
       
       if (!connection) {

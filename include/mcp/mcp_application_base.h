@@ -28,9 +28,16 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <iostream>
+#include <sstream>
+#include <iomanip>
 
 namespace mcp {
 namespace application {
+
+// Forward declarations
+class RateLimitFilter;
+class MetricsFilter;
 
 // Forward declarations
 class ConnectionPool;
@@ -104,6 +111,8 @@ private:
 class ConnectionPool {
 public:
   using ConnectionPtr = std::shared_ptr<network::Connection>;
+  
+  virtual ~ConnectionPool() = default;
   
   ConnectionPool(size_t max_connections, size_t max_idle)
       : max_connections_(max_connections),
@@ -218,9 +227,10 @@ public:
         socket_interface_(socket_interface) {}
   
   void run() {
-    LOG_INFO("Worker {} starting", name_);
+    // Logging will be done by ApplicationBase
+    std::cerr << "[INFO] Worker " << name_ << " starting" << std::endl;
     dispatcher_->run(event::RunType::RunUntilExit);
-    LOG_INFO("Worker {} stopping", name_);
+    std::cerr << "[INFO] Worker " << name_ << " stopping" << std::endl;
   }
   
   void stop() {
@@ -379,13 +389,15 @@ protected:
     // Base filters - derived classes add more
     
     // Add rate limiting filter
-    builder.addFilter([]() {
-      return std::make_shared<RateLimitFilter>();
+    builder.addFilter([]() -> network::FilterSharedPtr {
+      return std::static_pointer_cast<network::Filter>(
+          std::make_shared<RateLimitFilter>());
     });
     
     // Add metrics collection filter
-    builder.addFilter([this]() {
-      return std::make_shared<MetricsFilter>(stats_);
+    builder.addFilter([this]() -> network::FilterSharedPtr {
+      return std::static_pointer_cast<network::Filter>(
+          std::make_shared<MetricsFilter>(stats_));
     });
   }
   
@@ -431,8 +443,8 @@ private:
       }
       
       LOG_INFO("Failure summary:");
-      for (const auto& [type, count] : failure_counts) {
-        LOG_INFO("  Type {}: {} occurrences", static_cast<int>(type), count);
+      for (const auto& pair : failure_counts) {
+        LOG_INFO("  Type {}: {} occurrences", static_cast<int>(pair.first), pair.second);
       }
     }
   }
@@ -443,16 +455,50 @@ private:
   }
   
   // Simple logging helpers (should use proper logging library)
-  template<typename... Args>
-  void LOG_INFO(const std::string& fmt, Args&&... args) {
-    // Format and log
-    std::cerr << "[INFO] " << fmt << std::endl;
+  // Helper function to format string with arguments
+  template<typename T>
+  void format_helper(std::stringstream& ss, const std::string& fmt, size_t& pos, const T& value) {
+    size_t next = fmt.find("{}", pos);
+    if (next != std::string::npos) {
+      ss << fmt.substr(pos, next - pos) << value;
+      pos = next + 2;
+    }
+  }
+  
+  template<typename T, typename... Args>
+  void format_helper(std::stringstream& ss, const std::string& fmt, size_t& pos, const T& value, const Args&... args) {
+    format_helper(ss, fmt, pos, value);
+    format_helper(ss, fmt, pos, args...);
   }
   
   template<typename... Args>
-  void LOG_ERROR(const std::string& fmt, Args&&... args) {
-    // Format and log
-    std::cerr << "[ERROR] " << fmt << std::endl;
+  std::string format_string(const std::string& fmt, const Args&... args) {
+    std::stringstream ss;
+    size_t pos = 0;
+    format_helper(ss, fmt, pos, args...);
+    // Append any remaining part of the format string
+    if (pos < fmt.length()) {
+      ss << fmt.substr(pos);
+    }
+    return ss.str();
+  }
+  
+  void LOG_INFO(const std::string& msg) {
+    std::cerr << "[INFO] " << msg << std::endl;
+  }
+  
+  template<typename... Args>
+  void LOG_INFO(const std::string& fmt, const Args&... args) {
+    std::cerr << "[INFO] " << format_string(fmt, args...) << std::endl;
+  }
+  
+  void LOG_ERROR(const std::string& msg) {
+    std::cerr << "[ERROR] " << msg << std::endl;
+  }
+  
+  template<typename... Args>
+  void LOG_ERROR(const std::string& fmt, const Args&... args) {
+    std::cerr << "[ERROR] " << format_string(fmt, args...) << std::endl;
   }
   
 protected:
