@@ -3,12 +3,12 @@
 #include <gmock/gmock.h>
 
 #include "mcp/buffer.h"
+#include "mcp/core/result.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/core/result.h"
 
 namespace mcp {
 namespace test {

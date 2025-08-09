@@ -5,11 +5,11 @@
 #include <thread>
 
 #include "mcp/buffer.h"
+#include "mcp/core/optional.h"
 #include "mcp/network/io_handle.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/core/optional.h"
 #include "mcp/transport/pipe_io_handle.h"
 
 namespace mcp {

@@ -8,8 +8,8 @@
 #include <vector>
 
 // nlohmann/json.hpp no longer needed - using JsonValue instead
-#include "mcp/json/json_bridge.h"  // For JsonValue
 #include "mcp/core/type_helpers.h"
+#include "mcp/json/json_bridge.h"  // For JsonValue
 
 namespace mcp {
 
