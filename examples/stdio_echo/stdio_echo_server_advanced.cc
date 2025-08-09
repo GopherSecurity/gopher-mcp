@@ -307,7 +307,22 @@ protected:
     // Each worker gets its own connection manager
     // For stdio, only the first worker handles it
     if (!stdio_transport_created_.exchange(true)) {
-      setupStdioConnection(worker);
+      // IMPORTANT: We must delay connection creation until the dispatcher is running.
+      // The connection creation requires thread-safe dispatcher operations.
+      // 
+      // This method is called during ApplicationBase::start() BEFORE the worker thread starts.
+      // The worker thread will start the dispatcher's event loop after this returns.
+      // Therefore, we post the setup to run once the dispatcher is active.
+      //
+      // We store a pointer to the worker context for use in the lambda.
+      // This is safe because workers are stored in ApplicationBase and remain valid
+      // for the lifetime of the application.
+      WorkerContext* worker_ptr = &worker;
+      
+      worker.getDispatcher().post([this, worker_ptr]() {
+        // Now we're running in the dispatcher thread, safe to create connections
+        setupStdioConnection(*worker_ptr);
+      });
     }
   }
   
@@ -363,41 +378,35 @@ private:
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
     
-    // Wrap unique_ptrs in shared_ptrs for lambda capture (C++14 compatibility)
-    auto socket_ptr = std::make_shared<std::unique_ptr<network::ConnectionSocketImpl>>(std::move(socket));
-    auto transport_ptr = std::make_shared<std::unique_ptr<transport::StdioPipeTransport>>(std::move(transport));
+    // Create connection directly during initialization
+    // Note: The worker dispatcher isn't running yet, so we can't post to it
+    auto connection = network::ConnectionImpl::createServerConnection(
+        worker.getDispatcher(),
+        std::move(socket),
+        std::move(transport),
+        *stream_info);
     
-    // Post connection creation to worker's dispatcher
-    worker.getDispatcher().post([this, &worker, socket_ptr, transport_ptr, stream_info]() mutable {
-      // Create connection in dispatcher thread
-      auto connection = network::ConnectionImpl::createServerConnection(
-          worker.getDispatcher(),
-          std::move(*socket_ptr),
-          std::move(*transport_ptr),
-          *stream_info);
-      
-      if (!connection) {
-        FailureReason failure(FailureReason::Type::ConnectionFailure,
-                             "Failed to create server connection");
-        trackFailure(failure);
-        return;
-      }
-      
-      // Apply filter chain
-      auto* conn_impl = dynamic_cast<network::ConnectionImplBase*>(connection.get());
-      if (conn_impl) {
-        filter_chain_builder_.buildChain(conn_impl->filterManager());
-      }
-      
-      // Store connection
-      stdio_connection_ = std::move(connection);
-      
-      // Notify transport of connection
-      stdio_connection_->transportSocket().onConnected();
-      
-      std::cerr << "[INFO] Stdio echo server ready on worker " 
-                << worker.getName() << std::endl;
-    });
+    if (!connection) {
+      FailureReason failure(FailureReason::Type::ConnectionFailure,
+                           "Failed to create server connection");
+      trackFailure(failure);
+      return;
+    }
+    
+    // Apply filter chain
+    auto* conn_impl = dynamic_cast<network::ConnectionImplBase*>(connection.get());
+    if (conn_impl) {
+      filter_chain_builder_.buildChain(conn_impl->filterManager());
+    }
+    
+    // Store connection
+    stdio_connection_ = std::move(connection);
+    
+    // Notify transport of connection
+    stdio_connection_->transportSocket().onConnected();
+    
+    std::cerr << "[INFO] Stdio echo server ready on worker " 
+              << worker.getName() << std::endl;
   }
   
   std::atomic<bool> stdio_transport_created_;
