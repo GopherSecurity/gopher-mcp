@@ -1,687 +1,315 @@
 /**
  * @file stdio_echo_client_advanced.cc
- * @brief State-of-the-art MCP echo client implementation following the best patterns
+ * @brief Advanced echo client using new reusable transport-agnostic components
  * 
- * Features:
- * - Connection pooling for efficient connection reuse
- * - Worker thread model with load balancing
- * - Request tracking with timeouts and retries
- * - Circuit breaker pattern for failure handling
- * - Comprehensive metrics and observability
- * - Batched request processing
+ * This example demonstrates using the refactored echo architecture with:
+ * - Transport-agnostic design (currently using stdio)
+ * - Reusable AdvancedEchoClient with all advanced features
+ * - Clean separation of transport and application logic
+ * 
+ * Original implementation backed up in stdio_echo_client_advanced.cc.backup
  */
 
-#include "mcp/mcp_application_base.h"
-#include "mcp/mcp_connection_manager.h"
-#include "mcp/transport/stdio_pipe_transport.h"
-#include "mcp/network/connection_impl.h"
-#include "mcp/stream_info/stream_info_impl.h"
-#include "mcp/json/json_serialization.h"
-#include "mcp/builders.h"
+#include "mcp/echo/echo_client_advanced.h"
+#include "mcp/echo/echo_stdio_transport_advanced.h"
 #include <iostream>
-#include <queue>
-#include <future>
-#include <random>
+#include <thread>
+#include <chrono>
+#include <signal.h>
 
-namespace mcp {
-namespace examples {
+using namespace mcp;
+using namespace mcp::echo;
 
-using namespace application;
+namespace {
 
-/**
- * Request context for tracking in-flight requests
- */
-struct RequestContext {
-  int id;
-  std::string method;
-  Metadata params;
-  std::chrono::steady_clock::time_point sent_time;
-  std::promise<jsonrpc::Response> promise;
-  int retry_count = 0;
-  
-  RequestContext(int id, const std::string& method, const Metadata& params)
-      : id(id), method(method), params(params),
-        sent_time(std::chrono::steady_clock::now()) {}
-};
+// Global client for signal handling
+std::shared_ptr<AdvancedEchoClient> g_client;
+std::atomic<bool> g_shutdown(false);
 
-/**
- * Circuit breaker for handling cascading failures
- */
-class CircuitBreaker {
-public:
-  enum class State {
-    Closed,     // Normal operation
-    Open,       // Circuit open, rejecting requests
-    HalfOpen    // Testing if service recovered
-  };
-  
-  CircuitBreaker(size_t failure_threshold = 5,
-                std::chrono::milliseconds timeout = std::chrono::seconds(30))
-      : failure_threshold_(failure_threshold),
-        timeout_(timeout),
-        state_(State::Closed),
-        failure_count_(0) {}
-  
-  bool allowRequest() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    switch (state_) {
-      case State::Closed:
-        return true;
-        
-      case State::Open:
-        // Check if timeout has passed
-        if (std::chrono::steady_clock::now() - last_failure_time_ > timeout_) {
-          state_ = State::HalfOpen;
-          return true;  // Allow one test request
-        }
-        return false;
-        
-      case State::HalfOpen:
-        return true;  // Allow request to test recovery
-    }
-    
-    return false;
+void signal_handler(int signal) {
+  std::cerr << "\n[INFO] Received signal " << signal << ", initiating shutdown..." << std::endl;
+  g_shutdown = true;
+  if (g_client) {
+    g_client->stop();
   }
-  
-  void recordSuccess() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (state_ == State::HalfOpen) {
-      // Service recovered, close circuit
-      state_ = State::Closed;
-      failure_count_ = 0;
-    }
-  }
-  
-  void recordFailure() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    failure_count_++;
-    last_failure_time_ = std::chrono::steady_clock::now();
-    
-    if (failure_count_ >= failure_threshold_) {
-      state_ = State::Open;
-    } else if (state_ == State::HalfOpen) {
-      // Test failed, reopen circuit
-      state_ = State::Open;
-    }
-  }
-  
-  State getState() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return state_;
-  }
-  
-private:
-  size_t failure_threshold_;
-  std::chrono::milliseconds timeout_;
-  State state_;
-  size_t failure_count_;
-  std::chrono::steady_clock::time_point last_failure_time_;
-  mutable std::mutex mutex_;
-};
+}
 
-/**
- * Connection pool for stdio connections
- */
-class StdioConnectionPool : public ConnectionPool {
-public:
-  StdioConnectionPool(event::Dispatcher& dispatcher,
-                     network::SocketInterface& socket_interface)
-      : ConnectionPool(1, 1),  // Stdio only supports single connection
-        dispatcher_(dispatcher),
-        socket_interface_(socket_interface) {}
+void runDemoScenarios(AdvancedEchoClient& client) {
+  std::cerr << "\n[DEMO] Running demonstration scenarios..." << std::endl;
   
-protected:
-  ConnectionPtr createNewConnection() override {
-    // Create stdio pipe transport
-    transport::StdioPipeTransportConfig config;
-    config.stdin_fd = STDIN_FILENO;
-    config.stdout_fd = STDOUT_FILENO;
-    config.non_blocking = true;
-    config.buffer_size = 8192;
-    
-    auto transport = std::make_unique<transport::StdioPipeTransport>(config);
-    auto init_result = transport->initialize();
-    
-    if (holds_alternative<Error>(init_result)) {
-      return nullptr;
-    }
-    
-    auto socket = transport->takePipeSocket();
-    if (!socket) {
-      return nullptr;
-    }
-    
-    auto stream_info = stream_info::StreamInfoImpl::create();
-    
-    auto connection = network::ConnectionImpl::createClientConnection(
-        dispatcher_,
-        std::move(socket),
-        std::move(transport),
-        *stream_info);
-    
-    if (connection) {
-      connection->transportSocket().onConnected();
-    }
-    
-    return connection;
-  }
-  
-private:
-  event::Dispatcher& dispatcher_;
-  network::SocketInterface& socket_interface_;
-};
-
-/**
- * Request manager for tracking and timeout handling
- */
-class RequestManager {
-public:
-  RequestManager(std::chrono::milliseconds timeout = std::chrono::seconds(30))
-      : timeout_(timeout), next_id_(1) {}
-  
-  int addRequest(const std::string& method, const Metadata& params) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    int id = next_id_++;
-    auto context = std::make_shared<RequestContext>(id, method, params);
-    pending_requests_[id] = context;
-    
-    return id;
-  }
-  
-  std::shared_ptr<RequestContext> getRequest(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = pending_requests_.find(id);
-    if (it != pending_requests_.end()) {
-      return it->second;
-    }
-    return nullptr;
-  }
-  
-  void completeRequest(int id, const jsonrpc::Response& response) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = pending_requests_.find(id);
-    if (it != pending_requests_.end()) {
-      it->second->promise.set_value(response);
-      pending_requests_.erase(it);
-    }
-  }
-  
-  std::vector<std::shared_ptr<RequestContext>> checkTimeouts() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    std::vector<std::shared_ptr<RequestContext>> timed_out;
-    auto now = std::chrono::steady_clock::now();
-    
-    for (auto it = pending_requests_.begin(); it != pending_requests_.end();) {
-      if (now - it->second->sent_time > timeout_) {
-        timed_out.push_back(it->second);
-        it = pending_requests_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    
-    return timed_out;
-  }
-  
-  size_t getPendingCount() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return pending_requests_.size();
-  }
-  
-private:
-  std::chrono::milliseconds timeout_;
-  std::atomic<int> next_id_;
-  std::map<int, std::shared_ptr<RequestContext>> pending_requests_;
-  mutable std::mutex mutex_;
-};
-
-/**
- * Client protocol filter for handling responses
- */
-class ClientProtocolFilter : public network::Filter, public McpMessageCallbacks {
-public:
-  ClientProtocolFilter(RequestManager& request_manager,
-                      CircuitBreaker& circuit_breaker,
-                      ApplicationStats& stats)
-      : request_manager_(request_manager),
-        circuit_breaker_(circuit_breaker),
-        stats_(stats) {}
-  
-  // Filter interface
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    std::string buffer_str = data.toString();
-    data.drain(data.length());
-    
-    partial_message_ += buffer_str;
-    
-    // Process newline-delimited messages
-    size_t pos = 0;
-    while ((pos = partial_message_.find('\n')) != std::string::npos) {
-      std::string message = partial_message_.substr(0, pos);
-      partial_message_.erase(0, pos + 1);
-      
-      if (!message.empty()) {
-        processMessage(message);
-      }
-    }
-    
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onNewConnection() override {
-    return network::FilterStatus::Continue;
-  }
-  
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    return network::FilterStatus::Continue;
-  }
-  
-  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
-    read_callbacks_ = &callbacks;
-  }
-  
-  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {}
-  
-  // McpMessageCallbacks interface
-  void onRequest(const jsonrpc::Request& request) override {
-    // Client shouldn't receive requests, but handle gracefully
-    stats_.requests_total++;
-  }
-  
-  void onNotification(const jsonrpc::Notification& notification) override {
-    // Handle server notifications
-    std::cerr << "[INFO] Received notification: " << notification.method << std::endl;
-  }
-  
-  void onResponse(const jsonrpc::Response& response) override {
-    // Find matching request
-    if (holds_alternative<int>(response.id)) {
-      int id = get<int>(response.id);
-      auto request = request_manager_.getRequest(id);
-      
-      if (request) {
-        // Calculate latency
-        auto duration = std::chrono::steady_clock::now() - request->sent_time;
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-        
-        // Update metrics
-        stats_.request_duration_ms_total += duration_ms;
-        updateLatencyMetrics(duration_ms);
-        
-        if (response.error.has_value()) {
-          stats_.requests_failed++;
-          circuit_breaker_.recordFailure();
-        } else {
-          stats_.requests_success++;
-          circuit_breaker_.recordSuccess();
-        }
-        
-        // Complete request
-        request_manager_.completeRequest(id, response);
-      }
-    }
-  }
-  
-  void onConnectionEvent(network::ConnectionEvent event) override {
-    if (event == network::ConnectionEvent::RemoteClose) {
-      circuit_breaker_.recordFailure();
-    }
-  }
-  
-  void onError(const Error& error) override {
-    stats_.errors_total++;
-    circuit_breaker_.recordFailure();
-  }
-  
-private:
-  void processMessage(const std::string& message) {
-    try {
-      auto json_val = json::JsonValue::parse(message);
-      
-      if (json_val.contains("result") || json_val.contains("error")) {
-        auto response = json::from_json<jsonrpc::Response>(json_val);
-        onResponse(response);
-      } else if (json_val.contains("method")) {
-        if (json_val.contains("id")) {
-          auto request = json::from_json<jsonrpc::Request>(json_val);
-          onRequest(request);
-        } else {
-          auto notification = json::from_json<jsonrpc::Notification>(json_val);
-          onNotification(notification);
-        }
-      }
-    } catch (const std::exception& e) {
-      onError(Error(jsonrpc::PARSE_ERROR, e.what()));
-    }
-  }
-  
-  void updateLatencyMetrics(uint64_t duration_ms) {
-    uint64_t current_max = stats_.request_duration_ms_max;
-    while (duration_ms > current_max && 
-           !stats_.request_duration_ms_max.compare_exchange_weak(current_max, duration_ms));
-    
-    uint64_t current_min = stats_.request_duration_ms_min;
-    while (duration_ms < current_min && 
-           !stats_.request_duration_ms_min.compare_exchange_weak(current_min, duration_ms));
-  }
-  
-  RequestManager& request_manager_;
-  CircuitBreaker& circuit_breaker_;
-  ApplicationStats& stats_;
-  network::ReadFilterCallbacks* read_callbacks_ = nullptr;
-  std::string partial_message_;
-};
-
-/**
- * Advanced MCP Echo Client Application
- */
-class AdvancedEchoClient : public ApplicationBase {
-public:
-  AdvancedEchoClient(const Config& config)
-      : ApplicationBase(config),
-        request_manager_(std::chrono::seconds(30)),
-        circuit_breaker_(5, std::chrono::seconds(60)) {
-    
-    // Start timeout checker thread
-    timeout_thread_ = std::thread([this]() {
-      while (running_) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        checkRequestTimeouts();
-      }
-    });
-  }
-  
-  ~AdvancedEchoClient() {
-    if (timeout_thread_.joinable()) {
-      timeout_thread_.join();
-    }
-  }
-  
-  // Send a request and get future for response
-  std::future<jsonrpc::Response> sendRequest(const std::string& method, 
-                                             const Metadata& params = {}) {
-    // Check circuit breaker
-    if (!circuit_breaker_.allowRequest()) {
-      std::promise<jsonrpc::Response> promise;
-      promise.set_value(make<jsonrpc::Response>(0)
-          .error(Error(-32000, "Circuit breaker open"))
-          .build());
-      return promise.get_future();
-    }
-    
-    // Add request to manager
-    int id = request_manager_.addRequest(method, params);
-    auto request_ctx = request_manager_.getRequest(id);
-    
-    // Build JSON-RPC request
-    auto request = mcp::make<mcp::jsonrpc::Request>(id, method)
-        .params(params)
+  // Scenario 1: Simple echo request
+  {
+    std::cerr << "[DEMO] Scenario 1: Simple echo request" << std::endl;
+    auto metadata = make<Metadata>()
+        .add("message", "Hello, Echo Server!")
+        .add("test_id", 1)
         .build();
     
-    // Send through connection
-    sendRequestToConnection(request);
-    
-    stats_.requests_total++;
-    
-    return request_ctx->promise.get_future();
-  }
-  
-  // Send a batch of requests
-  std::vector<std::future<jsonrpc::Response>> sendBatch(
-      const std::vector<std::pair<std::string, mcp::Metadata>>& requests) {
-    
-    std::vector<std::future<mcp::jsonrpc::Response>> futures;
-    
-    for (const auto& request_pair : requests) {
-      const auto& method = request_pair.first;
-      const auto& params = request_pair.second;
-      futures.push_back(sendRequest(method, params));
-    }
-    
-    return futures;
-  }
-  
-protected:
-  void initializeWorker(WorkerContext& worker) override {
-    // Create connection pool for this worker
-    auto pool = std::make_unique<StdioConnectionPool>(
-        worker.getDispatcher(), *socket_interface_);
-    
-    // Store pool (in real implementation, would be per-worker)
-    if (!connection_pool_) {
-      connection_pool_ = std::move(pool);
-      
-      // Setup initial connection
-      setupConnection(worker);
-    }
-  }
-  
-  void setupFilterChain(FilterChainBuilder& builder) override {
-    ApplicationBase::setupFilterChain(builder);
-    
-    // Add client protocol filter
-    builder.addFilter([this]() {
-      return std::make_shared<ClientProtocolFilter>(
-          request_manager_, circuit_breaker_, stats_);
-    });
-  }
-  
-private:
-  void setupConnection(WorkerContext& worker) {
-    worker.getDispatcher().post([this, &worker]() {
-      auto connection = connection_pool_->acquireConnection();
-      
-      if (!connection) {
-        FailureReason failure(FailureReason::Type::ConnectionFailure,
-                             "Failed to acquire connection from pool");
-        trackFailure(failure);
-        return;
+    auto future = client.sendRequest("echo", metadata);
+    try {
+      auto response = future.get();
+      if (!response.error.has_value()) {
+        std::cerr << "[DEMO] Echo request successful" << std::endl;
+      } else {
+        std::cerr << "[DEMO] Echo request failed: " << response.error->message << std::endl;
       }
-      
-      // Apply filter chain
-      auto* conn_impl = dynamic_cast<network::ConnectionImplBase*>(connection.get());
-      if (conn_impl) {
-        filter_chain_builder_.buildChain(conn_impl->filterManager());
-      }
-      
-      // Store connection
-      active_connection_ = connection;
-      
-      std::cerr << "[INFO] Client connected on worker " 
-                << worker.getName() << std::endl;
-    });
-  }
-  
-  void sendRequestToConnection(const jsonrpc::Request& request) {
-    if (!active_connection_) {
-      return;
-    }
-    
-    // Serialize request
-    auto json_val = json::to_json(request);
-    std::string message = json_val.toString() + "\n";
-    
-    // Send through connection
-    auto buffer = std::make_unique<OwnedBuffer>();
-    buffer->add(message);
-    
-    active_connection_->write(*buffer, false);
-  }
-  
-  void checkRequestTimeouts() {
-    auto timed_out = request_manager_.checkTimeouts();
-    
-    for (const auto& request : timed_out) {
-      stats_.requests_failed++;
-      circuit_breaker_.recordFailure();
-      
-      // Set timeout error
-      request->promise.set_value(make<jsonrpc::Response>(request->id)
-          .error(Error(-32001, "Request timeout"))
-          .build());
-      
-      FailureReason failure(FailureReason::Type::Timeout,
-                           "Request timeout: " + request->method);
-      failure.addContext("id", std::to_string(request->id));
-      trackFailure(failure);
+    } catch (const std::exception& e) {
+      std::cerr << "[DEMO] Echo request exception: " << e.what() << std::endl;
     }
   }
   
-  RequestManager request_manager_;
-  CircuitBreaker circuit_breaker_;
-  std::unique_ptr<ConnectionPool> connection_pool_;
-  std::shared_ptr<network::Connection> active_connection_;
-  std::thread timeout_thread_;
-};
-
-} // namespace examples
-} // namespace mcp
-
-int main(int argc, char* argv[]) {
-  using namespace mcp::examples;
-  
-  // Configure client
-  ApplicationBase::Config config;
-  config.num_workers = 1;  // Single worker for stdio client
-  config.enable_metrics = true;
-  config.metrics_interval = std::chrono::seconds(5);
-  
-  // Test parameters
-  int num_requests = 10;
-  int delay_ms = 100;
-  bool batch_mode = false;
-  
-  // Parse command line arguments
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--requests" && i + 1 < argc) {
-      num_requests = std::stoi(argv[++i]);
-    } else if (arg == "--delay" && i + 1 < argc) {
-      delay_ms = std::stoi(argv[++i]);
-    } else if (arg == "--batch") {
-      batch_mode = true;
-    } else if (arg == "--help") {
-      std::cout << "Usage: " << argv[0] << " [options]\n"
-                << "Options:\n"
-                << "  --requests N    Number of requests to send (default: 10)\n"
-                << "  --delay MS     Delay between requests in ms (default: 100)\n"
-                << "  --batch        Send requests in batch mode\n"
-                << "  --help         Show this help message\n";
-      return 0;
-    }
-  }
-  
-  try {
-    std::cerr << "[INFO] Starting Advanced MCP Echo Client\n"
-              << "[INFO] Configuration:\n"
-              << "[INFO]   Requests: " << num_requests << "\n"
-              << "[INFO]   Delay: " << delay_ms << " ms\n"
-              << "[INFO]   Mode: " << (batch_mode ? "batch" : "sequential") << "\n";
+  // Scenario 2: Batch requests
+  {
+    std::cerr << "\n[DEMO] Scenario 2: Batch requests" << std::endl;
+    std::vector<std::pair<std::string, Metadata>> batch;
     
-    // Create client in separate thread
-    auto client = std::make_unique<AdvancedEchoClient>(config);
-    
-    std::thread client_thread([&client]() {
-      client->start();
-    });
-    
-    // Wait for client to initialize
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    
-    // Send test requests
-    std::vector<std::future<mcp::jsonrpc::Response>> futures;
-    
-    if (batch_mode) {
-      // Prepare batch
-      std::vector<std::pair<std::string, mcp::Metadata>> batch;
-      for (int i = 0; i < num_requests; ++i) {
-        auto params = mcp::make<mcp::Metadata>()
-            .add("index", i)
-            .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
-            .build();
-        batch.emplace_back("test.request." + std::to_string(i), params);
-      }
-      
-      // Send batch
-      futures = client->sendBatch(batch);
-      std::cerr << "[INFO] Sent batch of " << num_requests << " requests\n";
-      
-    } else {
-      // Send requests sequentially
-      for (int i = 0; i < num_requests; ++i) {
-        auto params = mcp::make<mcp::Metadata>()
-            .add("index", i)
-            .add("timestamp", std::chrono::system_clock::now().time_since_epoch().count())
-            .build();
-        
-        futures.push_back(client->sendRequest("test.request." + std::to_string(i), params));
-        
-        std::cerr << "[INFO] Sent request " << (i + 1) << "/" << num_requests << "\n";
-        
-        if (delay_ms > 0 && i < num_requests - 1) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-        }
-      }
+    for (int i = 0; i < 5; ++i) {
+      auto metadata = make<Metadata>()
+          .add("batch_item", i)
+          .add("message", "Batch message " + std::to_string(i))
+          .build();
+      batch.push_back({"echo/batch", metadata});
     }
     
-    // Wait for responses
-    std::cerr << "[INFO] Waiting for responses...\n";
+    auto futures = client.sendBatch(batch);
+    std::cerr << "[DEMO] Sent batch of " << futures.size() << " requests" << std::endl;
     
     int success_count = 0;
-    int error_count = 0;
-    
-    for (size_t i = 0; i < futures.size(); ++i) {
+    for (auto& future : futures) {
       try {
-        auto response = futures[i].get();
-        
-        if (response.error.has_value()) {
-          error_count++;
-          std::cerr << "[ERROR] Request " << i << " failed: " 
-                    << response.error->message << "\n";
-        } else {
+        auto response = future.get();
+        if (!response.error.has_value()) {
           success_count++;
-          std::cerr << "[INFO] Request " << i << " succeeded\n";
         }
-      } catch (const std::exception& e) {
-        error_count++;
-        std::cerr << "[ERROR] Request " << i << " exception: " << e.what() << "\n";
+      } catch (...) {
+        // Ignore individual failures
       }
     }
+    std::cerr << "[DEMO] Batch complete: " << success_count << "/" << futures.size() << " successful" << std::endl;
+  }
+  
+  // Scenario 3: Stress test with rapid requests
+  {
+    std::cerr << "\n[DEMO] Scenario 3: Stress test with 20 rapid requests" << std::endl;
+    std::vector<std::future<jsonrpc::Response>> stress_futures;
     
-    // Print results
-    std::cerr << "\n[INFO] Test complete:\n"
-              << "[INFO]   Success: " << success_count << "/" << num_requests << "\n"
-              << "[INFO]   Errors: " << error_count << "/" << num_requests << "\n";
-    
-    // Get final statistics
-    const auto& stats = client->getStats();
-    std::cerr << "[INFO] Client statistics:\n"
-              << "[INFO]   Total requests: " << stats.requests_total << "\n"
-              << "[INFO]   Successful: " << stats.requests_success << "\n"
-              << "[INFO]   Failed: " << stats.requests_failed << "\n";
-    
-    if (stats.requests_total > 0) {
-      uint64_t avg_latency = stats.request_duration_ms_total / stats.requests_total;
-      std::cerr << "[INFO]   Average latency: " << avg_latency << " ms\n"
-                << "[INFO]   Min latency: " << stats.request_duration_ms_min << " ms\n"
-                << "[INFO]   Max latency: " << stats.request_duration_ms_max << " ms\n";
+    for (int i = 0; i < 20; ++i) {
+      auto metadata = make<Metadata>()
+          .add("stress_test", true)
+          .add("request_id", i)
+          .build();
+      stress_futures.push_back(client.sendRequest("echo/stress", metadata));
     }
     
-    // Shutdown
-    client->stop();
-    client_thread.join();
-    
-  } catch (const std::exception& e) {
-    std::cerr << "[ERROR] Client failed: " << e.what() << std::endl;
+    // Wait for all to complete
+    int completed = 0;
+    for (auto& future : stress_futures) {
+      if (future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+        completed++;
+      }
+    }
+    std::cerr << "[DEMO] Stress test complete: " << completed << "/20 completed within timeout" << std::endl;
+  }
+  
+  // Scenario 4: Notifications (fire-and-forget)
+  {
+    std::cerr << "\n[DEMO] Scenario 4: Sending notifications" << std::endl;
+    for (int i = 0; i < 3; ++i) {
+      auto metadata = make<Metadata>()
+          .add("notification_type", "heartbeat")
+          .add("sequence", i)
+          .build();
+      
+      auto result = client.sendNotification("heartbeat", metadata);
+      if (holds_alternative<Success>(result)) {
+        std::cerr << "[DEMO] Notification " << i << " sent successfully" << std::endl;
+      }
+      
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+  
+  std::cerr << "\n[DEMO] All demonstration scenarios completed" << std::endl;
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+  // Install signal handlers
+  signal(SIGINT, signal_handler);
+  signal(SIGTERM, signal_handler);
+  
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "Advanced Echo Client (Refactored with Transport Abstraction)" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "Features:" << std::endl;
+  std::cerr << "  - Transport-agnostic architecture (stdio, tcp, http ready)" << std::endl;
+  std::cerr << "  - Circuit breaker pattern for failure handling" << std::endl;
+  std::cerr << "  - Request tracking with timeouts" << std::endl;
+  std::cerr << "  - Batch request processing" << std::endl;
+  std::cerr << "  - Comprehensive metrics and monitoring" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  
+  // Configure the client
+  EchoClientConfig config;
+  config.enable_metrics = true;
+  config.metrics_interval = std::chrono::seconds(30);
+  config.request_timeout = std::chrono::seconds(10);
+  config.circuit_breaker_threshold = 5;
+  config.circuit_breaker_timeout = std::chrono::seconds(30);
+  config.max_retries = 3;
+  
+  // Create stdio transport (can easily swap with TCP, HTTP, etc.)
+  auto transport = std::make_shared<StdioEchoTransport>();
+  
+  // Create the advanced echo client
+  g_client = std::make_shared<AdvancedEchoClient>(transport, config);
+  
+  // Start the client
+  auto start_result = g_client->start("stdio://localhost");
+  if (holds_alternative<Error>(start_result)) {
+    std::cerr << "[ERROR] Failed to start client: " 
+              << get<Error>(start_result).message << std::endl;
     return 1;
   }
+  
+  std::cerr << "[INFO] Client started successfully" << std::endl;
+  std::cerr << "[INFO] Transport type: " << transport->getTransportType() << std::endl;
+  std::cerr << "[INFO] Press Ctrl+C to shutdown" << std::endl;
+  
+  // Send initialization request
+  {
+    auto metadata = make<Metadata>()
+        .add("type", "initialization")
+        .add("client", "advanced-refactored")
+        .add("version", "2.0.0")
+        .add("feature_circuit_breaker", true)
+        .add("feature_batch", true)
+        .add("feature_metrics", true)
+        .build();
+    
+    auto future = g_client->sendRequest("initialize", metadata);
+    
+    try {
+      auto response = future.get();
+      if (response.error.has_value()) {
+        std::cerr << "[ERROR] Initialization failed: " 
+                  << response.error->message << std::endl;
+      } else {
+        std::cerr << "[INFO] Initialization successful" << std::endl;
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Initialization exception: " << e.what() << std::endl;
+    }
+  }
+  
+  // Run demonstration scenarios
+  if (argc > 1 && std::string(argv[1]) == "--demo") {
+    runDemoScenarios(*g_client);
+  }
+  
+  // Main loop - send periodic requests
+  int request_count = 0;
+  while (!g_shutdown) {
+    // Send echo request
+    {
+      auto metadata = make<Metadata>()
+          .add("message", "Periodic echo request")
+          .add("sequence", request_count++)
+          .add("timestamp", std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count())
+          .build();
+      
+      auto future = g_client->sendRequest("echo/periodic", metadata);
+      
+      // Don't wait for response, let it complete asynchronously
+      std::thread([future = std::move(future)]() mutable {
+        try {
+          auto response = future.get();
+          if (!response.error.has_value()) {
+            // Success logged internally by metrics
+          }
+        } catch (...) {
+          // Timeout or other error, handled by client
+        }
+      }).detach();
+    }
+    
+    // Send batch periodically
+    if (request_count % 10 == 0 && request_count > 0) {
+      std::vector<std::pair<std::string, Metadata>> batch;
+      for (int i = 0; i < 3; ++i) {
+        auto metadata = make<Metadata>()
+            .add("batch_sequence", request_count)
+            .add("item", i)
+            .build();
+        batch.push_back({"echo/batch", metadata});
+      }
+      
+      g_client->sendBatch(batch);
+      std::cerr << "[INFO] Sent batch at sequence " << request_count << std::endl;
+    }
+    
+    // Send heartbeat notification
+    if (request_count % 5 == 0) {
+      auto metadata = make<Metadata>()
+          .add("type", "heartbeat")
+          .add("sequence", request_count)
+          .build();
+      
+      g_client->sendNotification("heartbeat", metadata);
+    }
+    
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+  }
+  
+  // Send shutdown request
+  {
+    std::cerr << "\n[INFO] Sending shutdown request..." << std::endl;
+    auto metadata = make<Metadata>()
+        .add("reason", "client_shutdown")
+        .add("total_requests", request_count)
+        .build();
+    
+    auto future = g_client->sendRequest("shutdown", metadata);
+    
+    try {
+      if (future.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+        auto response = future.get();
+        if (!response.error.has_value()) {
+          std::cerr << "[INFO] Server acknowledged shutdown" << std::endl;
+        }
+      }
+    } catch (...) {
+      // Ignore shutdown errors
+    }
+  }
+  
+  // Stop the client
+  g_client->stop();
+  
+  // Print final statistics
+  const auto& stats = g_client->getStats();
+  std::cerr << "\n==================================================================" << std::endl;
+  std::cerr << "Final Statistics:" << std::endl;
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "  Total requests sent: " << stats.requests_total << std::endl;
+  std::cerr << "  Successful responses: " << stats.requests_success << std::endl;
+  std::cerr << "  Failed requests: " << stats.requests_failed << std::endl;
+  std::cerr << "  Request timeouts: " << stats.requests_timeout << std::endl;
+  std::cerr << "  Circuit breaker trips: " << stats.circuit_breaker_opens << std::endl;
+  std::cerr << "  Total bytes sent: " << stats.bytes_sent << std::endl;
+  std::cerr << "  Total bytes received: " << stats.bytes_received << std::endl;
+  
+  if (stats.requests_success > 0) {
+    uint64_t avg_latency = stats.request_duration_ms_total / stats.requests_success;
+    std::cerr << "  Average latency: " << avg_latency << " ms" << std::endl;
+    std::cerr << "  Min latency: " << stats.request_duration_ms_min << " ms" << std::endl;
+    std::cerr << "  Max latency: " << stats.request_duration_ms_max << " ms" << std::endl;
+  }
+  
+  std::cerr << "==================================================================" << std::endl;
+  std::cerr << "[INFO] Client shutdown complete" << std::endl;
   
   return 0;
 }
