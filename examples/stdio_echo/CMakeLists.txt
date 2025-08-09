@@ -8,18 +8,40 @@ add_executable(stdio_echo_server_advanced
 add_executable(stdio_echo_client_advanced 
     stdio_echo_client_advanced.cc)
 
-# Link libraries for server
+add_executable(stdio_echo_server_basic 
+    stdio_echo_server_basic.cc)
+
+add_executable(stdio_echo_client_basic 
+    stdio_echo_client_basic.cc)
+
+# Link libraries for server (using new advanced echo library with transport abstraction)
 target_link_libraries(stdio_echo_server_advanced
+    mcp-echo-advanced
     mcp-sdk
-    mcp-event
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
 
-# Link libraries for client
+# Link libraries for client (using new advanced echo library with transport abstraction)
 target_link_libraries(stdio_echo_client_advanced
+    mcp-echo-advanced
     mcp-sdk
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+# Link libraries for basic server (using existing basic echo functionality)
+target_link_libraries(stdio_echo_server_basic
     mcp-event
+    mcp-sdk
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+# Link libraries for basic client (using existing basic echo functionality)
+target_link_libraries(stdio_echo_client_basic
+    mcp-event
+    mcp-sdk
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
@@ -37,8 +59,18 @@ target_include_directories(stdio_echo_client_advanced PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/stdio_echo
 )
 
+target_include_directories(stdio_echo_server_basic PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+)
+
+target_include_directories(stdio_echo_client_basic PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+)
+
 # Installation rules
-install(TARGETS stdio_echo_server_advanced stdio_echo_client_advanced
+install(TARGETS stdio_echo_server_advanced stdio_echo_client_advanced stdio_echo_server_basic stdio_echo_client_basic
     RUNTIME DESTINATION bin
 )
 
