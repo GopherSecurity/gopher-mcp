@@ -152,6 +152,13 @@ set(MCP_SDK_SOURCES
     src/mcp_connection_manager.cc
 )
 
+# Echo library source files (transport-agnostic advanced)
+set(MCP_ECHO_ADVANCED_SOURCES
+    src/echo/echo_client_advanced.cc
+    src/echo/echo_server_advanced.cc
+    src/echo/echo_stdio_transport_advanced.cc
+)
+
 # Event system source files
 set(MCP_EVENT_SOURCES
     src/event/libevent_dispatcher.cc
@@ -162,6 +169,11 @@ set(MCP_EVENT_SOURCES
 add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES})
 target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json)
+
+# Create MCP Echo Advanced library (transport-agnostic advanced echo components)
+add_library(mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
+target_include_directories(mcp-echo-advanced PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mcp-echo-advanced PUBLIC mcp-sdk Threads::Threads nlohmann_json::nlohmann_json)
 
 # Create MCP Event library
 add_library(mcp-event STATIC ${MCP_EVENT_SOURCES})
@@ -204,20 +216,7 @@ if(BUILD_EXAMPLES)
         Threads::Threads
     )
     
-    # Add stdio echo examples (now using reusable transport-agnostic components)
-    add_executable(stdio_echo_server examples/stdio_echo_server.cc)
-    target_link_libraries(stdio_echo_server
-        mcp-event
-        mcp-sdk
-        Threads::Threads
-    )
-    
-    add_executable(stdio_echo_client examples/stdio_echo_client.cc)
-    target_link_libraries(stdio_echo_client
-        mcp-event
-        mcp-sdk
-        Threads::Threads
-    )
+    # Basic stdio echo examples are now built in examples/stdio_echo/CMakeLists.txt
     
     add_executable(test_echo_integration examples/test_echo_integration.cc)
     target_link_libraries(test_echo_integration
