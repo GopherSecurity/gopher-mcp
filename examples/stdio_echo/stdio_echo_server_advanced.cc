@@ -484,5 +484,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
   
+  // Explicitly reset the server to ensure clean shutdown
+  g_server.reset();
+  
   return 0;
 }
