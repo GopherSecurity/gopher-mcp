@@ -19,7 +19,7 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/builders.h"
 #include <iostream>
-#include <signal.h>
+#include <csignal>
 #include <atomic>
 
 namespace mcp {
@@ -453,8 +453,8 @@ int main(int argc, char* argv[]) {
   }
   
   // Setup signal handlers
-  signal(SIGINT, signalHandler);
-  signal(SIGTERM, signalHandler);
+  signal(SIGINT, mcp::examples::signalHandler);
+  signal(SIGTERM, mcp::examples::signalHandler);
   signal(SIGPIPE, SIG_IGN);  // Ignore broken pipe
   
   try {
@@ -466,11 +466,11 @@ int main(int argc, char* argv[]) {
               << "[INFO]   Buffer low watermark: " << config.buffer_low_watermark << " bytes\n"
               << "[INFO]   Metrics: " << (config.enable_metrics ? "enabled" : "disabled") << "\n";
     
-    g_server = std::make_unique<AdvancedEchoServer>(config);
-    g_server->start();  // Blocks until stop() is called
+    mcp::examples::g_server = std::make_unique<AdvancedEchoServer>(config);
+    mcp::examples::g_server->start();  // Blocks until stop() is called
     
     // Print final statistics
-    const auto& stats = g_server->getStats();
+    const auto& stats = mcp::examples::g_server->getStats();
     std::cerr << "\n[INFO] Server shutdown complete\n"
               << "[INFO] Final statistics:\n"
               << "[INFO]   Total connections: " << stats.connections_total << "\n"
@@ -485,7 +485,7 @@ int main(int argc, char* argv[]) {
   }
   
   // Explicitly reset the server to ensure clean shutdown
-  g_server.reset();
+  mcp::examples::g_server.reset();
   
   return 0;
 }
