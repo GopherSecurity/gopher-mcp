@@ -26,13 +26,28 @@ namespace test {
 
 // Helper function to get the server binary path
 const char* getServerBinaryPath() {
-  // Try parent directory first (when running from tests/ directory)
-  if (access("../stdio_echo_server", X_OK) == 0) {
-    return "../stdio_echo_server";
+  // Try examples/stdio_echo directory (when running from build root)
+  if (access("./examples/stdio_echo/stdio_echo_server_basic", X_OK) == 0) {
+    return "./examples/stdio_echo/stdio_echo_server_basic";
   }
-  // Try current directory (when running from build root)
-  if (access("./stdio_echo_server", X_OK) == 0) {
-    return "./stdio_echo_server";
+  // Try build/examples directory (when running from project root)
+  if (access("./build/examples/stdio_echo/stdio_echo_server_basic", X_OK) == 0) {
+    return "./build/examples/stdio_echo/stdio_echo_server_basic";
+  }
+  // Try parent examples directory (when running from tests/ directory)
+  if (access("../examples/stdio_echo/stdio_echo_server_basic", X_OK) == 0) {
+    return "../examples/stdio_echo/stdio_echo_server_basic";
+  }
+  // Try relative from build directory
+  if (access("../build/examples/stdio_echo/stdio_echo_server_basic", X_OK) == 0) {
+    return "../build/examples/stdio_echo/stdio_echo_server_basic";
+  }
+  // Try old paths for backwards compatibility
+  if (access("../stdio_echo_server_basic", X_OK) == 0) {
+    return "../stdio_echo_server_basic";
+  }
+  if (access("./stdio_echo_server_basic", X_OK) == 0) {
+    return "./stdio_echo_server_basic";
   }
   return nullptr;
 }
@@ -59,7 +74,7 @@ protected:
 TEST_F(StdioEchoServerBasicTest, ServerBinaryExists) {
   const char* server_path = getServerBinaryPath();
   ASSERT_NE(server_path, nullptr) 
-      << "Server binary not found or not executable. Build it first with: make stdio_echo_server";
+      << "Server binary not found or not executable. Build it first with: make stdio_echo_server_basic";
 }
 
 // Test server starts and stops cleanly

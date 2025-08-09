@@ -26,13 +26,28 @@ namespace test {
 
 // Helper function to get the client binary path
 const char* getClientBinaryPath() {
-  // Try parent directory first (when running from tests/ directory)
-  if (access("../stdio_echo_client", X_OK) == 0) {
-    return "../stdio_echo_client";
+  // Try examples/stdio_echo directory (when running from build root)
+  if (access("./examples/stdio_echo/stdio_echo_client_basic", X_OK) == 0) {
+    return "./examples/stdio_echo/stdio_echo_client_basic";
   }
-  // Try current directory (when running from build root)
-  if (access("./stdio_echo_client", X_OK) == 0) {
-    return "./stdio_echo_client";
+  // Try build/examples directory (when running from project root)
+  if (access("./build/examples/stdio_echo/stdio_echo_client_basic", X_OK) == 0) {
+    return "./build/examples/stdio_echo/stdio_echo_client_basic";
+  }
+  // Try parent examples directory (when running from tests/ directory)
+  if (access("../examples/stdio_echo/stdio_echo_client_basic", X_OK) == 0) {
+    return "../examples/stdio_echo/stdio_echo_client_basic";
+  }
+  // Try relative from build directory
+  if (access("../build/examples/stdio_echo/stdio_echo_client_basic", X_OK) == 0) {
+    return "../build/examples/stdio_echo/stdio_echo_client_basic";
+  }
+  // Try old paths for backwards compatibility
+  if (access("../stdio_echo_client_basic", X_OK) == 0) {
+    return "../stdio_echo_client_basic";
+  }
+  if (access("./stdio_echo_client_basic", X_OK) == 0) {
+    return "./stdio_echo_client_basic";
   }
   return nullptr;
 }
@@ -59,7 +74,7 @@ protected:
 TEST_F(StdioEchoClientBasicTest, ClientBinaryExists) {
   const char* client_path = getClientBinaryPath();
   ASSERT_NE(client_path, nullptr) 
-      << "Client binary not found or not executable. Build it first with: make stdio_echo_client";
+      << "Client binary not found or not executable. Build it first with: make stdio_echo_client_basic";
 }
 
 // Test client starts and stops cleanly
