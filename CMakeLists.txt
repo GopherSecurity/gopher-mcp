@@ -148,6 +148,55 @@ else()
     message(STATUS "llhttp support disabled")
 endif()
 
+# nghttp2 - HTTP/2 C library
+# Option to enable/disable nghttp2 (can be disabled if build issues)
+option(MCP_USE_NGHTTP2 "Use nghttp2 for HTTP/2 parsing" ON)
+
+if(MCP_USE_NGHTTP2)
+    # Try to find system nghttp2 first
+    find_package(PkgConfig)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(NGHTTP2 libnghttp2)
+    endif()
+    
+    if(NOT NGHTTP2_FOUND)
+        # Download and build nghttp2
+        FetchContent_Declare(
+            nghttp2
+            GIT_REPOSITORY https://github.com/nghttp2/nghttp2.git
+            GIT_TAG v1.58.0
+        )
+        
+        # Configure nghttp2 build options before fetching
+        set(ENABLE_LIB_ONLY ON CACHE BOOL "Build only nghttp2 library")
+        set(ENABLE_STATIC_LIB ON CACHE BOOL "Build static library")
+        set(ENABLE_SHARED_LIB OFF CACHE BOOL "Don't build shared library")
+        set(ENABLE_APP OFF CACHE BOOL "Don't build applications")
+        set(ENABLE_HPACK_TOOLS OFF CACHE BOOL "Don't build HPACK tools")
+        set(ENABLE_EXAMPLES OFF CACHE BOOL "Don't build examples")
+        set(ENABLE_PYTHON_BINDINGS OFF CACHE BOOL "Don't build Python bindings")
+        set(ENABLE_FAILMALLOC OFF CACHE BOOL "Disable failmalloc")
+        set(ENABLE_THREADS ON CACHE BOOL "Enable threads")
+        set(ENABLE_WERROR OFF CACHE BOOL "Disable -Werror")
+        set(ENABLE_DEBUG OFF CACHE BOOL "Disable debug output")
+        
+        FetchContent_MakeAvailable(nghttp2)
+        
+        set(NGHTTP2_FOUND TRUE)
+        set(NGHTTP2_INCLUDE_DIRS 
+            ${nghttp2_SOURCE_DIR}/lib/includes 
+            ${nghttp2_BINARY_DIR}/lib/includes)
+        set(NGHTTP2_LIBRARIES nghttp2_static)
+        
+        message(STATUS "nghttp2 will be built from source")
+    else()
+        message(STATUS "Found system nghttp2")
+    endif()
+else()
+    set(NGHTTP2_FOUND FALSE)
+    message(STATUS "nghttp2 support disabled")
+endif()
+
 # nlohmann/json
 FetchContent_Declare(
     nlohmann_json
@@ -202,6 +251,12 @@ if(LLHTTP_FOUND)
     )
 endif()
 
+if(NGHTTP2_FOUND)
+    list(APPEND MCP_HTTP_SOURCES
+        src/http/nghttp2_parser.cc
+    )
+endif()
+
 # Echo library source files (transport-agnostic advanced)
 set(MCP_ECHO_ADVANCED_SOURCES
     src/echo/echo_client_advanced.cc
@@ -226,6 +281,15 @@ if(LLHTTP_FOUND)
     target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=1)
 else()
     target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=0)
+endif()
+
+# Add nghttp2 if found
+if(NGHTTP2_FOUND)
+    target_include_directories(mcp-sdk PUBLIC ${NGHTTP2_INCLUDE_DIRS})
+    target_link_libraries(mcp-sdk PUBLIC ${NGHTTP2_LIBRARIES})
+    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_NGHTTP2=1)
+else()
+    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_NGHTTP2=0)
 endif()
 
 # Create MCP Echo Advanced library (transport-agnostic advanced echo components)

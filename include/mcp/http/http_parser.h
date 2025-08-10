@@ -365,6 +365,19 @@ class HttpParserSelector {
                                               size_t length,
                                               HttpParserType type,
                                               HttpParserCallbacks* callbacks) = 0;
+  
+  /**
+   * Create parser based on ALPN protocol
+   * @param alpn_protocol The negotiated ALPN protocol (e.g., "h2", "http/1.1")
+   */
+  virtual HttpParserPtr createParserFromAlpn(const std::string& alpn_protocol,
+                                             HttpParserType type,
+                                             HttpParserCallbacks* callbacks) = 0;
+  
+  /**
+   * Get supported ALPN protocols
+   */
+  virtual std::vector<std::string> getSupportedAlpnProtocols() const = 0;
 };
 
 using HttpParserSelectorPtr = std::unique_ptr<HttpParserSelector>;

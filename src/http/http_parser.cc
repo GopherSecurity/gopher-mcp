@@ -2,9 +2,18 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <sstream>
 
 #include "mcp/buffer.h"
+
+#if MCP_HAS_LLHTTP
+#include "mcp/http/llhttp_parser.h"
+#endif
+
+#if MCP_HAS_NGHTTP2
+#include "mcp/http/nghttp2_parser.h"
+#endif
 
 namespace mcp {
 namespace http {
@@ -254,21 +263,79 @@ class HttpParserSelectorImpl : public HttpParserSelector {
                                       size_t length,
                                       HttpParserType type,
                                       HttpParserCallbacks* callbacks) override {
-    // Simple detection: look for HTTP version in first line
+    // Check for HTTP/2 connection preface
+    // "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+    const char* http2_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    size_t preface_len = 24;
+    
+    if (length >= preface_len && 
+        std::memcmp(data, http2_preface, preface_len) == 0) {
+      // This is HTTP/2
+      return createParser(HttpVersion::HTTP_2, type, callbacks);
+    }
+    
+    // Check for HTTP/1.x in first line
     if (length >= 8) {
       std::string first_line(data, std::min(length, size_t(100)));
       
-      if (first_line.find("HTTP/2") != std::string::npos) {
-        return createParser(HttpVersion::HTTP_2, type, callbacks);
-      } else if (first_line.find("HTTP/1.1") != std::string::npos) {
+      // Look for HTTP version string
+      if (first_line.find("HTTP/1.1") != std::string::npos) {
         return createParser(HttpVersion::HTTP_1_1, type, callbacks);
       } else if (first_line.find("HTTP/1.0") != std::string::npos) {
         return createParser(HttpVersion::HTTP_1_0, type, callbacks);
+      }
+      
+      // Check if it looks like an HTTP/1.x request
+      // (starts with a method like GET, POST, etc.)
+      if (first_line.find("GET ") == 0 || 
+          first_line.find("POST ") == 0 ||
+          first_line.find("PUT ") == 0 ||
+          first_line.find("DELETE ") == 0 ||
+          first_line.find("HEAD ") == 0 ||
+          first_line.find("OPTIONS ") == 0 ||
+          first_line.find("PATCH ") == 0 ||
+          first_line.find("CONNECT ") == 0 ||
+          first_line.find("TRACE ") == 0) {
+        // Default to HTTP/1.1 for requests
+        return createParser(HttpVersion::HTTP_1_1, type, callbacks);
       }
     }
     
     // Default to HTTP/1.1
     return createParser(HttpVersion::HTTP_1_1, type, callbacks);
+  }
+  
+  HttpParserPtr createParserFromAlpn(const std::string& alpn_protocol,
+                                     HttpParserType type,
+                                     HttpParserCallbacks* callbacks) override {
+    // Map ALPN protocol to HTTP version
+    if (alpn_protocol == "h2") {
+      return createParser(HttpVersion::HTTP_2, type, callbacks);
+    } else if (alpn_protocol == "http/1.1") {
+      return createParser(HttpVersion::HTTP_1_1, type, callbacks);
+    } else if (alpn_protocol == "http/1.0") {
+      return createParser(HttpVersion::HTTP_1_0, type, callbacks);
+    }
+    
+    // Default to HTTP/1.1
+    return createParser(HttpVersion::HTTP_1_1, type, callbacks);
+  }
+  
+  std::vector<std::string> getSupportedAlpnProtocols() const override {
+    std::vector<std::string> protocols;
+    
+    // Add protocols based on available parsers
+    if (factories_.find(HttpVersion::HTTP_2) != factories_.end()) {
+      protocols.push_back("h2");
+    }
+    if (factories_.find(HttpVersion::HTTP_1_1) != factories_.end()) {
+      protocols.push_back("http/1.1");
+    }
+    if (factories_.find(HttpVersion::HTTP_1_0) != factories_.end()) {
+      protocols.push_back("http/1.0");
+    }
+    
+    return protocols;
   }
   
  private:
@@ -301,7 +368,23 @@ HttpMessagePtr createHttpResponse(HttpStatusCode code,
 }
 
 HttpParserSelectorPtr createHttpParserSelector() {
-  return std::make_unique<HttpParserSelectorImpl>();
+  auto selector = std::make_unique<HttpParserSelectorImpl>();
+  
+  // Auto-register available parsers based on compile-time flags
+#if MCP_HAS_LLHTTP
+  // Register llhttp for HTTP/1.x
+  auto llhttp_factory = std::make_shared<http::LLHttpParserFactory>();
+  selector->registerFactory({HttpVersion::HTTP_1_0, HttpVersion::HTTP_1_1}, 
+                           llhttp_factory);
+#endif
+  
+#if MCP_HAS_NGHTTP2
+  // Register nghttp2 for HTTP/2
+  auto nghttp2_factory = std::make_shared<http::Nghttp2ParserFactory>();
+  selector->registerFactory({HttpVersion::HTTP_2}, nghttp2_factory);
+#endif
+  
+  return selector;
 }
 
 // Helper functions
