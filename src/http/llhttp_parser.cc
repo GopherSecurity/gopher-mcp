@@ -300,8 +300,9 @@ int LLHttpParser::onMessageComplete(llhttp_t* parser) {
 int LLHttpParser::onChunkHeader(llhttp_t* parser) {
   auto* self = static_cast<LLHttpParser*>(parser->data);
   if (self && self->callbacks_) {
+    // Use the content_length field from the parser
     return toCallbackResult(self->callbacks_->onChunkHeader(
-        llhttp_get_content_length(parser)));
+        parser->content_length));
   }
   return 0;
 }

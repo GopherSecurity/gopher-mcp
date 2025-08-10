@@ -162,6 +162,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::unique_ptr<http::HttpMessage> current_response_;
   std::string current_header_field_;
   std::string current_header_value_;
+  std::string accumulated_url_;  // Accumulate URL during parsing
   bool processing_headers_{false};
   
   // Buffers

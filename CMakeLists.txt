@@ -10,7 +10,7 @@ Please create a build directory and run cmake from there:
 You may need to remove CMakeCache.txt and CMakeFiles/")
 endif()
 
-project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES CXX)
+project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES C CXX)
 
 # Set C++ standard
 if(NOT CMAKE_CXX_STANDARD)
@@ -110,25 +110,45 @@ if(NOT LIBEVENT_FOUND)
     message(FATAL_ERROR "libevent not found. Please install libevent development package.")
 endif()
 
-# Find llhttp
-find_path(LLHTTP_INCLUDE_DIR llhttp.h
-    PATHS /usr/local/include /usr/include /opt/homebrew/include
-)
-find_library(LLHTTP_LIBRARY
-    NAMES llhttp
-    PATHS /usr/local/lib /usr/lib /opt/homebrew/lib
-)
+# Dependencies via FetchContent
+include(FetchContent)
 
-if(LLHTTP_INCLUDE_DIR AND LLHTTP_LIBRARY)
-    set(LLHTTP_FOUND TRUE)
-    message(STATUS "Found llhttp: ${LLHTTP_LIBRARY}")
+# llhttp - High-performance HTTP parser
+# Option to enable/disable llhttp (can be disabled if build issues)
+option(MCP_USE_LLHTTP "Use llhttp for HTTP/1.x parsing" ON)
+
+if(MCP_USE_LLHTTP)
+    # Use a simpler approach - download just the release archive
+    FetchContent_Declare(
+        llhttp
+        URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.1.3.tar.gz
+    )
+    
+    FetchContent_GetProperties(llhttp)
+    if(NOT llhttp_POPULATED)
+        FetchContent_Populate(llhttp)
+        
+        # Build llhttp as a simple static library
+        # The release archive contains pre-generated C files
+        file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
+        
+        add_library(llhttp STATIC ${LLHTTP_SOURCES})
+        target_include_directories(llhttp PUBLIC ${llhttp_SOURCE_DIR}/include)
+        
+        # Disable warnings for third-party code
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(llhttp PRIVATE -w)
+        endif()
+        
+        set(LLHTTP_FOUND TRUE)
+        message(STATUS "llhttp will be built from source")
+    endif()
 else()
-    message(WARNING "llhttp not found. HTTP/SSE transport with llhttp will not be available.")
     set(LLHTTP_FOUND FALSE)
+    message(STATUS "llhttp support disabled")
 endif()
 
 # nlohmann/json
-include(FetchContent)
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -202,8 +222,7 @@ target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_js
 
 # Add llhttp if found
 if(LLHTTP_FOUND)
-    target_include_directories(mcp-sdk PUBLIC ${LLHTTP_INCLUDE_DIR})
-    target_link_libraries(mcp-sdk PUBLIC ${LLHTTP_LIBRARY})
+    target_link_libraries(mcp-sdk PUBLIC llhttp)
     target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=1)
 else()
     target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=0)
