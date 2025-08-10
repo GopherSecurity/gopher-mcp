@@ -35,7 +35,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
-add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
+add_executable(test_http_transport_socket transport/test_http_transport_socket.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
 # Transport layer tests (low-level transport/pipe/socket testing)
@@ -264,7 +264,7 @@ target_link_libraries(test_stdio_transport_socket
     Threads::Threads
 )
 
-target_link_libraries(test_http_sse_transport_socket
+target_link_libraries(test_http_transport_socket
     mcp-sdk
     gtest
     gtest_main
@@ -429,7 +429,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 
 # Transport tests
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
-add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
+add_test(NAME HttpTransportSocketTest COMMAND test_http_transport_socket)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 add_test(NAME StdioEchoServerTest COMMAND test_stdio_echo_server)
 add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
@@ -470,7 +470,7 @@ add_custom_target(run_tests
             test_socket_interface test_socket_option test_transport_socket
             test_filter test_connection_impl test_listener_impl
             test_connection_manager_impl test_stream_info_impl
-            test_stdio_transport_socket test_http_sse_transport_socket
+            test_stdio_transport_socket test_http_transport_socket
             test_mcp_connection_manager test_builders
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."

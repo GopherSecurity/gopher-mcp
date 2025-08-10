@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/transport/http_transport_socket.h"
 #include "mcp/buffer.h"
 #include "mcp/json/json_bridge.h"
 
@@ -7,35 +7,35 @@ namespace mcp {
 namespace transport {
 namespace {
 
-class HttpSseTransportSocketFactoryTest : public ::testing::Test {
+class HttpTransportSocketFactoryTest : public ::testing::Test {
 protected:
   void SetUp() override {
     config_.endpoint_url = "https://api.example.com/mcp";
-    factory_ = std::make_unique<HttpSseTransportSocketFactory>(config_);
+    factory_ = std::make_unique<HttpTransportSocketFactory>(config_);
   }
   
-  HttpSseTransportSocketConfig config_;
-  std::unique_ptr<HttpSseTransportSocketFactory> factory_;
+  HttpTransportSocketConfig config_;
+  std::unique_ptr<HttpTransportSocketFactory> factory_;
 };
 
-TEST_F(HttpSseTransportSocketFactoryTest, BasicProperties) {
+TEST_F(HttpTransportSocketFactoryTest, BasicProperties) {
   EXPECT_TRUE(factory_->implementsSecureTransport()); // HTTPS URL
   EXPECT_EQ("http+sse", factory_->name());
   EXPECT_TRUE(factory_->supportsAlpn());
 }
 
-TEST_F(HttpSseTransportSocketFactoryTest, DefaultServerNameIndication) {
+TEST_F(HttpTransportSocketFactoryTest, DefaultServerNameIndication) {
   auto sni = factory_->defaultServerNameIndication();
   EXPECT_EQ("api.example.com", sni);
 }
 
-TEST_F(HttpSseTransportSocketFactoryTest, CreateTransportSocket) {
+TEST_F(HttpTransportSocketFactoryTest, CreateTransportSocket) {
   auto socket = factory_->createTransportSocket(nullptr);
   ASSERT_NE(nullptr, socket);
   EXPECT_EQ("http+sse", socket->protocol());
 }
 
-TEST_F(HttpSseTransportSocketFactoryTest, HashKey) {
+TEST_F(HttpTransportSocketFactoryTest, HashKey) {
   std::vector<uint8_t> key;
   factory_->hashKey(key, nullptr);
   
@@ -48,18 +48,18 @@ TEST_F(HttpSseTransportSocketFactoryTest, HashKey) {
   EXPECT_NE(std::string::npos, key_str.find(config_.endpoint_url));
 }
 
-TEST_F(HttpSseTransportSocketFactoryTest, InsecureEndpoint) {
+TEST_F(HttpTransportSocketFactoryTest, InsecureEndpoint) {
   // Test with HTTP (not HTTPS)
-  HttpSseTransportSocketConfig http_config;
+  HttpTransportSocketConfig http_config;
   http_config.endpoint_url = "http://example.com/mcp";
   
-  HttpSseTransportSocketFactory http_factory(http_config);
+  HttpTransportSocketFactory http_factory(http_config);
   EXPECT_FALSE(http_factory.implementsSecureTransport());
 }
 
-TEST_F(HttpSseTransportSocketFactoryTest, FactoryFunction) {
+TEST_F(HttpTransportSocketFactoryTest, FactoryFunction) {
   // Test factory function
-  auto factory = createHttpSseTransportSocketFactory(config_);
+  auto factory = createHttpTransportSocketFactory(config_);
   ASSERT_NE(nullptr, factory);
   EXPECT_EQ("http+sse", factory->name());
 }
