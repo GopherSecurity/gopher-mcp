@@ -111,7 +111,8 @@ VoidResult ActiveListener::listen() {
         config_.address,
         SocketCreationOptions{
             .non_blocking = true,
-            .close_on_exec = true
+            .close_on_exec = true,
+            .reuse_address = true  // Essential for server sockets
         },
         config_.bind_to_port);
     
@@ -123,6 +124,15 @@ VoidResult ActiveListener::listen() {
     }
     
     socket_ = std::move(socket);
+    
+    // Call listen() to start accepting connections
+    auto listen_result = static_cast<ListenSocketImpl*>(socket_.get())->listen(config_.backlog);
+    if (!listen_result.ok()) {
+      Error err;
+      err.code = listen_result.error_code();
+      err.message = "Failed to listen on socket";
+      return makeVoidError(err);
+    }
     
     // Apply socket options
     if (config_.socket_options) {
