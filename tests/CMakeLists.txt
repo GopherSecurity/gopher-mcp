@@ -38,6 +38,12 @@ add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket
 add_executable(test_http_transport_socket transport/test_http_transport_socket.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
+# HTTP parser tests
+add_executable(test_http_parser http/test_http_parser.cc)
+add_executable(test_llhttp_parser http/test_llhttp_parser.cc)
+add_executable(test_nghttp2_parser http/test_nghttp2_parser.cc)
+add_executable(test_sse_parser http/test_sse_parser.cc)
+
 # Transport layer tests (low-level transport/pipe/socket testing)
 add_executable(test_stdio_echo_server transport/test_stdio_echo_server.cc)
 add_executable(test_stdio_echo_client transport/test_stdio_echo_client.cc)
@@ -271,6 +277,39 @@ target_link_libraries(test_http_transport_socket
     Threads::Threads
 )
 
+# HTTP parser test libraries
+target_link_libraries(test_http_parser
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_llhttp_parser
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_nghttp2_parser
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_sse_parser
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_stdio_echo_server
     mcp-sdk
     mcp-event
@@ -431,6 +470,12 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpTransportSocketTest COMMAND test_http_transport_socket)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
+
+# HTTP parser tests
+add_test(NAME HttpParserTest COMMAND test_http_parser)
+add_test(NAME LLHttpParserTest COMMAND test_llhttp_parser)
+add_test(NAME Nghttp2ParserTest COMMAND test_nghttp2_parser)
+add_test(NAME SseParserTest COMMAND test_sse_parser)
 add_test(NAME StdioEchoServerTest COMMAND test_stdio_echo_server)
 add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
 
