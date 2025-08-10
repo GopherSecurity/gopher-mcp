@@ -1,7 +1,7 @@
 /**
- * TCP Echo Server using Network Abstractions
+ * TCP Echo Server Basic Implementation
  * 
- * This implementation uses the MCP network abstraction layer instead of raw sockets.
+ * This basic implementation uses the MCP network abstraction layer.
  * It demonstrates proper use of:
  * - Listener abstraction for accepting connections
  * - ConnectionManager for managing multiple connections
@@ -131,17 +131,17 @@ private:
   bool connected_{false};
 };
 
-class NetworkServerTransport : public echo::EchoTransportBase,
+class BasicServerTransport : public echo::EchoTransportBase,
                               public network::ListenerCallbacks {
 public:
-  NetworkServerTransport(event::Dispatcher& dispatcher,
+  BasicServerTransport(event::Dispatcher& dispatcher,
                         network::SocketInterface& socket_interface,
                         int port)
       : dispatcher_(dispatcher),
         socket_interface_(socket_interface),
         port_(port) {}
 
-  ~NetworkServerTransport() override {
+  ~BasicServerTransport() override {
     stop();
   }
 
@@ -372,7 +372,7 @@ int main(int argc, char* argv[]) {
     auto& socket_interface = mcp::network::socketInterface();
     
     // Create network-based transport
-    auto transport = std::make_unique<mcp::examples::NetworkServerTransport>(
+    auto transport = std::make_unique<mcp::examples::BasicServerTransport>(
         *dispatcher, socket_interface, port);
     
     // Keep raw pointer for our use
