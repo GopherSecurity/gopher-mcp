@@ -38,23 +38,74 @@ Nghttp2Parser::~Nghttp2Parser() {
   }
 }
 
+// Wrapper callbacks that match nghttp2's exact signatures
+static int onFrameRecvWrapper(nghttp2_session* session,
+                              const nghttp2_frame* frame,
+                              void* user_data) {
+  return Nghttp2Parser::onFrameRecvCallback(session, frame, user_data);
+}
+
+static int onDataChunkRecvWrapper(nghttp2_session* session,
+                                  uint8_t flags,
+                                  int32_t stream_id,
+                                  const uint8_t* data,
+                                  size_t len,
+                                  void* user_data) {
+  return Nghttp2Parser::onDataChunkRecvCallback(session, flags, stream_id,
+                                                data, len, user_data);
+}
+
+static int onStreamCloseWrapper(nghttp2_session* session,
+                                int32_t stream_id,
+                                uint32_t error_code,
+                                void* user_data) {
+  return Nghttp2Parser::onStreamCloseCallback(session, stream_id,
+                                              error_code, user_data);
+}
+
+static int onHeaderWrapper(nghttp2_session* session,
+                           const nghttp2_frame* frame,
+                           const uint8_t* name,
+                           size_t namelen,
+                           const uint8_t* value,
+                           size_t valuelen,
+                           uint8_t flags,
+                           void* user_data) {
+  return Nghttp2Parser::onHeaderCallback(session, frame, name, namelen,
+                                         value, valuelen, flags, user_data);
+}
+
+static int onBeginHeadersWrapper(nghttp2_session* session,
+                                 const nghttp2_frame* frame,
+                                 void* user_data) {
+  return Nghttp2Parser::onBeginHeadersCallback(session, frame, user_data);
+}
+
+static ssize_t onSendWrapper(nghttp2_session* session,
+                             const uint8_t* data,
+                             size_t length,
+                             int flags,
+                             void* user_data) {
+  return Nghttp2Parser::onSendCallback(session, data, length, flags, user_data);
+}
+
 void Nghttp2Parser::initializeSession() {
   // Create callbacks
   nghttp2_session_callbacks_new(&nghttp2_callbacks_);
   
-  // Set up callbacks
+  // Set up callbacks using wrappers
   nghttp2_session_callbacks_set_on_frame_recv_callback(
-      nghttp2_callbacks_, onFrameRecv);
+      nghttp2_callbacks_, onFrameRecvWrapper);
   nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
-      nghttp2_callbacks_, onDataChunkRecv);
+      nghttp2_callbacks_, onDataChunkRecvWrapper);
   nghttp2_session_callbacks_set_on_stream_close_callback(
-      nghttp2_callbacks_, onStreamClose);
+      nghttp2_callbacks_, onStreamCloseWrapper);
   nghttp2_session_callbacks_set_on_header_callback(
-      nghttp2_callbacks_, onHeaderCallback);
+      nghttp2_callbacks_, onHeaderWrapper);
   nghttp2_session_callbacks_set_on_begin_headers_callback(
-      nghttp2_callbacks_, onBeginHeaders);
+      nghttp2_callbacks_, onBeginHeadersWrapper);
   nghttp2_session_callbacks_set_send_callback(
-      nghttp2_callbacks_, onSendCallback);
+      nghttp2_callbacks_, onSendWrapper);
   
   // Create session based on type
   int rv;
@@ -238,9 +289,9 @@ void Nghttp2Parser::handleError(int error_code) {
 
 // Static callbacks
 
-int Nghttp2Parser::onFrameRecv(nghttp2_session* session,
-                               const void* frame,
-                               void* user_data) {
+int Nghttp2Parser::onFrameRecvCallback(nghttp2_session* session,
+                                       const void* frame,
+                                       void* user_data) {
   auto* self = static_cast<Nghttp2Parser*>(user_data);
   if (self) {
     self->processFrame(frame);
@@ -248,7 +299,7 @@ int Nghttp2Parser::onFrameRecv(nghttp2_session* session,
   return 0;
 }
 
-int Nghttp2Parser::onDataChunkRecv(nghttp2_session* session,
+int Nghttp2Parser::onDataChunkRecvCallback(nghttp2_session* session,
                                    uint8_t flags,
                                    int32_t stream_id,
                                    const uint8_t* data,
@@ -274,7 +325,7 @@ int Nghttp2Parser::onDataChunkRecv(nghttp2_session* session,
   return 0;
 }
 
-int Nghttp2Parser::onStreamClose(nghttp2_session* session,
+int Nghttp2Parser::onStreamCloseCallback(nghttp2_session* session,
                                  int32_t stream_id,
                                  uint32_t error_code,
                                  void* user_data) {
@@ -304,10 +355,10 @@ int Nghttp2Parser::onHeaderCallback(nghttp2_session* session,
                                     uint8_t flags,
                                     void* user_data) {
   auto* self = static_cast<Nghttp2Parser*>(user_data);
-  const auto* hd_frame = static_cast<const nghttp2_frame*>(frame);
+  const auto* ng_frame = static_cast<const nghttp2_frame*>(frame);
   
   if (self && self->callbacks_) {
-    int32_t stream_id = hd_frame->hd.stream_id;
+    int32_t stream_id = ng_frame->hd.stream_id;
     auto& stream = self->streams_[stream_id];
     
     std::string header_name(reinterpret_cast<const char*>(name), namelen);
@@ -345,14 +396,14 @@ int Nghttp2Parser::onHeaderCallback(nghttp2_session* session,
   return 0;
 }
 
-int Nghttp2Parser::onBeginHeaders(nghttp2_session* session,
+int Nghttp2Parser::onBeginHeadersCallback(nghttp2_session* session,
                                   const void* frame,
                                   void* user_data) {
   auto* self = static_cast<Nghttp2Parser*>(user_data);
-  const auto* hd_frame = static_cast<const nghttp2_frame*>(frame);
+  const auto* ng_frame = static_cast<const nghttp2_frame*>(frame);
   
   if (self && self->callbacks_) {
-    self->current_stream_id_ = hd_frame->hd.stream_id;
+    self->current_stream_id_ = ng_frame->hd.stream_id;
     
     // Initialize stream data
     self->streams_[self->current_stream_id_] = StreamData();
@@ -380,14 +431,14 @@ ssize_t Nghttp2Parser::onSendCallback(nghttp2_session* session,
 }
 
 void Nghttp2Parser::processFrame(const void* frame) {
-  const auto* nghttp2_frame = static_cast<const nghttp2_frame*>(frame);
+  const auto* ng_frame = static_cast<const nghttp2_frame*>(frame);
   
-  if (nghttp2_frame->hd.type == NGHTTP2_HEADERS) {
-    if (nghttp2_frame->headers.cat == NGHTTP2_HCAT_RESPONSE ||
-        nghttp2_frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
+  if (ng_frame->hd.type == NGHTTP2_HEADERS) {
+    if (ng_frame->headers.cat == NGHTTP2_HCAT_RESPONSE ||
+        ng_frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
       // Headers complete
       if (callbacks_) {
-        current_stream_id_ = nghttp2_frame->hd.stream_id;
+        current_stream_id_ = ng_frame->hd.stream_id;
         streams_[current_stream_id_].headers_complete = true;
         callbacks_->onHeadersComplete();
       }
