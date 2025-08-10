@@ -97,6 +97,68 @@ TEST_F(TcpEchoServerBasicTest, ServerSocketCreation) {
   socket_interface_->close(*result.value);
 }
 
+// Test 6: Listener manager creation
+TEST_F(TcpEchoServerBasicTest, ListenerManagerCreation) {
+  // Create listener manager
+  auto listener_manager = std::make_unique<network::ListenerManagerImpl>(
+      *dispatcher_, *socket_interface_);
+  
+  ASSERT_NE(nullptr, listener_manager);
+}
+
+// Test 7: Address parsing for IPv4
+TEST_F(TcpEchoServerBasicTest, AddressParsingIPv4) {
+  // Parse loopback address
+  auto addr = network::Address::parseInternetAddress("127.0.0.1", 8080);
+  ASSERT_NE(nullptr, addr);
+  EXPECT_EQ(network::Address::Type::Ip, addr->type());
+  ASSERT_NE(nullptr, addr->ip());
+  EXPECT_EQ(8080, addr->ip()->port());
+}
+
+// Test 8: Address parsing for any address
+TEST_F(TcpEchoServerBasicTest, AnyAddressCreation) {
+  // Create any address IPv4
+  auto addr = network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+  ASSERT_NE(nullptr, addr);
+  EXPECT_EQ(network::Address::Type::Ip, addr->type());
+  ASSERT_NE(nullptr, addr->ip());
+  EXPECT_EQ(0, addr->ip()->port());
+  
+  // Create any address IPv6
+  addr = network::Address::anyAddress(network::Address::IpVersion::v6, 8080);
+  ASSERT_NE(nullptr, addr);
+  EXPECT_EQ(network::Address::Type::Ip, addr->type());
+  ASSERT_NE(nullptr, addr->ip());
+  EXPECT_EQ(network::Address::IpVersion::v6, addr->ip()->version());
+  EXPECT_EQ(8080, addr->ip()->port());
+}
+
+// Test 9: Listener config with different settings
+TEST_F(TcpEchoServerBasicTest, ListenerConfigVariations) {
+  // Minimal config
+  network::ListenerConfig min_config;
+  min_config.name = "minimal";
+  min_config.address = network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+  min_config.bind_to_port = false;
+  
+  EXPECT_EQ("minimal", min_config.name);
+  EXPECT_FALSE(min_config.bind_to_port);
+  
+  // Maximal config
+  network::ListenerConfig max_config;
+  max_config.name = "maximal";
+  max_config.address = network::Address::anyAddress(network::Address::IpVersion::v4, 65535);
+  max_config.bind_to_port = true;
+  max_config.backlog = 1024;
+  max_config.per_connection_buffer_limit = 10 * 1024 * 1024;
+  
+  EXPECT_EQ("maximal", max_config.name);
+  EXPECT_TRUE(max_config.bind_to_port);
+  EXPECT_EQ(1024, max_config.backlog);
+  EXPECT_EQ(10 * 1024 * 1024, max_config.per_connection_buffer_limit);
+}
+
 } // namespace test
 } // namespace examples
 } // namespace mcp
