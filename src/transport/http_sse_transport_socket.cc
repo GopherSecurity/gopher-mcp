@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "mcp/buffer.h"
+#include "mcp/core/result.h"  // For TransportIoResult and makeVoidSuccess
 #include "mcp/http/llhttp_parser.h"
 
 namespace mcp {
@@ -61,7 +62,7 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
   
   updateState(State::HandshakeRequest);
   
-  return makeVoidResult();
+  return makeVoidSuccess();
 }
 
 void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
@@ -108,7 +109,7 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
 
 TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
   if (state_ == State::Closed || state_ == State::Closing) {
-    return TransportIoResult{TransportIoAction::Close, 0, false};
+    return TransportIoResult::close();
   }
   
   // Process incoming data based on state
@@ -124,12 +125,12 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
   
   bytes_received_ += bytes_processed;
   
-  return TransportIoResult{TransportIoAction::StopIteration, bytes_processed, false};
+  return TransportIoResult::stop();
 }
 
 TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   if (state_ == State::Closed || state_ == State::Closing) {
-    return TransportIoResult{TransportIoAction::Close, 0, true};
+    return TransportIoResult::close();
   }
   
   // Queue outgoing data
@@ -143,7 +144,7 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
   size_t bytes_written = buffer.length();
   bytes_sent_ += bytes_written;
   
-  return TransportIoResult{TransportIoAction::StopIteration, bytes_written, false};
+  return TransportIoResult::success(bytes_written);
 }
 
 void HttpSseTransportSocket::onConnected() {
@@ -174,6 +175,7 @@ http::ParserCallbackResult HttpSseTransportSocket::onMessageBegin() {
     current_response_ = http::createHttpResponse(http::HttpStatusCode::OK);
   } else {
     current_request_ = http::createHttpRequest(http::HttpMethod::GET, "/");
+    accumulated_url_.clear();  // Reset URL accumulator
   }
   current_header_field_.clear();
   current_header_value_.clear();
@@ -182,8 +184,8 @@ http::ParserCallbackResult HttpSseTransportSocket::onMessageBegin() {
 
 http::ParserCallbackResult HttpSseTransportSocket::onUrl(const char* data, size_t length) {
   if (current_request_) {
-    std::string url(data, length);
-    current_request_->setUri(current_request_->uri() + url);
+    // Accumulate URL data
+    accumulated_url_.append(data, length);
   }
   return http::ParserCallbackResult::Success;
 }
@@ -191,7 +193,8 @@ http::ParserCallbackResult HttpSseTransportSocket::onUrl(const char* data, size_
 http::ParserCallbackResult HttpSseTransportSocket::onStatus(const char* data, size_t length) {
   // Status text - parser already has status code
   if (current_response_ && response_parser_) {
-    current_response_->setStatusCode(response_parser_->statusCode());
+    // Recreate response with correct status code
+    current_response_ = http::createHttpResponse(response_parser_->statusCode());
   }
   return http::ParserCallbackResult::Success;
 }
@@ -226,6 +229,21 @@ http::ParserCallbackResult HttpSseTransportSocket::onHeadersComplete() {
     }
     current_header_field_.clear();
     current_header_value_.clear();
+  }
+  
+  // If we have a request with accumulated URL, recreate it with the correct URL
+  if (current_request_ && !accumulated_url_.empty() && request_parser_) {
+    // Get the method from the parser
+    auto method = request_parser_->httpMethod();
+    // Store headers from old request
+    auto headers_map = current_request_->headers().getMap();
+    // Create new request with correct URL
+    current_request_ = http::createHttpRequest(method, accumulated_url_);
+    // Restore headers
+    for (const auto& header : headers_map) {
+      current_request_->headers().add(header.first, header.second);
+    }
+    accumulated_url_.clear();
   }
   
   processing_headers_ = false;
@@ -447,8 +465,8 @@ std::string HttpSseTransportSocket::buildHttpRequest(const std::string& method,
   }
   
   // Custom headers
-  for (const auto& [name, value] : config_.headers) {
-    request << name << ": " << value << "\r\n";
+  for (const auto& header : config_.headers) {
+    request << header.first << ": " << header.second << "\r\n";
   }
   
   // End headers
