@@ -164,6 +164,7 @@ public:
       connection_.reset();
     }
     callbacks_.reset();
+    data_reader_.reset();
   }
 
   bool isConnected() const override {
@@ -213,6 +214,10 @@ public:
   }
 
   bool connect(const std::string& host, int port) {
+    // Initialize dispatcher thread context - must be done before creating connections
+    // This sets the thread_id_ that's checked by isThreadSafe()
+    dispatcher_.run(event::RunType::NonBlock);
+    
     // Parse address (convert localhost to 127.0.0.1)
     std::string ip_addr = host;
     if (host == "localhost") {
@@ -256,11 +261,19 @@ public:
     // Create connection with stream info
     stream_info::StreamInfoImpl stream_info;
     
+    // Now we can create the connection in this thread
+    std::cout << "Creating client connection..." << std::endl;
     connection_ = network::ConnectionImpl::createClientConnection(
         dispatcher_,
         std::move(socket),
         std::move(transport_socket),
         stream_info);
+    
+    if (!connection_) {
+      std::cerr << "Failed to create client connection" << std::endl;
+      return false;
+    }
+    std::cout << "Client connection created successfully" << std::endl;
 
     // Set up callbacks
     if (client_) {
@@ -274,14 +287,20 @@ public:
     }
 
     // Connect
+    std::cout << "Initiating connection..." << std::endl;
     connection_->connect();
 
-    // Wait for connection with timeout
+    // Wait for connection with timeout while running dispatcher
     auto start = std::chrono::steady_clock::now();
     const auto timeout = std::chrono::seconds(5);
     
+    int loop_count = 0;
     while (!callbacks_->connected()) {
       dispatcher_.run(event::RunType::NonBlock);
+      
+      if (++loop_count % 20 == 0) {  // Log every second
+        std::cout << "Waiting for connection... (" << (loop_count / 20) << "s)" << std::endl;
+      }
       
       auto elapsed = std::chrono::steady_clock::now() - start;
       if (elapsed > timeout) {
@@ -300,6 +319,7 @@ public:
     running_ = true;
     return true;
   }
+  
 
   void setClient(echo::EchoClientBase* client) {
     client_ = client;
@@ -401,16 +421,6 @@ int main(int argc, char* argv[]) {
 
     if (interactive) {
       std::cout << "Interactive mode. Type messages to send, or 'quit' to exit." << std::endl;
-      
-      // Run client in background thread  
-      std::thread client_thread([transport_ptr]() {
-        try {
-          // Transport runs its event loop
-          transport_ptr->run();
-        } catch (const std::exception& e) {
-          std::cerr << "Client thread error: " << e.what() << std::endl;
-        }
-      });
 
       // Read input from user
       std::string input;
@@ -427,23 +437,9 @@ int main(int argc, char* argv[]) {
 
       g_shutdown = true;
       client.stop();
-      
-      if (client_thread.joinable()) {
-        client_thread.join();
-      }
     } else {
       // Non-interactive mode - send multiple test messages
       std::cout << "Sending " << num_requests << " test requests..." << std::endl;
-      
-      // Run client in background thread  
-      std::thread client_thread([transport_ptr]() {
-        try {
-          // Transport runs its event loop
-          transport_ptr->run();
-        } catch (const std::exception& e) {
-          std::cerr << "Client thread error: " << e.what() << std::endl;
-        }
-      });
       
       // Send test requests
       // Store futures for the responses
@@ -476,10 +472,6 @@ int main(int argc, char* argv[]) {
       
       g_shutdown = true;
       client.stop();
-      
-      if (client_thread.joinable()) {
-        client_thread.join();
-      }
     }
 
   } catch (const std::exception& e) {
