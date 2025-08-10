@@ -46,6 +46,9 @@ add_executable(test_stdio_echo_client transport/test_stdio_echo_client.cc)
 add_executable(test_stdio_echo_client_advanced test_stdio_echo_client_advanced.cc)
 add_executable(test_stdio_echo_server_advanced test_stdio_echo_server_advanced.cc)
 
+# TCP echo tests
+add_executable(test_tcp_echo_client_basic test_tcp_echo_client_basic.cc)
+add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
@@ -319,6 +322,24 @@ target_link_libraries(test_stdio_echo_server_advanced
     nlohmann_json::nlohmann_json
 )
 
+# TCP echo test libraries
+target_link_libraries(test_tcp_echo_client_basic
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_tcp_echo_server_basic
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
 
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
@@ -416,6 +437,10 @@ add_test(NAME StdioEchoClientTest COMMAND test_stdio_echo_client)
 # Advanced example tests
 add_test(NAME StdioEchoClientAdvancedTest COMMAND test_stdio_echo_client_advanced)
 add_test(NAME StdioEchoServerAdvancedTest COMMAND test_stdio_echo_server_advanced)
+
+# TCP echo tests
+add_test(NAME TcpEchoClientBasicTest COMMAND test_tcp_echo_client_basic)
+add_test(NAME TcpEchoServerBasicTest COMMAND test_tcp_echo_server_basic)
 
 
 # MCP tests
