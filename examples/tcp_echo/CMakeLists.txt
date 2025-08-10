@@ -40,6 +40,7 @@ add_executable(tcp_echo_server_network
 target_link_libraries(tcp_echo_server_network
     PRIVATE
     mcp-sdk
+    mcp-event
     Threads::Threads
 )
 
@@ -56,6 +57,7 @@ add_executable(tcp_echo_client_network
 target_link_libraries(tcp_echo_client_network
     PRIVATE
     mcp-sdk
+    mcp-event
     Threads::Threads
 )
 
