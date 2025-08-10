@@ -8,7 +8,7 @@
 
 #include "mcp/http/http_parser.h"
 
-// Forward declare nghttp2 types to avoid exposing nghttp2.h
+// Forward declare nghttp2 types to avoid exposing nghttp2.h in header
 struct nghttp2_session;
 struct nghttp2_session_callbacks;
 
@@ -49,22 +49,25 @@ class Nghttp2Parser : public HttpParser {
   // Get pending data to send
   std::vector<uint8_t> getPendingData();
   
- private:
-  // nghttp2 callbacks
-  static int onFrameRecv(nghttp2_session* session, const void* frame, void* user_data);
-  static int onDataChunkRecv(nghttp2_session* session, uint8_t flags,
-                             int32_t stream_id, const uint8_t* data,
-                             size_t len, void* user_data);
-  static int onStreamClose(nghttp2_session* session, int32_t stream_id,
-                           uint32_t error_code, void* user_data);
+ public:
+  // nghttp2 callbacks - need to be public for wrapper functions
+  static int onFrameRecvCallback(nghttp2_session* session, 
+                                 const void* frame, void* user_data);
+  static int onDataChunkRecvCallback(nghttp2_session* session, uint8_t flags,
+                                     int32_t stream_id, const uint8_t* data,
+                                     size_t len, void* user_data);
+  static int onStreamCloseCallback(nghttp2_session* session, int32_t stream_id,
+                                   uint32_t error_code, void* user_data);
   static int onHeaderCallback(nghttp2_session* session, const void* frame,
                               const uint8_t* name, size_t namelen,
                               const uint8_t* value, size_t valuelen,
                               uint8_t flags, void* user_data);
-  static int onBeginHeaders(nghttp2_session* session, const void* frame,
-                            void* user_data);
+  static int onBeginHeadersCallback(nghttp2_session* session, 
+                                    const void* frame, void* user_data);
   static ssize_t onSendCallback(nghttp2_session* session, const uint8_t* data,
                                 size_t length, int flags, void* user_data);
+  
+ private:
   
   // Helper methods
   void initializeSession();
