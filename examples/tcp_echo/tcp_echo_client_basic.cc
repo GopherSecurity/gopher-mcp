@@ -213,8 +213,13 @@ public:
   }
 
   bool connect(const std::string& host, int port) {
-    // Parse address
-    auto address = network::Address::parseInternetAddress(host, port);
+    // Parse address (convert localhost to 127.0.0.1)
+    std::string ip_addr = host;
+    if (host == "localhost") {
+      ip_addr = "127.0.0.1";
+    }
+    
+    auto address = network::Address::parseInternetAddress(ip_addr, port);
     if (!address) {
       std::cerr << "Failed to parse address: " << host << ":" << port << std::endl;
       return false;
