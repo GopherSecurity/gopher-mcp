@@ -1,5 +1,5 @@
-#ifndef MCP_TRANSPORT_HTTP_SSE_TRANSPORT_SOCKET_H
-#define MCP_TRANSPORT_HTTP_SSE_TRANSPORT_SOCKET_H
+#ifndef MCP_TRANSPORT_HTTP_TRANSPORT_SOCKET_H
+#define MCP_TRANSPORT_HTTP_TRANSPORT_SOCKET_H
 
 #include <memory>
 #include <queue>
@@ -10,9 +10,10 @@ namespace mcp {
 namespace transport {
 
 /**
- * HTTP/SSE transport socket configuration
+ * HTTP transport socket configuration (legacy implementation)
+ * This is the original simple HTTP transport without proper parser
  */
-struct HttpSseTransportSocketConfig {
+struct HttpTransportSocketConfig {
   // HTTP endpoint URL
   std::string endpoint_url;
 
@@ -37,14 +38,14 @@ struct HttpSseTransportSocketConfig {
 };
 
 /**
- * HTTP/SSE transport socket
+ * HTTP transport socket (legacy implementation)
  *
- * Implements bidirectional JSON-RPC over HTTP with Server-Sent Events
+ * Simple HTTP transport with basic parsing - being replaced by HttpSseTransportSocket
  */
-class HttpSseTransportSocket : public network::TransportSocket {
+class HttpTransportSocket : public network::TransportSocket {
  public:
-  explicit HttpSseTransportSocket(const HttpSseTransportSocketConfig& config);
-  ~HttpSseTransportSocket() override;
+  explicit HttpTransportSocket(const HttpTransportSocketConfig& config);
+  ~HttpTransportSocket() override;
 
   // TransportSocket interface
   void setTransportSocketCallbacks(
@@ -70,7 +71,7 @@ class HttpSseTransportSocket : public network::TransportSocket {
   enum class HttpState { Disconnected, Connecting, Connected, Closing, Closed };
 
   // Configuration
-  HttpSseTransportSocketConfig config_;
+  HttpTransportSocketConfig config_;
 
   // State
   network::TransportSocketCallbacks* callbacks_{nullptr};
@@ -100,13 +101,13 @@ class HttpSseTransportSocket : public network::TransportSocket {
 };
 
 /**
- * HTTP/SSE transport socket factory
+ * HTTP transport socket factory (legacy)
  */
-class HttpSseTransportSocketFactory
+class HttpTransportSocketFactory
     : public network::ClientTransportSocketFactory {
  public:
-  explicit HttpSseTransportSocketFactory(
-      const HttpSseTransportSocketConfig& config);
+  explicit HttpTransportSocketFactory(
+      const HttpTransportSocketConfig& config);
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override;
@@ -121,19 +122,19 @@ class HttpSseTransportSocketFactory
                network::TransportSocketOptionsSharedPtr options) const override;
 
  private:
-  HttpSseTransportSocketConfig config_;
+  HttpTransportSocketConfig config_;
 };
 
 /**
- * Create an HTTP/SSE transport socket factory
+ * Create an HTTP transport socket factory (legacy)
  */
 inline std::unique_ptr<network::ClientTransportSocketFactory>
-createHttpSseTransportSocketFactory(
-    const HttpSseTransportSocketConfig& config) {
-  return std::make_unique<HttpSseTransportSocketFactory>(config);
+createHttpTransportSocketFactory(
+    const HttpTransportSocketConfig& config) {
+  return std::make_unique<HttpTransportSocketFactory>(config);
 }
 
 }  // namespace transport
 }  // namespace mcp
 
-#endif  // MCP_TRANSPORT_HTTP_SSE_TRANSPORT_SOCKET_H
+#endif  // MCP_TRANSPORT_HTTP_TRANSPORT_SOCKET_H

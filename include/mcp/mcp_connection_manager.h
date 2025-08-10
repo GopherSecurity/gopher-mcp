@@ -9,7 +9,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/filter.h"
-#include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/transport/http_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/types.h"
 
@@ -33,7 +33,7 @@ struct McpConnectionConfig {
 
   // Transport-specific configuration
   optional<transport::StdioTransportSocketConfig> stdio_config;
-  optional<transport::HttpSseTransportSocketConfig> http_sse_config;
+  optional<transport::HttpTransportSocketConfig> http_sse_config;
 
   // Connection settings
   uint32_t buffer_limit{1024 * 1024};  // 1MB default
