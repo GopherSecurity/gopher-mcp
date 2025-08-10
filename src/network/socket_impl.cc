@@ -1,6 +1,8 @@
 #include "mcp/network/socket_impl.h"
 
 #include <algorithm>
+#include <iostream>
+#include <string.h>
 
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/socket_interface.h"

@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <memory>
 #include <unordered_map>
+#include <future>
 
 #include "mcp/network/address.h"
 #include "mcp/network/socket_interface.h"
@@ -24,6 +25,7 @@
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
+#include "mcp/network/socket_option_impl.h"
 #include "mcp/network/transport_socket.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/buffer.h"
@@ -169,11 +171,7 @@ public:
   }
 
   bool start() override {
-    // Create listener manager
-    listener_manager_ = std::make_unique<network::ListenerManagerImpl>(
-        dispatcher_, socket_interface_);
-
-    // Create bind address
+    // Create bind address (can be done outside dispatcher thread)
     auto address = network::Address::anyAddress(
         network::Address::IpVersion::v4, port_);
     if (!address) {
@@ -181,38 +179,70 @@ public:
       return false;
     }
 
-    // Create listener config with production settings
-    network::ListenerConfig config;
-    config.name = "tcp_echo_server";
-    config.address = address;
-    config.bind_to_port = true;
-    config.backlog = 128;  // Standard backlog size
-    config.per_connection_buffer_limit = 1024 * 1024; // 1MB per connection
-    // config.reuse_port = true;  // Not available in current API
+    // All listener creation must happen in dispatcher thread
+    std::promise<bool> start_promise;
+    auto start_future = start_promise.get_future();
+    
+    dispatcher_.post([this, address, &start_promise]() {
+      // Create listener manager in dispatcher thread
+      listener_manager_ = std::make_unique<network::ListenerManagerImpl>(
+          dispatcher_, socket_interface_);
 
-    // Add listener
-    auto result = listener_manager_->addListener(std::move(config), *this);
-    if (holds_alternative<Error>(result)) {
-      std::cerr << "Failed to add listener" << std::endl;
-      return false;
+      // Create listener config with production settings
+      network::ListenerConfig config;
+      config.name = "tcp_echo_server";
+      config.address = address;
+      config.bind_to_port = true;
+      config.backlog = 128;  // Standard backlog size
+      config.per_connection_buffer_limit = 1024 * 1024; // 1MB per connection
+      config.enable_reuse_port = false;  // We don't need SO_REUSEPORT
+      
+      // Add socket options for SO_REUSEADDR
+      config.socket_options = std::make_shared<std::vector<network::SocketOptionConstSharedPtr>>();
+      config.socket_options->push_back(
+          std::make_shared<network::BoolSocketOption>(
+              network::SocketOptionName(SOL_SOCKET, SO_REUSEADDR, "SO_REUSEADDR"), true));
+
+      // Add listener (this creates ActiveListener which needs dispatcher thread)
+      auto result = listener_manager_->addListener(std::move(config), *this);
+      if (holds_alternative<Error>(result)) {
+        const auto& error = get<Error>(result);
+        std::cerr << "Failed to add listener: " << error.message 
+                  << " (code: " << error.code << ")" << std::endl;
+        start_promise.set_value(false);
+        return;
+      }
+
+      // Get the listener and start listening
+      auto* listener = listener_manager_->getListener("tcp_echo_server");
+      if (!listener) {
+        std::cerr << "Failed to get listener" << std::endl;
+        start_promise.set_value(false);
+        return;
+      }
+
+      auto listen_result = listener->listen();
+      if (holds_alternative<Error>(listen_result)) {
+        const auto& error = get<Error>(listen_result);
+        std::cerr << "Failed to listen: " << error.message 
+                  << " (code: " << error.code << ")" << std::endl;
+        start_promise.set_value(false);
+        return;
+      }
+
+      std::cout << "Server listening on port " << port_ << std::endl;
+      running_ = true;
+      start_promise.set_value(true);
+    });
+    
+    // Run dispatcher until the task completes
+    while (start_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+      dispatcher_.run(event::RunType::NonBlock);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-
-    // Get the listener and start listening
-    auto* listener = listener_manager_->getListener("tcp_echo_server");
-    if (!listener) {
-      std::cerr << "Failed to get listener" << std::endl;
-      return false;
-    }
-
-    auto listen_result = listener->listen();
-    if (holds_alternative<Error>(listen_result)) {
-      std::cerr << "Failed to listen" << std::endl;
-      return false;
-    }
-
-    std::cout << "Server listening on port " << port_ << std::endl;
-    running_ = true;
-    return true;
+    
+    // Get the result
+    return start_future.get();
   }
 
   void stop() override {
