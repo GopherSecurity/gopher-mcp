@@ -1,4 +1,4 @@
-#include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/transport/http_transport_socket.h"
 #include "mcp/buffer.h"
 #include <sstream>
 #include <algorithm>
@@ -20,23 +20,23 @@ constexpr const char* kSseRetry = "retry: ";
 
 } // namespace
 
-// HttpSseTransportSocket implementation
+// HttpTransportSocket implementation
 
-HttpSseTransportSocket::HttpSseTransportSocket(const HttpSseTransportSocketConfig& config)
+HttpTransportSocket::HttpTransportSocket(const HttpTransportSocketConfig& config)
     : config_(config) {}
 
-HttpSseTransportSocket::~HttpSseTransportSocket() {
+HttpTransportSocket::~HttpTransportSocket() {
   if (state_ != HttpState::Closed) {
     closeSocket(network::ConnectionEvent::LocalClose);
   }
 }
 
-void HttpSseTransportSocket::setTransportSocketCallbacks(
+void HttpTransportSocket::setTransportSocketCallbacks(
     network::TransportSocketCallbacks& callbacks) {
   callbacks_ = &callbacks;
 }
 
-VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
+VoidResult HttpTransportSocket::connect(network::Socket& socket) {
   if (state_ != HttpState::Disconnected) {
     Error err;
     err.code = -1;
@@ -74,7 +74,7 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
   return makeVoidSuccess();
 }
 
-void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
+void HttpTransportSocket::closeSocket(network::ConnectionEvent event) {
   if (state_ == HttpState::Closed) {
     return;
   }
@@ -101,7 +101,7 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
   }
 }
 
-TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
+TransportIoResult HttpTransportSocket::doRead(Buffer& buffer) {
   if (state_ != HttpState::Connected) {
     Error err;
     err.code = ENOTCONN;
@@ -140,7 +140,7 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
   return TransportIoResult::success(0);
 }
 
-TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
+TransportIoResult HttpTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   if (state_ != HttpState::Connected) {
     Error err;
     err.code = ENOTCONN;
@@ -170,14 +170,14 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
   return TransportIoResult::success(request_body.length());
 }
 
-void HttpSseTransportSocket::onConnected() {
+void HttpTransportSocket::onConnected() {
   // Called when underlying transport is connected
   if (callbacks_) {
     callbacks_->setTransportSocketIsReadable();
   }
 }
 
-void HttpSseTransportSocket::sendHttpRequest(const std::string& body) {
+void HttpTransportSocket::sendHttpRequest(const std::string& body) {
   std::string request = buildHttpRequest(body);
   
   // Send through underlying transport
@@ -188,7 +188,7 @@ void HttpSseTransportSocket::sendHttpRequest(const std::string& body) {
   }
 }
 
-void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
+void HttpTransportSocket::processHttpResponse(Buffer& buffer) {
   // Add to SSE buffer
   std::string data = buffer.toString();
   sse_buffer_ += data;
@@ -208,7 +208,7 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
   }
 }
 
-void HttpSseTransportSocket::parseSseEvent(const std::string& line) {
+void HttpTransportSocket::parseSseEvent(const std::string& line) {
   if (line.empty()) {
     // Empty line marks end of event
     if (!pending_events_.empty() && !pending_events_.back().data.empty()) {
@@ -245,7 +245,7 @@ void HttpSseTransportSocket::parseSseEvent(const std::string& line) {
   }
 }
 
-void HttpSseTransportSocket::processSseEvents(Buffer& output) {
+void HttpTransportSocket::processSseEvents(Buffer& output) {
   while (!pending_events_.empty()) {
     const auto& event = pending_events_.front();
     
@@ -259,7 +259,7 @@ void HttpSseTransportSocket::processSseEvents(Buffer& output) {
   }
 }
 
-std::string HttpSseTransportSocket::buildHttpRequest(const std::string& body) {
+std::string HttpTransportSocket::buildHttpRequest(const std::string& body) {
   std::stringstream request;
   
   request << "POST " << config_.endpoint_url << " HTTP/1.1\r\n";
@@ -278,7 +278,7 @@ std::string HttpSseTransportSocket::buildHttpRequest(const std::string& body) {
   return request.str();
 }
 
-bool HttpSseTransportSocket::parseHttpResponse(const std::string& data, std::string& body) {
+bool HttpTransportSocket::parseHttpResponse(const std::string& data, std::string& body) {
   // Simple HTTP response parser
   size_t header_end = data.find(kDoubleCRLF);
   if (header_end == std::string::npos) {
@@ -316,21 +316,21 @@ bool HttpSseTransportSocket::parseHttpResponse(const std::string& data, std::str
   return true;
 }
 
-// HttpSseTransportSocketFactory implementation
+// HttpTransportSocketFactory implementation
 
-HttpSseTransportSocketFactory::HttpSseTransportSocketFactory(
-    const HttpSseTransportSocketConfig& config)
+HttpTransportSocketFactory::HttpTransportSocketFactory(
+    const HttpTransportSocketConfig& config)
     : config_(config) {}
 
-bool HttpSseTransportSocketFactory::implementsSecureTransport() const {
+bool HttpTransportSocketFactory::implementsSecureTransport() const {
   // Check if URL starts with https://
   return config_.endpoint_url.find("https://") == 0;
 }
 
-network::TransportSocketPtr HttpSseTransportSocketFactory::createTransportSocket(
+network::TransportSocketPtr HttpTransportSocketFactory::createTransportSocket(
     network::TransportSocketOptionsSharedPtr options) const {
   // Create HTTP/SSE transport socket
-  auto socket = std::make_unique<HttpSseTransportSocket>(config_);
+  auto socket = std::make_unique<HttpTransportSocket>(config_);
   
   // Apply any options
   // For HTTP/SSE, options might include additional headers, etc.
@@ -339,7 +339,7 @@ network::TransportSocketPtr HttpSseTransportSocketFactory::createTransportSocket
   return socket;
 }
 
-std::string HttpSseTransportSocketFactory::defaultServerNameIndication() const {
+std::string HttpTransportSocketFactory::defaultServerNameIndication() const {
   // Extract hostname from URL
   // This is a simplified implementation
   size_t start = config_.endpoint_url.find("://");
@@ -361,7 +361,7 @@ std::string HttpSseTransportSocketFactory::defaultServerNameIndication() const {
   return "";
 }
 
-void HttpSseTransportSocketFactory::hashKey(
+void HttpTransportSocketFactory::hashKey(
     std::vector<uint8_t>& key,
     network::TransportSocketOptionsSharedPtr options) const {
   // Add factory identifier
