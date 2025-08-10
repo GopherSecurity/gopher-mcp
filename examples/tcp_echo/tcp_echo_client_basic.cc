@@ -1,7 +1,7 @@
 /**
- * TCP Echo Client using Network Abstractions
+ * TCP Echo Client Basic Implementation
  * 
- * This implementation uses the MCP network abstraction layer instead of raw sockets.
+ * This basic implementation uses the MCP network abstraction layer.
  * It demonstrates proper use of:
  * - Address abstraction for network endpoints
  * - SocketInterface for socket operations
@@ -31,9 +31,9 @@
 namespace mcp {
 namespace examples {
 
-class NetworkTransportCallbacks : public network::ConnectionCallbacks {
+class BasicTransportCallbacks : public network::ConnectionCallbacks {
 public:
-  NetworkTransportCallbacks(echo::EchoClientBase& client) : client_(client) {}
+  BasicTransportCallbacks(echo::EchoClientBase& client) : client_(client) {}
 
   // ConnectionCallbacks implementation
   void onEvent(network::ConnectionEvent event) override {
@@ -109,7 +109,7 @@ private:
 // Simple periodic reader without Timer interface
 class DataReader {
 public:
-  DataReader(NetworkTransportCallbacks& callbacks) : callbacks_(callbacks) {}
+  DataReader(BasicTransportCallbacks& callbacks) : callbacks_(callbacks) {}
   
   void start() { enabled_ = true; }
   void stop() { enabled_ = false; }
@@ -122,18 +122,18 @@ public:
   }
   
 private:
-  NetworkTransportCallbacks& callbacks_;
+  BasicTransportCallbacks& callbacks_;
   bool enabled_{false};
 };
 
-class NetworkBasedTransport : public echo::EchoTransportBase {
+class BasicClientTransport : public echo::EchoTransportBase {
 public:
-  NetworkBasedTransport(event::Dispatcher& dispatcher,
+  BasicClientTransport(event::Dispatcher& dispatcher,
                        network::SocketInterface& socket_interface)
       : dispatcher_(dispatcher),
         socket_interface_(socket_interface) {}
 
-  ~NetworkBasedTransport() override {
+  ~BasicClientTransport() override {
     if (connection_) {
       connection_->close(network::ConnectionCloseType::NoFlush);
     }
@@ -259,7 +259,7 @@ public:
 
     // Set up callbacks
     if (client_) {
-      callbacks_ = std::make_unique<NetworkTransportCallbacks>(*client_);
+      callbacks_ = std::make_unique<BasicTransportCallbacks>(*client_);
       callbacks_->setConnection(connection_.get());
       connection_->addConnectionCallbacks(*callbacks_);
       
@@ -304,7 +304,7 @@ private:
   event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
   std::unique_ptr<network::ClientConnection> connection_;
-  std::unique_ptr<NetworkTransportCallbacks> callbacks_;
+  std::unique_ptr<BasicTransportCallbacks> callbacks_;
   std::unique_ptr<DataReader> data_reader_;
   echo::EchoClientBase* client_{nullptr};
   bool running_{false};
@@ -369,7 +369,7 @@ int main(int argc, char* argv[]) {
     auto& socket_interface = mcp::network::socketInterface();
     
     // Create network-based transport
-    auto transport = std::make_unique<mcp::examples::NetworkBasedTransport>(
+    auto transport = std::make_unique<mcp::examples::BasicClientTransport>(
         *dispatcher, socket_interface);
     
     // Keep a raw pointer for our use
