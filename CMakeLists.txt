@@ -110,6 +110,23 @@ if(NOT LIBEVENT_FOUND)
     message(FATAL_ERROR "libevent not found. Please install libevent development package.")
 endif()
 
+# Find llhttp
+find_path(LLHTTP_INCLUDE_DIR llhttp.h
+    PATHS /usr/local/include /usr/include /opt/homebrew/include
+)
+find_library(LLHTTP_LIBRARY
+    NAMES llhttp
+    PATHS /usr/local/lib /usr/lib /opt/homebrew/lib
+)
+
+if(LLHTTP_INCLUDE_DIR AND LLHTTP_LIBRARY)
+    set(LLHTTP_FOUND TRUE)
+    message(STATUS "Found llhttp: ${LLHTTP_LIBRARY}")
+else()
+    message(WARNING "llhttp not found. HTTP/SSE transport with llhttp will not be available.")
+    set(LLHTTP_FOUND FALSE)
+endif()
+
 # nlohmann/json
 include(FetchContent)
 FetchContent_Declare(
@@ -148,9 +165,22 @@ set(MCP_SDK_SOURCES
     src/stream_info/stream_info_impl.cc
     src/transport/stdio_transport_socket.cc
     src/transport/stdio_pipe_transport.cc
-    src/transport/http_sse_transport_socket.cc
+    src/transport/http_transport_socket.cc  # Renamed legacy implementation
     src/mcp_connection_manager.cc
 )
+
+# HTTP parser sources (conditional on llhttp)
+set(MCP_HTTP_SOURCES
+    src/http/http_parser.cc
+    src/http/sse_parser.cc
+)
+
+if(LLHTTP_FOUND)
+    list(APPEND MCP_HTTP_SOURCES
+        src/http/llhttp_parser.cc
+        src/transport/http_sse_transport_socket.cc  # New llhttp-based implementation
+    )
+endif()
 
 # Echo library source files (transport-agnostic advanced)
 set(MCP_ECHO_ADVANCED_SOURCES
@@ -166,9 +196,18 @@ set(MCP_EVENT_SOURCES
 )
 
 # Create MCP SDK library
-add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES})
+add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
 target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json)
+
+# Add llhttp if found
+if(LLHTTP_FOUND)
+    target_include_directories(mcp-sdk PUBLIC ${LLHTTP_INCLUDE_DIR})
+    target_link_libraries(mcp-sdk PUBLIC ${LLHTTP_LIBRARY})
+    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=1)
+else()
+    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=0)
+endif()
 
 # Create MCP Echo Advanced library (transport-agnostic advanced echo components)
 add_library(mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
