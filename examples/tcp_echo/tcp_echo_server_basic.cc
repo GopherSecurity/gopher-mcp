@@ -172,8 +172,8 @@ public:
 
   bool start() override {
     // Create bind address (can be done outside dispatcher thread)
-    auto address = network::Address::anyAddress(
-        network::Address::IpVersion::v4, port_);
+    // Try binding to localhost instead of INADDR_ANY
+    auto address = network::Address::parseInternetAddress("127.0.0.1", port_);
     if (!address) {
       std::cerr << "Failed to create bind address" << std::endl;
       return false;
@@ -195,13 +195,7 @@ public:
       config.bind_to_port = true;
       config.backlog = 128;  // Standard backlog size
       config.per_connection_buffer_limit = 1024 * 1024; // 1MB per connection
-      config.enable_reuse_port = false;  // We don't need SO_REUSEPORT
-      
-      // Add socket options for SO_REUSEADDR
-      config.socket_options = std::make_shared<std::vector<network::SocketOptionConstSharedPtr>>();
-      config.socket_options->push_back(
-          std::make_shared<network::BoolSocketOption>(
-              network::SocketOptionName(SOL_SOCKET, SO_REUSEADDR, "SO_REUSEADDR"), true));
+      // SO_REUSEADDR is set by default in createListenSocket
 
       // Add listener (this creates ActiveListener which needs dispatcher thread)
       auto result = listener_manager_->addListener(std::move(config), *this);
@@ -213,19 +207,11 @@ public:
         return;
       }
 
-      // Get the listener and start listening
+      // The listener is already listening (done in addListener)
+      // Just verify we got the listener
       auto* listener = listener_manager_->getListener("tcp_echo_server");
       if (!listener) {
         std::cerr << "Failed to get listener" << std::endl;
-        start_promise.set_value(false);
-        return;
-      }
-
-      auto listen_result = listener->listen();
-      if (holds_alternative<Error>(listen_result)) {
-        const auto& error = get<Error>(listen_result);
-        std::cerr << "Failed to listen: " << error.message 
-                  << " (code: " << error.code << ")" << std::endl;
         start_promise.set_value(false);
         return;
       }
@@ -287,6 +273,9 @@ public:
 
   // ListenerCallbacks implementation
   void onAccept(network::ConnectionSocketPtr&& socket) override {
+    // onAccept is called from dispatcher thread during accept event
+    // Connection creation should also happen in dispatcher thread
+    
     // Create transport socket for the connection
     auto transport_socket = std::make_unique<network::RawBufferTransportSocket>();
     
@@ -421,15 +410,24 @@ int main(int argc, char* argv[]) {
     std::cout << "TCP Echo Server (Network Abstraction) running on port " << port << std::endl;
     std::cout << "Press Ctrl+C to stop..." << std::endl;
 
-    // Run server in main thread with proper event handling
+    // Run the transport's event loop in a separate thread
+    std::thread server_thread([transport_ptr]() {
+      transport_ptr->run();
+    });
+    
+    // Wait for shutdown signal
     while (!g_shutdown && server.isRunning()) {
-      try {
-        dispatcher->run(mcp::event::RunType::NonBlock);
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      } catch (const std::exception& e) {
-        std::cerr << "Event loop error: " << e.what() << std::endl;
-        break;
-      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    // Stop the transport which will exit the run() loop
+    if (server.isRunning()) {
+      server.stop();
+    }
+    
+    // Wait for server thread to finish
+    if (server_thread.joinable()) {
+      server_thread.join();
     }
 
     // Cleanup

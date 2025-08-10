@@ -1,5 +1,6 @@
 #include "mcp/network/listener.h"
 #include "mcp/network/connection_impl.h"
+#include <iostream>
 #include "mcp/network/socket.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
@@ -94,6 +95,7 @@ ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
       parent_callbacks_(parent_callbacks),
       config_(std::move(config)) {
   
+  
   // Add listener tags
   tags_.push_back("listener");
   tags_.push_back(config_.name);
@@ -104,6 +106,7 @@ ActiveListener::~ActiveListener() {
 }
 
 VoidResult ActiveListener::listen() {
+  
   // Create socket
   if (config_.bind_to_port) {
     // Use the global createListenSocket function
@@ -348,6 +351,7 @@ ListenerManagerImpl::~ListenerManagerImpl() {
 
 VoidResult ListenerManagerImpl::addListener(ListenerConfig&& config,
                                               ListenerCallbacks& callbacks) {
+  
   // Check if listener already exists
   if (listeners_.find(config.name) != listeners_.end()) {
     Error err;
