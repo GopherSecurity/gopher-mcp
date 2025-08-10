@@ -150,8 +150,6 @@ set(MCP_SDK_SOURCES
     src/transport/stdio_pipe_transport.cc
     src/transport/http_sse_transport_socket.cc
     src/mcp_connection_manager.cc
-    # TCP transport for basic echo system
-    src/echo/tcp_transport.cc
 )
 
 # Echo library source files (transport-agnostic advanced)
