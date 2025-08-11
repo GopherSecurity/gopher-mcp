@@ -24,8 +24,10 @@ class LLHttpParser : public HttpParser {
    * Create llhttp parser
    * @param type Parser type (request, response, or both)
    * @param callbacks Callbacks to invoke during parsing
+   * @param version_hint Optional HTTP version hint for the parser
    */
-  LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks);
+  LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
+              HttpVersion version_hint = HttpVersion::HTTP_1_1);
   ~LLHttpParser() override;
   
   // HttpParser interface
@@ -95,6 +97,40 @@ class LLHttpParserFactory : public HttpParserFactory {
 inline HttpParserFactoryPtr createLLHttpParserFactory() {
   return std::make_unique<LLHttpParserFactory>();
 }
+
+// Note: Specialized factories for specific HTTP versions
+// These factories solve the version reporting issue where parsers created via
+// HttpParserSelector::createParser(version, ...) need to report their version
+// immediately, before any data is parsed.
+//
+// Flow:
+// 1. HttpParserSelector::createParser(HTTP_1_0, ...) is called
+// 2. Selector finds the LLHttp10ParserFactory registered for HTTP_1_0
+// 3. LLHttp10ParserFactory creates LLHttpParser with HTTP_1_0 hint
+// 4. Parser reports HTTP_1_0 immediately via httpVersion()
+// 5. When actual parsing begins, the version is confirmed from the data
+
+/**
+ * Factory for HTTP/1.0 parsers
+ */
+class LLHttp10ParserFactory : public HttpParserFactory {
+ public:
+  HttpParserPtr createParser(HttpParserType type,
+                             HttpParserCallbacks* callbacks) override;
+  std::vector<HttpVersion> supportedVersions() const override;
+  std::string name() const override { return "llhttp-1.0"; }
+};
+
+/**
+ * Factory for HTTP/1.1 parsers
+ */
+class LLHttp11ParserFactory : public HttpParserFactory {
+ public:
+  HttpParserPtr createParser(HttpParserType type,
+                             HttpParserCallbacks* callbacks) override;
+  std::vector<HttpVersion> supportedVersions() const override;
+  std::string name() const override { return "llhttp-1.1"; }
+};
 
 }  // namespace http
 }  // namespace mcp
