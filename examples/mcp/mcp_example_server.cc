@@ -433,32 +433,35 @@ int main(int argc, char* argv[]) {
   std::cerr << "[INFO] Worker threads: " << config.num_workers << std::endl;
   std::cerr << "[INFO] Press Ctrl+C to shutdown" << std::endl;
   
+  // Give server time to fully initialize
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  
   // Main loop - periodic status and resource updates
   int update_count = 0;
   std::cerr << "[DEBUG] Starting main loop, server running: " << g_server->isRunning() << std::endl;
+  
+  // Keep the main thread alive
   while (!g_shutdown) {
-    std::cerr << "[DEBUG] Server running: " << g_server->isRunning() << std::endl;
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    try {
+      std::this_thread::sleep_for(std::chrono::seconds(10));
     
     update_count++;
     
-    // Simulate resource update every 30 seconds
-    if (update_count % 3 == 0) {
-      std::cerr << "[INFO] Sending resource update notification..." << std::endl;
+      // Simulate resource update every 30 seconds
+      if (update_count % 3 == 0) {
+        std::cerr << "[INFO] Update cycle " << update_count << std::endl;
+        
+        // TODO: Re-enable when server is stable
+        // g_server->notifyResourceUpdate("log://server/events");
+        // auto status_notif = jsonrpc::make_notification("server/status");
+        // g_server->broadcastNotification(status_notif);
+      }
       
-      // Notify subscribers of resource changes
-      g_server->notifyResourceUpdate("log://server/events");
-      
-      // Broadcast server status
-      auto status_notif = jsonrpc::make_notification("server/status");
-      g_server->broadcastNotification(status_notif);
+      // Print brief status
+      std::cerr << "[STATUS] Running for " << (update_count * 10) << " seconds" << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Exception in main loop: " << e.what() << std::endl;
     }
-    
-    // Print brief status
-    const auto& stats = g_server->getServerStats();
-    std::cerr << "[STATUS] Sessions: " << stats.sessions_active 
-              << ", Requests: " << stats.requests_total
-              << ", Connections: " << stats.connections_active << std::endl;
   }
   
   // Graceful shutdown
