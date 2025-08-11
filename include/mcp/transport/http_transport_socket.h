@@ -40,7 +40,8 @@ struct HttpTransportSocketConfig {
 /**
  * HTTP transport socket (legacy implementation)
  *
- * Simple HTTP transport with basic parsing - being replaced by HttpSseTransportSocket
+ * Simple HTTP transport with basic parsing - being replaced by
+ * HttpSseTransportSocket
  */
 class HttpTransportSocket : public network::TransportSocket {
  public:
@@ -106,8 +107,7 @@ class HttpTransportSocket : public network::TransportSocket {
 class HttpTransportSocketFactory
     : public network::ClientTransportSocketFactory {
  public:
-  explicit HttpTransportSocketFactory(
-      const HttpTransportSocketConfig& config);
+  explicit HttpTransportSocketFactory(const HttpTransportSocketConfig& config);
 
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override;
@@ -129,8 +129,7 @@ class HttpTransportSocketFactory
  * Create an HTTP transport socket factory (legacy)
  */
 inline std::unique_ptr<network::ClientTransportSocketFactory>
-createHttpTransportSocketFactory(
-    const HttpTransportSocketConfig& config) {
+createHttpTransportSocketFactory(const HttpTransportSocketConfig& config) {
   return std::make_unique<HttpTransportSocketFactory>(config);
 }
 

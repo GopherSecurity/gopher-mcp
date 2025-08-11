@@ -18,18 +18,18 @@ enum class HttpStatusCode : uint16_t {
   // 1xx Informational
   Continue = 100,
   SwitchingProtocols = 101,
-  
+
   // 2xx Success
   OK = 200,
   Created = 201,
   Accepted = 202,
   NoContent = 204,
-  
+
   // 3xx Redirection
   MovedPermanently = 301,
   Found = 302,
   NotModified = 304,
-  
+
   // 4xx Client Error
   BadRequest = 400,
   Unauthorized = 401,
@@ -37,7 +37,7 @@ enum class HttpStatusCode : uint16_t {
   NotFound = 404,
   MethodNotAllowed = 405,
   RequestTimeout = 408,
-  
+
   // 5xx Server Error
   InternalServerError = 500,
   NotImplemented = 501,
@@ -61,20 +61,10 @@ enum class HttpMethod {
 };
 
 // HTTP version
-enum class HttpVersion {
-  HTTP_1_0,
-  HTTP_1_1,
-  HTTP_2,
-  HTTP_3,
-  UNKNOWN
-};
+enum class HttpVersion { HTTP_1_0, HTTP_1_1, HTTP_2, HTTP_3, UNKNOWN };
 
 // Parser type enum
-enum class HttpParserType {
-  REQUEST,
-  RESPONSE,
-  BOTH
-};
+enum class HttpParserType { REQUEST, RESPONSE, BOTH };
 
 // Parser callback results
 enum class ParserCallbackResult {
@@ -86,12 +76,7 @@ enum class ParserCallbackResult {
 };
 
 // Parser status
-enum class ParserStatus {
-  Ok,
-  Paused,
-  Error,
-  NeedMoreData
-};
+enum class ParserStatus { Ok, Paused, Error, NeedMoreData };
 
 // Forward declarations
 class HttpParser;
@@ -109,34 +94,35 @@ using HttpHeaderMap = std::unordered_map<std::string, std::string>;
 class HttpHeaders {
  public:
   virtual ~HttpHeaders() = default;
-  
+
   // Add a header (appends if exists)
   virtual void add(const std::string& name, const std::string& value) = 0;
-  
+
   // Set a header (replaces if exists)
   virtual void set(const std::string& name, const std::string& value) = 0;
-  
+
   // Remove a header
   virtual void remove(const std::string& name) = 0;
-  
+
   // Get header value (case-insensitive)
   virtual optional<std::string> get(const std::string& name) const = 0;
-  
+
   // Get all values for a header
   virtual std::vector<std::string> getAll(const std::string& name) const = 0;
-  
+
   // Check if header exists
   virtual bool has(const std::string& name) const = 0;
-  
+
   // Clear all headers
   virtual void clear() = 0;
-  
+
   // Get all headers as map
   virtual HttpHeaderMap getMap() const = 0;
-  
+
   // Iterate headers in order
-  virtual void forEach(std::function<void(const std::string&, const std::string&)> cb) const = 0;
-  
+  virtual void forEach(
+      std::function<void(const std::string&, const std::string&)> cb) const = 0;
+
   // Get total byte size
   virtual size_t byteSize() const = 0;
 };
@@ -150,18 +136,18 @@ using HttpHeadersSharedPtr = std::shared_ptr<HttpHeaders>;
 class HttpMessage {
  public:
   virtual ~HttpMessage() = default;
-  
+
   // Request-specific methods
   virtual HttpMethod method() const = 0;
   virtual std::string methodString() const = 0;
   virtual std::string uri() const = 0;
   virtual std::string path() const = 0;
   virtual std::string query() const = 0;
-  
+
   // Response-specific methods
   virtual HttpStatusCode statusCode() const = 0;
   virtual std::string statusText() const = 0;
-  
+
   // Common methods
   virtual HttpVersion version() const = 0;
   virtual HttpHeaders& headers() = 0;
@@ -184,57 +170,59 @@ using HttpMessageSharedPtr = std::shared_ptr<HttpMessage>;
 class HttpParserCallbacks {
  public:
   virtual ~HttpParserCallbacks() = default;
-  
+
   /**
    * Called when message parsing begins
    */
   virtual ParserCallbackResult onMessageBegin() = 0;
-  
+
   /**
    * Called when URL is parsed (request only)
    */
   virtual ParserCallbackResult onUrl(const char* data, size_t length) = 0;
-  
+
   /**
    * Called when status is parsed (response only)
    */
   virtual ParserCallbackResult onStatus(const char* data, size_t length) = 0;
-  
+
   /**
    * Called for each header field
    */
-  virtual ParserCallbackResult onHeaderField(const char* data, size_t length) = 0;
-  
+  virtual ParserCallbackResult onHeaderField(const char* data,
+                                             size_t length) = 0;
+
   /**
    * Called for each header value
    */
-  virtual ParserCallbackResult onHeaderValue(const char* data, size_t length) = 0;
-  
+  virtual ParserCallbackResult onHeaderValue(const char* data,
+                                             size_t length) = 0;
+
   /**
    * Called when headers are complete
    */
   virtual ParserCallbackResult onHeadersComplete() = 0;
-  
+
   /**
    * Called for body data chunks
    */
   virtual ParserCallbackResult onBody(const char* data, size_t length) = 0;
-  
+
   /**
    * Called when message is complete
    */
   virtual ParserCallbackResult onMessageComplete() = 0;
-  
+
   /**
    * Called for chunk header (chunked encoding)
    */
   virtual ParserCallbackResult onChunkHeader(size_t length) = 0;
-  
+
   /**
    * Called when chunk is complete
    */
   virtual ParserCallbackResult onChunkComplete() = 0;
-  
+
   /**
    * Called on parser error
    */
@@ -248,63 +236,63 @@ class HttpParserCallbacks {
 class HttpParser {
  public:
   virtual ~HttpParser() = default;
-  
+
   /**
    * Execute parser on input data
    * Returns number of bytes consumed
    */
   virtual size_t execute(const char* data, size_t length) = 0;
-  
+
   /**
    * Resume a paused parser
    */
   virtual void resume() = 0;
-  
+
   /**
    * Pause the parser
    */
   virtual ParserCallbackResult pause() = 0;
-  
+
   /**
    * Get parser status
    */
   virtual ParserStatus getStatus() const = 0;
-  
+
   /**
    * Check if should keep connection alive
    */
   virtual bool shouldKeepAlive() const = 0;
-  
+
   /**
    * Check if this is an upgrade request
    */
   virtual bool isUpgrade() const = 0;
-  
+
   /**
    * Get HTTP version
    */
   virtual HttpVersion httpVersion() const = 0;
-  
+
   /**
    * Get HTTP method (request only)
    */
   virtual HttpMethod httpMethod() const = 0;
-  
+
   /**
    * Get status code (response only)
    */
   virtual HttpStatusCode statusCode() const = 0;
-  
+
   /**
    * Get error string if in error state
    */
   virtual std::string getError() const = 0;
-  
+
   /**
    * Reset parser for reuse
    */
   virtual void reset() = 0;
-  
+
   /**
    * Finish parsing (for HTTP/2 and similar)
    */
@@ -317,18 +305,18 @@ class HttpParser {
 class HttpParserFactory {
  public:
   virtual ~HttpParserFactory() = default;
-  
+
   /**
    * Create a parser instance
    */
   virtual HttpParserPtr createParser(HttpParserType type,
                                      HttpParserCallbacks* callbacks) = 0;
-  
+
   /**
    * Get supported HTTP versions
    */
   virtual std::vector<HttpVersion> supportedVersions() const = 0;
-  
+
   /**
    * Get parser implementation name
    */
@@ -344,36 +332,38 @@ using HttpParserFactorySharedPtr = std::shared_ptr<HttpParserFactory>;
 class HttpParserSelector {
  public:
   virtual ~HttpParserSelector() = default;
-  
+
   /**
    * Register a parser factory for specific versions
    */
   virtual void registerFactory(const std::vector<HttpVersion>& versions,
                                HttpParserFactorySharedPtr factory) = 0;
-  
+
   /**
    * Create parser for a specific version
    */
   virtual HttpParserPtr createParser(HttpVersion version,
                                      HttpParserType type,
                                      HttpParserCallbacks* callbacks) = 0;
-  
+
   /**
    * Auto-detect version and create parser
    */
-  virtual HttpParserPtr detectAndCreateParser(const char* data,
-                                              size_t length,
-                                              HttpParserType type,
-                                              HttpParserCallbacks* callbacks) = 0;
-  
+  virtual HttpParserPtr detectAndCreateParser(
+      const char* data,
+      size_t length,
+      HttpParserType type,
+      HttpParserCallbacks* callbacks) = 0;
+
   /**
    * Create parser based on ALPN protocol
    * @param alpn_protocol The negotiated ALPN protocol (e.g., "h2", "http/1.1")
    */
-  virtual HttpParserPtr createParserFromAlpn(const std::string& alpn_protocol,
-                                             HttpParserType type,
-                                             HttpParserCallbacks* callbacks) = 0;
-  
+  virtual HttpParserPtr createParserFromAlpn(
+      const std::string& alpn_protocol,
+      HttpParserType type,
+      HttpParserCallbacks* callbacks) = 0;
+
   /**
    * Get supported ALPN protocols
    */
