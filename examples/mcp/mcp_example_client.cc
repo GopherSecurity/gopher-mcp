@@ -322,6 +322,22 @@ int main(int argc, char* argv[]) {
     return 1;
   }
   
+  // Connection initiated - for HTTP+SSE, wait for actual connection
+  // The connect() call returns immediately for async transports
+  std::cerr << "[INFO] Connection initiated, waiting for connection..." << std::endl;
+  
+  // Wait for connection to be established (with timeout)
+  int wait_count = 0;
+  while (!g_client->isConnected() && wait_count < 50) {  // 5 seconds timeout
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    wait_count++;
+  }
+  
+  if (!g_client->isConnected()) {
+    std::cerr << "[ERROR] Connection timeout - failed to establish connection" << std::endl;
+    return 1;
+  }
+  
   std::cerr << "[INFO] Connected successfully" << std::endl;
   
   // Run demonstrations

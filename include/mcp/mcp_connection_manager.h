@@ -198,6 +198,10 @@ class McpConnectionManager : public McpMessageCallbacks,
   // Connection management
   std::unique_ptr<network::ConnectionManager> connection_manager_;
   network::ConnectionPtr active_connection_;
+  
+  // Server listener management
+  // Must keep listener manager alive for the lifetime of the server
+  std::unique_ptr<network::ListenerManager> listener_manager_;
 
   // Message callbacks
   McpMessageCallbacks* message_callbacks_{nullptr};

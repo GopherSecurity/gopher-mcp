@@ -117,11 +117,17 @@ VoidResult McpClient::connect(const std::string& uri) {
       
       // Check connection result
       if (holds_alternative<std::nullptr_t>(result)) {
-        // Connection successful or in progress
-        // For async transports, connection event will be received later
-        connected_ = true;
+        // Connection initiated successfully
+        // For HTTP+SSE, this means TCP connection is in progress
+        // We'll receive Connected event when actually connected
+        // Don't set connected_ = true here - wait for the event
         client_stats_.connections_total++;
-        client_stats_.connections_active++;
+        
+        // Only mark as connected for stdio (synchronous connection)
+        if (transport == TransportType::Stdio) {
+          connected_ = true;
+          client_stats_.connections_active++;
+        }
         
         // Schedule periodic tasks in dispatcher
         schedulePeriodicTasks();

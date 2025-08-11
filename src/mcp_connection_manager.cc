@@ -470,7 +470,9 @@ VoidResult McpConnectionManager::connect() {
     // Cast to ClientConnection to access connect() method
     auto client_conn = dynamic_cast<network::ClientConnection*>(active_connection_.get());
     if (client_conn) {
+      std::cerr << "[DEBUG] Initiating TCP connection to " << host << ":" << port << std::endl;
       client_conn->connect();
+      std::cerr << "[DEBUG] TCP connect() called, waiting for async connection..." << std::endl;
     } else {
       Error err;
       err.code = -1;
@@ -535,15 +537,21 @@ VoidResult McpConnectionManager::listen(
   
   listener_config.filter_chain_factory = createFilterChainFactory();
   
-  // Create listener manager
-  auto listener_manager = std::make_unique<network::ListenerManagerImpl>(
+  // Create listener manager and store it as member
+  // IMPORTANT: Must keep listener manager alive for server to accept connections
+  // The listener manager owns the actual listening socket
+  listener_manager_ = std::make_unique<network::ListenerManagerImpl>(
       dispatcher_, socket_interface_);
   
   // Add listener with this as callbacks
-  auto result = listener_manager->addListener(std::move(listener_config), *this);
+  // The listener will call onNewConnection when clients connect
+  auto result = listener_manager_->addListener(std::move(listener_config), *this);
   if (mcp::holds_alternative<Error>(result)) {
     return result;
   }
+  
+  // Mark as "connected" (actually listening) for server mode
+  connected_ = true;
   
   return makeVoidSuccess();
 }
@@ -591,10 +599,18 @@ VoidResult McpConnectionManager::sendResponse(const jsonrpc::Response& response)
 }
 
 void McpConnectionManager::close() {
+  // Close active connection if any
   if (active_connection_) {
     active_connection_->close(network::ConnectionCloseType::FlushWrite);
     active_connection_.reset();
   }
+  
+  // Stop listening if we're a server
+  if (listener_manager_) {
+    // Listener manager destructor will close the listening socket
+    listener_manager_.reset();
+  }
+  
   connected_ = false;
 }
 
@@ -624,8 +640,11 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
+  std::cerr << "[DEBUG] McpConnectionManager::onConnectionEvent: " << static_cast<int>(event) << std::endl;
+  
   if (event == network::ConnectionEvent::Connected) {
     // Connection established successfully
+    std::cerr << "[DEBUG] TCP connection established!" << std::endl;
     connected_ = true;
     
     // For HTTP/SSE transport, notify the transport socket about connection
@@ -636,6 +655,8 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   } else if (event == network::ConnectionEvent::RemoteClose || 
              event == network::ConnectionEvent::LocalClose) {
     // Connection closed - clean up state
+    std::cerr << "[DEBUG] Connection closed: " 
+              << (event == network::ConnectionEvent::RemoteClose ? "remote" : "local") << std::endl;
     connected_ = false;
     active_connection_.reset();
   }
