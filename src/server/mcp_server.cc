@@ -49,93 +49,143 @@ VoidResult McpServer::listen(const std::string& address) {
   if (!running_) {
     // Start application base - this creates workers and dispatchers
     std::thread([this]() {
-      start();  // This will block until stop() is called
+      std::cerr << "[DEBUG] ApplicationBase thread starting..." << std::endl;
+      try {
+        start();  // This will block until stop() is called
+        std::cerr << "[DEBUG] ApplicationBase thread exiting normally" << std::endl;
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] ApplicationBase thread exception: " << e.what() << std::endl;
+      }
     }).detach();
     
     // Wait for main dispatcher to be ready
+    int wait_count = 0;
     while (!main_dispatcher_) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      if (++wait_count > 500) {  // 5 seconds timeout
+        std::cerr << "[ERROR] Timeout waiting for dispatcher" << std::endl;
+        return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "Dispatcher initialization timeout"));
+      }
     }
+    std::cerr << "[DEBUG] Main dispatcher ready" << std::endl;
   }
   
   // Parse address to determine transport type
-  std::promise<VoidResult> listen_promise;
-  auto listen_future = listen_promise.get_future();
+  auto listen_promise = std::make_shared<std::promise<VoidResult>>();
+  auto listen_future = listen_promise->get_future();
   
   // Perform listen operation in dispatcher context
-  main_dispatcher_->post([this, address, &listen_promise]() {
+  // All network operations must happen in dispatcher thread to ensure thread safety
+  main_dispatcher_->post([this, address, listen_promise]() {
     try {
-      // Create connection managers for each supported transport
-      for (const auto& transport : config_.supported_transports) {
-        McpConnectionConfig conn_config;
-        conn_config.transport_type = transport;
-        conn_config.buffer_limit = config_.buffer_high_watermark;
-        conn_config.connection_timeout = config_.request_processing_timeout;
+      // Transport selection flow:
+      // 1. Parse the address URL to determine transport type
+      // 2. Create a single connection manager for that transport
+      // 3. Configure transport-specific settings
+      // 4. Start listening on the appropriate endpoint
+      
+      // Determine transport type from address format:
+      // - "stdio://" or no prefix -> stdio transport (uses stdin/stdout)
+      // - "http://host:port" -> HTTP+SSE transport (TCP server)
+      // - "https://host:port" -> HTTP+SSE with TLS (future)
+      TransportType transport_type;
+      if (address.find("stdio://") == 0 || address == "stdio") {
+        transport_type = TransportType::Stdio;
+      } else if (address.find("http://") == 0 || address.find("https://") == 0) {
+        transport_type = TransportType::HttpSse;
+      } else {
+        // Default to stdio if no recognized prefix
+        transport_type = TransportType::Stdio;
+      }
+      
+      // Create connection manager for the determined transport type
+      // Only create one manager per server instance to avoid conflicts
+      McpConnectionConfig conn_config;
+      conn_config.transport_type = transport_type;
+      conn_config.buffer_limit = config_.buffer_high_watermark;
+      conn_config.connection_timeout = config_.request_processing_timeout;
+      
+      // Configure transport-specific settings
+      if (transport_type == TransportType::Stdio) {
+        // Stdio transport configuration
+        // Uses standard input/output for bidirectional communication
+        conn_config.stdio_config = transport::StdioTransportSocketConfig();
+      } else if (transport_type == TransportType::HttpSse) {
+        // HTTP+SSE transport configuration
+        // Creates HTTP server for requests and SSE stream for server->client messages
+        transport::HttpSseTransportSocketConfig http_config;
         
-        // Configure transport-specific settings
-        if (transport == TransportType::Stdio) {
-          conn_config.stdio_config = transport::StdioTransportSocketConfig();
-        } else if (transport == TransportType::HttpSse) {
-          // Configure HTTP+SSE transport
-          transport::HttpSseTransportSocketConfig http_config;
+        // Store full endpoint URL - will be parsed by transport layer
+        // Format: http://host:port/path
+        http_config.endpoint_url = address;
+        conn_config.http_sse_config = http_config;
+      }
+      
+      // Create connection manager for the selected transport
+      // The manager handles all connections for this transport type
+      auto conn_manager = std::make_unique<McpConnectionManager>(
+          *main_dispatcher_,
+          *socket_interface_,
+          conn_config);
+      
+      // Set ourselves as message callback handler
+      // This allows the server to receive all incoming messages
+      conn_manager->setMessageCallbacks(*this);
+      
+      // Start listening based on transport type
+      // Each transport has different connection semantics
+      VoidResult result;
+      if (transport_type == TransportType::Stdio) {
+        // Stdio transport: immediate bidirectional connection
+        // Acts as a "server" by reading from stdin and writing to stdout
+        // No network listening required
+        result = conn_manager->connect();
+      } else if (transport_type == TransportType::HttpSse) {
+        // HTTP+SSE transport: TCP server with HTTP protocol
+        // Parse URL to extract listening port
+        uint32_t port = 8080;  // Default HTTP port
+        
+        // URL parsing flow:
+        // Format: http://[host]:port[/path]
+        // We only need the port for listening, host is ignored (listens on all interfaces)
+        if (address.find("http://") == 0 || address.find("https://") == 0) {
+          std::string url = address;
+          size_t protocol_end = url.find("://") + 3;
+          size_t port_start = url.find(':', protocol_end);
           
-          // Store endpoint URL in config
-          // The HTTP+SSE transport will handle the actual URL parsing
-          
-          http_config.endpoint_url = address;
-          conn_config.http_sse_config = http_config;
-        }
-        
-        // Create connection manager for this transport
-        auto conn_manager = std::make_unique<McpConnectionManager>(
-            *main_dispatcher_,
-            *socket_interface_,
-            conn_config);
-        
-        // Set ourselves as message callback handler
-        conn_manager->setMessageCallbacks(*this);
-        
-        // Start listening based on transport type
-        VoidResult result;
-        if (transport == TransportType::Stdio) {
-          // Stdio doesn't need address, immediate connection
-          result = conn_manager->connect();  // Acts as server for stdio
-        } else if (transport == TransportType::HttpSse) {
-          // Parse address to extract port for HTTP server
-          uint32_t port = 8080;  // Default port
-          
-          // Simple URL parsing
-          if (address.find("http://") == 0 || address.find("https://") == 0) {
-            std::string url = address;
-            size_t protocol_end = url.find("://") + 3;
-            size_t port_start = url.find(':', protocol_end);
-            
-            if (port_start != std::string::npos) {
-              // Extract port number from URL
-              size_t port_end = url.find('/', port_start + 1);
-              std::string port_str = (port_end != std::string::npos) 
-                  ? url.substr(port_start + 1, port_end - port_start - 1)
-                  : url.substr(port_start + 1);
-              port = std::stoi(port_str);
-            }
+          if (port_start != std::string::npos) {
+            // Extract port number from URL
+            size_t port_end = url.find('/', port_start + 1);
+            std::string port_str = (port_end != std::string::npos) 
+                ? url.substr(port_start + 1, port_end - port_start - 1)
+                : url.substr(port_start + 1);
+            port = std::stoi(port_str);
           }
-          
-          // Create TCP address for listening on any interface
-          auto tcp_address = network::Address::anyAddress(network::Address::IpVersion::v4, port);
-          result = conn_manager->listen(tcp_address);
-        } else {
-          // Other network transports (future)
-          auto net_address = network::Address::pipeAddress(address);
-          result = conn_manager->listen(net_address);
         }
         
-        if (holds_alternative<std::nullptr_t>(result)) {
-          connection_managers_.push_back(std::move(conn_manager));
-          std::cerr << "[DEBUG] Successfully added connection manager for transport" << std::endl;
-        } else {
-          auto error = get<Error>(result);
-          std::cerr << "[ERROR] Failed to setup transport: " << error.message << std::endl;
-        }
+        // Create TCP address for listening
+        // Binds to all interfaces (0.0.0.0) on the specified port
+        auto tcp_address = network::Address::anyAddress(network::Address::IpVersion::v4, port);
+        result = conn_manager->listen(tcp_address);
+      } else {
+        // Future: support for other transports (Unix domain sockets, named pipes, etc.)
+        auto net_address = network::Address::pipeAddress(address);
+        result = conn_manager->listen(net_address);
+      }
+      
+      // Check if listening was successful
+      if (holds_alternative<std::nullptr_t>(result)) {
+        // Success - store the connection manager
+        connection_managers_.push_back(std::move(conn_manager));
+        std::cerr << "[DEBUG] Successfully started " 
+                  << (transport_type == TransportType::Stdio ? "stdio" : "HTTP+SSE")
+                  << " transport" << std::endl;
+      } else {
+        // Failed to start transport
+        auto error = get<Error>(result);
+        std::cerr << "[ERROR] Failed to setup transport: " << error.message << std::endl;
+        listen_promise->set_value(makeVoidError(error));
+        return;
       }
       
       if (!connection_managers_.empty()) {
@@ -144,13 +194,13 @@ VoidResult McpServer::listen(const std::string& address) {
         // Start background tasks for session cleanup and resource updates
         startBackgroundTasks();
         
-        listen_promise.set_value(nullptr);  // Success
+        listen_promise->set_value(nullptr);  // Success
       } else {
-        listen_promise.set_value(makeVoidError(
+        listen_promise->set_value(makeVoidError(
             Error(jsonrpc::INTERNAL_ERROR, "Failed to start any transport listeners")));
       }
     } catch (const std::exception& e) {
-      listen_promise.set_value(makeVoidError(
+      listen_promise->set_value(makeVoidError(
           Error(jsonrpc::INTERNAL_ERROR, e.what())));
     }
   });
@@ -214,19 +264,19 @@ VoidResult McpServer::sendNotification(const std::string& session_id,
   
   // Send notification through session's connection
   // This needs to be done in dispatcher context
-  std::promise<VoidResult> send_promise;
-  auto send_future = send_promise.get_future();
+  auto send_promise = std::make_shared<std::promise<VoidResult>>();
+  auto send_future = send_promise->get_future();
   
-  main_dispatcher_->post([this, session, notification, &send_promise]() {
+  main_dispatcher_->post([this, session, notification, send_promise]() {
     // Find the connection manager for this session's connection
     for (auto& conn_manager : connection_managers_) {
       if (conn_manager->isConnected()) {
         auto result = conn_manager->sendNotification(notification);
-        send_promise.set_value(result);
+        send_promise->set_value(result);
         return;
       }
     }
-    send_promise.set_value(makeVoidError(
+    send_promise->set_value(makeVoidError(
         Error(jsonrpc::INTERNAL_ERROR, "No active connection for session")));
   });
   
