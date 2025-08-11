@@ -9,6 +9,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/transport/http_sse_transport_socket.h"
+
 namespace mcp {
 namespace client {
 
@@ -746,8 +748,19 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
   if (transport == TransportType::Stdio) {
     config.stdio_config = transport::StdioTransportSocketConfig();
   } else if (transport == TransportType::HttpSse) {
-    config.http_sse_config = transport::HttpTransportSocketConfig();
-    // HTTP-specific settings would go here
+    // Configure HTTP+SSE transport
+    transport::HttpSseTransportSocketConfig http_config;
+    http_config.endpoint_url = current_uri_;
+    http_config.request_endpoint_path = "/rpc";
+    http_config.sse_endpoint_path = "/events";
+    http_config.connect_timeout = std::chrono::milliseconds(30000);
+    http_config.request_timeout = config_.request_timeout;
+    
+    // Add default headers
+    http_config.headers["Content-Type"] = "application/json";
+    http_config.headers["Accept"] = "text/event-stream";
+    
+    config.http_sse_config = http_config;
   }
   
   return config;
