@@ -130,6 +130,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void initializeParsers();
   void sendHttpRequest(const std::string& body, const std::string& path);
   void sendSseConnectRequest();
+  void sendHttpUpgradeRequest();  // Send initial HTTP upgrade request for SSE
   void processIncomingData(Buffer& buffer);
   void processSseData(Buffer& buffer);
   void processHttpResponse(Buffer& buffer);
