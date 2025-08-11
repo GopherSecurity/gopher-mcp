@@ -1,6 +1,7 @@
 #include "mcp/transport/http_sse_transport_socket.h"
 
 #include <sstream>
+#include <iostream>
 
 #include "mcp/buffer.h"
 #include "mcp/core/result.h"  // For TransportIoResult and makeVoidSuccess
@@ -168,7 +169,22 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
 }
 
 void HttpSseTransportSocket::onConnected() {
-  if (state_ == State::HandshakeResponse || state_ == State::SseConnected) {
+  // Handle connection based on current state and socket type
+  // Client sockets initiate the connection, server sockets accept connections
+  // We can detect client mode by checking if we're in disconnected state
+  // (clients start disconnected and connect, servers are already connected when created)
+  if (state_ == State::Disconnected) {
+    // Client mode: TCP connected, now send HTTP upgrade request for SSE
+    // This initiates the HTTP handshake to establish SSE stream
+    std::cerr << "[DEBUG] HTTP+SSE Client: TCP connected, sending HTTP upgrade request" << std::endl;
+    updateState(State::HandshakeRequest);
+    
+    // Send HTTP GET request with SSE headers
+    // The server should respond with text/event-stream content type
+    sendHttpUpgradeRequest();
+    
+  } else if (state_ == State::HandshakeResponse || state_ == State::SseConnected) {
+    // Server mode or handshake complete
     updateState(State::Connected);
     
     // Start keep-alive timer
@@ -397,6 +413,61 @@ void HttpSseTransportSocket::sendHttpRequest(const std::string& body,
 
 void HttpSseTransportSocket::sendSseConnectRequest() {
   sendHttpRequest("", config_.sse_endpoint_path);
+}
+
+void HttpSseTransportSocket::sendHttpUpgradeRequest() {
+  // Send initial HTTP request to establish SSE connection
+  // This is called when client first connects via TCP
+  
+  // Parse endpoint URL to extract path
+  std::string path = config_.request_endpoint_path;
+  if (path.empty()) {
+    path = "/mcp/v1/sse";  // Default MCP SSE endpoint
+  }
+  
+  // Extract host from endpoint URL
+  std::string host;
+  if (!config_.endpoint_url.empty()) {
+    // Parse from URL if not set
+    size_t protocol_end = config_.endpoint_url.find("://");
+    if (protocol_end != std::string::npos) {
+      protocol_end += 3;
+      size_t path_start = config_.endpoint_url.find('/', protocol_end);
+      size_t port_start = config_.endpoint_url.find(':', protocol_end);
+      
+      if (port_start != std::string::npos && 
+          (path_start == std::string::npos || port_start < path_start)) {
+        host = config_.endpoint_url.substr(protocol_end, port_start - protocol_end);
+      } else if (path_start != std::string::npos) {
+        host = config_.endpoint_url.substr(protocol_end, path_start - protocol_end);
+      } else {
+        host = config_.endpoint_url.substr(protocol_end);
+      }
+    }
+  }
+  
+  if (host.empty()) {
+    host = "localhost";
+  }
+  
+  // Build HTTP request with SSE accept header
+  std::ostringstream request;
+  request << "GET " << path << " HTTP/1.1\r\n";
+  request << "Host: " << host << "\r\n";
+  request << "Accept: text/event-stream\r\n";
+  request << "Cache-Control: no-cache\r\n";
+  request << "Connection: keep-alive\r\n";
+  
+  // Add any custom headers if needed in the future
+  // TODO: Add support for custom headers in config
+  
+  request << "\r\n";
+  
+  std::string request_str = request.str();
+  std::cerr << "[DEBUG] Sending HTTP upgrade request:\n" << request_str << std::endl;
+  
+  // Send through the regular HTTP request mechanism
+  sendHttpRequest("", path);
 }
 
 void HttpSseTransportSocket::processIncomingData(Buffer& buffer) {
