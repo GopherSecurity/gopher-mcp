@@ -3,6 +3,7 @@
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/listener.h"
+#include "mcp/network/socket_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/transport/stdio_pipe_transport.h"
@@ -297,13 +298,191 @@ VoidResult McpConnectionManager::connect() {
     onConnectionEvent(network::ConnectionEvent::Connected);
     
   } else if (config_.transport_type == TransportType::HttpSse) {
-    // For HTTP/SSE, we need to parse the URL and connect
-    // This would involve creating a real TCP connection
-    // For now, return error
-    Error err;
-    err.code = -1;
-    err.message = "HTTP/SSE transport not fully implemented";
-    return makeVoidError(err);
+    // HTTP/SSE client connection flow:
+    // 1. Parse URL to extract host and port
+    // 2. Create TCP socket using MCP networking layer
+    // 3. Create HTTP/SSE transport socket wrapper
+    // 4. Create ConnectionImpl with TCP socket and transport
+    // 5. Connect asynchronously in dispatcher thread
+    
+    if (!config_.http_sse_config.has_value()) {
+      Error err;
+      err.code = -1;
+      err.message = "HTTP/SSE config not set";
+      return makeVoidError(err);
+    }
+    
+    // Parse URL to get host and port
+    std::string url = config_.http_sse_config.value().endpoint_url;
+    std::string host = "127.0.0.1";
+    uint32_t port = 8080;
+    
+    // Extract host and port from URL
+    // Support format: http://host:port/path or https://host:port/path
+    if (url.find("http://") == 0 || url.find("https://") == 0) {
+      size_t protocol_end = url.find("://") + 3;
+      size_t port_start = url.find(':', protocol_end);
+      size_t path_start = url.find('/', protocol_end);
+      
+      if (port_start != std::string::npos && 
+          (path_start == std::string::npos || port_start < path_start)) {
+        // Has explicit port
+        host = url.substr(protocol_end, port_start - protocol_end);
+        if (host == "localhost") {
+          host = "127.0.0.1";
+        }
+        size_t port_end = (path_start != std::string::npos) ? path_start : url.length();
+        std::string port_str = url.substr(port_start + 1, port_end - port_start - 1);
+        port = std::stoi(port_str);
+      } else if (path_start != std::string::npos) {
+        // No explicit port, use default based on protocol
+        host = url.substr(protocol_end, path_start - protocol_end);
+        if (host == "localhost") {
+          host = "127.0.0.1";
+        }
+        port = (url.find("https://") == 0) ? 443 : 80;
+      } else {
+        // No path, just host
+        host = url.substr(protocol_end);
+        if (host == "localhost") {
+          host = "127.0.0.1";
+        }
+        port = (url.find("https://") == 0) ? 443 : 80;
+      }
+    }
+    
+    // Create TCP address for remote server
+    auto tcp_address = network::Address::parseInternetAddress(host, port);
+    if (!tcp_address) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to parse server address: " + host + ":" + std::to_string(port);
+      return makeVoidError(err);
+    }
+    
+    // Create local address (bind to any interface, port 0 for ephemeral)
+    auto local_address = network::Address::anyAddress(
+        network::Address::IpVersion::v4, 0);
+    
+    // Create TCP socket using MCP socket interface
+    // All socket operations happen in dispatcher thread context
+    auto socket_result = socket_interface_.socket(
+        network::SocketType::Stream,
+        network::Address::Type::Ip,
+        network::Address::IpVersion::v4,
+        false);
+    
+    if (!socket_result.ok()) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create TCP socket: " + 
+          (socket_result.error_info ? socket_result.error_info->message : "Unknown error");
+      return makeVoidError(err);
+    }
+    
+    // Create IO handle wrapper for the socket
+    auto io_handle = socket_interface_.ioHandleForFd(*socket_result.value, false);
+    if (!io_handle) {
+      socket_interface_.close(*socket_result.value);
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create IO handle for socket";
+      return makeVoidError(err);
+    }
+    
+    // Create ConnectionSocket wrapper
+    auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle),
+        local_address,
+        tcp_address);
+    
+    // Set socket to non-blocking mode for async I/O
+    socket_wrapper->ioHandle().setBlocking(false);
+    
+    // Create HTTP/SSE transport socket wrapper
+    auto transport_factory = createTransportSocketFactory();
+    if (!transport_factory) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create transport factory";
+      return makeVoidError(err);
+    }
+    
+    // Create transport socket instance
+    // Cast to client factory to access createTransportSocket method
+    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
+    if (!client_factory) {
+      Error err;
+      err.code = -1;
+      err.message = "Transport factory does not support client connections";
+      return makeVoidError(err);
+    }
+    
+    network::TransportSocketPtr transport_socket = 
+        client_factory->createTransportSocket(nullptr);
+    if (!transport_socket) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create transport socket";
+      return makeVoidError(err);
+    }
+    
+    // Create ConnectionImpl for client connection
+    // Pass false for 'connected' since we need to connect first
+    auto connection = std::make_unique<network::ConnectionImpl>(
+        dispatcher_,
+        std::move(socket_wrapper),
+        std::move(transport_socket),
+        false);  // Not yet connected - will connect asynchronously
+    
+    // Store as active connection
+    active_connection_ = std::unique_ptr<network::ClientConnection>(std::move(connection));
+    
+    if (!active_connection_) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create client connection";
+      return makeVoidError(err);
+    }
+    
+    // Add ourselves as connection callbacks to track connection events
+    active_connection_->addConnectionCallbacks(*this);
+    
+    // Apply filter chain for JSON-RPC message processing
+    auto filter_factory = createFilterChainFactory();
+    if (filter_factory && active_connection_) {
+      auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
+      if (conn_base) {
+        // Apply filter chain for message framing and parsing
+        filter_factory->createFilterChain(conn_base->filterManager());
+        conn_base->filterManager().initializeReadFilters();
+      }
+    }
+    
+    // Initiate async TCP connection
+    // This will trigger connect() on the socket in dispatcher thread
+    // Connection callbacks will be invoked when connected or on error
+    // IMPORTANT: All callbacks follow the dispatcher thread principle:
+    // - onEvent() will be called in dispatcher thread when connection succeeds/fails
+    // - All state transitions happen in dispatcher thread context
+    // - No manual synchronization needed as everything runs single-threaded in dispatcher
+    
+    // Cast to ClientConnection to access connect() method
+    auto client_conn = dynamic_cast<network::ClientConnection*>(active_connection_.get());
+    if (client_conn) {
+      client_conn->connect();
+    } else {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to cast to ClientConnection";
+      return makeVoidError(err);
+    }
+    
+    // NOTE: Connection is now in progress
+    // onEvent callback will be called with Connected or LocalClose event
+    // TODO: Add connection timeout handling
+    // TODO: Add retry logic with exponential backoff for connection failures
+    // TODO: Support TLS/HTTPS connections using SSL transport socket
   } else {
     Error err;
     err.code = -1;
@@ -443,12 +622,25 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 }
 
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
-  if (event == network::ConnectionEvent::RemoteClose || 
-      event == network::ConnectionEvent::LocalClose) {
+  // Handle connection state transitions
+  // All events are invoked in dispatcher thread context
+  if (event == network::ConnectionEvent::Connected) {
+    // Connection established successfully
+    connected_ = true;
+    
+    // For HTTP/SSE transport, notify the transport socket about connection
+    if (config_.transport_type == TransportType::HttpSse && active_connection_) {
+      auto& transport = active_connection_->transportSocket();
+      transport.onConnected();
+    }
+  } else if (event == network::ConnectionEvent::RemoteClose || 
+             event == network::ConnectionEvent::LocalClose) {
+    // Connection closed - clean up state
     connected_ = false;
     active_connection_.reset();
   }
   
+  // Forward event to upper layer callbacks
   if (message_callbacks_) {
     message_callbacks_->onConnectionEvent(event);
   }
