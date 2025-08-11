@@ -438,7 +438,9 @@ int main(int argc, char* argv[]) {
   
   // Main loop - periodic status and resource updates
   int update_count = 0;
-  std::cerr << "[DEBUG] Starting main loop, server running: " << g_server->isRunning() << std::endl;
+  std::cerr << "[DEBUG] About to enter main loop..." << std::endl;
+  std::cerr << "[DEBUG] Server running: " << g_server->isRunning() << std::endl;
+  std::cerr << "[DEBUG] Shutdown flag: " << g_shutdown << std::endl;
   
   // Keep the main thread alive
   while (!g_shutdown) {
