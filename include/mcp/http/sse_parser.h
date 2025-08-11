@@ -29,11 +29,21 @@ struct SseEvent {
     event.reset();
     data.clear();
     retry.reset();
+    hasDataField = false;  // Reset the data field flag
   }
+  
+  // Note: Track whether a data field was seen (even if empty)
+  // The SSE spec allows events with empty data fields (e.g., "data:\n\n")
+  // These should still trigger onSseEvent. We need to distinguish between:
+  // 1. No data field seen at all (don't dispatch)
+  // 2. Data field seen but empty (do dispatch)
+  bool hasDataField = false;
   
   // Check if event has content
   bool hasContent() const {
-    return !data.empty() || id.has_value() || event.has_value() || retry.has_value();
+    // Note: Check hasDataField instead of !data.empty()
+    // This allows events with empty data to be dispatched
+    return hasDataField || id.has_value() || event.has_value() || retry.has_value();
   }
 };
 
@@ -149,6 +159,12 @@ class SseParser {
   // Field parsing state
   std::string field_name_;
   std::string field_value_;
+  
+  // Note: Track if we've checked for BOM at stream start
+  // The UTF-8 BOM check should only happen once at the beginning
+  // of the stream to avoid incorrectly skipping data that happens
+  // to match the BOM pattern later in the stream
+  bool bom_checked_{false};
 };
 
 using SseParserPtr = std::unique_ptr<SseParser>;
