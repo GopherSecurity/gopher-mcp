@@ -12,8 +12,9 @@ namespace transport {
 
 HttpSseTransportSocket::HttpSseTransportSocket(
     const HttpSseTransportSocketConfig& config,
-    event::Dispatcher& dispatcher)
-    : config_(config), dispatcher_(dispatcher) {
+    event::Dispatcher& dispatcher,
+    bool is_server_mode)
+    : config_(config), dispatcher_(dispatcher), is_server_mode_(is_server_mode) {
   // Initialize parser factory if not provided
   // This ensures we have a valid factory for creating parsers
   if (!config_.parser_factory) {
@@ -308,13 +309,17 @@ http::ParserCallbackResult HttpSseTransportSocket::onBody(const char* data, size
 
 http::ParserCallbackResult HttpSseTransportSocket::onMessageComplete() {
   if (current_response_) {
-    // Process complete response
+    // Client received response
     if (state_ == State::HandshakeResponse) {
       // Handshake complete, establish SSE connection
       sendSseConnectRequest();
       updateState(State::SseConnecting);
     }
     responses_received_++;
+  } else if (current_request_ && is_server_mode_) {
+    // Server received complete HTTP request
+    std::cerr << "[DEBUG] HTTP+SSE Server: Received HTTP request, sending SSE response" << std::endl;
+    sendSseResponse();
   }
   
   // Reset for next message
@@ -415,6 +420,47 @@ void HttpSseTransportSocket::sendSseConnectRequest() {
   sendHttpRequest("", config_.sse_endpoint_path);
 }
 
+void HttpSseTransportSocket::sendSseResponse() {
+  // Server sends SSE response headers to establish event stream
+  // This is called when server receives an HTTP request with Accept: text/event-stream
+  
+  std::ostringstream response;
+  response << "HTTP/1.1 200 OK\r\n";
+  response << "Content-Type: text/event-stream\r\n";
+  response << "Cache-Control: no-cache\r\n";
+  response << "Connection: keep-alive\r\n";
+  response << "Access-Control-Allow-Origin: *\r\n";
+  response << "\r\n";
+  
+  // Send initial SSE comment to establish connection
+  response << ": SSE connection established\n\n";
+  
+  std::string response_str = response.str();
+  std::cerr << "[DEBUG] Sending SSE response:\n" << response_str << std::endl;
+  
+  // Write response through MCP networking abstraction layer
+  // Use the transport socket's write buffer mechanism
+  if (write_buffer_) {
+    // Add response to write buffer
+    write_buffer_->add(response_str);
+    
+    // Flush write buffer through callbacks
+    // This ensures proper flow control and event handling
+    if (callbacks_) {
+      callbacks_->flushWriteBuffer();
+    }
+    
+    // Mark SSE stream as active
+    sse_stream_active_ = true;
+    updateState(State::SseConnected);
+    
+    // Notify that connection is ready
+    if (callbacks_) {
+      callbacks_->raiseEvent(network::ConnectionEvent::Connected);
+    }
+  }
+}
+
 void HttpSseTransportSocket::sendHttpUpgradeRequest() {
   // Send initial HTTP request to establish SSE connection
   // This is called when client first connects via TCP
@@ -466,8 +512,15 @@ void HttpSseTransportSocket::sendHttpUpgradeRequest() {
   std::string request_str = request.str();
   std::cerr << "[DEBUG] Sending HTTP upgrade request:\n" << request_str << std::endl;
   
-  // Send through the regular HTTP request mechanism
-  sendHttpRequest("", path);
+  // Send through MCP networking abstraction layer using write buffer
+  if (write_buffer_) {
+    write_buffer_->add(request_str);
+    
+    // Flush write buffer through callbacks
+    if (callbacks_) {
+      callbacks_->flushWriteBuffer();
+    }
+  }
 }
 
 void HttpSseTransportSocket::processIncomingData(Buffer& buffer) {
@@ -601,7 +654,13 @@ bool HttpSseTransportSocketFactory::implementsSecureTransport() const {
 
 network::TransportSocketPtr HttpSseTransportSocketFactory::createTransportSocket(
     network::TransportSocketOptionsSharedPtr options) const {
-  return std::make_unique<HttpSseTransportSocket>(config_, dispatcher_);
+  // Client mode transport socket
+  return std::make_unique<HttpSseTransportSocket>(config_, dispatcher_, false);
+}
+
+network::TransportSocketPtr HttpSseTransportSocketFactory::createTransportSocket() const {
+  // Server mode transport socket
+  return std::make_unique<HttpSseTransportSocket>(config_, dispatcher_, true);
 }
 
 std::string HttpSseTransportSocketFactory::defaultServerNameIndication() const {
