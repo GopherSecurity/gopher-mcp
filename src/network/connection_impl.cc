@@ -185,7 +185,9 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   // }
   
   // Create file event for socket I/O
-  // Only create file event if we have a valid socket with a valid FD
+  // Flow: Socket created -> Register file event -> Enable read/write based on state
+  // Server connections: Enable read immediately to receive requests
+  // Client connections: Enable write first for connect, then read after connected
   if (socket_) {
     try {
       auto fd = socket_->ioHandle().fd();
@@ -204,7 +206,9 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     
         // Enable appropriate events based on connection state
         if (connected) {
-          // Already connected - enable read events
+          // Already connected (server connection) - enable read events
+          // This allows server to receive incoming HTTP requests
+          std::cerr << "[DEBUG] ConnectionImpl: Enabling read events for connected socket" << std::endl;
           enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
         } else if (connecting_) {
           // Client connection in progress - will be enabled by doConnect()
@@ -423,6 +427,14 @@ void ConnectionImpl::raiseEvent(ConnectionEvent event) {
 }
 
 void ConnectionImpl::flushWriteBuffer() {
+  // Flush any pending data in write buffer
+  // Called by transport socket when it needs to send data immediately
+  // Flow: Transport has data -> flushWriteBuffer -> doWrite -> Transport adds data -> Socket write
+  // Zero-copy: Transport manipulates write_buffer_ directly, no intermediate allocation
+  std::cerr << "[DEBUG] ConnectionImpl::flushWriteBuffer called" << std::endl;
+  
+  // Simply trigger a write, which will call transport's doWrite to process the buffer
+  // The transport will add any pending data during the doWrite call
   doWrite();
 }
 
@@ -458,16 +470,25 @@ bool ConnectionImpl::initializeReadFilters() {
 // Private methods
 
 void ConnectionImpl::onFileEvent(uint32_t events) {
+  // Handle file events from event loop
+  // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle read/write/close
+  // All callbacks are invoked in dispatcher thread context
+  
+  std::cerr << "[DEBUG] ConnectionImpl::onFileEvent called with events=" << events << std::endl;
+  
   if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
+    std::cerr << "[DEBUG] Socket is write-ready" << std::endl;
     onWriteReady();
   }
   
   if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
+    std::cerr << "[DEBUG] Socket is read-ready" << std::endl;
     onReadReady();
   }
   
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
     // Remote close detected
+    std::cerr << "[DEBUG] Socket closed by remote" << std::endl;
     detected_close_type_ = DetectedCloseType::RemoteReset;
     closeSocket(ConnectionEvent::RemoteClose);
   }
@@ -574,7 +595,15 @@ void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
 }
 
 void ConnectionImpl::doRead() {
+  // Read data from socket through transport socket abstraction
+  // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead -> Transport::doRead
+  // All operations happen in dispatcher thread context
+  
+  std::cerr << "[DEBUG] ConnectionImpl::doRead called, state=" << static_cast<int>(state_) 
+            << ", read_disable_count=" << read_disable_count_ << std::endl;
+  
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
+    std::cerr << "[DEBUG] ConnectionImpl::doRead skipped - disabled or not open" << std::endl;
     return;
   }
   
@@ -647,28 +676,67 @@ void ConnectionImpl::processReadBuffer() {
 }
 
 void ConnectionImpl::doWrite() {
-  if (state_ != ConnectionState::Open || write_buffer_.length() == 0) {
+  // Write data to socket through transport socket abstraction
+  // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
+  // All operations happen in dispatcher thread context
+  
+  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, state=" << static_cast<int>(state_)
+            << ", buffer_len=" << write_buffer_.length() << std::endl;
+  
+  if (state_ != ConnectionState::Open) {
+    std::cerr << "[DEBUG] ConnectionImpl::doWrite skipped - connection not open" << std::endl;
     return;
   }
   
-  while (write_buffer_.length() > 0) {
-    // Write from buffer to socket
-    auto result = doWriteToSocket();
-    
+  // Let transport socket process the buffer first
+  // This allows the transport to add any pending data (like HTTP headers)
+  // even if write_buffer_ is initially empty
+  if (transport_socket_) {
+    auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     if (!result.ok()) {
-      if (!result.ok() && result.error_ && result.error_->code == EAGAIN) {
-        // Socket buffer full, wait for write ready
-        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-        break;
-      } else {
-        // Socket error
-        closeSocket(ConnectionEvent::LocalClose);
-        return;
-      }
+      // Transport error
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+    if (result.action_ == TransportIoResult::CLOSE) {
+      // Transport wants to close
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+  }
+  
+  // Now check if we have data to write after transport processing
+  if (write_buffer_.length() == 0) {
+    std::cerr << "[DEBUG] ConnectionImpl::doWrite - no data to write after transport processing" << std::endl;
+    return;
+  }
+  
+  // The transport socket now handles the actual socket write following Envoy pattern
+  // Keep writing while buffer has data
+  while (write_buffer_.length() > 0) {
+    // Call transport to write - it handles socket I/O and drains buffer
+    auto write_result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
+    
+    if (!write_result.ok()) {
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
     }
     
-    // Update stats
-    updateWriteBufferStats(result.bytes_processed_, write_buffer_.length());
+    if (write_result.action_ == TransportIoResult::CLOSE) {
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+    
+    // Check if transport couldn't write (would block)
+    if (write_result.bytes_processed_ == 0 && write_result.action_ == TransportIoResult::CONTINUE) {
+      // Socket would block, enable write events
+      std::cerr << "[DEBUG] Transport indicated socket would block" << std::endl;
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+      break;
+    }
+    
+    // Update stats based on what transport wrote
+    updateWriteBufferStats(write_result.bytes_processed_, write_buffer_.length());
     
     // Check watermarks
     if (above_high_watermark_ && write_buffer_.length() < low_watermark_) {
@@ -677,6 +745,13 @@ void ConnectionImpl::doWrite() {
         cb->onBelowWriteBufferLowWatermark();
       }
     }
+    
+    // If transport wrote everything, we're done
+    if (write_buffer_.length() == 0) {
+      break;
+    }
+    
+    // Continue loop to write more if buffer still has data
   }
   
   if (write_buffer_.length() == 0 && write_half_closed_) {
@@ -687,16 +762,7 @@ void ConnectionImpl::doWrite() {
   }
 }
 
-TransportIoResult ConnectionImpl::doWriteToSocket() {
-  // Write through transport socket
-  if (!transport_socket_) {
-    Error err;
-    err.code = -1;
-    err.message = "Transport socket not initialized";
-    return TransportIoResult::error(err);
-  }
-  return transport_socket_->doWrite(write_buffer_, write_half_closed_);
-}
+// doWriteToSocket removed - doWrite now handles socket write directly for zero-copy
 
 void ConnectionImpl::handleWrite(bool all_data_sent) {
   if (all_data_sent) {

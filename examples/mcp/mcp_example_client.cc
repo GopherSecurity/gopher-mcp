@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
   std::cerr << "=====================================================" << std::endl;
   
   // Parse command line arguments
-  std::string server_uri = "stdio://localhost";
+  std::string server_uri = "http://localhost:8080";
   if (argc > 1) {
     server_uri = argv[1];
   }

@@ -181,6 +181,9 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::queue<PendingRequest> pending_requests_;
   std::map<std::string, PendingRequest> active_requests_;
   uint64_t next_request_id_{1};
+  
+  // Pending write data queue for immediate sends
+  std::queue<std::string> pending_write_data_;
 
   // Timers
   event::TimerPtr keepalive_timer_;

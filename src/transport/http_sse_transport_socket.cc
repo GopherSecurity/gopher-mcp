@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <iostream>
+#include <queue>
 
 #include "mcp/buffer.h"
 #include "mcp/core/result.h"  // For TransportIoResult and makeVoidSuccess
@@ -130,59 +131,225 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
 }
 
 TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
-  // Read data from underlying socket through MCP networking abstraction
-  // Flow: Socket readable -> ConnectionImpl::doRead -> Transport::doRead -> Parse HTTP/SSE
-  // Server mode: Parse HTTP request -> Send SSE response
-  // Client mode: Parse HTTP response -> Process SSE events
+  // Read data from underlying socket
+  // Flow: Socket readable -> ConnectionImpl calls us -> We read from socket -> Parse HTTP/SSE
+  // Critical: Transport socket MUST read from socket, not just process existing buffer
+  // This follows socket abstraction such as RawBufferSocket and SslSocket patterns
   
   if (state_ == State::Closed || state_ == State::Closing) {
     return TransportIoResult::close();
   }
   
-  std::cerr << "[DEBUG] HttpSseTransportSocket::doRead called, is_server=" 
-            << is_server_mode_ << ", state=" << static_cast<int>(state_.load()) 
-            << ", buffer_len=" << buffer.length() << std::endl;
+  // Transport socket reads from actual socket
+  // Get IO handle from callbacks for socket I/O operations
+  network::IoHandle& io_handle = callbacks_->ioHandle();
   
-  // Process incoming data based on state and mode
-  size_t bytes_processed = 0;
+  // Read from socket into buffer using MCP networking abstraction
+  // This is what socket abstraction (e.g. RawBufferSocket) does - directly read from socket
+  auto result = io_handle.read(buffer, nullopt);
   
-  if (is_server_mode_ && !sse_stream_active_) {
-    // Server waiting for HTTP request
-    std::cerr << "[DEBUG] Server processing HTTP request" << std::endl;
-    processHttpRequest(buffer);
-    bytes_processed = buffer.length();
-  } else if (sse_stream_active_) {
-    // Both client and server process SSE data after handshake
-    processSseData(buffer);
-    bytes_processed = buffer.length();
-  } else {
-    // Client processing HTTP response
-    processHttpResponse(buffer);
-    bytes_processed = buffer.length();
+  if (!result.ok()) {
+    // Handle would-block (socket not ready)
+    if (result.wouldBlock()) {
+      return TransportIoResult::stop();
+    }
+    
+    // Handle connection reset
+    if (result.error_code() == ECONNRESET) {
+      return TransportIoResult::close();
+    }
+    
+    // Other socket errors
+    Error err;
+    err.code = result.error_code();
+    err.message = "Socket I/O error";
+    return TransportIoResult::error(err);
   }
   
-  bytes_received_ += bytes_processed;
+  size_t bytes_read = *result;
   
-  return TransportIoResult::stop();
+  // Handle EOF (connection closed by peer)
+  if (bytes_read == 0) {
+    return TransportIoResult::endStream(0);
+  }
+  
+  std::cerr << "[DEBUG] HttpSseTransportSocket::doRead read " << bytes_read 
+            << " bytes from socket, is_server=" << is_server_mode_ 
+            << ", state=" << static_cast<int>(state_.load()) << std::endl;
+  
+  // Now process the data we just read based on state and mode
+  // The buffer now contains raw bytes from socket that need parsing
+  if (is_server_mode_ && !sse_stream_active_) {
+    // Server: Parse HTTP request from raw socket data
+    std::cerr << "[DEBUG] Server parsing HTTP request from socket data" << std::endl;
+    processHttpRequest(buffer);
+  } else if (sse_stream_active_) {
+    // Both client and server: Parse SSE events from stream
+    processSseData(buffer);
+  } else {
+    // Client: Parse HTTP response from raw socket data
+    processHttpResponse(buffer);
+  }
+  
+  bytes_received_ += bytes_read;
+  
+  // Return success with bytes read from socket
+  return TransportIoResult::success(bytes_read);
 }
 
 TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
+  // Write data to socket with zero-copy pattern
+  // Flow: Connection calls doWrite -> We write to socket -> Drain written bytes
+  // Critical: transport MUST do actual socket I/O
+  // Zero-copy: Use writev with buffer slices to avoid copying
+  
   if (state_ == State::Closed || state_ == State::Closing) {
     return TransportIoResult::close();
   }
   
-  // Queue outgoing data
-  write_buffer_->move(buffer);
+  // Get IO handle for socket operations (following IO abstraction pattern)
+  network::IoHandle& io_handle = callbacks_->ioHandle();
+  size_t total_bytes_written = 0;
   
-  // Process pending requests if connected
-  if (state_ == State::Connected) {
+  // Handle pending protocol data (HTTP headers, SSE setup) with zero-copy
+  if (!pending_write_data_.empty()) {
+    // Zero-copy: Build iovec array without copying data
+    constexpr size_t kMaxIovecs = 16;
+    RawSlice protocol_slices[kMaxIovecs];
+    RawSlice buffer_slices[kMaxIovecs];
+    size_t protocol_count = 0;
+    // size_t bytes_queued = 0;  // Currently unused
+    
+    // Collect protocol data slices (zero-copy references)
+    // Use temporary vector to iterate queue contents
+    std::vector<std::string> pending_vec;
+    while (!pending_write_data_.empty()) {
+      pending_vec.push_back(pending_write_data_.front());
+      pending_write_data_.pop();
+    }
+    
+    for (const auto& data : pending_vec) {
+      if (protocol_count >= kMaxIovecs) break;
+      protocol_slices[protocol_count].mem_ = const_cast<char*>(data.data());
+      protocol_slices[protocol_count].len_ = data.length();
+      // bytes_queued += data.length();
+      protocol_count++;
+    }
+    
+    // Get buffer slices if any (zero-copy)
+    size_t buffer_slice_count = 0;
+    if (buffer.length() > 0) {
+      buffer_slice_count = buffer.getRawSlices(buffer_slices, kMaxIovecs);
+    }
+    
+    // Combine slices for single writev call (most efficient)
+    RawSlice combined[kMaxIovecs * 2];
+    size_t total_slices = 0;
+    
+    // Add protocol slices first
+    for (size_t i = 0; i < protocol_count; ++i) {
+      combined[total_slices++] = protocol_slices[i];
+    }
+    
+    // Add buffer slices
+    for (size_t i = 0; i < buffer_slice_count && total_slices < kMaxIovecs * 2; ++i) {
+      combined[total_slices++] = buffer_slices[i];
+    }
+    
+    // Zero-copy write using writev
+    // Convert to ConstRawSlice for writev
+    ConstRawSlice const_slices[kMaxIovecs * 2];
+    for (size_t i = 0; i < total_slices; ++i) {
+      const_slices[i].mem_ = combined[i].mem_;
+      const_slices[i].len_ = combined[i].len_;
+    }
+    
+    auto result = io_handle.writev(const_slices, total_slices);
+    
+    if (!result.ok()) {
+      if (result.wouldBlock()) {
+        std::cerr << "[DEBUG] Socket would block, stopping write" << std::endl;
+        return TransportIoResult::stop();
+      }
+      
+      int error_code = result.error_code();
+      if (error_code == EPIPE || error_code == ECONNRESET) {
+        return TransportIoResult::close();
+      }
+      
+      Error err;
+    err.code = result.error_code();
+    err.message = "Socket I/O error";
+    return TransportIoResult::error(err);
+    }
+    
+    size_t bytes_written = *result;
+    total_bytes_written = bytes_written;
+    
+    std::cerr << "[DEBUG] Zero-copy writev wrote " << bytes_written << " bytes" << std::endl;
+    
+    // Restore unwritten data to queue
+    size_t bytes_cleared = 0;
+    for (size_t i = 0; i < pending_vec.size(); ++i) {
+      if (bytes_cleared + pending_vec[i].length() > bytes_written) {
+        // This and remaining items were not written
+        for (size_t j = i; j < pending_vec.size(); ++j) {
+          pending_write_data_.push(pending_vec[j]);
+        }
+        break;
+      }
+      bytes_cleared += pending_vec[i].length();
+    }
+    
+    // Drain buffer bytes that were written
+    if (bytes_written > bytes_cleared) {
+      buffer.drain(bytes_written - bytes_cleared);
+    }
+    
+  } else if (buffer.length() > 0) {
+    // No pending protocol data, just write buffer (zero-copy)
+    auto result = io_handle.write(buffer);
+    
+    if (!result.ok()) {
+      if (result.wouldBlock()) {
+        return TransportIoResult::stop();
+      }
+      
+      int error_code = result.error_code();
+      if (error_code == EPIPE || error_code == ECONNRESET) {
+        return TransportIoResult::close();
+      }
+      
+      Error err;
+    err.code = result.error_code();
+    err.message = "Socket I/O error";
+    return TransportIoResult::error(err);
+    }
+    
+    size_t bytes_written = *result;
+    total_bytes_written = bytes_written;
+    
+    // Drain written bytes from buffer
+    buffer.drain(bytes_written);
+    
+    std::cerr << "[DEBUG] Wrote " << bytes_written << " bytes from buffer" << std::endl;
+  }
+  
+  // Handle end of stream
+  if (buffer.length() == 0 && end_stream) {
+    return TransportIoResult::endStream(total_bytes_written);
+  }
+  
+  // Track statistics
+  bytes_sent_ += total_bytes_written;
+  
+  // Process any additional pending requests
+  if (state_ == State::Connected && total_bytes_written > 0) {
     flushPendingRequests();
   }
   
-  size_t bytes_written = buffer.length();
-  bytes_sent_ += bytes_written;
-  
-  return TransportIoResult::success(bytes_written);
+  // Return bytes written
+  return TransportIoResult::success(total_bytes_written);
 }
 
 void HttpSseTransportSocket::onConnected() {
@@ -538,14 +705,22 @@ void HttpSseTransportSocket::sendHttpUpgradeRequest() {
   std::string request_str = request.str();
   std::cerr << "[DEBUG] Sending HTTP upgrade request:\n" << request_str << std::endl;
   
-  // Send through MCP networking abstraction layer using write buffer
-  if (write_buffer_) {
-    write_buffer_->add(request_str);
-    
-    // Flush write buffer through callbacks
-    if (callbacks_) {
-      callbacks_->flushWriteBuffer();
-    }
+  // Send through MCP networking abstraction layer
+  // Flow: Return data to read -> Connection writes it -> Socket sends it
+  // The transport socket doesn't write directly, it provides data for the connection to write
+  
+  // For immediate sending, we need to write through the connection's write path
+  // The proper way is to return this data when doWrite is called on us
+  // But for HTTP request, we need to send it immediately
+  
+  // Store the request in a pending queue to be sent on next doWrite
+  pending_write_data_.push(request_str);
+  std::cerr << "[DEBUG] Queued HTTP request for sending, length: " << request_str.length() << std::endl;
+  
+  // Trigger a write by notifying callbacks
+  if (callbacks_) {
+    std::cerr << "[DEBUG] Triggering write through callbacks" << std::endl;
+    callbacks_->flushWriteBuffer();
   }
 }
 
