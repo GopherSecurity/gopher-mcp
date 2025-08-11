@@ -194,8 +194,8 @@ class ConnectionImpl : public ConnectionImplBase,
   // Watermark callbacks
   std::list<WatermarkCallbacks*> watermark_callbacks_;
 
-  // Connection callbacks
-  std::list<ConnectionCallbacks*> connection_callbacks_;
+  // Connection callbacks are stored in base class callbacks_ member
+  // No need for duplicate connection_callbacks_ here
 };
 
 /**

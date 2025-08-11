@@ -202,9 +202,13 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
             trigger_type,
             static_cast<uint32_t>(event::FileReadyType::Closed));
     
-        // Enable read events initially
+        // Enable appropriate events based on connection state
         if (connected) {
+          // Already connected - enable read events
           enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+        } else if (connecting_) {
+          // Client connection in progress - will be enabled by doConnect()
+          // Don't enable anything here, let doConnect() handle it
         }
       }
     } catch (...) {
@@ -523,25 +527,46 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
 void ConnectionImpl::doConnect() {
   auto result = socket_->connect(socket_->connectionInfoProvider().remoteAddress());
   
+  std::cerr << "[DEBUG] doConnect: connect() result: " 
+            << (result.ok() ? "ok" : "error") 
+            << ", value: " << (result.ok() ? *result : -1)
+            << ", error: " << (!result.ok() ? result.error_code() : 0) << std::endl;
+  
   if (result.ok() && *result == 0) {
-    // Immediate connection
+    // Immediate connection success (rare for TCP but can happen with local connections)
+    // Schedule the Connected event to be handled in the next dispatcher iteration
+    // This ensures all callbacks are invoked in proper dispatcher thread context
+    std::cerr << "[DEBUG] Immediate connection success, scheduling Connected event" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
-    raiseConnectionEvent(ConnectionEvent::Connected);
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+    
+    // Post the event to dispatcher to ensure proper thread context
+    dispatcher_.post([this]() {
+      std::cerr << "[DEBUG] Raising Connected event in dispatcher thread" << std::endl;
+      raiseConnectionEvent(ConnectionEvent::Connected);
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+    });
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
+    std::cerr << "[DEBUG] Connection in progress (EINPROGRESS), enabling write events" << std::endl;
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed
+    std::cerr << "[DEBUG] Connection failed immediately" << std::endl;
     immediate_error_event_ = true;
     closeSocket(ConnectionEvent::LocalClose);
   }
 }
 
 void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
-  for (auto& cb : connection_callbacks_) {
+  // Use base class callbacks_ member for connection callbacks
+  // This consolidates callback management in one place
+  std::cerr << "[DEBUG] raiseConnectionEvent: " << static_cast<int>(event) 
+            << ", callbacks count: " << callbacks_.size() << std::endl;
+  
+  for (auto* cb : callbacks_) {
+    std::cerr << "[DEBUG] Calling callback->onEvent()" << std::endl;
     cb->onEvent(event);
   }
   
