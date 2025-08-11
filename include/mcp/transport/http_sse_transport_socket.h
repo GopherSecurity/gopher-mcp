@@ -69,7 +69,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
                                public http::SseParserCallbacks {
  public:
   explicit HttpSseTransportSocket(const HttpSseTransportSocketConfig& config,
-                                  event::Dispatcher& dispatcher);
+                                  event::Dispatcher& dispatcher,
+                                  bool is_server_mode = false);
   ~HttpSseTransportSocket() override;
 
   // TransportSocket interface
@@ -130,7 +131,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void initializeParsers();
   void sendHttpRequest(const std::string& body, const std::string& path);
   void sendSseConnectRequest();
-  void sendHttpUpgradeRequest();  // Send initial HTTP upgrade request for SSE
+  void sendHttpUpgradeRequest();  // Client: Send initial HTTP upgrade request for SSE
+  void sendSseResponse();         // Server: Send SSE response headers
   void processIncomingData(Buffer& buffer);
   void processSseData(Buffer& buffer);
   void processHttpResponse(Buffer& buffer);
@@ -154,6 +156,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::atomic<State> state_{State::Disconnected};
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
+  bool is_server_mode_{false};  // Track if this is a server-side socket
 
   // HTTP parsers
   std::unique_ptr<http::HttpParser> request_parser_;
@@ -218,9 +221,7 @@ class HttpSseTransportSocketFactory
                network::TransportSocketOptionsSharedPtr options) const override;
   
   // ServerTransportSocketFactory interface
-  network::TransportSocketPtr createTransportSocket() const override {
-    return createTransportSocket(nullptr);
-  }
+  network::TransportSocketPtr createTransportSocket() const override;
 
  private:
   HttpSseTransportSocketConfig config_;
