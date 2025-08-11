@@ -198,7 +198,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
  * HTTP+SSE transport socket factory with llhttp
  */
 class HttpSseTransportSocketFactory
-    : public network::ClientTransportSocketFactory {
+    : public network::ClientTransportSocketFactory,
+      public network::ServerTransportSocketFactory {
  public:
   HttpSseTransportSocketFactory(const HttpSseTransportSocketConfig& config,
                                 event::Dispatcher& dispatcher);
@@ -214,6 +215,11 @@ class HttpSseTransportSocketFactory
   std::string defaultServerNameIndication() const override;
   void hashKey(std::vector<uint8_t>& key,
                network::TransportSocketOptionsSharedPtr options) const override;
+  
+  // ServerTransportSocketFactory interface
+  network::TransportSocketPtr createTransportSocket() const override {
+    return createTransportSocket(nullptr);
+  }
 
  private:
   HttpSseTransportSocketConfig config_;
@@ -223,7 +229,7 @@ class HttpSseTransportSocketFactory
 /**
  * Create an HTTP+SSE transport socket factory with llhttp
  */
-inline std::unique_ptr<network::ClientTransportSocketFactory>
+inline std::unique_ptr<network::TransportSocketFactoryBase>
 createHttpSseTransportSocketFactory(const HttpSseTransportSocketConfig& config,
                                     event::Dispatcher& dispatcher) {
   return std::make_unique<HttpSseTransportSocketFactory>(config, dispatcher);
