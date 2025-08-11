@@ -236,6 +236,8 @@ set(MCP_SDK_SOURCES
     src/transport/stdio_pipe_transport.cc
     src/transport/http_transport_socket.cc  # Renamed legacy implementation
     src/mcp_connection_manager.cc
+    src/client/mcp_client.cc
+    src/server/mcp_server.cc
 )
 
 # HTTP parser sources (conditional on llhttp)
@@ -358,6 +360,9 @@ if(BUILD_EXAMPLES)
     
     # Add TCP echo examples subdirectory
     add_subdirectory(examples/tcp_echo)
+    
+    # Add MCP examples subdirectory
+    add_subdirectory(examples/mcp)
 endif()
 
 # Add custom target for formatting
