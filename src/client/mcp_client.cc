@@ -81,18 +81,27 @@ VoidResult McpClient::connect(const std::string& uri) {
   }
   
   // All connection operations happen in dispatcher thread
-  std::promise<VoidResult> connect_promise;
-  auto connect_future = connect_promise.get_future();
+  auto connect_promise = std::make_shared<std::promise<VoidResult>>();
+  auto connect_future = connect_promise->get_future();
   
-  main_dispatcher_->post([this, uri, &connect_promise]() {
+  main_dispatcher_->post([this, uri, connect_promise]() {
     try {
+      // Transport negotiation flow:
+      // 1. Parse URI to determine transport type
+      // 2. Create connection configuration with transport settings
+      // 3. Create connection manager and connect
+      
+      // Store URI before creating config so it's available
+      current_uri_ = uri;
+      
       // Negotiate transport based on URI scheme and configuration
       TransportType transport = negotiateTransport(uri);
       
-      // Create connection configuration
+      // Create connection configuration with URI information
       McpConnectionConfig conn_config = createConnectionConfig(transport);
       
       // Create connection manager in dispatcher context
+      // The manager handles all protocol communication for this transport
       connection_manager_ = std::make_unique<McpConnectionManager>(
           *main_dispatcher_,
           *socket_interface_,
@@ -101,19 +110,16 @@ VoidResult McpClient::connect(const std::string& uri) {
       // Set ourselves as message callback handler
       connection_manager_->setMessageCallbacks(*this);
       
-      // Connect based on transport type
-      VoidResult result;
-      if (transport == TransportType::Stdio) {
-        // Stdio connection is immediate
-        result = connection_manager_->connect();
-      } else {
-        // Network connection
-        result = connection_manager_->connect();
-      }
+      // Initiate connection based on transport type
+      // All transports use the same connect() method
+      // The connection manager handles transport-specific details internally
+      VoidResult result = connection_manager_->connect();
       
+      // Check connection result
       if (holds_alternative<std::nullptr_t>(result)) {
+        // Connection successful or in progress
+        // For async transports, connection event will be received later
         connected_ = true;
-        current_uri_ = uri;
         client_stats_.connections_total++;
         client_stats_.connections_active++;
         
@@ -121,9 +127,9 @@ VoidResult McpClient::connect(const std::string& uri) {
         schedulePeriodicTasks();
       }
       
-      connect_promise.set_value(result);
+      connect_promise->set_value(result);
     } catch (const std::exception& e) {
-      connect_promise.set_value(makeVoidError(
+      connect_promise->set_value(makeVoidError(
           Error(jsonrpc::INTERNAL_ERROR, e.what())));
     }
   });
@@ -321,10 +327,10 @@ VoidResult McpClient::sendNotification(const std::string& method,
   }
   
   // Send in dispatcher context
-  std::promise<VoidResult> notif_promise;
-  auto notif_future = notif_promise.get_future();
+  auto notif_promise = std::make_shared<std::promise<VoidResult>>();
+  auto notif_future = notif_promise->get_future();
   
-  main_dispatcher_->post([this, method, params, &notif_promise]() {
+  main_dispatcher_->post([this, method, params, notif_promise]() {
     // Create notification
     jsonrpc::Notification notification(method);
     notification.params = params;
@@ -336,7 +342,7 @@ VoidResult McpClient::sendNotification(const std::string& method,
       client_stats_.requests_total++;
     }
     
-    notif_promise.set_value(result);
+    notif_promise->set_value(result);
   });
   
   return notif_future.get();
