@@ -300,23 +300,27 @@ TEST_F(Nghttp2ParserTest, PauseAndResume) {
 TEST_F(Nghttp2ParserTest, MultipleStreams) {
   auto parser = std::make_unique<Nghttp2Parser>(HttpParserType::BOTH, callbacks_.get());
   
-  // Simulate multiple concurrent streams
-  // Note: This is a simplified test - real HTTP/2 multiplexing is more complex
-  
-  // Stream 1: GET request
-  EXPECT_CALL(*callbacks_, onMessageBegin())
-      .Times(AtLeast(1))
-      .WillRepeatedly(Return(ParserCallbackResult::Success));
+  // Note: This test only sends connection preface and settings frames,
+  // which don't create HTTP message streams. onMessageBegin is only called
+  // when actual HEADERS frames create new streams.
+  // For now, we'll just test that the preface and settings are handled correctly
+  // without expecting message callbacks.
   
   // Process connection preface
   auto preface = createConnectionPreface();
-  parser->execute(reinterpret_cast<const char*>(preface.data()), preface.size());
+  size_t consumed = parser->execute(reinterpret_cast<const char*>(preface.data()), preface.size());
+  EXPECT_EQ(preface.size(), consumed);
   
   // Settings exchange
   auto settings = createSettingsFrame();
-  parser->execute(reinterpret_cast<const char*>(settings.data()), settings.size());
+  consumed = parser->execute(reinterpret_cast<const char*>(settings.data()), settings.size());
+  EXPECT_EQ(settings.size(), consumed);
   
   EXPECT_EQ(ParserStatus::Ok, parser->getStatus());
+  
+  // The parser should have generated a SETTINGS ACK
+  auto pending = parser->getPendingData();
+  EXPECT_GT(pending.size(), 0);
 }
 
 // Test methods and status codes
