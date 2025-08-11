@@ -48,9 +48,20 @@ SseParser::SseParser(SseParserCallbacks* callbacks)
 SseParser::~SseParser() = default;
 
 size_t SseParser::parse(const char* data, size_t length) {
-  size_t consumed = 0;
+  // Note: Skip UTF-8 BOM if present at the beginning of the stream
+  // The UTF-8 BOM is the sequence 0xEF 0xBB 0xBF
+  // Some SSE sources may include this at the start of the stream
+  // We should silently skip it to process the actual SSE content
+  size_t start = 0;
+  if (length >= 3 && !bom_checked_) {
+    const unsigned char* udata = reinterpret_cast<const unsigned char*>(data);
+    if (udata[0] == 0xEF && udata[1] == 0xBB && udata[2] == 0xBF) {
+      start = 3;  // Skip the BOM
+    }
+    bom_checked_ = true;
+  }
   
-  for (size_t i = 0; i < length; ++i) {
+  for (size_t i = start; i < length; ++i) {
     char ch = data[i];
     
     // Handle line endings
@@ -60,25 +71,30 @@ size_t SseParser::parse(const char* data, size_t length) {
         processLine(line_buffer_);
         line_buffer_.clear();
         ++i;  // Skip LF
-        consumed = i + 1;
       } else {
         // Just CR
         processLine(line_buffer_);
         line_buffer_.clear();
-        consumed = i + 1;
       }
     } else if (ch == kLF) {
       // Just LF
       processLine(line_buffer_);
       line_buffer_.clear();
-      consumed = i + 1;
     } else {
       // Accumulate characters
       line_buffer_ += ch;
     }
   }
   
-  return consumed;
+  // Note: Always return the full length as all bytes were consumed
+  // Previously, we only updated 'consumed' when a line ending was found,
+  // returning 0 for chunks without line endings. This broke chunked parsing
+  // where "data: Hello" might come in one chunk and " World\n\n" in another.
+  // All bytes are either:
+  // 1. Processed as complete lines (when line ending found), or
+  // 2. Buffered in line_buffer_ for processing when the line is complete
+  // Therefore, we always consume all input bytes.
+  return length;
 }
 
 size_t SseParser::parse(Buffer& buffer) {
@@ -109,6 +125,15 @@ void SseParser::reset() {
   current_event_.clear();
   field_name_.clear();
   field_value_.clear();
+  // Note: Clear the last event ID on reset
+  // The SSE spec states that the last event ID is persistent across events
+  // to support resumption, but when the parser is reset (e.g., for a new connection),
+  // we should clear it. The test expects reset() to clear all state including
+  // the last event ID so subsequent events don't inherit it.
+  last_event_id_.clear();
+  // Note: Reset BOM check flag
+  // When parser is reset for a new stream, we need to check for BOM again
+  bom_checked_ = false;
 }
 
 void SseParser::flush() {
@@ -168,6 +193,10 @@ void SseParser::processLine(const std::string& line) {
 
 void SseParser::processField(const std::string& name, const std::string& value) {
   if (name == kDataField) {
+    // Note: Mark that we've seen a data field (even if value is empty)
+    // This ensures events with "data:" (empty data) are still dispatched
+    current_event_.hasDataField = true;
+    
     // Append data with newline if not first data field
     if (!current_event_.data.empty()) {
       current_event_.data += '\n';
@@ -197,8 +226,12 @@ void SseParser::processField(const std::string& name, const std::string& value) 
 }
 
 void SseParser::dispatchEvent() {
-  // Only dispatch if there's data
-  if (!current_event_.data.empty()) {
+  // Note: Dispatch if we've seen a data field (even if empty)
+  // Previously checked !data.empty() which prevented empty data events
+  // Now we check hasDataField to allow "data:\n\n" events
+  // Per SSE spec: An event is dispatched when we see a data field,
+  // regardless of whether the data is empty
+  if (current_event_.hasDataField) {
     // Set ID from last event ID if not explicitly set
     if (!current_event_.id.has_value() && !last_event_id_.empty()) {
       current_event_.id = last_event_id_;
