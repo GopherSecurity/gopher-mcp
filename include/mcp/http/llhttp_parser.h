@@ -14,9 +14,10 @@ namespace http {
 
 /**
  * llhttp-based HTTP/1.x parser implementation
- * 
+ *
  * Uses Node.js's llhttp parser for high-performance HTTP/1.x parsing
- * Thread-safety: Parser instances are not thread-safe, create one per connection
+ * Thread-safety: Parser instances are not thread-safe, create one per
+ * connection
  */
 class LLHttpParser : public HttpParser {
  public:
@@ -26,10 +27,11 @@ class LLHttpParser : public HttpParser {
    * @param callbacks Callbacks to invoke during parsing
    * @param version_hint Optional HTTP version hint for the parser
    */
-  LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
-              HttpVersion version_hint = HttpVersion::HTTP_1_1);
+  LLHttpParser(HttpParserType type,
+               HttpParserCallbacks* callbacks,
+               HttpVersion version_hint = HttpVersion::HTTP_1_1);
   ~LLHttpParser() override;
-  
+
   // HttpParser interface
   size_t execute(const char* data, size_t length) override;
   void resume() override;
@@ -43,7 +45,7 @@ class LLHttpParser : public HttpParser {
   std::string getError() const override;
   void reset() override;
   void finish() override;
-  
+
  private:
   // Static callbacks for llhttp (bridge to HttpParserCallbacks)
   static int onMessageBegin(llhttp_t* parser);
@@ -56,17 +58,17 @@ class LLHttpParser : public HttpParser {
   static int onMessageComplete(llhttp_t* parser);
   static int onChunkHeader(llhttp_t* parser);
   static int onChunkComplete(llhttp_t* parser);
-  
+
   // Convert llhttp callback result to our enum
   static int toCallbackResult(ParserCallbackResult result);
-  
+
   // Parser state
   std::unique_ptr<llhttp_t> parser_;
   std::unique_ptr<llhttp_settings_t> settings_;
   HttpParserCallbacks* callbacks_;
   HttpParserType type_;
   ParserStatus status_;
-  
+
   // Cached values for performance
   mutable HttpMethod cached_method_;
   mutable bool method_cached_;
@@ -83,7 +85,7 @@ class LLHttpParserFactory : public HttpParserFactory {
  public:
   LLHttpParserFactory() = default;
   ~LLHttpParserFactory() override = default;
-  
+
   // HttpParserFactory interface
   HttpParserPtr createParser(HttpParserType type,
                              HttpParserCallbacks* callbacks) override;
