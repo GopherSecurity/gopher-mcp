@@ -679,14 +679,22 @@ void McpConnectionManager::onAccept(network::ConnectionSocketPtr&& socket) {
 }
 
 void McpConnectionManager::onNewConnection(network::ConnectionPtr&& connection) {
-  // Store the new connection
+  // Server accepted a new client connection
+  // Flow: Listener accepts TCP connection -> Creates ConnectionImpl -> Calls this callback
+  // Next: Apply filters, notify transport socket, wait for HTTP request
+  
+  std::cerr << "[DEBUG] Server: New connection accepted" << std::endl;
+  
+  // Store the new connection - this is now our active connection
   active_connection_ = std::move(connection);
   
-  // Add connection callbacks
+  // Add connection callbacks to track connection events
+  // All callbacks are invoked in dispatcher thread context
   if (active_connection_) {
     active_connection_->addConnectionCallbacks(*this);
     
-    // Apply filter chain to the connection's filter manager
+    // Apply filter chain to process JSON-RPC messages
+    // The filter chain handles message framing and parsing
     auto filter_factory = createFilterChainFactory();
     if (filter_factory) {
       auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
@@ -696,11 +704,13 @@ void McpConnectionManager::onNewConnection(network::ConnectionPtr&& connection) 
       }
     }
     
-    // Mark as connected
+    // Mark connection as established
     connected_ = true;
     
-    // Notify transport socket
+    // Notify transport socket that connection is ready
+    // For HTTP+SSE server, this triggers waiting for HTTP request
     auto& transport = active_connection_->transportSocket();
+    std::cerr << "[DEBUG] Server: Notifying transport socket of new connection" << std::endl;
     transport.onConnected();
   }
 }

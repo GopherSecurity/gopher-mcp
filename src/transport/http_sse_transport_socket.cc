@@ -130,17 +130,33 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
 }
 
 TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
+  // Read data from underlying socket through MCP networking abstraction
+  // Flow: Socket readable -> ConnectionImpl::doRead -> Transport::doRead -> Parse HTTP/SSE
+  // Server mode: Parse HTTP request -> Send SSE response
+  // Client mode: Parse HTTP response -> Process SSE events
+  
   if (state_ == State::Closed || state_ == State::Closing) {
     return TransportIoResult::close();
   }
   
-  // Process incoming data based on state
+  std::cerr << "[DEBUG] HttpSseTransportSocket::doRead called, is_server=" 
+            << is_server_mode_ << ", state=" << static_cast<int>(state_.load()) 
+            << ", buffer_len=" << buffer.length() << std::endl;
+  
+  // Process incoming data based on state and mode
   size_t bytes_processed = 0;
   
-  if (sse_stream_active_) {
+  if (is_server_mode_ && !sse_stream_active_) {
+    // Server waiting for HTTP request
+    std::cerr << "[DEBUG] Server processing HTTP request" << std::endl;
+    processHttpRequest(buffer);
+    bytes_processed = buffer.length();
+  } else if (sse_stream_active_) {
+    // Both client and server process SSE data after handshake
     processSseData(buffer);
     bytes_processed = buffer.length();
   } else {
+    // Client processing HTTP response
     processHttpResponse(buffer);
     bytes_processed = buffer.length();
   }
@@ -170,11 +186,21 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
 }
 
 void HttpSseTransportSocket::onConnected() {
-  // Handle connection based on current state and socket type
-  // Client sockets initiate the connection, server sockets accept connections
-  // We can detect client mode by checking if we're in disconnected state
-  // (clients start disconnected and connect, servers are already connected when created)
-  if (state_ == State::Disconnected) {
+  // Handle connection based on whether this is client or server mode
+  // Flow: TCP connection established -> Check mode -> Client sends request / Server waits
+  // Server mode: Wait for incoming HTTP request, then send SSE response
+  // Client mode: Send HTTP upgrade request, wait for SSE response
+  
+  if (is_server_mode_) {
+    // Server mode: Connection accepted, wait for HTTP request from client
+    // The server transport socket is created when accepting connections
+    std::cerr << "[DEBUG] HTTP+SSE Server: Connection accepted, waiting for HTTP request" << std::endl;
+    updateState(State::Connected);
+    
+    // Server is ready to receive HTTP requests
+    // The doRead() will handle incoming HTTP requests and send SSE response
+    
+  } else if (state_ == State::Disconnected) {
     // Client mode: TCP connected, now send HTTP upgrade request for SSE
     // This initiates the HTTP handshake to establish SSE stream
     std::cerr << "[DEBUG] HTTP+SSE Client: TCP connected, sending HTTP upgrade request" << std::endl;
@@ -532,17 +558,99 @@ void HttpSseTransportSocket::processIncomingData(Buffer& buffer) {
 }
 
 void HttpSseTransportSocket::processSseData(Buffer& buffer) {
-  // Parse SSE events
+  // Parse SSE events using zero-copy approach
+  // Flow: Buffer slices -> SSE parser -> Event callbacks -> Message processing
+  // Zero-copy: Parser processes buffer slices directly without copying
+  
+  if (!sse_parser_) {
+    return;
+  }
+  
+  // Let SSE parser process the buffer directly
+  // The parser should handle buffer slices internally for zero-copy
   sse_parser_->parse(buffer);
 }
 
-void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
-  // Parse HTTP response
-  std::vector<char> data(buffer.length());
-  buffer.copyOut(0, buffer.length(), data.data());
+void HttpSseTransportSocket::processHttpRequest(Buffer& buffer) {
+  // Server-side: Parse incoming HTTP request using zero-copy approach
+  // Flow: Read buffer -> Parse directly from buffer slices -> onMessageComplete -> Send SSE response
+  // Zero-copy: Parse from buffer's raw slices without intermediate allocation
   
-  size_t consumed = response_parser_->execute(data.data(), data.size());
-  buffer.drain(consumed);
+  if (!request_parser_) {
+    std::cerr << "[DEBUG] Server: Request parser not initialized!" << std::endl;
+    return;
+  }
+  
+  // Zero-copy parsing: iterate through buffer slices
+  // Each slice represents a contiguous memory region in the buffer
+  // MCP Buffer API provides direct access to memory slices without copying
+  
+  // Get raw slices from buffer (up to 16 slices typical for most buffers)
+  constexpr size_t kMaxSlices = 16;
+  RawSlice slices[kMaxSlices];
+  size_t num_slices = buffer.getRawSlices(slices, kMaxSlices);
+  
+  size_t total_consumed = 0;
+  for (size_t i = 0; i < num_slices; ++i) {
+    const auto& slice = slices[i];
+    if (slice.len_ == 0) continue;
+    
+    std::cerr << "[DEBUG] Server parsing HTTP request slice: " 
+              << std::string(static_cast<const char*>(slice.mem_), 
+                           std::min(size_t(100), slice.len_)) << std::endl;
+    
+    // Parse directly from buffer memory without copying
+    // The parser processes data in-place from the buffer's memory
+    size_t consumed = request_parser_->execute(
+        static_cast<const char*>(slice.mem_), slice.len_);
+    total_consumed += consumed;
+    
+    // Stop if parser consumed less than the slice (incomplete message)
+    if (consumed < slice.len_) {
+      break;
+    }
+  }
+  
+  // Drain only what was consumed by the parser
+  buffer.drain(total_consumed);
+}
+
+void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
+  // Client-side: Parse HTTP response using zero-copy approach
+  // Flow: Read buffer -> Parse directly from buffer slices -> Check for SSE content-type
+  // Zero-copy: Parse from buffer's raw slices without intermediate allocation
+  
+  if (!response_parser_) {
+    return;
+  }
+  
+  // Zero-copy parsing: iterate through buffer slices
+  // MCP Buffer API provides direct access to memory slices without copying
+  
+  // Get raw slices from buffer
+  constexpr size_t kMaxSlices = 16;
+  RawSlice slices[kMaxSlices];
+  size_t num_slices = buffer.getRawSlices(slices, kMaxSlices);
+  
+  size_t total_consumed = 0;
+  for (size_t i = 0; i < num_slices; ++i) {
+    const auto& slice = slices[i];
+    if (slice.len_ == 0) continue;
+    
+    // Parse directly from buffer memory without copying
+    // The parser processes data in-place from the buffer's memory
+    size_t consumed = response_parser_->execute(
+        static_cast<const char*>(slice.mem_), slice.len_);
+    total_consumed += consumed;
+    
+    // Stop if parser consumed less than the slice
+    if (consumed < slice.len_) {
+      break;
+    }
+  }
+  
+  // Drain only what was consumed
+  buffer.drain(total_consumed);
 }
 
 void HttpSseTransportSocket::handleSseEvent(const http::SseEvent& event) {

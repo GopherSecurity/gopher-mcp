@@ -135,7 +135,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void sendSseResponse();         // Server: Send SSE response headers
   void processIncomingData(Buffer& buffer);
   void processSseData(Buffer& buffer);
-  void processHttpResponse(Buffer& buffer);
+  void processHttpRequest(Buffer& buffer);   // Server: Process incoming HTTP request
+  void processHttpResponse(Buffer& buffer);  // Client: Process HTTP response
   void handleSseEvent(const http::SseEvent& event);
   void handleRequestTimeout(const std::string& request_id);
   void scheduleReconnect();

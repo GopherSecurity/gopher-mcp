@@ -286,21 +286,15 @@ void ActiveListener::createConnection(ConnectionSocketPtr&& socket) {
     return;
   }
   
-  // Extract the underlying socket
-  auto* socket_impl = dynamic_cast<ConnectionSocketImpl*>(socket.get());
-  if (!socket_impl) {
-    return;
-  }
+  // Create server connection using the accepted socket
+  // Flow: Accept socket -> Create transport -> Create ConnectionImpl -> Initialize filters
+  // The ConnectionImpl takes ownership of the socket and manages its lifecycle
   
-  // Move the socket out of the wrapper
-  // Note: This is a simplification - in real implementation we'd have proper move semantics
-  SocketPtr raw_socket;
-  // raw_socket = std::move(socket_impl->socket_);
-  
-  // Create server connection
+  // For server connections, we pass the socket directly to ConnectionImpl
+  // The socket is already non-blocking and configured with proper options
   auto connection = ConnectionImpl::createServerConnection(
       dispatcher_,
-      std::move(raw_socket),
+      std::move(socket),  // Pass the ConnectionSocketPtr directly
       std::move(transport_socket),
       *stream_info);
   
@@ -318,6 +312,8 @@ void ActiveListener::createConnection(ConnectionSocketPtr&& socket) {
   }
   
   // Notify about new connection
+  // This calls McpConnectionManager::onNewConnection for server-side handling
+  std::cerr << "[DEBUG] Listener: Notifying callbacks of new connection" << std::endl;
   onNewConnection(std::move(connection));
 }
 
