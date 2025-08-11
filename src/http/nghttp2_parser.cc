@@ -25,7 +25,8 @@ Nghttp2Parser::Nghttp2Parser(HttpParserType type, HttpParserCallbacks* callbacks
       type_(type),
       status_(ParserStatus::Ok),
       session_(nullptr),
-      nghttp2_callbacks_(nullptr) {
+      nghttp2_callbacks_(nullptr),
+      connection_preface_received_(false) {  // Note: Initialize preface flag
   initializeSession();
 }
 
@@ -129,24 +130,47 @@ size_t Nghttp2Parser::execute(const char* data, size_t length) {
   method_cached_ = false;
   status_cached_ = false;
   
-  // Feed data to nghttp2
-  ssize_t rv = nghttp2_session_mem_recv(session_, 
-                                        reinterpret_cast<const uint8_t*>(data),
-                                        length);
+  // Note: For server mode, check if this is the connection preface
+  // The HTTP/2 connection preface is "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" (24 bytes)
+  // nghttp2 handles this internally for server sessions
+  static const char* CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+  static const size_t PREFACE_LEN = 24;
   
-  if (rv < 0) {
-    handleError(static_cast<int>(rv));
+  size_t bytes_consumed_from_input = 0;
+  const char* process_data = data;
+  size_t process_length = length;
+  
+  if ((type_ == HttpParserType::REQUEST || type_ == HttpParserType::BOTH) &&
+      !connection_preface_received_) {
+    // Server mode - check for connection preface
+    if (length >= PREFACE_LEN && memcmp(data, CONNECTION_PREFACE, PREFACE_LEN) == 0) {
+      // This is the connection preface, nghttp2 server will handle it
+      connection_preface_received_ = true;
+      // Don't skip the preface - nghttp2 server expects to process it
+    }
+  }
+  
+  // Feed data to nghttp2 (including preface if present)
+  // nghttp2_session_mem_recv returns the number of bytes consumed
+  ssize_t consumed = nghttp2_session_mem_recv(session_, 
+                                              reinterpret_cast<const uint8_t*>(process_data),
+                                              process_length);
+  
+  if (consumed < 0) {
+    handleError(static_cast<int>(consumed));
     return 0;
   }
   
   // Send any pending data
-  rv = nghttp2_session_send(session_);
-  if (rv < 0) {
-    handleError(static_cast<int>(rv));
+  // nghttp2_session_send returns 0 on success, not bytes sent
+  ssize_t send_rv = nghttp2_session_send(session_);
+  if (send_rv < 0) {
+    handleError(static_cast<int>(send_rv));
     return 0;
   }
   
-  return static_cast<size_t>(rv);
+  // Return the number of bytes consumed from the original input
+  return static_cast<size_t>(consumed);
 }
 
 void Nghttp2Parser::resume() {
@@ -210,6 +234,7 @@ void Nghttp2Parser::reset() {
   // Reset caches
   method_cached_ = false;
   status_cached_ = false;
+  connection_preface_received_ = false;  // Note: Reset preface flag
   
   // Reset session
   if (session_) {
@@ -223,6 +248,13 @@ void Nghttp2Parser::reset() {
 
 void Nghttp2Parser::finish() {
   nghttp2_session_terminate_session(session_, NGHTTP2_NO_ERROR);
+  
+  // Note: Generate GOAWAY frame after terminating session
+  // This ensures the frame is available in getPendingData()
+  int rv = nghttp2_session_send(session_);
+  if (rv < 0) {
+    handleError(rv);
+  }
 }
 
 void Nghttp2Parser::submitSettings(const std::map<uint32_t, uint32_t>& settings) {
@@ -235,12 +267,29 @@ void Nghttp2Parser::submitSettings(const std::map<uint32_t, uint32_t>& settings)
                                    iv.data(), iv.size());
   if (rv != 0) {
     handleError(rv);
+    return;
+  }
+  
+  // Note: After submitting settings, we need to call nghttp2_session_send
+  // to actually generate the frame data that will be available via getPendingData().
+  // The submit functions only queue frames; send() generates the actual bytes.
+  rv = nghttp2_session_send(session_);
+  if (rv < 0) {
+    handleError(rv);
   }
 }
 
 void Nghttp2Parser::submitPing(const uint8_t* opaque_data) {
   int rv = nghttp2_submit_ping(session_, NGHTTP2_FLAG_NONE, opaque_data);
   if (rv != 0) {
+    handleError(rv);
+    return;
+  }
+  
+  // Note: Generate the actual frame bytes after queuing
+  // This ensures getPendingData() will have data to return
+  rv = nghttp2_session_send(session_);
+  if (rv < 0) {
     handleError(rv);
   }
 }
@@ -251,6 +300,13 @@ void Nghttp2Parser::submitGoaway(uint32_t last_stream_id, uint32_t error_code) {
                                  nullptr, 0);
   if (rv != 0) {
     handleError(rv);
+    return;
+  }
+  
+  // Note: Generate frame bytes for getPendingData()
+  rv = nghttp2_session_send(session_);
+  if (rv < 0) {
+    handleError(rv);
   }
 }
 
@@ -258,6 +314,13 @@ void Nghttp2Parser::submitWindowUpdate(int32_t stream_id, int32_t window_size_in
   int rv = nghttp2_submit_window_update(session_, NGHTTP2_FLAG_NONE,
                                         stream_id, window_size_increment);
   if (rv != 0) {
+    handleError(rv);
+    return;
+  }
+  
+  // Note: Generate the window update frame bytes
+  rv = nghttp2_session_send(session_);
+  if (rv < 0) {
     handleError(rv);
   }
 }
@@ -269,6 +332,13 @@ void Nghttp2Parser::submitPriority(int32_t stream_id, int32_t weight, uint8_t ex
   int rv = nghttp2_submit_priority(session_, NGHTTP2_FLAG_NONE,
                                    stream_id, &pri_spec);
   if (rv != 0) {
+    handleError(rv);
+    return;
+  }
+  
+  // Note: Generate the priority frame bytes
+  rv = nghttp2_session_send(session_);
+  if (rv < 0) {
     handleError(rv);
   }
 }

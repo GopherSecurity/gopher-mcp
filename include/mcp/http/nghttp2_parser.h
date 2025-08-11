@@ -100,6 +100,10 @@ class Nghttp2Parser : public HttpParser {
   mutable bool method_cached_{false};
   mutable HttpStatusCode cached_status_{HttpStatusCode::OK};
   mutable bool status_cached_{false};
+  
+  // Note: Track whether we've received the HTTP/2 connection preface
+  // Server sessions need to handle the preface before processing frames
+  bool connection_preface_received_{false};
 };
 
 /**
