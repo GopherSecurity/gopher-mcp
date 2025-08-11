@@ -18,6 +18,13 @@
 namespace mcp {
 namespace http {
 
+// Note: The specialized factory classes LLHttp10ParserFactory and LLHttp11ParserFactory
+// are now declared in llhttp_parser.h to solve the issue where parsers need to report
+// their version immediately after creation. The HttpParserSelector knows which version
+// it wants, but the generic factory interface doesn't pass version information. 
+// By creating version-specific factories, each parser is created with the correct 
+// version hint from the start.
+
 namespace {
 
 // Convert string to lowercase
@@ -372,10 +379,15 @@ HttpParserSelectorPtr createHttpParserSelector() {
   
   // Auto-register available parsers based on compile-time flags
 #if MCP_HAS_LLHTTP
-  // Register llhttp for HTTP/1.x
-  auto llhttp_factory = std::make_shared<http::LLHttpParserFactory>();
-  selector->registerFactory({HttpVersion::HTTP_1_0, HttpVersion::HTTP_1_1}, 
-                           llhttp_factory);
+  // Note: Register separate factories for HTTP/1.0 and HTTP/1.1
+  // Instead of one factory handling both versions, we use version-specific factories
+  // This ensures parsers report the correct HTTP version immediately after creation,
+  // not just after parsing data. The tests expect parser->httpVersion() to return
+  // the requested version right after createParser(version, ...) is called.
+  selector->registerFactory({HttpVersion::HTTP_1_0}, 
+                           std::make_shared<http::LLHttp10ParserFactory>());
+  selector->registerFactory({HttpVersion::HTTP_1_1}, 
+                           std::make_shared<http::LLHttp11ParserFactory>());
 #endif
   
 #if MCP_HAS_NGHTTP2
@@ -437,8 +449,12 @@ const char* httpVersionToString(HttpVersion version) {
       return "HTTP/2";
     case HttpVersion::HTTP_3:
       return "HTTP/3";
+    case HttpVersion::UNKNOWN:
     default:
-      return "HTTP/1.1";
+      // Note: Return "UNKNOWN" instead of "HTTP/1.1" for unknown versions
+      // The test expects httpVersionToString(HttpVersion::UNKNOWN) to return "UNKNOWN"
+      // This ensures proper error reporting and debugging when version detection fails
+      return "UNKNOWN";
   }
 }
 
