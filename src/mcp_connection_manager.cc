@@ -503,7 +503,8 @@ std::unique_ptr<network::TransportSocketFactoryBase> McpConnectionManager::creat
     
   case TransportType::HttpSse:
     if (config_.http_sse_config.has_value()) {
-      return transport::createHttpTransportSocketFactory(config_.http_sse_config.value());
+      // Create HTTP+SSE transport socket factory
+      return transport::createHttpSseTransportSocketFactory(config_.http_sse_config.value(), dispatcher_);
     }
     break;
     
