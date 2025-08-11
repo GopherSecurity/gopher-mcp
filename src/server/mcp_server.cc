@@ -10,6 +10,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/transport/http_sse_transport_socket.h"
+
 namespace mcp {
 namespace server {
 
@@ -74,7 +76,14 @@ VoidResult McpServer::listen(const std::string& address) {
         if (transport == TransportType::Stdio) {
           conn_config.stdio_config = transport::StdioTransportSocketConfig();
         } else if (transport == TransportType::HttpSse) {
-          conn_config.http_sse_config = transport::HttpTransportSocketConfig();
+          // Configure HTTP+SSE transport
+          transport::HttpSseTransportSocketConfig http_config;
+          
+          // Store endpoint URL in config
+          // The HTTP+SSE transport will handle the actual URL parsing
+          
+          http_config.endpoint_url = address;
+          conn_config.http_sse_config = http_config;
         }
         
         // Create connection manager for this transport
@@ -91,15 +100,41 @@ VoidResult McpServer::listen(const std::string& address) {
         if (transport == TransportType::Stdio) {
           // Stdio doesn't need address, immediate connection
           result = conn_manager->connect();  // Acts as server for stdio
+        } else if (transport == TransportType::HttpSse) {
+          // Parse address to extract port for HTTP server
+          uint32_t port = 8080;  // Default port
+          
+          // Simple URL parsing
+          if (address.find("http://") == 0 || address.find("https://") == 0) {
+            std::string url = address;
+            size_t protocol_end = url.find("://") + 3;
+            size_t port_start = url.find(':', protocol_end);
+            
+            if (port_start != std::string::npos) {
+              // Extract port number from URL
+              size_t port_end = url.find('/', port_start + 1);
+              std::string port_str = (port_end != std::string::npos) 
+                  ? url.substr(port_start + 1, port_end - port_start - 1)
+                  : url.substr(port_start + 1);
+              port = std::stoi(port_str);
+            }
+          }
+          
+          // Create TCP address for listening on any interface
+          auto tcp_address = network::Address::anyAddress(network::Address::IpVersion::v4, port);
+          result = conn_manager->listen(tcp_address);
         } else {
-          // Network transports need to listen on address
-          // For now, use pipe address as placeholder - would need proper parsing
+          // Other network transports (future)
           auto net_address = network::Address::pipeAddress(address);
           result = conn_manager->listen(net_address);
         }
         
         if (holds_alternative<std::nullptr_t>(result)) {
           connection_managers_.push_back(std::move(conn_manager));
+          std::cerr << "[DEBUG] Successfully added connection manager for transport" << std::endl;
+        } else {
+          auto error = get<Error>(result);
+          std::cerr << "[ERROR] Failed to setup transport: " << error.message << std::endl;
         }
       }
       
