@@ -14,15 +14,21 @@ HttpSseTransportSocket::HttpSseTransportSocket(
     event::Dispatcher& dispatcher)
     : config_(config), dispatcher_(dispatcher) {
   // Initialize parser factory if not provided
+  // This ensures we have a valid factory for creating parsers
   if (!config_.parser_factory) {
-    // Use llhttp as default if available
+    // Use llhttp as default HTTP parser
     config_.parser_factory = std::make_shared<http::LLHttpParserFactory>();
   }
   
-  // Initialize buffers
+  // Initialize buffers for data handling
   read_buffer_ = createBuffer();
   write_buffer_ = createBuffer();
   sse_buffer_ = createBuffer();
+  
+  // Initialize parsers immediately in constructor
+  // This prevents null pointer access if doRead() is called before connect()
+  // The parsers need to be ready for any incoming data
+  initializeParsers();
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
@@ -50,8 +56,22 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
   
   updateState(State::Connecting);
   
-  // Initialize parsers
-  initializeParsers();
+  // Protocol negotiation flow:
+  // 1. Reset parsers for clean state (already initialized in constructor)
+  // 2. Detect HTTP version from initial handshake
+  // 3. Switch parser implementation based on protocol
+  
+  // Reset parsers for a clean connection state
+  // Parsers were already created in constructor to avoid null pointer access
+  if (request_parser_) {
+    request_parser_->reset();
+  }
+  if (response_parser_) {
+    response_parser_->reset();
+  }
+  if (sse_parser_) {
+    sse_parser_->reset();
+  }
   
   // Start connection sequence
   connect_time_ = std::chrono::steady_clock::now();
@@ -326,14 +346,23 @@ void HttpSseTransportSocket::onSseError(const std::string& error) {
 // Private helper methods
 
 void HttpSseTransportSocket::initializeParsers() {
-  // Create HTTP parsers
+  // Parser initialization with protocol detection support
+  // Initially create HTTP/1.1 parsers, will switch to HTTP/2 if detected
+  
+  // Create HTTP parsers based on preferred version
+  // HTTP/1.1 uses llhttp, HTTP/2 uses nghttp2
+  // Parser factory abstracts the implementation details
   request_parser_ = config_.parser_factory->createParser(
       http::HttpParserType::REQUEST, this);
   response_parser_ = config_.parser_factory->createParser(
       http::HttpParserType::RESPONSE, this);
   
-  // Create SSE parser
+  // Create SSE parser (works with both HTTP/1.1 and HTTP/2)
   sse_parser_ = http::createSseParser(this);
+  
+  // TODO: Add ALPN negotiation for HTTP/2 detection
+  // TODO: Switch parser implementation based on negotiated protocol
+  // For now, using HTTP/1.1 by default
 }
 
 void HttpSseTransportSocket::sendHttpRequest(const std::string& body,
