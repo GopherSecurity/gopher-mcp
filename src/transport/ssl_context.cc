@@ -7,6 +7,7 @@
 
 #include <openssl/err.h>
 #include <openssl/pem.h>
+#include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -67,14 +68,14 @@ Result<SslContextSharedPtr> SslContext::create(const SslContextConfig& config) {
   // Use TLS_method() for flexibility (supports all TLS versions)
   SSL_CTX* ctx = SSL_CTX_new(TLS_method());
   if (!ctx) {
-    return makeError("Failed to create SSL context: " + getOpenSSLError());
+    return makeError<SslContextSharedPtr>(Error{0, "Failed to create SSL context: " + getOpenSSLError()});
   }
   
   // Initialize context with configuration
   auto result = initialize(ctx, config);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     SSL_CTX_free(ctx);
-    return makeError(result.error());
+    return makeError<SslContextSharedPtr>(get<Error>(result));
   }
   
   // Create and return shared context
@@ -112,64 +113,64 @@ SSL* SslContext::newSsl() const {
 
 VoidResult SslContext::setSniHostname(SSL* ssl, const std::string& hostname) {
   if (!ssl || hostname.empty()) {
-    return makeError("Invalid SSL or hostname");
+    return makeVoidError(Error{0, "Invalid SSL or hostname"});
   }
   
   if (SSL_set_tlsext_host_name(ssl, hostname.c_str()) != 1) {
-    return makeError("Failed to set SNI hostname: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to set SNI hostname: " + getOpenSSLError()});
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 Result<bool> SslContext::verifyPeer(SSL* ssl) {
   if (!ssl) {
-    return makeError("Invalid SSL connection");
+    return makeError<bool>(Error{0, "Invalid SSL connection"});
   }
   
   // Get verification result
   long verify_result = SSL_get_verify_result(ssl);
   if (verify_result != X509_V_OK) {
-    return makeError("Certificate verification failed: " +
-                    std::string(X509_verify_cert_error_string(verify_result)));
+    return makeError<bool>(Error{0, "Certificate verification failed: " +
+                    std::string(X509_verify_cert_error_string(verify_result))});
   }
   
   // Get peer certificate
   X509* peer_cert = SSL_get_peer_certificate(ssl);
   if (!peer_cert) {
-    return makeError("No peer certificate presented");
+    return makeError<bool>(Error{0, "No peer certificate presented"});
   }
   
   // Clean up certificate
   X509_free(peer_cert);
   
-  return true;
+  return makeSuccess<bool>(true);
 }
 
 VoidResult SslContext::initialize(SSL_CTX* ctx, const SslContextConfig& config) {
   // Configure protocols (TLS versions)
   auto result = configureProtocols(ctx, config.protocols);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     return result;
   }
   
   // Configure cipher suites
   result = configureCipherSuites(ctx, config.cipher_suites);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     return result;
   }
   
   // Load certificates and keys if provided
   if (!config.cert_chain_file.empty()) {
     result = loadCertificateChain(ctx, config.cert_chain_file);
-    if (!result.ok()) {
+    if (holds_alternative<Error>(result)) {
       return result;
     }
   }
   
   if (!config.private_key_file.empty()) {
     result = loadPrivateKey(ctx, config.private_key_file);
-    if (!result.ok()) {
+    if (holds_alternative<Error>(result)) {
       return result;
     }
   }
@@ -177,21 +178,21 @@ VoidResult SslContext::initialize(SSL_CTX* ctx, const SslContextConfig& config) 
   // Load CA certificates for verification
   if (!config.ca_cert_file.empty()) {
     result = loadCaCertificates(ctx, config.ca_cert_file);
-    if (!result.ok()) {
+    if (holds_alternative<Error>(result)) {
       return result;
     }
   }
   
   // Setup verification
   result = setupVerification(ctx, config);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     return result;
   }
   
   // Configure ALPN if specified
   if (!config.alpn_protocols.empty()) {
     result = configureAlpn(ctx, config.alpn_protocols);
-    if (!result.ok()) {
+    if (holds_alternative<Error>(result)) {
       return result;
     }
   }
@@ -210,43 +211,43 @@ VoidResult SslContext::initialize(SSL_CTX* ctx, const SslContextConfig& config) 
   SSL_CTX_set_mode(ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER |
                         SSL_MODE_ENABLE_PARTIAL_WRITE);
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::loadCertificateChain(SSL_CTX* ctx, const std::string& cert_file) {
   if (SSL_CTX_use_certificate_chain_file(ctx, cert_file.c_str()) != 1) {
-    return makeError("Failed to load certificate chain from " + cert_file +
-                    ": " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to load certificate chain from " + cert_file +
+                    ": " + getOpenSSLError()});
   }
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::loadPrivateKey(SSL_CTX* ctx, const std::string& key_file) {
   if (SSL_CTX_use_PrivateKey_file(ctx, key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-    return makeError("Failed to load private key from " + key_file +
-                    ": " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to load private key from " + key_file +
+                    ": " + getOpenSSLError()});
   }
   
   // Verify that private key matches certificate
   if (SSL_CTX_check_private_key(ctx) != 1) {
-    return makeError("Private key does not match certificate: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Private key does not match certificate: " + getOpenSSLError()});
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::loadCaCertificates(SSL_CTX* ctx, const std::string& ca_file) {
   if (SSL_CTX_load_verify_locations(ctx, ca_file.c_str(), nullptr) != 1) {
-    return makeError("Failed to load CA certificates from " + ca_file +
-                    ": " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to load CA certificates from " + ca_file +
+                    ": " + getOpenSSLError()});
   }
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::configureProtocols(SSL_CTX* ctx,
                                          const std::vector<std::string>& protocols) {
   if (protocols.empty()) {
-    return VoidResult::success();  // Use OpenSSL defaults
+    return makeVoidSuccess();  // Use OpenSSL defaults
   }
   
   // Determine min and max protocol versions
@@ -256,7 +257,7 @@ VoidResult SslContext::configureProtocols(SSL_CTX* ctx,
   for (const auto& protocol : protocols) {
     int version = protocolToVersion(protocol);
     if (version == 0) {
-      return makeError("Unknown protocol: " + protocol);
+      return makeVoidError(Error{0, "Unknown protocol: " + protocol});
     }
     min_version = std::min(min_version, version);
     max_version = std::max(max_version, version);
@@ -264,30 +265,30 @@ VoidResult SslContext::configureProtocols(SSL_CTX* ctx,
   
   // Set protocol version range
   if (SSL_CTX_set_min_proto_version(ctx, min_version) != 1) {
-    return makeError("Failed to set minimum protocol version: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to set minimum protocol version: " + getOpenSSLError()});
   }
   
   if (SSL_CTX_set_max_proto_version(ctx, max_version) != 1) {
-    return makeError("Failed to set maximum protocol version: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to set maximum protocol version: " + getOpenSSLError()});
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::configureCipherSuites(SSL_CTX* ctx, const std::string& ciphers) {
   if (ciphers.empty()) {
-    return VoidResult::success();  // Use OpenSSL defaults
+    return makeVoidSuccess();  // Use OpenSSL defaults
   }
   
   // Set TLS 1.2 and below cipher suites
   if (SSL_CTX_set_cipher_list(ctx, ciphers.c_str()) != 1) {
-    return makeError("Failed to set cipher suites: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to set cipher suites: " + getOpenSSLError()});
   }
   
   // For TLS 1.3, use separate ciphersuites setting
   // Default TLS 1.3 ciphers are usually fine
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 VoidResult SslContext::setupVerification(SSL_CTX* ctx, const SslContextConfig& config) {
@@ -311,7 +312,7 @@ VoidResult SslContext::setupVerification(SSL_CTX* ctx, const SslContextConfig& c
     SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 int SslContext::verifyCallback(int preverify_ok, X509_STORE_CTX* ctx) {
@@ -333,7 +334,7 @@ int SslContext::verifyCallback(int preverify_ok, X509_STORE_CTX* ctx) {
 VoidResult SslContext::configureAlpn(SSL_CTX* ctx,
                                     const std::vector<std::string>& alpn_protocols) {
   if (alpn_protocols.empty()) {
-    return VoidResult::success();
+    return makeVoidSuccess();
   }
   
   // Build ALPN protocol list in wire format
@@ -341,7 +342,7 @@ VoidResult SslContext::configureAlpn(SSL_CTX* ctx,
   std::vector<unsigned char> alpn_list;
   for (const auto& protocol : alpn_protocols) {
     if (protocol.size() > 255) {
-      return makeError("ALPN protocol too long: " + protocol);
+      return makeVoidError(Error{0, "ALPN protocol too long: " + protocol});
     }
     alpn_list.push_back(static_cast<unsigned char>(protocol.size()));
     alpn_list.insert(alpn_list.end(), protocol.begin(), protocol.end());
@@ -349,10 +350,10 @@ VoidResult SslContext::configureAlpn(SSL_CTX* ctx,
   
   // Set ALPN protocols
   if (SSL_CTX_set_alpn_protos(ctx, alpn_list.data(), alpn_list.size()) != 0) {
-    return makeError("Failed to set ALPN protocols: " + getOpenSSLError());
+    return makeVoidError(Error{0, "Failed to set ALPN protocols: " + getOpenSSLError()});
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 // SslContextManager implementation
@@ -372,13 +373,13 @@ Result<SslContextSharedPtr> SslContextManager::getOrCreateContext(
   
   // Create new context
   auto result = SslContext::create(config);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     return result;
   }
   
   // Cache and return
-  context_cache_[cache_key] = result.value();
-  return result.value();
+  context_cache_[cache_key] = get<SslContextSharedPtr>(result);
+  return get<SslContextSharedPtr>(result);
 }
 
 void SslContextManager::clearCache() {
