@@ -79,13 +79,15 @@
 #include <chrono>
 #include <cstring>
 #include <sstream>
+#include <mutex>
 
 using namespace mcp;
 using namespace mcp::client;
 
 // Global client for signal handling
-std::unique_ptr<McpClient> g_client;
+std::shared_ptr<McpClient> g_client;
 std::atomic<bool> g_shutdown(false);
+std::mutex g_client_mutex;
 
 // Command-line options
 struct ClientOptions {
@@ -107,8 +109,15 @@ struct ClientOptions {
 void signal_handler(int signal) {
   std::cerr << "\n[INFO] Received signal " << signal << ", shutting down..." << std::endl;
   g_shutdown = true;
+  
+  // Use mutex to safely access g_client
+  std::lock_guard<std::mutex> lock(g_client_mutex);
   if (g_client) {
-    g_client->disconnect();
+    try {
+      g_client->disconnect();
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Exception during disconnect: " << e.what() << std::endl;
+    }
   }
 }
 
@@ -497,11 +506,27 @@ int main(int argc, char* argv[]) {
   std::cerr << "[INFO] Worker threads: " << options.num_workers << std::endl;
   std::cerr << "[INFO] Max retries: " << options.max_retries << std::endl;
   
-  g_client = createMcpClient(config);
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    g_client = createMcpClient(config);
+    if (!g_client) {
+      std::cerr << "[ERROR] Failed to create client" << std::endl;
+      return 1;
+    }
+  }
   
   // Connect to server
   std::cerr << "[INFO] Connecting to server..." << std::endl;
-  auto connect_result = g_client->connect(server_uri);
+  VoidResult connect_result;
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      connect_result = g_client->connect(server_uri);
+    } else {
+      std::cerr << "[ERROR] Client not initialized" << std::endl;
+      return 1;
+    }
+  }
   
   if (is_error<std::nullptr_t>(connect_result)) {
     std::cerr << "[ERROR] Failed to connect: " 
@@ -513,15 +538,24 @@ int main(int argc, char* argv[]) {
   std::cerr << "[INFO] Waiting for connection to be established..." << std::endl;
   
   int wait_count = 0;
-  while (!g_client->isConnected() && wait_count < 100) {  // 10 seconds timeout
+  bool connected = false;
+  while (!connected && wait_count < 100) {  // 10 seconds timeout
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     wait_count++;
     if (wait_count % 10 == 0) {
       std::cerr << "[INFO] Still connecting..." << std::endl;
     }
+    
+    // Check connection status safely
+    {
+      std::lock_guard<std::mutex> lock(g_client_mutex);
+      if (g_client) {
+        connected = g_client->isConnected();
+      }
+    }
   }
   
-  if (!g_client->isConnected()) {
+  if (!connected) {
     std::cerr << "[ERROR] Connection timeout - failed to establish connection" << std::endl;
     std::cerr << "[HINT] Make sure the server is running on " << options.host << ":" << options.port << std::endl;
     return 1;
@@ -531,7 +565,10 @@ int main(int argc, char* argv[]) {
   
   // Run demonstrations if requested
   if (options.demo) {
-    demonstrateFeatures(*g_client, options.verbose);
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      demonstrateFeatures(*g_client, options.verbose);
+    }
   }
   
   // Main loop - send periodic pings
@@ -542,10 +579,18 @@ int main(int argc, char* argv[]) {
   int consecutive_failures = 0;
   
   while (!g_shutdown) {
-    // Send ping request
-    auto ping_future = g_client->sendRequest("ping");
-    
+    // Send ping request safely
     try {
+      std::future<jsonrpc::Response> ping_future;
+      {
+        std::lock_guard<std::mutex> lock(g_client_mutex);
+        if (!g_client || !g_client->isConnected()) {
+          std::cerr << "[WARNING] Client disconnected, exiting main loop" << std::endl;
+          break;
+        }
+        ping_future = g_client->sendRequest("ping");
+      }
+      
       auto response = ping_future.get();
       if (!response.error.has_value()) {
         ping_count++;
@@ -570,7 +615,14 @@ int main(int argc, char* argv[]) {
     
     // Show periodic metrics if requested
     if (options.metrics && ping_count > 0 && ping_count % 20 == 0) {
-      printStatistics(*g_client);
+      std::lock_guard<std::mutex> lock(g_client_mutex);
+      if (g_client) {
+        try {
+          printStatistics(*g_client);
+        } catch (const std::exception& e) {
+          std::cerr << "[ERROR] Failed to print statistics: " << e.what() << std::endl;
+        }
+      }
     }
     
     // Sleep between pings
@@ -581,15 +633,37 @@ int main(int argc, char* argv[]) {
   
   // Disconnect
   std::cerr << "\n[INFO] Disconnecting..." << std::endl;
-  g_client->disconnect();
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      try {
+        g_client->disconnect();
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Exception during disconnect: " << e.what() << std::endl;
+      }
+    }
+  }
   
   // Print final statistics
   if (options.metrics || options.verbose) {
-    printStatistics(*g_client);
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      try {
+        printStatistics(*g_client);
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Failed to print final statistics: " << e.what() << std::endl;
+      }
+    }
   }
   
   std::cerr << "\n[INFO] Client shutdown complete" << std::endl;
   std::cerr << "[INFO] Total pings sent: " << ping_count << std::endl;
+  
+  // Clean up global client
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    g_client.reset();
+  }
   
   return 0;
 }

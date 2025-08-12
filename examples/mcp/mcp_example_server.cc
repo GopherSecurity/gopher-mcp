@@ -95,13 +95,15 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <mutex>
 
 using namespace mcp;
 using namespace mcp::server;
 
 // Global server for signal handling
-std::unique_ptr<McpServer> g_server;
+std::shared_ptr<McpServer> g_server;
 std::atomic<bool> g_shutdown(false);
+std::mutex g_server_mutex;
 
 // Command-line options
 struct ServerOptions {
@@ -122,16 +124,23 @@ struct ServerOptions {
 void signal_handler(int signal) {
   std::cerr << "\n[INFO] Received signal " << signal << ", initiating graceful shutdown..." << std::endl;
   g_shutdown = true;
-  if (g_server) {
-    // Send shutdown notification to all clients
-    auto shutdown_notif = jsonrpc::make_notification("server/shutdown");
-    g_server->broadcastNotification(shutdown_notif);
-    
-    // Give clients time to disconnect
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    
-    // Shutdown server
-    g_server->shutdown();
+  
+  // Use mutex to safely access g_server
+  std::lock_guard<std::mutex> lock(g_server_mutex);
+  if (g_server && g_server->isRunning()) {
+    try {
+      // Send shutdown notification to all clients
+      auto shutdown_notif = jsonrpc::make_notification("server/shutdown");
+      g_server->broadcastNotification(shutdown_notif);
+      
+      // Give clients time to disconnect
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      
+      // Shutdown server
+      g_server->shutdown();
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Exception during shutdown: " << e.what() << std::endl;
+    }
   }
 }
 
@@ -855,7 +864,14 @@ int main(int argc, char* argv[]) {
   std::cerr << "[INFO] Max sessions: " << options.max_sessions << std::endl;
   std::cerr << "[INFO] Session timeout: " << options.session_timeout_minutes << " minutes" << std::endl;
   
-  g_server = createMcpServer(config);
+  {
+    std::lock_guard<std::mutex> lock(g_server_mutex);
+    g_server = createMcpServer(config);
+    if (!g_server) {
+      std::cerr << "[ERROR] Failed to create server" << std::endl;
+      return 1;
+    }
+  }
   
   // Setup server resources, tools, and prompts
   setupServer(*g_server, options.verbose);
@@ -907,37 +923,58 @@ int main(int argc, char* argv[]) {
       
       update_count++;
       
-      // Update server metrics resource
-      if (update_count % 3 == 0) {  // Every 30 seconds
-        if (options.verbose) {
-          std::cerr << "[INFO] Update cycle " << update_count/3 << std::endl;
+      // Use mutex to safely access server
+      {
+        std::lock_guard<std::mutex> lock(g_server_mutex);
+        if (!g_server || !g_server->isRunning()) {
+          std::cerr << "[WARNING] Server is not running, exiting main loop" << std::endl;
+          break;
         }
         
-        // Notify subscribers of metrics update
-        g_server->notifyResourceUpdate("metrics://server/stats");
-        
-        // Broadcast server status if verbose
-        if (options.verbose) {
-          auto status_notif = jsonrpc::make_notification("server/heartbeat");
-          g_server->broadcastNotification(status_notif);
+        // Update server metrics resource
+        if (update_count % 3 == 0) {  // Every 30 seconds
+          if (options.verbose) {
+            std::cerr << "[INFO] Update cycle " << update_count/3 << std::endl;
+          }
+          
+          try {
+            // Notify subscribers of metrics update
+            g_server->notifyResourceUpdate("metrics://server/stats");
+            
+            // Broadcast server status if verbose
+            if (options.verbose) {
+              auto status_notif = jsonrpc::make_notification("server/heartbeat");
+              g_server->broadcastNotification(status_notif);
+            }
+          } catch (const std::exception& e) {
+            std::cerr << "[ERROR] Failed to send notifications: " << e.what() << std::endl;
+          }
         }
-      }
-      
-      // Print status periodically
-      if (options.verbose || (update_count % 6 == 0)) {  // Every minute
-        auto now = std::chrono::steady_clock::now();
-        auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
         
-        const auto& stats = g_server->getServerStats();
-        std::cerr << "[STATUS] Uptime: " << uptime << "s"
-                  << " | Sessions: " << stats.sessions_active
-                  << " | Requests: " << stats.requests_total
-                  << " | Connections: " << stats.connections_active << std::endl;
-      }
-      
-      // Show detailed metrics periodically if enabled
-      if (options.metrics && update_count % 30 == 0) {  // Every 5 minutes
-        printStatistics(*g_server);
+        // Print status periodically
+        if (options.verbose || (update_count % 6 == 0)) {  // Every minute
+          auto now = std::chrono::steady_clock::now();
+          auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+          
+          try {
+            const auto& stats = g_server->getServerStats();
+            std::cerr << "[STATUS] Uptime: " << uptime << "s"
+                      << " | Sessions: " << stats.sessions_active
+                      << " | Requests: " << stats.requests_total
+                      << " | Connections: " << stats.connections_active << std::endl;
+          } catch (const std::exception& e) {
+            std::cerr << "[ERROR] Failed to get server stats: " << e.what() << std::endl;
+          }
+        }
+        
+        // Show detailed metrics periodically if enabled
+        if (options.metrics && update_count % 30 == 0) {  // Every 5 minutes
+          try {
+            printStatistics(*g_server);
+          } catch (const std::exception& e) {
+            std::cerr << "[ERROR] Failed to print statistics: " << e.what() << std::endl;
+          }
+        }
       }
       
     } catch (const std::exception& e) {
@@ -952,8 +989,18 @@ int main(int argc, char* argv[]) {
   // Just wait a bit more for cleanup
   std::this_thread::sleep_for(std::chrono::seconds(1));
   
-  // Print final statistics
-  printStatistics(*g_server);
+  // Print final statistics safely
+  {
+    std::lock_guard<std::mutex> lock(g_server_mutex);
+    if (g_server) {
+      try {
+        printStatistics(*g_server);
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Failed to print final statistics: " << e.what() << std::endl;
+      }
+      g_server.reset(); // Clean up server
+    }
+  }
   
   std::cerr << "\n[INFO] Server shutdown complete" << std::endl;
   
