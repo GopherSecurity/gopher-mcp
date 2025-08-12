@@ -313,7 +313,6 @@ void ActiveListener::createConnection(ConnectionSocketPtr&& socket) {
   
   // Notify about new connection
   // This calls McpConnectionManager::onNewConnection for server-side handling
-  std::cerr << "[DEBUG] Listener: Notifying callbacks of new connection" << std::endl;
   onNewConnection(std::move(connection));
 }
 
