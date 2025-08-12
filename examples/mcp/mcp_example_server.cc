@@ -81,9 +81,9 @@
  *   ./mcp_example_server --port 443 --workers 8 --metrics
  * 
  * API ENDPOINTS (HTTP Transport):
- *   POST /mcp/v1/rpc      - JSON-RPC endpoint
- *   GET  /mcp/v1/events   - SSE event stream
- *   GET  /health          - Health check
+ *   POST /rpc             - JSON-RPC endpoint
+ *   GET  /events          - SSE event stream
+ *   GET  /health          - Health check (custom handler)
  *   GET  /metrics         - Prometheus metrics (if enabled)
  */
 
@@ -904,8 +904,8 @@ int main(int argc, char* argv[]) {
   
   if (options.transport == "http" || options.transport == "all") {
     std::cerr << "\n[INFO] HTTP/SSE Endpoints:" << std::endl;
-    std::cerr << "  JSON-RPC: POST http://" << options.host << ":" << options.port << "/mcp/v1/rpc" << std::endl;
-    std::cerr << "  SSE Events: GET http://" << options.host << ":" << options.port << "/mcp/v1/events" << std::endl;
+    std::cerr << "  JSON-RPC: POST http://" << options.host << ":" << options.port << "/rpc" << std::endl;
+    std::cerr << "  SSE Events: GET http://" << options.host << ":" << options.port << "/events" << std::endl;
     std::cerr << "  Health: GET http://" << options.host << ":" << options.port << "/health" << std::endl;
     if (options.metrics) {
       std::cerr << "  Metrics: GET http://" << options.host << ":" << options.port << "/metrics" << std::endl;
