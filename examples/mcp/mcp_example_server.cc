@@ -598,6 +598,18 @@ void setupServer(McpServer& server, bool verbose) {
   
   // Register custom request handlers
   {
+    // Ping handler - IMPORTANT: Required for client keep-alive
+    server.registerRequestHandler("ping", 
+        [](const jsonrpc::Request& request, SessionContext& session) {
+      auto pong = make<Metadata>()
+          .add("pong", true)
+          .add("timestamp", static_cast<long long>(std::time(nullptr)))
+          .build();
+      
+      return jsonrpc::Response::success(request.id, 
+          jsonrpc::ResponseResult(pong));
+    });
+    
     // Echo handler
     server.registerRequestHandler("echo", 
         [](const jsonrpc::Request& request, SessionContext& session) {
@@ -651,7 +663,7 @@ void setupServer(McpServer& server, bool verbose) {
     });
     
     if (verbose) {
-      std::cerr << "[SETUP] Registered 3 custom request handlers" << std::endl;
+      std::cerr << "[SETUP] Registered 4 custom request handlers (ping, echo, status, health)" << std::endl;
     }
   }
   
