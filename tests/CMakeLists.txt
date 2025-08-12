@@ -39,6 +39,12 @@ add_executable(test_http_transport_socket transport/test_http_transport_socket.c
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
+# SSL/TLS transport tests
+add_executable(test_ssl_context transport/test_ssl_context.cc)
+add_executable(test_ssl_transport_socket transport/test_ssl_transport_socket.cc)
+add_executable(test_https_sse_factory transport/test_https_sse_factory.cc)
+add_executable(test_ssl_integration transport/test_ssl_integration.cc)
+
 # HTTP parser tests
 add_executable(test_http_parser http/test_http_parser.cc)
 add_executable(test_llhttp_parser http/test_llhttp_parser.cc)
@@ -291,6 +297,51 @@ target_link_libraries(test_http_sse_transport_socket
     Threads::Threads
 )
 
+# SSL/TLS transport test libraries
+target_link_libraries(test_ssl_context
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_link_libraries(test_ssl_transport_socket
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_link_libraries(test_https_sse_factory
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_link_libraries(test_ssl_integration
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
 # HTTP parser test libraries
 target_link_libraries(test_http_parser
     mcp-sdk
@@ -502,6 +553,12 @@ add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpTransportSocketTest COMMAND test_http_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
+
+# SSL/TLS transport tests
+add_test(NAME SslContextTest COMMAND test_ssl_context)
+add_test(NAME SslTransportSocketTest COMMAND test_ssl_transport_socket)
+add_test(NAME HttpsSseFactoryTest COMMAND test_https_sse_factory)
+add_test(NAME SslIntegrationTest COMMAND test_ssl_integration)
 
 # HTTP parser tests
 add_test(NAME HttpParserTest COMMAND test_http_parser)
