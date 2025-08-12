@@ -282,13 +282,14 @@ class ApplicationBase {
 
   virtual ~ApplicationBase() { stop(); }
 
-  // Start the application with worker threads
-  void start() {
-    if (running_.exchange(true)) {
-      return;  // Already running
+  // Initialize the application (create dispatchers and workers),
+  // separate initialization from running
+  void initialize() {
+    if (initialized_.exchange(true)) {
+      return;  // Already initialized
     }
 
-    LOG_INFO("Starting application with {} workers", config_.num_workers);
+    LOG_INFO("Initializing application with {} workers", config_.num_workers);
 
     // Create main dispatcher for control plane
     main_dispatcher_ = dispatcher_factory_->createDispatcher("main");
@@ -312,9 +313,27 @@ class ApplicationBase {
 
       workers_.push_back(std::move(worker));
     }
+    
+    running_ = true;
+  }
 
-    // Run main dispatcher (blocks until stop() is called)
-    main_dispatcher_->run(event::RunType::RunUntilExit);
+  // Run the main dispatcher event loop (blocks until exit)
+  // This should be called from main thread following Envoy pattern
+  void runEventLoop() {
+    if (!initialized_) {
+      initialize();
+    }
+    
+    if (main_dispatcher_) {
+      LOG_INFO("Running main event loop");
+      main_dispatcher_->run(event::RunType::RunUntilExit);
+    }
+  }
+
+  // Start the application with worker threads (legacy method)
+  void start() {
+    initialize();
+    runEventLoop();
   }
 
   // Stop the application gracefully
@@ -527,6 +546,7 @@ class ApplicationBase {
   std::vector<std::unique_ptr<WorkerContext>> workers_;
   std::vector<std::thread> worker_threads_;
 
+  std::atomic<bool> initialized_{false};
   std::atomic<bool> running_;
   std::thread metrics_thread_;
 

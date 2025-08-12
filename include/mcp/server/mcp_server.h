@@ -569,6 +569,7 @@ class McpServer : public application::ApplicationBase,
 
   // Server lifecycle
   VoidResult listen(const std::string& address);
+  void run();  // Run event loop in main thread (Envoy pattern)
   void shutdown();
   bool isRunning() const { return server_running_; }
 
@@ -637,6 +638,9 @@ class McpServer : public application::ApplicationBase,
  private:
   // Register built-in handlers
   void registerBuiltinHandlers();
+  
+  // Internal method to perform actual listening (called from dispatcher thread)
+  void performListen();
 
   // Built-in request handlers
   jsonrpc::Response handleInitialize(const jsonrpc::Request& request,
@@ -692,6 +696,9 @@ class McpServer : public application::ApplicationBase,
 
   // Background task state
   std::atomic<bool> background_threads_running_{false};
+  
+  // Deferred listen address (for Envoy pattern)
+  std::string listen_address_;
 };
 
 /**

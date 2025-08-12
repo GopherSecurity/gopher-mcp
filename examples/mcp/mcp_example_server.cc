@@ -922,11 +922,16 @@ int main(int argc, char* argv[]) {
   auto start_time = std::chrono::steady_clock::now();
   
   if (options.verbose) {
-    std::cerr << "[DEBUG] Entering main loop..." << std::endl;
-    std::cerr << "[DEBUG] Server running: " << g_server->isRunning() << std::endl;
+    std::cerr << "[DEBUG] About to run server event loop..." << std::endl;
   }
   
-  // Keep the main thread alive
+  // Run the server's event loop in main thread
+  // Following Envoy pattern: main thread runs the event loop
+  // This blocks until shutdown() is called
+  g_server->run();
+  
+  // Old monitoring loop - no longer needed since event loop handles everything
+  /*
   while (!g_shutdown) {
     try {
       std::this_thread::sleep_for(std::chrono::seconds(10));
@@ -993,6 +998,7 @@ int main(int argc, char* argv[]) {
       std::cerr << "[ERROR] Exception in main loop: " << e.what() << std::endl;
     }
   }
+  */
   
   // Graceful shutdown
   std::cerr << "\n[INFO] Shutting down server gracefully..." << std::endl;

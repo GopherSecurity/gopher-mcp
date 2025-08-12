@@ -45,18 +45,13 @@ McpServer::~McpServer() {
 
 // Start listening for connections
 VoidResult McpServer::listen(const std::string& address) {
-  // Start the application if not already running
-  if (!running_) {
-    // Start application base - this creates workers and dispatchers
-    std::thread([this]() {
-      std::cerr << "[DEBUG] ApplicationBase thread starting..." << std::endl;
-      try {
-        start();  // This will block until stop() is called
-        std::cerr << "[DEBUG] ApplicationBase thread exiting normally" << std::endl;
-      } catch (const std::exception& e) {
-        std::cerr << "[ERROR] ApplicationBase thread exception: " << e.what() << std::endl;
-      }
-    }).detach();
+  // Store address for deferred listening in run()
+  // Actual listening happens in dispatcher thread
+  listen_address_ = address;
+  
+  // Initialize the application if not already done
+  if (!initialized_) {
+    initialize();  // Create dispatchers and workers
     
     // Wait for main dispatcher to be ready
     int wait_count = 0;
@@ -70,14 +65,16 @@ VoidResult McpServer::listen(const std::string& address) {
     std::cerr << "[DEBUG] Main dispatcher ready" << std::endl;
   }
   
-  // Parse address to determine transport type
-  auto listen_promise = std::make_shared<std::promise<VoidResult>>();
-  auto listen_future = listen_promise->get_future();
+  // Just return success - actual listening will happen in run()
+  return makeVoidSuccess();
+}
+
+// Internal method to perform actual listening
+void McpServer::performListen() {
+  // This is called from within the dispatcher thread
+  const std::string& address = listen_address_;
   
-  // Perform listen operation in dispatcher context
-  // All network operations must happen in dispatcher thread to ensure thread safety
-  main_dispatcher_->post([this, address, listen_promise]() {
-    try {
+  try {
       // Transport selection flow:
       // 1. Parse the address URL to determine transport type
       // 2. Create a single connection manager for that transport
@@ -184,7 +181,8 @@ VoidResult McpServer::listen(const std::string& address) {
         // Failed to start transport
         auto error = get<Error>(result);
         std::cerr << "[ERROR] Failed to setup transport: " << error.message << std::endl;
-        listen_promise->set_value(makeVoidError(error));
+        // Exit the dispatcher on fatal error
+        main_dispatcher_->exit();
         return;
       }
       
@@ -194,18 +192,42 @@ VoidResult McpServer::listen(const std::string& address) {
         // Start background tasks for session cleanup and resource updates
         startBackgroundTasks();
         
-        listen_promise->set_value(nullptr);  // Success
+        // Successfully started listening
+        std::cerr << "[INFO] Server started successfully!" << std::endl;
+        std::cerr << "[INFO] Listening on " << address << std::endl;
       } else {
-        listen_promise->set_value(makeVoidError(
-            Error(jsonrpc::INTERNAL_ERROR, "Failed to start any transport listeners")));
+        std::cerr << "[ERROR] Failed to start any transport listeners" << std::endl;
+        // Exit the dispatcher on fatal error
+        main_dispatcher_->exit();
       }
     } catch (const std::exception& e) {
-      listen_promise->set_value(makeVoidError(
-          Error(jsonrpc::INTERNAL_ERROR, e.what())));
+      std::cerr << "[ERROR] Failed to start transport: " << e.what() << std::endl;
+      // Exit the dispatcher on fatal error  
+      main_dispatcher_->exit();
     }
+}
+
+// Run the main event loop
+// This should be called from the main thread after listen()
+void McpServer::run() {
+  if (listen_address_.empty()) {
+    std::cerr << "[ERROR] No listen address specified. Call listen() first." << std::endl;
+    return;
+  }
+  
+  if (!initialized_) {
+    std::cerr << "[ERROR] Server not initialized. Call listen() first." << std::endl;
+    return;
+  }
+  
+  // Post the actual listen operation to be executed once event loop starts
+  main_dispatcher_->post([this]() {
+    performListen();
   });
   
-  return listen_future.get();
+  // Run the main dispatcher event loop in the current thread
+  // This blocks until shutdown() is called
+  runEventLoop();
 }
 
 // Shutdown server
