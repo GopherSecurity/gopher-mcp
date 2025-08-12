@@ -66,6 +66,7 @@ endif()
 
 # Find packages
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # Find libevent
 find_package(PkgConfig)
@@ -235,6 +236,9 @@ set(MCP_SDK_SOURCES
     src/transport/stdio_transport_socket.cc
     src/transport/stdio_pipe_transport.cc
     src/transport/http_transport_socket.cc  # Renamed legacy implementation
+    src/transport/ssl_context.cc
+    src/transport/ssl_transport_socket.cc
+    src/transport/https_sse_transport_factory.cc
     src/mcp_connection_manager.cc
     src/client/mcp_client.cc
     src/server/mcp_server.cc
@@ -275,7 +279,7 @@ set(MCP_EVENT_SOURCES
 # Create MCP SDK library
 add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
 target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json)
+target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto)
 
 # Add llhttp if found
 if(LLHTTP_FOUND)
