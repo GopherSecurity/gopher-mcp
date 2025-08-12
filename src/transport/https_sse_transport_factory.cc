@@ -176,18 +176,18 @@ Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
   
   // Create context through manager (for caching)
   auto result = SslContextManager::getInstance().getOrCreateContext(ssl_config);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     return result;
   }
   
   // Cache context
   if (is_client) {
-    client_ssl_context_ = result.value();
+    client_ssl_context_ = get<SslContextSharedPtr>(result);
   } else {
-    server_ssl_context_ = result.value();
+    server_ssl_context_ = get<SslContextSharedPtr>(result);
   }
   
-  return result.value();
+  return get<SslContextSharedPtr>(result);
 }
 
 network::TransportSocketPtr HttpsSseTransportFactory::createTcpSocket() const {
@@ -214,7 +214,7 @@ network::TransportSocketPtr HttpsSseTransportFactory::wrapWithSsl(
   
   // Create SSL context
   auto context_result = createSslContext(is_client);
-  if (!context_result.ok()) {
+  if (holds_alternative<Error>(context_result)) {
     // Log error and return inner socket without SSL
     // In production, might want to throw or handle differently
     return inner_socket;
@@ -230,7 +230,7 @@ network::TransportSocketPtr HttpsSseTransportFactory::wrapWithSsl(
   // Create SSL transport socket wrapping inner socket
   auto ssl_socket = std::make_unique<SslTransportSocket>(
       std::move(inner_socket),
-      context_result.value(),
+      get<SslContextSharedPtr>(context_result),
       role,
       dispatcher_);
   
