@@ -45,11 +45,14 @@ struct HttpSseTransportSocketConfig {
   bool auto_reconnect{true};
   std::chrono::milliseconds reconnect_delay{3000};
 
-  // TLS configuration (if using HTTPS)
+  // TLS/SSL configuration (if using HTTPS)
+  bool use_ssl{false};  // Auto-detected from URL, or forced
   bool verify_ssl{true};
   optional<std::string> ca_cert_path;
   optional<std::string> client_cert_path;
   optional<std::string> client_key_path;
+  optional<std::string> sni_hostname;                 // Server Name Indication
+  optional<std::vector<std::string>> alpn_protocols;  // ALPN protocols
 
   // HTTP version preference
   http::HttpVersion preferred_version{http::HttpVersion::HTTP_1_1};
