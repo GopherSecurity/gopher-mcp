@@ -439,10 +439,10 @@ TEST_F(HttpSseTransportConfigTest, DefaultConfiguration) {
   // Test default configuration values
   HttpSseTransportSocketConfig default_config;
   EXPECT_TRUE(default_config.endpoint_url.empty());
-  EXPECT_EQ("/", default_config.request_endpoint_path);
-  EXPECT_EQ("/", default_config.sse_endpoint_path);
-  EXPECT_FALSE(default_config.auto_reconnect);
-  // max_reconnect_attempts doesn't exist in current config
+  EXPECT_EQ("/rpc", default_config.request_endpoint_path);
+  EXPECT_EQ("/events", default_config.sse_endpoint_path);
+  EXPECT_TRUE(default_config.auto_reconnect);
+  EXPECT_EQ(std::chrono::milliseconds(3000), default_config.reconnect_delay);
 }
 
 TEST_F(HttpSseTransportConfigTest, CustomConfiguration) {
@@ -482,9 +482,12 @@ class HttpSseTransportHttpTest : public HttpSseTransportTestBase {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
-    transport_->setTransportSocketCallbacks(*callbacks_);
-    // Create mock io_handle for testing
+    
+    // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
+    ON_CALL(*callbacks_, ioHandle()).WillByDefault(ReturnRef(*io_handle_));
+    
+    transport_->setTransportSocketCallbacks(*callbacks_);
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
@@ -588,9 +591,12 @@ class HttpSseTransportSseTest : public HttpSseTransportTestBase {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
-    transport_->setTransportSocketCallbacks(*callbacks_);
-    // Create mock io_handle for testing
+    
+    // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
+    ON_CALL(*callbacks_, ioHandle()).WillByDefault(ReturnRef(*io_handle_));
+    
+    transport_->setTransportSocketCallbacks(*callbacks_);
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
@@ -809,9 +815,12 @@ class HttpSseTransportBufferTest : public HttpSseTransportTestBase {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
-    transport_->setTransportSocketCallbacks(*callbacks_);
-    // Create mock io_handle for testing
+    
+    // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
+    ON_CALL(*callbacks_, ioHandle()).WillByDefault(ReturnRef(*io_handle_));
+    
+    transport_->setTransportSocketCallbacks(*callbacks_);
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
@@ -890,9 +899,12 @@ class HttpSseTransportErrorTest : public HttpSseTransportTestBase {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
-    transport_->setTransportSocketCallbacks(*callbacks_);
-    // Create mock io_handle for testing
+    
+    // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
+    ON_CALL(*callbacks_, ioHandle()).WillByDefault(ReturnRef(*io_handle_));
+    
+    transport_->setTransportSocketCallbacks(*callbacks_);
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
@@ -1254,6 +1266,7 @@ class HttpSseTransportFactoryTest : public HttpSseTransportTestBase {};
 
 TEST_F(HttpSseTransportFactoryTest, FactoryCreation) {
   // Test factory creation and configuration
+  config_.verify_ssl = false;  // Set to false for this test
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
   auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_, *dispatcher);
   
