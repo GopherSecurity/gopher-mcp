@@ -17,6 +17,8 @@ HttpSseTransportSocket::HttpSseTransportSocket(
     event::Dispatcher& dispatcher,
     bool is_server_mode)
     : config_(config), dispatcher_(dispatcher), is_server_mode_(is_server_mode) {
+  std::cerr << "[DEBUG] HttpSseTransportSocket constructor, this=" << this 
+            << ", is_server=" << is_server_mode << std::endl;
   // Initialize parser factory if not provided
   // This ensures we have a valid factory for creating parsers
   if (!config_.parser_factory) {
@@ -36,6 +38,7 @@ HttpSseTransportSocket::HttpSseTransportSocket(
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
+  std::cerr << "[DEBUG] HttpSseTransportSocket destructor, this=" << this << std::endl;
   if (state_ != State::Closed) {
     closeSocket(network::ConnectionEvent::LocalClose);
   }
@@ -618,6 +621,8 @@ void HttpSseTransportSocket::initializeParsers() {
   // Parser initialization with protocol detection support
   // Initially create HTTP/1.1 parsers, will switch to HTTP/2 if detected
   
+  std::cerr << "[DEBUG] Initializing parsers, factory=" << config_.parser_factory.get() << std::endl;
+  
   // Create HTTP parsers based on preferred version
   // HTTP/1.1 uses llhttp, HTTP/2 uses nghttp2
   // Parser factory abstracts the implementation details
@@ -625,6 +630,9 @@ void HttpSseTransportSocket::initializeParsers() {
       http::HttpParserType::REQUEST, this);
   response_parser_ = config_.parser_factory->createParser(
       http::HttpParserType::RESPONSE, this);
+  
+  std::cerr << "[DEBUG] Created parsers: request=" << request_parser_.get()
+            << ", response=" << response_parser_.get() << std::endl;
   
   // Create SSE parser (works with both HTTP/1.1 and HTTP/2)
   sse_parser_ = http::createSseParser(this);
@@ -860,7 +868,10 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
   // Flow: Read buffer -> Parse directly from buffer slices -> Check for SSE content-type
   // Zero-copy: Parse from buffer's raw slices without intermediate allocation
   
+  std::cerr << "[DEBUG] processHttpResponse called, buffer_len=" << buffer.length() << std::endl;
+  
   if (!response_parser_) {
+    std::cerr << "[DEBUG] No response parser available!" << std::endl;
     return;
   }
   
@@ -879,8 +890,11 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
     
     // Parse directly from buffer memory without copying
     // The parser processes data in-place from the buffer's memory
+    std::cerr << "[DEBUG] Parsing response slice of " << slice.len_ << " bytes" << std::endl;
     size_t consumed = response_parser_->execute(
         static_cast<const char*>(slice.mem_), slice.len_);
+    std::cerr << "[DEBUG] Parser consumed " << consumed << " bytes, parser error: " 
+              << response_parser_->getError() << std::endl;
     total_consumed += consumed;
     
     // Stop if parser consumed less than the slice
@@ -945,6 +959,9 @@ void HttpSseTransportSocket::attemptReconnect() {
 }
 
 void HttpSseTransportSocket::updateState(State new_state) {
+  std::cerr << "[DEBUG] State transition: " << static_cast<int>(state_.load()) 
+            << " -> " << static_cast<int>(new_state) 
+            << ", sse_active=" << sse_stream_active_ << std::endl;
   state_ = new_state;
 }
 
