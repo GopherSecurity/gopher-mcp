@@ -131,11 +131,13 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void initializeParsers();
   void sendHttpRequest(const std::string& body, const std::string& path);
   void sendSseConnectRequest();
-  void sendHttpUpgradeRequest();  // Client: Send initial HTTP upgrade request for SSE
+  void sendHttpUpgradeRequest();  // Client: Send initial HTTP upgrade request
+                                  // for SSE
   void sendSseResponse();         // Server: Send SSE response headers
   void processIncomingData(Buffer& buffer);
   void processSseData(Buffer& buffer);
-  void processHttpRequest(Buffer& buffer);   // Server: Process incoming HTTP request
+  void processHttpRequest(
+      Buffer& buffer);  // Server: Process incoming HTTP request
   void processHttpResponse(Buffer& buffer);  // Client: Process HTTP response
   void handleSseEvent(const http::SseEvent& event);
   void handleRequestTimeout(const std::string& request_id);
@@ -181,7 +183,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::queue<PendingRequest> pending_requests_;
   std::map<std::string, PendingRequest> active_requests_;
   uint64_t next_request_id_{1};
-  
+
   // Pending write data queue for immediate sends
   std::queue<std::string> pending_write_data_;
 
@@ -223,7 +225,7 @@ class HttpSseTransportSocketFactory
   std::string defaultServerNameIndication() const override;
   void hashKey(std::vector<uint8_t>& key,
                network::TransportSocketOptionsSharedPtr options) const override;
-  
+
   // ServerTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket() const override;
 

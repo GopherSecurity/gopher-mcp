@@ -58,36 +58,36 @@ struct McpClientConfig : public application::ApplicationBase::Config {
   std::string protocol_version = "2024-11-05";
   std::string client_name = "mcp-cpp-client";
   std::string client_version = "1.0.0";
-  
+
   // Transport configuration
   TransportType preferred_transport = TransportType::Stdio;
   bool auto_negotiate_transport = true;
-  
+
   // Connection pool settings
   size_t connection_pool_size = 10;
   size_t max_idle_connections = 5;
   std::chrono::milliseconds connection_idle_timeout{60000};
-  
+
   // Circuit breaker settings
   size_t circuit_breaker_threshold = 5;
   std::chrono::milliseconds circuit_breaker_timeout{30000};
   double circuit_breaker_error_rate = 0.5;
-  
+
   // Retry configuration
   size_t max_retries = 3;
   std::chrono::milliseconds initial_retry_delay{1000};
   double retry_backoff_multiplier = 2.0;
   std::chrono::milliseconds max_retry_delay{30000};
-  
+
   // Request management
   std::chrono::milliseconds request_timeout{30000};
   size_t max_concurrent_requests = 100;
   size_t batch_size = 10;
-  
+
   // Flow control
   bool enable_flow_control = true;
   size_t request_queue_limit = 1000;
-  
+
   // Capabilities
   ClientCapabilities capabilities;
 };
@@ -101,21 +101,21 @@ struct McpClientStats : public application::ApplicationStats {
   std::atomic<uint64_t> requests_batched{0};
   std::atomic<uint64_t> requests_queued{0};
   std::atomic<uint64_t> requests_timeout{0};
-  
+
   // Circuit breaker metrics
   std::atomic<uint64_t> circuit_breaker_opens{0};
   std::atomic<uint64_t> circuit_breaker_closes{0};
   std::atomic<uint64_t> circuit_breaker_half_opens{0};
-  
+
   // Connection pool metrics
   std::atomic<uint64_t> connection_pool_hits{0};
   std::atomic<uint64_t> connection_pool_misses{0};
   std::atomic<uint64_t> connection_pool_evictions{0};
-  
+
   // Protocol metrics
   std::atomic<uint64_t> protocol_errors{0};
   std::atomic<uint64_t> transport_errors{0};
-  
+
   // Resource metrics
   std::atomic<uint64_t> resources_read{0};
   std::atomic<uint64_t> tools_called{0};
@@ -135,7 +135,7 @@ struct RequestContext {
   size_t retry_count{0};
   bool is_batch{false};
   optional<ProgressToken> progress_token;
-  
+
   RequestContext(const RequestId& id, const std::string& method)
       : id(id), method(method), start_time(std::chrono::steady_clock::now()) {}
 };
@@ -143,7 +143,7 @@ struct RequestContext {
 /**
  * Circuit breaker implementation
  * Prevents cascading failures by temporarily blocking requests after failures
- * 
+ *
  * State transitions:
  * CLOSED -> OPEN: When failure threshold is reached
  * OPEN -> HALF_OPEN: After timeout period
@@ -151,27 +151,27 @@ struct RequestContext {
  * HALF_OPEN -> OPEN: On any failure during test
  */
 class CircuitBreaker {
-public:
+ public:
   enum class State { CLOSED, OPEN, HALF_OPEN };
-  
-  CircuitBreaker(size_t threshold, 
+
+  CircuitBreaker(size_t threshold,
                  std::chrono::milliseconds timeout,
                  double error_rate)
       : failure_threshold_(threshold),
         timeout_duration_(timeout),
         error_rate_threshold_(error_rate) {}
-  
+
   // Check if request is allowed based on circuit state
   bool allowRequest() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     auto now = std::chrono::steady_clock::now();
-    
+
     switch (state_) {
       case State::CLOSED:
         // Circuit is closed, all requests allowed
         return true;
-        
+
       case State::OPEN:
         // Circuit is open, check if timeout has elapsed
         if (now - last_failure_time_ >= timeout_duration_) {
@@ -182,21 +182,21 @@ public:
         }
         // Still in timeout period, reject request
         return false;
-        
+
       case State::HALF_OPEN:
         // Allow limited test requests
         return half_open_requests_ < 3;
     }
-    
+
     return false;
   }
-  
+
   // Record successful request
   void recordSuccess() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     consecutive_failures_ = 0;
-    
+
     if (state_ == State::HALF_OPEN) {
       half_open_requests_++;
       if (half_open_requests_ >= 3) {
@@ -206,44 +206,46 @@ public:
         request_count_ = 0;
       }
     }
-    
+
     request_count_++;
   }
-  
+
   // Record failed request and update circuit state
   void recordFailure() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     failure_count_++;
     consecutive_failures_++;
     last_failure_time_ = std::chrono::steady_clock::now();
-    
+
     if (state_ == State::HALF_OPEN) {
       // Any failure in half-open state immediately opens circuit
       state_ = State::OPEN;
       return;
     }
-    
-    // Check if we should open the circuit based on failure threshold or error rate
+
+    // Check if we should open the circuit based on failure threshold or error
+    // rate
     if (consecutive_failures_ >= failure_threshold_ ||
-        (request_count_ > 10 && 
-         static_cast<double>(failure_count_) / request_count_ > error_rate_threshold_)) {
+        (request_count_ > 10 &&
+         static_cast<double>(failure_count_) / request_count_ >
+             error_rate_threshold_)) {
       state_ = State::OPEN;
     }
   }
-  
+
   State getState() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return state_;
   }
-  
-private:
+
+ private:
   mutable std::mutex mutex_;
   State state_{State::CLOSED};
   size_t failure_threshold_;
   std::chrono::milliseconds timeout_duration_;
   double error_rate_threshold_;
-  
+
   size_t failure_count_{0};
   size_t request_count_{0};
   size_t consecutive_failures_{0};
@@ -256,11 +258,11 @@ private:
  * Tracks all pending requests and identifies timeouts
  */
 class RequestTracker {
-public:
+ public:
   using RequestPtr = std::shared_ptr<RequestContext>;
-  
+
   RequestTracker(std::chrono::milliseconds timeout) : timeout_(timeout) {}
-  
+
   // Add request to tracking
   void trackRequest(RequestPtr request) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -268,7 +270,7 @@ public:
     int id = holds_alternative<int>(request->id) ? get<int>(request->id) : 0;
     pending_requests_[id] = request;
   }
-  
+
   // Get request by ID without removing
   RequestPtr getRequest(const RequestId& id) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -279,7 +281,7 @@ public:
     }
     return nullptr;
   }
-  
+
   // Remove and return request
   RequestPtr removeRequest(const RequestId& id) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -292,34 +294,34 @@ public:
     }
     return nullptr;
   }
-  
+
   // Find and remove all timed out requests
   std::vector<RequestPtr> getTimedOutRequests() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<RequestPtr> timed_out;
-    
+
     auto now = std::chrono::steady_clock::now();
     for (const auto& pair : pending_requests_) {
       if (now - pair.second->start_time >= timeout_) {
         timed_out.push_back(pair.second);
       }
     }
-    
+
     // Remove timed out requests from tracking
     for (const auto& request : timed_out) {
       int id = holds_alternative<int>(request->id) ? get<int>(request->id) : 0;
       pending_requests_.erase(id);
     }
-    
+
     return timed_out;
   }
-  
+
   size_t getPendingCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return pending_requests_.size();
   }
-  
-private:
+
+ private:
   mutable std::mutex mutex_;
   std::chrono::milliseconds timeout_;
   // Store using int ID extracted from RequestId
@@ -331,20 +333,20 @@ private:
  * Implements retry logic with jitter to avoid thundering herd
  */
 class RetryManager {
-public:
+ public:
   RetryManager(size_t max_retries,
-                std::chrono::milliseconds initial_delay,
-                double backoff_multiplier,
-                std::chrono::milliseconds max_delay)
+               std::chrono::milliseconds initial_delay,
+               double backoff_multiplier,
+               std::chrono::milliseconds max_delay)
       : max_retries_(max_retries),
         initial_delay_(initial_delay),
         backoff_multiplier_(backoff_multiplier),
         max_delay_(max_delay) {}
-  
+
   bool shouldRetry(size_t retry_count) const {
     return retry_count < max_retries_;
   }
-  
+
   // Calculate delay with exponential backoff and jitter
   std::chrono::milliseconds getRetryDelay(size_t retry_count) const {
     // Calculate base delay with exponential backoff
@@ -356,17 +358,17 @@ public:
         return max_delay_;
       }
     }
-    
+
     // Add jitter (±20%) to avoid thundering herd
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<> dis(0.8, 1.2);
-    
+
     return std::chrono::milliseconds(
         static_cast<int64_t>(delay.count() * dis(gen)));
   }
-  
-private:
+
+ private:
   size_t max_retries_;
   std::chrono::milliseconds initial_delay_;
   double backoff_multiplier_;
@@ -375,7 +377,7 @@ private:
 
 /**
  * Enterprise-grade MCP Client
- * 
+ *
  * Architecture:
  * - Inherits from ApplicationBase for worker thread model
  * - Implements McpMessageCallbacks for protocol handling
@@ -386,145 +388,150 @@ private:
  */
 class McpClient : public application::ApplicationBase,
                   public McpMessageCallbacks {
-public:
+ public:
   McpClient(const McpClientConfig& config);
   ~McpClient() override;
-  
+
   // Connection management
   VoidResult connect(const std::string& uri);
   void disconnect();
   bool isConnected() const { return connected_; }
-  
+
   // Initialize protocol - must be called after connect
   std::future<InitializeResult> initialize();
-  
+
   // Request methods with future-based async API
-  std::future<jsonrpc::Response> sendRequest(const std::string& method,
-                                              const optional<Metadata>& params = nullopt);
-  
+  std::future<jsonrpc::Response> sendRequest(
+      const std::string& method, const optional<Metadata>& params = nullopt);
+
   // Batch processing - sends multiple requests efficiently
   std::vector<std::future<jsonrpc::Response>> sendBatch(
       const std::vector<std::pair<std::string, optional<Metadata>>>& requests);
-  
+
   // Notification (fire-and-forget)
   VoidResult sendNotification(const std::string& method,
                               const optional<Metadata>& params = nullopt);
-  
+
   // Resource operations
-  std::future<ListResourcesResult> listResources(const optional<Cursor>& cursor = nullopt);
+  std::future<ListResourcesResult> listResources(
+      const optional<Cursor>& cursor = nullopt);
   std::future<ReadResourceResult> readResource(const std::string& uri);
   std::future<VoidResult> subscribeResource(const std::string& uri);
   std::future<VoidResult> unsubscribeResource(const std::string& uri);
-  
+
   // Tool operations
-  std::future<ListToolsResult> listTools(const optional<Cursor>& cursor = nullopt);
-  std::future<CallToolResult> callTool(const std::string& name,
-                                       const optional<Metadata>& arguments = nullopt);
-  
-  // Prompt operations  
-  std::future<ListPromptsResult> listPrompts(const optional<Cursor>& cursor = nullopt);
-  std::future<GetPromptResult> getPrompt(const std::string& name,
-                                         const optional<Metadata>& arguments = nullopt);
-  
+  std::future<ListToolsResult> listTools(
+      const optional<Cursor>& cursor = nullopt);
+  std::future<CallToolResult> callTool(
+      const std::string& name, const optional<Metadata>& arguments = nullopt);
+
+  // Prompt operations
+  std::future<ListPromptsResult> listPrompts(
+      const optional<Cursor>& cursor = nullopt);
+  std::future<GetPromptResult> getPrompt(
+      const std::string& name, const optional<Metadata>& arguments = nullopt);
+
   // Logging operations
   std::future<VoidResult> setLogLevel(enums::LoggingLevel::Value level);
-  
+
   // Sampling/completion operations
   std::future<CreateMessageResult> createMessage(
       const std::vector<SamplingMessage>& messages,
       const optional<ModelPreferences>& preferences = nullopt);
-  
+
   // Progress tracking - register callback for progress updates
   void trackProgress(const ProgressToken& token,
-                    std::function<void(double)> callback);
-  
+                     std::function<void(double)> callback);
+
   // Get client statistics
   const McpClientStats& getClientStats() const { return client_stats_; }
-  
+
   // Set server capabilities (after initialization)
   void setServerCapabilities(const ServerCapabilities& caps) {
     server_capabilities_ = caps;
   }
-  
-protected:
+
+ protected:
   // ApplicationBase overrides
   void initializeWorker(application::WorkerContext& worker) override;
   void setupFilterChain(application::FilterChainBuilder& builder) override;
-  
+
   // McpMessageCallbacks overrides
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
-  
-private:
+
+ private:
   // Internal request handling
   RequestId generateRequestId();
-  std::shared_ptr<RequestContext> createRequestContext(const std::string& method,
-                                                       const optional<Metadata>& params);
+  std::shared_ptr<RequestContext> createRequestContext(
+      const std::string& method, const optional<Metadata>& params);
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
-  
+
   // Connection pool implementation
   class ConnectionPoolImpl : public application::ConnectionPool {
-  public:
-    ConnectionPoolImpl(McpClient& client, size_t max_connections, size_t max_idle)
+   public:
+    ConnectionPoolImpl(McpClient& client,
+                       size_t max_connections,
+                       size_t max_idle)
         : ConnectionPool(max_connections, max_idle), client_(client) {}
-    
-  protected:
+
+   protected:
     ConnectionPtr createNewConnection() override;
-    
-  private:
+
+   private:
     McpClient& client_;
   };
-  
-  // Transport negotiation - determines best transport based on URI and capabilities
+
+  // Transport negotiation - determines best transport based on URI and
+  // capabilities
   TransportType negotiateTransport(const std::string& uri);
   McpConnectionConfig createConnectionConfig(TransportType transport);
-  
+
   // Progress handling
   void handleProgressNotification(const ProgressNotification& notification);
-  
+
   // Metrics reporting
   void updateLatencyMetrics(uint64_t duration_ms);
   void reportDetailedMetrics();
-  
-  
-private:
+
+ private:
   McpClientConfig config_;
   McpClientStats client_stats_;
-  
+
   // Connection management
   std::unique_ptr<McpConnectionManager> connection_manager_;
   std::unique_ptr<ConnectionPoolImpl> connection_pool_;
   std::atomic<bool> connected_{false};
   std::string current_uri_;
-  
+
   // Request management
   std::unique_ptr<RequestTracker> request_tracker_;
   std::unique_ptr<CircuitBreaker> circuit_breaker_;
   std::unique_ptr<RetryManager> retry_manager_;
   std::atomic<uint64_t> next_request_id_{1};
-  
+
   // Request queue for flow control
   std::queue<std::shared_ptr<RequestContext>> request_queue_;
   std::mutex queue_mutex_;
   std::condition_variable queue_cv_;
-  
+
   // Progress tracking - use string representation as map key
   std::map<std::string, std::function<void(double)>> progress_callbacks_;
   std::mutex progress_mutex_;
-  
+
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
-  
+
   // Periodic task management using dispatcher timers
   void schedulePeriodicTasks();
   void processQueuedRequests();
-  
+
   // Timer handles for periodic tasks
   event::TimerPtr timeout_timer_;
   event::TimerPtr retry_timer_;
