@@ -44,6 +44,74 @@ using ::testing::SaveArg;
 using ::testing::AtLeast;
 
 // =============================================================================
+// Helper Classes and Forward Declarations
+// =============================================================================
+
+namespace test {
+
+// Minimal mock dispatcher implementation for unit tests
+class MinimalMockDispatcher : public event::Dispatcher {
+ public:
+  MinimalMockDispatcher() : name_("test") {}
+  
+  const std::string& name() override { return name_; }
+  void registerWatchdog(const event::WatchDogSharedPtr&, std::chrono::milliseconds) override {}
+  event::FileEventPtr createFileEvent(int, event::FileReadyCb, event::FileTriggerType, uint32_t) override { 
+    return nullptr; 
+  }
+  event::TimerPtr createTimer(event::TimerCb) override { 
+    // Return a mock timer that can be enabled/disabled
+    return std::make_unique<MockTimer>();
+  }
+  event::TimerPtr createScaledTimer(event::ScaledTimerType, event::TimerCb) override { 
+    return nullptr; 
+  }
+  event::TimerPtr createScaledTimer(event::ScaledTimerMinimum, event::TimerCb) override { 
+    return nullptr; 
+  }
+  event::SchedulableCallbackPtr createSchedulableCallback(std::function<void()>) override { 
+    return nullptr; 
+  }
+  void deferredDelete(event::DeferredDeletablePtr&&) override {}
+  void exit() override {}
+  event::SignalEventPtr listenForSignal(int, event::SignalCb) override { 
+    return nullptr; 
+  }
+  void run(event::RunType) override {}
+  event::WatermarkFactory& getWatermarkFactory() override { 
+    static event::WatermarkFactory factory;
+    return factory;
+  }
+  void pushTrackedObject(const event::ScopeTrackedObject*) override {}
+  void popTrackedObject(const event::ScopeTrackedObject*) override {}
+  std::chrono::steady_clock::time_point approximateMonotonicTime() const override { 
+    return std::chrono::steady_clock::now(); 
+  }
+  void updateApproximateMonotonicTime() override {}
+  void clearDeferredDeleteList() override {}
+  void initializeStats(event::DispatcherStats&) override {}
+  void shutdown() override {}
+  void post(event::PostCb) override {}
+  bool isThreadSafe() const override { return false; }
+  
+ private:
+  // Mock timer implementation
+  class MockTimer : public event::Timer {
+   public:
+    void disableTimer() override { enabled_ = false; }
+    void enableTimer(std::chrono::milliseconds) override { enabled_ = true; }
+    void enableHRTimer(std::chrono::microseconds) override { enabled_ = true; }
+    bool enabled() override { return enabled_; }
+   private:
+    bool enabled_ = false;
+  };
+  
+  std::string name_;
+};
+
+} // namespace test
+
+// =============================================================================
 // Mock Classes for Unit Testing
 // =============================================================================
 
@@ -101,8 +169,11 @@ class MockIoHandle : public network::IoHandle {
   MOCK_METHOD(optional<std::string>, interfaceName, (), (const, override));
   
   // Platform-specific
-  MOCK_METHOD(bool, supportsMmsg, (), (const, override));
-  MOCK_METHOD(bool, supportsUdpGro, (), (const, override));
+  MOCK_METHOD(bool, supportsMmsg, (), (const));
+  MOCK_METHOD(bool, supportsUdpGro, (), (const));
+  MOCK_METHOD(optional<std::chrono::milliseconds>, lastRoundTripTime, (), (const, override));
+  MOCK_METHOD(void, configureInitialCongestionWindow, (uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt), (override));
+  MOCK_METHOD(network::IoHandlePtr, duplicate, (), (override));
 };
 
 /**
@@ -110,12 +181,7 @@ class MockIoHandle : public network::IoHandle {
  */
 class MockTransportSocketCallbacks : public network::TransportSocketCallbacks {
  public:
-  MockTransportSocketCallbacks() {
-    // Setup default mock behaviors
-    ON_CALL(*this, ioHandle()).WillByDefault(ReturnRef(io_handle_));
-    ON_CALL(const_cast<const MockTransportSocketCallbacks&>(*this), ioHandle())
-        .WillByDefault(ReturnRef(io_handle_));
-  }
+  MockTransportSocketCallbacks() = default;
   
   MOCK_METHOD(network::IoHandle&, ioHandle, (), (override));
   MOCK_METHOD(const network::IoHandle&, ioHandle, (), (const, override));
@@ -124,8 +190,6 @@ class MockTransportSocketCallbacks : public network::TransportSocketCallbacks {
   MOCK_METHOD(void, setTransportSocketIsReadable, (), (override));
   MOCK_METHOD(void, raiseEvent, (network::ConnectionEvent), (override));
   MOCK_METHOD(void, flushWriteBuffer, (), (override));
-  
-  NiceMock<MockIoHandle> io_handle_;
 };
 
 
@@ -145,11 +209,10 @@ class HttpSseTransportTestBase : public ::testing::Test {
     config_.request_endpoint_path = "/rpc";
     config_.sse_endpoint_path = "/events";
     config_.parser_factory = std::make_shared<http::LLHttpParserFactory>();
-    config_.connection_timeout = std::chrono::seconds(5);
+    config_.connect_timeout = std::chrono::seconds(5);
     config_.keepalive_interval = std::chrono::seconds(30);
     config_.auto_reconnect = false;
-    config_.max_reconnect_attempts = 3;
-    config_.reconnect_interval = std::chrono::seconds(1);
+    config_.reconnect_delay = std::chrono::seconds(1);
     
     // Create mock callbacks
     callbacks_ = std::make_unique<NiceMock<MockTransportSocketCallbacks>>();
@@ -230,7 +293,7 @@ class HttpSseTransportRealIoTest : public mcp::test::RealIoTestBase {
     config_.request_endpoint_path = "/rpc";
     config_.sse_endpoint_path = "/events";
     config_.parser_factory = std::make_shared<http::LLHttpParserFactory>();
-    config_.connection_timeout = std::chrono::seconds(5);
+    config_.connect_timeout = std::chrono::seconds(5);
     config_.keepalive_interval = std::chrono::seconds(30);
   }
   
@@ -348,7 +411,7 @@ class HttpSseTransportRealIoTest : public mcp::test::RealIoTestBase {
     response["result"]["protocolVersion"] = "1.0.0";
     response["result"]["capabilities"]["resources"] = true;
     
-    std::string body = json::serialize(response);
+    std::string body = response.toString();
     std::ostringstream http_response;
     http_response << "HTTP/1.1 200 OK\r\n"
                  << "Content-Type: application/json\r\n"
@@ -379,7 +442,7 @@ TEST_F(HttpSseTransportConfigTest, DefaultConfiguration) {
   EXPECT_EQ("/", default_config.request_endpoint_path);
   EXPECT_EQ("/", default_config.sse_endpoint_path);
   EXPECT_FALSE(default_config.auto_reconnect);
-  EXPECT_EQ(3, default_config.max_reconnect_attempts);
+  // max_reconnect_attempts doesn't exist in current config
 }
 
 TEST_F(HttpSseTransportConfigTest, CustomConfiguration) {
@@ -388,7 +451,6 @@ TEST_F(HttpSseTransportConfigTest, CustomConfiguration) {
   config_.request_endpoint_path = "/custom/rpc";
   config_.sse_endpoint_path = "/custom/events";
   config_.auto_reconnect = true;
-  config_.max_reconnect_attempts = 5;
   
   // Dispatcher is required for transport creation
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
@@ -401,7 +463,7 @@ TEST_F(HttpSseTransportConfigTest, CustomConfiguration) {
 TEST_F(HttpSseTransportConfigTest, InvalidConfiguration) {
   // Test invalid configurations
   config_.endpoint_url = "";  // Empty URL should be handled
-  config_.connection_timeout = std::chrono::seconds(-1);  // Negative timeout
+  config_.connect_timeout = std::chrono::seconds(-1);  // Negative timeout
   
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
   transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher);
@@ -421,9 +483,12 @@ class HttpSseTransportHttpTest : public HttpSseTransportTestBase {
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
     transport_->setTransportSocketCallbacks(*callbacks_);
+    // Create mock io_handle for testing
+    io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
+  std::unique_ptr<NiceMock<MockIoHandle>> io_handle_;
 };
 
 TEST_F(HttpSseTransportHttpTest, HttpRequestGeneration) {
@@ -451,9 +516,9 @@ TEST_F(HttpSseTransportHttpTest, HttpResponseParsing) {
   buffer.add(response);
   
   // Mock read operation
-  EXPECT_CALL(callbacks_->io_handle_, read(_, _))
+  EXPECT_CALL(*io_handle_, read(_, _))
       .WillOnce(DoAll(
-          Invoke([&response](Buffer& buf, optional<size_t>) {
+          Invoke([&response](Buffer& buf, optional<size_t>) -> IoCallResult {
             buf.add(response);
             return IoCallResult::success(response.length());
           }),
@@ -476,9 +541,9 @@ TEST_F(HttpSseTransportHttpTest, HttpErrorStatusHandling) {
   OwnedBuffer buffer;
   buffer.add(response);
   
-  EXPECT_CALL(callbacks_->io_handle_, read(_, _))
+  EXPECT_CALL(*io_handle_, read(_, _))
       .WillOnce(DoAll(
-          Invoke([&response](Buffer& buf, optional<size_t>) {
+          Invoke([&response](Buffer& buf, optional<size_t>) -> IoCallResult {
             buf.add(response);
             return IoCallResult::success(response.length());
           }),
@@ -524,9 +589,12 @@ class HttpSseTransportSseTest : public HttpSseTransportTestBase {
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
     transport_->setTransportSocketCallbacks(*callbacks_);
+    // Create mock io_handle for testing
+    io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
+  std::unique_ptr<NiceMock<MockIoHandle>> io_handle_;
 };
 
 TEST_F(HttpSseTransportSseTest, BasicSseEventParsing) {
@@ -708,7 +776,7 @@ TEST_F(HttpSseTransportStateTest, DisconnectionHandling) {
   
   // Simulate disconnection
   EXPECT_CALL(*callbacks_, raiseEvent(network::ConnectionEvent::RemoteClose));
-  transport_->closeSocket(network::ConnectionCloseType::FlushWrite);
+  transport_->closeSocket(network::ConnectionEvent::LocalClose);
   
   // Should handle disconnection properly
   EXPECT_TRUE(transport_->failureReason().empty() || 
@@ -718,7 +786,6 @@ TEST_F(HttpSseTransportStateTest, DisconnectionHandling) {
 TEST_F(HttpSseTransportStateTest, ReconnectionLogic) {
   // Test auto-reconnection logic
   config_.auto_reconnect = true;
-  config_.max_reconnect_attempts = 3;
   
   dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
   transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
@@ -726,7 +793,7 @@ TEST_F(HttpSseTransportStateTest, ReconnectionLogic) {
   
   // Simulate connection failure
   transport_->onConnected();
-  transport_->closeSocket(network::ConnectionCloseType::NoFlush);
+  transport_->closeSocket(network::ConnectionEvent::LocalClose);
   
   // Should attempt reconnection if configured
   EXPECT_EQ("http+sse", transport_->protocol());
@@ -743,9 +810,12 @@ class HttpSseTransportBufferTest : public HttpSseTransportTestBase {
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
     transport_->setTransportSocketCallbacks(*callbacks_);
+    // Create mock io_handle for testing
+    io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
+  std::unique_ptr<NiceMock<MockIoHandle>> io_handle_;
 };
 
 TEST_F(HttpSseTransportBufferTest, ZeroCopyRead) {
@@ -754,9 +824,9 @@ TEST_F(HttpSseTransportBufferTest, ZeroCopyRead) {
   OwnedBuffer buffer;
   buffer.add(data);
   
-  EXPECT_CALL(callbacks_->io_handle_, read(_, _))
+  EXPECT_CALL(*io_handle_, read(_, _))
       .WillOnce(DoAll(
-          Invoke([&data](Buffer& buf, optional<size_t>) {
+          Invoke([&data](Buffer& buf, optional<size_t>) -> IoCallResult {
             buf.add(data);
             return IoCallResult::success(data.length());
           }),
@@ -765,7 +835,7 @@ TEST_F(HttpSseTransportBufferTest, ZeroCopyRead) {
   
   auto result = transport_->doRead(buffer);
   EXPECT_TRUE(result.ok());
-  EXPECT_EQ(*result, static_cast<int>(data.length()));
+  EXPECT_EQ(result.bytes_processed_, data.length());
 }
 
 TEST_F(HttpSseTransportBufferTest, ZeroCopyWrite) {
@@ -775,7 +845,7 @@ TEST_F(HttpSseTransportBufferTest, ZeroCopyWrite) {
   buffer.add(data);
   
   // Mock writev for zero-copy write
-  EXPECT_CALL(callbacks_->io_handle_, writev(_, _))
+  EXPECT_CALL(*io_handle_, writev(_, _))
       .WillOnce(Return(IoCallResult::success(data.length())));
   
   auto result = transport_->doWrite(buffer, false);
@@ -801,7 +871,7 @@ TEST_F(HttpSseTransportBufferTest, PartialWriteHandling) {
   buffer.add(data);
   
   // Mock partial write
-  EXPECT_CALL(callbacks_->io_handle_, writev(_, _))
+  EXPECT_CALL(*io_handle_, writev(_, _))
       .WillOnce(Return(IoCallResult::success(10)))  // Only write 10 bytes
       .WillOnce(Return(IoCallResult::success(data.length() - 10)));  // Write rest
   
@@ -821,9 +891,12 @@ class HttpSseTransportErrorTest : public HttpSseTransportTestBase {
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
     transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
     transport_->setTransportSocketCallbacks(*callbacks_);
+    // Create mock io_handle for testing
+    io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
   }
   
   std::unique_ptr<test::MinimalMockDispatcher> dispatcher_;
+  std::unique_ptr<NiceMock<MockIoHandle>> io_handle_;
 };
 
 TEST_F(HttpSseTransportErrorTest, NetworkErrorHandling) {
@@ -831,8 +904,8 @@ TEST_F(HttpSseTransportErrorTest, NetworkErrorHandling) {
   OwnedBuffer buffer;
   
   // Simulate ECONNRESET
-  EXPECT_CALL(callbacks_->io_handle_, read(_, _))
-      .WillOnce(Return(IoCallResult::makeError(ECONNRESET, "Connection reset")));
+  EXPECT_CALL(*io_handle_, read(_, _))
+      .WillOnce(Return(IoCallResult::error(ECONNRESET, "Connection reset")));
   
   auto result = transport_->doRead(buffer);
   EXPECT_FALSE(result.ok());
@@ -844,9 +917,9 @@ TEST_F(HttpSseTransportErrorTest, ParserErrorHandling) {
   OwnedBuffer buffer;
   buffer.add(malformed);
   
-  EXPECT_CALL(callbacks_->io_handle_, read(_, _))
+  EXPECT_CALL(*io_handle_, read(_, _))
       .WillOnce(DoAll(
-          Invoke([&malformed](Buffer& buf, optional<size_t>) {
+          Invoke([&malformed](Buffer& buf, optional<size_t>) -> IoCallResult {
             buf.add(malformed);
             return IoCallResult::success(malformed.length());
           }),
@@ -860,7 +933,7 @@ TEST_F(HttpSseTransportErrorTest, ParserErrorHandling) {
 
 TEST_F(HttpSseTransportErrorTest, TimeoutHandling) {
   // Test connection timeout handling
-  config_.connection_timeout = std::chrono::milliseconds(100);
+  config_.connect_timeout = std::chrono::milliseconds(100);
   
   dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
   transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
@@ -964,8 +1037,17 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     
     // Send JSON-RPC request
-    json::JsonValue rpc_request = createMcpInitializeRequest();
-    std::string body = json::serialize(rpc_request);
+    // Create initialize request
+    json::JsonValue rpc_request;
+    rpc_request["jsonrpc"] = "2.0";
+    rpc_request["id"] = 1;
+    rpc_request["method"] = "initialize";
+    rpc_request["params"]["protocolVersion"] = "1.0.0";
+    rpc_request["params"]["capabilities"]["resources"] = true;
+    rpc_request["params"]["capabilities"]["tools"] = true;
+    rpc_request["params"]["clientInfo"]["name"] = "test-client";
+    rpc_request["params"]["clientInfo"]["version"] = "1.0.0";
+    std::string body = rpc_request.toString();
     
     std::ostringstream request;
     request << "POST /rpc HTTP/1.1\r\n"
@@ -1007,7 +1089,7 @@ TEST_F(HttpSseTransportRealIoTest, ConcurrentConnections) {
   const int num_clients = 5;
   std::vector<network::IoHandlePtr> clients;
   
-  executeInDispatcher([this, server_port, num_clients, &clients]() {
+  executeInDispatcher([this, server_port, &clients]() {
     auto& socket_interface = network::socketInterface();
     
     // Create multiple clients
@@ -1093,7 +1175,7 @@ TEST_F(HttpSseTransportPerfTest, HighFrequencyMessages) {
       request["id"] = i;
       request["method"] = "test";
       
-      std::string body = json::serialize(request);
+      std::string body = request.toString();
       std::ostringstream http_request;
       http_request << "POST /rpc HTTP/1.1\r\n"
                   << "Host: 127.0.0.1\r\n"
@@ -1144,7 +1226,7 @@ TEST_F(HttpSseTransportPerfTest, LargePayloadTransfer) {
     request["method"] = "largePayload";
     request["params"]["data"] = std::string(100000, 'X');  // 100KB of data
     
-    std::string body = json::serialize(request);
+    std::string body = request.toString();
     std::ostringstream http_request;
     http_request << "POST /rpc HTTP/1.1\r\n"
                 << "Host: 127.0.0.1\r\n"
@@ -1172,7 +1254,8 @@ class HttpSseTransportFactoryTest : public HttpSseTransportTestBase {};
 
 TEST_F(HttpSseTransportFactoryTest, FactoryCreation) {
   // Test factory creation and configuration
-  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_);
+  auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
+  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_, *dispatcher);
   
   EXPECT_FALSE(factory->implementsSecureTransport());
   EXPECT_TRUE(factory->supportsAlpn());  // Should support ALPN for HTTP/2
@@ -1180,21 +1263,22 @@ TEST_F(HttpSseTransportFactoryTest, FactoryCreation) {
 
 TEST_F(HttpSseTransportFactoryTest, TransportCreationViaFactory) {
   // Test transport socket creation via factory
-  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_);
-  
-  network::TransportSocketOptionsConstSharedPtr options;
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
+  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_, *dispatcher);
   
-  auto transport = factory->createTransportSocket(options, *dispatcher);
+  network::TransportSocketOptionsSharedPtr options;
+  
+  auto transport = factory->createTransportSocket(options);
   EXPECT_NE(nullptr, transport);
   EXPECT_EQ("http+sse", transport->protocol());
 }
 
 TEST_F(HttpSseTransportFactoryTest, HashKeyGeneration) {
   // Test hash key generation for connection pooling
-  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_);
+  auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
+  auto factory = std::make_unique<HttpSseTransportSocketFactory>(config_, *dispatcher);
   
-  network::TransportSocketOptionsConstSharedPtr options;
+  network::TransportSocketOptionsSharedPtr options;
   std::vector<uint8_t> hash_key;
   
   factory->hashKey(hash_key, options);
@@ -1203,73 +1287,6 @@ TEST_F(HttpSseTransportFactoryTest, HashKeyGeneration) {
   EXPECT_FALSE(hash_key.empty());
 }
 
-// =============================================================================
-// Helper class for minimal mock dispatcher
-// =============================================================================
-
-namespace test {
-
-// Minimal mock dispatcher implementation for unit tests
-class MinimalMockDispatcher : public event::Dispatcher {
- public:
-  MinimalMockDispatcher() : name_("test") {}
-  
-  const std::string& name() override { return name_; }
-  void registerWatchdog(const event::WatchDogSharedPtr&, std::chrono::milliseconds) override {}
-  event::FileEventPtr createFileEvent(int, event::FileReadyCb, event::FileTriggerType, uint32_t) override { 
-    return nullptr; 
-  }
-  event::TimerPtr createTimer(event::TimerCb) override { 
-    // Return a mock timer that can be enabled/disabled
-    return std::make_unique<MockTimer>();
-  }
-  event::TimerPtr createScaledTimer(event::ScaledTimerType, event::TimerCb) override { 
-    return nullptr; 
-  }
-  event::TimerPtr createScaledTimer(event::ScaledTimerMinimum, event::TimerCb) override { 
-    return nullptr; 
-  }
-  event::SchedulableCallbackPtr createSchedulableCallback(std::function<void()>) override { 
-    return nullptr; 
-  }
-  void deferredDelete(event::DeferredDeletablePtr&&) override {}
-  void exit() override {}
-  event::SignalEventPtr listenForSignal(int, event::SignalCb) override { 
-    return nullptr; 
-  }
-  void run(event::RunType) override {}
-  event::WatermarkFactory& getWatermarkFactory() override { 
-    static event::WatermarkFactory factory;
-    return factory;
-  }
-  void pushTrackedObject(const event::ScopeTrackedObject*) override {}
-  void popTrackedObject(const event::ScopeTrackedObject*) override {}
-  std::chrono::steady_clock::time_point approximateMonotonicTime() const override { 
-    return std::chrono::steady_clock::now(); 
-  }
-  void updateApproximateMonotonicTime() override {}
-  void clearDeferredDeleteList() override {}
-  void initializeStats(event::DispatcherStats&) override {}
-  void shutdown() override {}
-  void post(event::PostCb) override {}
-  bool isThreadSafe() const override { return false; }
-  
- private:
-  // Mock timer implementation
-  class MockTimer : public event::Timer {
-   public:
-    void disableTimer() override { enabled_ = false; }
-    void enableTimer(std::chrono::milliseconds) override { enabled_ = true; }
-    void enableHRTimer(std::chrono::microseconds) override { enabled_ = true; }
-    bool enabled() override { return enabled_; }
-   private:
-    bool enabled_ = false;
-  };
-  
-  std::string name_;
-};
-
-} // namespace test
 
 }  // namespace
 }  // namespace transport
