@@ -442,15 +442,22 @@ void HttpSseTransportSocket::onConnected() {
 // HttpParserCallbacks implementation
 
 http::ParserCallbackResult HttpSseTransportSocket::onMessageBegin() {
+  std::cerr << "[DEBUG] onMessageBegin called, is_server=" << is_server_mode_ << std::endl;
   // Reset current message
-  if (processing_headers_) {
+  // Client parses responses, server parses requests
+  if (!is_server_mode_) {
+    // Client: parsing response
     current_response_ = http::createHttpResponse(http::HttpStatusCode::OK);
+    current_request_.reset();
   } else {
+    // Server: parsing request
     current_request_ = http::createHttpRequest(http::HttpMethod::GET, "/");
+    current_response_.reset();
     accumulated_url_.clear();  // Reset URL accumulator
   }
   current_header_field_.clear();
   current_header_value_.clear();
+  processing_headers_ = true;
   return http::ParserCallbackResult::Success;
 }
 
@@ -472,6 +479,7 @@ http::ParserCallbackResult HttpSseTransportSocket::onStatus(const char* data, si
 }
 
 http::ParserCallbackResult HttpSseTransportSocket::onHeaderField(const char* data, size_t length) {
+  std::cerr << "[DEBUG] onHeaderField called: " << std::string(data, length) << std::endl;
   // If we have a value, store previous header
   if (!current_header_value_.empty() && !current_header_field_.empty()) {
     // Convert header field to lowercase for case-insensitive comparison
@@ -538,6 +546,18 @@ http::ParserCallbackResult HttpSseTransportSocket::onHeadersComplete() {
       std::cerr << "[DEBUG] Client: SSE stream detected, activating SSE mode" << std::endl;
       sse_stream_active_ = true;
       updateState(State::SseConnected);
+      responses_received_++;
+      
+      // For SSE responses, we don't wait for body completion
+      // The rest of the stream is SSE events, not HTTP body
+      // Trigger connection established callback
+      if (callbacks_) {
+        callbacks_->raiseEvent(network::ConnectionEvent::Connected);
+      }
+      
+      // Tell parser to stop processing this as HTTP
+      // Return Pause to stop further HTTP parsing
+      return http::ParserCallbackResult::Pause;
     }
   }
   
@@ -897,8 +917,23 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
               << response_parser_->getError() << std::endl;
     total_consumed += consumed;
     
-    // Stop if parser consumed less than the slice
+    // Stop if parser consumed less than the slice (includes pause)
     if (consumed < slice.len_) {
+      // If SSE stream is now active, process remaining data as SSE
+      if (sse_stream_active_ && consumed < slice.len_) {
+        // Drain the HTTP headers part
+        if (total_consumed > 0) {
+          buffer.drain(total_consumed);
+          std::cerr << "[DEBUG] Drained " << total_consumed << " bytes of HTTP headers" << std::endl;
+        }
+        
+        // Process remaining data as SSE
+        if (buffer.length() > 0) {
+          std::cerr << "[DEBUG] Processing remaining " << buffer.length() << " bytes as SSE data" << std::endl;
+          processSseData(buffer);
+        }
+        return;
+      }
       break;
     }
   }
