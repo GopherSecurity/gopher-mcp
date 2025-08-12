@@ -227,7 +227,7 @@ class SslTransportSocket : public network::TransportSocket {
    *    - Error: Handle error and close
    * 3. Schedule next action if needed
    */
-  network::PostIoAction doHandshake();
+  TransportIoResult::PostIoAction doHandshake();
 
   /**
    * Resume handshake after I/O ready
@@ -334,7 +334,7 @@ class SslTransportSocket : public network::TransportSocket {
    * @param syscall_error System error code
    * @return PostIoAction for next step
    */
-  network::PostIoAction handleSslError(int ssl_error, int syscall_error);
+  TransportIoResult::PostIoAction handleSslError(int ssl_error, int syscall_error);
 
   /**
    * Schedule handshake retry
@@ -392,7 +392,7 @@ class SslTransportSocket : public network::TransportSocket {
  * Creates SSL transport sockets with shared context.
  * Can be used for both client and server sockets.
  */
-class SslTransportSocketFactory : public network::TransportSocketFactoryBase {
+class SslTransportSocketFactory : public network::ClientTransportSocketFactory {
  public:
   /**
    * Create SSL transport socket factory
@@ -416,6 +416,15 @@ class SslTransportSocketFactory : public network::TransportSocketFactoryBase {
    */
   network::TransportSocketPtr createTransportSocket(
       network::TransportSocketOptionsSharedPtr options) const override;
+  
+  // Additional ClientTransportSocketFactory methods
+  bool supportsAlpn() const override { return true; }
+  std::string defaultServerNameIndication() const override { return ""; }
+  void hashKey(std::vector<uint8_t>& key,
+               network::TransportSocketOptionsSharedPtr options) const override {
+    // TODO: Hash SSL context configuration
+    // TODO: In production, would hash cert paths, protocols, etc.
+  }
 
  private:
   std::unique_ptr<network::TransportSocketFactoryBase> inner_factory_;
