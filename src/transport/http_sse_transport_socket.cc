@@ -17,8 +17,6 @@ HttpSseTransportSocket::HttpSseTransportSocket(
     event::Dispatcher& dispatcher,
     bool is_server_mode)
     : config_(config), dispatcher_(dispatcher), is_server_mode_(is_server_mode) {
-  std::cerr << "[DEBUG] HttpSseTransportSocket constructor, this=" << this 
-            << ", is_server=" << is_server_mode << std::endl;
   // Initialize parser factory if not provided
   // This ensures we have a valid factory for creating parsers
   if (!config_.parser_factory) {
@@ -38,7 +36,6 @@ HttpSseTransportSocket::HttpSseTransportSocket(
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
-  std::cerr << "[DEBUG] HttpSseTransportSocket destructor, this=" << this << std::endl;
   if (state_ != State::Closed) {
     closeSocket(network::ConnectionEvent::LocalClose);
   }
@@ -177,23 +174,15 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
     return TransportIoResult::endStream(0);
   }
   
-  std::cerr << "[DEBUG] HttpSseTransportSocket::doRead read " << bytes_read 
-            << " bytes from socket, is_server=" << is_server_mode_ 
-            << ", state=" << static_cast<int>(state_.load()) << std::endl;
   
   // Now process the data we just read based on state and mode
   // The buffer now contains raw bytes from socket that need parsing
-  std::cerr << "[DEBUG] Processing read data: is_server=" << is_server_mode_
-            << ", sse_active=" << sse_stream_active_ 
-            << ", buffer_length=" << buffer.length() << std::endl;
   
   if (is_server_mode_ && !sse_stream_active_) {
     // Server: Parse HTTP request from raw socket data
-    std::cerr << "[DEBUG] Server parsing HTTP request from socket data" << std::endl;
     processHttpRequest(buffer);
   } else if (sse_stream_active_) {
     // Both client and server: Parse SSE events from stream
-    std::cerr << "[DEBUG] Processing as SSE data, buffer has " << buffer.length() << " bytes" << std::endl;
     processSseData(buffer);
   } else {
     // Client: Parse HTTP response from raw socket data
@@ -212,11 +201,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
   // Critical: transport MUST do actual socket I/O
   // Zero-copy: Use writev with buffer slices to avoid copying
   
-  std::cerr << "[DEBUG] HttpSseTransportSocket::doWrite called, buffer_len=" << buffer.length()
-            << ", pending_size=" << pending_write_data_.size() 
-            << ", is_server=" << is_server_mode_
-            << ", sse_active=" << sse_stream_active_ 
-            << ", state=" << static_cast<int>(state_.load()) << std::endl;
   
   if (state_ == State::Closed || state_ == State::Closing) {
     return TransportIoResult::close();
@@ -242,8 +226,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
     http_headers = headers.str();
     pending_write_data_.push(http_headers);
     
-    std::cerr << "[DEBUG] Built HTTP POST headers for " << buffer.length() 
-              << " bytes (zero-copy)" << std::endl;
   }
   
   // Handle pending protocol data (HTTP headers, SSE setup) with zero-copy
@@ -303,7 +285,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
     
     if (!result.ok()) {
       if (result.wouldBlock()) {
-        std::cerr << "[DEBUG] Socket would block, stopping write" << std::endl;
         return TransportIoResult::stop();
       }
       
@@ -321,7 +302,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
     size_t bytes_written = *result;
     total_bytes_written = bytes_written;
     
-    std::cerr << "[DEBUG] Zero-copy writev wrote " << bytes_written << " bytes" << std::endl;
     
     // Restore unwritten data to queue
     size_t bytes_cleared = 0;
@@ -340,8 +320,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
     // Need to be careful: only drain what was actually in the buffer
     if (bytes_written > bytes_cleared) {
       size_t buffer_bytes_to_drain = bytes_written - bytes_cleared;
-      std::cerr << "[DEBUG] Want to drain " << buffer_bytes_to_drain 
-                << " bytes from buffer with length " << buffer.length() << std::endl;
       size_t buffer_bytes_written = std::min(buffer_bytes_to_drain, buffer.length());
       if (buffer_bytes_written > 0) {
         buffer.drain(buffer_bytes_written);
@@ -374,7 +352,6 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
     // Drain written bytes from buffer
     buffer.drain(bytes_written);
     
-    std::cerr << "[DEBUG] Wrote " << bytes_written << " bytes from buffer" << std::endl;
   }
   
   // Handle end of stream
@@ -403,7 +380,6 @@ void HttpSseTransportSocket::onConnected() {
   if (is_server_mode_) {
     // Server mode: Connection accepted, wait for HTTP request from client
     // The server transport socket is created when accepting connections
-    std::cerr << "[DEBUG] HTTP+SSE Server: Connection accepted, waiting for HTTP request" << std::endl;
     updateState(State::Connected);
     
     // Server is ready to receive HTTP requests
@@ -412,7 +388,6 @@ void HttpSseTransportSocket::onConnected() {
   } else if (state_ == State::Disconnected) {
     // Client mode: TCP connected, now send HTTP upgrade request for SSE
     // This initiates the HTTP handshake to establish SSE stream
-    std::cerr << "[DEBUG] HTTP+SSE Client: TCP connected, sending HTTP upgrade request" << std::endl;
     updateState(State::HandshakeRequest);
     
     // Send HTTP GET request with SSE headers
@@ -442,7 +417,6 @@ void HttpSseTransportSocket::onConnected() {
 // HttpParserCallbacks implementation
 
 http::ParserCallbackResult HttpSseTransportSocket::onMessageBegin() {
-  std::cerr << "[DEBUG] onMessageBegin called, is_server=" << is_server_mode_ << std::endl;
   // Reset current message
   // Client parses responses, server parses requests
   if (!is_server_mode_) {
@@ -479,7 +453,6 @@ http::ParserCallbackResult HttpSseTransportSocket::onStatus(const char* data, si
 }
 
 http::ParserCallbackResult HttpSseTransportSocket::onHeaderField(const char* data, size_t length) {
-  std::cerr << "[DEBUG] onHeaderField called: " << std::string(data, length) << std::endl;
   // If we have a value, store previous header
   if (!current_header_value_.empty() && !current_header_field_.empty()) {
     // Convert header field to lowercase for case-insensitive comparison
@@ -539,11 +512,8 @@ http::ParserCallbackResult HttpSseTransportSocket::onHeadersComplete() {
   // Check for SSE content type
   if (current_response_) {
     auto content_type = current_response_->headers().get("content-type");
-    std::cerr << "[DEBUG] Response headers complete, content-type: " 
-              << (content_type.has_value() ? content_type.value() : "not found") << std::endl;
     if (content_type.has_value() && 
         content_type.value().find("text/event-stream") != std::string::npos) {
-      std::cerr << "[DEBUG] Client: SSE stream detected, activating SSE mode" << std::endl;
       sse_stream_active_ = true;
       updateState(State::SseConnected);
       responses_received_++;
@@ -574,13 +544,9 @@ http::ParserCallbackResult HttpSseTransportSocket::onBody(const char* data, size
 }
 
 http::ParserCallbackResult HttpSseTransportSocket::onMessageComplete() {
-  std::cerr << "[DEBUG] onMessageComplete called, is_server=" << is_server_mode_ 
-            << ", has_response=" << (current_response_ != nullptr)
-            << ", has_request=" << (current_request_ != nullptr) << std::endl;
   
   if (current_response_) {
     // Client received response
-    std::cerr << "[DEBUG] Client: HTTP response complete, sse_active=" << sse_stream_active_ << std::endl;
     if (state_ == State::HandshakeResponse) {
       // Handshake complete, establish SSE connection
       sendSseConnectRequest();
@@ -589,7 +555,6 @@ http::ParserCallbackResult HttpSseTransportSocket::onMessageComplete() {
     responses_received_++;
   } else if (current_request_ && is_server_mode_) {
     // Server received complete HTTP request
-    std::cerr << "[DEBUG] HTTP+SSE Server: Received HTTP request, sending SSE response" << std::endl;
     sendSseResponse();
   }
   
@@ -641,7 +606,6 @@ void HttpSseTransportSocket::initializeParsers() {
   // Parser initialization with protocol detection support
   // Initially create HTTP/1.1 parsers, will switch to HTTP/2 if detected
   
-  std::cerr << "[DEBUG] Initializing parsers, factory=" << config_.parser_factory.get() << std::endl;
   
   // Create HTTP parsers based on preferred version
   // HTTP/1.1 uses llhttp, HTTP/2 uses nghttp2
@@ -651,8 +615,6 @@ void HttpSseTransportSocket::initializeParsers() {
   response_parser_ = config_.parser_factory->createParser(
       http::HttpParserType::RESPONSE, this);
   
-  std::cerr << "[DEBUG] Created parsers: request=" << request_parser_.get()
-            << ", response=" << response_parser_.get() << std::endl;
   
   // Create SSE parser (works with both HTTP/1.1 and HTTP/2)
   sse_parser_ = http::createSseParser(this);
@@ -712,7 +674,6 @@ void HttpSseTransportSocket::sendSseResponse() {
   response << ": SSE connection established\n\n";
   
   std::string response_str = response.str();
-  std::cerr << "[DEBUG] Sending SSE response:\n" << response_str << std::endl;
   
   // Queue response for sending through zero-copy mechanism
   // Following the pattern: add to pending_write_data_ and trigger flush
@@ -722,7 +683,6 @@ void HttpSseTransportSocket::sendSseResponse() {
   // Trigger write through callbacks
   // This will call doWrite which processes pending_write_data_ with zero-copy writev
   if (callbacks_) {
-    std::cerr << "[DEBUG] Triggering SSE response write through callbacks" << std::endl;
     callbacks_->flushWriteBuffer();
   }
     
@@ -785,7 +745,6 @@ void HttpSseTransportSocket::sendHttpUpgradeRequest() {
   request << "\r\n";
   
   std::string request_str = request.str();
-  std::cerr << "[DEBUG] Sending HTTP upgrade request:\n" << request_str << std::endl;
   
   // Send through MCP networking abstraction layer
   // Flow: Return data to read -> Connection writes it -> Socket sends it
@@ -797,11 +756,9 @@ void HttpSseTransportSocket::sendHttpUpgradeRequest() {
   
   // Store the request in a pending queue to be sent on next doWrite
   pending_write_data_.push(request_str);
-  std::cerr << "[DEBUG] Queued HTTP request for sending, length: " << request_str.length() << std::endl;
   
   // Trigger a write by notifying callbacks
   if (callbacks_) {
-    std::cerr << "[DEBUG] Triggering write through callbacks" << std::endl;
     callbacks_->flushWriteBuffer();
   }
 }
@@ -820,18 +777,15 @@ void HttpSseTransportSocket::processSseData(Buffer& buffer) {
   // Zero-copy: Parser processes buffer slices directly without copying
   
   if (!sse_parser_) {
-    std::cerr << "[DEBUG] SSE parser not initialized!" << std::endl;
     return;
   }
   
-  std::cerr << "[DEBUG] Parsing SSE data, buffer length: " << buffer.length() << std::endl;
   
   // Let SSE parser process the buffer directly
   // The parser should handle buffer slices internally for zero-copy
   // Important: SSE parser may drain the buffer internally
   sse_parser_->parse(buffer);
   
-  std::cerr << "[DEBUG] After SSE parsing, buffer length: " << buffer.length() << std::endl;
 }
 
 void HttpSseTransportSocket::processHttpRequest(Buffer& buffer) {
@@ -840,7 +794,6 @@ void HttpSseTransportSocket::processHttpRequest(Buffer& buffer) {
   // Zero-copy: Parse from buffer's raw slices without intermediate allocation
   
   if (!request_parser_) {
-    std::cerr << "[DEBUG] Server: Request parser not initialized!" << std::endl;
     return;
   }
   
@@ -857,10 +810,6 @@ void HttpSseTransportSocket::processHttpRequest(Buffer& buffer) {
   for (size_t i = 0; i < num_slices; ++i) {
     const auto& slice = slices[i];
     if (slice.len_ == 0) continue;
-    
-    std::cerr << "[DEBUG] Server parsing HTTP request slice: " 
-              << std::string(static_cast<const char*>(slice.mem_), 
-                           std::min(size_t(100), slice.len_)) << std::endl;
     
     // Parse directly from buffer memory without copying
     // The parser processes data in-place from the buffer's memory
@@ -879,7 +828,6 @@ void HttpSseTransportSocket::processHttpRequest(Buffer& buffer) {
   // This prevents the buffer from accumulating old HTTP request data
   if (total_consumed > 0 && total_consumed <= buffer.length()) {
     buffer.drain(total_consumed);
-    std::cerr << "[DEBUG] Drained " << total_consumed << " bytes after HTTP request parsing" << std::endl;
   }
 }
 
@@ -888,10 +836,8 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
   // Flow: Read buffer -> Parse directly from buffer slices -> Check for SSE content-type
   // Zero-copy: Parse from buffer's raw slices without intermediate allocation
   
-  std::cerr << "[DEBUG] processHttpResponse called, buffer_len=" << buffer.length() << std::endl;
   
   if (!response_parser_) {
-    std::cerr << "[DEBUG] No response parser available!" << std::endl;
     return;
   }
   
@@ -910,11 +856,8 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
     
     // Parse directly from buffer memory without copying
     // The parser processes data in-place from the buffer's memory
-    std::cerr << "[DEBUG] Parsing response slice of " << slice.len_ << " bytes" << std::endl;
     size_t consumed = response_parser_->execute(
         static_cast<const char*>(slice.mem_), slice.len_);
-    std::cerr << "[DEBUG] Parser consumed " << consumed << " bytes, parser error: " 
-              << response_parser_->getError() << std::endl;
     total_consumed += consumed;
     
     // Stop if parser consumed less than the slice (includes pause)
@@ -924,12 +867,10 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
         // Drain the HTTP headers part
         if (total_consumed > 0) {
           buffer.drain(total_consumed);
-          std::cerr << "[DEBUG] Drained " << total_consumed << " bytes of HTTP headers" << std::endl;
         }
         
         // Process remaining data as SSE
         if (buffer.length() > 0) {
-          std::cerr << "[DEBUG] Processing remaining " << buffer.length() << " bytes as SSE data" << std::endl;
           processSseData(buffer);
         }
         return;
@@ -943,7 +884,6 @@ void HttpSseTransportSocket::processHttpResponse(Buffer& buffer) {
   // This prevents the buffer from accumulating old HTTP response data
   if (total_consumed > 0 && total_consumed <= buffer.length()) {
     buffer.drain(total_consumed);
-    std::cerr << "[DEBUG] Drained " << total_consumed << " bytes after HTTP response parsing" << std::endl;
   }
 }
 
@@ -994,9 +934,6 @@ void HttpSseTransportSocket::attemptReconnect() {
 }
 
 void HttpSseTransportSocket::updateState(State new_state) {
-  std::cerr << "[DEBUG] State transition: " << static_cast<int>(state_.load()) 
-            << " -> " << static_cast<int>(new_state) 
-            << ", sse_active=" << sse_stream_active_ << std::endl;
   state_ = new_state;
 }
 

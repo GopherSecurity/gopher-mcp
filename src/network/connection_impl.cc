@@ -208,7 +208,6 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         if (connected) {
           // Already connected (server connection) - enable read events
           // This allows server to receive incoming HTTP requests
-          std::cerr << "[DEBUG] ConnectionImpl: Enabling read events for connected socket" << std::endl;
           enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
         } else if (connecting_) {
           // Client connection in progress - will be enabled by doConnect()
@@ -431,7 +430,6 @@ void ConnectionImpl::flushWriteBuffer() {
   // Called by transport socket when it needs to send data immediately
   // Flow: Transport has data -> flushWriteBuffer -> doWrite -> Transport adds data -> Socket write
   // Zero-copy: Transport manipulates write_buffer_ directly, no intermediate allocation
-  std::cerr << "[DEBUG] ConnectionImpl::flushWriteBuffer called" << std::endl;
   
   // Simply trigger a write, which will call transport's doWrite to process the buffer
   // The transport will add any pending data during the doWrite call
@@ -474,21 +472,17 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle read/write/close
   // All callbacks are invoked in dispatcher thread context
   
-  std::cerr << "[DEBUG] ConnectionImpl::onFileEvent called with events=" << events << std::endl;
   
   if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
-    std::cerr << "[DEBUG] Socket is write-ready" << std::endl;
     onWriteReady();
   }
   
   if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
-    std::cerr << "[DEBUG] Socket is read-ready" << std::endl;
     onReadReady();
   }
   
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
     // Remote close detected
-    std::cerr << "[DEBUG] Socket closed by remote" << std::endl;
     detected_close_type_ = DetectedCloseType::RemoteReset;
     closeSocket(ConnectionEvent::RemoteClose);
   }
@@ -548,33 +542,24 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
 void ConnectionImpl::doConnect() {
   auto result = socket_->connect(socket_->connectionInfoProvider().remoteAddress());
   
-  std::cerr << "[DEBUG] doConnect: connect() result: " 
-            << (result.ok() ? "ok" : "error") 
-            << ", value: " << (result.ok() ? *result : -1)
-            << ", error: " << (!result.ok() ? result.error_code() : 0) << std::endl;
-  
   if (result.ok() && *result == 0) {
     // Immediate connection success (rare for TCP but can happen with local connections)
     // Schedule the Connected event to be handled in the next dispatcher iteration
     // This ensures all callbacks are invoked in proper dispatcher thread context
-    std::cerr << "[DEBUG] Immediate connection success, scheduling Connected event" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
     
     // Post the event to dispatcher to ensure proper thread context
     dispatcher_.post([this]() {
-      std::cerr << "[DEBUG] Raising Connected event in dispatcher thread" << std::endl;
       raiseConnectionEvent(ConnectionEvent::Connected);
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
     });
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
-    std::cerr << "[DEBUG] Connection in progress (EINPROGRESS), enabling write events" << std::endl;
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed
-    std::cerr << "[DEBUG] Connection failed immediately" << std::endl;
     immediate_error_event_ = true;
     closeSocket(ConnectionEvent::LocalClose);
   }
@@ -583,11 +568,8 @@ void ConnectionImpl::doConnect() {
 void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
   // Use base class callbacks_ member for connection callbacks
   // This consolidates callback management in one place
-  std::cerr << "[DEBUG] raiseConnectionEvent: " << static_cast<int>(event) 
-            << ", callbacks count: " << callbacks_.size() << std::endl;
   
   for (auto* cb : callbacks_) {
-    std::cerr << "[DEBUG] Calling callback->onEvent()" << std::endl;
     cb->onEvent(event);
   }
   
@@ -599,11 +581,8 @@ void ConnectionImpl::doRead() {
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead -> Transport::doRead
   // All operations happen in dispatcher thread context
   
-  std::cerr << "[DEBUG] ConnectionImpl::doRead called, state=" << static_cast<int>(state_) 
-            << ", read_disable_count=" << read_disable_count_ << std::endl;
   
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
-    std::cerr << "[DEBUG] ConnectionImpl::doRead skipped - disabled or not open" << std::endl;
     return;
   }
   
@@ -680,11 +659,8 @@ void ConnectionImpl::doWrite() {
   // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
   // All operations happen in dispatcher thread context
   
-  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, state=" << static_cast<int>(state_)
-            << ", buffer_len=" << write_buffer_.length() << std::endl;
   
   if (state_ != ConnectionState::Open) {
-    std::cerr << "[DEBUG] ConnectionImpl::doWrite skipped - connection not open" << std::endl;
     return;
   }
   
@@ -707,7 +683,6 @@ void ConnectionImpl::doWrite() {
   
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
-    std::cerr << "[DEBUG] ConnectionImpl::doWrite - no data to write after transport processing" << std::endl;
     return;
   }
   
@@ -730,7 +705,6 @@ void ConnectionImpl::doWrite() {
     // Check if transport couldn't write (would block)
     if (write_result.bytes_processed_ == 0 && write_result.action_ == TransportIoResult::CONTINUE) {
       // Socket would block, enable write events
-      std::cerr << "[DEBUG] Transport indicated socket would block" << std::endl;
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
       break;
     }

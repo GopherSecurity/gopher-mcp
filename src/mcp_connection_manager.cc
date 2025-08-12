@@ -470,9 +470,7 @@ VoidResult McpConnectionManager::connect() {
     // Cast to ClientConnection to access connect() method
     auto client_conn = dynamic_cast<network::ClientConnection*>(active_connection_.get());
     if (client_conn) {
-      std::cerr << "[DEBUG] Initiating TCP connection to " << host << ":" << port << std::endl;
       client_conn->connect();
-      std::cerr << "[DEBUG] TCP connect() called, waiting for async connection..." << std::endl;
     } else {
       Error err;
       err.code = -1;
@@ -640,11 +638,9 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
-  std::cerr << "[DEBUG] McpConnectionManager::onConnectionEvent: " << static_cast<int>(event) << std::endl;
   
   if (event == network::ConnectionEvent::Connected) {
     // Connection established successfully
-    std::cerr << "[DEBUG] TCP connection established!" << std::endl;
     connected_ = true;
     
     // For HTTP/SSE transport, notify the transport socket about connection
@@ -655,8 +651,6 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   } else if (event == network::ConnectionEvent::RemoteClose || 
              event == network::ConnectionEvent::LocalClose) {
     // Connection closed - clean up state
-    std::cerr << "[DEBUG] Connection closed: " 
-              << (event == network::ConnectionEvent::RemoteClose ? "remote" : "local") << std::endl;
     connected_ = false;
     active_connection_.reset();
   }
@@ -683,7 +677,6 @@ void McpConnectionManager::onNewConnection(network::ConnectionPtr&& connection) 
   // Flow: Listener accepts TCP connection -> Creates ConnectionImpl -> Calls this callback
   // Next: Apply filters, notify transport socket, wait for HTTP request
   
-  std::cerr << "[DEBUG] Server: New connection accepted" << std::endl;
   
   // Store the new connection - this is now our active connection
   active_connection_ = std::move(connection);
@@ -710,7 +703,6 @@ void McpConnectionManager::onNewConnection(network::ConnectionPtr&& connection) 
     // Notify transport socket that connection is ready
     // For HTTP+SSE server, this triggers waiting for HTTP request
     auto& transport = active_connection_->transportSocket();
-    std::cerr << "[DEBUG] Server: Notifying transport socket of new connection" << std::endl;
     transport.onConnected();
   }
 }
