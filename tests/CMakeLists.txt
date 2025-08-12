@@ -68,6 +68,10 @@ add_executable(test_listener_filter_chain network/test_listener_filter_chain.cc)
 add_executable(test_listener_filter_chain_simple network/test_listener_filter_chain_simple.cc)
 add_executable(test_thread_safety_extended network/test_thread_safety_extended.cc)
 
+# Real IO integration tests (using real sockets instead of mocks)
+add_executable(test_event_loop_real_io event/test_event_loop_real_io.cc)
+add_executable(test_connection_manager_real_io network/test_connection_manager_real_io.cc)
+
 # Link libraries
 target_link_libraries(test_variant 
     gtest 
@@ -444,6 +448,23 @@ target_link_libraries(test_thread_safety_extended
     Threads::Threads
 )
 
+# Link libraries for real IO tests
+target_link_libraries(test_event_loop_real_io
+    mcp-event
+    mcp-sdk
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_manager_real_io
+    mcp-sdk
+    mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
 # Add tests
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
@@ -509,6 +530,10 @@ add_test(NAME ListenerFilterChainTest COMMAND test_listener_filter_chain)
 add_test(NAME ListenerFilterChainSimpleTest COMMAND test_listener_filter_chain_simple)
 add_test(NAME ThreadSafetyExtendedTest COMMAND test_thread_safety_extended)
 
+# Real IO integration tests
+add_test(NAME EventLoopRealIoTest COMMAND test_event_loop_real_io)
+add_test(NAME ConnectionManagerRealIoTest COMMAND test_connection_manager_real_io)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
@@ -527,6 +552,7 @@ add_custom_target(run_tests
             test_connection_manager_impl test_stream_info_impl
             test_stdio_transport_socket test_http_transport_socket test_http_sse_transport_socket
             test_mcp_connection_manager test_builders
+            test_event_loop_real_io test_connection_manager_real_io
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
