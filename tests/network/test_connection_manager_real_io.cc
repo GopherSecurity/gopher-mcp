@@ -6,10 +6,26 @@
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <signal.h>
 
 namespace mcp {
 namespace network {
 namespace {
+
+// Global test environment to handle SIGPIPE
+class SigPipeEnvironment : public ::testing::Environment {
+ public:
+  void SetUp() override {
+    // Ignore SIGPIPE signals - writing to closed sockets will return EPIPE error instead
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
+  }
+};
+
+// Register the environment - this will be called by gtest automatically
+static ::testing::Environment* const sigpipe_env = 
+    ::testing::AddGlobalTestEnvironment(new SigPipeEnvironment);
 
 /**
  * Simple real IO tests for network components.
