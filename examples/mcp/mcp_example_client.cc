@@ -534,34 +534,59 @@ int main(int argc, char* argv[]) {
     return 1;
   }
   
-  // For HTTP+SSE, wait for actual connection
-  std::cerr << "[INFO] Waiting for connection to be established..." << std::endl;
-  
-  int wait_count = 0;
-  bool connected = false;
-  while (!connected && wait_count < 100) {  // 10 seconds timeout
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    wait_count++;
-    if (wait_count % 10 == 0) {
-      std::cerr << "[INFO] Still connecting..." << std::endl;
-    }
+  // For HTTP+SSE, connection is established immediately (stateless protocol)
+  // For stdio/websocket, wait for actual connection
+  if (options.transport != "http") {
+    std::cerr << "[INFO] Waiting for connection to be established..." << std::endl;
     
-    // Check connection status safely
-    {
-      std::lock_guard<std::mutex> lock(g_client_mutex);
-      if (g_client) {
-        connected = g_client->isConnected();
+    int wait_count = 0;
+    bool connected = false;
+    while (!connected && wait_count < 100) {  // 10 seconds timeout
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      wait_count++;
+      if (wait_count % 10 == 0) {
+        std::cerr << "[INFO] Still connecting..." << std::endl;
+      }
+      
+      // Check connection status safely
+      {
+        std::lock_guard<std::mutex> lock(g_client_mutex);
+        if (g_client) {
+          connected = g_client->isConnected();
+        }
       }
     }
-  }
-  
-  if (!connected) {
-    std::cerr << "[ERROR] Connection timeout - failed to establish connection" << std::endl;
-    std::cerr << "[HINT] Make sure the server is running on " << options.host << ":" << options.port << std::endl;
-    return 1;
+    
+    if (!connected) {
+      std::cerr << "[ERROR] Connection timeout - failed to establish connection" << std::endl;
+      std::cerr << "[HINT] Make sure the server is running on " << options.host << ":" << options.port << std::endl;
+      return 1;
+    }
   }
   
   std::cerr << "[INFO] Connected successfully!" << std::endl;
+  
+  // Initialize MCP protocol - REQUIRED before any requests
+  std::cerr << "[INFO] Initializing MCP protocol..." << std::endl;
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      try {
+        auto init_future = g_client->initialize();
+        auto init_result = init_future.get();
+        std::cerr << "[INFO] Protocol initialized: " << init_result.protocolVersion << std::endl;
+        if (init_result.serverInfo.has_value()) {
+          std::cerr << "[INFO] Server: " << init_result.serverInfo->name 
+                    << " v" << init_result.serverInfo->version << std::endl;
+        }
+        // Store server capabilities
+        g_client->setServerCapabilities(init_result.capabilities);
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Failed to initialize protocol: " << e.what() << std::endl;
+        return 1;
+      }
+    }
+  }
   
   // Run demonstrations if requested
   if (options.demo) {
