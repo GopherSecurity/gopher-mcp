@@ -711,7 +711,7 @@ void ConnectionImpl::doWrite() {
     return;
   }
   
-  // The transport socket now handles the actual socket write following Envoy pattern
+  // The transport socket now handles the actual socket write
   // Keep writing while buffer has data
   while (write_buffer_.length() > 0) {
     // Call transport to write - it handles socket I/O and drains buffer
