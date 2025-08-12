@@ -12,6 +12,8 @@
 
 #include <sstream>
 
+using mcp::TransportIoResult;
+
 namespace mcp {
 namespace transport {
 
@@ -70,8 +72,8 @@ SslTransportSocket::SslTransportSocket(
       dispatcher_(dispatcher) {
   
   // Initialize buffers
-  read_buffer_ = std::make_unique<Buffer>();
-  write_buffer_ = std::make_unique<Buffer>();
+  read_buffer_ = std::make_unique<OwnedBuffer>();
+  write_buffer_ = std::make_unique<OwnedBuffer>();
 }
 
 SslTransportSocket::~SslTransportSocket() {
@@ -120,23 +122,23 @@ bool SslTransportSocket::canFlushClose() {
 VoidResult SslTransportSocket::connect(network::Socket& socket) {
   // Validate state
   if (state_ != SslState::Initial) {
-    return makeError("SSL socket already connected or connecting");
+    return makeVoidError(Error{0, "SSL socket already connected or connecting"});
   }
   
   // Transition to connecting state
   if (!transitionState(SslState::Connecting)) {
-    return makeError("Invalid state transition to Connecting");
+    return makeVoidError(Error{0, "Invalid state transition to Connecting"});
   }
   
   // Pass through to inner socket
   auto result = inner_socket_->connect(socket);
-  if (!result.ok()) {
+  if (holds_alternative<Error>(result)) {
     transitionState(SslState::Error);
-    failure_reason_ = result.error();
+    failure_reason_ = get<Error>(result).message;
     return result;
   }
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
 void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
@@ -177,8 +179,8 @@ void SslTransportSocket::onConnected() {
   
   // Initialize SSL connection
   auto result = initializeSsl();
-  if (!result.ok()) {
-    failure_reason_ = result.error();
+  if (holds_alternative<Error>(result)) {
+    failure_reason_ = get<Error>(result).message;
     transitionState(SslState::Error);
     if (handshake_callbacks_) {
       handshake_callbacks_->onSslHandshakeFailed(failure_reason_);
@@ -189,7 +191,7 @@ void SslTransportSocket::onConnected() {
   // Start handshake (will be performed in dispatcher thread)
   dispatcher_.post([this]() {
     auto action = doHandshake();
-    if (action == network::PostIoAction::Close) {
+    if (action == TransportIoResult::CLOSE) {
       closeSocket(network::ConnectionEvent::RemoteClose);
     }
   });
@@ -198,7 +200,7 @@ void SslTransportSocket::onConnected() {
 TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   // Validate state
   if (state_ != SslState::Connected) {
-    return {network::PostIoAction::Close, 0, false};
+    return TransportIoResult::close();
   }
   
   // Perform SSL read
@@ -213,9 +215,9 @@ TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
         state_ == SslState::WantRead ||
         state_ == SslState::WantWrite) {
       write_buffer_->move(buffer);
-      return {network::PostIoAction::KeepOpen, 0, false};
+      return TransportIoResult::success(0);
     }
-    return {network::PostIoAction::Close, 0, false};
+    return TransportIoResult::close();
   }
   
   // Perform SSL write
@@ -293,7 +295,7 @@ VoidResult SslTransportSocket::initializeSsl() {
   // Create SSL connection from context
   ssl_ = ssl_context_->newSsl();
   if (!ssl_) {
-    return makeError("Failed to create SSL connection");
+    return makeVoidError(Error{0, "Failed to create SSL connection"});
   }
   
   // Create BIO pair for memory-based I/O
@@ -301,7 +303,7 @@ VoidResult SslTransportSocket::initializeSsl() {
   if (!BIO_new_bio_pair(&internal_bio_, 0, &network_bio_, 0)) {
     SSL_free(ssl_);
     ssl_ = nullptr;
-    return makeError("Failed to create BIO pair");
+    return makeVoidError(Error{0, "Failed to create BIO pair"});
   }
   
   // Attach BIOs to SSL
@@ -324,17 +326,17 @@ VoidResult SslTransportSocket::initializeSsl() {
   if (!transitionState(SslState::Handshaking)) {
     SSL_free(ssl_);
     ssl_ = nullptr;
-    return makeError("Failed to transition to Handshaking state");
+    return makeVoidError(Error{0, "Failed to transition to Handshaking state"});
   }
   
   // Record handshake start time
   handshake_start_ = std::chrono::steady_clock::now();
   handshake_attempts_ = 0;
   
-  return VoidResult::success();
+  return makeVoidSuccess();
 }
 
-network::PostIoAction SslTransportSocket::doHandshake() {
+TransportIoResult::PostIoAction SslTransportSocket::doHandshake() {
   // Increment attempt counter
   handshake_attempts_++;
   
@@ -350,7 +352,7 @@ network::PostIoAction SslTransportSocket::doHandshake() {
   if (ret == 1) {
     // Handshake complete
     onHandshakeComplete();
-    return network::PostIoAction::KeepOpen;
+    return TransportIoResult::CONTINUE;
   }
   
   // Check error
@@ -361,23 +363,23 @@ network::PostIoAction SslTransportSocket::doHandshake() {
       // SSL needs to read more data
       transitionState(SslState::WantRead);
       scheduleHandshakeRetry();
-      return network::PostIoAction::KeepOpen;
+      return TransportIoResult::CONTINUE;
       
     case SSL_ERROR_WANT_WRITE:
       // SSL needs to write more data
       transitionState(SslState::WantWrite);
       scheduleHandshakeRetry();
-      return network::PostIoAction::KeepOpen;
+      return TransportIoResult::CONTINUE;
       
     case SSL_ERROR_WANT_X509_LOOKUP:
       // Certificate callback needed (not supported yet)
       onHandshakeFailed("X509 lookup required but not supported");
-      return network::PostIoAction::Close;
+      return TransportIoResult::CLOSE;
       
     default:
       // Handshake failed
       onHandshakeFailed(getSslErrorReason(ssl_, ret));
-      return network::PostIoAction::Close;
+      return TransportIoResult::CLOSE;
   }
 }
 
@@ -392,7 +394,7 @@ void SslTransportSocket::resumeHandshake() {
   
   // Retry handshake
   auto action = doHandshake();
-  if (action == network::PostIoAction::Close) {
+  if (action == TransportIoResult::CLOSE) {
     closeSocket(network::ConnectionEvent::RemoteClose);
   }
 }
@@ -435,9 +437,9 @@ void SslTransportSocket::onHandshakeComplete() {
   // Verify peer if configured
   if (ssl_context_->getConfig().verify_peer) {
     auto verify_result = SslContext::verifyPeer(ssl_);
-    if (!verify_result.ok() || !verify_result.value()) {
+    if (holds_alternative<Error>(verify_result) || !get<bool>(verify_result)) {
       onHandshakeFailed("Peer verification failed: " + 
-                       (verify_result.ok() ? "Certificate invalid" : verify_result.error()));
+                       (holds_alternative<bool>(verify_result) ? "Certificate invalid" : get<Error>(verify_result).message));
       return;
     }
   }
@@ -458,7 +460,7 @@ void SslTransportSocket::onHandshakeComplete() {
     dispatcher_.post([this]() {
       if (state_ == SslState::Connected && write_buffer_->length() > 0) {
         auto result = sslWrite(*write_buffer_, false);
-        if (result.action_ == network::PostIoAction::Close) {
+        if (result.action_ == TransportIoResult::CLOSE) {
           closeSocket(network::ConnectionEvent::LocalClose);
         }
       }
@@ -496,14 +498,16 @@ TransportIoResult SslTransportSocket::sslRead(Buffer& buffer) {
   while (true) {
     // Prepare buffer for read
     constexpr size_t read_size = 16384;  // 16KB chunks
-    auto slice = buffer.reserve(read_size);
+    // TODO: Update to use proper Buffer API when available
+    RawSlice slice;
+    void* data = buffer.reserveSingleSlice(read_size, slice);
     
     // Read from SSL
-    int ret = SSL_read(ssl_, slice.data(), slice.size());
+    int ret = SSL_read(ssl_, data, slice.len_);
     
     if (ret > 0) {
       // Data read successfully
-      buffer.commit(ret);
+      buffer.commit(slice, ret);
       total_bytes_read += ret;
       bytes_decrypted_ += ret;
       
@@ -526,12 +530,15 @@ TransportIoResult SslTransportSocket::sslRead(Buffer& buffer) {
       } else {
         // Error occurred
         failure_reason_ = getSslErrorReason(ssl_, ret);
-        return {network::PostIoAction::Close, total_bytes_read, eof};
+        return TransportIoResult::close();
       }
     }
   }
   
-  return {network::PostIoAction::KeepOpen, total_bytes_read, eof};
+  if (eof) {
+    return TransportIoResult::endStream(total_bytes_read);
+  }
+  return TransportIoResult::success(total_bytes_read);
 }
 
 TransportIoResult SslTransportSocket::sslWrite(Buffer& buffer, bool end_stream) {
@@ -540,13 +547,16 @@ TransportIoResult SslTransportSocket::sslWrite(Buffer& buffer, bool end_stream) 
   // Write data to SSL
   while (buffer.length() > 0) {
     // Get data to write
-    auto slices = buffer.getRawSlices();
-    if (slices.empty()) {
+    // TODO: Update to use proper Buffer API when available
+    constexpr size_t max_slices = 16;
+    RawSlice slices[max_slices];
+    size_t num_slices = buffer.getRawSlices(slices, max_slices);
+    if (num_slices == 0) {
       break;
     }
     
-    // Write to SSL
-    int ret = SSL_write(ssl_, slices[0].data(), slices[0].size());
+    // Write to SSL (just first slice for now)
+    int ret = SSL_write(ssl_, slices[0].mem_, slices[0].len_);
     
     if (ret > 0) {
       // Data written successfully
@@ -567,7 +577,7 @@ TransportIoResult SslTransportSocket::sslWrite(Buffer& buffer, bool end_stream) 
       } else {
         // Error occurred
         failure_reason_ = getSslErrorReason(ssl_, ret);
-        return {network::PostIoAction::Close, total_bytes_written, false};
+        return TransportIoResult::close();
       }
     }
   }
@@ -580,14 +590,14 @@ TransportIoResult SslTransportSocket::sslWrite(Buffer& buffer, bool end_stream) 
     shutdownSsl();
   }
   
-  return {network::PostIoAction::KeepOpen, total_bytes_written, false};
+  return TransportIoResult::success(total_bytes_written);
 }
 
 size_t SslTransportSocket::moveToBio() {
   // Read data from socket and write to network BIO
   
   // Read from inner socket
-  Buffer temp_buffer;
+  OwnedBuffer temp_buffer;
   auto result = inner_socket_->doRead(temp_buffer);
   
   if (temp_buffer.length() == 0) {
@@ -596,10 +606,13 @@ size_t SslTransportSocket::moveToBio() {
   
   // Write to network BIO
   size_t total_written = 0;
-  auto slices = temp_buffer.getRawSlices();
+  // TODO: Update to use proper Buffer API when available
+  constexpr size_t max_slices = 16;
+  RawSlice slices[max_slices];
+  size_t num_slices = temp_buffer.getRawSlices(slices, max_slices);
   
-  for (const auto& slice : slices) {
-    int written = BIO_write(network_bio_, slice.data(), slice.size());
+  for (size_t i = 0; i < num_slices; ++i) {
+    int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
     if (written > 0) {
       total_written += written;
     } else {
@@ -620,15 +633,17 @@ size_t SslTransportSocket::moveFromBio() {
   }
   
   // Read from BIO
-  Buffer temp_buffer;
-  auto slice = temp_buffer.reserve(pending);
-  int read = BIO_read(network_bio_, slice.data(), slice.size());
+  OwnedBuffer temp_buffer;
+  // TODO: Update to use proper Buffer API when available
+  RawSlice slice;
+  void* data = temp_buffer.reserveSingleSlice(pending, slice);
+  int read = BIO_read(network_bio_, data, slice.len_);
   
   if (read <= 0) {
     return 0;
   }
   
-  temp_buffer.commit(read);
+  temp_buffer.commit(slice, read);
   
   // Write to inner socket
   auto result = inner_socket_->doWrite(temp_buffer, false);
@@ -722,10 +737,10 @@ SslTransportSocketFactory::SslTransportSocketFactory(
   
   // Create SSL context
   auto result = SslContextManager::getInstance().getOrCreateContext(ssl_config);
-  if (!result.ok()) {
-    throw std::runtime_error("Failed to create SSL context: " + result.error());
+  if (holds_alternative<Error>(result)) {
+    throw std::runtime_error("Failed to create SSL context: " + get<Error>(result).message);
   }
-  ssl_context_ = result.value();
+  ssl_context_ = get<SslContextSharedPtr>(result);
   
   // Determine role based on configuration
   role_ = ssl_config.is_client ? 
@@ -736,7 +751,12 @@ SslTransportSocketFactory::SslTransportSocketFactory(
 network::TransportSocketPtr SslTransportSocketFactory::createTransportSocket(
     network::TransportSocketOptionsSharedPtr options) const {
   // Create inner transport socket
-  auto inner_socket = inner_factory_->createTransportSocket(options);
+  // Cast to client factory to access createTransportSocket
+  auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(inner_factory_.get());
+  if (!client_factory) {
+    throw std::runtime_error("Inner factory must be a ClientTransportSocketFactory");
+  }
+  auto inner_socket = client_factory->createTransportSocket(options);
   
   // Wrap with SSL
   return std::make_unique<SslTransportSocket>(
