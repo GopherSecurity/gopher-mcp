@@ -284,6 +284,7 @@ target_link_libraries(test_http_transport_socket
 
 target_link_libraries(test_http_sse_transport_socket
     mcp-sdk
+    mcp-event
     gtest
     gmock
     gtest_main
