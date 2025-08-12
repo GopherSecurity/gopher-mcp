@@ -106,10 +106,10 @@ class RealIoTestBase : public ::testing::Test {
     }
 
     return executeInDispatcherImpl(std::forward<F>(func),
-                                    std::is_void<ReturnType>{});
+                                   std::is_void<ReturnType>{});
   }
 
-private:
+ private:
   // Helper for void return type
   template <typename F>
   void executeInDispatcherImpl(F&& func, std::true_type) {
@@ -134,8 +134,7 @@ private:
 
   // Helper for non-void return type
   template <typename F>
-  auto executeInDispatcherImpl(F&& func, std::false_type)
-      -> decltype(func()) {
+  auto executeInDispatcherImpl(F&& func, std::false_type) -> decltype(func()) {
     using ReturnType = decltype(func());
     std::promise<ReturnType> promise;
     auto future = promise.get_future();
@@ -155,8 +154,7 @@ private:
     return future.get();
   }
 
-public:
-
+ public:
   /**
    * Create a pair of connected sockets for testing.
    * Uses real TCP sockets bound to localhost.
@@ -381,7 +379,8 @@ class RealListenerTestBase : public RealIoTestBase {
       auto local_addr = *local_addr_result;
 
       // Get port from IP address
-      auto ip_addr = dynamic_cast<const network::Address::Ip*>(local_addr.get());
+      auto ip_addr =
+          dynamic_cast<const network::Address::Ip*>(local_addr.get());
       if (!ip_addr) {
         throw std::runtime_error("Failed to get IP address");
       }
