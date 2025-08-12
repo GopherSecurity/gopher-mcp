@@ -4,7 +4,7 @@
  *
  * This provides a factory that creates HTTP+SSE transport sockets
  * with optional SSL/TLS encryption, following layered design.
- * 
+ *
  * Architecture:
  * - Auto-detects HTTPS from URL and enables SSL
  * - Layers SSL transport over TCP transport
@@ -29,12 +29,12 @@ namespace transport {
 
 /**
  * HTTPS+SSE Transport Factory
- * 
+ *
  * Creates transport sockets with proper layering:
  * - TCP socket (base layer)
  * - SSL socket (optional encryption layer)
  * - HTTP+SSE socket (application protocol layer)
- * 
+ *
  * Follows some good design principles:
  * - Clean separation of concerns
  * - Composable transport layers
@@ -42,13 +42,13 @@ namespace transport {
  */
 class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
                                  public network::ServerTransportSocketFactory {
-public:
+ public:
   /**
    * Create HTTPS+SSE transport factory
-   * 
+   *
    * @param config HTTP+SSE configuration (includes SSL settings)
    * @param dispatcher Event dispatcher for async operations
-   * 
+   *
    * Flow:
    * 1. Parse configuration
    * 2. Detect SSL requirement from URL
@@ -56,14 +56,14 @@ public:
    * 4. Store factory configuration
    */
   HttpsSseTransportFactory(const HttpSseTransportSocketConfig& config,
-                          event::Dispatcher& dispatcher);
-  
+                           event::Dispatcher& dispatcher);
+
   ~HttpsSseTransportFactory() override = default;
-  
+
   // TransportSocketFactoryBase interface
   bool implementsSecureTransport() const override;
   std::string name() const override;
-  
+
   // ClientTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket(
       network::TransportSocketOptionsSharedPtr options) const override;
@@ -71,16 +71,16 @@ public:
   std::string defaultServerNameIndication() const override;
   void hashKey(std::vector<uint8_t>& key,
                network::TransportSocketOptionsSharedPtr options) const override;
-  
+
   // ServerTransportSocketFactory interface
   network::TransportSocketPtr createTransportSocket() const override;
-  
+
   /**
    * Create client transport socket with automatic SSL detection
-   * 
+   *
    * @param options Transport options
    * @return Layered transport socket
-   * 
+   *
    * Flow:
    * 1. Create base TCP socket
    * 2. If HTTPS detected or configured:
@@ -91,12 +91,12 @@ public:
    */
   network::TransportSocketPtr createClientTransport(
       network::TransportSocketOptionsSharedPtr options) const;
-  
+
   /**
    * Create server transport socket with optional SSL
-   * 
+   *
    * @return Layered transport socket for server
-   * 
+   *
    * Flow:
    * 1. Create base TCP socket
    * 2. If SSL configured:
@@ -107,21 +107,21 @@ public:
    */
   network::TransportSocketPtr createServerTransport() const;
 
-private:
+ private:
   /**
    * Detect if SSL is needed based on URL
-   * 
+   *
    * @param url Endpoint URL
    * @return true if HTTPS detected
    */
   bool detectSslFromUrl(const std::string& url) const;
-  
+
   /**
    * Create SSL context from configuration
-   * 
+   *
    * @param is_client true for client context, false for server
    * @return SSL context or error
-   * 
+   *
    * Flow:
    * 1. Build SslContextConfig from HTTP+SSE config
    * 2. Set certificates and keys if provided
@@ -130,21 +130,21 @@ private:
    * 5. Create and cache context
    */
   Result<SslContextSharedPtr> createSslContext(bool is_client) const;
-  
+
   /**
    * Create base TCP transport socket
-   * 
+   *
    * @return TCP transport socket
    */
   network::TransportSocketPtr createTcpSocket() const;
-  
+
   /**
    * Wrap socket with SSL if needed
-   * 
+   *
    * @param inner_socket Socket to wrap
    * @param is_client Client or server mode
    * @return SSL-wrapped socket or original if SSL not needed
-   * 
+   *
    * Flow:
    * 1. Check if SSL is needed
    * 2. Get or create SSL context
@@ -153,33 +153,32 @@ private:
    * 5. Return wrapped socket
    */
   network::TransportSocketPtr wrapWithSsl(
-      network::TransportSocketPtr inner_socket,
-      bool is_client) const;
-  
+      network::TransportSocketPtr inner_socket, bool is_client) const;
+
   /**
    * Extract hostname from URL for SNI
-   * 
+   *
    * @param url Full URL
    * @return Hostname portion
    */
   std::string extractHostname(const std::string& url) const;
-  
+
   /**
    * Build ALPN protocol list
    * Default includes h2 and http/1.1 for HTTP
    */
   std::vector<std::string> buildAlpnProtocols() const;
 
-private:
+ private:
   HttpSseTransportSocketConfig config_;  // Configuration
   event::Dispatcher& dispatcher_;        // Event dispatcher
   bool use_ssl_;                         // SSL enabled flag
-  
+
   // Cached SSL contexts (created on demand)
   mutable SslContextSharedPtr client_ssl_context_;
   mutable SslContextSharedPtr server_ssl_context_;
   mutable std::mutex ssl_context_mutex_;  // Protect context creation
-  
+
   // Statistics
   mutable std::atomic<uint64_t> sockets_created_{0};
   mutable std::atomic<uint64_t> ssl_sockets_created_{0};
@@ -187,13 +186,13 @@ private:
 
 /**
  * Factory function for creating HTTPS+SSE transport factory
- * 
+ *
  * Automatically detects HTTPS from URL and configures SSL
- * 
+ *
  * @param config HTTP+SSE configuration
  * @param dispatcher Event dispatcher
  * @return Transport socket factory
- * 
+ *
  * Example usage:
  * ```cpp
  * HttpSseTransportSocketConfig config;
@@ -201,25 +200,25 @@ private:
  * config.client_cert_path = "/path/to/client.crt";
  * config.client_key_path = "/path/to/client.key";
  * config.ca_cert_path = "/path/to/ca.crt";
- * 
+ *
  * auto factory = createHttpsSseTransportFactory(config, dispatcher);
  * auto socket = factory->createTransportSocket(options);
  * ```
  */
 inline std::unique_ptr<network::TransportSocketFactoryBase>
 createHttpsSseTransportFactory(const HttpSseTransportSocketConfig& config,
-                              event::Dispatcher& dispatcher) {
+                               event::Dispatcher& dispatcher) {
   return std::make_unique<HttpsSseTransportFactory>(config, dispatcher);
 }
 
 /**
  * Helper to create client HTTPS+SSE transport directly
- * 
+ *
  * @param url Endpoint URL (https:// for SSL)
  * @param dispatcher Event dispatcher
  * @param verify_ssl Enable SSL verification (default true)
  * @return Transport socket
- * 
+ *
  * Example:
  * ```cpp
  * auto socket = createHttpsSseClientTransport(
@@ -230,11 +229,10 @@ inline network::TransportSocketPtr createHttpsSseClientTransport(
     const std::string& url,
     event::Dispatcher& dispatcher,
     bool verify_ssl = true) {
-  
   HttpSseTransportSocketConfig config;
   config.endpoint_url = url;
   config.verify_ssl = verify_ssl;
-  
+
   auto factory = createHttpsSseTransportFactory(config, dispatcher);
   return factory->createTransportSocket(nullptr);
 }

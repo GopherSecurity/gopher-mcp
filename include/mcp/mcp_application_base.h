@@ -318,7 +318,7 @@ class ApplicationBase {
   }
 
   // Run the main dispatcher event loop (blocks until exit)
-  // This should be called from main thread following Envoy pattern
+  // This should be called from main thread.
   void runEventLoop() {
     if (!initialized_) {
       initialize();

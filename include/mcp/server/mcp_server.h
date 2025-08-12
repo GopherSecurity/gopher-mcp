@@ -569,7 +569,7 @@ class McpServer : public application::ApplicationBase,
 
   // Server lifecycle
   VoidResult listen(const std::string& address);
-  void run();  // Run event loop in main thread (Envoy pattern)
+  void run();  // Run event loop in main thread
   void shutdown();
   bool isRunning() const { return server_running_; }
 
@@ -697,7 +697,7 @@ class McpServer : public application::ApplicationBase,
   // Background task state
   std::atomic<bool> background_threads_running_{false};
 
-  // Deferred listen address (for Envoy pattern)
+  // Deferred listen address
   std::string listen_address_;
 };
 

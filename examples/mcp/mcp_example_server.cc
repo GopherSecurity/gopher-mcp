@@ -926,7 +926,7 @@ int main(int argc, char* argv[]) {
   }
   
   // Run the server's event loop in main thread
-  // Following Envoy pattern: main thread runs the event loop
+  // Following good design pattern: main thread runs the event loop
   // This blocks until shutdown() is called
   g_server->run();
   
