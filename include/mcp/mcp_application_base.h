@@ -313,7 +313,7 @@ class ApplicationBase {
 
       workers_.push_back(std::move(worker));
     }
-    
+
     running_ = true;
   }
 
@@ -323,7 +323,7 @@ class ApplicationBase {
     if (!initialized_) {
       initialize();
     }
-    
+
     if (main_dispatcher_) {
       LOG_INFO("Running main event loop");
       main_dispatcher_->run(event::RunType::RunUntilExit);
