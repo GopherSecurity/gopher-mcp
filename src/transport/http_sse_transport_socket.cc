@@ -385,7 +385,7 @@ void HttpSseTransportSocket::onConnected() {
     // Server is ready to receive HTTP requests
     // The doRead() will handle incoming HTTP requests and send SSE response
     
-  } else if (state_ == State::Disconnected) {
+  } else if (state_ == State::Connecting) {
     // Client mode: TCP connected, now send HTTP upgrade request for SSE
     // This initiates the HTTP handshake to establish SSE stream
     updateState(State::HandshakeRequest);
