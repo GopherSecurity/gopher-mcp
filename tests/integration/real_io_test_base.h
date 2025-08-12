@@ -160,89 +160,90 @@ public:
   /**
    * Create a pair of connected sockets for testing.
    * Uses real TCP sockets bound to localhost.
+   * NOTE: This must be called from within the dispatcher thread context.
    *
    * @return Pair of connected IoHandles (client, server)
    */
   std::pair<network::IoHandlePtr, network::IoHandlePtr> createSocketPair() {
-    return executeInDispatcher([this]() {
-      auto& socket_interface = network::socketInterface();
+    // This function should be called from within dispatcher thread context
+    // Do not wrap in executeInDispatcher as it causes nested execution
+    auto& socket_interface = network::socketInterface();
 
-      // Create server socket
-      auto server_fd_result = socket_interface.socket(
-          network::SocketType::Stream, network::Address::Type::Ip,
-          network::Address::IpVersion::v4);
+    // Create server socket
+    auto server_fd_result = socket_interface.socket(
+        network::SocketType::Stream, network::Address::Type::Ip,
+        network::Address::IpVersion::v4);
 
-      if (!server_fd_result.ok()) {
-        throw std::runtime_error("Failed to create server socket");
+    if (!server_fd_result.ok()) {
+      throw std::runtime_error("Failed to create server socket");
+    }
+
+    auto server_handle =
+        socket_interface.ioHandleForFd(*server_fd_result, false);
+
+    // Set socket to non-blocking
+    server_handle->setBlocking(false);
+
+    // Bind to localhost with ephemeral port
+    auto bind_addr = network::Address::parseInternetAddress("127.0.0.1", 0);
+    auto bind_result = server_handle->bind(bind_addr);
+    if (!bind_result.ok()) {
+      throw std::runtime_error("Failed to bind server socket");
+    }
+
+    // Listen
+    auto listen_result = server_handle->listen(1);
+    if (!listen_result.ok()) {
+      throw std::runtime_error("Failed to listen on server socket");
+    }
+
+    // Get actual port
+    auto local_addr_result = server_handle->localAddress();
+    if (!local_addr_result.ok()) {
+      throw std::runtime_error("Failed to get local address");
+    }
+    auto local_addr = *local_addr_result;
+
+    // Create client socket
+    auto client_fd_result = socket_interface.socket(
+        network::SocketType::Stream, network::Address::Type::Ip,
+        network::Address::IpVersion::v4);
+
+    if (!client_fd_result.ok()) {
+      throw std::runtime_error("Failed to create client socket");
+    }
+
+    auto client_handle =
+        socket_interface.ioHandleForFd(*client_fd_result, false);
+    client_handle->setBlocking(false);
+
+    // Connect client to server
+    auto connect_result = client_handle->connect(local_addr);
+    if (!connect_result.ok()) {
+      // For non-blocking socket, EINPROGRESS is expected
+      if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
+        throw std::runtime_error("Failed to connect client socket");
       }
+    }
 
-      auto server_handle =
-          socket_interface.ioHandleForFd(*server_fd_result, false);
-
-      // Set socket to non-blocking
-      server_handle->setBlocking(false);
-
-      // Bind to localhost with ephemeral port
-      auto bind_addr = network::Address::parseInternetAddress("127.0.0.1", 0);
-      auto bind_result = server_handle->bind(bind_addr);
-      if (!bind_result.ok()) {
-        throw std::runtime_error("Failed to bind server socket");
-      }
-
-      // Listen
-      auto listen_result = server_handle->listen(1);
-      if (!listen_result.ok()) {
-        throw std::runtime_error("Failed to listen on server socket");
-      }
-
-      // Get actual port
-      auto local_addr_result = server_handle->localAddress();
-      if (!local_addr_result.ok()) {
-        throw std::runtime_error("Failed to get local address");
-      }
-      auto local_addr = *local_addr_result;
-
-      // Create client socket
-      auto client_fd_result = socket_interface.socket(
-          network::SocketType::Stream, network::Address::Type::Ip,
-          network::Address::IpVersion::v4);
-
-      if (!client_fd_result.ok()) {
-        throw std::runtime_error("Failed to create client socket");
-      }
-
-      auto client_handle =
-          socket_interface.ioHandleForFd(*client_fd_result, false);
-      client_handle->setBlocking(false);
-
-      // Connect client to server
-      auto connect_result = client_handle->connect(local_addr);
-      if (!connect_result.ok()) {
-        // For non-blocking socket, EINPROGRESS is expected
-        if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
-          throw std::runtime_error("Failed to connect client socket");
-        }
-      }
-
-      // Accept connection on server side
-      auto accepted_result = server_handle->accept();
+    // Accept connection on server side
+    auto accepted_result = server_handle->accept();
+    if (!accepted_result.ok()) {
+      // For non-blocking socket, might need to wait
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      accepted_result = server_handle->accept();
       if (!accepted_result.ok()) {
-        // For non-blocking socket, might need to wait
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        accepted_result = server_handle->accept();
-        if (!accepted_result.ok()) {
-          throw std::runtime_error("Failed to accept connection");
-        }
+        throw std::runtime_error("Failed to accept connection");
       }
+    }
 
-      // Note: We don't track FDs directly as IoHandle manages them
+    // Note: We don't track FDs directly as IoHandle manages them
 
-      // Close listening socket as we don't need it anymore
-      server_handle->close();
+    // Close listening socket as we don't need it anymore
+    server_handle->close();
 
-      return std::make_pair(std::move(client_handle),
-                            std::move(*accepted_result));
-    });
+    return std::make_pair(std::move(client_handle),
+                          std::move(*accepted_result));
   }
 
   /**
