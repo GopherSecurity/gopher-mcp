@@ -18,6 +18,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <signal.h>
 
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/buffer.h"
@@ -42,6 +43,21 @@ using ::testing::Invoke;
 using ::testing::DoAll;
 using ::testing::SaveArg;
 using ::testing::AtLeast;
+
+// Global test environment to handle SIGPIPE
+class SigPipeEnvironment : public ::testing::Environment {
+ public:
+  void SetUp() override {
+    // Ignore SIGPIPE signals - writing to closed sockets will return EPIPE error instead
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
+  }
+};
+
+// Register the environment - this will be called by gtest automatically
+static ::testing::Environment* const sigpipe_env = 
+    ::testing::AddGlobalTestEnvironment(new SigPipeEnvironment);
 
 // =============================================================================
 // Helper Classes and Forward Declarations
@@ -1010,9 +1026,11 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
   // For now, we'll create a simpler synchronous test
   
   uint16_t server_port = 0;
+  std::atomic<bool> server_ready{false};
+  std::atomic<bool> test_done{false};
   
-  // Create a simple blocking server in a thread
-  std::thread server_thread([&server_port]() {
+  // Create a simple non-blocking server in a thread
+  std::thread server_thread([&server_port, &server_ready, &test_done]() {
     auto& socket_interface = network::socketInterface();
     
     // Create server socket
@@ -1028,6 +1046,9 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
     int reuse = 1;
     server_handle->setSocketOption(SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     
+    // Set non-blocking mode
+    server_handle->setBlocking(false);
+    
     // Bind and listen
     auto bind_addr = network::Address::parseInternetAddress("127.0.0.1", 0);
     if (!server_handle->bind(bind_addr).ok()) return;
@@ -1038,15 +1059,40 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
     if (!local_addr.ok()) return;
     auto ip_addr = dynamic_cast<const network::Address::Ip*>((*local_addr).get());
     server_port = ip_addr->port();
+    server_ready = true;
     
-    // Accept one connection
-    auto client = server_handle->accept();
-    if (!client.ok()) return;
+    // Accept one connection with timeout
+    network::IoHandlePtr client_handle;
+    int retry_count = 0;
+    while (!test_done && retry_count < 200) {  // 2 second timeout
+      auto client = server_handle->accept();
+      if (client.ok()) {
+        client_handle = std::move(*client);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
-    // Read request
+    if (!client_handle) {
+      server_handle->close();
+      return;
+    }
+    
+    // Set client to non-blocking
+    client_handle->setBlocking(false);
+    
+    // Read request with retry
     OwnedBuffer request_buffer;
-    auto read_result = (*client)->read(request_buffer);
-    if (!read_result.ok()) return;
+    retry_count = 0;
+    while (retry_count < 50) {  // 500ms timeout
+      auto read_result = client_handle->read(request_buffer);
+      if (read_result.ok() && *read_result > 0) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
     // Send SSE response
     std::string response = "HTTP/1.1 200 OK\r\n"
@@ -1056,20 +1102,22 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
                           "data: test event\n\n";
     OwnedBuffer response_buffer;
     response_buffer.add(response);
-    (*client)->write(response_buffer);
+    client_handle->write(response_buffer);
     
-    (*client)->close();
+    // Wait a bit for client to read
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    client_handle->close();
     server_handle->close();
   });
   
-  // Wait for server to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  while (server_port == 0) {
+  // Wait for server to be ready
+  while (!server_ready) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   
   // Create client and connect
-  executeInDispatcher([this, server_port]() {
+  executeInDispatcher([this, server_port, &test_done]() {
     auto& socket_interface = network::socketInterface();
     auto client_fd = socket_interface.socket(
         network::SocketType::Stream,
@@ -1078,11 +1126,12 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
     ASSERT_TRUE(client_fd.ok());
     
     auto client_handle = socket_interface.ioHandleForFd(*client_fd, false);
+    client_handle->setBlocking(false);
     
     // Connect to server
     auto server_addr = network::Address::parseInternetAddress("127.0.0.1", server_port);
     auto connect_result = client_handle->connect(server_addr);
-    EXPECT_TRUE(connect_result.ok() || errno == EINPROGRESS);
+    EXPECT_TRUE(connect_result.ok() || errno == EINPROGRESS || errno == EWOULDBLOCK);
     
     // Wait for connection
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -1097,19 +1146,30 @@ TEST_F(HttpSseTransportRealIoTest, ClientServerCommunication) {
     auto write_result = client_handle->write(write_buffer);
     EXPECT_TRUE(write_result.ok() || write_result.wouldBlock());
     
-    // Read response
+    // Read response with retry
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     OwnedBuffer read_buffer;
-    auto read_result = client_handle->read(read_buffer);
+    int retry_count = 0;
+    bool got_response = false;
+    while (retry_count < 20) {  // 200ms timeout
+      auto read_result = client_handle->read(read_buffer);
+      if (read_result.ok() && *read_result > 0) {
+        got_response = true;
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
     // For real IO tests, the result may vary based on timing
-    if (read_result.ok() && *read_result > 0) {
+    if (got_response) {
       std::string response = read_buffer.toString();
       // Should receive SSE response
       EXPECT_TRUE(response.find("200 OK") != std::string::npos);
     }
     
     client_handle->close();
+    test_done = true;
   });
   
   server_thread.join();
@@ -1120,9 +1180,11 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
   // Similar to ClientServerCommunication but with JSON-RPC
   
   uint16_t server_port = 0;
+  std::atomic<bool> server_ready{false};
+  std::atomic<bool> test_done{false};
   
-  // Create a simple blocking server in a thread
-  std::thread server_thread([&server_port]() {
+  // Create a simple non-blocking server in a thread
+  std::thread server_thread([&server_port, &server_ready, &test_done]() {
     auto& socket_interface = network::socketInterface();
     
     // Create server socket
@@ -1138,6 +1200,9 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     int reuse = 1;
     server_handle->setSocketOption(SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     
+    // Set non-blocking mode
+    server_handle->setBlocking(false);
+    
     // Bind and listen
     auto bind_addr = network::Address::parseInternetAddress("127.0.0.1", 0);
     if (!server_handle->bind(bind_addr).ok()) return;
@@ -1148,15 +1213,40 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     if (!local_addr.ok()) return;
     auto ip_addr = dynamic_cast<const network::Address::Ip*>((*local_addr).get());
     server_port = ip_addr->port();
+    server_ready = true;
     
-    // Accept one connection
-    auto client = server_handle->accept();
-    if (!client.ok()) return;
+    // Accept one connection with timeout
+    network::IoHandlePtr client_handle;
+    int retry_count = 0;
+    while (!test_done && retry_count < 200) {  // 2 second timeout
+      auto client = server_handle->accept();
+      if (client.ok()) {
+        client_handle = std::move(*client);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
-    // Read request
+    if (!client_handle) {
+      server_handle->close();
+      return;
+    }
+    
+    // Set client to non-blocking
+    client_handle->setBlocking(false);
+    
+    // Read request with retry
     OwnedBuffer request_buffer;
-    auto read_result = (*client)->read(request_buffer);
-    if (!read_result.ok()) return;
+    retry_count = 0;
+    while (retry_count < 50) {  // 500ms timeout
+      auto read_result = client_handle->read(request_buffer);
+      if (read_result.ok() && *read_result > 0) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
     // Send JSON-RPC response
     json::JsonValue response_json;
@@ -1175,20 +1265,22 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     
     OwnedBuffer response_buffer;
     response_buffer.add(response.str());
-    (*client)->write(response_buffer);
+    client_handle->write(response_buffer);
     
-    (*client)->close();
+    // Wait a bit for client to read
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    client_handle->close();
     server_handle->close();
   });
   
-  // Wait for server to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  while (server_port == 0) {
+  // Wait for server to be ready
+  while (!server_ready) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   
   // Create client and connect
-  executeInDispatcher([this, server_port]() {
+  executeInDispatcher([this, server_port, &test_done]() {
     auto& socket_interface = network::socketInterface();
     auto client_fd = socket_interface.socket(
         network::SocketType::Stream,
@@ -1197,11 +1289,12 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     ASSERT_TRUE(client_fd.ok());
     
     auto client_handle = socket_interface.ioHandleForFd(*client_fd, false);
+    client_handle->setBlocking(false);
     
     // Connect to server
     auto server_addr = network::Address::parseInternetAddress("127.0.0.1", server_port);
     auto connect_result = client_handle->connect(server_addr);
-    EXPECT_TRUE(connect_result.ok() || errno == EINPROGRESS);
+    EXPECT_TRUE(connect_result.ok() || errno == EINPROGRESS || errno == EWOULDBLOCK);
     
     // Wait for connection
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -1227,19 +1320,30 @@ TEST_F(HttpSseTransportRealIoTest, JsonRpcOverHttp) {
     auto write_result = client_handle->write(write_buffer);
     EXPECT_TRUE(write_result.ok() || write_result.wouldBlock());
     
-    // Read response
+    // Read response with retry
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     OwnedBuffer read_buffer;
-    auto read_result = client_handle->read(read_buffer);
+    int retry_count = 0;
+    bool got_response = false;
+    while (retry_count < 20) {  // 200ms timeout
+      auto read_result = client_handle->read(read_buffer);
+      if (read_result.ok() && *read_result > 0) {
+        got_response = true;
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      retry_count++;
+    }
     
     // For real IO tests, the result may vary based on timing
-    if (read_result.ok() && *read_result > 0) {
+    if (got_response) {
       std::string response = read_buffer.toString();
       // Should receive JSON-RPC response
       EXPECT_TRUE(response.find("200 OK") != std::string::npos);
     }
     
     client_handle->close();
+    test_done = true;
   });
   
   server_thread.join();
