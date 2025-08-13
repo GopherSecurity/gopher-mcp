@@ -29,6 +29,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/transport_socket.h"
 #include "mcp/transport/ssl_context.h"
+#include "mcp/transport/ssl_state_machine.h"
 
 // Forward declare OpenSSL types
 typedef struct ssl_st SSL;
@@ -37,42 +38,7 @@ typedef struct bio_st BIO;
 namespace mcp {
 namespace transport {
 
-/**
- * SSL Transport Socket State Machine
- *
- * State transitions (all in dispatcher thread):
- *
- *     Initial
- *        ↓
- *   Connecting ← (on connect() call)
- *        ↓
- *  Handshaking ← (SSL_do_handshake in progress)
- *     ↙    ↘
- * WantRead  WantWrite ← (waiting for socket I/O)
- *     ↘    ↙
- *  Handshaking ← (resume after I/O ready)
- *        ↓
- *   Connected ← (handshake complete, ready for app data)
- *        ↓
- *  ShuttingDown ← (SSL_shutdown initiated)
- *        ↓
- *     Closed
- *
- * Error transitions:
- * - Any state → Error → Closed (on fatal error)
- * - Handshaking → Initial (on retriable error with reconnect)
- */
-enum class SslState {
-  Initial,       // Not yet connected
-  Connecting,    // TCP connection in progress
-  Handshaking,   // SSL handshake in progress
-  WantRead,      // Handshake waiting for readable socket
-  WantWrite,     // Handshake waiting for writable socket
-  Connected,     // SSL established, ready for application data
-  ShuttingDown,  // SSL shutdown in progress
-  Error,         // Error occurred
-  Closed         // Connection closed
-};
+// Use SslSocketState from state machine
 
 /**
  * SSL handshake callbacks interface
@@ -112,7 +78,8 @@ class SslHandshakeCallbacks {
  * - SSL operations are non-blocking
  * - Callbacks are invoked in dispatcher thread
  */
-class SslTransportSocket : public network::TransportSocket {
+class SslTransportSocket : public network::TransportSocket,
+                          public std::enable_shared_from_this<SslTransportSocket> {
  public:
   /**
    * Initial SSL role
@@ -163,7 +130,7 @@ class SslTransportSocket : public network::TransportSocket {
    * Get current SSL state
    * Useful for debugging and testing
    */
-  SslState getState() const { return state_; }
+  SslSocketState getState() const { return state_machine_->getCurrentState(); }
 
   /**
    * Get peer certificate info after handshake
@@ -180,11 +147,11 @@ class SslTransportSocket : public network::TransportSocket {
   /**
    * Check if connection is secure (SSL established)
    */
-  bool isSecure() const { return state_ == SslState::Connected; }
+  bool isSecure() const { return state_machine_->isConnected(); }
 
  private:
   /**
-   * State machine transition
+   * State machine transition helper
    * Validates transition and updates state
    *
    * @param new_state Target state
@@ -196,7 +163,7 @@ class SslTransportSocket : public network::TransportSocket {
    * 3. Update state atomically
    * 4. Trigger any state-specific actions
    */
-  bool transitionState(SslState new_state);
+  bool transitionState(SslSocketState new_state);
 
   /**
    * Initialize SSL connection
@@ -356,7 +323,7 @@ class SslTransportSocket : public network::TransportSocket {
   BIO* internal_bio_{nullptr};  // Internal BIO for plaintext
 
   // State machine
-  std::atomic<SslState> state_{SslState::Initial};  // Current state
+  std::unique_ptr<SslStateMachine> state_machine_;  // Robust state machine
   std::string failure_reason_;                      // Last error reason
 
   // Callbacks
@@ -367,6 +334,7 @@ class SslTransportSocket : public network::TransportSocket {
   bool handshake_complete_{false};   // Handshake done flag
   event::TimerPtr handshake_timer_;  // Handshake retry timer
   std::chrono::steady_clock::time_point handshake_start_;  // Start time
+  uint32_t state_listener_id_{0};    // State machine listener ID
 
   // I/O buffers
   std::unique_ptr<Buffer> read_buffer_;   // Temporary read buffer
@@ -385,6 +353,22 @@ class SslTransportSocket : public network::TransportSocket {
   // Flags
   bool shutdown_sent_{false};      // SSL shutdown initiated
   bool shutdown_received_{false};  // Peer shutdown received
+  
+  /**
+   * State change handler
+   * Called when state machine transitions
+   */
+  void onStateChanged(SslSocketState old_state, SslSocketState new_state);
+  
+  /**
+   * Schedule socket operation based on state
+   */
+  void scheduleSocketOperation();
+  
+  /**
+   * Handle async handshake completion
+   */
+  void handleAsyncHandshakeResult(bool success, const std::string& error);
 };
 
 /**
