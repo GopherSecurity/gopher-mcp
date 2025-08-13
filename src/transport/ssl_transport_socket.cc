@@ -74,9 +74,28 @@ SslTransportSocket::SslTransportSocket(
   // Initialize buffers
   read_buffer_ = std::make_unique<OwnedBuffer>();
   write_buffer_ = std::make_unique<OwnedBuffer>();
+  
+  // Create state machine based on role
+  SslSocketMode mode = (role == InitialRole::Client) ? 
+                       SslSocketMode::Client : SslSocketMode::Server;
+  state_machine_ = SslStateMachineFactory::createClientStateMachine(dispatcher_);
+  if (mode == SslSocketMode::Server) {
+    state_machine_ = SslStateMachineFactory::createServerStateMachine(dispatcher_);
+  }
+  
+  // Register state change listener
+  state_listener_id_ = state_machine_->addStateChangeListener(
+      [this](SslSocketState old_state, SslSocketState new_state) {
+        onStateChanged(old_state, new_state);
+      });
 }
 
 SslTransportSocket::~SslTransportSocket() {
+  // Unregister state listener
+  if (state_listener_id_ && state_machine_) {
+    state_machine_->removeStateChangeListener(state_listener_id_);
+  }
+  
   // Clean up SSL resources
   if (ssl_) {
     // Ensure we're in dispatcher thread for SSL cleanup
@@ -104,7 +123,7 @@ std::string SslTransportSocket::protocol() const {
   }
   
   // Otherwise return SSL/TLS version
-  if (ssl_ && state_ == SslState::Connected) {
+  if (ssl_ && state_machine_->isConnected()) {
     const char* version = SSL_get_version(ssl_);
     return version ? std::string(version) : "ssl";
   }
@@ -114,26 +133,26 @@ std::string SslTransportSocket::protocol() const {
 
 bool SslTransportSocket::canFlushClose() {
   // Can flush close if SSL shutdown complete or not yet connected
-  return state_ == SslState::Initial ||
-         state_ == SslState::Closed ||
+  auto state = state_machine_->getCurrentState();
+  return state == SslSocketState::Uninitialized ||
+         state == SslSocketState::Closed ||
          (shutdown_sent_ && shutdown_received_);
 }
 
 VoidResult SslTransportSocket::connect(network::Socket& socket) {
   // Validate state
-  if (state_ != SslState::Initial) {
+  if (state_machine_->getCurrentState() != SslSocketState::Uninitialized) {
     return makeVoidError(Error{0, "SSL socket already connected or connecting"});
   }
   
-  // Transition to connecting state
-  if (!transitionState(SslState::Connecting)) {
-    return makeVoidError(Error{0, "Invalid state transition to Connecting"});
-  }
+  // Transition to initialized then connecting state
+  state_machine_->transition(SslSocketState::Initialized);
+  state_machine_->transition(SslSocketState::Connecting);
   
   // Pass through to inner socket
   auto result = inner_socket_->connect(socket);
   if (holds_alternative<Error>(result)) {
-    transitionState(SslState::Error);
+    state_machine_->transition(SslSocketState::Error);
     failure_reason_ = get<Error>(result).message;
     return result;
   }
@@ -143,28 +162,22 @@ VoidResult SslTransportSocket::connect(network::Socket& socket) {
 
 void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   // Handle different close scenarios based on state
-  switch (state_.load()) {
-    case SslState::Connected:
-      // Initiate SSL shutdown for graceful close
-      if (!shutdown_sent_) {
-        shutdownSsl();
-      }
-      break;
-      
-    case SslState::Handshaking:
-    case SslState::WantRead:
-    case SslState::WantWrite:
-      // Cancel handshake
-      if (handshake_timer_) {
-        handshake_timer_->disableTimer();
-      }
-      transitionState(SslState::Closed);
-      break;
-      
-    default:
-      // Direct close for other states
-      transitionState(SslState::Closed);
-      break;
+  auto state = state_machine_->getCurrentState();
+  
+  if (state == SslSocketState::Connected) {
+    // Initiate SSL shutdown for graceful close
+    if (!shutdown_sent_) {
+      shutdownSsl();
+    }
+  } else if (state_machine_->isHandshaking()) {
+    // Cancel handshake
+    if (handshake_timer_) {
+      handshake_timer_->disableTimer();
+    }
+    state_machine_->transition(SslSocketState::Closed);
+  } else {
+    // Direct close for other states
+    state_machine_->transition(SslSocketState::Closed);
   }
   
   // Close inner socket
@@ -175,13 +188,14 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
 
 void SslTransportSocket::onConnected() {
   // Called when underlying TCP connection is established
-  // Initialize SSL and start handshake
+  // Transition to TcpConnected state
+  state_machine_->transition(SslSocketState::TcpConnected);
   
   // Initialize SSL connection
   auto result = initializeSsl();
   if (holds_alternative<Error>(result)) {
     failure_reason_ = get<Error>(result).message;
-    transitionState(SslState::Error);
+    state_machine_->transition(SslSocketState::Error);
     if (handshake_callbacks_) {
       handshake_callbacks_->onSslHandshakeFailed(failure_reason_);
     }
@@ -199,7 +213,7 @@ void SslTransportSocket::onConnected() {
 
 TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   // Validate state
-  if (state_ != SslState::Connected) {
+  if (!state_machine_->isConnected()) {
     return TransportIoResult::close();
   }
   
@@ -209,11 +223,9 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
 
 TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   // Validate state
-  if (state_ != SslState::Connected) {
+  if (!state_machine_->isConnected()) {
     // Buffer data if still handshaking
-    if (state_ == SslState::Handshaking ||
-        state_ == SslState::WantRead ||
-        state_ == SslState::WantWrite) {
+    if (state_machine_->isHandshaking()) {
       write_buffer_->move(buffer);
       return TransportIoResult::success(0);
     }
@@ -224,71 +236,18 @@ TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
   return sslWrite(buffer, end_stream);
 }
 
-bool SslTransportSocket::transitionState(SslState new_state) {
-  // State transition validation
-  // This ensures state machine integrity
+bool SslTransportSocket::transitionState(SslSocketState new_state) {
+  // Helper method for transitioning state machine
+  // Used during migration from old state enum
   
-  SslState current = state_.load();
+  bool can_transition = state_machine_->canTransition(
+      state_machine_->getCurrentState(), new_state);
   
-  // Define valid transitions
-  bool valid = false;
-  switch (current) {
-    case SslState::Initial:
-      valid = (new_state == SslState::Connecting ||
-               new_state == SslState::Error ||
-               new_state == SslState::Closed);
-      break;
-      
-    case SslState::Connecting:
-      valid = (new_state == SslState::Handshaking ||
-               new_state == SslState::Error ||
-               new_state == SslState::Closed);
-      break;
-      
-    case SslState::Handshaking:
-      valid = (new_state == SslState::WantRead ||
-               new_state == SslState::WantWrite ||
-               new_state == SslState::Connected ||
-               new_state == SslState::Error ||
-               new_state == SslState::Closed);
-      break;
-      
-    case SslState::WantRead:
-    case SslState::WantWrite:
-      valid = (new_state == SslState::Handshaking ||
-               new_state == SslState::Connected ||
-               new_state == SslState::Error ||
-               new_state == SslState::Closed);
-      break;
-      
-    case SslState::Connected:
-      valid = (new_state == SslState::ShuttingDown ||
-               new_state == SslState::Error ||
-               new_state == SslState::Closed);
-      break;
-      
-    case SslState::ShuttingDown:
-      valid = (new_state == SslState::Closed ||
-               new_state == SslState::Error);
-      break;
-      
-    case SslState::Error:
-      valid = (new_state == SslState::Closed);
-      break;
-      
-    case SslState::Closed:
-      valid = false;  // Terminal state
-      break;
+  if (can_transition) {
+    state_machine_->scheduleTransition(new_state);
   }
   
-  if (!valid) {
-    return false;
-  }
-  
-  // Perform atomic state transition
-  state_ = new_state;
-  
-  return true;
+  return can_transition;
 }
 
 VoidResult SslTransportSocket::initializeSsl() {
@@ -323,11 +282,10 @@ VoidResult SslTransportSocket::initializeSsl() {
   }
   
   // Transition to handshaking state
-  if (!transitionState(SslState::Handshaking)) {
-    SSL_free(ssl_);
-    ssl_ = nullptr;
-    return makeVoidError(Error{0, "Failed to transition to Handshaking state"});
-  }
+  SslSocketState handshake_state = (initial_role_ == InitialRole::Client) ?
+                                   SslSocketState::ClientHandshakeInit :
+                                   SslSocketState::ServerHandshakeInit;
+  state_machine_->transition(handshake_state);
   
   // Record handshake start time
   handshake_start_ = std::chrono::steady_clock::now();
@@ -361,13 +319,13 @@ TransportIoResult::PostIoAction SslTransportSocket::doHandshake() {
   switch (ssl_error) {
     case SSL_ERROR_WANT_READ:
       // SSL needs to read more data
-      transitionState(SslState::WantRead);
+      state_machine_->transition(SslSocketState::HandshakeWantRead);
       scheduleHandshakeRetry();
       return TransportIoResult::CONTINUE;
       
     case SSL_ERROR_WANT_WRITE:
       // SSL needs to write more data
-      transitionState(SslState::WantWrite);
+      state_machine_->transition(SslSocketState::HandshakeWantWrite);
       scheduleHandshakeRetry();
       return TransportIoResult::CONTINUE;
       
@@ -386,10 +344,12 @@ TransportIoResult::PostIoAction SslTransportSocket::doHandshake() {
 void SslTransportSocket::resumeHandshake() {
   // Called when socket becomes ready after WantRead/WantWrite
   
-  // Transition back to handshaking state
-  if (!transitionState(SslState::Handshaking)) {
-    onHandshakeFailed("Invalid state transition during handshake resume");
-    return;
+  // Let state machine handle I/O ready event
+  auto state = state_machine_->getCurrentState();
+  if (state == SslSocketState::HandshakeWantRead) {
+    state_machine_->handleIoReady(true, false);
+  } else if (state == SslSocketState::HandshakeWantWrite) {
+    state_machine_->handleIoReady(false, true);
   }
   
   // Retry handshake
@@ -445,10 +405,12 @@ void SslTransportSocket::onHandshakeComplete() {
   }
   
   // Transition to connected state
-  if (!transitionState(SslState::Connected)) {
-    onHandshakeFailed("Failed to transition to Connected state");
-    return;
-  }
+  state_machine_->transition(SslSocketState::Connected,
+                            [this](bool success, const std::string& error) {
+    if (!success) {
+      onHandshakeFailed("Failed to transition to Connected state: " + error);
+    }
+  });
   
   // Notify callbacks
   if (handshake_callbacks_) {
@@ -458,7 +420,7 @@ void SslTransportSocket::onHandshakeComplete() {
   // Process any buffered write data
   if (write_buffer_->length() > 0) {
     dispatcher_.post([this]() {
-      if (state_ == SslState::Connected && write_buffer_->length() > 0) {
+      if (state_machine_->isConnected() && write_buffer_->length() > 0) {
         auto result = sslWrite(*write_buffer_, false);
         if (result.action_ == TransportIoResult::CLOSE) {
           closeSocket(network::ConnectionEvent::LocalClose);
@@ -479,7 +441,7 @@ void SslTransportSocket::onHandshakeFailed(const std::string& reason) {
   }
   
   // Transition to error state
-  transitionState(SslState::Error);
+  state_machine_->transition(SslSocketState::Error);
   
   // Notify callbacks
   if (handshake_callbacks_) {
@@ -657,8 +619,7 @@ void SslTransportSocket::shutdownSsl() {
     return;
   }
   
-  // Transition to shutting down state
-  transitionState(SslState::ShuttingDown);
+  // State transition already handled above
   
   // Send close_notify alert
   int ret = SSL_shutdown(ssl_);
@@ -672,13 +633,16 @@ void SslTransportSocket::shutdownSsl() {
     
     // Schedule check for peer's close_notify
     dispatcher_.post([this]() {
-      if (state_ == SslState::ShuttingDown) {
+      auto state = state_machine_->getCurrentState();
+      if (state == SslSocketState::ShutdownInitiated || 
+          state == SslSocketState::ShutdownSent) {
         // Try to receive peer's close_notify
         int ret = SSL_shutdown(ssl_);
         if (ret == 1) {
           // Shutdown complete
           shutdown_received_ = true;
-          transitionState(SslState::Closed);
+          state_machine_->transition(SslSocketState::ShutdownComplete);
+          state_machine_->transition(SslSocketState::Closed);
         }
       }
     });
@@ -686,13 +650,14 @@ void SslTransportSocket::shutdownSsl() {
     // Shutdown complete (both directions)
     shutdown_sent_ = true;
     shutdown_received_ = true;
-    transitionState(SslState::Closed);
+    state_machine_->transition(SslSocketState::ShutdownComplete);
+    state_machine_->transition(SslSocketState::Closed);
   } else {
     // Error during shutdown
     int ssl_error = SSL_get_error(ssl_, ret);
     if (ssl_error != SSL_ERROR_WANT_READ && ssl_error != SSL_ERROR_WANT_WRITE) {
       // Fatal error
-      transitionState(SslState::Error);
+      state_machine_->transition(SslSocketState::Error);
     }
   }
 }
@@ -713,17 +678,64 @@ void SslTransportSocket::scheduleHandshakeRetry() {
 }
 
 std::string SslTransportSocket::getPeerCertificateInfo() const {
-  if (state_ != SslState::Connected || peer_cert_info_.empty()) {
+  if (!state_machine_->isConnected() || peer_cert_info_.empty()) {
     return "";
   }
   return peer_cert_info_;
 }
 
 std::string SslTransportSocket::getNegotiatedProtocol() const {
-  if (state_ != SslState::Connected) {
+  if (!state_machine_->isConnected()) {
     return "";
   }
   return negotiated_protocol_;
+}
+
+void SslTransportSocket::onStateChanged(SslSocketState old_state, SslSocketState new_state) {
+  // Handle state change notifications from state machine
+  
+  // Log state transition for debugging
+  // TODO: Add proper logging when available
+  
+  // Handle specific state transitions
+  if (new_state == SslSocketState::Connected) {
+    // Connection established, notify upper layer if needed
+    if (transport_callbacks_) {
+      transport_callbacks_->raiseEvent(network::ConnectionEvent::Connected);
+    }
+  } else if (new_state == SslSocketState::Error) {
+    // Error occurred, close connection
+    if (transport_callbacks_) {
+      transport_callbacks_->raiseEvent(network::ConnectionEvent::RemoteClose);
+    }
+  } else if (new_state == SslSocketState::Closed) {
+    // Connection closed
+    if (transport_callbacks_) {
+      transport_callbacks_->raiseEvent(network::ConnectionEvent::LocalClose);
+    }
+  }
+  
+  // Schedule socket operations based on new state
+  scheduleSocketOperation();
+}
+
+void SslTransportSocket::scheduleSocketOperation() {
+  // Schedule operations based on current state
+  auto state = state_machine_->getCurrentState();
+  
+  if (state == SslSocketState::HandshakeWantRead ||
+      state == SslSocketState::HandshakeWantWrite) {
+    // Schedule handshake retry
+    scheduleHandshakeRetry();
+  }
+}
+
+void SslTransportSocket::handleAsyncHandshakeResult(bool success, const std::string& error) {
+  if (success) {
+    onHandshakeComplete();
+  } else {
+    onHandshakeFailed(error);
+  }
 }
 
 // SslTransportSocketFactory implementation
