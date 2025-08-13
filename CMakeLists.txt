@@ -237,6 +237,7 @@ set(MCP_SDK_SOURCES
     src/transport/stdio_pipe_transport.cc
     src/transport/http_transport_socket.cc  # Renamed legacy implementation
     src/transport/ssl_context.cc
+    src/transport/ssl_state_machine.cc
     src/transport/ssl_transport_socket.cc
     src/transport/https_sse_transport_factory.cc
     src/mcp_connection_manager.cc
