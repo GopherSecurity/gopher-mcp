@@ -26,7 +26,7 @@ class HttpsSseFactoryTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Create dispatcher
-    dispatcher_ = std::make_unique<event::LibeventDispatcher>();
+    dispatcher_ = std::make_unique<event::LibeventDispatcher>("test");
   }
   
   void TearDown() override {
@@ -319,14 +319,16 @@ TEST_F(HttpsSseFactoryTest, ForcedSslConfiguration) {
     EXPECT_TRUE(factory->implementsSecureTransport());
   }
   
-  // Explicitly disable SSL with HTTPS URL (unusual but allowed)
+  // HTTPS URL should always use SSL, even if use_ssl is false
+  // This is a safety feature - HTTPS implies SSL
   {
     HttpSseTransportSocketConfig config;
     config.endpoint_url = "https://example.com";  // HTTPS URL
-    config.use_ssl = false;  // Force no SSL
+    config.use_ssl = false;  // Try to force no SSL
     
     auto factory = std::make_unique<HttpsSseTransportFactory>(config, *dispatcher_);
-    EXPECT_FALSE(factory->implementsSecureTransport());
+    // HTTPS should override use_ssl=false for security
+    EXPECT_TRUE(factory->implementsSecureTransport());
   }
 }
 
