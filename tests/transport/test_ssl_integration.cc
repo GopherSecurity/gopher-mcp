@@ -332,8 +332,8 @@ TEST_F(SslIntegrationTest, BasicSslHandshake) {
         *dispatcher_);
     
     // Verify initial states
-    EXPECT_EQ(client_ssl.getState(), SslState::Initial);
-    EXPECT_EQ(server_ssl.getState(), SslState::Initial);
+    EXPECT_EQ(client_ssl.getState(), SslSocketState::Uninitialized);
+    EXPECT_EQ(server_ssl.getState(), SslSocketState::Uninitialized);
     
     // Note: Full SSL handshake requires async I/O handling
     // which would need proper event loop integration
@@ -408,8 +408,8 @@ TEST_F(SslIntegrationTest, AlpnNegotiation) {
         *dispatcher_);
     
     // ALPN negotiation would happen during handshake
-    EXPECT_EQ(client_ssl.getState(), SslState::Initial);
-    EXPECT_EQ(server_ssl.getState(), SslState::Initial);
+    EXPECT_EQ(client_ssl.getState(), SslSocketState::Uninitialized);
+    EXPECT_EQ(server_ssl.getState(), SslSocketState::Uninitialized);
   });
 }
 
