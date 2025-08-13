@@ -205,9 +205,8 @@ class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
  * auto socket = factory->createTransportSocket(options);
  * ```
  */
-inline std::unique_ptr<HttpsSseTransportFactory>
-createHttpsSseTransportFactory(const HttpSseTransportSocketConfig& config,
-                               event::Dispatcher& dispatcher) {
+inline std::unique_ptr<HttpsSseTransportFactory> createHttpsSseTransportFactory(
+    const HttpSseTransportSocketConfig& config, event::Dispatcher& dispatcher) {
   return std::make_unique<HttpsSseTransportFactory>(config, dispatcher);
 }
 

@@ -334,7 +334,8 @@ class SslTransportSocket : public network::TransportSocket {
    * @param syscall_error System error code
    * @return PostIoAction for next step
    */
-  TransportIoResult::PostIoAction handleSslError(int ssl_error, int syscall_error);
+  TransportIoResult::PostIoAction handleSslError(int ssl_error,
+                                                 int syscall_error);
 
   /**
    * Schedule handshake retry
@@ -416,12 +417,13 @@ class SslTransportSocketFactory : public network::ClientTransportSocketFactory {
    */
   network::TransportSocketPtr createTransportSocket(
       network::TransportSocketOptionsSharedPtr options) const override;
-  
+
   // Additional ClientTransportSocketFactory methods
   bool supportsAlpn() const override { return true; }
   std::string defaultServerNameIndication() const override { return ""; }
-  void hashKey(std::vector<uint8_t>& key,
-               network::TransportSocketOptionsSharedPtr options) const override {
+  void hashKey(
+      std::vector<uint8_t>& key,
+      network::TransportSocketOptionsSharedPtr options) const override {
     // TODO: Hash SSL context configuration
     // TODO: In production, would hash cert paths, protocols, etc.
   }
