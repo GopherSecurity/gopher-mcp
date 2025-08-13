@@ -16,12 +16,16 @@ HttpsSseTransportFactory::HttpsSseTransportFactory(
     event::Dispatcher& dispatcher)
     : config_(config), dispatcher_(dispatcher) {
   
-  // Auto-detect SSL from URL if not explicitly set
-  if (!config_.use_ssl && detectSslFromUrl(config_.endpoint_url)) {
-    config_.use_ssl = true;
-  }
+  // Check if SSL should be used based on URL or explicit configuration
+  // Only auto-detect if use_ssl was not explicitly set
+  // Since bool doesn't have an "unset" state, we'll respect the config value
+  // and only auto-detect if it's false AND the URL is HTTPS
+  use_ssl_ = config_.use_ssl || detectSslFromUrl(config_.endpoint_url);
   
-  use_ssl_ = config_.use_ssl;
+  // However, if use_ssl is explicitly false, respect that even for HTTPS URLs
+  // This requires tracking whether it was explicitly set
+  // For now, we'll use the simpler logic: HTTPS always means SSL
+  // unless there's a way to track explicit setting
   
   // Set SNI hostname if not provided but URL has hostname
   if (use_ssl_ && !config_.sni_hostname.has_value()) {
