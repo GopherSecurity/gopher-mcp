@@ -470,7 +470,7 @@ TEST_F(HttpSseTransportConfigTest, CustomConfiguration) {
   
   // Dispatcher is required for transport creation
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
-  transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher);
+  transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher, false /* client mode */);
   
   EXPECT_EQ("http+sse", transport_->protocol());
   EXPECT_TRUE(transport_->failureReason().empty());
@@ -482,7 +482,7 @@ TEST_F(HttpSseTransportConfigTest, InvalidConfiguration) {
   config_.connect_timeout = std::chrono::seconds(-1);  // Negative timeout
   
   auto dispatcher = std::make_unique<test::MinimalMockDispatcher>();
-  transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher);
+  transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher, false /* client mode */);
   
   // Transport should still be created but may have issues during operation
   EXPECT_EQ("http+sse", transport_->protocol());
@@ -497,7 +497,7 @@ class HttpSseTransportHttpTest : public HttpSseTransportTestBase {
   void SetUp() override {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
-    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
+    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_, false /* client mode */);
     
     // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
@@ -606,7 +606,7 @@ class HttpSseTransportSseTest : public HttpSseTransportTestBase {
   void SetUp() override {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
-    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
+    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_, false /* client mode */);
     
     // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
@@ -785,7 +785,7 @@ class HttpSseTransportStateTest : public HttpSseTransportTestBase {
   void SetUp() override {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
-    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
+    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_, false /* client mode */);
     
     // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
@@ -852,7 +852,7 @@ class HttpSseTransportBufferTest : public HttpSseTransportTestBase {
   void SetUp() override {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
-    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
+    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_, false /* client mode */);
     
     // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
@@ -894,7 +894,16 @@ TEST_F(HttpSseTransportBufferTest, ZeroCopyWrite) {
   // First call onConnected to set up the transport state
   transport_->onConnected();
   
-  // Mock writev for zero-copy write - transport adds HTTP headers
+  // Mock both write and writev for zero-copy write
+  // When sse_stream_active_ is false, transport uses write() directly
+  EXPECT_CALL(*io_handle_, write(_))
+      .WillRepeatedly(Invoke([](Buffer& buf) -> IoCallResult {
+        size_t len = buf.length();
+        // Don't drain here - the transport will drain after successful write
+        return IoCallResult::success(len);
+      }));
+  
+  // Mock writev for when transport adds HTTP headers
   EXPECT_CALL(*io_handle_, writev(_, _))
       .WillRepeatedly(Invoke([](const ConstRawSlice* slices, size_t num_slices) -> IoCallResult {
         size_t total = 0;
@@ -905,7 +914,8 @@ TEST_F(HttpSseTransportBufferTest, ZeroCopyWrite) {
       }));
   
   auto result = transport_->doWrite(buffer, false);
-  EXPECT_TRUE(result.ok());
+  EXPECT_EQ(result.action_, TransportIoResult::CONTINUE);
+  EXPECT_FALSE(result.error_.has_value());
 }
 
 TEST_F(HttpSseTransportBufferTest, LargeDataTransfer) {
@@ -931,6 +941,22 @@ TEST_F(HttpSseTransportBufferTest, PartialWriteHandling) {
   
   // Mock partial write - first call writes partial, second writes rest
   bool first_call = true;
+  
+  // Mock write() for when sse_stream_active_ is false
+  EXPECT_CALL(*io_handle_, write(_))
+      .WillRepeatedly(Invoke([&first_call](Buffer& buf) -> IoCallResult {
+        size_t len = buf.length();
+        if (first_call) {
+          first_call = false;
+          size_t partial = std::min(size_t(10), len);
+          // Don't drain - transport will handle it
+          return IoCallResult::success(partial);
+        }
+        // Don't drain - transport will handle it
+        return IoCallResult::success(len);
+      }));
+  
+  // Mock writev for when transport adds HTTP headers
   EXPECT_CALL(*io_handle_, writev(_, _))
       .WillRepeatedly(Invoke([&first_call](const ConstRawSlice* slices, size_t num_slices) -> IoCallResult {
         size_t total = 0;
@@ -946,7 +972,8 @@ TEST_F(HttpSseTransportBufferTest, PartialWriteHandling) {
   
   auto result = transport_->doWrite(buffer, false);
   // Should handle partial writes
-  EXPECT_TRUE(result.ok());
+  EXPECT_FALSE(result.error_.has_value());
+  EXPECT_EQ(result.action_, TransportIoResult::CONTINUE);
 }
 
 // =============================================================================
@@ -958,7 +985,7 @@ class HttpSseTransportErrorTest : public HttpSseTransportTestBase {
   void SetUp() override {
     HttpSseTransportTestBase::SetUp();
     dispatcher_ = std::make_unique<test::MinimalMockDispatcher>();
-    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_);
+    transport_ = std::make_unique<HttpSseTransportSocket>(config_, *dispatcher_, false /* client mode */);
     
     // Create mock io_handle and set up callbacks to return it
     io_handle_ = std::make_unique<NiceMock<MockIoHandle>>();
