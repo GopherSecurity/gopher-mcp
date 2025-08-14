@@ -364,8 +364,8 @@ TEST_F(SslIntegrationTest, EncryptedDataTransmission) {
     
     // Test would require full SSL handshake and data exchange
     // Verify we can create the sockets at least
-    EXPECT_EQ(client_ssl.protocol(), "ssl");
-    EXPECT_EQ(server_ssl.protocol(), "ssl");
+    EXPECT_EQ(client_ssl.protocol(), "TLS");
+    EXPECT_EQ(server_ssl.protocol(), "TLS");
   });
 }
 
@@ -512,8 +512,8 @@ TEST_F(SslIntegrationTest, LargeDataTransfer) {
     
     // Large data transfer would require full SSL handshake
     // For now, verify socket creation
-    EXPECT_EQ(client_ssl.protocol(), "ssl");
-    EXPECT_EQ(server_ssl.protocol(), "ssl");
+    EXPECT_EQ(client_ssl.protocol(), "TLS");
+    EXPECT_EQ(server_ssl.protocol(), "TLS");
   });
 }
 
