@@ -141,24 +141,24 @@ enum class StreamResetReason {
 };
 
 /**
- * State transition result with detailed error information
+ * HTTP SSE state transition result with detailed error information
  */
-struct StateTransitionResult {
+struct HttpSseStateTransitionResult {
   bool success;
   std::string error_message;
   HttpSseState resulting_state;
   optional<std::chrono::milliseconds> retry_after;  // For reconnection
   
-  static StateTransitionResult Success(HttpSseState state) {
+  static HttpSseStateTransitionResult Success(HttpSseState state) {
     return {true, "", state, nullopt};
   }
   
-  static StateTransitionResult Failure(const std::string& error) {
+  static HttpSseStateTransitionResult Failure(const std::string& error) {
     return {false, error, HttpSseState::Error, nullopt};
   }
   
-  static StateTransitionResult Retry(const std::string& error, 
-                                     std::chrono::milliseconds retry_after) {
+  static HttpSseStateTransitionResult Retry(const std::string& error, 
+                                            std::chrono::milliseconds retry_after) {
     return {false, error, HttpSseState::ReconnectScheduled, retry_after};
   }
 };
@@ -490,7 +490,7 @@ class HttpSseStateMachine {
    */
   bool isConnected() const {
     return current_state_ == HttpSseState::SseStreamActive ||
-           current_state_ == HttpSseState::HttpOnly;
+           current_state_ == HttpSseState::HttpOnlyMode;
   }
   
   /**
@@ -499,7 +499,7 @@ class HttpSseStateMachine {
   bool isSseActive() const {
     return current_state_ == HttpSseState::SseStreamActive ||
            current_state_ == HttpSseState::SseEventBuffering ||
-           current_state_ == HttpSseState::SseEventComplete;
+           current_state_ == HttpSseState::SseEventReceived;
   }
   
   /**
@@ -507,7 +507,7 @@ class HttpSseStateMachine {
    */
   bool isReconnecting() const {
     return current_state_ == HttpSseState::ReconnectScheduled ||
-           current_state_ == HttpSseState::ReconnectBackoff ||
+           current_state_ == HttpSseState::ReconnectWaiting ||
            current_state_ == HttpSseState::ReconnectAttempting;
   }
   
