@@ -34,6 +34,7 @@
 // Forward declare OpenSSL types
 typedef struct ssl_st SSL;
 typedef struct bio_st BIO;
+typedef struct x509_st X509;
 
 namespace mcp {
 namespace transport {
@@ -148,22 +149,42 @@ class SslTransportSocket : public network::TransportSocket,
    * Check if connection is secure (SSL established)
    */
   bool isSecure() const { return state_machine_->isConnected(); }
+  
+  /**
+   * SSL Statistics structure
+   */
+  struct SslStats {
+    uint64_t handshakes_started;
+    uint64_t handshakes_completed;
+    uint64_t handshakes_failed;
+    uint64_t sessions_reused;
+    uint64_t bytes_encrypted;
+    uint64_t bytes_decrypted;
+  };
+  
+  /**
+   * Get SSL statistics
+   */
+  SslStats getStatistics() const;
+  
+  /**
+   * Get Subject Alternative Names from peer certificate
+   */
+  std::vector<std::string> getSubjectAltNames() const;
+  
+  /**
+   * Get cipher suite used for the connection
+   */
+  std::string getCipherSuite() const;
+  
+  /**
+   * Get TLS version
+   */
+  std::string getTlsVersion() const;
 
  private:
-  /**
-   * State machine transition helper
-   * Validates transition and updates state
-   *
-   * @param new_state Target state
-   * @return true if transition valid, false otherwise
-   *
-   * Flow:
-   * 1. Validate transition from current state
-   * 2. Log state change for debugging
-   * 3. Update state atomically
-   * 4. Trigger any state-specific actions
-   */
-  bool transitionState(SslSocketState new_state);
+  // Forward declare Stats struct for implementation
+  struct Stats;
 
   /**
    * Initialize SSL connection
@@ -196,16 +217,6 @@ class SslTransportSocket : public network::TransportSocket,
    */
   TransportIoResult::PostIoAction doHandshake();
 
-  /**
-   * Resume handshake after I/O ready
-   * Called when socket becomes readable/writable
-   *
-   * Flow:
-   * 1. Move data between socket and BIO
-   * 2. Retry SSL_do_handshake
-   * 3. Handle result as in doHandshake()
-   */
-  void resumeHandshake();
 
   /**
    * Handle handshake completion
@@ -234,36 +245,6 @@ class SslTransportSocket : public network::TransportSocket,
    */
   void onHandshakeFailed(const std::string& reason);
 
-  /**
-   * SSL read operation
-   * Read encrypted data from socket and decrypt
-   *
-   * @param buffer Output buffer for decrypted data
-   * @return I/O result
-   *
-   * Flow:
-   * 1. Read from socket into network BIO
-   * 2. SSL_read to decrypt data
-   * 3. Write decrypted data to buffer
-   * 4. Handle SSL errors if any
-   */
-  TransportIoResult sslRead(Buffer& buffer);
-
-  /**
-   * SSL write operation
-   * Encrypt data and write to socket
-   *
-   * @param buffer Input buffer with plaintext data
-   * @param end_stream End of stream flag
-   * @return I/O result
-   *
-   * Flow:
-   * 1. SSL_write to encrypt data
-   * 2. Read encrypted data from network BIO
-   * 3. Write to underlying socket
-   * 4. Handle SSL errors if any
-   */
-  TransportIoResult sslWrite(Buffer& buffer, bool end_stream);
 
   /**
    * Move data from socket to network BIO
@@ -281,28 +262,7 @@ class SslTransportSocket : public network::TransportSocket,
    */
   size_t moveFromBio();
 
-  /**
-   * Perform SSL shutdown
-   * Graceful SSL connection termination
-   *
-   * Flow:
-   * 1. Call SSL_shutdown
-   * 2. Send close_notify alert
-   * 3. Wait for peer's close_notify
-   * 4. Close underlying connection
-   */
-  void shutdownSsl();
 
-  /**
-   * Handle SSL errors
-   * Extract and log SSL error details
-   *
-   * @param ssl_error SSL error code
-   * @param syscall_error System error code
-   * @return PostIoAction for next step
-   */
-  TransportIoResult::PostIoAction handleSslError(int ssl_error,
-                                                 int syscall_error);
 
   /**
    * Schedule handshake retry
@@ -349,10 +309,17 @@ class SslTransportSocket : public network::TransportSocket,
   std::string peer_cert_info_;       // Peer certificate details
   std::string negotiated_protocol_;  // ALPN protocol
   std::string cipher_suite_;         // Negotiated cipher
+  std::string tls_version_;          // TLS version
+  std::vector<std::string> subject_alt_names_;  // SANs from peer cert
 
   // Flags
   bool shutdown_sent_{false};      // SSL shutdown initiated
   bool shutdown_received_{false};  // Peer shutdown received
+  
+  // Performance optimizations
+  std::unique_ptr<Stats> stats_;              // SSL statistics
+  event::TimerPtr handshake_retry_timer_;     // Retry timer with backoff
+  uint32_t retry_count_{0};                   // Retry count for backoff
   
   /**
    * State change handler
@@ -361,14 +328,109 @@ class SslTransportSocket : public network::TransportSocket,
   void onStateChanged(SslSocketState old_state, SslSocketState new_state);
   
   /**
-   * Schedule socket operation based on state
+   * Configure SSL for client mode
    */
-  void scheduleSocketOperation();
+  void configureClientSsl();
   
   /**
-   * Handle async handshake completion
+   * Configure SSL for server mode
    */
-  void handleAsyncHandshakeResult(bool success, const std::string& error);
+  void configureServerSsl();
+  
+  /**
+   * Configure client state machine with appropriate actions
+   */
+  void configureClientStateMachine();
+  
+  /**
+   * Configure server state machine with appropriate actions
+   */
+  void configureServerStateMachine();
+  
+  /**
+   * Initiate client handshake process
+   */
+  void initiateClientHandshake();
+  
+  /**
+   * Initiate server handshake process
+   */
+  void initiateServerHandshake();
+  
+  /**
+   * Perform a handshake step
+   */
+  void performHandshakeStep();
+  
+  /**
+   * Handle handshake result based on SSL error (returns PostIoAction)
+   */
+  TransportIoResult::PostIoAction handleHandshakeResult(int ssl_error);
+  
+  /**
+   * Extract connection information after handshake
+   */
+  void extractConnectionInfo();
+  
+  /**
+   * Verify peer certificate
+   */
+  bool verifyPeerCertificate();
+  
+  /**
+   * Cancel ongoing handshake
+   */
+  void cancelHandshake();
+  
+  /**
+   * Perform optimized SSL read operation
+   */
+  TransportIoResult performOptimizedSslRead(Buffer& buffer);
+  
+  /**
+   * Perform optimized SSL write operation
+   */
+  TransportIoResult performOptimizedSslWrite(Buffer& buffer, bool end_stream);
+  
+  /**
+   * Initiate SSL shutdown sequence
+   */
+  void initiateShutdown();
+  
+  /**
+   * Schedule periodic check for shutdown completion
+   */
+  void scheduleShutdownCheck();
+  
+  /**
+   * Schedule wait for I/O readiness
+   */
+  void scheduleIoWait(bool wait_for_read, bool wait_for_write);
+  
+  /**
+   * Handle SSL error
+   */
+  void handleSslError(const std::string& reason);
+  
+  /**
+   * Flush buffered writes after handshake
+   */
+  void flushBufferedWrites();
+  
+  /**
+   * Extract Subject Alternative Names from certificate
+   */
+  void extractSubjectAltNames(X509* cert);
+  
+  /**
+   * Handle handshake timeout
+   */
+  void onHandshakeTimeout();
+  
+  /**
+   * Log final statistics for debugging
+   */
+  void logFinalStatistics();
 };
 
 /**
