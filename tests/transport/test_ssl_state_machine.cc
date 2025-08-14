@@ -254,26 +254,53 @@ TEST_F(SslStateMachineTest, ServerStateMachine_ValidTransitions) {
 TEST_F(SslStateMachineTest, StateMachine_HandshakeBlockedStates) {
   auto machine = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
   
-  // Move to handshake state
-  machine->forceTransition(SslSocketState::ClientHandshakeInit);
+  // Setup: Move to ClientHandshakeInit state through proper transitions
+  bool success = false;
+  machine->transition(SslSocketState::Initialized, [&success](bool s, const std::string&){ success = s; });
+  dispatcher_->run(event::RunType::NonBlock);
+  EXPECT_TRUE(success);
   
-  // Can transition to WantWrite when blocked on write
+  machine->transition(SslSocketState::Connecting, [&success](bool s, const std::string&){ success = s; });
+  dispatcher_->run(event::RunType::NonBlock);
+  
+  machine->transition(SslSocketState::TcpConnected, [&success](bool s, const std::string&){ success = s; });
+  dispatcher_->run(event::RunType::NonBlock);
+  
+  machine->transition(SslSocketState::ClientHandshakeInit, [&success](bool s, const std::string&){ success = s; });
+  dispatcher_->run(event::RunType::NonBlock);
+  EXPECT_TRUE(success);
+  EXPECT_EQ(machine->getCurrentState(), SslSocketState::ClientHandshakeInit);
+  
+  // Test 1: Can transition to HandshakeWantWrite when blocked on write
   EXPECT_TRUE(machine->canTransition(SslSocketState::ClientHandshakeInit,
                                      SslSocketState::HandshakeWantWrite));
   
-  // Force transition to HandshakeWantWrite since the normal transition might have prerequisites
-  machine->forceTransition(SslSocketState::HandshakeWantWrite);
+  // Actually test the transition works
+  success = false;
+  machine->transition(SslSocketState::HandshakeWantWrite, [&success](bool s, const std::string& err){ 
+    success = s; 
+    if (!s) ADD_FAILURE() << "Failed to transition to HandshakeWantWrite: " << err;
+  });
+  dispatcher_->run(event::RunType::NonBlock);
+  EXPECT_TRUE(success);
   EXPECT_EQ(machine->getCurrentState(), SslSocketState::HandshakeWantWrite);
   EXPECT_TRUE(machine->isWaitingForIo());
   
-  // Move to certificate validation async state
+  // Test 2: Setup for certificate validation test
+  // Use forceTransition to skip to ServerHelloReceived for testing certificate validation
   machine->forceTransition(SslSocketState::ServerHelloReceived);
+  dispatcher_->run(event::RunType::NonBlock);  // Let force transition complete
   
   EXPECT_TRUE(machine->canTransition(SslSocketState::ServerHelloReceived,
                                      SslSocketState::CertificateValidating));
   
-  // Force transition to CertificateValidating since the normal transition might have prerequisites
-  machine->forceTransition(SslSocketState::CertificateValidating);
+  success = false;
+  machine->transition(SslSocketState::CertificateValidating, [&success](bool s, const std::string& err){ 
+    success = s;
+    if (!s) ADD_FAILURE() << "Failed to transition to CertificateValidating: " << err;
+  });
+  dispatcher_->run(event::RunType::NonBlock);
+  EXPECT_TRUE(success);
   EXPECT_EQ(machine->getCurrentState(), SslSocketState::CertificateValidating);
   EXPECT_TRUE(machine->isWaitingForIo());
 }
