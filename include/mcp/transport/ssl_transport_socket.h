@@ -79,8 +79,9 @@ class SslHandshakeCallbacks {
  * - SSL operations are non-blocking
  * - Callbacks are invoked in dispatcher thread
  */
-class SslTransportSocket : public network::TransportSocket,
-                          public std::enable_shared_from_this<SslTransportSocket> {
+class SslTransportSocket
+    : public network::TransportSocket,
+      public std::enable_shared_from_this<SslTransportSocket> {
  public:
   /**
    * Initial SSL role
@@ -149,7 +150,7 @@ class SslTransportSocket : public network::TransportSocket,
    * Check if connection is secure (SSL established)
    */
   bool isSecure() const { return state_machine_->isConnected(); }
-  
+
   /**
    * SSL Statistics structure
    */
@@ -161,22 +162,22 @@ class SslTransportSocket : public network::TransportSocket,
     uint64_t bytes_encrypted;
     uint64_t bytes_decrypted;
   };
-  
+
   /**
    * Get SSL statistics
    */
   SslStats getStatistics() const;
-  
+
   /**
    * Get Subject Alternative Names from peer certificate
    */
   std::vector<std::string> getSubjectAltNames() const;
-  
+
   /**
    * Get cipher suite used for the connection
    */
   std::string getCipherSuite() const;
-  
+
   /**
    * Get TLS version
    */
@@ -217,7 +218,6 @@ class SslTransportSocket : public network::TransportSocket,
    */
   TransportIoResult::PostIoAction doHandshake();
 
-
   /**
    * Handle handshake completion
    * Called when handshake succeeds
@@ -245,7 +245,6 @@ class SslTransportSocket : public network::TransportSocket,
    */
   void onHandshakeFailed(const std::string& reason);
 
-
   /**
    * Move data from socket to network BIO
    * Called during handshake and I/O operations
@@ -261,8 +260,6 @@ class SslTransportSocket : public network::TransportSocket,
    * @return Bytes moved
    */
   size_t moveFromBio();
-
-
 
   /**
    * Schedule handshake retry
@@ -294,7 +291,7 @@ class SslTransportSocket : public network::TransportSocket,
   bool handshake_complete_{false};   // Handshake done flag
   event::TimerPtr handshake_timer_;  // Handshake retry timer
   std::chrono::steady_clock::time_point handshake_start_;  // Start time
-  uint32_t state_listener_id_{0};    // State machine listener ID
+  uint32_t state_listener_id_{0};  // State machine listener ID
 
   // I/O buffers
   std::unique_ptr<Buffer> read_buffer_;   // Temporary read buffer
@@ -306,127 +303,127 @@ class SslTransportSocket : public network::TransportSocket,
   uint32_t handshake_attempts_{0};  // Handshake attempt count
 
   // Connection info (after handshake)
-  std::string peer_cert_info_;       // Peer certificate details
-  std::string negotiated_protocol_;  // ALPN protocol
-  std::string cipher_suite_;         // Negotiated cipher
-  std::string tls_version_;          // TLS version
+  std::string peer_cert_info_;                  // Peer certificate details
+  std::string negotiated_protocol_;             // ALPN protocol
+  std::string cipher_suite_;                    // Negotiated cipher
+  std::string tls_version_;                     // TLS version
   std::vector<std::string> subject_alt_names_;  // SANs from peer cert
 
   // Flags
   bool shutdown_sent_{false};      // SSL shutdown initiated
   bool shutdown_received_{false};  // Peer shutdown received
-  
+
   // Performance optimizations
-  std::unique_ptr<Stats> stats_;              // SSL statistics
-  event::TimerPtr handshake_retry_timer_;     // Retry timer with backoff
-  uint32_t retry_count_{0};                   // Retry count for backoff
-  
+  std::unique_ptr<Stats> stats_;           // SSL statistics
+  event::TimerPtr handshake_retry_timer_;  // Retry timer with backoff
+  uint32_t retry_count_{0};                // Retry count for backoff
+
   /**
    * State change handler
    * Called when state machine transitions
    */
   void onStateChanged(SslSocketState old_state, SslSocketState new_state);
-  
+
   /**
    * Configure SSL for client mode
    */
   void configureClientSsl();
-  
+
   /**
    * Configure SSL for server mode
    */
   void configureServerSsl();
-  
+
   /**
    * Configure client state machine with appropriate actions
    */
   void configureClientStateMachine();
-  
+
   /**
    * Configure server state machine with appropriate actions
    */
   void configureServerStateMachine();
-  
+
   /**
    * Initiate client handshake process
    */
   void initiateClientHandshake();
-  
+
   /**
    * Initiate server handshake process
    */
   void initiateServerHandshake();
-  
+
   /**
    * Perform a handshake step
    */
   void performHandshakeStep();
-  
+
   /**
    * Handle handshake result based on SSL error (returns PostIoAction)
    */
   TransportIoResult::PostIoAction handleHandshakeResult(int ssl_error);
-  
+
   /**
    * Extract connection information after handshake
    */
   void extractConnectionInfo();
-  
+
   /**
    * Verify peer certificate
    */
   bool verifyPeerCertificate();
-  
+
   /**
    * Cancel ongoing handshake
    */
   void cancelHandshake();
-  
+
   /**
    * Perform optimized SSL read operation
    */
   TransportIoResult performOptimizedSslRead(Buffer& buffer);
-  
+
   /**
    * Perform optimized SSL write operation
    */
   TransportIoResult performOptimizedSslWrite(Buffer& buffer, bool end_stream);
-  
+
   /**
    * Initiate SSL shutdown sequence
    */
   void initiateShutdown();
-  
+
   /**
    * Schedule periodic check for shutdown completion
    */
   void scheduleShutdownCheck();
-  
+
   /**
    * Schedule wait for I/O readiness
    */
   void scheduleIoWait(bool wait_for_read, bool wait_for_write);
-  
+
   /**
    * Handle SSL error
    */
   void handleSslError(const std::string& reason);
-  
+
   /**
    * Flush buffered writes after handshake
    */
   void flushBufferedWrites();
-  
+
   /**
    * Extract Subject Alternative Names from certificate
    */
   void extractSubjectAltNames(X509* cert);
-  
+
   /**
    * Handle handshake timeout
    */
   void onHandshakeTimeout();
-  
+
   /**
    * Log final statistics for debugging
    */
