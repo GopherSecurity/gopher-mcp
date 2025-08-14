@@ -5,7 +5,7 @@
  * Provides comprehensive state management for HTTP+SSE transport with:
  * - Lock-free operation in dispatcher thread
  * - Automatic reconnection with exponential backoff
- * - Stream lifecycle management (Envoy pattern)
+ * - Stream lifecycle management with zombie pattern
  * - Observable state transitions
  * - Graceful error handling and recovery
  */

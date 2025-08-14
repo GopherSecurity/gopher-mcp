@@ -14,7 +14,7 @@
  * - Non-blocking: No synchronization primitives
  * - Callback-based: Async notifications
  *
- * Following industrial best practices from Envoy, Nginx, Node.js
+ * Following industrial best practices from production proxies
  */
 
 #ifndef MCP_TRANSPORT_SSL_STATE_MACHINE_H
