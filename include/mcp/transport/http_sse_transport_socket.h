@@ -11,6 +11,7 @@
 #include "mcp/http/http_parser.h"
 #include "mcp/http/sse_parser.h"
 #include "mcp/network/transport_socket.h"
+#include "mcp/transport/http_sse_state_machine.h"
 
 namespace mcp {
 namespace transport {
@@ -109,18 +110,6 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void onSseError(const std::string& error) override;
 
  private:
-  // Connection states
-  enum class State {
-    Disconnected,
-    Connecting,
-    HandshakeRequest,   // Sending initial HTTP request
-    HandshakeResponse,  // Receiving HTTP response
-    SseConnecting,      // Establishing SSE stream
-    SseConnected,       // SSE stream established
-    Connected,          // Fully connected (both directions)
-    Closing,
-    Closed
-  };
 
   // Request context
   struct PendingRequest {
@@ -146,11 +135,12 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void handleRequestTimeout(const std::string& request_id);
   void scheduleReconnect();
   void attemptReconnect();
-  void updateState(State new_state);
+  void updateState(HttpSseState new_state);
   std::string buildHttpRequest(const std::string& method,
                                const std::string& path,
                                const std::string& body);
   void flushPendingRequests();
+  void onStateChanged(HttpSseState old_state, HttpSseState new_state);
 
   // Configuration
   HttpSseTransportSocketConfig config_;
@@ -158,8 +148,11 @@ class HttpSseTransportSocket : public network::TransportSocket,
   // Event loop and dispatcher
   event::Dispatcher& dispatcher_;
 
-  // State
-  std::atomic<State> state_{State::Disconnected};
+  // State machine
+  std::unique_ptr<HttpSseStateMachine> state_machine_;
+  std::unique_ptr<HttpSseTransitionCoordinator> transition_coordinator_;
+  
+  // State callbacks
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
   bool is_server_mode_{false};  // Track if this is a server-side socket
