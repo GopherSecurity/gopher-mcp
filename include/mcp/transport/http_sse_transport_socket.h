@@ -80,8 +80,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
   // TransportSocket interface
   void setTransportSocketCallbacks(
       network::TransportSocketCallbacks& callbacks) override;
-  std::string protocol() const override { return "http+sse"; }
-  std::string failureReason() const override { return failure_reason_; }
+  std::string protocol() const override;
+  std::string failureReason() const override;
   bool canFlushClose() override;
   VoidResult connect(network::Socket& socket) override;
   void closeSocket(network::ConnectionEvent event) override;
@@ -119,28 +119,91 @@ class HttpSseTransportSocket : public network::TransportSocket,
     std::chrono::steady_clock::time_point sent_time;
   };
 
-  // Helper methods
+  // State machine configuration
+  void configureStateMachine();
+  void configureStateEntryActions();
+  void configureStateExitActions();
+  void configureStateValidators();
+  void configureStateTimeouts();
+  void configureReconnectionStrategy();
+  
+  // Buffer management
+  void initializeBuffers();
   void initializeParsers();
+  
+  // Data processing
+  void processReceivedData();
+  void processHttpData();
+  void processSseData();
+  
+  // HTTP protocol handling
+  void initiateHttpHandshake();
+  void sendInitialHttpRequest();
   void sendHttpRequest(const std::string& body, const std::string& path);
-  void sendSseConnectRequest();
-  void sendHttpUpgradeRequest();  // Client: Send initial HTTP upgrade request
-                                  // for SSE
-  void sendSseResponse();         // Server: Send SSE response headers
-  void processIncomingData(Buffer& buffer);
-  void processSseData(Buffer& buffer);
-  void processHttpRequest(
-      Buffer& buffer);  // Server: Process incoming HTTP request
-  void processHttpResponse(Buffer& buffer);  // Client: Process HTTP response
-  void handleSseEvent(const http::SseEvent& event);
-  void handleRequestTimeout(const std::string& request_id);
-  void scheduleReconnect();
-  void attemptReconnect();
-  void updateState(HttpSseState new_state);
+  void handleHttpResponse();
+  void handleSuccessfulHttpResponse();
+  void handleErrorHttpResponse();
+  void handleHttpRequest();
+  void processHttpResponse();
+  void processHttpRequest();
+  void processIncomingRequest();
+  void prepareHttpResponse();
+  void prepareSseResponse();
+  void prepareRegularHttpResponse();
   std::string buildHttpRequest(const std::string& method,
                                const std::string& path,
                                const std::string& body);
-  void flushPendingRequests();
+  
+  // SSE stream handling
+  void establishSseStream();
+  void handleSseStreamActive();
+  void notifySseStreamEstablished();
+  void sendSseConnectRequest();
+  void sendHttpUpgradeRequest();
+  void sendSseResponse();
+  void handleSseEvent(const http::SseEvent& event);
+  
+  // State handling
   void onStateChanged(HttpSseState old_state, HttpSseState new_state);
+  void handleTcpConnected();
+  void handleHttpRequestSent();
+  void handleErrorState();
+  void handleClosedState();
+  void updateState(HttpSseState new_state);
+  
+  // Timer management
+  void startConnectTimer();
+  void cancelConnectTimer();
+  void startKeepAliveTimer();
+  void cancelKeepAliveTimer();
+  void startRequestTimer(const std::string& request_id);
+  void scheduleReconnectTimer();
+  void sendKeepAlive();
+  
+  // Error handling
+  void handleConnectionError(const std::string& error);
+  void handleParseError(const std::string& error);
+  void handleConnectTimeout();
+  void handleRequestTimeout(const std::string& request_id);
+  
+  // Reconnection logic
+  void scheduleReconnect();
+  void attemptReconnect();
+  
+  // Request management
+  void flushPendingRequests();
+  
+  // Helper methods
+  bool isInCriticalOperation() const;
+  TransportIoResult::PostIoAction determineReadAction() const;
+  TransportIoResult::PostIoAction determineWriteAction() const;
+  void handleEndStream();
+  void deliverHttpResponse();
+  void cleanupActiveStreams();
+  void notifyStateChange(HttpSseState old_state, HttpSseState new_state);
+  static std::string extractHostFromUrl(const std::string& url);
+  void logStateTransition(HttpSseState old_state, HttpSseState new_state);
+  void logRequestTimeout(const std::string& request_id);
 
   // Configuration
   HttpSseTransportSocketConfig config_;
@@ -162,13 +225,22 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::unique_ptr<http::HttpParser> response_parser_;
   std::unique_ptr<http::SseParser> sse_parser_;
 
-  // Current HTTP message being parsed
-  std::unique_ptr<http::HttpMessage> current_request_;
-  std::unique_ptr<http::HttpMessage> current_response_;
+  // Current HTTP message being parsed (simplified for callback-based parsing)
   std::string current_header_field_;
   std::string current_header_value_;
   std::string accumulated_url_;  // Accumulate URL during parsing
   bool processing_headers_{false};
+  
+  // Request data (server mode)
+  std::map<std::string, std::string> current_request_headers_;
+  std::string current_request_body_;
+  std::string current_request_method_;
+  std::string current_request_url_;
+  
+  // Response data (client mode)  
+  std::map<std::string, std::string> current_response_headers_;
+  std::string current_response_body_;
+  int current_response_status_{0};
 
   // Buffers
   std::unique_ptr<Buffer> read_buffer_;
@@ -192,12 +264,26 @@ class HttpSseTransportSocket : public network::TransportSocket,
   uint64_t bytes_received_{0};
   uint64_t requests_sent_{0};
   uint64_t responses_received_{0};
+  uint64_t requests_received_{0};
   uint64_t sse_events_received_{0};
 
   // Connection info
   bool sse_stream_active_{false};
   std::string session_id_;
   std::chrono::steady_clock::time_point connect_time_;
+  network::ConnectionEvent connection_close_event_;
+  
+  // Watermark tracking
+  size_t read_buffer_low_watermark_;
+  size_t read_buffer_high_watermark_;
+  size_t write_buffer_low_watermark_;
+  size_t write_buffer_high_watermark_;
+  
+  // Additional timers
+  event::TimerPtr connect_timer_;
+  std::chrono::milliseconds connect_timeout_;
+  std::chrono::milliseconds request_timeout_;
+  std::chrono::milliseconds keepalive_interval_;
 };
 
 /**
