@@ -209,7 +209,7 @@ class HttpSseStateMachine {
     HttpSseState request_state{HttpSseState::Uninitialized};
     HttpSseState response_state{HttpSseState::Uninitialized};
     
-    // State flags (using bitfields for efficiency like Envoy)
+    // State flags (using bitfields for efficiency)
     bool headers_complete : 1;
     bool body_complete : 1;
     bool trailers_complete : 1;
