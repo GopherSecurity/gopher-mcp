@@ -1170,27 +1170,29 @@ TEST_F(SslTransportSocketTest, EmptySniHostname) {
 
 // Full I/O Test 15: Context With Different Settings
 TEST_F(SslTransportSocketTest, ContextWithDifferentSettings) {
-  // Create context with verification enabled
-  SslContextConfig config;
-  config.is_client = true;
-  config.verify_peer = true;
-  // config.verify_depth = 10;  // Not available in this implementation
-  
-  auto result = SslContext::create(config);
-  if (holds_alternative<SslContextSharedPtr>(result)) {
-    auto context = get<SslContextSharedPtr>(result);
-    EXPECT_NE(context, nullptr);
+  executeInDispatcher([this]() {
+    // Create context with verification enabled
+    SslContextConfig config;
+    config.is_client = true;
+    config.verify_peer = true;
+    // config.verify_depth = 10;  // Not available in this implementation
     
-    // Create SSL socket with this context
-    auto raw_socket = createRawTransportSocket(std::move(client_io_handle_));
-    auto ssl_socket = std::make_unique<SslTransportSocket>(
-        std::move(raw_socket),
-        context,
-        SslTransportSocket::InitialRole::Client,
-        *dispatcher_);
-    
-    EXPECT_EQ(ssl_socket->protocol(), "TLS");
-  }
+    auto result = SslContext::create(config);
+    if (holds_alternative<SslContextSharedPtr>(result)) {
+      auto context = get<SslContextSharedPtr>(result);
+      EXPECT_NE(context, nullptr);
+      
+      // Create SSL socket with this context
+      auto raw_socket = createRawTransportSocket(std::move(client_io_handle_));
+      auto ssl_socket = std::make_unique<SslTransportSocket>(
+          std::move(raw_socket),
+          context,
+          SslTransportSocket::InitialRole::Client,
+          *dispatcher_);
+      
+      EXPECT_EQ(ssl_socket->protocol(), "TLS");
+    }
+  });
 }
 
 // Full I/O Test 16: Handshake Callback Registration
