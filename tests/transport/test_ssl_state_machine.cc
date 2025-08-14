@@ -798,33 +798,37 @@ TEST_F(SslStateMachineTest, StateMachine_IoReadyEvents) {
 // =============================================================================
 
 TEST_F(SslStateMachineTest, StateMachine_StateTimeout) {
-  auto machine = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+  // Run the entire test logic in the dispatcher thread
+  dispatcher_->post([this]() {
+    auto machine = SslStateMachineFactory::createClientStateMachine(*dispatcher_);
+    
+    // Move to handshake state
+    machine->forceTransition(SslSocketState::ClientHandshakeInit);
+    
+    // Set a timeout for this state
+    machine->setStateTimeout(std::chrono::milliseconds(10),
+                            SslSocketState::Error);
+    
+    // Wait for timeout
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    
+    // Should have transitioned to error due to timeout
+    // Note: This depends on timer implementation in dispatcher
+    
+    // Cancel timeout before it fires
+    machine->forceTransition(SslSocketState::ClientHelloSent);
+    machine->setStateTimeout(std::chrono::milliseconds(1000),
+                            SslSocketState::Error);
+    machine->cancelStateTimeout();
+    
+    // Quick transition should not timeout
+    machine->transition(SslSocketState::ServerHelloReceived, [](bool, const std::string&){});
+    
+    EXPECT_NE(machine->getCurrentState(), SslSocketState::Error);
+  });
   
-  // Move to handshake state
-  machine->forceTransition(SslSocketState::ClientHandshakeInit);
-  
-  // Set a timeout for this state
-  machine->setStateTimeout(std::chrono::milliseconds(10),
-                          SslSocketState::Error);
-  
-  // Wait for timeout
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  // Run the dispatcher to execute the posted task
   dispatcher_->run(event::RunType::NonBlock);
-  
-  // Should have transitioned to error due to timeout
-  // Note: This depends on timer implementation in dispatcher
-  
-  // Cancel timeout before it fires
-  machine->forceTransition(SslSocketState::ClientHelloSent);
-  machine->setStateTimeout(std::chrono::milliseconds(1000),
-                          SslSocketState::Error);
-  machine->cancelStateTimeout();
-  
-  // Quick transition should not timeout
-  machine->transition(SslSocketState::ServerHelloReceived, [](bool, const std::string&){});
-  dispatcher_->run(event::RunType::NonBlock);
-  
-  EXPECT_NE(machine->getCurrentState(), SslSocketState::Error);
 }
 
 }  // namespace
