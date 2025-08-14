@@ -275,7 +275,7 @@ void HttpSseStateMachine::onHttpResponseReceived(const std::string& stream_id,
   auto* stream = getStream(stream_id);
   if (stream) {
     stream->headers_complete = true;
-    stream->response_state = HttpSseState::HttpResponseHeaders;
+    stream->response_state = HttpSseState::HttpResponseHeadersReceiving;
     
     if (status_code == 200) {
       // Success - prepare for SSE stream
@@ -338,7 +338,7 @@ void HttpSseStateMachine::scheduleReconnect() {
       reconnect_timer_->enableTimer(reconnect_delay_);
       
       // Transition to backoff state
-      scheduleTransition(HttpSseState::ReconnectBackoff);
+      scheduleTransition(HttpSseState::ReconnectWaiting);
     }
   });
 }
@@ -620,27 +620,27 @@ void HttpSseStateMachine::initializeClientTransitions() {
   // Shutdown transitions
   valid_transitions_[HttpSseState::ShutdownInitiated] = {
     HttpSseState::ShutdownDraining,
-    HttpSseState::ShutdownComplete,
+    HttpSseState::ShutdownCompleted,
     HttpSseState::Closed
   };
   
   valid_transitions_[HttpSseState::ShutdownDraining] = {
-    HttpSseState::ShutdownComplete,
+    HttpSseState::ShutdownCompleted,
     HttpSseState::Closed
   };
   
-  valid_transitions_[HttpSseState::ShutdownComplete] = {
+  valid_transitions_[HttpSseState::ShutdownCompleted] = {
     HttpSseState::Closed
   };
   
   // Degraded state transitions
-  valid_transitions_[HttpSseState::HttpOnly] = {
+  valid_transitions_[HttpSseState::HttpOnlyMode] = {
     HttpSseState::SseNegotiating,  // Retry SSE
     HttpSseState::ShutdownInitiated,
     HttpSseState::Error
   };
   
-  valid_transitions_[HttpSseState::PartialData] = {
+  valid_transitions_[HttpSseState::PartialDataReceived] = {
     HttpSseState::SseEventBuffering,
     HttpSseState::ReconnectScheduled,
     HttpSseState::Error
@@ -668,12 +668,12 @@ void HttpSseStateMachine::initializeServerTransitions() {
   
   // Server listening transitions
   valid_transitions_[HttpSseState::ServerListening] = {
-    HttpSseState::ServerAccepted,
+    HttpSseState::ServerConnectionAccepted,
     HttpSseState::ShutdownInitiated,
     HttpSseState::Error
   };
   
-  valid_transitions_[HttpSseState::ServerAccepted] = {
+  valid_transitions_[HttpSseState::ServerConnectionAccepted] = {
     HttpSseState::ServerRequestReceiving,
     HttpSseState::Error
   };
@@ -693,7 +693,7 @@ void HttpSseStateMachine::initializeServerTransitions() {
   // Server SSE pushing
   valid_transitions_[HttpSseState::ServerSsePushing] = {
     HttpSseState::SseEventBuffering,
-    HttpSseState::SseKeepAlive,
+    HttpSseState::SseKeepAliveReceiving,
     HttpSseState::ShutdownInitiated,
     HttpSseState::Error
   };
@@ -701,16 +701,16 @@ void HttpSseStateMachine::initializeServerTransitions() {
   // Shutdown transitions (same as client)
   valid_transitions_[HttpSseState::ShutdownInitiated] = {
     HttpSseState::ShutdownDraining,
-    HttpSseState::ShutdownComplete,
+    HttpSseState::ShutdownCompleted,
     HttpSseState::Closed
   };
   
   valid_transitions_[HttpSseState::ShutdownDraining] = {
-    HttpSseState::ShutdownComplete,
+    HttpSseState::ShutdownCompleted,
     HttpSseState::Closed
   };
   
-  valid_transitions_[HttpSseState::ShutdownComplete] = {
+  valid_transitions_[HttpSseState::ShutdownCompleted] = {
     HttpSseState::Closed
   };
   
@@ -828,7 +828,7 @@ std::unique_ptr<HttpSseStateMachine> HttpSseStateMachineFactory::createServerSta
                          });
   
   // Connection accepted
-  machine->setEntryAction(HttpSseState::ServerAccepted,
+  machine->setEntryAction(HttpSseState::ServerConnectionAccepted,
                          [](HttpSseState, std::function<void()> done) {
                            // Initialize connection resources
                            done();
@@ -890,12 +890,12 @@ std::unique_ptr<HttpSseStateMachine> HttpSseStateMachineFactory::createStateMach
 bool HttpSseStatePatterns::isConnectedState(HttpSseState state) {
   switch (state) {
     case HttpSseState::TcpConnected:
-    case HttpSseState::HttpResponseBody:
+    case HttpSseState::HttpResponseBodyReceiving:
     case HttpSseState::SseStreamActive:
     case HttpSseState::SseEventBuffering:
-    case HttpSseState::SseEventComplete:
-    case HttpSseState::SseKeepAlive:
-    case HttpSseState::HttpOnly:
+    case HttpSseState::SseEventReceived:
+    case HttpSseState::SseKeepAliveReceiving:
+    case HttpSseState::HttpOnlyMode:
     case HttpSseState::ServerSsePushing:
       return true;
     default:
@@ -918,9 +918,9 @@ bool HttpSseStatePatterns::isHttpRequestState(HttpSseState state) {
 bool HttpSseStatePatterns::isHttpResponseState(HttpSseState state) {
   switch (state) {
     case HttpSseState::HttpResponseWaiting:
-    case HttpSseState::HttpResponseHeaders:
-    case HttpSseState::HttpResponseUpgrade:
-    case HttpSseState::HttpResponseBody:
+    case HttpSseState::HttpResponseHeadersReceiving:
+    case HttpSseState::HttpResponseUpgrading:
+    case HttpSseState::HttpResponseBodyReceiving:
       return true;
     default:
       return false;
@@ -932,8 +932,8 @@ bool HttpSseStatePatterns::isSseStreamState(HttpSseState state) {
     case HttpSseState::SseNegotiating:
     case HttpSseState::SseStreamActive:
     case HttpSseState::SseEventBuffering:
-    case HttpSseState::SseEventComplete:
-    case HttpSseState::SseKeepAlive:
+    case HttpSseState::SseEventReceived:
+    case HttpSseState::SseKeepAliveReceiving:
     case HttpSseState::ServerSsePushing:
       return true;
     default:
@@ -956,8 +956,8 @@ bool HttpSseStatePatterns::canSendData(HttpSseState state) {
 bool HttpSseStatePatterns::canReceiveData(HttpSseState state) {
   switch (state) {
     case HttpSseState::HttpResponseWaiting:
-    case HttpSseState::HttpResponseHeaders:
-    case HttpSseState::HttpResponseBody:
+    case HttpSseState::HttpResponseHeadersReceiving:
+    case HttpSseState::HttpResponseBodyReceiving:
     case HttpSseState::SseStreamActive:
     case HttpSseState::SseEventBuffering:
     case HttpSseState::ServerRequestReceiving:
@@ -985,20 +985,20 @@ optional<HttpSseState> HttpSseStatePatterns::getNextHttpRequestState(HttpSseStat
 optional<HttpSseState> HttpSseStatePatterns::getNextHttpResponseState(HttpSseState current) {
   switch (current) {
     case HttpSseState::HttpResponseWaiting:
-      return HttpSseState::HttpResponseHeaders;
-    case HttpSseState::HttpResponseHeaders:
-      return HttpSseState::HttpResponseBody;
-    case HttpSseState::HttpResponseUpgrade:
+      return HttpSseState::HttpResponseHeadersReceiving;
+    case HttpSseState::HttpResponseHeadersReceiving:
+      return HttpSseState::HttpResponseBodyReceiving;
+    case HttpSseState::HttpResponseUpgrading:
       return HttpSseState::SseNegotiating;
-    case HttpSseState::HttpResponseBody:
-      return HttpSseState::HttpOnly;
+    case HttpSseState::HttpResponseBodyReceiving:
+      return HttpSseState::HttpOnlyMode;
     default:
       return nullopt;
   }
 }
 
 bool HttpSseStatePatterns::isErrorState(HttpSseState state) {
-  return state == HttpSseState::Error || state == HttpSseState::PartialData;
+  return state == HttpSseState::Error || state == HttpSseState::PartialDataReceived;
 }
 
 bool HttpSseStatePatterns::canReconnect(HttpSseState state) {
@@ -1007,7 +1007,7 @@ bool HttpSseStatePatterns::canReconnect(HttpSseState state) {
     case HttpSseState::TcpConnecting:
     case HttpSseState::HttpResponseWaiting:
     case HttpSseState::SseStreamActive:
-    case HttpSseState::PartialData:
+    case HttpSseState::PartialDataReceived:
       return true;
     default:
       return false;
@@ -1032,7 +1032,7 @@ void HttpSseTransitionCoordinator::executeConnection(
     HttpSseState::HttpRequestSending,
     HttpSseState::HttpRequestSent,
     HttpSseState::HttpResponseWaiting,
-    HttpSseState::HttpResponseHeaders,
+    HttpSseState::HttpResponseHeadersReceiving,
     HttpSseState::SseNegotiating,
     HttpSseState::SseStreamActive
   };
@@ -1073,7 +1073,7 @@ void HttpSseTransitionCoordinator::executeShutdown(std::function<void(bool)> cal
   std::vector<HttpSseState> sequence = {
     HttpSseState::ShutdownInitiated,
     HttpSseState::ShutdownDraining,
-    HttpSseState::ShutdownComplete,
+    HttpSseState::ShutdownCompleted,
     HttpSseState::Closed
   };
   
@@ -1084,7 +1084,7 @@ void HttpSseTransitionCoordinator::executeReconnection(std::function<void(bool)>
   // Reconnection sequence
   std::vector<HttpSseState> sequence = {
     HttpSseState::ReconnectScheduled,
-    HttpSseState::ReconnectBackoff,
+    HttpSseState::ReconnectWaiting,
     HttpSseState::ReconnectAttempting,
     HttpSseState::Initialized
   };

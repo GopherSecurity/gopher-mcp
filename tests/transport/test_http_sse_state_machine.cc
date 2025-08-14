@@ -20,7 +20,7 @@
 #include <atomic>
 
 #include "mcp/transport/http_sse_state_machine.h"
-#include "mcp/event/test_event_loop.h"
+#include "mcp/event/event_loop.h"
 
 using namespace mcp;
 using namespace mcp::transport;
@@ -29,10 +29,53 @@ using ::testing::_;
 using ::testing::Return;
 using ::testing::InSequence;
 
+// Minimal mock dispatcher for testing - only implement what's actually used
+class MockDispatcher : public event::Dispatcher {
+public:
+  MockDispatcher() : name_("test") {}
+  
+  // Execute callbacks immediately for testing
+  void post(std::function<void()> callback) override {
+    if (callback) callback();
+  }
+  
+  // Return null timer for simplicity
+  event::TimerPtr createTimer(event::TimerCb) override {
+    return nullptr;
+  }
+  
+  // Required pure virtual methods - minimal implementation
+  const std::string& name() const override { return name_; }
+  event::TimeSource& timeSource() override { 
+    static event::RealTimeSource ts;
+    return ts;
+  }
+  void exit() override {}
+  event::SignalEventPtr listenForSignal(int, event::SignalCb) override { return nullptr; }
+  event::FileEventPtr createFileEvent(network::Socket::OsFdType, event::FileReadyCb, event::FileTriggerType, uint32_t) override { return nullptr; }
+  void run(event::RunType) override {}
+  void pushTrackedObject(event::TrackedObject*) override {}
+  void popTrackedObject(event::TrackedObject*) override {}
+  bool isThreadSafe() const override { return false; }
+  void initializeStats(event::DispatcherStats&) override {}
+  void clearDeferredDeleteList() override {}
+  void updateApproximateMonotonicTime() override {}
+  event::MonotonicTime approximateMonotonicTime() const override { 
+    return event::MonotonicTime(); 
+  }
+  bool isWorkerThread() { return true; }
+  event::SchedulerPtr createScheduler(event::SchedulerCb) { return nullptr; }
+  void deferredDelete(event::DeferredDeletablePtr) override {}
+  const event::ScopeTrackedObject* trackedObject() const { return nullptr; }
+  
+private:
+  std::string name_;
+};
+
 class HttpSseStateMachineTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dispatcher_ = std::make_unique<event::TestDispatcher>();
+    dispatcher_ = std::make_unique<MockDispatcher>();
   }
 
   void TearDown() override {
@@ -51,7 +94,7 @@ protected:
         HttpSseMode::Server, *dispatcher_);
   }
 
-  std::unique_ptr<event::TestDispatcher> dispatcher_;
+  std::unique_ptr<MockDispatcher> dispatcher_;
   std::unique_ptr<HttpSseStateMachine> client_machine_;
   std::unique_ptr<HttpSseStateMachine> server_machine_;
 };
