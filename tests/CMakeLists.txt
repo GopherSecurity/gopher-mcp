@@ -37,6 +37,8 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_transport_socket transport/test_http_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
+add_executable(test_http_sse_transport_socket_real_io transport/test_http_sse_transport_socket_real_io.cc)
+add_executable(test_http_sse_transport_socket_integration transport/test_http_sse_transport_socket_integration.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
 # SSL/TLS transport tests
@@ -293,6 +295,24 @@ target_link_libraries(test_http_transport_socket
 )
 
 target_link_libraries(test_http_sse_transport_socket
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_http_sse_transport_socket_real_io
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_http_sse_transport_socket_integration
     mcp-sdk
     mcp-event
     gtest
@@ -577,6 +597,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpTransportSocketTest COMMAND test_http_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
+add_test(NAME HttpSseTransportSocketRealIoTest COMMAND test_http_sse_transport_socket_real_io)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 
 # SSL/TLS transport tests
