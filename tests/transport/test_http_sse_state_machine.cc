@@ -675,57 +675,108 @@ TEST_F(HttpSseStateMachineTest, ForceShutdown) {
 
 // ===== State Timeout Tests =====
 
-TEST_F(HttpSseStateMachineTest, DISABLED_StateTimeout) {
-  // DISABLED: This test uses real time delays which don't work with mock dispatcher
+TEST_F(HttpSseStateMachineTest, StateTimeout) {
   client_machine_ = createClientMachine();
   
-  bool timeout_triggered = false;
-  client_machine_->addStateChangeListener(
-      [&](HttpSseState old_state, HttpSseState new_state) {
-        if (new_state == HttpSseState::Error) {
-          timeout_triggered = true;
-        }
-      });
+  std::atomic<bool> timeout_triggered{false};
+  std::promise<void> timeout_promise;
+  auto timeout_future = timeout_promise.get_future();
   
-  // Set timeout for TcpConnecting state
-  client_machine_->transition(HttpSseState::Initialized);
-  client_machine_->transition(HttpSseState::TcpConnecting);
-  client_machine_->setStateTimeout(100ms, HttpSseState::Error);
+  executeInDispatcher([this, &timeout_triggered, &timeout_promise]() {
+    client_machine_->addStateChangeListener(
+        [&timeout_triggered, &timeout_promise](HttpSseState old_state, HttpSseState new_state) {
+          if (new_state == HttpSseState::Error) {
+            timeout_triggered = true;
+            // Signal that timeout occurred
+            try {
+              timeout_promise.set_value();
+            } catch (const std::future_error&) {
+              // Promise already set, ignore
+            }
+          }
+        });
+    
+    // Transition to TcpConnecting state
+    client_machine_->transition(HttpSseState::Initialized,
+        [](bool success, const std::string& error) {
+          EXPECT_TRUE(success);
+        });
+  });
   
-  // Wait for timeout
-  std::this_thread::sleep_for(150ms);
-  // No need to manually run dispatcher as it's running in background thread
+  // Wait for initialization
+  std::this_thread::sleep_for(50ms);
   
-  EXPECT_TRUE(timeout_triggered);
-  EXPECT_EQ(client_machine_->getCurrentState(), HttpSseState::Error);
+  executeInDispatcher([this]() {
+    client_machine_->transition(HttpSseState::TcpConnecting,
+        [](bool success, const std::string& error) {
+          EXPECT_TRUE(success);
+        });
+    
+    // Set timeout for TcpConnecting state (100ms to transition to Error)
+    client_machine_->setStateTimeout(100ms, HttpSseState::Error);
+  });
+  
+  // Wait for timeout to trigger (with some buffer)
+  auto status = timeout_future.wait_for(200ms);
+  EXPECT_EQ(status, std::future_status::ready);
+  EXPECT_TRUE(timeout_triggered.load());
+  
+  executeInDispatcher([this]() {
+    EXPECT_EQ(client_machine_->getCurrentState(), HttpSseState::Error);
+  });
 }
 
-TEST_F(HttpSseStateMachineTest, DISABLED_StateTimeoutCancellation) {
-  // DISABLED: This test uses real time delays which don't work with mock dispatcher
+TEST_F(HttpSseStateMachineTest, StateTimeoutCancellation) {
   client_machine_ = createClientMachine();
   
-  bool timeout_triggered = false;
-  client_machine_->addStateChangeListener(
-      [&](HttpSseState old_state, HttpSseState new_state) {
-        if (new_state == HttpSseState::Error) {
-          timeout_triggered = true;
-        }
-      });
+  std::atomic<bool> timeout_triggered{false};
   
-  // Set timeout
-  client_machine_->transition(HttpSseState::Initialized);
-  client_machine_->transition(HttpSseState::TcpConnecting);
-  client_machine_->setStateTimeout(100ms, HttpSseState::Error);
+  executeInDispatcher([this, &timeout_triggered]() {
+    client_machine_->addStateChangeListener(
+        [&timeout_triggered](HttpSseState old_state, HttpSseState new_state) {
+          if (new_state == HttpSseState::Error) {
+            timeout_triggered = true;
+          }
+        });
+    
+    // Transition to TcpConnecting state
+    client_machine_->transition(HttpSseState::Initialized,
+        [](bool success, const std::string& error) {
+          EXPECT_TRUE(success);
+        });
+  });
   
-  // Cancel timeout before it triggers
-  client_machine_->cancelStateTimeout();
+  // Wait for initialization
+  std::this_thread::sleep_for(50ms);
   
-  // Wait longer than timeout
-  std::this_thread::sleep_for(150ms);
-  // No need to manually run dispatcher as it's running in background thread
+  executeInDispatcher([this]() {
+    client_machine_->transition(HttpSseState::TcpConnecting,
+        [](bool success, const std::string& error) {
+          EXPECT_TRUE(success);
+        });
+    
+    // Set timeout for TcpConnecting state (100ms to transition to Error)
+    client_machine_->setStateTimeout(100ms, HttpSseState::Error);
+  });
   
-  EXPECT_FALSE(timeout_triggered);
-  EXPECT_EQ(client_machine_->getCurrentState(), HttpSseState::TcpConnecting);
+  // Wait a bit (less than timeout)
+  std::this_thread::sleep_for(50ms);
+  
+  executeInDispatcher([this]() {
+    // Cancel timeout before it triggers
+    client_machine_->cancelStateTimeout();
+  });
+  
+  // Wait longer than the original timeout would have been
+  std::this_thread::sleep_for(100ms);
+  
+  // Verify timeout did not trigger
+  EXPECT_FALSE(timeout_triggered.load());
+  
+  executeInDispatcher([this]() {
+    // Should still be in TcpConnecting state
+    EXPECT_EQ(client_machine_->getCurrentState(), HttpSseState::TcpConnecting);
+  });
 }
 
 // ===== Custom Validator Tests =====
