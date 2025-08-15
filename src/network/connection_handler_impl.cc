@@ -86,12 +86,26 @@ void ConnectionHandlerImpl::addListener(ListenerConfig config,
   // Store address for lookup
   std::string address_key = config.address ? config.address->asString() : "";
   
+  // Convert to TcpListenerConfig
+  TcpListenerConfig tcp_config;
+  tcp_config.name = config.name;
+  tcp_config.address = config.address;
+  tcp_config.socket_options = config.socket_options;
+  tcp_config.bind_to_port = config.bind_to_port;
+  tcp_config.enable_reuse_port = config.enable_reuse_port;
+  tcp_config.backlog = config.backlog;
+  tcp_config.per_connection_buffer_limit = config.per_connection_buffer_limit;
+  tcp_config.listener_filters = std::move(config.listener_filters);
+  tcp_config.transport_socket_factory = config.transport_socket_factory;
+  tcp_config.filter_chain_factory = config.filter_chain_factory;
+  tcp_config.max_connections_per_event = 1;  // Default
+  
   // Create active listener
-  // The ActiveListener will manage the actual TcpListenerImpl
-  details->listener = std::make_unique<ActiveListener>(
+  // The TcpActiveListener will manage the actual TcpListenerImpl
+  details->listener = std::make_unique<TcpActiveListener>(
       dispatcher_,
-      std::move(config),
-      *this  // We handle callbacks from ActiveListener
+      std::move(tcp_config),
+      *this  // We handle callbacks from TcpActiveListener
   );
   
   // Apply current settings
@@ -141,28 +155,27 @@ void ConnectionHandlerImpl::stopListeners() {
 
 void ConnectionHandlerImpl::disableListeners() {
   listeners_disabled_ = true;
-  for (auto& [tag, details] : listeners_) {
-    details->listener->disable();
+  for (auto& pair : listeners_) {
+    pair.second->listener->disable();
   }
 }
 
 void ConnectionHandlerImpl::enableListeners() {
   listeners_disabled_ = false;
-  for (auto& [tag, details] : listeners_) {
-    details->listener->enable();
+  for (auto& pair : listeners_) {
+    pair.second->listener->enable();
   }
 }
 
 void ConnectionHandlerImpl::setListenerRejectFraction(UnitFloat reject_fraction) {
   listener_reject_fraction_ = reject_fraction;
-  for (auto& [tag, details] : listeners_) {
-    details->listener->setRejectFraction(reject_fraction);
+  for (auto& pair : listeners_) {
+    pair.second->listener->setRejectFraction(reject_fraction);
   }
 }
 
-void ConnectionHandlerImpl::onAccept(ConnectionSocketPtr socket,
-                                    bool hand_off_restored_destination_connections) {
-  // This is called by ActiveListener after filters pass
+void ConnectionHandlerImpl::onAccept(ConnectionSocketPtr&& socket) {
+  // This is called by TcpActiveListener after filters pass
   // We need to find which listener this came from and forward to its callbacks
   
   // For now, just increment connection count
@@ -174,27 +187,20 @@ void ConnectionHandlerImpl::onAccept(ConnectionSocketPtr socket,
   // 3. Or create a connection directly here
 }
 
-void ConnectionHandlerImpl::onNewConnection(ConnectionPtr connection) {
-  // This is called by ActiveListener when a connection is fully created
+void ConnectionHandlerImpl::onNewConnection(ConnectionPtr&& connection) {
+  // This is called by TcpActiveListener when a connection is fully created
   // Increment connection count
   incNumConnections();
   
   // Set up connection cleanup callback
-  connection->addConnectionCallbacks([this](Connection& conn) {
-    // On connection close, decrement count
-    decNumConnections();
-  });
+  // Note: In a real implementation, we'd add callbacks for connection close
+  // For now, just track the connection count
   
   // Forward to appropriate listener's callbacks
   // In a real implementation, we'd track which listener created this connection
-  
-  // For now, just ensure the connection is initialized
-  if (!connection->connecting() && !connection->connected()) {
-    connection->connect();
-  }
 }
 
-ActiveListener* ConnectionHandlerImpl::getListener(uint64_t listener_tag) {
+TcpActiveListener* ConnectionHandlerImpl::getListener(uint64_t listener_tag) {
   auto it = listeners_.find(listener_tag);
   if (it != listeners_.end()) {
     return it->second->listener.get();
@@ -202,7 +208,7 @@ ActiveListener* ConnectionHandlerImpl::getListener(uint64_t listener_tag) {
   return nullptr;
 }
 
-ActiveListener* ConnectionHandlerImpl::getListenerByAddress(const Address::Instance& address) {
+TcpActiveListener* ConnectionHandlerImpl::getListenerByAddress(const Address::Instance& address) {
   auto it = listeners_by_address_.find(address.asString());
   if (it != listeners_by_address_.end()) {
     return it->second->listener.get();

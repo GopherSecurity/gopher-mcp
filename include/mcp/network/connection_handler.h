@@ -134,12 +134,9 @@ public:
   void setListenerRejectFraction(UnitFloat reject_fraction) override;
   const std::string& statPrefix() const override { return stat_prefix_; }
   
-  // ListenerCallbacks interface (for ActiveListener)
-  void onAccept(ConnectionSocketPtr socket,
-               bool hand_off_restored_destination_connections = true) override;
-  void onNewConnection(ConnectionPtr connection) override;
-  void onListenerEnabled() override {}
-  void onListenerDisabled() override {}
+  // ListenerCallbacks interface (for TcpActiveListener)
+  void onAccept(ConnectionSocketPtr&& socket) override;
+  void onNewConnection(ConnectionPtr&& connection) override;
   
   /**
    * Get dispatcher
@@ -149,19 +146,19 @@ public:
   /**
    * Get listener by tag
    */
-  ActiveListener* getListener(uint64_t listener_tag);
+  TcpActiveListener* getListener(uint64_t listener_tag);
   
   /**
    * Get listener by address
    */
-  ActiveListener* getListenerByAddress(const Address::Instance& address);
+  TcpActiveListener* getListenerByAddress(const Address::Instance& address);
   
 private:
   /**
    * Active listener details
    */
   struct ListenerDetails {
-    std::unique_ptr<ActiveListener> listener;
+    std::unique_ptr<TcpActiveListener> listener;
     ListenerCallbacks* parent_callbacks;
     uint64_t listener_tag;
     Address::InstanceConstSharedPtr address;
