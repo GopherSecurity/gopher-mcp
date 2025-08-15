@@ -37,8 +37,8 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_transport_socket transport/test_http_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
-add_executable(test_http_sse_transport_socket_real_io transport/test_http_sse_transport_socket_real_io.cc)
-add_executable(test_http_sse_transport_socket_integration transport/test_http_sse_transport_socket_integration.cc)
+# Additional HTTP SSE transport test files have been merged into test_http_sse_transport_socket.cc
+# to reduce duplication and improve maintainability
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
 # SSL/TLS transport tests
@@ -303,23 +303,8 @@ target_link_libraries(test_http_sse_transport_socket
     Threads::Threads
 )
 
-target_link_libraries(test_http_sse_transport_socket_real_io
-    mcp-sdk
-    mcp-event
-    gtest
-    gmock
-    gtest_main
-    Threads::Threads
-)
-
-target_link_libraries(test_http_sse_transport_socket_integration
-    mcp-sdk
-    mcp-event
-    gtest
-    gmock
-    gtest_main
-    Threads::Threads
-)
+# Link libraries for the merged HTTP SSE transport socket tests are included
+# in the main test_http_sse_transport_socket target above
 
 # SSL/TLS transport test libraries
 target_link_libraries(test_ssl_context
