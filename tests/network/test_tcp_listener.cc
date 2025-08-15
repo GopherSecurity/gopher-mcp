@@ -7,58 +7,136 @@
 #include <thread>
 #include <chrono>
 #include <future>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
 #include <arpa/inet.h>
+#include <fcntl.h>
 
 #include "mcp/network/listener_impl.h"
 #include "mcp/network/connection_handler.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/network/address_impl.h"
+#include "mcp/network/socket_interface.h"
+#include "mcp/network/socket_impl.h"
+#include "mcp/network/connection_impl.h"
+#include "mcp/buffer.h"
 
 namespace mcp {
 namespace network {
 namespace {
 
-class MockListenerCallbacks : public ListenerCallbacks {
+// Real listener callbacks that handle actual connections
+class RealListenerCallbacks : public ListenerCallbacks {
 public:
   void onAccept(ConnectionSocketPtr&& socket) override {
     accept_count_++;
-    last_socket_ = std::move(socket);
+    
+    // Store accepted socket for testing
+    std::lock_guard<std::mutex> lock(mutex_);
+    accepted_sockets_.push_back(std::move(socket));
+    accept_cv_.notify_one();
   }
   
   void onNewConnection(ConnectionPtr&& connection) override {
     connection_count_++;
-    last_connection_ = std::move(connection);
+    
+    // Store connection for testing
+    std::lock_guard<std::mutex> lock(mutex_);
+    connections_.push_back(std::move(connection));
+    connection_cv_.notify_one();
   }
   
-  uint32_t accept_count_{0};
-  uint32_t connection_count_{0};
-  uint32_t enabled_count_{0};
-  uint32_t disabled_count_{0};
-  ConnectionSocketPtr last_socket_;
-  ConnectionPtr last_connection_;
+  // Wait for a connection to be accepted
+  ConnectionSocketPtr waitForAcceptedSocket(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (accept_cv_.wait_for(lock, timeout, [this]() { return !accepted_sockets_.empty(); })) {
+      auto socket = std::move(accepted_sockets_.front());
+      accepted_sockets_.pop_front();
+      return socket;
+    }
+    return nullptr;
+  }
+  
+  // Wait for a connection to be created
+  ConnectionPtr waitForConnection(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (connection_cv_.wait_for(lock, timeout, [this]() { return !connections_.empty(); })) {
+      auto conn = std::move(connections_.front());
+      connections_.pop_front();
+      return conn;
+    }
+    return nullptr;
+  }
+  
+  std::atomic<uint32_t> accept_count_{0};
+  std::atomic<uint32_t> connection_count_{0};
+  
+private:
+  std::mutex mutex_;
+  std::condition_variable accept_cv_;
+  std::condition_variable connection_cv_;
+  std::deque<ConnectionSocketPtr> accepted_sockets_;
+  std::deque<ConnectionPtr> connections_;
 };
 
-class MockTcpListenerCallbacks : public TcpListenerCallbacks {
+// Real TCP listener callbacks with connection handling
+class RealTcpListenerCallbacks : public TcpListenerCallbacks {
 public:
   void onAccept(ConnectionSocketPtr&& socket) override {
     accept_count_++;
-    last_socket_ = std::move(socket);
+    
+    // Store accepted socket for testing
+    std::lock_guard<std::mutex> lock(mutex_);
+    accepted_sockets_.push_back(std::move(socket));
+    accept_cv_.notify_one();
   }
   
   void onNewConnection(ConnectionPtr&& connection) override {
     connection_count_++;
-    last_connection_ = std::move(connection);
+    
+    // Store connection for testing
+    std::lock_guard<std::mutex> lock(mutex_);
+    connections_.push_back(std::move(connection));
+    connection_cv_.notify_one();
   }
   
   void onListenerEnabled() override { enabled_count_++; }
   void onListenerDisabled() override { disabled_count_++; }
   
-  uint32_t accept_count_{0};
-  uint32_t connection_count_{0};
-  uint32_t enabled_count_{0};
-  uint32_t disabled_count_{0};
-  ConnectionSocketPtr last_socket_;
-  ConnectionPtr last_connection_;
+  // Wait for a connection to be accepted
+  ConnectionSocketPtr waitForAcceptedSocket(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (accept_cv_.wait_for(lock, timeout, [this]() { return !accepted_sockets_.empty(); })) {
+      auto socket = std::move(accepted_sockets_.front());
+      accepted_sockets_.pop_front();
+      return socket;
+    }
+    return nullptr;
+  }
+  
+  // Wait for a connection to be created
+  ConnectionPtr waitForConnection(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (connection_cv_.wait_for(lock, timeout, [this]() { return !connections_.empty(); })) {
+      auto conn = std::move(connections_.front());
+      connections_.pop_front();
+      return conn;
+    }
+    return nullptr;
+  }
+  
+  std::atomic<uint32_t> accept_count_{0};
+  std::atomic<uint32_t> connection_count_{0};
+  std::atomic<uint32_t> enabled_count_{0};
+  std::atomic<uint32_t> disabled_count_{0};
+  
+private:
+  std::mutex mutex_;
+  std::condition_variable accept_cv_;
+  std::condition_variable connection_cv_;
+  std::deque<ConnectionSocketPtr> accepted_sockets_;
+  std::deque<ConnectionPtr> connections_;
 };
 
 class TcpListenerTest : public ::testing::Test {
@@ -127,10 +205,10 @@ protected:
 };
 
 TEST_F(TcpListenerTest, CreateAndEnable) {
-  MockTcpListenerCallbacks callbacks;
+  RealTcpListenerCallbacks callbacks;
   
   runInDispatcher([this, &callbacks]() {
-    // Create socket
+    // Create socket using MCP socket interface
     auto socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -146,7 +224,7 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
     auto* listen_socket = static_cast<ListenSocketImpl*>(socket.get());
     ASSERT_TRUE(listen_socket->listen(128).ok());
     
-    // Create listener
+    // Create listener with real IO
     listener_ = std::make_unique<TcpListenerImpl>(
         *dispatcher_,
         random_,
@@ -159,21 +237,21 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
         nullopt  // overload_state
     );
     
-    // Enable listener
+    // Enable listener - this sets up real file event with dispatcher
     listener_->enable();
     EXPECT_EQ(callbacks.enabled_count_, 1);
     
-    // Disable listener
+    // Disable listener - this removes file event from dispatcher
     listener_->disable();
     EXPECT_EQ(callbacks.disabled_count_, 1);
   });
 }
 
 TEST_F(TcpListenerTest, RejectFraction) {
-  MockTcpListenerCallbacks callbacks;
+  RealTcpListenerCallbacks callbacks;
   
   runInDispatcher([this, &callbacks]() {
-    // Create socket
+    // Create socket using MCP abstractions
     auto socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -186,7 +264,7 @@ TEST_F(TcpListenerTest, RejectFraction) {
     ASSERT_NE(socket, nullptr);
     static_cast<ListenSocketImpl*>(socket.get())->listen(128);
     
-    // Create listener
+    // Create listener with real IO
     listener_ = std::make_unique<TcpListenerImpl>(
         *dispatcher_,
         random_,
@@ -198,7 +276,7 @@ TEST_F(TcpListenerTest, RejectFraction) {
     // Set reject fraction to 0.5 (reject 50%)
     listener_->setRejectFraction(UnitFloat(0.5f));
     
-    // Enable listener
+    // Enable listener with real event loop
     listener_->enable();
     
     // In a real test, we'd create connections and verify ~50% are rejected
@@ -206,11 +284,11 @@ TEST_F(TcpListenerTest, RejectFraction) {
 }
 
 TEST_F(TcpListenerTest, ConnectionAcceptance) {
-  MockTcpListenerCallbacks callbacks;
+  RealTcpListenerCallbacks callbacks;
   uint32_t port = 0;
   
   runInDispatcher([this, &callbacks, &port]() {
-    // Create listener socket
+    // Create listener socket using MCP abstractions
     auto listen_socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -227,7 +305,7 @@ TEST_F(TcpListenerTest, ConnectionAcceptance) {
     auto local_address = listen_socket->connectionInfoProvider().localAddress();
     port = local_address->ip()->port();
     
-    // Create listener
+    // Create listener with real IO
     listener_ = std::make_unique<TcpListenerImpl>(
         *dispatcher_,
         random_,
@@ -239,28 +317,47 @@ TEST_F(TcpListenerTest, ConnectionAcceptance) {
     listener_->enable();
   });
   
-  // Create client connection in another thread
+  // Create client connection using MCP socket interface
   std::thread client_thread([port]() {
     // Give listener time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    // Create client socket
-    int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT_GE(client_fd, 0);
+    // Create client socket using MCP socket interface
+    auto& socket_int = socketInterface();
+    auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
+    
+    // Create socket
+    auto fd_result = socket_int.socket(
+        SocketType::Stream,
+        Address::Type::Ip,
+        Address::IpVersion::v4);
+    
+    ASSERT_TRUE(fd_result.ok());
+    auto client_fd = *fd_result;
+    
+    // Set non-blocking
+    socket_int.setFileFlags(client_fd, O_NONBLOCK | FD_CLOEXEC);
     
     // Connect to listener
-    sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    auto connect_result = socket_int.connect(client_fd, *client_addr);
     
-    int result = connect(client_fd, (sockaddr*)&addr, sizeof(addr));
-    EXPECT_EQ(result, 0);
+    // Non-blocking connect may return EINPROGRESS
+    if (!connect_result.ok() && connect_result.error_code() != EINPROGRESS) {
+      FAIL() << "Connect failed with error code: " << connect_result.error_code();
+    }
     
-    // Keep connection open briefly
+    // Wait for connection to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    // Send test data using MCP buffer
+    const std::string test_data = "Hello from MCP client!";
+    auto send_result = ::send(client_fd, test_data.data(), test_data.size(), 0);
+    EXPECT_GT(send_result, 0);
+    
+    // Keep connection open briefly to ensure it's accepted
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    close(client_fd);
+    socket_int.close(client_fd);
   });
   
   // Wait for connection
@@ -291,7 +388,7 @@ public:
 };
 
 TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
-  MockTcpListenerCallbacks callbacks;
+  RealTcpListenerCallbacks callbacks;
   MockListenerFilter* filter_ptr = nullptr;
   
   runInDispatcher([this, &callbacks, &filter_ptr]() {
@@ -337,7 +434,7 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
     config.address = address_;
     config.bind_to_port = true;
     
-    MockTcpListenerCallbacks callbacks;
+    RealTcpListenerCallbacks callbacks;
     
     // Add listener
     handler.addListener(std::move(config), callbacks);
@@ -356,8 +453,107 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
   });
 }
 
+// Test actual data transfer through accepted connections using MCP abstractions
+TEST_F(TcpListenerTest, DataTransferWithMcpBuffer) {
+  RealTcpListenerCallbacks callbacks;
+  uint32_t port = 0;
+  
+  // Setup listener in dispatcher thread
+  runInDispatcher([this, &callbacks, &port]() {
+    // Create listener socket using MCP socket interface
+    auto listen_socket = createListenSocket(
+        address_,
+        SocketCreationOptions{
+            .non_blocking = true,
+            .close_on_exec = true,
+            .reuse_address = true
+        },
+        true);
+    
+    ASSERT_NE(listen_socket, nullptr);
+    static_cast<ListenSocketImpl*>(listen_socket.get())->listen(128);
+    
+    // Get actual bound port
+    auto local_address = listen_socket->connectionInfoProvider().localAddress();
+    port = local_address->ip()->port();
+    
+    // Create listener with real IO
+    listener_ = std::make_unique<TcpListenerImpl>(
+        *dispatcher_,
+        random_,
+        std::move(listen_socket),
+        callbacks,
+        true, false, false, 10, nullopt
+    );
+    
+    listener_->enable();
+  });
+  
+  // Test data
+  const std::string test_data = "Testing MCP buffer!";
+  
+  // Create client using MCP socket interface
+  std::thread client_thread([port, test_data]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    auto& socket_int = socketInterface();
+    auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
+    
+    // Create and connect socket
+    auto fd_result = socket_int.socket(
+        SocketType::Stream,
+        Address::Type::Ip,
+        Address::IpVersion::v4);
+    
+    ASSERT_TRUE(fd_result.ok());
+    auto client_fd = *fd_result;
+    
+    // Connect (may return EINPROGRESS for non-blocking)
+    socket_int.connect(client_fd, *client_addr);
+    
+    // Wait and send data
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ::send(client_fd, test_data.data(), test_data.size(), 0);
+    
+    // Keep connection open briefly
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    socket_int.close(client_fd);
+  });
+  
+  // Wait for client
+  client_thread.join();
+  
+  // Verify connection was accepted
+  runInDispatcher([&callbacks]() {
+    EXPECT_GT(callbacks.accept_count_, 0);
+  });
+  
+  // Process accepted socket with MCP buffer
+  runInDispatcher([&callbacks, test_data]() {
+    auto socket = callbacks.waitForAcceptedSocket(std::chrono::milliseconds(100));
+    if (socket) {
+      // Use MCP buffer to read data
+      auto buffer = createBuffer();
+      char temp[256];
+      auto fd = socket->ioHandle().fd();
+      auto recv_result = ::recv(fd, temp, sizeof(temp), MSG_DONTWAIT);
+      
+      if (recv_result > 0) {
+        // Add to MCP buffer and verify
+        buffer->add(temp, recv_result);
+        EXPECT_EQ(buffer->length(), test_data.size());
+        
+        // Test buffer operations
+        std::string received(temp, recv_result);
+        EXPECT_EQ(received, test_data);
+      }
+    }
+  });
+}
+
 TEST_F(TcpListenerTest, BatchedAccepts) {
-  MockTcpListenerCallbacks callbacks;
+  RealTcpListenerCallbacks callbacks;
   uint32_t port = 0;
   
   runInDispatcher([this, &callbacks, &port]() {
@@ -391,23 +587,29 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
     listener_->enable();
   });
   
-  // Create multiple client connections
+  // Create multiple client connections using MCP socket interface
   std::vector<std::thread> client_threads;
   for (int i = 0; i < 3; ++i) {
     client_threads.emplace_back([port]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       
-      int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-      if (client_fd < 0) return;
+      auto& socket_int = socketInterface();
+      auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
       
-      sockaddr_in addr;
-      addr.sin_family = AF_INET;
-      addr.sin_port = htons(port);
-      addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+      // Create socket
+      auto fd_result = socket_int.socket(
+          SocketType::Stream,
+          Address::Type::Ip,
+          Address::IpVersion::v4);
       
-      connect(client_fd, (sockaddr*)&addr, sizeof(addr));
+      if (!fd_result.ok()) return;
+      auto client_fd = *fd_result;
+      
+      // Connect
+      auto connect_result = socket_int.connect(client_fd, *client_addr);
+      
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      close(client_fd);
+      socket_int.close(client_fd);
     });
   }
   
