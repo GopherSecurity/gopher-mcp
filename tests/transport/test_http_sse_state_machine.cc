@@ -958,24 +958,24 @@ TEST_F(HttpSseStateMachineTest, StatePatterns) {
   EXPECT_FALSE(HttpSseStatePatterns::isSseStreamState(HttpSseState::HttpOnlyMode));
   
   // Test send/receive capability
-  // Note: These pattern helpers may not be implemented or have different behavior
-  // Commenting out failing assertions until implementation is verified
-  // EXPECT_TRUE(HttpSseStatePatterns::canSendData(HttpSseState::SseStreamActive));
-  // EXPECT_TRUE(HttpSseStatePatterns::canSendData(HttpSseState::HttpRequestSending));
+  // SSE is unidirectional - client receives events, cannot send through SSE stream
+  EXPECT_FALSE(HttpSseStatePatterns::canSendData(HttpSseState::SseStreamActive));  // SSE is receive-only for client
+  EXPECT_TRUE(HttpSseStatePatterns::canSendData(HttpSseState::HttpRequestSending));  // Can send during HTTP request
   EXPECT_FALSE(HttpSseStatePatterns::canSendData(HttpSseState::Closed));
   
-  // EXPECT_TRUE(HttpSseStatePatterns::canReceiveData(HttpSseState::SseStreamActive));
-  // EXPECT_TRUE(HttpSseStatePatterns::canReceiveData(HttpSseState::HttpResponseBodyReceiving));
+  // Test receive capability
+  EXPECT_TRUE(HttpSseStatePatterns::canReceiveData(HttpSseState::SseStreamActive));  // Primary SSE receiving state
+  EXPECT_TRUE(HttpSseStatePatterns::canReceiveData(HttpSseState::HttpResponseBodyReceiving));  // Can receive response body
   EXPECT_FALSE(HttpSseStatePatterns::canReceiveData(HttpSseState::Closed));
   
   // Test error states
   EXPECT_TRUE(HttpSseStatePatterns::isErrorState(HttpSseState::Error));
   EXPECT_FALSE(HttpSseStatePatterns::isErrorState(HttpSseState::SseStreamActive));
   
-  // Test reconnection capability - implementation may differ
-  EXPECT_TRUE(HttpSseStatePatterns::canReconnect(HttpSseState::Error));
-  // EXPECT_TRUE(HttpSseStatePatterns::canReconnect(HttpSseState::Closed));
-  // EXPECT_FALSE(HttpSseStatePatterns::canReconnect(HttpSseState::SseStreamActive));
+  // Test reconnection capability - can only reconnect from terminal/error states
+  EXPECT_TRUE(HttpSseStatePatterns::canReconnect(HttpSseState::Error));  // Can reconnect after error
+  EXPECT_TRUE(HttpSseStatePatterns::canReconnect(HttpSseState::Closed));  // Can reconnect after close
+  EXPECT_FALSE(HttpSseStatePatterns::canReconnect(HttpSseState::SseStreamActive));  // Cannot reconnect while active
 }
 
 TEST_F(HttpSseStateMachineTest, StatePatternFlowPrediction) {
