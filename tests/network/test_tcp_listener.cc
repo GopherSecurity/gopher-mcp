@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <thread>
 #include <chrono>
+#include <arpa/inet.h>
 
 #include "mcp/network/listener_impl.h"
 #include "mcp/network/connection_handler.h"
@@ -18,12 +19,32 @@ namespace {
 
 class MockListenerCallbacks : public ListenerCallbacks {
 public:
-  void onAccept(ConnectionSocketPtr socket, bool hand_off_restored) override {
+  void onAccept(ConnectionSocketPtr&& socket) override {
     accept_count_++;
     last_socket_ = std::move(socket);
   }
   
-  void onNewConnection(ConnectionPtr connection) override {
+  void onNewConnection(ConnectionPtr&& connection) override {
+    connection_count_++;
+    last_connection_ = std::move(connection);
+  }
+  
+  uint32_t accept_count_{0};
+  uint32_t connection_count_{0};
+  uint32_t enabled_count_{0};
+  uint32_t disabled_count_{0};
+  ConnectionSocketPtr last_socket_;
+  ConnectionPtr last_connection_;
+};
+
+class MockTcpListenerCallbacks : public TcpListenerCallbacks {
+public:
+  void onAccept(ConnectionSocketPtr&& socket) override {
+    accept_count_++;
+    last_socket_ = std::move(socket);
+  }
+  
+  void onNewConnection(ConnectionPtr&& connection) override {
     connection_count_++;
     last_connection_ = std::move(connection);
   }
@@ -62,7 +83,7 @@ protected:
 };
 
 TEST_F(TcpListenerTest, CreateAndEnable) {
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Create socket
   auto socket = createListenSocket(
@@ -84,7 +105,7 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
   listener_ = std::make_unique<TcpListenerImpl>(
       *dispatcher_,
       random_,
-      socket,
+      std::move(socket),
       callbacks,
       true,    // bind_to_port
       false,   // ignore_global_conn_limit
@@ -103,7 +124,7 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
 }
 
 TEST_F(TcpListenerTest, RejectFraction) {
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Create socket
   auto socket = createListenSocket(
@@ -122,7 +143,7 @@ TEST_F(TcpListenerTest, RejectFraction) {
   listener_ = std::make_unique<TcpListenerImpl>(
       *dispatcher_,
       random_,
-      socket,
+      std::move(socket),
       callbacks,
       true, false, false, 1, nullopt
   );
@@ -137,7 +158,7 @@ TEST_F(TcpListenerTest, RejectFraction) {
 }
 
 TEST_F(TcpListenerTest, ConnectionAcceptance) {
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Create listener socket
   auto listen_socket = createListenSocket(
@@ -160,7 +181,7 @@ TEST_F(TcpListenerTest, ConnectionAcceptance) {
   listener_ = std::make_unique<TcpListenerImpl>(
       *dispatcher_,
       random_,
-      listen_socket,
+      std::move(listen_socket),
       callbacks,
       true, false, false, 10, nullopt  // Accept up to 10 per event
   );
@@ -219,10 +240,10 @@ public:
 };
 
 TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Create config with filters
-  ListenerConfig config;
+  TcpListenerConfig config;
   config.name = "test_listener";
   config.address = address_;
   config.bind_to_port = true;
@@ -235,7 +256,7 @@ TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
   config.listener_filters.push_back(std::move(filter));
   
   // Create active listener
-  ActiveListener active_listener(*dispatcher_, std::move(config), callbacks);
+  TcpActiveListener active_listener(*dispatcher_, std::move(config), callbacks);
   
   // Enable listener
   active_listener.enable();
@@ -259,9 +280,8 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
   config.name = "test_listener";
   config.address = address_;
   config.bind_to_port = true;
-  config.max_connections_per_event = 5;
   
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Add listener
   handler.addListener(std::move(config), callbacks);
@@ -280,7 +300,7 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
 }
 
 TEST_F(TcpListenerTest, BatchedAccepts) {
-  MockListenerCallbacks callbacks;
+  MockTcpListenerCallbacks callbacks;
   
   // Create listener with batched accepts
   auto listen_socket = createListenSocket(
@@ -302,7 +322,7 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
   listener_ = std::make_unique<TcpListenerImpl>(
       *dispatcher_,
       random_,
-      listen_socket,
+      std::move(listen_socket),
       callbacks,
       true, false, false, 
       5,       // Accept up to 5 connections per socket event

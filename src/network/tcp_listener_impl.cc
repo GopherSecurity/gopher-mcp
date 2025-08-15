@@ -6,9 +6,12 @@
 #include "mcp/network/listener_impl.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
+#include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -16,7 +19,7 @@ namespace mcp {
 namespace network {
 
 // Static member initialization
-std::atomic<uint64_t> ActiveListener::next_listener_tag_{1};
+std::atomic<uint64_t> TcpActiveListener::next_listener_tag_{1};
 
 // Placeholder for LoadShedPoint until we implement overload manager
 class LoadShedPoint {
@@ -44,7 +47,7 @@ BaseListenerImpl::BaseListenerImpl(event::Dispatcher& dispatcher,
 TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
                                  std::mt19937& random,
                                  SocketSharedPtr socket,
-                                 ListenerCallbacks& cb,
+                                 TcpListenerCallbacks& cb,
                                  bool bind_to_port,
                                  bool ignore_global_conn_limit,
                                  bool bypass_overload_manager,
@@ -245,20 +248,20 @@ bool TcpListenerImpl::shouldRejectProbabilistically() {
 }
 
 // =================================================================
-// ActiveListener - Manages filter chains and connection creation
+// TcpActiveListener - Manages filter chains and connection creation
 // =================================================================
 
 // Filter chain context for async filter processing
-struct ActiveListener::FilterChainContext : public ListenerFilterCallbacks {
-  ActiveListener& parent;
-  ConnectionSocketPtr socket;
+struct TcpActiveListener::FilterChainContext : public ListenerFilterCallbacks {
+  TcpActiveListener& parent;
+  ConnectionSocketPtr socket_ptr;
   size_t current_filter_index{0};
   
-  FilterChainContext(ActiveListener& p, ConnectionSocketPtr s)
-      : parent(p), socket(std::move(s)) {}
+  FilterChainContext(TcpActiveListener& p, ConnectionSocketPtr s)
+      : parent(p), socket_ptr(std::move(s)) {}
   
   // ListenerFilterCallbacks interface
-  ConnectionSocket& socket() override { return *socket; }
+  ConnectionSocket& socket() override { return *socket_ptr; }
   event::Dispatcher& dispatcher() override { return parent.dispatcher_; }
   
   void continueFilterChain(bool success) override {
@@ -275,8 +278,8 @@ struct ActiveListener::FilterChainContext : public ListenerFilterCallbacks {
   }
 };
 
-ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
-                               ListenerConfig config,
+TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
+                               TcpListenerConfig config,
                                ListenerCallbacks& parent_cb)
     : dispatcher_(dispatcher),
       config_(std::move(config)),
@@ -325,38 +328,37 @@ ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
   }
 }
 
-ActiveListener::~ActiveListener() {
+TcpActiveListener::~TcpActiveListener() {
   disable();
   // Clean up any pending filter contexts
   pending_filter_contexts_.clear();
 }
 
-void ActiveListener::enable() {
+void TcpActiveListener::enable() {
   if (listener_) {
     listener_->enable();
   }
 }
 
-void ActiveListener::disable() {
+void TcpActiveListener::disable() {
   if (listener_) {
     listener_->disable();
   }
 }
 
-void ActiveListener::setRejectFraction(UnitFloat fraction) {
+void TcpActiveListener::setRejectFraction(UnitFloat fraction) {
   if (listener_) {
     listener_->setRejectFraction(fraction);
   }
 }
 
-void ActiveListener::configureLoadShedPoints(LoadShedPoint& load_shed_point) {
+void TcpActiveListener::configureLoadShedPoints(LoadShedPoint& load_shed_point) {
   if (listener_) {
     listener_->configureLoadShedPoints(load_shed_point);
   }
 }
 
-void ActiveListener::onAccept(ConnectionSocketPtr socket,
-                              bool hand_off_restored_destination_connections) {
+void TcpActiveListener::onAccept(ConnectionSocketPtr&& socket) {
   // If we have filters, run them
   if (!config_.listener_filters.empty()) {
     runFilterChain(std::move(socket));
@@ -366,7 +368,12 @@ void ActiveListener::onAccept(ConnectionSocketPtr socket,
   }
 }
 
-void ActiveListener::runFilterChain(ConnectionSocketPtr socket) {
+void TcpActiveListener::onNewConnection(ConnectionPtr&& connection) {
+  // Forward to parent callbacks
+  parent_cb_.onNewConnection(std::move(connection));
+}
+
+void TcpActiveListener::runFilterChain(ConnectionSocketPtr&& socket) {
   // Create filter context
   auto context = std::make_unique<FilterChainContext>(*this, std::move(socket));
   auto context_ptr = context.get();
@@ -378,11 +385,11 @@ void ActiveListener::runFilterChain(ConnectionSocketPtr socket) {
   processNextFilter(context_ptr);
 }
 
-void ActiveListener::processNextFilter(FilterChainContext* context) {
+void TcpActiveListener::processNextFilter(FilterChainContext* context) {
   // Check if we've processed all filters
   if (context->current_filter_index >= config_.listener_filters.size()) {
     // All filters passed, create connection
-    auto socket = std::move(context->socket);
+    auto socket = std::move(context->socket_ptr);
     removeFilterContext(context);
     createConnection(std::move(socket));
     return;
@@ -400,7 +407,7 @@ void ActiveListener::processNextFilter(FilterChainContext* context) {
   // If StopIteration, wait for continueFilterChain() to be called
 }
 
-void ActiveListener::removeFilterContext(FilterChainContext* context) {
+void TcpActiveListener::removeFilterContext(FilterChainContext* context) {
   // Remove this context from pending list
   pending_filter_contexts_.erase(
       std::remove_if(pending_filter_contexts_.begin(),
@@ -411,7 +418,7 @@ void ActiveListener::removeFilterContext(FilterChainContext* context) {
       pending_filter_contexts_.end());
 }
 
-void ActiveListener::createConnection(ConnectionSocketPtr socket) {
+void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
   // In production, this would:
   // 1. Select the appropriate filter chain based on SNI/ALPN
   // 2. Create transport socket (TLS, plaintext, etc.)
@@ -461,8 +468,8 @@ void ActiveListener::createConnection(ConnectionSocketPtr socket) {
 
 std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
     event::Dispatcher& dispatcher,
-    const ListenerConfig& config,
-    ListenerCallbacks& cb,
+    const TcpListenerConfig& config,
+    TcpListenerCallbacks& cb,
     ThreadLocalOverloadStateOptRef overload_state) {
   
   // Create socket if needed
