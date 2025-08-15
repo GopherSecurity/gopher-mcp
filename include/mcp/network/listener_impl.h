@@ -32,12 +32,12 @@
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket.h"
+#include "mcp/network/listener.h"  // For ListenerFilter types
 
 namespace mcp {
 namespace network {
 
 // Forward declarations
-class ListenerCallbacks;
 class OverloadManager;
 class LoadShedPoint;
 
@@ -75,21 +75,14 @@ struct ThreadLocalOverloadState {
 using ThreadLocalOverloadStateOptRef = optional<std::reference_wrapper<ThreadLocalOverloadState>>;
 
 /**
- * Listener callbacks interface
+ * Extended listener callbacks with enable/disable notifications
  */
-class ListenerCallbacks {
+class TcpListenerCallbacks : public ListenerCallbacks {
 public:
-  virtual ~ListenerCallbacks() = default;
+  virtual ~TcpListenerCallbacks() = default;
   
-  /**
-   * Called when a new connection is accepted
-   * 
-   * @param socket The accepted socket
-   * @param hand_off_restored_destination_connections 
-   *        True if the listener should hand off restored connections
-   */
-  virtual void onAccept(ConnectionSocketPtr socket,
-                       bool hand_off_restored_destination_connections = true) = 0;
+  using ListenerCallbacks::onAccept;
+  using ListenerCallbacks::onNewConnection;
   
   /**
    * Called when the listener enters/exits enabled state
@@ -153,7 +146,7 @@ public:
   TcpListenerImpl(event::Dispatcher& dispatcher,
                   std::mt19937& random,
                   SocketSharedPtr socket,
-                  ListenerCallbacks& cb,
+                  TcpListenerCallbacks& cb,
                   bool bind_to_port,
                   bool ignore_global_conn_limit,
                   bool bypass_overload_manager,
@@ -202,7 +195,7 @@ private:
   bool shouldRejectProbabilistically();
   
   // Core components
-  ListenerCallbacks& cb_;
+  TcpListenerCallbacks& cb_;
   std::mt19937& random_;
   
   // Configuration
@@ -228,19 +221,9 @@ private:
 };
 
 /**
- * Listener configuration
+ * Extended listener configuration for TCP
  */
-struct ListenerConfig {
-  // Basic configuration
-  std::string name;
-  Address::InstanceConstSharedPtr address;
-  SocketOptionsSharedPtr socket_options;
-  
-  // Socket configuration  
-  bool bind_to_port{true};
-  bool enable_reuse_port{false};
-  int backlog{128};
-  
+struct TcpListenerConfig : public ListenerConfig {
   // Connection limits
   uint32_t max_connections_per_event{1};
   bool ignore_global_conn_limit{false};
@@ -249,8 +232,8 @@ struct ListenerConfig {
   bool bypass_overload_manager{false};
   float initial_reject_fraction{0.0f};
   
-  // Filter configuration
-  std::vector<ListenerFilterPtr> listener_filters;
+  // Socket for pre-bound listeners
+  SocketSharedPtr socket;
 };
 
 /**
@@ -269,24 +252,24 @@ public:
    */
   static std::unique_ptr<TcpListenerImpl> createTcpListener(
       event::Dispatcher& dispatcher,
-      const ListenerConfig& config,
-      ListenerCallbacks& cb,
+      const TcpListenerConfig& config,
+      TcpListenerCallbacks& cb,
       ThreadLocalOverloadStateOptRef overload_state = nullopt);
 };
 
 /**
- * Active listener wrapper
+ * TCP Active listener wrapper
  * 
  * Manages listener lifecycle and filter chains
  * This is what ConnectionHandler actually manages
  */
-class ActiveListener : public ListenerCallbacks {
+class TcpActiveListener : public TcpListenerCallbacks {
 public:
-  ActiveListener(event::Dispatcher& dispatcher,
-                ListenerConfig config,
-                ListenerCallbacks& parent_cb);
+  TcpActiveListener(event::Dispatcher& dispatcher,
+                    TcpListenerConfig config,
+                    ListenerCallbacks& parent_cb);
   
-  ~ActiveListener();
+  ~TcpActiveListener();
   
   // Control interface
   void enable();
@@ -299,8 +282,12 @@ public:
   void configureLoadShedPoints(LoadShedPoint& load_shed_point);
   
   // ListenerCallbacks interface
-  void onAccept(ConnectionSocketPtr socket,
-               bool hand_off_restored_destination_connections = true) override;
+  void onAccept(ConnectionSocketPtr&& socket) override;
+  void onNewConnection(ConnectionPtr&& connection) override;
+  
+  // TcpListenerCallbacks interface
+  void onListenerEnabled() override {}
+  void onListenerDisabled() override {}
   
   // Accessors
   const std::string& name() const { return config_.name; }
@@ -311,15 +298,15 @@ private:
   /**
    * Run filter chain on accepted socket
    */
-  void runFilterChain(ConnectionSocketPtr socket);
+  void runFilterChain(ConnectionSocketPtr&& socket);
   
   /**
    * Create connection from filtered socket
    */
-  void createConnection(ConnectionSocketPtr socket);
+  void createConnection(ConnectionSocketPtr&& socket);
   
   event::Dispatcher& dispatcher_;
-  ListenerConfig config_;
+  TcpListenerConfig config_;
   ListenerCallbacks& parent_cb_;
   
   // The actual listener
@@ -335,6 +322,10 @@ private:
   // Filter chain context (if filters enabled)
   struct FilterChainContext;
   std::vector<std::unique_ptr<FilterChainContext>> pending_filter_contexts_;
+  
+  // Filter processing helpers
+  void processNextFilter(FilterChainContext* context);
+  void removeFilterContext(FilterChainContext* context);
 };
 
 }  // namespace network
