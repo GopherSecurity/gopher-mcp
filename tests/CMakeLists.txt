@@ -28,6 +28,7 @@ add_executable(test_transport_socket network/test_transport_socket.cc)
 add_executable(test_filter network/test_filter.cc)
 add_executable(test_connection_impl network/test_connection_impl.cc)
 add_executable(test_listener_impl network/test_listener_impl.cc)
+add_executable(test_tcp_listener network/test_tcp_listener.cc)
 add_executable(test_connection_manager_impl network/test_connection_manager_impl.cc)
 
 # Stream info tests
@@ -254,6 +255,15 @@ target_link_libraries(test_connection_impl
 )
 
 target_link_libraries(test_listener_impl
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_tcp_listener
     mcp-sdk
     mcp-event
     gtest
@@ -573,6 +583,7 @@ add_test(NAME TransportSocketTest COMMAND test_transport_socket)
 add_test(NAME FilterTest COMMAND test_filter)
 add_test(NAME ConnectionImplTest COMMAND test_connection_impl)
 add_test(NAME ListenerImplTest COMMAND test_listener_impl)
+add_test(NAME TcpListenerTest COMMAND test_tcp_listener)
 add_test(NAME ConnectionManagerImplTest COMMAND test_connection_manager_impl)
 
 # Stream info tests
