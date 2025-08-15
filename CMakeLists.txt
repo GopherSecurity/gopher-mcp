@@ -231,6 +231,8 @@ set(MCP_SDK_SOURCES
     src/network/connection_impl.cc
     src/network/connection_utility.cc
     src/network/listener_impl.cc
+    src/network/tcp_listener_impl.cc
+    src/network/connection_handler_impl.cc
     src/network/connection_manager_impl.cc
     src/stream_info/stream_info_impl.cc
     src/transport/stdio_transport_socket.cc
