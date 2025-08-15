@@ -110,7 +110,6 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void onSseError(const std::string& error) override;
 
  private:
-
   // Request context
   struct PendingRequest {
     std::string id;
@@ -126,16 +125,16 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void configureStateValidators();
   void configureStateTimeouts();
   void configureReconnectionStrategy();
-  
+
   // Buffer management
   void initializeBuffers();
   void initializeParsers();
-  
+
   // Data processing
   void processReceivedData();
   void processHttpData();
   void processSseData();
-  
+
   // HTTP protocol handling
   void initiateHttpHandshake();
   void sendInitialHttpRequest();
@@ -153,7 +152,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::string buildHttpRequest(const std::string& method,
                                const std::string& path,
                                const std::string& body);
-  
+
   // SSE stream handling
   void establishSseStream();
   void handleSseStreamActive();
@@ -162,7 +161,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void sendHttpUpgradeRequest();
   void sendSseResponse();
   void handleSseEvent(const http::SseEvent& event);
-  
+
   // State handling
   void onStateChanged(HttpSseState old_state, HttpSseState new_state);
   void handleTcpConnected();
@@ -170,7 +169,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void handleErrorState();
   void handleClosedState();
   void updateState(HttpSseState new_state);
-  
+
   // Timer management
   void startConnectTimer();
   void cancelConnectTimer();
@@ -179,20 +178,20 @@ class HttpSseTransportSocket : public network::TransportSocket,
   void startRequestTimer(const std::string& request_id);
   void scheduleReconnectTimer();
   void sendKeepAlive();
-  
+
   // Error handling
   void handleConnectionError(const std::string& error);
   void handleParseError(const std::string& error);
   void handleConnectTimeout();
   void handleRequestTimeout(const std::string& request_id);
-  
+
   // Reconnection logic
   void scheduleReconnect();
   void attemptReconnect();
-  
+
   // Request management
   void flushPendingRequests();
-  
+
   // Helper methods
   bool isInCriticalOperation() const;
   TransportIoResult::PostIoAction determineReadAction() const;
@@ -214,7 +213,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   // State machine
   std::unique_ptr<HttpSseStateMachine> state_machine_;
   std::unique_ptr<HttpSseTransitionCoordinator> transition_coordinator_;
-  
+
   // State callbacks
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
@@ -230,14 +229,14 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::string current_header_value_;
   std::string accumulated_url_;  // Accumulate URL during parsing
   bool processing_headers_{false};
-  
+
   // Request data (server mode)
   std::map<std::string, std::string> current_request_headers_;
   std::string current_request_body_;
   std::string current_request_method_;
   std::string current_request_url_;
-  
-  // Response data (client mode)  
+
+  // Response data (client mode)
   std::map<std::string, std::string> current_response_headers_;
   std::string current_response_body_;
   int current_response_status_{0};
@@ -272,13 +271,13 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::string session_id_;
   std::chrono::steady_clock::time_point connect_time_;
   network::ConnectionEvent connection_close_event_;
-  
+
   // Watermark tracking
   size_t read_buffer_low_watermark_;
   size_t read_buffer_high_watermark_;
   size_t write_buffer_low_watermark_;
   size_t write_buffer_high_watermark_;
-  
+
   // Additional timers
   event::TimerPtr connect_timer_;
   std::chrono::milliseconds connect_timeout_;
