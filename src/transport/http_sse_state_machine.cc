@@ -1002,13 +1002,18 @@ bool HttpSseStatePatterns::isErrorState(HttpSseState state) {
 }
 
 bool HttpSseStatePatterns::canReconnect(HttpSseState state) {
+  // Can only reconnect from terminal or error states, not from active states
   switch (state) {
     case HttpSseState::Error:
-    case HttpSseState::TcpConnecting:
-    case HttpSseState::HttpResponseWaiting:
-    case HttpSseState::SseStreamActive:
+    case HttpSseState::Closed:
     case HttpSseState::PartialDataReceived:
+    case HttpSseState::ShutdownCompleted:
       return true;
+    // Cannot reconnect from active connection states
+    case HttpSseState::TcpConnecting:  // Already connecting
+    case HttpSseState::HttpResponseWaiting:  // Active connection
+    case HttpSseState::SseStreamActive:  // Active SSE stream
+      return false;
     default:
       return false;
   }
