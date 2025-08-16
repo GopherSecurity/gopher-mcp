@@ -25,6 +25,12 @@ option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++
 # Option to enable strict warnings (disable for development)
 option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 
+# Option to build C API bindings
+option(BUILD_C_API "Build C API bindings" ON)
+
+# Option to build language binding examples
+option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" ON)
+
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -348,6 +354,12 @@ enable_testing()
 
 # Add test subdirectory
 add_subdirectory(tests)
+
+# Add C API subdirectory (if enabled)
+if(BUILD_C_API)
+    add_subdirectory(src/c_api)
+    message(STATUS "Building C API bindings")
+endif()
 
 # Build examples (optional)
 option(BUILD_EXAMPLES "Build example programs" ON)
