@@ -49,14 +49,19 @@
 #include "mcp/buffer.h"
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
-#include "mcp/network/connection.h"
-#include "mcp/network/filter.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/transport_socket.h"
 #include "mcp/stream_info/stream_info.h"
 
 namespace mcp {
 namespace network {
+
+// Forward declarations
+class Connection;
+class ConnectionCallbacks;
+struct ConnectionStats;
+enum class ConnectionEvent;
+enum class ConnectionState;
 
 /**
  * Connection States
@@ -263,7 +268,7 @@ struct ConnectionStateMachineConfig {
  * state_machine->connect(address);
  * @endcode
  */
-class ConnectionStateMachine : public ConnectionCallbacks {
+class ConnectionStateMachine {
  public:
   using StateChangeCallback =
       std::function<void(const StateTransitionContext&)>;
@@ -274,14 +279,19 @@ class ConnectionStateMachine : public ConnectionCallbacks {
    * Constructor
    *
    * @param dispatcher Event dispatcher for async operations
-   * @param connection Connection instance to manage
+   */
+  explicit ConnectionStateMachine(event::Dispatcher& dispatcher);
+  
+  /**
+   * Constructor with configuration
+   *
+   * @param dispatcher Event dispatcher for async operations
    * @param config State machine configuration
    */
   ConnectionStateMachine(event::Dispatcher& dispatcher,
-                         Connection& connection,
                          const ConnectionStateMachineConfig& config);
 
-  ~ConnectionStateMachine() override;
+  ~ConnectionStateMachine();
 
   // ===== Core State Machine Interface =====
 
@@ -388,7 +398,7 @@ class ConnectionStateMachine : public ConnectionCallbacks {
   /**
    * Get connection statistics
    */
-  ConnectionStats getStats() const;
+  const ConnectionStats* getStats() const;
 
   /**
    * Get total state transitions
@@ -399,9 +409,9 @@ class ConnectionStateMachine : public ConnectionCallbacks {
 
   // ===== ConnectionCallbacks Interface =====
 
-  void onEvent(ConnectionEvent event) override;
-  void onAboveWriteBufferHighWatermark() override;
-  void onBelowWriteBufferLowWatermark() override;
+  void onEvent(ConnectionEvent event);
+  void onAboveWriteBufferHighWatermark();
+  void onBelowWriteBufferLowWatermark();
 
  protected:
   // ===== State Transition Logic =====
@@ -503,7 +513,7 @@ class ConnectionStateMachine : public ConnectionCallbacks {
   // ===== Core Members =====
 
   event::Dispatcher& dispatcher_;
-  Connection& connection_;
+  Connection* connection_{nullptr};
   ConnectionStateMachineConfig config_;
 
   // Current state (atomic for safe cross-thread reads)
@@ -529,7 +539,7 @@ class ConnectionStateMachine : public ConnectionCallbacks {
 
   // Event handlers by state
   std::unordered_map<
-      ConnectionState,
+      ConnectionMachineState,
       std::unordered_map<ConnectionStateMachineEvent, EventHandler>>
       state_event_handlers_;
 
@@ -556,7 +566,7 @@ class ConnectionStateMachine : public ConnectionCallbacks {
 
   // ===== Metrics =====
 
-  ConnectionStats stats_;
+  std::unique_ptr<ConnectionStats> stats_;
   uint64_t state_bytes_read_{0};
   uint64_t state_bytes_written_{0};
   uint32_t consecutive_errors_{0};
@@ -679,10 +689,8 @@ class ConnectionStateMachineBuilder {
     return *this;
   }
 
-  std::unique_ptr<ConnectionStateMachine> build(event::Dispatcher& dispatcher,
-                                                Connection& connection) {
-    return std::make_unique<ConnectionStateMachine>(dispatcher, connection,
-                                                    config_);
+  std::unique_ptr<ConnectionStateMachine> build(event::Dispatcher& dispatcher) {
+    return std::make_unique<ConnectionStateMachine>(dispatcher, config_);
   }
 
  private:
