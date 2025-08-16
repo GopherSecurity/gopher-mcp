@@ -1,4 +1,4 @@
-# MCP C++ SDK Language Bindings
+#MCP C++ SDK Language Bindings
 
 This directory contains language bindings for the MCP C++ SDK, built on top of the C API layer.
 
@@ -87,7 +87,7 @@ The C API can be easily wrapped for:
 
 ### Prerequisites
 ```bash
-# Install MCP C++ SDK with C API
+#Install MCP C++ SDK with C API
 mkdir build && cd build
 cmake .. -DBUILD_C_API=ON
 make
@@ -127,16 +127,16 @@ cargo build --release
 ```python
 from mcp import Library, Dispatcher, TransportType
 
-# Initialize library
+#Initialize library
 lib = Library()
 dispatcher = lib.create_dispatcher()
 
-# Create client
+#Create client
 client = dispatcher.create_client(TransportType.STDIO)
 client.connect()
 client.initialize()
 
-# Run event loop
+#Run event loop
 dispatcher.run()
 ```
 
@@ -145,72 +145,62 @@ dispatcher.run()
 import { MCPLibrary, TransportType } from 'mcp-sdk';
 
 async function main() {
-    const lib = new MCPLibrary();
-    await lib.init();
-    
-    const dispatcher = lib.createDispatcher();
-    const client = dispatcher.createClient({
-        transport: TransportType.STDIO,
-        clientInfo: {
-            name: 'TypeScript Client',
-            version: '1.0.0'
-        }
-    });
-    
-    await client.connect();
-    await client.initialize();
-    
-    dispatcher.run();
+  const lib = new MCPLibrary();
+  await lib.init();
+
+  const dispatcher = lib.createDispatcher();
+  const client = dispatcher.createClient({
+    transport : TransportType.STDIO,
+    clientInfo : {name : 'TypeScript Client', version : '1.0.0'}
+  });
+
+  await client.connect();
+  await client.initialize();
+
+  dispatcher.run();
 }
 ```
 
-### Go
-```go
-package main
+    ## #Go
+```go package main
 
-import (
-    "github.com/your-org/mcp-go"
-)
+    import("github.com/your-org/mcp-go")
 
-func main() {
-    lib, _ := mcp.Init()
-    defer lib.Shutdown()
-    
-    dispatcher := lib.CreateDispatcher()
-    client := dispatcher.CreateClient(mcp.ClientConfig{
-        Transport: mcp.TransportStdio,
-        ClientInfo: mcp.Implementation{
-            Name: "Go Client",
-            Version: "1.0.0",
-        },
-    })
-    
-    client.Connect()
-    client.Initialize()
-    
-    dispatcher.Run()
+        func main() {
+  lib, _ : = mcp.Init() defer lib.Shutdown()
+
+                 dispatcher : = lib.CreateDispatcher() client
+      : = dispatcher
+              .CreateClient(mcp.ClientConfig{
+                Transport : mcp.TransportStdio,
+                ClientInfo : mcp.Implementation{
+                  Name : "Go Client",
+                  Version : "1.0.0",
+                },
+              })
+
+                  client.Connect() client
+              .Initialize()
+
+                  dispatcher.Run()
 }
 ```
 
-### Rust
-```rust
-use mcp_sdk::{Library, TransportType};
+    ## #Rust
+```rust use mcp_sdk::{Library, TransportType};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let lib = Library::init()?;
-    let dispatcher = lib.create_dispatcher()?;
-    
-    let client = dispatcher.create_client(
-        TransportType::Stdio,
-        "Rust Client",
-        "1.0.0"
-    )?;
-    
-    client.connect()?;
-    client.initialize()?;
-    
-    dispatcher.run()?;
-    Ok(())
+fn main()->Result<(), Box<dyn std::error::Error>> {
+  let lib = Library::init()                ? ;
+  let dispatcher = lib.create_dispatcher() ? ;
+
+  let client =
+      dispatcher.create_client(TransportType::Stdio, "Rust Client", "1.0.0") ? ;
+
+  client.connect()    ? ;
+  client.initialize() ? ;
+
+  dispatcher.run() ? ;
+  Ok(())
 }
 ```
 

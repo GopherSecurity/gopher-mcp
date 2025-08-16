@@ -1,12 +1,12 @@
 /**
  * @file mcp_c_types.h
  * @brief Complete C API type definitions for MCP C++ SDK
- * 
+ *
  * This header provides comprehensive C-compatible type definitions that map ALL
  * MCP C++ types from types.h, including JSON serialization/deserialization and
  * builder patterns. All types are designed to be FFI-friendly for easy binding
  * to other languages.
- * 
+ *
  * Design principles:
  * - All structs are POD (Plain Old Data) types
  * - Opaque pointers for complex C++ objects
@@ -20,9 +20,9 @@
 #ifndef MCP_C_TYPES_H
 #define MCP_C_TYPES_H
 
-#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,107 +30,110 @@ extern "C" {
 
 /* ============================================================================
  * Forward Declarations
- * ============================================================================ */
+ * ============================================================================
+ */
 
 typedef struct mcp_json_value_impl* mcp_json_value_t;
 
 /* ============================================================================
  * Core Type Definitions
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * JSON-RPC error codes
  */
 typedef enum mcp_jsonrpc_error_code {
-    MCP_JSONRPC_PARSE_ERROR = -32700,
-    MCP_JSONRPC_INVALID_REQUEST = -32600,
-    MCP_JSONRPC_METHOD_NOT_FOUND = -32601,
-    MCP_JSONRPC_INVALID_PARAMS = -32602,
-    MCP_JSONRPC_INTERNAL_ERROR = -32603
+  MCP_JSONRPC_PARSE_ERROR = -32700,
+  MCP_JSONRPC_INVALID_REQUEST = -32600,
+  MCP_JSONRPC_METHOD_NOT_FOUND = -32601,
+  MCP_JSONRPC_INVALID_PARAMS = -32602,
+  MCP_JSONRPC_INTERNAL_ERROR = -32603
 } mcp_jsonrpc_error_code_t;
 
 /**
  * Result type for API calls
  */
 typedef enum mcp_result {
-    MCP_OK = 0,
-    MCP_ERROR = -1,
-    MCP_ERROR_INVALID_ARGUMENT = -2,
-    MCP_ERROR_OUT_OF_MEMORY = -3,
-    MCP_ERROR_NOT_CONNECTED = -4,
-    MCP_ERROR_TIMEOUT = -5,
-    MCP_ERROR_CANCELLED = -6,
-    MCP_ERROR_NOT_FOUND = -7,
-    MCP_ERROR_ALREADY_EXISTS = -8,
-    MCP_ERROR_PERMISSION_DENIED = -9,
-    MCP_ERROR_RESOURCE_EXHAUSTED = -10,
-    MCP_ERROR_INVALID_STATE = -11,
-    MCP_ERROR_PROTOCOL = -12,
-    MCP_ERROR_NOT_IMPLEMENTED = -13,
-    MCP_ERROR_IO = -14,
-    MCP_ERROR_SSL = -15
+  MCP_OK = 0,
+  MCP_ERROR = -1,
+  MCP_ERROR_INVALID_ARGUMENT = -2,
+  MCP_ERROR_OUT_OF_MEMORY = -3,
+  MCP_ERROR_NOT_CONNECTED = -4,
+  MCP_ERROR_TIMEOUT = -5,
+  MCP_ERROR_CANCELLED = -6,
+  MCP_ERROR_NOT_FOUND = -7,
+  MCP_ERROR_ALREADY_EXISTS = -8,
+  MCP_ERROR_PERMISSION_DENIED = -9,
+  MCP_ERROR_RESOURCE_EXHAUSTED = -10,
+  MCP_ERROR_INVALID_STATE = -11,
+  MCP_ERROR_PROTOCOL = -12,
+  MCP_ERROR_NOT_IMPLEMENTED = -13,
+  MCP_ERROR_IO = -14,
+  MCP_ERROR_SSL = -15
 } mcp_result_t;
 
 /**
  * String type - Immutable string view
  */
 typedef struct mcp_string {
-    const char* data;
-    size_t length;
+  const char* data;
+  size_t length;
 } mcp_string_t;
 
 /**
  * Mutable string buffer
  */
 typedef struct mcp_string_buffer {
-    char* data;
-    size_t length;
-    size_t capacity;
+  char* data;
+  size_t length;
+  size_t capacity;
 } mcp_string_buffer_t;
 
 /**
  * Binary data buffer
  */
 typedef struct mcp_buffer {
-    uint8_t* data;
-    size_t length;
-    size_t capacity;
+  uint8_t* data;
+  size_t length;
+  size_t capacity;
 } mcp_buffer_t;
 
 /**
  * Optional value wrapper
  */
 typedef struct mcp_optional {
-    bool has_value;
-    void* value;
+  bool has_value;
+  void* value;
 } mcp_optional_t;
 
 /**
  * List/Array type
  */
 typedef struct mcp_list {
-    void** items;
-    size_t count;
-    size_t capacity;
+  void** items;
+  size_t count;
+  size_t capacity;
 } mcp_list_t;
 
 /**
  * Map/Dictionary type
  */
 typedef struct mcp_map_entry {
-    mcp_string_t key;
-    void* value;
+  mcp_string_t key;
+  void* value;
 } mcp_map_entry_t;
 
 typedef struct mcp_map {
-    mcp_map_entry_t* entries;
-    size_t count;
-    size_t capacity;
+  mcp_map_entry_t* entries;
+  size_t count;
+  size_t capacity;
 } mcp_map_t;
 
 /* ============================================================================
  * Opaque Handle Types
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Opaque handles for C++ objects
@@ -149,224 +152,224 @@ typedef struct mcp_connection_manager_impl* mcp_connection_manager_t;
 
 /* ============================================================================
  * MCP Protocol Types (from types.h)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Request ID type
  */
 typedef struct mcp_request_id {
-    enum { MCP_REQUEST_ID_STRING, MCP_REQUEST_ID_NUMBER } type;
-    union {
-        mcp_string_t string_value;
-        int64_t number_value;
-    } value;
+  enum { MCP_REQUEST_ID_STRING, MCP_REQUEST_ID_NUMBER } type;
+  union {
+    mcp_string_t string_value;
+    int64_t number_value;
+  } value;
 } mcp_request_id_t;
 
 /**
  * JSON-RPC Error
  */
 typedef struct mcp_jsonrpc_error {
-    int32_t code;
-    mcp_string_t message;
-    mcp_optional_t data; /* Optional JSON value */
+  int32_t code;
+  mcp_string_t message;
+  mcp_optional_t data; /* Optional JSON value */
 } mcp_jsonrpc_error_t;
 
 /**
  * MCP Role
  */
-typedef enum mcp_role {
-    MCP_ROLE_USER,
-    MCP_ROLE_ASSISTANT
-} mcp_role_t;
+typedef enum mcp_role { MCP_ROLE_USER, MCP_ROLE_ASSISTANT } mcp_role_t;
 
 /**
  * Tool call result
  */
 typedef struct mcp_call_tool_result {
-    mcp_list_t content; /* List of content blocks */
-    bool is_error;
+  mcp_list_t content; /* List of content blocks */
+  bool is_error;
 } mcp_call_tool_result_t;
 
 /**
  * Text content
  */
 typedef struct mcp_text_content {
-    mcp_string_t type; /* "text" */
-    mcp_string_t text;
+  mcp_string_t type; /* "text" */
+  mcp_string_t text;
 } mcp_text_content_t;
 
 /**
  * Image content
  */
 typedef struct mcp_image_content {
-    mcp_string_t type; /* "image" */
-    mcp_string_t data;
-    mcp_string_t mime_type;
+  mcp_string_t type; /* "image" */
+  mcp_string_t data;
+  mcp_string_t mime_type;
 } mcp_image_content_t;
 
 /**
  * Resource type
  */
 typedef struct mcp_resource {
-    mcp_string_t uri;
-    mcp_string_t name;
-    mcp_optional_t* description;  /* optional string */
-    mcp_optional_t* mime_type;     /* optional string */
+  mcp_string_t uri;
+  mcp_string_t name;
+  mcp_optional_t* description; /* optional string */
+  mcp_optional_t* mime_type;   /* optional string */
 } mcp_resource_t;
 
 /**
  * Resource content (embedded)
  */
 typedef struct mcp_embedded_resource {
-    mcp_string_t type; /* "resource" */
-    mcp_string_t id;
-    mcp_optional_t text;
-    mcp_optional_t blob;
+  mcp_string_t type; /* "resource" */
+  mcp_string_t id;
+  mcp_optional_t text;
+  mcp_optional_t blob;
 } mcp_embedded_resource_t;
 
 /**
  * Tool definition
  */
 typedef struct mcp_tool {
-    mcp_string_t name;
-    mcp_optional_t description;
-    mcp_json_value_t input_schema;
+  mcp_string_t name;
+  mcp_optional_t description;
+  mcp_json_value_t input_schema;
 } mcp_tool_t;
 
 /**
  * Resource template
  */
 typedef struct mcp_resource_template {
-    mcp_string_t uri_template;
-    mcp_string_t name;
-    mcp_optional_t description;
-    mcp_optional_t mime_type;
+  mcp_string_t uri_template;
+  mcp_string_t name;
+  mcp_optional_t description;
+  mcp_optional_t mime_type;
 } mcp_resource_template_t;
 
 /**
  * Prompt definition
  */
 typedef struct mcp_prompt {
-    mcp_string_t name;
-    mcp_optional_t description;
-    mcp_list_t arguments; /* List of prompt arguments */
+  mcp_string_t name;
+  mcp_optional_t description;
+  mcp_list_t arguments; /* List of prompt arguments */
 } mcp_prompt_t;
 
 /**
  * Implementation info
  */
 typedef struct mcp_implementation {
-    mcp_string_t name;
-    mcp_string_t version;
+  mcp_string_t name;
+  mcp_string_t version;
 } mcp_implementation_t;
 
 /**
  * Client capabilities
  */
 typedef struct mcp_client_capabilities {
-    mcp_optional_t experimental;
-    mcp_optional_t sampling;
-    mcp_optional_t roots;
+  mcp_optional_t experimental;
+  mcp_optional_t sampling;
+  mcp_optional_t roots;
 } mcp_client_capabilities_t;
 
 /**
  * Server capabilities
  */
 typedef struct mcp_server_capabilities {
-    mcp_optional_t experimental;
-    mcp_optional_t logging;
-    mcp_optional_t prompts;
-    mcp_optional_t resources;
-    mcp_optional_t tools;
+  mcp_optional_t experimental;
+  mcp_optional_t logging;
+  mcp_optional_t prompts;
+  mcp_optional_t resources;
+  mcp_optional_t tools;
 } mcp_server_capabilities_t;
 
 /* ============================================================================
  * Network & Event Types
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Connection state
  */
 typedef enum mcp_connection_state {
-    MCP_CONNECTION_STATE_CONNECTING,
-    MCP_CONNECTION_STATE_CONNECTED,
-    MCP_CONNECTION_STATE_DISCONNECTING,
-    MCP_CONNECTION_STATE_DISCONNECTED,
-    MCP_CONNECTION_STATE_ERROR
+  MCP_CONNECTION_STATE_CONNECTING,
+  MCP_CONNECTION_STATE_CONNECTED,
+  MCP_CONNECTION_STATE_DISCONNECTING,
+  MCP_CONNECTION_STATE_DISCONNECTED,
+  MCP_CONNECTION_STATE_ERROR
 } mcp_connection_state_t;
 
 /**
  * Transport type
  */
 typedef enum mcp_transport_type {
-    MCP_TRANSPORT_TCP,
-    MCP_TRANSPORT_SSL,
-    MCP_TRANSPORT_HTTP_SSE,
-    MCP_TRANSPORT_STDIO,
-    MCP_TRANSPORT_PIPE
+  MCP_TRANSPORT_TCP,
+  MCP_TRANSPORT_SSL,
+  MCP_TRANSPORT_HTTP_SSE,
+  MCP_TRANSPORT_STDIO,
+  MCP_TRANSPORT_PIPE
 } mcp_transport_type_t;
 
 /**
  * Address family
  */
 typedef enum mcp_address_family {
-    MCP_AF_INET,
-    MCP_AF_INET6,
-    MCP_AF_UNIX
+  MCP_AF_INET,
+  MCP_AF_INET6,
+  MCP_AF_UNIX
 } mcp_address_family_t;
 
 /**
  * Network address
  */
 typedef struct mcp_address {
-    mcp_address_family_t family;
-    union {
-        struct {
-            char host[256];
-            uint16_t port;
-        } inet;
-        struct {
-            char path[256];
-        } unix;
-    } addr;
+  mcp_address_family_t family;
+  union {
+    struct {
+      char host[256];
+      uint16_t port;
+    } inet;
+    struct {
+      char path[256];
+    } unix;
+  } addr;
 } mcp_address_t;
 
 /**
  * Socket options
  */
 typedef struct mcp_socket_options {
-    bool reuse_addr;
-    bool reuse_port;
-    bool keep_alive;
-    bool tcp_nodelay;
-    uint32_t send_buffer_size;
-    uint32_t recv_buffer_size;
-    uint32_t connect_timeout_ms;
+  bool reuse_addr;
+  bool reuse_port;
+  bool keep_alive;
+  bool tcp_nodelay;
+  uint32_t send_buffer_size;
+  uint32_t recv_buffer_size;
+  uint32_t connect_timeout_ms;
 } mcp_socket_options_t;
 
 /**
  * SSL configuration
  */
 typedef struct mcp_ssl_config {
-    mcp_string_t cert_file;
-    mcp_string_t key_file;
-    mcp_string_t ca_file;
-    bool verify_peer;
-    mcp_string_t cipher_list;
-    mcp_list_t alpn_protocols; /* List of strings */
+  mcp_string_t cert_file;
+  mcp_string_t key_file;
+  mcp_string_t ca_file;
+  bool verify_peer;
+  mcp_string_t cipher_list;
+  mcp_list_t alpn_protocols; /* List of strings */
 } mcp_ssl_config_t;
 
 /**
  * Watermark configuration
  */
 typedef struct mcp_watermark_config {
-    uint32_t low_watermark;
-    uint32_t high_watermark;
+  uint32_t low_watermark;
+  uint32_t high_watermark;
 } mcp_watermark_config_t;
 
 /* ============================================================================
  * Callback Function Types
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Generic callback with user data
@@ -376,7 +379,9 @@ typedef void (*mcp_callback_t)(void* user_data);
 /**
  * Error callback
  */
-typedef void (*mcp_error_callback_t)(mcp_result_t error, const char* message, void* user_data);
+typedef void (*mcp_error_callback_t)(mcp_result_t error,
+                                     const char* message,
+                                     void* user_data);
 
 /**
  * Connection state callback
@@ -385,37 +390,30 @@ typedef void (*mcp_connection_state_callback_t)(
     mcp_connection_t connection,
     mcp_connection_state_t old_state,
     mcp_connection_state_t new_state,
-    void* user_data
-);
+    void* user_data);
 
 /**
  * Data received callback
  */
-typedef void (*mcp_data_callback_t)(
-    mcp_connection_t connection,
-    const uint8_t* data,
-    size_t length,
-    void* user_data
-);
+typedef void (*mcp_data_callback_t)(mcp_connection_t connection,
+                                    const uint8_t* data,
+                                    size_t length,
+                                    void* user_data);
 
 /**
  * Write complete callback
  */
-typedef void (*mcp_write_callback_t)(
-    mcp_connection_t connection,
-    mcp_result_t result,
-    size_t bytes_written,
-    void* user_data
-);
+typedef void (*mcp_write_callback_t)(mcp_connection_t connection,
+                                     mcp_result_t result,
+                                     size_t bytes_written,
+                                     void* user_data);
 
 /**
  * Accept callback for listeners
  */
-typedef void (*mcp_accept_callback_t)(
-    mcp_listener_t listener,
-    mcp_connection_t connection,
-    void* user_data
-);
+typedef void (*mcp_accept_callback_t)(mcp_listener_t listener,
+                                      mcp_connection_t connection,
+                                      void* user_data);
 
 /**
  * Timer callback
@@ -425,103 +423,100 @@ typedef void (*mcp_timer_callback_t)(void* user_data);
 /**
  * MCP message callbacks
  */
-typedef void (*mcp_request_callback_t)(
-    mcp_request_id_t id,
-    mcp_string_t method,
-    mcp_json_value_t params,
-    void* user_data
-);
+typedef void (*mcp_request_callback_t)(mcp_request_id_t id,
+                                       mcp_string_t method,
+                                       mcp_json_value_t params,
+                                       void* user_data);
 
-typedef void (*mcp_response_callback_t)(
-    mcp_request_id_t id,
-    mcp_json_value_t result,
-    mcp_jsonrpc_error_t* error,
-    void* user_data
-);
+typedef void (*mcp_response_callback_t)(mcp_request_id_t id,
+                                        mcp_json_value_t result,
+                                        mcp_jsonrpc_error_t* error,
+                                        void* user_data);
 
-typedef void (*mcp_notification_callback_t)(
-    mcp_string_t method,
-    mcp_json_value_t params,
-    void* user_data
-);
+typedef void (*mcp_notification_callback_t)(mcp_string_t method,
+                                            mcp_json_value_t params,
+                                            void* user_data);
 
 /* ============================================================================
  * Configuration Structures
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Client configuration
- * 
+ *
  * TODO: Transport selection flow:
  * 1. Client specifies preferred transport in this config
  * 2. During initialize handshake, server responds with supported transports
  * 3. Client selects best match from server's supported list
  * 4. Transport socket is reconfigured if needed based on negotiation
- * 
+ *
  * Note: The transport field here is the client's preference, but the actual
  * transport used may differ based on server capabilities
  */
 typedef struct mcp_client_config {
-    mcp_implementation_t client_info;
-    mcp_client_capabilities_t capabilities;
-    mcp_transport_type_t transport;  /* Client's preferred transport */
-    mcp_address_t* server_address; /* Optional for TCP */
-    mcp_ssl_config_t* ssl_config; /* Optional for SSL */
-    mcp_watermark_config_t watermarks;
-    uint32_t reconnect_delay_ms;
-    uint32_t max_reconnect_attempts;
+  mcp_implementation_t client_info;
+  mcp_client_capabilities_t capabilities;
+  mcp_transport_type_t transport; /* Client's preferred transport */
+  mcp_address_t* server_address;  /* Optional for TCP */
+  mcp_ssl_config_t* ssl_config;   /* Optional for SSL */
+  mcp_watermark_config_t watermarks;
+  uint32_t reconnect_delay_ms;
+  uint32_t max_reconnect_attempts;
 } mcp_client_config_t;
 
 /**
  * Server configuration
- * 
+ *
  * TODO: Server transport handling:
  * 1. Server advertises all supported transports in capabilities
  * 2. Client chooses from the advertised list during initialization
- * 3. Server may need to spawn different transport handlers based on client choice
+ * 3. Server may need to spawn different transport handlers based on client
+ * choice
  * 4. For multi-transport servers, may need transport multiplexing
- * 
+ *
  * Note: The transport field indicates the primary/default transport,
  * but server should be able to handle multiple transport types
  */
 typedef struct mcp_server_config {
-    mcp_implementation_t server_info;
-    mcp_server_capabilities_t capabilities;
-    mcp_transport_type_t transport;  /* Primary transport type */
-    mcp_address_t* bind_address; /* Optional for TCP */
-    mcp_ssl_config_t* ssl_config; /* Optional for SSL */
-    mcp_watermark_config_t watermarks;
-    uint32_t max_connections;
-    mcp_string_t instructions; /* Optional instructions */
+  mcp_implementation_t server_info;
+  mcp_server_capabilities_t capabilities;
+  mcp_transport_type_t transport; /* Primary transport type */
+  mcp_address_t* bind_address;    /* Optional for TCP */
+  mcp_ssl_config_t* ssl_config;   /* Optional for SSL */
+  mcp_watermark_config_t watermarks;
+  uint32_t max_connections;
+  mcp_string_t instructions; /* Optional instructions */
 } mcp_server_config_t;
 
 /* ============================================================================
  * Additional Protocol Types (Missing from original)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Logging level enum (RFC-5424 severities)
  */
 typedef enum mcp_logging_level {
-    MCP_LOGGING_DEBUG = 0,
-    MCP_LOGGING_INFO = 1,
-    MCP_LOGGING_NOTICE = 2,
-    MCP_LOGGING_WARNING = 3,
-    MCP_LOGGING_ERROR = 4,
-    MCP_LOGGING_CRITICAL = 5,
-    MCP_LOGGING_ALERT = 6,
-    MCP_LOGGING_EMERGENCY = 7
+  MCP_LOGGING_DEBUG = 0,
+  MCP_LOGGING_INFO = 1,
+  MCP_LOGGING_NOTICE = 2,
+  MCP_LOGGING_WARNING = 3,
+  MCP_LOGGING_ERROR = 4,
+  MCP_LOGGING_CRITICAL = 5,
+  MCP_LOGGING_ALERT = 6,
+  MCP_LOGGING_EMERGENCY = 7
 } mcp_logging_level_t;
 
 /**
  * Progress token (variant<string, int>)
  */
 typedef struct mcp_progress_token {
-    enum { MCP_PROGRESS_TOKEN_STRING, MCP_PROGRESS_TOKEN_NUMBER } type;
-    union {
-        mcp_string_t string_value;
-        int64_t number_value;
-    } value;
+  enum { MCP_PROGRESS_TOKEN_STRING, MCP_PROGRESS_TOKEN_NUMBER } type;
+  union {
+    mcp_string_t string_value;
+    int64_t number_value;
+  } value;
 } mcp_progress_token_t;
 
 /**
@@ -533,216 +528,216 @@ typedef mcp_string_t mcp_cursor_t;
  * Annotations for content blocks
  */
 typedef struct mcp_annotations {
-    mcp_optional_t audience; /* List of roles */
-    mcp_optional_t priority; /* double, 1.0 = most important */
+  mcp_optional_t audience; /* List of roles */
+  mcp_optional_t priority; /* double, 1.0 = most important */
 } mcp_annotations_t;
 
 /**
  * Tool-specific annotations
  */
 typedef struct mcp_tool_annotations {
-    mcp_optional_t audience; /* List of roles */
+  mcp_optional_t audience; /* List of roles */
 } mcp_tool_annotations_t;
 
 /**
  * Audio content
  */
 typedef struct mcp_audio_content {
-    mcp_string_t type; /* "audio" */
-    mcp_string_t data; /* Base64 encoded */
-    mcp_string_t mime_type;
+  mcp_string_t type; /* "audio" */
+  mcp_string_t data; /* Base64 encoded */
+  mcp_string_t mime_type;
 } mcp_audio_content_t;
 
 /**
  * Resource link
  */
 typedef struct mcp_resource_link {
-    mcp_string_t type; /* "resource" */
-    mcp_string_t uri;
-    mcp_string_t name;
-    mcp_optional_t description;
-    mcp_optional_t mime_type;
+  mcp_string_t type; /* "resource" */
+  mcp_string_t uri;
+  mcp_string_t name;
+  mcp_optional_t description;
+  mcp_optional_t mime_type;
 } mcp_resource_link_t;
 
 /**
  * Content block type enum
  */
 typedef enum mcp_content_block_type {
-    MCP_CONTENT_TEXT,
-    MCP_CONTENT_IMAGE,
-    MCP_CONTENT_AUDIO,
-    MCP_CONTENT_RESOURCE,
-    MCP_CONTENT_RESOURCE_LINK,
-    MCP_CONTENT_EMBEDDED_RESOURCE
+  MCP_CONTENT_TEXT,
+  MCP_CONTENT_IMAGE,
+  MCP_CONTENT_AUDIO,
+  MCP_CONTENT_RESOURCE,
+  MCP_CONTENT_RESOURCE_LINK,
+  MCP_CONTENT_EMBEDDED_RESOURCE
 } mcp_content_block_type_t;
 
 /**
  * Extended content block (variant)
  */
 typedef struct mcp_content_block {
-    mcp_content_block_type_t type;
-    union {
-        mcp_text_content_t* text;
-        mcp_image_content_t* image;
-        mcp_audio_content_t* audio;
-        mcp_embedded_resource_t* resource;
-        mcp_resource_link_t* resource_link;
-        mcp_embedded_resource_t* embedded;
-    } content;
+  mcp_content_block_type_t type;
+  union {
+    mcp_text_content_t* text;
+    mcp_image_content_t* image;
+    mcp_audio_content_t* audio;
+    mcp_embedded_resource_t* resource;
+    mcp_resource_link_t* resource_link;
+    mcp_embedded_resource_t* embedded;
+  } content;
 } mcp_content_block_t;
 
 /**
  * Tool parameter
  */
 typedef struct mcp_tool_parameter {
-    mcp_string_t name;
-    mcp_string_t type;
-    mcp_optional_t description;
-    bool required;
+  mcp_string_t name;
+  mcp_string_t type;
+  mcp_optional_t description;
+  bool required;
 } mcp_tool_parameter_t;
 
 /**
  * Message
  */
 typedef struct mcp_message {
-    mcp_role_t role;
-    mcp_content_block_t content;
+  mcp_role_t role;
+  mcp_content_block_t content;
 } mcp_message_t;
 
 /**
  * Prompt message
  */
 typedef struct mcp_prompt_message {
-    mcp_role_t role;
-    mcp_content_block_t content; /* Text, Image, or EmbeddedResource */
+  mcp_role_t role;
+  mcp_content_block_t content; /* Text, Image, or EmbeddedResource */
 } mcp_prompt_message_t;
 
 /**
  * Sampling message
  */
 typedef struct mcp_sampling_message {
-    mcp_role_t role;
-    mcp_content_block_t content; /* Text, Image, or Audio */
+  mcp_role_t role;
+  mcp_content_block_t content; /* Text, Image, or Audio */
 } mcp_sampling_message_t;
 
 /**
  * Sampling parameters
  */
 typedef struct mcp_sampling_params {
-    mcp_optional_t temperature; /* double */
-    mcp_optional_t max_tokens; /* int */
-    mcp_optional_t stop_sequences; /* List of strings */
-    mcp_optional_t metadata; /* JSON */
+  mcp_optional_t temperature;    /* double */
+  mcp_optional_t max_tokens;     /* int */
+  mcp_optional_t stop_sequences; /* List of strings */
+  mcp_optional_t metadata;       /* JSON */
 } mcp_sampling_params_t;
 
 /**
  * Model hint
  */
 typedef struct mcp_model_hint {
-    mcp_optional_t name;
+  mcp_optional_t name;
 } mcp_model_hint_t;
 
 /**
  * Model preferences
  */
 typedef struct mcp_model_preferences {
-    mcp_optional_t hints; /* List of model hints */
-    mcp_optional_t cost_priority; /* double, 0-1 */
-    mcp_optional_t speed_priority; /* double, 0-1 */
-    mcp_optional_t intelligence_priority; /* double, 0-1 */
+  mcp_optional_t hints;                 /* List of model hints */
+  mcp_optional_t cost_priority;         /* double, 0-1 */
+  mcp_optional_t speed_priority;        /* double, 0-1 */
+  mcp_optional_t intelligence_priority; /* double, 0-1 */
 } mcp_model_preferences_t;
 
 /**
  * Resource contents base
  */
 typedef struct mcp_resource_contents {
-    mcp_optional_t uri;
-    mcp_optional_t mime_type;
+  mcp_optional_t uri;
+  mcp_optional_t mime_type;
 } mcp_resource_contents_t;
 
 /**
  * Text resource contents
  */
 typedef struct mcp_text_resource_contents {
-    mcp_resource_contents_t base;
-    mcp_string_t text;
+  mcp_resource_contents_t base;
+  mcp_string_t text;
 } mcp_text_resource_contents_t;
 
 /**
  * Blob resource contents
  */
 typedef struct mcp_blob_resource_contents {
-    mcp_resource_contents_t base;
-    mcp_string_t blob; /* Base64 encoded */
+  mcp_resource_contents_t base;
+  mcp_string_t blob; /* Base64 encoded */
 } mcp_blob_resource_contents_t;
 
 /**
  * Root (filesystem-like)
  */
 typedef struct mcp_root {
-    mcp_string_t uri;
-    mcp_optional_t name;
+  mcp_string_t uri;
+  mcp_optional_t name;
 } mcp_root_t;
 
 /**
  * Schema types for elicitation
  */
 typedef struct mcp_string_schema {
-    mcp_string_t type; /* "string" */
-    mcp_optional_t description;
-    mcp_optional_t pattern;
-    mcp_optional_t min_length; /* int */
-    mcp_optional_t max_length; /* int */
+  mcp_string_t type; /* "string" */
+  mcp_optional_t description;
+  mcp_optional_t pattern;
+  mcp_optional_t min_length; /* int */
+  mcp_optional_t max_length; /* int */
 } mcp_string_schema_t;
 
 typedef struct mcp_number_schema {
-    mcp_string_t type; /* "number" */
-    mcp_optional_t description;
-    mcp_optional_t minimum; /* double */
-    mcp_optional_t maximum; /* double */
-    mcp_optional_t multiple_of; /* double */
+  mcp_string_t type; /* "number" */
+  mcp_optional_t description;
+  mcp_optional_t minimum;     /* double */
+  mcp_optional_t maximum;     /* double */
+  mcp_optional_t multiple_of; /* double */
 } mcp_number_schema_t;
 
 typedef struct mcp_boolean_schema {
-    mcp_string_t type; /* "boolean" */
-    mcp_optional_t description;
+  mcp_string_t type; /* "boolean" */
+  mcp_optional_t description;
 } mcp_boolean_schema_t;
 
 typedef struct mcp_enum_schema {
-    mcp_string_t type; /* "enum" */
-    mcp_optional_t description;
-    mcp_list_t values; /* List of strings */
+  mcp_string_t type; /* "enum" */
+  mcp_optional_t description;
+  mcp_list_t values; /* List of strings */
 } mcp_enum_schema_t;
 
 typedef enum mcp_schema_type {
-    MCP_SCHEMA_STRING,
-    MCP_SCHEMA_NUMBER,
-    MCP_SCHEMA_BOOLEAN,
-    MCP_SCHEMA_ENUM
+  MCP_SCHEMA_STRING,
+  MCP_SCHEMA_NUMBER,
+  MCP_SCHEMA_BOOLEAN,
+  MCP_SCHEMA_ENUM
 } mcp_schema_type_t;
 
 typedef struct mcp_primitive_schema {
-    mcp_schema_type_t type;
-    union {
-        mcp_string_schema_t* string;
-        mcp_number_schema_t* number;
-        mcp_boolean_schema_t* boolean_;
-        mcp_enum_schema_t* enum_;
-    } schema;
+  mcp_schema_type_t type;
+  union {
+    mcp_string_schema_t* string;
+    mcp_number_schema_t* number;
+    mcp_boolean_schema_t* boolean_;
+    mcp_enum_schema_t* enum_;
+  } schema;
 } mcp_primitive_schema_t;
 
 /**
  * Reference types
  */
 typedef struct mcp_resource_template_reference {
-    mcp_string_t type;
-    mcp_string_t name;
+  mcp_string_t type;
+  mcp_string_t name;
 } mcp_resource_template_reference_t;
 
 typedef struct mcp_prompt_reference {
-    mcp_string_t type;
-    mcp_string_t name;
-    mcp_optional_t _meta; /* Metadata */
+  mcp_string_t type;
+  mcp_string_t name;
+  mcp_optional_t _meta; /* Metadata */
 } mcp_prompt_reference_t;
 
 /**
@@ -754,219 +749,222 @@ typedef mcp_map_t mcp_empty_capability_t;
  * Resources capability
  */
 typedef struct mcp_resources_capability {
-    mcp_optional_t subscribe; /* Empty capability */
-    mcp_optional_t list_changed; /* Empty capability */
+  mcp_optional_t subscribe;    /* Empty capability */
+  mcp_optional_t list_changed; /* Empty capability */
 } mcp_resources_capability_t;
 
 /**
  * Prompts capability
  */
 typedef struct mcp_prompts_capability {
-    mcp_optional_t list_changed; /* Empty capability */
+  mcp_optional_t list_changed; /* Empty capability */
 } mcp_prompts_capability_t;
 
 /**
  * Roots capability
  */
 typedef struct mcp_roots_capability {
-    mcp_optional_t list_changed; /* Empty capability */
+  mcp_optional_t list_changed; /* Empty capability */
 } mcp_roots_capability_t;
 
 /**
  * Empty result
  */
 typedef struct mcp_empty_result {
-    char _placeholder; /* C doesn't allow empty structs */
+  char _placeholder; /* C doesn't allow empty structs */
 } mcp_empty_result_t;
 
 /**
  * JSON-RPC Request
  */
 typedef struct mcp_jsonrpc_request {
-    mcp_string_t jsonrpc; /* "2.0" */
-    mcp_request_id_t id;
-    mcp_string_t method;
-    mcp_optional_t params; /* JSON value */
+  mcp_string_t jsonrpc; /* "2.0" */
+  mcp_request_id_t id;
+  mcp_string_t method;
+  mcp_optional_t params; /* JSON value */
 } mcp_jsonrpc_request_t;
 
 /**
  * JSON-RPC Response
  */
 typedef struct mcp_jsonrpc_response {
-    mcp_string_t jsonrpc; /* "2.0" */
-    mcp_request_id_t id;
-    mcp_optional_t result; /* JSON value */
-    mcp_optional_t error; /* JSONRPCError */
+  mcp_string_t jsonrpc; /* "2.0" */
+  mcp_request_id_t id;
+  mcp_optional_t result; /* JSON value */
+  mcp_optional_t error;  /* JSONRPCError */
 } mcp_jsonrpc_response_t;
 
 /**
  * JSON-RPC Notification
  */
 typedef struct mcp_jsonrpc_notification {
-    mcp_string_t jsonrpc; /* "2.0" */
-    mcp_string_t method;
-    mcp_optional_t params; /* JSON value */
+  mcp_string_t jsonrpc; /* "2.0" */
+  mcp_string_t method;
+  mcp_optional_t params; /* JSON value */
 } mcp_jsonrpc_notification_t;
 
 /**
  * Initialize request
  */
 typedef struct mcp_initialize_request {
-    mcp_string_t protocol_version;
-    mcp_client_capabilities_t capabilities;
-    mcp_optional_t client_info; /* Implementation */
+  mcp_string_t protocol_version;
+  mcp_client_capabilities_t capabilities;
+  mcp_optional_t client_info; /* Implementation */
 } mcp_initialize_request_t;
 
 /**
  * Initialize result
  */
 typedef struct mcp_initialize_result {
-    mcp_string_t protocol_version;
-    mcp_server_capabilities_t capabilities;
-    mcp_optional_t server_info; /* Implementation */
-    mcp_optional_t instructions; /* string */
+  mcp_string_t protocol_version;
+  mcp_server_capabilities_t capabilities;
+  mcp_optional_t server_info;  /* Implementation */
+  mcp_optional_t instructions; /* string */
 } mcp_initialize_result_t;
 
 /**
  * Paginated request/result base
  */
 typedef struct mcp_paginated_request {
-    mcp_optional_t cursor;
+  mcp_optional_t cursor;
 } mcp_paginated_request_t;
 
 typedef struct mcp_paginated_result {
-    mcp_optional_t next_cursor;
+  mcp_optional_t next_cursor;
 } mcp_paginated_result_t;
 
 /**
  * Protocol-specific requests
  */
 typedef struct mcp_call_tool_request {
-    mcp_string_t name;
-    mcp_optional_t arguments;  /* JSON value */
+  mcp_string_t name;
+  mcp_optional_t arguments; /* JSON value */
 } mcp_call_tool_request_t;
 
 typedef struct mcp_get_prompt_request {
-    mcp_string_t name;
-    mcp_optional_t arguments;  /* JSON value */
+  mcp_string_t name;
+  mcp_optional_t arguments; /* JSON value */
 } mcp_get_prompt_request_t;
 
 typedef struct mcp_read_resource_request {
-    mcp_string_t uri;
+  mcp_string_t uri;
 } mcp_read_resource_request_t;
 
 typedef struct mcp_set_level_request {
-    mcp_logging_level_t level;
+  mcp_logging_level_t level;
 } mcp_set_level_request_t;
 
 /**
  * Protocol-specific results
  */
 typedef struct mcp_list_resources_result {
-    mcp_list_t resources; /* List of Resource */
-    mcp_optional_t next_cursor;
+  mcp_list_t resources; /* List of Resource */
+  mcp_optional_t next_cursor;
 } mcp_list_resources_result_t;
 
 typedef struct mcp_list_resource_templates_result {
-    mcp_list_t resource_templates; /* List of ResourceTemplate */
-    mcp_optional_t next_cursor;
+  mcp_list_t resource_templates; /* List of ResourceTemplate */
+  mcp_optional_t next_cursor;
 } mcp_list_resource_templates_result_t;
 
 typedef struct mcp_read_resource_result {
-    mcp_list_t contents; /* List of TextResourceContents or BlobResourceContents */
+  mcp_list_t
+      contents; /* List of TextResourceContents or BlobResourceContents */
 } mcp_read_resource_result_t;
 
 typedef struct mcp_list_prompts_result {
-    mcp_list_t prompts; /* List of Prompt */
-    mcp_optional_t next_cursor;
+  mcp_list_t prompts; /* List of Prompt */
+  mcp_optional_t next_cursor;
 } mcp_list_prompts_result_t;
 
 typedef struct mcp_get_prompt_result {
-    mcp_optional_t description;
-    mcp_list_t messages; /* List of PromptMessage */
+  mcp_optional_t description;
+  mcp_list_t messages; /* List of PromptMessage */
 } mcp_get_prompt_result_t;
 
 typedef struct mcp_list_tools_result {
-    mcp_list_t tools; /* List of Tool */
+  mcp_list_t tools; /* List of Tool */
 } mcp_list_tools_result_t;
 
 typedef struct mcp_create_message_result {
-    mcp_sampling_message_t message;
-    mcp_string_t model;
-    mcp_optional_t stop_reason; /* string */
+  mcp_sampling_message_t message;
+  mcp_string_t model;
+  mcp_optional_t stop_reason; /* string */
 } mcp_create_message_result_t;
 
 typedef struct mcp_completion {
-    mcp_list_t values; /* List of strings */
-    mcp_optional_t total; /* double */
-    bool has_more;
+  mcp_list_t values;    /* List of strings */
+  mcp_optional_t total; /* double */
+  bool has_more;
 } mcp_completion_t;
 
 typedef struct mcp_complete_result {
-    mcp_completion_t completion;
+  mcp_completion_t completion;
 } mcp_complete_result_t;
 
 typedef struct mcp_list_roots_result {
-    mcp_list_t roots; /* List of Root */
+  mcp_list_t roots; /* List of Root */
 } mcp_list_roots_result_t;
 
 typedef enum mcp_elicit_value_type {
-    MCP_ELICIT_STRING,
-    MCP_ELICIT_NUMBER,
-    MCP_ELICIT_BOOLEAN,
-    MCP_ELICIT_NULL
+  MCP_ELICIT_STRING,
+  MCP_ELICIT_NUMBER,
+  MCP_ELICIT_BOOLEAN,
+  MCP_ELICIT_NULL
 } mcp_elicit_value_type_t;
 
 typedef struct mcp_elicit_result {
-    mcp_elicit_value_type_t type;
-    union {
-        mcp_string_t string_value;
-        double number_value;
-        bool boolean_value;
-    } value;
+  mcp_elicit_value_type_t type;
+  union {
+    mcp_string_t string_value;
+    double number_value;
+    bool boolean_value;
+  } value;
 } mcp_elicit_result_t;
 
 /**
  * Notification types
  */
 typedef struct mcp_progress_notification {
-    mcp_progress_token_t progress_token;
-    double progress; /* 0.0 to 1.0 */
-    mcp_optional_t total; /* double */
+  mcp_progress_token_t progress_token;
+  double progress;      /* 0.0 to 1.0 */
+  mcp_optional_t total; /* double */
 } mcp_progress_notification_t;
 
 typedef struct mcp_cancelled_notification {
-    mcp_request_id_t request_id;
-    mcp_optional_t reason; /* string */
+  mcp_request_id_t request_id;
+  mcp_optional_t reason; /* string */
 } mcp_cancelled_notification_t;
 
 typedef struct mcp_logging_message_notification {
-    mcp_logging_level_t level;
-    mcp_optional_t logger; /* string */
-    mcp_json_value_t data; /* string or Metadata */
+  mcp_logging_level_t level;
+  mcp_optional_t logger; /* string */
+  mcp_json_value_t data; /* string or Metadata */
 } mcp_logging_message_notification_t;
 
 typedef struct mcp_resource_updated_notification {
-    mcp_string_t uri;
+  mcp_string_t uri;
 } mcp_resource_updated_notification_t;
 
 /* ============================================================================
  * Memory Management
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Custom allocator interface
  */
 typedef struct mcp_allocator {
-    void* (*alloc)(size_t size, void* context);
-    void* (*realloc)(void* ptr, size_t size, void* context);
-    void (*free)(void* ptr, void* context);
-    void* context;
+  void* (*alloc)(size_t size, void* context);
+  void* (*realloc)(void* ptr, size_t size, void* context);
+  void (*free)(void* ptr, void* context);
+  void* context;
 } mcp_allocator_t;
 
 /* ============================================================================
  * Builder Functions (FFI-Friendly)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /* String builders */
 mcp_string_t mcp_string_from_cstr(const char* str);
@@ -985,38 +983,61 @@ mcp_progress_token_t mcp_progress_token_from_number(int64_t num);
 
 /* Content block builders */
 mcp_content_block_t* mcp_text_content_create(const char* text);
-mcp_content_block_t* mcp_text_content_with_annotations(const char* text, mcp_annotations_t* annotations);
-mcp_content_block_t* mcp_image_content_create(const char* data, const char* mime_type);
-mcp_content_block_t* mcp_audio_content_create(const char* data, const char* mime_type);
-mcp_content_block_t* mcp_resource_content_create(const mcp_resource_t* resource);
-mcp_content_block_t* mcp_resource_link_create(const char* uri, const char* name);
-mcp_content_block_t* mcp_embedded_resource_create(const mcp_resource_t* resource);
+mcp_content_block_t* mcp_text_content_with_annotations(
+    const char* text, mcp_annotations_t* annotations);
+mcp_content_block_t* mcp_image_content_create(const char* data,
+                                              const char* mime_type);
+mcp_content_block_t* mcp_audio_content_create(const char* data,
+                                              const char* mime_type);
+mcp_content_block_t* mcp_resource_content_create(
+    const mcp_resource_t* resource);
+mcp_content_block_t* mcp_resource_link_create(const char* uri,
+                                              const char* name);
+mcp_content_block_t* mcp_embedded_resource_create(
+    const mcp_resource_t* resource);
 
 /* Resource builders */
 mcp_resource_t* mcp_resource_create(const char* uri, const char* name);
-mcp_resource_t* mcp_resource_with_description(const char* uri, const char* name, const char* description);
-mcp_resource_t* mcp_resource_with_mime_type(const char* uri, const char* name, const char* mime_type);
+mcp_resource_t* mcp_resource_with_description(const char* uri,
+                                              const char* name,
+                                              const char* description);
+mcp_resource_t* mcp_resource_with_mime_type(const char* uri,
+                                            const char* name,
+                                            const char* mime_type);
 
 /* Tool & Prompt builders */
 mcp_tool_t* mcp_tool_create(const char* name);
-mcp_tool_t* mcp_tool_with_description(const char* name, const char* description);
+mcp_tool_t* mcp_tool_with_description(const char* name,
+                                      const char* description);
 mcp_tool_t* mcp_tool_with_schema(const char* name, mcp_json_value_t schema);
-mcp_tool_t* mcp_tool_add_parameter(mcp_tool_t* tool, const char* param_name, const char* param_type, bool required);
+mcp_tool_t* mcp_tool_add_parameter(mcp_tool_t* tool,
+                                   const char* param_name,
+                                   const char* param_type,
+                                   bool required);
 
 mcp_prompt_t* mcp_prompt_create(const char* name);
-mcp_prompt_t* mcp_prompt_with_description(const char* name, const char* description);
-mcp_prompt_t* mcp_prompt_add_argument(mcp_prompt_t* prompt, const char* arg_name, const char* description, bool required);
+mcp_prompt_t* mcp_prompt_with_description(const char* name,
+                                          const char* description);
+mcp_prompt_t* mcp_prompt_add_argument(mcp_prompt_t* prompt,
+                                      const char* arg_name,
+                                      const char* description,
+                                      bool required);
 
 /* Message builders */
-mcp_message_t* mcp_message_create(mcp_role_t role, mcp_content_block_t* content);
+mcp_message_t* mcp_message_create(mcp_role_t role,
+                                  mcp_content_block_t* content);
 mcp_message_t* mcp_user_message(const char* text);
 mcp_message_t* mcp_assistant_message(const char* text);
-mcp_prompt_message_t* mcp_prompt_message_create(mcp_role_t role, mcp_content_block_t* content);
-mcp_sampling_message_t* mcp_sampling_message_create(mcp_role_t role, mcp_content_block_t* content);
+mcp_prompt_message_t* mcp_prompt_message_create(mcp_role_t role,
+                                                mcp_content_block_t* content);
+mcp_sampling_message_t* mcp_sampling_message_create(
+    mcp_role_t role, mcp_content_block_t* content);
 
 /* Error builders */
 mcp_jsonrpc_error_t* mcp_error_create(int32_t code, const char* message);
-mcp_jsonrpc_error_t* mcp_error_with_data(int32_t code, const char* message, mcp_json_value_t data);
+mcp_jsonrpc_error_t* mcp_error_with_data(int32_t code,
+                                         const char* message,
+                                         mcp_json_value_t data);
 mcp_jsonrpc_error_t* mcp_error_parse(void);
 mcp_jsonrpc_error_t* mcp_error_invalid_request(void);
 mcp_jsonrpc_error_t* mcp_error_method_not_found(const char* method);
@@ -1025,82 +1046,96 @@ mcp_jsonrpc_error_t* mcp_error_internal(const char* details);
 
 /* Capability builders */
 mcp_client_capabilities_t* mcp_client_capabilities_create(void);
-mcp_client_capabilities_t* mcp_client_capabilities_with_experimental(mcp_json_value_t experimental);
-mcp_client_capabilities_t* mcp_client_capabilities_with_sampling(mcp_sampling_params_t* params);
-mcp_client_capabilities_t* mcp_client_capabilities_with_roots(mcp_roots_capability_t* roots);
+mcp_client_capabilities_t* mcp_client_capabilities_with_experimental(
+    mcp_json_value_t experimental);
+mcp_client_capabilities_t* mcp_client_capabilities_with_sampling(
+    mcp_sampling_params_t* params);
+mcp_client_capabilities_t* mcp_client_capabilities_with_roots(
+    mcp_roots_capability_t* roots);
 
 mcp_server_capabilities_t* mcp_server_capabilities_create(void);
 mcp_server_capabilities_t* mcp_server_capabilities_with_tools(bool enabled);
 mcp_server_capabilities_t* mcp_server_capabilities_with_prompts(bool enabled);
 mcp_server_capabilities_t* mcp_server_capabilities_with_resources(bool enabled);
-mcp_server_capabilities_t* mcp_server_capabilities_with_resources_advanced(mcp_resources_capability_t* resources);
+mcp_server_capabilities_t* mcp_server_capabilities_with_resources_advanced(
+    mcp_resources_capability_t* resources);
 mcp_server_capabilities_t* mcp_server_capabilities_with_logging(bool enabled);
 
 /* Request builders */
 mcp_initialize_request_t* mcp_initialize_request_create(
-    const char* protocol_version,
-    mcp_client_capabilities_t* capabilities
-);
+    const char* protocol_version, mcp_client_capabilities_t* capabilities);
 mcp_initialize_request_t* mcp_initialize_request_with_client_info(
     const char* protocol_version,
     mcp_client_capabilities_t* capabilities,
     const char* client_name,
-    const char* client_version
-);
+    const char* client_version);
 
 mcp_call_tool_request_t* mcp_call_tool_request_create(const char* name);
-mcp_call_tool_request_t* mcp_call_tool_request_with_arguments(const char* name, mcp_json_value_t arguments);
+mcp_call_tool_request_t* mcp_call_tool_request_with_arguments(
+    const char* name, mcp_json_value_t arguments);
 
 mcp_get_prompt_request_t* mcp_get_prompt_request_create(const char* name);
-mcp_get_prompt_request_t* mcp_get_prompt_request_with_arguments(const char* name, mcp_json_value_t arguments);
+mcp_get_prompt_request_t* mcp_get_prompt_request_with_arguments(
+    const char* name, mcp_json_value_t arguments);
 
 mcp_read_resource_request_t* mcp_read_resource_request_create(const char* uri);
 
-mcp_set_level_request_t* mcp_set_level_request_create(mcp_logging_level_t level);
+mcp_set_level_request_t* mcp_set_level_request_create(
+    mcp_logging_level_t level);
 
 /* Result builders */
 mcp_initialize_result_t* mcp_initialize_result_create(
-    const char* protocol_version,
-    mcp_server_capabilities_t* capabilities
-);
+    const char* protocol_version, mcp_server_capabilities_t* capabilities);
 mcp_initialize_result_t* mcp_initialize_result_with_server_info(
     const char* protocol_version,
     mcp_server_capabilities_t* capabilities,
     const char* server_name,
-    const char* server_version
-);
+    const char* server_version);
 mcp_initialize_result_t* mcp_initialize_result_with_instructions(
     const char* protocol_version,
     mcp_server_capabilities_t* capabilities,
-    const char* instructions
-);
+    const char* instructions);
 
 mcp_call_tool_result_t* mcp_call_tool_result_create(void);
-mcp_call_tool_result_t* mcp_call_tool_result_add_content(mcp_call_tool_result_t* result, mcp_content_block_t* content);
-mcp_call_tool_result_t* mcp_call_tool_result_add_text(mcp_call_tool_result_t* result, const char* text);
-mcp_call_tool_result_t* mcp_call_tool_result_set_error(mcp_call_tool_result_t* result, bool is_error);
+mcp_call_tool_result_t* mcp_call_tool_result_add_content(
+    mcp_call_tool_result_t* result, mcp_content_block_t* content);
+mcp_call_tool_result_t* mcp_call_tool_result_add_text(
+    mcp_call_tool_result_t* result, const char* text);
+mcp_call_tool_result_t* mcp_call_tool_result_set_error(
+    mcp_call_tool_result_t* result, bool is_error);
 
 /* Notification builders */
-mcp_progress_notification_t* mcp_progress_notification_create(mcp_progress_token_t token, double progress);
-mcp_progress_notification_t* mcp_progress_notification_with_total(mcp_progress_token_t token, double progress, double total);
+mcp_progress_notification_t* mcp_progress_notification_create(
+    mcp_progress_token_t token, double progress);
+mcp_progress_notification_t* mcp_progress_notification_with_total(
+    mcp_progress_token_t token, double progress, double total);
 
-mcp_cancelled_notification_t* mcp_cancelled_notification_create(mcp_request_id_t request_id);
-mcp_cancelled_notification_t* mcp_cancelled_notification_with_reason(mcp_request_id_t request_id, const char* reason);
+mcp_cancelled_notification_t* mcp_cancelled_notification_create(
+    mcp_request_id_t request_id);
+mcp_cancelled_notification_t* mcp_cancelled_notification_with_reason(
+    mcp_request_id_t request_id, const char* reason);
 
-mcp_logging_message_notification_t* mcp_logging_notification_create(mcp_logging_level_t level, const char* message);
-mcp_logging_message_notification_t* mcp_logging_notification_with_logger(mcp_logging_level_t level, const char* logger, const char* message);
+mcp_logging_message_notification_t* mcp_logging_notification_create(
+    mcp_logging_level_t level, const char* message);
+mcp_logging_message_notification_t* mcp_logging_notification_with_logger(
+    mcp_logging_level_t level, const char* logger, const char* message);
 
 /* Schema builders */
 mcp_primitive_schema_t* mcp_string_schema_create(void);
-mcp_primitive_schema_t* mcp_string_schema_with_constraints(int min_length, int max_length, const char* pattern);
+mcp_primitive_schema_t* mcp_string_schema_with_constraints(int min_length,
+                                                           int max_length,
+                                                           const char* pattern);
 mcp_primitive_schema_t* mcp_number_schema_create(void);
-mcp_primitive_schema_t* mcp_number_schema_with_range(double minimum, double maximum);
+mcp_primitive_schema_t* mcp_number_schema_with_range(double minimum,
+                                                     double maximum);
 mcp_primitive_schema_t* mcp_boolean_schema_create(void);
-mcp_primitive_schema_t* mcp_enum_schema_create(const char** values, size_t count);
+mcp_primitive_schema_t* mcp_enum_schema_create(const char** values,
+                                               size_t count);
 
 /* ============================================================================
  * JSON Serialization/Deserialization (FFI-Friendly)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /* Serialize to JSON */
 mcp_json_value_t mcp_string_to_json(mcp_string_t str);
@@ -1114,16 +1149,24 @@ mcp_json_value_t mcp_tool_to_json(const mcp_tool_t* tool);
 mcp_json_value_t mcp_prompt_to_json(const mcp_prompt_t* prompt);
 mcp_json_value_t mcp_message_to_json(const mcp_message_t* message);
 mcp_json_value_t mcp_error_to_json(const mcp_jsonrpc_error_t* error);
-mcp_json_value_t mcp_client_capabilities_to_json(const mcp_client_capabilities_t* caps);
-mcp_json_value_t mcp_server_capabilities_to_json(const mcp_server_capabilities_t* caps);
+mcp_json_value_t mcp_client_capabilities_to_json(
+    const mcp_client_capabilities_t* caps);
+mcp_json_value_t mcp_server_capabilities_to_json(
+    const mcp_server_capabilities_t* caps);
 mcp_json_value_t mcp_implementation_to_json(const mcp_implementation_t* impl);
-mcp_json_value_t mcp_initialize_request_to_json(const mcp_initialize_request_t* req);
-mcp_json_value_t mcp_initialize_result_to_json(const mcp_initialize_result_t* result);
-mcp_json_value_t mcp_call_tool_request_to_json(const mcp_call_tool_request_t* req);
-mcp_json_value_t mcp_call_tool_result_to_json(const mcp_call_tool_result_t* result);
+mcp_json_value_t mcp_initialize_request_to_json(
+    const mcp_initialize_request_t* req);
+mcp_json_value_t mcp_initialize_result_to_json(
+    const mcp_initialize_result_t* result);
+mcp_json_value_t mcp_call_tool_request_to_json(
+    const mcp_call_tool_request_t* req);
+mcp_json_value_t mcp_call_tool_result_to_json(
+    const mcp_call_tool_result_t* result);
 mcp_json_value_t mcp_jsonrpc_request_to_json(const mcp_jsonrpc_request_t* req);
-mcp_json_value_t mcp_jsonrpc_response_to_json(const mcp_jsonrpc_response_t* resp);
-mcp_json_value_t mcp_jsonrpc_notification_to_json(const mcp_jsonrpc_notification_t* notif);
+mcp_json_value_t mcp_jsonrpc_response_to_json(
+    const mcp_jsonrpc_response_t* resp);
+mcp_json_value_t mcp_jsonrpc_notification_to_json(
+    const mcp_jsonrpc_notification_t* notif);
 
 /* Deserialize from JSON */
 mcp_string_t mcp_string_from_json(mcp_json_value_t json);
@@ -1137,20 +1180,25 @@ mcp_tool_t* mcp_tool_from_json(mcp_json_value_t json);
 mcp_prompt_t* mcp_prompt_from_json(mcp_json_value_t json);
 mcp_message_t* mcp_message_from_json(mcp_json_value_t json);
 mcp_jsonrpc_error_t* mcp_error_from_json(mcp_json_value_t json);
-mcp_client_capabilities_t* mcp_client_capabilities_from_json(mcp_json_value_t json);
-mcp_server_capabilities_t* mcp_server_capabilities_from_json(mcp_json_value_t json);
+mcp_client_capabilities_t* mcp_client_capabilities_from_json(
+    mcp_json_value_t json);
+mcp_server_capabilities_t* mcp_server_capabilities_from_json(
+    mcp_json_value_t json);
 mcp_implementation_t* mcp_implementation_from_json(mcp_json_value_t json);
-mcp_initialize_request_t* mcp_initialize_request_from_json(mcp_json_value_t json);
+mcp_initialize_request_t* mcp_initialize_request_from_json(
+    mcp_json_value_t json);
 mcp_initialize_result_t* mcp_initialize_result_from_json(mcp_json_value_t json);
 mcp_call_tool_request_t* mcp_call_tool_request_from_json(mcp_json_value_t json);
 mcp_call_tool_result_t* mcp_call_tool_result_from_json(mcp_json_value_t json);
 mcp_jsonrpc_request_t* mcp_jsonrpc_request_from_json(mcp_json_value_t json);
 mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t json);
-mcp_jsonrpc_notification_t* mcp_jsonrpc_notification_from_json(mcp_json_value_t json);
+mcp_jsonrpc_notification_t* mcp_jsonrpc_notification_from_json(
+    mcp_json_value_t json);
 
 /* ============================================================================
  * Utility Functions (FFI-Friendly)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /* Type checking utilities */
 bool mcp_request_id_is_string(const mcp_request_id_t* id);
@@ -1165,7 +1213,8 @@ bool mcp_content_block_is_resource(const mcp_content_block_t* block);
 /* Comparison utilities */
 bool mcp_string_equals(mcp_string_t a, mcp_string_t b);
 bool mcp_string_equals_cstr(mcp_string_t str, const char* cstr);
-bool mcp_request_id_equals(const mcp_request_id_t* a, const mcp_request_id_t* b);
+bool mcp_request_id_equals(const mcp_request_id_t* a,
+                           const mcp_request_id_t* b);
 int mcp_string_compare(mcp_string_t a, mcp_string_t b);
 
 /* Conversion utilities */
@@ -1210,7 +1259,8 @@ void mcp_optional_free(mcp_optional_t* opt);
 
 /* ============================================================================
  * Memory Management Functions (FFI-Friendly)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /* Free functions for all types */
 void mcp_string_free(mcp_string_t* str);
@@ -1242,8 +1292,10 @@ mcp_resource_t* mcp_resource_copy(const mcp_resource_t* resource);
 mcp_tool_t* mcp_tool_copy(const mcp_tool_t* tool);
 mcp_prompt_t* mcp_prompt_copy(const mcp_prompt_t* prompt);
 mcp_message_t* mcp_message_copy(const mcp_message_t* message);
-mcp_client_capabilities_t* mcp_client_capabilities_copy(const mcp_client_capabilities_t* caps);
-mcp_server_capabilities_t* mcp_server_capabilities_copy(const mcp_server_capabilities_t* caps);
+mcp_client_capabilities_t* mcp_client_capabilities_copy(
+    const mcp_client_capabilities_t* caps);
+mcp_server_capabilities_t* mcp_server_capabilities_copy(
+    const mcp_server_capabilities_t* caps);
 
 /* Memory pool support for efficient allocation */
 typedef struct mcp_memory_pool mcp_memory_pool_t;

@@ -8,4 +8,6 @@ Description: C API bindings for Model Context Protocol SDK
 Version: @PROJECT_VERSION@
 Requires: 
 Libs: -L${libdir} -lmcp_c
-Cflags: -I${includedir}
+Cflags: -I${
+  includedir
+}
