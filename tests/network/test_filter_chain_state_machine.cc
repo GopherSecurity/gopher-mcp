@@ -259,7 +259,7 @@ TEST_F(FilterChainStateMachineTest, StartWithoutFilters) {
   
   EXPECT_TRUE(state_machine_->initialize());
   EXPECT_TRUE(state_machine_->start());
-  EXPECT_EQ(FilterChainState::Idle, state_machine_->currentState());
+  EXPECT_EQ(FilterChainState::Active, state_machine_->currentState());
 }
 
 TEST_F(FilterChainStateMachineTest, StartWithFilters) {
@@ -273,7 +273,7 @@ TEST_F(FilterChainStateMachineTest, StartWithFilters) {
   EXPECT_TRUE(state_machine_->addWriteFilter(write_filter, "write1"));
   EXPECT_TRUE(state_machine_->start());
   
-  EXPECT_EQ(FilterChainState::Idle, state_machine_->currentState());
+  EXPECT_EQ(FilterChainState::Active, state_machine_->currentState());
   EXPECT_EQ(2, state_machine_->activeFilterCount());
 }
 
@@ -369,8 +369,8 @@ TEST_F(FilterChainStateMachineTest, PauseResume) {
   state_machine_->initialize();
   state_machine_->start();
   
-  // Should be idle
-  EXPECT_EQ(FilterChainState::Idle, state_machine_->currentState());
+  // Should be active after start
+  EXPECT_EQ(FilterChainState::Active, state_machine_->currentState());
   
   // Pause
   EXPECT_TRUE(state_machine_->pause());
@@ -425,6 +425,9 @@ TEST_F(FilterChainStateMachineTest, GracefulClose) {
   state_machine_->initialize();
   state_machine_->start();
   
+  // Should be active after start
+  EXPECT_EQ(FilterChainState::Active, state_machine_->currentState());
+  
   EXPECT_TRUE(state_machine_->close());
   EXPECT_EQ(FilterChainState::Closing, state_machine_->currentState());
   
@@ -436,6 +439,9 @@ TEST_F(FilterChainStateMachineTest, AbortClose) {
   createStateMachine();
   state_machine_->initialize();
   state_machine_->start();
+  
+  // Should be active after start
+  EXPECT_EQ(FilterChainState::Active, state_machine_->currentState());
   
   EXPECT_TRUE(state_machine_->abort());
   EXPECT_EQ(FilterChainState::Aborting, state_machine_->currentState());
