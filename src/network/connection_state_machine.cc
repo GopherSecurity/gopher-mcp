@@ -1023,6 +1023,14 @@ std::string ConnectionStateMachine::getEventName(
 
 // ===== ConnectionStatePatterns Implementation =====
 
+void ConnectionStateMachine::handleFilterEvent(
+    ConnectionStateMachineEvent event) {
+  // Handle filter-related events
+  // These are typically connection pool or filter chain events
+  // For now, process them as regular I/O events
+  handleIoEvent(event);
+}
+
 bool ConnectionStatePatterns::canRead(ConnectionMachineState state) {
   return state == ConnectionMachineState::Connected ||
          state == ConnectionMachineState::Reading ||
