@@ -14,6 +14,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/transport_socket.h"
+#include "mcp/network/connection_state_machine.h"
 #include "mcp/stream_info/stream_info.h"
 #include "mcp/stream_info/stream_info_impl.h"
 
@@ -451,6 +452,9 @@ class ConnectionImplBase : public virtual Connection {
   TransportSocketPtr transport_socket_;
   stream_info::StreamInfoSharedPtr stream_info_;
   FilterManagerImpl filter_manager_;
+  
+  // State machine for managing connection lifecycle
+  std::unique_ptr<ConnectionStateMachine> state_machine_;
 
   // Callbacks
   std::list<ConnectionCallbacks*> callbacks_;
