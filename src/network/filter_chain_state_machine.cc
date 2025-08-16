@@ -27,25 +27,22 @@ getValidTransitions() {
           
           // Setup states
           {FilterChainState::Configuring,
-           {FilterChainState::Connecting, FilterChainState::Idle, 
-            FilterChainState::Failed}},
+           {FilterChainState::Connecting, FilterChainState::Idle,
+            FilterChainState::Active, FilterChainState::Failed}},
           
           {FilterChainState::Connecting,
            {FilterChainState::Idle, FilterChainState::Active,
             FilterChainState::Failed}},
           
           // Ready states
-          {FilterChainState::Idle,
-           {FilterChainState::Active, FilterChainState::ProcessingUpstream,
-            FilterChainState::ProcessingDownstream, FilterChainState::Closing,
-            FilterChainState::Failed}},
-          
           {FilterChainState::Active,
            {FilterChainState::Idle, FilterChainState::ProcessingUpstream,
             FilterChainState::ProcessingDownstream, FilterChainState::Paused,
             FilterChainState::Buffering, FilterChainState::IteratingRead,
             FilterChainState::IteratingWrite, FilterChainState::Closing,
+            FilterChainState::Aborting, FilterChainState::FilterError,
             FilterChainState::Failed}},
+          
           
           // Data flow states
           {FilterChainState::ProcessingUpstream,
@@ -62,7 +59,7 @@ getValidTransitions() {
           {FilterChainState::Paused,
            {FilterChainState::Active, FilterChainState::Buffering,
             FilterChainState::Draining, FilterChainState::Closing,
-            FilterChainState::Failed}},
+            FilterChainState::AboveHighWatermark, FilterChainState::Failed}},
           
           {FilterChainState::Buffering,
            {FilterChainState::Draining, FilterChainState::AboveHighWatermark,
@@ -96,6 +93,11 @@ getValidTransitions() {
            {FilterChainState::Paused, FilterChainState::Draining,
             FilterChainState::BelowLowWatermark, FilterChainState::Failed}},
           
+          // Idle can transition to active or closing
+          {FilterChainState::Idle,
+           {FilterChainState::Active, FilterChainState::Closing,
+            FilterChainState::Failed}},
+          
           {FilterChainState::BelowLowWatermark,
            {FilterChainState::Active, FilterChainState::Buffering,
             FilterChainState::Failed}},
@@ -104,6 +106,7 @@ getValidTransitions() {
           {FilterChainState::FilterError,
            {FilterChainState::Recovering, FilterChainState::Closing,
             FilterChainState::Failed}},
+          
           
           {FilterChainState::ProtocolError,
            {FilterChainState::Closing, FilterChainState::Aborting,
@@ -222,15 +225,16 @@ bool FilterChainStateMachine::start() {
     }
   }
   
-  // Transition to idle state
-  return transitionTo(FilterChainState::Idle,
+  // Transition to active state - ready to process data
+  return transitionTo(FilterChainState::Active,
                      FilterChainEvent::ConnectionEstablished,
-                     "Filter chain started");
+                     "Filter chain started and active");
 }
 
 bool FilterChainStateMachine::pause() {
   assertInDispatcherThread();
   
+  // Can only pause from active processing states
   if (!FilterChainStatePatterns::canProcessData(current_state_)) {
     return false;
   }
@@ -262,7 +266,12 @@ bool FilterChainStateMachine::resume() {
 bool FilterChainStateMachine::close() {
   assertInDispatcherThread();
   
-  if (FilterChainStatePatterns::isTerminal(current_state_)) {
+  auto state = current_state_.load();
+  
+  // Already closing or in terminal state
+  if (state == FilterChainState::Closing ||
+      state == FilterChainState::Flushing ||
+      FilterChainStatePatterns::isTerminal(state)) {
     return false;
   }
   
@@ -285,9 +294,12 @@ bool FilterChainStateMachine::abort() {
     return false;
   }
   
-  return transitionTo(FilterChainState::Aborting,
-                     FilterChainEvent::AbortRequested,
-                     "Abort requested");
+  // Transition to Aborting from any non-terminal state  
+  transitionTo(FilterChainState::Aborting,
+              FilterChainEvent::AbortRequested,
+              "Abort requested");
+  
+  return true;
 }
 
 bool FilterChainStateMachine::addReadFilter(ReadFilterSharedPtr filter,
@@ -370,14 +382,19 @@ void FilterChainStateMachine::reorderFilters(const std::vector<std::string>& ord
 FilterStatus FilterChainStateMachine::onData(Buffer& data, bool end_stream) {
   assertInDispatcherThread();
   
-  if (!FilterChainStatePatterns::canProcessData(current_state_)) {
-    // Buffer the data if we're paused or buffering
-    if (current_state_ == FilterChainState::Paused ||
-        current_state_ == FilterChainState::Buffering) {
-      if (bufferData(data)) {
-        return FilterStatus::StopIteration;
-      }
+  // Check if we can process data
+  auto state = current_state_.load();
+  
+  // Buffer the data if we're paused or buffering
+  if (state == FilterChainState::Paused ||
+      state == FilterChainState::Buffering) {
+    if (bufferData(data)) {
+      return FilterStatus::StopIteration;
     }
+    return FilterStatus::Continue;
+  }
+  
+  if (!FilterChainStatePatterns::canProcessData(current_state_)) {
     return FilterStatus::Continue;
   }
   
@@ -393,14 +410,28 @@ FilterStatus FilterChainStateMachine::onData(Buffer& data, bool end_stream) {
 FilterStatus FilterChainStateMachine::onWrite(Buffer& data, bool end_stream) {
   assertInDispatcherThread();
   
-  if (!FilterChainStatePatterns::canProcessData(current_state_)) {
-    // Buffer the data if we're paused or buffering
-    if (current_state_ == FilterChainState::Paused ||
-        current_state_ == FilterChainState::Buffering) {
-      if (bufferData(data)) {
-        return FilterStatus::StopIteration;
-      }
+  // Check if we can process data
+  auto state = current_state_.load();
+  
+  // Buffer the data if we're paused or buffering
+  if (state == FilterChainState::Paused ||
+      state == FilterChainState::Buffering) {
+    // Buffer in upstream buffer for write data
+    size_t data_size = data.length();
+    size_t current = buffered_bytes_.load();
+    
+    if (current + data_size > config_.max_buffered_bytes) {
+      stats_.buffer_overflows++;
+      return FilterStatus::Continue;
     }
+    
+    upstream_buffer_.move(data);
+    buffered_bytes_ += data_size;
+    checkWatermarks();
+    return FilterStatus::StopIteration;
+  }
+  
+  if (!FilterChainStatePatterns::canProcessData(state)) {
     return FilterStatus::Continue;
   }
   
@@ -541,6 +572,21 @@ bool FilterChainStateMachine::handleEvent(FilterChainEvent event) {
       handled = true;
       break;
       
+    case FilterChainEvent::FilterError:
+      // Transition to error state
+      if (config_.continue_on_filter_error) {
+        transitionTo(FilterChainState::FilterError,
+                    FilterChainEvent::FilterError,
+                    "Filter error occurred");
+        attemptRecovery();
+      } else {
+        transitionTo(FilterChainState::Failed,
+                    FilterChainEvent::FilterError,
+                    "Fatal filter error");
+      }
+      handled = true;
+      break;
+      
     default:
       break;
   }
@@ -665,6 +711,7 @@ FilterStatus FilterChainStateMachine::iterateReadFilters(Buffer& data,
               "Iterating read filters");
   
   FilterStatus status = FilterStatus::Continue;
+  size_t original_data_len = data.length();
   
   for (size_t i = read_filter_index_; i < read_filters_.size(); ++i) {
     auto& entry = read_filters_[i];
@@ -677,8 +724,10 @@ FilterStatus FilterChainStateMachine::iterateReadFilters(Buffer& data,
       auto* read_filter = entry.read_filter.get();
       entry.last_active = std::chrono::steady_clock::now();
       
+      // Store the original data length before filter processing
+      size_t data_len = data.length();
       status = read_filter->onData(data, end_stream);
-      entry.bytes_processed += data.length();
+      entry.bytes_processed += data_len;
       
       if (status == FilterStatus::StopIteration) {
         read_filter_index_ = i;
@@ -701,7 +750,7 @@ FilterStatus FilterChainStateMachine::iterateReadFilters(Buffer& data,
                 "Filter iteration complete");
   }
   
-  updateStats(data.length(), false);
+  updateStats(original_data_len, false);
   return status;
 }
 
@@ -712,6 +761,7 @@ FilterStatus FilterChainStateMachine::iterateWriteFilters(Buffer& data,
               "Iterating write filters");
   
   FilterStatus status = FilterStatus::Continue;
+  size_t original_data_len = data.length();
   
   for (size_t i = write_filter_index_; i < write_filters_.size(); ++i) {
     auto& entry = write_filters_[i];
@@ -724,8 +774,10 @@ FilterStatus FilterChainStateMachine::iterateWriteFilters(Buffer& data,
       auto* write_filter = entry.write_filter.get();
       entry.last_active = std::chrono::steady_clock::now();
       
+      // Store the original data length before filter processing
+      size_t data_len = data.length();
       status = write_filter->onWrite(data, end_stream);
-      entry.bytes_processed += data.length();
+      entry.bytes_processed += data_len;
       
       if (status == FilterStatus::StopIteration) {
         write_filter_index_ = i;
@@ -748,7 +800,7 @@ FilterStatus FilterChainStateMachine::iterateWriteFilters(Buffer& data,
                 "Filter iteration complete");
   }
   
-  updateStats(data.length(), true);
+  updateStats(original_data_len, true);
   return status;
 }
 
@@ -814,6 +866,13 @@ bool FilterChainStateMachine::bufferData(Buffer& data) {
   
   downstream_buffer_.move(data);
   buffered_bytes_ += data_size;
+  
+  // Transition to Buffering state if we're paused and starting to buffer
+  if (current_state_ == FilterChainState::Paused && buffered_bytes_ > 0) {
+    transitionTo(FilterChainState::Buffering,
+                FilterChainEvent::DataReceived,
+                "Started buffering data");
+  }
   
   checkWatermarks();
   return true;
