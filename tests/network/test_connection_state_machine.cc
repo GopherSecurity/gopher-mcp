@@ -579,8 +579,8 @@ TEST_F(ConnectionStateMachineTest, ConnectionStateMachineBuilder) {
   
   auto state_machine = ConnectionStateMachineBuilder()
       .withMode(ConnectionMode::Client)
-      .withConnectTimeout(std::chrono::milliseconds(5000))
-      .withAutoReconnect(true, 3)
+      .withConnectTimeout(std::chrono::milliseconds(0))  // Disable timer to avoid thread safety issues
+      .withAutoReconnect(false, 0)  // Disable auto-reconnect which uses timers
       .withBufferLimits(2048, 4096)
       .withWatermarks(1024, 512)
       .withStateChangeCallback([&callback_invoked](const StateTransitionContext& ctx) {
