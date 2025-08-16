@@ -49,7 +49,7 @@ StateTransitionResult TransportSocketStateMachine::transitionTo(
   // Validate transition
   if (!isTransitionValid(current_state_, new_state)) {
     std::stringstream ss;
-    ss << "Invalid transition from " << static_cast<int>(current_state_)
+    ss << "Invalid transition from " << static_cast<int>(current_state_.load())
        << " to " << static_cast<int>(new_state);
     
     if (config_.error_callback) {

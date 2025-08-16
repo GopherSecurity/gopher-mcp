@@ -32,7 +32,7 @@
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
-#include "mcp/transport/transport_socket.h"
+#include "mcp/network/transport_socket.h"
 
 namespace mcp {
 namespace transport {
@@ -135,6 +135,9 @@ public:
   using CompletionCallback = std::function<void(bool success)>;
   using ValidationCallback = std::function<bool(TransportSocketState from, 
                                                  TransportSocketState to)>;
+  
+  // Friend class for testing utilities
+  friend class StateMachineTestHelper;
 
   /**
    * Constructor

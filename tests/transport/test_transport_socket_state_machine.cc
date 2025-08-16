@@ -10,6 +10,8 @@
 
 #include "mcp/transport/transport_socket_state_machine.h"
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
+#include "mcp/network/address_impl.h"
+#include "mcp/network/socket_impl.h"
 #include "../integration/real_io_test_base.h"
 
 namespace mcp {
@@ -416,7 +418,7 @@ TEST_F(TcpTransportSocketStateMachineTest, CreateTcpStateMachine) {
     // Create connection socket
     auto local_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
     auto remote_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
-    auto conn_socket = std::make_unique<network::ConnectionSocketImpl>(
+    auto conn_socket = std::make_unique<network::AcceptedSocketImpl>(
         std::move(client_handle), local_addr, remote_addr);
     
     // Create TCP transport socket with state machine
@@ -441,7 +443,7 @@ TEST_F(TcpTransportSocketStateMachineTest, TcpConnectionFlow) {
     // Create connection socket
     auto local_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
     auto remote_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
-    auto conn_socket = std::make_unique<network::ConnectionSocketImpl>(
+    auto conn_socket = std::make_unique<network::AcceptedSocketImpl>(
         std::move(client_handle), local_addr, remote_addr);
     
     // Create TCP transport
@@ -449,8 +451,8 @@ TEST_F(TcpTransportSocketStateMachineTest, TcpConnectionFlow) {
         *conn_socket, *dispatcher_, tcp_config_);
     
     // Perform connection
-    auto result = tcp_transport->doConnect(*conn_socket);
-    EXPECT_EQ(result.action_, PostIoAction::Continue);
+    auto result = tcp_transport->connect(*conn_socket);
+    EXPECT_TRUE(result.ok());
     
     // Notify connected
     tcp_transport->onConnected();
@@ -463,10 +465,10 @@ TEST_F(TcpTransportSocketStateMachineTest, TcpConnectionFlow) {
     buffer->add("test data");
     
     auto write_result = tcp_transport->doWrite(*buffer, false);
-    EXPECT_EQ(write_result.action_, PostIoAction::Continue);
+    EXPECT_EQ(write_result.action_, TransportIoResult::CONTINUE);
     
     // Close
-    tcp_transport->closeSocket(event::ConnectionCloseType::FlushWrite);
+    tcp_transport->closeSocket(network::ConnectionEvent::RemoteClose);
     EXPECT_EQ(tcp_transport->currentState(), TransportSocketState::Closed);
   });
 }
