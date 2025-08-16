@@ -26,7 +26,7 @@ option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++
 option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 
 # Option to build C API bindings
-option(BUILD_C_API "Build C API bindings" ON)
+option(BUILD_C_API "Build C API bindings" OFF)  # TODO: Re-enable after fixing compilation issues
 
 # Option to build language binding examples
 option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" ON)
