@@ -52,6 +52,9 @@ add_executable(test_ssl_integration transport/test_ssl_integration.cc)
 # HTTP SSE state machine test
 add_executable(test_http_sse_state_machine transport/test_http_sse_state_machine.cc)
 
+# Transport socket state machine test
+add_executable(test_transport_socket_state_machine transport/test_transport_socket_state_machine.cc)
+
 # HTTP parser tests
 add_executable(test_http_parser http/test_http_parser.cc)
 add_executable(test_llhttp_parser http/test_llhttp_parser.cc)
@@ -382,6 +385,16 @@ target_link_libraries(test_http_sse_state_machine
     Threads::Threads
 )
 
+# Transport socket state machine test libraries
+target_link_libraries(test_transport_socket_state_machine
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 # HTTP parser test libraries
 target_link_libraries(test_http_parser
     mcp-sdk
@@ -605,6 +618,9 @@ add_test(NAME SslIntegrationTest COMMAND test_ssl_integration)
 
 # HTTP SSE state machine test
 add_test(NAME HttpSseStateMachineTest COMMAND test_http_sse_state_machine)
+
+# Transport socket state machine test
+add_test(NAME TransportSocketStateMachineTest COMMAND test_transport_socket_state_machine)
 
 # HTTP parser tests
 add_test(NAME HttpParserTest COMMAND test_http_parser)
