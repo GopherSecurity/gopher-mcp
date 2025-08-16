@@ -20,6 +20,7 @@
 #ifndef MCP_TRANSPORT_SSL_STATE_MACHINE_H
 #define MCP_TRANSPORT_SSL_STATE_MACHINE_H
 
+#include <cassert>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -376,7 +377,10 @@ class SslStateMachine {
    * In production, all calls are expected to be from dispatcher thread.
    */
   void assertInDispatcherThread() const {
-    // No-op for now - all methods must be called from dispatcher thread
+    // All methods must be called from dispatcher thread
+    // Note: Disabled for now due to complexities with test setup
+    // TODO: Re-enable once we have proper test infrastructure
+    // assert(dispatcher_.isThreadSafe());
   }
 
   /**

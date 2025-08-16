@@ -149,6 +149,12 @@ void LibeventDispatcher::post(PostCb callback) {
 }
 
 bool LibeventDispatcher::isThreadSafe() const {
+  // If thread_id_ is not set (run() hasn't been called yet),
+  // we're not in the dispatcher thread yet.
+  // Return false to indicate we need synchronization (e.g., in post())
+  if (thread_id_ == std::thread::id()) {
+    return false;
+  }
   return std::this_thread::get_id() == thread_id_;
 }
 

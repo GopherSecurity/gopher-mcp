@@ -35,6 +35,7 @@
 #define MCP_NETWORK_CONNECTION_STATE_MACHINE_H
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -467,7 +468,10 @@ class ConnectionStateMachine : public ConnectionCallbacks {
    * Assert we're in dispatcher thread
    */
   void assertInDispatcherThread() const {
-    // In production: ASSERT(dispatcher_.isThreadSafe())
+    // All methods must be called from dispatcher thread
+    // Note: Disabled for now due to complexities with test setup
+    // TODO: Re-enable once we have proper test infrastructure  
+    // assert(dispatcher_.isThreadSafe());
   }
 
   /**

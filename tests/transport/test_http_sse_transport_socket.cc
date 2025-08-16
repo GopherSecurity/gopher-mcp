@@ -108,7 +108,10 @@ class MinimalMockDispatcher : public event::Dispatcher {
   void initializeStats(event::DispatcherStats&) override {}
   void shutdown() override {}
   void post(event::PostCb) override {}
-  bool isThreadSafe() const override { return false; }
+  bool isThreadSafe() const override { 
+    // Return false since this is a mock dispatcher without a thread
+    return false; 
+  }
   
  private:
   // Mock timer implementation
