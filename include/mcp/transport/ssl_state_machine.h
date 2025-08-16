@@ -107,18 +107,18 @@ enum class SslSocketState {
 enum class SslSocketMode { Client, Server };
 
 /**
- * State transition result
+ * State transition result for SSL state machine
  */
-struct StateTransitionResult {
+struct SslStateTransitionResult {
   bool success;
   std::string error_message;
   SslSocketState resulting_state;
 
-  static StateTransitionResult Success(SslSocketState state) {
+  static SslStateTransitionResult Success(SslSocketState state) {
     return {true, "", state};
   }
 
-  static StateTransitionResult Failure(const std::string& error) {
+  static SslStateTransitionResult Failure(const std::string& error) {
     return {false, error, SslSocketState::Error};
   }
 };

@@ -156,7 +156,51 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher);
  * ============================================================================ */
 
 /**
- * Create a client connection
+ * Transport configuration for MCP connections
+ * This should be populated based on MCP client/server capabilities
+ */
+typedef struct mcp_transport_config {
+    mcp_transport_type_t type;
+    
+    // Transport-specific configuration
+    union {
+        struct {
+            bool use_tls;
+            const char* alpn_protocols;  // Comma-separated ALPN protocols
+        } tcp;
+        
+        struct {
+            int stdin_fd;   // -1 for default stdin
+            int stdout_fd;  // -1 for default stdout
+            int stderr_fd;  // -1 for default stderr
+        } stdio;
+        
+        struct {
+            const char* http_headers;  // Additional HTTP headers for MCP
+            uint32_t retry_delay_ms;
+            uint32_t max_retries;
+        } http_sse;
+    } config;
+    
+    // Common options
+    uint32_t connect_timeout_ms;
+    uint32_t idle_timeout_ms;
+    bool enable_keepalive;
+} mcp_transport_config_t;
+
+/**
+ * Create a client connection with transport configuration
+ * @param dispatcher Event dispatcher handle
+ * @param transport_config Transport configuration (if NULL, uses defaults)
+ * @return Connection handle or NULL on error
+ */
+mcp_connection_t mcp_connection_create_client_ex(
+    mcp_dispatcher_t dispatcher,
+    const mcp_transport_config_t* transport_config
+);
+
+/**
+ * Create a client connection (legacy, uses default configuration)
  * @param dispatcher Dispatcher handle
  * @param transport Transport type
  * @return Connection handle or NULL on error
