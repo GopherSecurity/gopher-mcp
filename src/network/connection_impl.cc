@@ -31,6 +31,62 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
       write_buffer_([this]() { return onWriteBufferLowWatermark(); },
                     [this]() { return onWriteBufferHighWatermark(); },
                     [this]() { return onWriteBufferBelowLowWatermark(); }) {
+  
+  // Initialize connection state machine
+  state_machine_ = std::make_unique<ConnectionStateMachine>(dispatcher);
+  
+  // Register state change listener
+  state_machine_->addStateChangeListener(
+      [this](const StateTransitionContext& ctx) {
+        // Map machine state to connection state
+        switch (ctx.to_state) {
+          // Connecting states
+          case ConnectionMachineState::Connecting:
+          case ConnectionMachineState::Resolving:
+          case ConnectionMachineState::TcpConnected:
+          case ConnectionMachineState::HandshakeInProgress:
+            // During connection establishment, keep current state
+            // The connecting_ flag tracks this separately
+            break;
+            
+          // Open states
+          case ConnectionMachineState::Connected:
+          case ConnectionMachineState::Reading:
+          case ConnectionMachineState::Writing:
+          case ConnectionMachineState::Processing:
+          case ConnectionMachineState::Idle:
+            state_ = ConnectionState::Open;
+            break;
+            
+          // Closing states
+          case ConnectionMachineState::Closing:
+          case ConnectionMachineState::Draining:
+          case ConnectionMachineState::Flushing:
+          case ConnectionMachineState::HalfClosedLocal:
+          case ConnectionMachineState::HalfClosedRemote:
+            state_ = ConnectionState::Closing;
+            break;
+            
+          // Closed states
+          case ConnectionMachineState::Closed:
+          case ConnectionMachineState::Error:
+          case ConnectionMachineState::Aborted:
+            state_ = ConnectionState::Closed;
+            break;
+            
+          // Initial states - don't change connection state
+          case ConnectionMachineState::Uninitialized:
+          case ConnectionMachineState::Initialized:
+            // Keep current state
+            break;
+            
+          default:
+            // Keep current state for other machine states
+            break;
+        }
+      });
+  
+  // State machine starts in appropriate initial state
 }
 
 ConnectionImplBase::~ConnectionImplBase() = default;
@@ -234,6 +290,11 @@ void ConnectionImpl::close(ConnectionCloseType type) {
 void ConnectionImpl::close(ConnectionCloseType type, const std::string& details) {
   if (state_ == ConnectionState::Closed) {
     return;
+  }
+  
+  // Transition state machine to Closing
+  if (state_machine_) {
+    state_machine_->handleEvent(ConnectionStateMachineEvent::CloseRequested);
   }
   
   local_close_reason_ = std::string(details);
@@ -442,6 +503,12 @@ void ConnectionImpl::setTransportSocketConnectTimeout(std::chrono::milliseconds 
 
 void ConnectionImpl::connect() {
   connecting_ = true;
+  
+  // Transition state machine to Connecting
+  if (state_machine_) {
+    state_machine_->handleEvent(ConnectionStateMachineEvent::ConnectionRequested);
+  }
+  
   doConnect();
 }
 
@@ -489,17 +556,32 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
+  // Notify state machine of read ready event
+  if (state_machine_) {
+    state_machine_->handleEvent(ConnectionStateMachineEvent::ReadReady);
+  }
   doRead();
 }
 
 void ConnectionImpl::onWriteReady() {
   write_ready_ = true;
   
+  // Notify state machine of write ready event
+  if (state_machine_) {
+    state_machine_->handleEvent(ConnectionStateMachineEvent::WriteReady);
+  }
+  
   if (connecting_) {
     // Connection completed
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
+    
+    // Notify state machine of connection success
+    if (state_machine_) {
+      state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
+    }
+    
     raiseConnectionEvent(ConnectionEvent::Connected);
     
     // Enable read events
@@ -512,6 +594,11 @@ void ConnectionImpl::onWriteReady() {
 void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (state_ == ConnectionState::Closed) {
     return;
+  }
+  
+  // Transition state machine to Closed
+  if (state_machine_) {
+    state_machine_->handleEvent(ConnectionStateMachineEvent::SocketClosed);
   }
   
   state_ = ConnectionState::Closed;
@@ -908,6 +995,24 @@ void ConnectionEventLogger::logWrite(size_t bytes_written, size_t buffer_size) {
 
 void ConnectionEventLogger::logError(const std::string& error) {
   // Would log: [connection_id_] Error: error
+}
+
+// ConnectionImpl state machine integration
+
+void ConnectionImpl::onStateChanged(ConnectionState old_state, ConnectionState new_state) {
+  // This function is no longer needed as state changes are handled in the lambda
+  // registered with the state machine
+}
+
+void ConnectionImpl::configureStateMachine() {
+  // Configure state machine behavior
+  // Called during initialization
+  
+  if (!state_machine_) {
+    return;
+  }
+  
+  // State machine is configured via the lambda registered in constructor
 }
 
 } // namespace network
