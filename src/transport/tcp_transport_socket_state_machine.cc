@@ -4,7 +4,7 @@
  */
 
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
-#include "mcp/buffer_impl.h"
+#include "mcp/buffer.h"
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 
@@ -24,8 +24,8 @@ TcpTransportSocketStateMachine::TcpTransportSocketStateMachine(
       tcp_config_(std::move(config)) {
   
   // Initialize buffers
-  pending_read_data_ = std::make_unique<BufferImpl>();
-  pending_write_data_ = std::make_unique<BufferImpl>();
+  pending_read_data_ = createBuffer();
+  pending_write_data_ = createBuffer();
   
   // Configure TCP options
   configureTcpOptions();
@@ -40,8 +40,8 @@ TcpTransportSocketStateMachine::TcpTransportSocketStateMachine(
       tcp_config_(std::move(config)) {
   
   // Initialize buffers
-  pending_read_data_ = std::make_unique<BufferImpl>();
-  pending_write_data_ = std::make_unique<BufferImpl>();
+  pending_read_data_ = createBuffer();
+  pending_write_data_ = createBuffer();
   
   // Server mode - already connected
   current_state_ = TransportSocketState::TcpConnected;
