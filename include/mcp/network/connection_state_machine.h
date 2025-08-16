@@ -1,6 +1,7 @@
 /**
  * @file connection_state_machine.h
- * @brief Production-grade Connection State Machine following industrial proxy patterns
+ * @brief Production-grade Connection State Machine following industrial proxy
+ * patterns
  *
  * This implements a comprehensive connection state machine that:
  * - Manages the full connection lifecycle from socket creation to closure
@@ -73,57 +74,57 @@ namespace network {
  */
 enum class ConnectionMachineState {
   // ===== Initial States =====
-  Uninitialized,      // Connection not yet initialized
-  Initialized,        // Socket created, ready to connect/accept
-  
+  Uninitialized,  // Connection not yet initialized
+  Initialized,    // Socket created, ready to connect/accept
+
   // ===== Connecting States (Client) =====
-  Resolving,          // DNS resolution in progress
-  Connecting,         // TCP connection in progress
-  TcpConnected,       // TCP established, transport socket handshake pending
-  HandshakeInProgress,// Transport socket handshake (SSL, etc.)
-  
+  Resolving,            // DNS resolution in progress
+  Connecting,           // TCP connection in progress
+  TcpConnected,         // TCP established, transport socket handshake pending
+  HandshakeInProgress,  // Transport socket handshake (SSL, etc.)
+
   // ===== Accepting States (Server) =====
-  Listening,          // Server socket listening for connections
-  Accepting,          // Accepting incoming connection
-  Accepted,           // Connection accepted, handshake pending
-  
+  Listening,  // Server socket listening for connections
+  Accepting,  // Accepting incoming connection
+  Accepted,   // Connection accepted, handshake pending
+
   // ===== Connected States =====
-  Connected,          // Fully connected, ready for data transfer
-  Reading,            // Actively reading data
-  Writing,            // Actively writing data
-  Idle,               // Connected but no active I/O
-  Processing,         // Processing data through filter chain
-  
+  Connected,   // Fully connected, ready for data transfer
+  Reading,     // Actively reading data
+  Writing,     // Actively writing data
+  Idle,        // Connected but no active I/O
+  Processing,  // Processing data through filter chain
+
   // ===== Flow Control States =====
-  ReadDisabled,       // Read disabled (backpressure or application)
-  WriteDisabled,      // Write disabled (backpressure)
-  Paused,             // Both read and write paused
-  
+  ReadDisabled,   // Read disabled (backpressure or application)
+  WriteDisabled,  // Write disabled (backpressure)
+  Paused,         // Both read and write paused
+
   // ===== Closing States =====
-  HalfClosedLocal,    // Local side closed, remote still open
-  HalfClosedRemote,   // Remote side closed, local still open
-  Closing,            // Graceful close initiated
-  Draining,           // Draining buffers before close
-  Flushing,           // Flushing write buffer
-  
+  HalfClosedLocal,   // Local side closed, remote still open
+  HalfClosedRemote,  // Remote side closed, local still open
+  Closing,           // Graceful close initiated
+  Draining,          // Draining buffers before close
+  Flushing,          // Flushing write buffer
+
   // ===== Terminal States =====
-  Closed,             // Connection closed normally
-  Error,              // Connection terminated due to error
-  Aborted,            // Connection aborted (immediate close)
-  
+  Closed,   // Connection closed normally
+  Error,    // Connection terminated due to error
+  Aborted,  // Connection aborted (immediate close)
+
   // ===== Recovery States =====
-  Reconnecting,       // Attempting to reconnect
-  WaitingToReconnect, // In backoff period before reconnect
-  Recovering          // Recovering from temporary error
+  Reconnecting,        // Attempting to reconnect
+  WaitingToReconnect,  // In backoff period before reconnect
+  Recovering           // Recovering from temporary error
 };
 
 /**
  * Connection mode - determines behavior and valid transitions
  */
 enum class ConnectionMode {
-  Client,             // Client-initiated connection
-  Server,             // Server-accepted connection
-  Bidirectional       // Can act as both (for proxies)
+  Client,        // Client-initiated connection
+  Server,        // Server-accepted connection
+  Bidirectional  // Can act as both (for proxies)
 };
 
 /**
@@ -138,36 +139,36 @@ enum class ConnectionStateMachineEvent {
   SocketAccepted,
   SocketClosed,
   SocketError,
-  
+
   // I/O events
   ReadReady,
   WriteReady,
   ReadComplete,
   WriteComplete,
   EndOfStream,
-  
+
   // Transport socket events
   HandshakeStarted,
   HandshakeComplete,
   HandshakeFailed,
-  
+
   // Filter chain events
   FilterChainInitialized,
   FilterChainContinue,
   FilterChainStop,
-  
+
   // Application events
   ConnectionRequested,
   CloseRequested,
   ResetRequested,
   ReadDisableRequested,
   WriteDisableRequested,
-  
+
   // Timer events
   ConnectTimeout,
   IdleTimeout,
   DrainTimeout,
-  
+
   // Error recovery events
   ReconnectRequested,
   RecoveryComplete,
@@ -184,7 +185,7 @@ struct StateTransitionContext {
   std::chrono::steady_clock::time_point timestamp;
   std::string reason;
   optional<std::string> error_details;
-  
+
   // Metrics
   std::chrono::milliseconds time_in_previous_state;
   uint64_t bytes_read_in_state{0};
@@ -197,36 +198,36 @@ struct StateTransitionContext {
 struct ConnectionStateMachineConfig {
   // Mode
   ConnectionMode mode{ConnectionMode::Client};
-  
+
   // Timeouts
   std::chrono::milliseconds connect_timeout{30000};
   std::chrono::milliseconds handshake_timeout{10000};
-  std::chrono::milliseconds idle_timeout{0};        // 0 = no timeout
+  std::chrono::milliseconds idle_timeout{0};  // 0 = no timeout
   std::chrono::milliseconds drain_timeout{5000};
   std::chrono::milliseconds delayed_close_timeout{1000};
-  
+
   // Reconnection
   bool enable_auto_reconnect{false};
   uint32_t max_reconnect_attempts{3};
   std::chrono::milliseconds initial_reconnect_delay{1000};
   std::chrono::milliseconds max_reconnect_delay{30000};
   double reconnect_backoff_multiplier{2.0};
-  
+
   // Flow control
-  uint32_t read_buffer_limit{1048576};      // 1MB default
-  uint32_t write_buffer_limit{1048576};     // 1MB default
-  uint32_t high_watermark{655360};          // 640KB
-  uint32_t low_watermark{163840};           // 160KB
-  
+  uint32_t read_buffer_limit{1048576};   // 1MB default
+  uint32_t write_buffer_limit{1048576};  // 1MB default
+  uint32_t high_watermark{655360};       // 640KB
+  uint32_t low_watermark{163840};        // 160KB
+
   // Error handling
   bool abort_on_error{false};
   uint32_t max_consecutive_errors{10};
-  
+
   // Features
   bool enable_half_close{true};
   bool detect_early_close{true};
   bool enable_tcp_nodelay{true};
-  
+
   // Callbacks
   std::function<void(const StateTransitionContext&)> state_change_callback;
   std::function<void(const std::string&)> error_callback;
@@ -250,23 +251,24 @@ struct ConnectionStateMachineConfig {
  * auto config = ConnectionStateMachineConfig{};
  * config.mode = ConnectionMode::Client;
  * config.enable_auto_reconnect = true;
- * 
+ *
  * auto state_machine = std::make_unique<ConnectionStateMachine>(
  *     dispatcher, connection, config);
- * 
+ *
  * state_machine->addStateChangeListener([](const auto& ctx) {
  *   LOG(INFO) << "State: " << ctx.from_state << " -> " << ctx.to_state;
  * });
- * 
+ *
  * state_machine->connect(address);
  * @endcode
  */
 class ConnectionStateMachine : public ConnectionCallbacks {
-public:
-  using StateChangeCallback = std::function<void(const StateTransitionContext&)>;
+ public:
+  using StateChangeCallback =
+      std::function<void(const StateTransitionContext&)>;
   using CompletionCallback = std::function<void(bool success)>;
   using EventHandler = std::function<void(ConnectionStateMachineEvent)>;
-  
+
   /**
    * Constructor
    *
@@ -275,165 +277,165 @@ public:
    * @param config State machine configuration
    */
   ConnectionStateMachine(event::Dispatcher& dispatcher,
-                        Connection& connection,
-                        const ConnectionStateMachineConfig& config);
-  
+                         Connection& connection,
+                         const ConnectionStateMachineConfig& config);
+
   ~ConnectionStateMachine() override;
-  
+
   // ===== Core State Machine Interface =====
-  
+
   /**
    * Get current state
    */
   ConnectionMachineState currentState() const {
     return current_state_.load(std::memory_order_acquire);
   }
-  
+
   /**
    * Handle an event
-   * 
+   *
    * @param event The event to process
    * @return true if event was handled, false if ignored
    */
   bool handleEvent(ConnectionStateMachineEvent event);
-  
+
   /**
    * Force transition to a state (bypasses validation)
    * Use only for error recovery scenarios
    */
-  void forceTransition(ConnectionMachineState new_state, const std::string& reason);
-  
+  void forceTransition(ConnectionMachineState new_state,
+                       const std::string& reason);
+
   // ===== Connection Operations =====
-  
+
   /**
    * Initiate connection (client mode)
    */
   void connect(const Address::InstanceConstSharedPtr& address,
                CompletionCallback callback = nullptr);
-  
+
   /**
    * Start listening (server mode)
    */
   void listen(const Address::InstanceConstSharedPtr& address,
-             CompletionCallback callback = nullptr);
-  
+              CompletionCallback callback = nullptr);
+
   /**
    * Accept a connection (server mode)
    */
   void accept(ConnectionSocketPtr&& socket,
-             CompletionCallback callback = nullptr);
-  
+              CompletionCallback callback = nullptr);
+
   /**
    * Close the connection
    */
   void close(ConnectionCloseType type = ConnectionCloseType::FlushWrite);
-  
+
   /**
    * Reset the connection (immediate close)
    */
   void reset();
-  
+
   // ===== Flow Control =====
-  
+
   /**
    * Enable/disable reading
    */
   void setReadDisabled(bool disabled);
-  
+
   /**
    * Enable/disable writing
    */
   void setWriteDisabled(bool disabled);
-  
+
   /**
    * Check if connection can read
    */
   bool canRead() const;
-  
+
   /**
    * Check if connection can write
    */
   bool canWrite() const;
-  
+
   // ===== State Observers =====
-  
+
   /**
    * Add state change listener
    */
   void addStateChangeListener(StateChangeCallback callback);
-  
+
   /**
    * Remove all state change listeners
    */
   void clearStateChangeListeners();
-  
+
   /**
    * Get state history
    */
   const std::deque<StateTransitionContext>& getStateHistory() const {
     return state_history_;
   }
-  
+
   // ===== Metrics and Monitoring =====
-  
+
   /**
    * Get time in current state
    */
   std::chrono::milliseconds getTimeInCurrentState() const;
-  
+
   /**
    * Get connection statistics
    */
   ConnectionStats getStats() const;
-  
+
   /**
    * Get total state transitions
    */
   uint64_t getTotalTransitions() const {
     return total_transitions_.load(std::memory_order_relaxed);
   }
-  
+
   // ===== ConnectionCallbacks Interface =====
-  
+
   void onEvent(ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override;
   void onBelowWriteBufferLowWatermark() override;
-  
-  
-protected:
+
+ protected:
   // ===== State Transition Logic =====
-  
+
   /**
    * Execute state transition
    */
   bool transitionTo(ConnectionMachineState new_state,
-                   ConnectionStateMachineEvent event,
-                   const std::string& reason);
-  
+                    ConnectionStateMachineEvent event,
+                    const std::string& reason);
+
   /**
    * Check if transition is valid
    */
   bool isValidTransition(ConnectionMachineState from,
-                        ConnectionMachineState to,
-                        ConnectionStateMachineEvent event) const;
-  
+                         ConnectionMachineState to,
+                         ConnectionStateMachineEvent event) const;
+
   /**
    * Get valid next states for current state
    */
   std::unordered_set<ConnectionMachineState> getValidNextStates() const;
-  
+
   /**
    * Called when entering a state
    */
   virtual void onStateEnter(ConnectionMachineState state);
-  
+
   /**
    * Called when exiting a state
    */
   virtual void onStateExit(ConnectionMachineState state);
-  
+
   // ===== Event Handlers =====
-  
+
   void handleSocketEvent(ConnectionStateMachineEvent event);
   void handleIoEvent(ConnectionStateMachineEvent event);
   void handleTransportEvent(ConnectionStateMachineEvent event);
@@ -441,132 +443,133 @@ protected:
   void handleApplicationEvent(ConnectionStateMachineEvent event);
   void handleTimerEvent(ConnectionStateMachineEvent event);
   void handleRecoveryEvent(ConnectionStateMachineEvent event);
-  
+
   // ===== Timer Management =====
-  
+
   void startConnectTimer();
   void startHandshakeTimer();
   void startIdleTimer();
   void startDrainTimer();
   void startReconnectTimer();
-  
+
   void cancelAllTimers();
-  
+
   // ===== Error Recovery =====
-  
+
   void initiateReconnection();
   void handleReconnectTimeout();
   void handleRecoverySuccess();
   void handleRecoveryFailure(const std::string& reason);
-  
+
   // ===== Helper Methods =====
-  
+
   /**
    * Assert we're in dispatcher thread
    */
   void assertInDispatcherThread() const {
     // In production: ASSERT(dispatcher_.isThreadSafe())
   }
-  
+
   /**
    * Notify state change listeners
    */
   void notifyStateChange(const StateTransitionContext& context);
-  
+
   /**
    * Record state transition in history
    */
   void recordStateTransition(const StateTransitionContext& context);
-  
+
   /**
    * Update connection metrics
    */
   void updateMetrics();
-  
+
   /**
    * Get human-readable state name
    */
   static std::string getStateName(ConnectionMachineState state);
-  
+
   /**
    * Get human-readable event name
    */
   static std::string getEventName(ConnectionStateMachineEvent event);
-  
-private:
+
+ private:
   // ===== Core Members =====
-  
+
   event::Dispatcher& dispatcher_;
   Connection& connection_;
   ConnectionStateMachineConfig config_;
-  
+
   // Current state (atomic for safe cross-thread reads)
-  std::atomic<ConnectionMachineState> current_state_{ConnectionMachineState::Uninitialized};
-  
+  std::atomic<ConnectionMachineState> current_state_{
+      ConnectionMachineState::Uninitialized};
+
   // State timing
   std::chrono::steady_clock::time_point state_entry_time_;
-  
+
   // State history
   std::deque<StateTransitionContext> state_history_;
   static constexpr size_t kMaxHistorySize = 100;
-  
+
   // Transition tracking
   std::atomic<uint64_t> total_transitions_{0};
   bool transition_in_progress_{false};
-  
+
   // ===== Event Handling =====
-  
+
   // Event queue for deferred processing
   std::queue<ConnectionStateMachineEvent> event_queue_;
   bool processing_events_{false};
-  
+
   // Event handlers by state
-  std::unordered_map<ConnectionState, 
-                     std::unordered_map<ConnectionStateMachineEvent, EventHandler>> 
+  std::unordered_map<
+      ConnectionState,
+      std::unordered_map<ConnectionStateMachineEvent, EventHandler>>
       state_event_handlers_;
-  
+
   // ===== Timers =====
-  
+
   event::TimerPtr connect_timer_;
   event::TimerPtr handshake_timer_;
   event::TimerPtr idle_timer_;
   event::TimerPtr drain_timer_;
   event::TimerPtr reconnect_timer_;
-  
+
   // ===== Reconnection State =====
-  
+
   uint32_t reconnect_attempts_{0};
   std::chrono::milliseconds current_reconnect_delay_;
   Address::InstanceConstSharedPtr reconnect_address_;
-  
+
   // ===== Flow Control =====
-  
+
   uint32_t read_disable_count_{0};
   uint32_t write_disable_count_{0};
   bool read_end_stream_{false};
   bool write_end_stream_{false};
-  
+
   // ===== Metrics =====
-  
+
   ConnectionStats stats_;
   uint64_t state_bytes_read_{0};
   uint64_t state_bytes_written_{0};
   uint32_t consecutive_errors_{0};
-  
+
   // ===== Callbacks =====
-  
+
   std::vector<StateChangeCallback> state_change_listeners_;
   std::vector<CompletionCallback> pending_callbacks_;
-  
 };
 
 /**
  * Connection state machine factory
  */
 class ConnectionStateMachineFactory {
-public:
+ public:
   virtual ~ConnectionStateMachineFactory() = default;
-  
+
   /**
    * Create a connection state machine
    */
@@ -574,7 +577,7 @@ public:
       event::Dispatcher& dispatcher,
       Connection& connection,
       const ConnectionStateMachineConfig& config) = 0;
-  
+
   /**
    * Get default configuration
    */
@@ -587,96 +590,98 @@ public:
  * Helper class for common connection patterns
  */
 class ConnectionStatePatterns {
-public:
+ public:
   /**
    * Check if state allows reading
    */
   static bool canRead(ConnectionMachineState state);
-  
+
   /**
    * Check if state allows writing
    */
   static bool canWrite(ConnectionMachineState state);
-  
+
   /**
    * Check if state is terminal
    */
   static bool isTerminal(ConnectionMachineState state);
-  
+
   /**
    * Check if state is in connecting phase
    */
   static bool isConnecting(ConnectionMachineState state);
-  
+
   /**
    * Check if state is connected
    */
   static bool isConnected(ConnectionMachineState state);
-  
+
   /**
    * Check if state is in closing phase
    */
   static bool isClosing(ConnectionMachineState state);
-  
+
   /**
    * Check if state allows reconnection
    */
   static bool canReconnect(ConnectionMachineState state);
-  
+
   /**
    * Get appropriate close state based on current state
    */
   static ConnectionMachineState getCloseState(ConnectionMachineState current,
-                                       ConnectionCloseType type);
+                                              ConnectionCloseType type);
 };
 
 /**
  * Connection state machine builder for fluent configuration
  */
 class ConnectionStateMachineBuilder {
-public:
+ public:
   ConnectionStateMachineBuilder& withMode(ConnectionMode mode) {
     config_.mode = mode;
     return *this;
   }
-  
-  ConnectionStateMachineBuilder& withConnectTimeout(std::chrono::milliseconds timeout) {
+
+  ConnectionStateMachineBuilder& withConnectTimeout(
+      std::chrono::milliseconds timeout) {
     config_.connect_timeout = timeout;
     return *this;
   }
-  
+
   ConnectionStateMachineBuilder& withAutoReconnect(bool enable,
                                                    uint32_t max_attempts = 3) {
     config_.enable_auto_reconnect = enable;
     config_.max_reconnect_attempts = max_attempts;
     return *this;
   }
-  
+
   ConnectionStateMachineBuilder& withBufferLimits(uint32_t read_limit,
                                                   uint32_t write_limit) {
     config_.read_buffer_limit = read_limit;
     config_.write_buffer_limit = write_limit;
     return *this;
   }
-  
+
   ConnectionStateMachineBuilder& withWatermarks(uint32_t high, uint32_t low) {
     config_.high_watermark = high;
     config_.low_watermark = low;
     return *this;
   }
-  
+
   ConnectionStateMachineBuilder& withStateChangeCallback(
       std::function<void(const StateTransitionContext&)> callback) {
     config_.state_change_callback = callback;
     return *this;
   }
-  
+
   std::unique_ptr<ConnectionStateMachine> build(event::Dispatcher& dispatcher,
                                                 Connection& connection) {
-    return std::make_unique<ConnectionStateMachine>(dispatcher, connection, config_);
+    return std::make_unique<ConnectionStateMachine>(dispatcher, connection,
+                                                    config_);
   }
-  
-private:
+
+ private:
   ConnectionStateMachineConfig config_;
 };
 
