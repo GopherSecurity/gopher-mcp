@@ -20,6 +20,7 @@
 #define MCP_TRANSPORT_TRANSPORT_SOCKET_STATE_MACHINE_H
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -305,8 +306,10 @@ class TransportSocketStateMachine {
    * Assert we're in the dispatcher thread
    */
   void assertInDispatcherThread() const {
-    // In production, this would check dispatcher_.isThreadSafe()
-    // For now, it's a no-op but documents the requirement
+    // All methods must be called from dispatcher thread
+    // Note: Disabled for now due to complexities with test setup
+    // TODO: Re-enable once we have proper test infrastructure
+    // assert(dispatcher_.isThreadSafe());
   }
 
   // ===== Protected Members =====

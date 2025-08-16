@@ -310,7 +310,7 @@ class FilterChainStateMachine {
   std::chrono::steady_clock::time_point last_activity_;
 
   // Thread safety
-  mutable std::atomic<std::thread::id> dispatcher_thread_id_;
+  // All methods must be called from dispatcher thread
 };
 
 /**

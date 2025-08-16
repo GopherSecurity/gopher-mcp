@@ -636,8 +636,7 @@ TEST_F(EventLoopTest, ThreadSafetyCheck) {
   auto thread =
       std::thread([&]() { other_dispatcher->run(RunType::RunUntilExit); });
 
-  // Check from main thread - should be false since dispatcher is in another
-  // thread
+  // Check from main thread - should be false since dispatcher is in another thread
   EXPECT_FALSE(other_dispatcher->isThreadSafe());
 
   // Check from dispatcher thread
