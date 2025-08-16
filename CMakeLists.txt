@@ -230,6 +230,7 @@ set(MCP_SDK_SOURCES
     src/network/filter_impl.cc
     src/network/connection_impl.cc
     src/network/connection_utility.cc
+    src/network/connection_state_machine.cc
     src/network/listener_impl.cc
     src/network/tcp_listener_impl.cc
     src/network/connection_handler_impl.cc
