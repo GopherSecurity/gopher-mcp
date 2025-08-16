@@ -101,7 +101,7 @@ VoidResult TcpTransportSocketStateMachine::connect(network::Socket& socket) {
   auto result = transitionTo(TransportSocketState::Connecting, 
                             "Connect initiated", nullptr);
   if (!result.success) {
-    return VoidResult(Error{ErrorCode::INVALID_REQUEST, result.error_message});
+    return VoidResult(Error{-1, result.error_message});
   }
   
   // Actual connection would happen here
