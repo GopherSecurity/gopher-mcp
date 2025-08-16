@@ -63,7 +63,8 @@ getValidTransitions() {
             ConnectionMachineState::Idle, ConnectionMachineState::Processing,
             ConnectionMachineState::ReadDisabled, ConnectionMachineState::WriteDisabled,
             ConnectionMachineState::HalfClosedLocal, ConnectionMachineState::HalfClosedRemote,
-            ConnectionMachineState::Closing, ConnectionMachineState::Error}},
+            ConnectionMachineState::Closing, ConnectionMachineState::Flushing, 
+            ConnectionMachineState::Draining, ConnectionMachineState::Error}},
           
           {ConnectionMachineState::Reading,
            {ConnectionMachineState::Connected, ConnectionMachineState::Processing,
