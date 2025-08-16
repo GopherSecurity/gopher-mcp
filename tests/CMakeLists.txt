@@ -79,8 +79,8 @@ add_executable(test_builders core/test_builders.cc)
 
 # C API tests
 if(BUILD_C_API)
-    add_executable(test_c_api_basic test_c_api_basic.cc)
-    add_executable(test_c_api_types test_c_api_types.cc)
+    add_executable(test_c_api_basic c_api/test_c_api_basic.cc)
+    add_executable(test_c_api_types c_api/test_c_api_types.cc)
     add_executable(test_c_api_builders c_api/test_c_api_builders.cc)
     add_executable(test_c_api_type_helpers c_api/test_c_api_type_helpers.cc)
     add_executable(test_c_api_protocol_types c_api/test_c_api_protocol_types.cc)
