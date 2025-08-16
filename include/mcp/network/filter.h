@@ -11,6 +11,12 @@
 #include "mcp/network/transport_socket.h"
 
 namespace mcp {
+
+// Forward declare event namespace types
+namespace event {
+class Dispatcher;
+}
+
 namespace network {
 
 // Forward declarations
@@ -320,7 +326,7 @@ class FilterManagerImpl : public FilterManager,
                           public ReadFilterCallbacks,
                           public WriteFilterCallbacks {
  public:
-  FilterManagerImpl(FilterManagerConnection& connection);
+  FilterManagerImpl(FilterManagerConnection& connection, event::Dispatcher& dispatcher);
   ~FilterManagerImpl() override;
 
   // FilterManager interface

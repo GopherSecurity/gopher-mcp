@@ -1,6 +1,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/network/filter_chain_state_machine.h"
 #include "mcp/network/connection.h"
+#include "mcp/event/event_loop.h"
 #include "mcp/buffer.h"
 #include <algorithm>
 #include <list>
@@ -10,27 +11,36 @@ namespace network {
 
 // FilterManagerImpl implementation
 
-FilterManagerImpl::FilterManagerImpl(FilterManagerConnection& connection)
+FilterManagerImpl::FilterManagerImpl(FilterManagerConnection& connection,
+                                     event::Dispatcher& dispatcher)
     : connection_(connection),
       current_read_filter_(read_filters_.end()),
       current_write_filter_(write_filters_.end()) {
   
-  // Initialize filter chain state machine
-  // TODO: Get dispatcher from connection when available
-  // For now, we'll need to pass it through the constructor
-  // state_machine_ = std::make_unique<FilterChainStateMachine>(dispatcher);
+  // Initialize filter chain state machine with dispatcher and connection
+  FilterChainConfig config;
+  config.state_change_callback = [this](FilterChainState from, FilterChainState to, 
+                                        const std::string& reason) {
+    onStateChanged(from, to);
+  };
   
-  // Register state change listener
-  // state_machine_->addStateChangeListener(
-  //     [this](FilterChainState old_state, FilterChainState new_state) {
-  //       onStateChanged(old_state, new_state);
-  //     });
+  // Cast FilterManagerConnection to Connection
+  // Note: This assumes FilterManagerConnection is implemented by Connection
+  Connection* conn = dynamic_cast<Connection*>(&connection);
+  if (conn) {
+    state_machine_ = std::make_unique<FilterChainStateMachine>(dispatcher, *conn, config);
+  } else {
+    // Cannot create state machine without proper Connection object
+    // This is expected for tests that use mock connections
+  }
   
   // Configure state machine behavior
-  // configureStateMachine();
+  configureStateMachine();
   
-  // Transition to initialized state
-  // state_machine_->transition(FilterChainState::Initialized);
+  // Initialize the state machine if it was created
+  if (state_machine_) {
+    state_machine_->initialize();
+  }
 }
 
 FilterManagerImpl::~FilterManagerImpl() = default;
@@ -60,20 +70,28 @@ bool FilterManagerImpl::initializeReadFilters() {
     return true;
   }
 
-  // Transition state machine to Initializing
-  // if (state_machine_) {
-  //   state_machine_->transition(FilterChainState::Initializing);
-  // }
-
   for (auto& filter : read_filters_) {
     filter->initializeReadFilterCallbacks(*this);
+    // Add filter to state machine
+    if (state_machine_) {
+      state_machine_->addReadFilter(filter, "read_filter");
+    }
   }
   
   for (auto it = write_filters_.rbegin(); it != write_filters_.rend(); ++it) {
     (*it)->initializeWriteFilterCallbacks(*this);
+    // Add filter to state machine
+    if (state_machine_) {
+      state_machine_->addWriteFilter(*it, "write_filter");
+    }
   }
 
   initialized_ = true;
+  
+  // Start the filter chain - transitions to Active state
+  if (state_machine_) {
+    state_machine_->start();
+  }
   return true;
 }
 
