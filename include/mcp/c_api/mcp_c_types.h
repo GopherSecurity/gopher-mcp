@@ -451,11 +451,20 @@ typedef void (*mcp_notification_callback_t)(
 
 /**
  * Client configuration
+ * 
+ * TODO: Transport selection flow:
+ * 1. Client specifies preferred transport in this config
+ * 2. During initialize handshake, server responds with supported transports
+ * 3. Client selects best match from server's supported list
+ * 4. Transport socket is reconfigured if needed based on negotiation
+ * 
+ * Note: The transport field here is the client's preference, but the actual
+ * transport used may differ based on server capabilities
  */
 typedef struct mcp_client_config {
     mcp_implementation_t client_info;
     mcp_client_capabilities_t capabilities;
-    mcp_transport_type_t transport;
+    mcp_transport_type_t transport;  /* Client's preferred transport */
     mcp_address_t* server_address; /* Optional for TCP */
     mcp_ssl_config_t* ssl_config; /* Optional for SSL */
     mcp_watermark_config_t watermarks;
@@ -465,11 +474,20 @@ typedef struct mcp_client_config {
 
 /**
  * Server configuration
+ * 
+ * TODO: Server transport handling:
+ * 1. Server advertises all supported transports in capabilities
+ * 2. Client chooses from the advertised list during initialization
+ * 3. Server may need to spawn different transport handlers based on client choice
+ * 4. For multi-transport servers, may need transport multiplexing
+ * 
+ * Note: The transport field indicates the primary/default transport,
+ * but server should be able to handle multiple transport types
  */
 typedef struct mcp_server_config {
     mcp_implementation_t server_info;
     mcp_server_capabilities_t capabilities;
-    mcp_transport_type_t transport;
+    mcp_transport_type_t transport;  /* Primary transport type */
     mcp_address_t* bind_address; /* Optional for TCP */
     mcp_ssl_config_t* ssl_config; /* Optional for SSL */
     mcp_watermark_config_t watermarks;

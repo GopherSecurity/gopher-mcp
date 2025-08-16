@@ -37,6 +37,10 @@
 namespace mcp {
 namespace c_api {
 
+// Forward declarations
+class ConnectionCallbackBridge;
+class MCPClientCallbackBridge;
+
 /* ============================================================================
  * Handle Implementations
  * ============================================================================ */
@@ -98,6 +102,12 @@ struct mcp_connection_impl : public HandleBase {
     // Statistics
     uint64_t bytes_read = 0;
     uint64_t bytes_written = 0;
+    
+    // Connection configuration
+    mcp::network::Address::InstanceConstSharedPtr remote_address;
+    
+    // Callback bridge
+    std::unique_ptr<ConnectionCallbackBridge> callback_bridge;
 };
 
 /**
@@ -116,7 +126,13 @@ struct mcp_listener_impl : public HandleBase {
  * MCP Client implementation
  */
 struct mcp_client_impl : public HandleBase {
-    void* client;  // TODO: Will be properly implemented when MCPClient is available
+    // TODO: Replace with actual MCPClient when available
+    // Note: MCPClient should manage:
+    // - Transport socket lifecycle
+    // - MCP protocol state machine
+    // - Request/response correlation
+    // - Capability negotiation with server
+    void* client;  // Placeholder for MCPClient instance
     mcp_dispatcher_impl* dispatcher;
     mcp_connection_impl* connection = nullptr;
     
@@ -135,7 +151,13 @@ struct mcp_client_impl : public HandleBase {
  * MCP Server implementation
  */
 struct mcp_server_impl : public HandleBase {
-    void* server;  // TODO: Will be properly implemented when MCPServer is available
+    // TODO: Replace with actual MCPServer when available
+    // Note: MCPServer should manage:
+    // - Multiple client connections
+    // - Request routing and handling
+    // - Capability advertisement
+    // - Resource and tool registration
+    void* server;  // Placeholder for MCPServer instance
     mcp_dispatcher_impl* dispatcher;
     mcp_listener_impl* listener = nullptr;
     
@@ -317,6 +339,8 @@ public:
         mcp_string_t method = to_c_string_temp(request.method);
         
         // TODO: Convert params to JSON value properly
+        // Note: Should use json_bridge to convert mcp::json::Value to C API format
+        // This conversion should preserve all JSON types and structure
         mcp_json_value_impl* params_impl = nullptr;
         
         impl_->request_callback(
