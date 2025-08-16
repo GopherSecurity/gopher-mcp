@@ -470,7 +470,7 @@ class ConnectionStateMachine : public ConnectionCallbacks {
   void assertInDispatcherThread() const {
     // All methods must be called from dispatcher thread
     // Note: Disabled for now due to complexities with test setup
-    // TODO: Re-enable once we have proper test infrastructure  
+    // TODO: Re-enable once we have proper test infrastructure
     // assert(dispatcher_.isThreadSafe());
   }
 

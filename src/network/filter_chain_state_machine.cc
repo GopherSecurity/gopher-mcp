@@ -154,9 +154,7 @@ FilterChainStateMachine::FilterChainStateMachine(
     event::Dispatcher& dispatcher,
     Connection& connection,
     const FilterChainConfig& config)
-    : dispatcher_(dispatcher),
-      connection_(connection),
-      config_(config) {
+    : dispatcher_(dispatcher), connection_(connection), config_(config) {
   last_activity_ = std::chrono::steady_clock::now();
 }
 
