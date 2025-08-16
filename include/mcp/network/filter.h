@@ -15,6 +15,8 @@ namespace network {
 
 // Forward declarations
 class Connection;
+class FilterChainStateMachine;
+enum class FilterChainState;
 class ReadFilter;
 class WriteFilter;
 class Filter;
@@ -349,6 +351,10 @@ class FilterManagerImpl : public FilterManager,
   FilterStatus onContinueReading(Buffer& buffer, bool end_stream);
   void onContinueWriting(Buffer& buffer, bool end_stream);
   void callOnConnectionEvent(ConnectionEvent event);
+  
+  // State machine integration
+  void onStateChanged(FilterChainState old_state, FilterChainState new_state);
+  void configureStateMachine();
 
   // Member variables
   FilterManagerConnection& connection_;
@@ -359,6 +365,9 @@ class FilterManagerImpl : public FilterManager,
   std::vector<ReadFilterSharedPtr>::iterator current_read_filter_;
   std::vector<WriteFilterSharedPtr>::iterator current_write_filter_;
 
+  // State machine for managing filter chain lifecycle
+  std::unique_ptr<FilterChainStateMachine> state_machine_;
+  
   // State
   bool initialized_{false};
   bool upstream_filters_initialized_{false};

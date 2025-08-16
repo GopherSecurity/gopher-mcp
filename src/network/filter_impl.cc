@@ -1,4 +1,5 @@
 #include "mcp/network/filter.h"
+#include "mcp/network/filter_chain_state_machine.h"
 #include "mcp/network/connection.h"
 #include "mcp/buffer.h"
 #include <algorithm>
@@ -12,7 +13,25 @@ namespace network {
 FilterManagerImpl::FilterManagerImpl(FilterManagerConnection& connection)
     : connection_(connection),
       current_read_filter_(read_filters_.end()),
-      current_write_filter_(write_filters_.end()) {}
+      current_write_filter_(write_filters_.end()) {
+  
+  // Initialize filter chain state machine
+  // TODO: Get dispatcher from connection when available
+  // For now, we'll need to pass it through the constructor
+  // state_machine_ = std::make_unique<FilterChainStateMachine>(dispatcher);
+  
+  // Register state change listener
+  // state_machine_->addStateChangeListener(
+  //     [this](FilterChainState old_state, FilterChainState new_state) {
+  //       onStateChanged(old_state, new_state);
+  //     });
+  
+  // Configure state machine behavior
+  // configureStateMachine();
+  
+  // Transition to initialized state
+  // state_machine_->transition(FilterChainState::Initialized);
+}
 
 FilterManagerImpl::~FilterManagerImpl() = default;
 
@@ -41,6 +60,11 @@ bool FilterManagerImpl::initializeReadFilters() {
     return true;
   }
 
+  // Transition state machine to Initializing
+  // if (state_machine_) {
+  //   state_machine_->transition(FilterChainState::Initializing);
+  // }
+
   for (auto& filter : read_filters_) {
     filter->initializeReadFilterCallbacks(*this);
   }
@@ -58,11 +82,21 @@ void FilterManagerImpl::onRead() {
     return;
   }
 
+  // Transition to Processing state when reading starts
+  // if (state_machine_ && state_machine_->getCurrentState() == FilterChainState::Idle) {
+  //   state_machine_->transition(FilterChainState::Processing);
+  // }
+
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
   
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);
+  
+  // Return to Idle state after processing
+  // if (state_machine_ && state_machine_->getCurrentState() == FilterChainState::Processing) {
+  //   state_machine_->transition(FilterChainState::Idle);
+  // }
 }
 
 FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_stream) {
@@ -175,6 +209,54 @@ void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data, bool end_stre
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {
   return connection_.writeBuffer().length() > 1024 * 1024; // 1MB default
+}
+
+void FilterManagerImpl::onStateChanged(FilterChainState old_state, FilterChainState new_state) {
+  // Handle state transitions
+  // This method will be called by the state machine on state changes
+  
+  // Log state transitions for debugging
+  // TODO: Add proper logging
+  // ENVOY_CONN_LOG(debug, "Filter chain state transition: {} -> {}", 
+  //               connection_, FilterChainStateMachine::getStateName(old_state),
+  //               FilterChainStateMachine::getStateName(new_state));
+  
+  // Handle specific state transitions
+  switch (new_state) {
+    case FilterChainState::Active:
+      // Filter chain is now active and processing
+      break;
+      
+    case FilterChainState::Paused:
+      // Filter chain is paused, possibly due to backpressure
+      break;
+      
+    case FilterChainState::Failed:
+      // Handle error state
+      // connection_.close(ConnectionCloseType::NoFlush);
+      break;
+      
+    case FilterChainState::Aborting:
+      // Clean up resources after abort
+      break;
+      
+    default:
+      break;
+  }
+}
+
+void FilterManagerImpl::configureStateMachine() {
+  // Configure state machine behavior
+  // This would be called during initialization
+  
+  // Set up entry/exit actions for states if needed
+  // state_machine_->setEntryAction(FilterChainState::Active, [this]() {
+  //   // Actions when entering Active state
+  // });
+  
+  // state_machine_->setExitAction(FilterChainState::Processing, [this]() {
+  //   // Actions when exiting Processing state
+  // });
 }
 
 // FilterChainFactoryImpl implementation
