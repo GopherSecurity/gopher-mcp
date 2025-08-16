@@ -29,58 +29,59 @@ class OverloadManager;
 
 /**
  * Connection handler interface
- * 
+ *
  * Manages listeners and tracks connections globally
  */
 class ConnectionHandler {
-public:
+ public:
   virtual ~ConnectionHandler() = default;
-  
+
   /**
    * Get total number of connections across all listeners
    */
   virtual uint64_t numConnections() const = 0;
-  
+
   /**
    * Increment connection count (called by listeners)
    */
   virtual void incNumConnections() = 0;
-  
+
   /**
    * Decrement connection count (called on connection close)
    */
   virtual void decNumConnections() = 0;
-  
+
   /**
    * Add a listener
    */
-  virtual void addListener(ListenerConfig config, ListenerCallbacks& callbacks) = 0;
-  
+  virtual void addListener(ListenerConfig config,
+                           ListenerCallbacks& callbacks) = 0;
+
   /**
    * Remove a listener by tag
    */
   virtual void removeListener(uint64_t listener_tag) = 0;
-  
+
   /**
    * Stop all listeners
    */
   virtual void stopListeners() = 0;
-  
+
   /**
    * Disable all listeners (stop accepting but keep sockets)
    */
   virtual void disableListeners() = 0;
-  
+
   /**
    * Enable all listeners
    */
   virtual void enableListeners() = 0;
-  
+
   /**
    * Set reject fraction for all listeners
    */
   virtual void setListenerRejectFraction(UnitFloat reject_fraction) = 0;
-  
+
   /**
    * Get stat prefix for this handler
    */
@@ -89,7 +90,7 @@ public:
 
 /**
  * Connection handler implementation
- * 
+ *
  * Production-style connection handler that:
  * - Manages multiple listeners per worker
  * - Tracks global connection count
@@ -97,21 +98,21 @@ public:
  * - Supports listener enable/disable
  * - Handles reject fraction for load shedding
  */
-class ConnectionHandlerImpl : public ConnectionHandler, 
+class ConnectionHandlerImpl : public ConnectionHandler,
                               public ListenerCallbacks {
-public:
+ public:
   /**
    * Constructor
-   * 
+   *
    * @param dispatcher Event dispatcher for this worker
    * @param worker_index Optional worker index (nullopt for main thread)
    */
   ConnectionHandlerImpl(event::Dispatcher& dispatcher,
                         optional<uint32_t> worker_index = nullopt);
-  
+
   /**
    * Constructor with overload manager
-   * 
+   *
    * @param dispatcher Event dispatcher
    * @param worker_index Worker index
    * @param overload_manager Overload manager for load shedding
@@ -119,41 +120,42 @@ public:
   ConnectionHandlerImpl(event::Dispatcher& dispatcher,
                         optional<uint32_t> worker_index,
                         OverloadManager& overload_manager);
-  
+
   ~ConnectionHandlerImpl() override;
-  
+
   // ConnectionHandler interface
   uint64_t numConnections() const override { return num_connections_.load(); }
   void incNumConnections() override;
   void decNumConnections() override;
-  void addListener(ListenerConfig config, ListenerCallbacks& callbacks) override;
+  void addListener(ListenerConfig config,
+                   ListenerCallbacks& callbacks) override;
   void removeListener(uint64_t listener_tag) override;
   void stopListeners() override;
   void disableListeners() override;
   void enableListeners() override;
   void setListenerRejectFraction(UnitFloat reject_fraction) override;
   const std::string& statPrefix() const override { return stat_prefix_; }
-  
+
   // ListenerCallbacks interface (for TcpActiveListener)
   void onAccept(ConnectionSocketPtr&& socket) override;
   void onNewConnection(ConnectionPtr&& connection) override;
-  
+
   /**
    * Get dispatcher
    */
   event::Dispatcher& dispatcher() { return dispatcher_; }
-  
+
   /**
    * Get listener by tag
    */
   TcpActiveListener* getListener(uint64_t listener_tag);
-  
+
   /**
    * Get listener by address
    */
   TcpActiveListener* getListenerByAddress(const Address::Instance& address);
-  
-private:
+
+ private:
   /**
    * Active listener details
    */
@@ -163,30 +165,30 @@ private:
     uint64_t listener_tag;
     Address::InstanceConstSharedPtr address;
   };
-  
+
   // Create thread-local overload state for listeners
   void createOverloadState();
-  
+
   event::Dispatcher& dispatcher_;
   optional<uint32_t> worker_index_;
   OverloadManager* overload_manager_{nullptr};
-  
+
   // Stat prefix for metrics
   std::string stat_prefix_;
-  
+
   // Global connection count
   std::atomic<uint64_t> num_connections_{0};
-  
+
   // Listeners by tag
   std::unordered_map<uint64_t, std::unique_ptr<ListenerDetails>> listeners_;
-  
+
   // Listeners by address (for quick lookup)
   std::unordered_map<std::string, ListenerDetails*> listeners_by_address_;
-  
+
   // Current state
   bool listeners_disabled_{false};
   UnitFloat listener_reject_fraction_{UnitFloat::min()};
-  
+
   // Thread-local overload state
   std::unique_ptr<ThreadLocalOverloadState> overload_state_;
 };
@@ -195,16 +197,15 @@ private:
  * Connection handler factory
  */
 class ConnectionHandlerFactory {
-public:
+ public:
   virtual ~ConnectionHandlerFactory() = default;
-  
+
   /**
    * Create a connection handler
    */
   virtual std::unique_ptr<ConnectionHandler> createConnectionHandler(
-      event::Dispatcher& dispatcher,
-      optional<uint32_t> worker_index) = 0;
-  
+      event::Dispatcher& dispatcher, optional<uint32_t> worker_index) = 0;
+
   /**
    * Get factory name
    */
@@ -215,13 +216,12 @@ public:
  * Default connection handler factory
  */
 class DefaultConnectionHandlerFactory : public ConnectionHandlerFactory {
-public:
+ public:
   std::unique_ptr<ConnectionHandler> createConnectionHandler(
-      event::Dispatcher& dispatcher,
-      optional<uint32_t> worker_index) override {
+      event::Dispatcher& dispatcher, optional<uint32_t> worker_index) override {
     return std::make_unique<ConnectionHandlerImpl>(dispatcher, worker_index);
   }
-  
+
   std::string name() const override { return "mcp.connection_handler.default"; }
 };
 
