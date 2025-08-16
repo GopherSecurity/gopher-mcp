@@ -862,7 +862,7 @@ mcp_map_t* mcp_map_create(size_t capacity);
  * @param value Entry value
  * @return MCP_OK on success
  */
-mcp_result_t mcp_map_set(mcp_map_t* map, mcp_string_t key, void* value);
+mcp_result_t mcp_map_set(mcp_map_t* map, const char* key, void* value);
 
 /**
  * Get map entry
@@ -870,7 +870,7 @@ mcp_result_t mcp_map_set(mcp_map_t* map, mcp_string_t key, void* value);
  * @param key Entry key
  * @return Entry value or NULL
  */
-void* mcp_map_get(const mcp_map_t* map, mcp_string_t key);
+void* mcp_map_get(const mcp_map_t* map, const char* key);
 
 /**
  * Free map (does not free values)

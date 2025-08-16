@@ -115,7 +115,7 @@ struct mcp_listener_impl : public HandleBase {
  * MCP Client implementation
  */
 struct mcp_client_impl : public HandleBase {
-    std::unique_ptr<mcp::client::MCPClient> client;
+    void* client;  // Will be properly implemented when MCPClient is available
     mcp_dispatcher_impl* dispatcher;
     mcp_connection_impl* connection = nullptr;
     
@@ -134,7 +134,7 @@ struct mcp_client_impl : public HandleBase {
  * MCP Server implementation
  */
 struct mcp_server_impl : public HandleBase {
-    std::unique_ptr<mcp::server::MCPServer> server;
+    void* server;  // Will be properly implemented when MCPServer is available
     mcp_dispatcher_impl* dispatcher;
     mcp_listener_impl* listener = nullptr;
     
@@ -184,7 +184,7 @@ inline mcp_string_t to_c_string_temp(const std::string& str) {
  * Convert C++ optional to C optional
  */
 template<typename T>
-inline mcp_optional_t to_c_optional(const mcp::Optional<T>& opt) {
+inline mcp_optional_t to_c_optional(const mcp::optional<T>& opt) {
     mcp_optional_t result;
     result.has_value = opt.has_value();
     result.value = opt.has_value() ? new T(opt.value()) : nullptr;
@@ -195,11 +195,11 @@ inline mcp_optional_t to_c_optional(const mcp::Optional<T>& opt) {
  * Convert C optional to C++ optional
  */
 template<typename T>
-inline mcp::Optional<T> to_cpp_optional(const mcp_optional_t& opt) {
+inline mcp::optional<T> to_cpp_optional(const mcp_optional_t& opt) {
     if (opt.has_value && opt.value) {
-        return mcp::Optional<T>(*static_cast<T*>(opt.value));
+        return mcp::optional<T>(*static_cast<T*>(opt.value));
     }
-    return mcp::Optional<T>();
+    return mcp::optional<T>();
 }
 
 /**
@@ -278,7 +278,7 @@ public:
             mcp_connection_state_t old_state = impl_->current_state;
             impl_->current_state = new_state;
             impl_->state_callback(
-                impl_,
+                reinterpret_cast<mcp_connection_t>(impl_),
                 old_state,
                 new_state,
                 impl_->callback_user_data
