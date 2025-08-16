@@ -83,6 +83,7 @@ add_executable(test_connection_utility network/test_connection_utility.cc)
 add_executable(test_listener_filter_chain network/test_listener_filter_chain.cc)
 add_executable(test_listener_filter_chain_simple network/test_listener_filter_chain_simple.cc)
 add_executable(test_thread_safety_extended network/test_thread_safety_extended.cc)
+add_executable(test_connection_state_machine network/test_connection_state_machine.cc)
 
 # Real IO integration tests (using real sockets instead of mocks)
 add_executable(test_event_loop_real_io event/test_event_loop_real_io.cc)
@@ -553,6 +554,15 @@ target_link_libraries(test_thread_safety_extended
     Threads::Threads
 )
 
+target_link_libraries(test_connection_state_machine
+    mcp-event
+    mcp-sdk
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 # Link libraries for real IO tests
 target_link_libraries(test_event_loop_real_io
     mcp-event
@@ -649,6 +659,7 @@ add_test(NAME ConnectionUtilityTest COMMAND test_connection_utility)
 add_test(NAME ListenerFilterChainTest COMMAND test_listener_filter_chain)
 add_test(NAME ListenerFilterChainSimpleTest COMMAND test_listener_filter_chain_simple)
 add_test(NAME ThreadSafetyExtendedTest COMMAND test_thread_safety_extended)
+add_test(NAME ConnectionStateMachineTest COMMAND test_connection_state_machine)
 
 # Real IO integration tests
 add_test(NAME EventLoopRealIoTest COMMAND test_event_loop_real_io)
