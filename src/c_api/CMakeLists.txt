@@ -72,10 +72,11 @@ target_include_directories(mcp_c
 # Link with the main MCP C++ library
 target_link_libraries(mcp_c
     PRIVATE
-        mcp_cpp
+        mcp-sdk
+        mcp-event
         ${LIBEVENT_LIBRARIES}
-        ${OPENSSL_LIBRARIES}
-        ${ZLIB_LIBRARIES}
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
 
 # Compile features
@@ -105,10 +106,11 @@ if(BUILD_C_API_STATIC)
     
     target_link_libraries(mcp_c_static
         PRIVATE
-            mcp_cpp_static
+            mcp-sdk
+            mcp-event
             ${LIBEVENT_LIBRARIES}
-            ${OPENSSL_LIBRARIES}
-            ${ZLIB_LIBRARIES}
+            OpenSSL::SSL
+            OpenSSL::Crypto
     )
     
     target_compile_features(mcp_c_static PRIVATE cxx_std_17)
