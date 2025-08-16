@@ -12,6 +12,7 @@ set(MCP_C_API_SOURCES
     mcp_c_api_client.cc
     mcp_c_api_server.cc
     mcp_c_api_json.cc
+    mcp_c_api_builders.cc
     mcp_c_api_utils.cc
 )
 
