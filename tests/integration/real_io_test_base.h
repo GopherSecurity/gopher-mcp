@@ -47,7 +47,7 @@ class RealIoTestBase : public ::testing::Test {
     // requirements
     dispatcher_running_ = true;
     dispatcher_thread_ = std::thread([this]() {
-      // Set thread name for debugging
+    // Set thread name for debugging
 #ifdef __APPLE__
       pthread_setname_np("test_dispatcher");
 #elif defined(__linux__)
