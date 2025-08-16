@@ -83,13 +83,13 @@ mcp_dispatcher_t mcp_dispatcher_create(void) {
     }
     
     TRY_CATCH_NULL({
-        auto impl = new mcp_dispatcher_impl();
+        auto impl = new mcp::c_api::mcp_dispatcher_impl();
         
         // Create libevent dispatcher
-        impl->dispatcher = std::make_unique<mcp::event::LibeventDispatcher>();
+        impl->dispatcher = std::make_unique<mcp::event::LibeventDispatcher>("mcp_c_api");
         impl->dispatcher_thread_id = std::this_thread::get_id();
         
-        return impl;
+        return reinterpret_cast<mcp_dispatcher_t>(impl);
     });
 }
 
@@ -97,7 +97,7 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) {
     CHECK_HANDLE(dispatcher);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         
         if (impl->running) {
             ErrorManager::set_error("Dispatcher already running");
@@ -108,7 +108,7 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) {
         impl->dispatcher_thread_id = std::this_thread::get_id();
         
         // Run the event loop (blocks)
-        impl->dispatcher->run(mcp::event::Dispatcher::RunType::Block);
+        impl->dispatcher->run(mcp::event::RunType::Block);
         
         impl->running = false;
         return MCP_OK;
@@ -119,7 +119,7 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher, uint32_t ti
     CHECK_HANDLE(dispatcher);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         
         if (impl->running) {
             ErrorManager::set_error("Dispatcher already running");
@@ -138,7 +138,7 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher, uint32_t ti
         timer->enableTimer(std::chrono::milliseconds(timeout_ms));
         
         // Run the event loop
-        impl->dispatcher->run(mcp::event::Dispatcher::RunType::Block);
+        impl->dispatcher->run(mcp::event::RunType::Block);
         
         impl->running = false;
         return MCP_OK;
@@ -148,7 +148,7 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher, uint32_t ti
 void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) {
     if (!dispatcher) return;
     
-    auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
     if (impl->running) {
         impl->dispatcher->exit();
     }
@@ -162,7 +162,7 @@ mcp_result_t mcp_dispatcher_post(
     CHECK_HANDLE(dispatcher);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         
         impl->dispatcher->post([callback, user_data]() {
             if (callback) {
@@ -177,7 +177,7 @@ mcp_result_t mcp_dispatcher_post(
 bool mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) {
     if (!dispatcher) return false;
     
-    auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
     return std::this_thread::get_id() == impl->dispatcher_thread_id;
 }
 
@@ -192,7 +192,7 @@ uint64_t mcp_dispatcher_create_timer(
     }
     
     try {
-        auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         
         // Create timer with callback wrapper
         auto timer = impl->dispatcher->createTimer(
@@ -225,7 +225,7 @@ mcp_result_t mcp_dispatcher_enable_timer(
     CHECK_HANDLE(dispatcher);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         
         auto it = impl->timers.find(timer_id);
         if (it == impl->timers.end()) {
@@ -233,16 +233,9 @@ mcp_result_t mcp_dispatcher_enable_timer(
             return MCP_ERROR_NOT_FOUND;
         }
         
-        if (repeat) {
-            // Enable repeating timer
-            it->second.timer->enableTimer(
-                std::chrono::milliseconds(timeout_ms),
-                std::chrono::milliseconds(timeout_ms)
-            );
-        } else {
-            // Enable one-shot timer
-            it->second.timer->enableTimer(std::chrono::milliseconds(timeout_ms));
-        }
+        // TODO: Repeating timers not supported in current API
+        // For now, just use one-shot timer
+        it->second.timer->enableTimer(std::chrono::milliseconds(timeout_ms));
         
         return MCP_OK;
     });
@@ -251,7 +244,7 @@ mcp_result_t mcp_dispatcher_enable_timer(
 void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher, uint64_t timer_id) {
     if (!dispatcher) return;
     
-    auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
     auto it = impl->timers.find(timer_id);
     if (it != impl->timers.end()) {
         it->second.timer->disableTimer();
@@ -261,14 +254,14 @@ void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher, uint64_t timer_id
 void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher, uint64_t timer_id) {
     if (!dispatcher) return;
     
-    auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
     impl->timers.erase(timer_id);
 }
 
 void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) {
     if (!dispatcher) return;
     
-    auto impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
     
     // Stop if running
     if (impl->running) {

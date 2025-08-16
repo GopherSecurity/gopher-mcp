@@ -22,6 +22,7 @@
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/listener.h"
+#include "mcp/network/address_impl.h"
 #include "mcp/client/mcp_client.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/json/json_bridge.h"
@@ -115,7 +116,7 @@ struct mcp_listener_impl : public HandleBase {
  * MCP Client implementation
  */
 struct mcp_client_impl : public HandleBase {
-    void* client;  // Will be properly implemented when MCPClient is available
+    void* client;  // TODO: Will be properly implemented when MCPClient is available
     mcp_dispatcher_impl* dispatcher;
     mcp_connection_impl* connection = nullptr;
     
@@ -134,7 +135,7 @@ struct mcp_client_impl : public HandleBase {
  * MCP Server implementation
  */
 struct mcp_server_impl : public HandleBase {
-    void* server;  // Will be properly implemented when MCPServer is available
+    void* server;  // TODO: Will be properly implemented when MCPServer is available
     mcp_dispatcher_impl* dispatcher;
     mcp_listener_impl* listener = nullptr;
     
@@ -207,18 +208,18 @@ inline mcp::optional<T> to_cpp_optional(const mcp_optional_t& opt) {
  */
 inline mcp_request_id_t to_c_request_id(const mcp::RequestId& id) {
     mcp_request_id_t result;
-    if (id.isString()) {
-        result.type = MCP_REQUEST_ID_STRING;
-        result.value.string_value = to_c_string_temp(id.getString());
+    if (mcp::holds_alternative<std::string>(id)) {
+        result.type = mcp_request_id::MCP_REQUEST_ID_STRING;
+        result.value.string_value = to_c_string_temp(mcp::get<std::string>(id));
     } else {
-        result.type = MCP_REQUEST_ID_NUMBER;
-        result.value.number_value = id.getNumber();
+        result.type = mcp_request_id::MCP_REQUEST_ID_NUMBER;
+        result.value.number_value = mcp::get<int>(id);
     }
     return result;
 }
 
 inline mcp::RequestId to_cpp_request_id(const mcp_request_id_t& id) {
-    if (id.type == MCP_REQUEST_ID_STRING) {
+    if (id.type == mcp_request_id::MCP_REQUEST_ID_STRING) {
         return mcp::RequestId(to_cpp_string(id.value.string_value));
     } else {
         return mcp::RequestId(id.value.number_value);
@@ -228,16 +229,21 @@ inline mcp::RequestId to_cpp_request_id(const mcp_request_id_t& id) {
 /**
  * Convert address between C and C++
  */
-inline std::shared_ptr<mcp::network::Address> to_cpp_address(const mcp_address_t* addr) {
+inline mcp::network::Address::InstanceConstSharedPtr to_cpp_address(const mcp_address_t* addr) {
     if (!addr) return nullptr;
     
-    if (addr->family == MCP_AF_INET || addr->family == MCP_AF_INET6) {
-        return mcp::network::Address::create(
+    if (addr->family == MCP_AF_INET) {
+        return std::make_shared<mcp::network::Address::Ipv4Instance>(
+            std::string(addr->addr.inet.host),
+            addr->addr.inet.port
+        );
+    } else if (addr->family == MCP_AF_INET6) {
+        return std::make_shared<mcp::network::Address::Ipv6Instance>(
             std::string(addr->addr.inet.host),
             addr->addr.inet.port
         );
     } else if (addr->family == MCP_AF_UNIX) {
-        return mcp::network::Address::createPipe(
+        return std::make_shared<mcp::network::Address::PipeInstance>(
             std::string(addr->addr.unix.path)
         );
     }
@@ -255,20 +261,19 @@ class ConnectionCallbackBridge : public mcp::network::ConnectionCallbacks {
 public:
     ConnectionCallbackBridge(mcp_connection_impl* impl) : impl_(impl) {}
     
-    void onConnectionEvent(mcp::network::ConnectionEvent event) override {
+    void onEvent(mcp::network::ConnectionEvent event) override {
         if (!impl_) return;
         
         // Map event to state change
         mcp_connection_state_t new_state = impl_->current_state;
         switch (event) {
             case mcp::network::ConnectionEvent::Connected:
+            case mcp::network::ConnectionEvent::ConnectedZeroRtt:
                 new_state = MCP_CONNECTION_STATE_CONNECTED;
                 break;
-            case mcp::network::ConnectionEvent::Disconnected:
+            case mcp::network::ConnectionEvent::RemoteClose:
+            case mcp::network::ConnectionEvent::LocalClose:
                 new_state = MCP_CONNECTION_STATE_DISCONNECTED;
-                break;
-            case mcp::network::ConnectionEvent::Error:
-                new_state = MCP_CONNECTION_STATE_ERROR;
                 break;
             default:
                 break;
@@ -286,31 +291,12 @@ public:
         }
     }
     
-    void onData(mcp::Buffer& buffer) override {
-        if (!impl_ || !impl_->data_callback) return;
-        
-        // Extract data from buffer
-        size_t length = buffer.length();
-        std::vector<uint8_t> data(length);
-        buffer.copyOut(data.data(), length);
-        
-        impl_->bytes_read += length;
-        impl_->data_callback(
-            impl_,
-            data.data(),
-            length,
-            impl_->callback_user_data
-        );
+    void onAboveWriteBufferHighWatermark() override {
+        // Could notify about backpressure if needed
     }
     
-    void onError(const std::string& error) override {
-        if (!impl_ || !impl_->error_callback) return;
-        
-        impl_->error_callback(
-            MCP_ERROR,
-            error.c_str(),
-            impl_->callback_user_data
-        );
+    void onBelowWriteBufferLowWatermark() override {
+        // Could notify about flow control if needed
     }
     
 private:
@@ -324,25 +310,24 @@ class MCPClientCallbackBridge {
 public:
     MCPClientCallbackBridge(mcp_client_impl* impl) : impl_(impl) {}
     
-    void onRequest(const mcp::JSONRPCRequest& request) {
+    void onRequest(const mcp::jsonrpc::Request& request) {
         if (!impl_ || !impl_->request_callback) return;
         
         mcp_request_id_t id = to_c_request_id(request.id);
         mcp_string_t method = to_c_string_temp(request.method);
         
-        // Convert params to JSON value
-        mcp_json_value_impl* params_impl = new mcp_json_value_impl();
-        params_impl->value = mcp::json::to_json(request.params);
+        // TODO: Convert params to JSON value properly
+        mcp_json_value_impl* params_impl = nullptr;
         
         impl_->request_callback(
             id,
             method,
-            params_impl,
+            reinterpret_cast<mcp_json_value_t>(params_impl),
             impl_->callback_user_data
         );
     }
     
-    void onResponse(const mcp::JSONRPCResponse& response) {
+    void onResponse(const mcp::jsonrpc::Response& response) {
         if (!impl_ || !impl_->response_callback) return;
         
         mcp_request_id_t id = to_c_request_id(response.id);
@@ -351,7 +336,7 @@ public:
             mcp_jsonrpc_error_t error;
             error.code = response.error.value().code;
             error.message = to_c_string_temp(response.error.value().message);
-            error.data = to_c_optional(response.error.value().data);
+            // TODO: error.data = to_c_optional(response.error.value().data);
             
             impl_->response_callback(
                 id,
@@ -360,29 +345,29 @@ public:
                 impl_->callback_user_data
             );
         } else if (response.result.has_value()) {
-            mcp_json_value_impl* result_impl = new mcp_json_value_impl();
-            result_impl->value = mcp::json::to_json(response.result.value());
+            // TODO: Convert result to JSON value properly
+            mcp_json_value_impl* result_impl = nullptr;
             
             impl_->response_callback(
                 id,
-                result_impl,
+                reinterpret_cast<mcp_json_value_t>(result_impl),
                 nullptr,
                 impl_->callback_user_data
             );
         }
     }
     
-    void onNotification(const mcp::JSONRPCNotification& notification) {
+    void onNotification(const mcp::jsonrpc::Notification& notification) {
         if (!impl_ || !impl_->notification_callback) return;
         
         mcp_string_t method = to_c_string_temp(notification.method);
         
-        mcp_json_value_impl* params_impl = new mcp_json_value_impl();
-        params_impl->value = mcp::json::to_json(notification.params);
+        // TODO: Convert params to JSON value properly
+        mcp_json_value_impl* params_impl = nullptr;
         
         impl_->notification_callback(
             method,
-            params_impl,
+            reinterpret_cast<mcp_json_value_t>(params_impl),
             impl_->callback_user_data
         );
     }
