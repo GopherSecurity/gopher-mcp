@@ -616,7 +616,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpTransportSocketTest COMMAND test_http_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
-add_test(NAME HttpSseTransportSocketRealIoTest COMMAND test_http_sse_transport_socket_real_io)
+# HttpSseTransportSocketRealIoTest merged into HttpSseTransportSocketTest to reduce duplication
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 
 # SSL/TLS transport tests
