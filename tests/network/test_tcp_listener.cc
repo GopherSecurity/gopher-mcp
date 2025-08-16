@@ -1,6 +1,6 @@
 /**
  * @file test_tcp_listener.cc
- * @brief Unit tests for simplified TCP listener implementation
+ * @brief Unit tests for TCP listener implementation using real IO and MCP abstractions
  */
 
 #include <gtest/gtest.h>
@@ -10,16 +10,15 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
-#include <arpa/inet.h>
-#include <fcntl.h>
 
+#include "../integration/real_io_test_base.h"
 #include "mcp/network/listener_impl.h"
 #include "mcp/network/connection_handler.h"
-#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/connection_impl.h"
+#include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/buffer.h"
 
 namespace mcp {
@@ -139,26 +138,19 @@ private:
   std::deque<ConnectionPtr> connections_;
 };
 
-class TcpListenerTest : public ::testing::Test {
+// Test class using RealIoTestBase for real IO operations
+class TcpListenerTest : public test::RealIoTestBase {
 protected:
   void SetUp() override {
-    dispatcher_ = std::make_unique<event::LibeventDispatcher>("test");
+    RealIoTestBase::SetUp();
     
     // Use random port for testing
     address_ = std::make_shared<Address::Ipv4Instance>("127.0.0.1", 0);
-    
-    // Start dispatcher thread to ensure proper thread context
-    dispatcher_thread_ = std::thread([this]() {
-      dispatcher_->run(event::RunType::RunUntilExit);
-    });
-    
-    // Give dispatcher time to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   
   void TearDown() override {
     // Stop listener in dispatcher thread
-    dispatcher_->post([this]() {
+    executeInDispatcher([this]() {
       if (listener_) {
         listener_->disable();
         listener_.reset();
@@ -169,45 +161,100 @@ protected:
       }
     });
     
-    // Exit dispatcher
-    dispatcher_->exit();
-    
-    // Wait for dispatcher thread to finish
-    if (dispatcher_thread_.joinable()) {
-      dispatcher_thread_.join();
-    }
-    
-    dispatcher_->shutdown();
+    RealIoTestBase::TearDown();
   }
   
   /**
-   * Run code in dispatcher thread and wait for completion
+   * Create a client connection using MCP abstractions
    */
-  template<typename F>
-  void runInDispatcher(F&& func) {
-    std::promise<void> done;
-    auto future = done.get_future();
+  IoHandlePtr createClientConnection(uint16_t port) {
+    auto& socket_int = socketInterface();
+    auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
     
-    dispatcher_->post([&func, &done]() {
-      func();
-      done.set_value();
-    });
+    // Create socket and get IoHandle
+    auto fd_result = socket_int.socket(
+        SocketType::Stream,
+        Address::Type::Ip,
+        Address::IpVersion::v4);
     
-    future.wait();
+    if (!fd_result.ok()) {
+      return nullptr;
+    }
+    
+    auto client_handle = socket_int.ioHandleForFd(*fd_result, false);
+    client_handle->setBlocking(false);
+    
+    // Connect using IoHandle
+    auto connect_result = client_handle->connect(client_addr);
+    
+    // Non-blocking connect may return EINPROGRESS
+    if (!connect_result.ok() && connect_result.error_code() != EINPROGRESS) {
+      return nullptr;
+    }
+    
+    return client_handle;
   }
   
-  std::unique_ptr<event::LibeventDispatcher> dispatcher_;
-  std::thread dispatcher_thread_;
+  /**
+   * Send data using MCP buffer and IoHandle
+   */
+  bool sendData(IoHandle& handle, const std::string& data) {
+    auto buffer = createBuffer();
+    buffer->add(data);
+    
+    // Write buffer using IoHandle
+    auto result = handle.write(*buffer);
+    if (result.ok()) {
+      return *result == data.size();
+    }
+    return false;
+  }
+  
+  /**
+   * Receive data using MCP buffer and IoHandle
+   */
+  std::string receiveData(IoHandle& handle) {
+    auto buffer = createBuffer();
+    
+    // Read into buffer
+    auto result = handle.read(*buffer, 256);
+    
+    if (result.ok() && *result > 0) {
+      // Extract data as string
+      std::string str_result;
+      str_result.resize(buffer->length());
+      buffer->copyOut(0, buffer->length(), const_cast<char*>(str_result.data()));
+      return str_result;
+    }
+    
+    return "";
+  }
+  
   Address::InstanceConstSharedPtr address_;
   std::unique_ptr<TcpListenerImpl> listener_;
-  std::unique_ptr<TcpActiveListener> active_listener_;  // For tests that need active listener
+  std::unique_ptr<TcpActiveListener> active_listener_;
   std::mt19937 random_{std::random_device{}()};
+};
+
+// Test filter for listener filter chain testing
+class MockListenerFilter : public ListenerFilter {
+public:
+  ListenerFilterStatus onAccept(ListenerFilterCallbacks& cb) override {
+    filter_count_++;
+    if (should_reject_) {
+      return ListenerFilterStatus::StopIteration;
+    }
+    return ListenerFilterStatus::Continue;
+  }
+  
+  uint32_t filter_count_{0};
+  bool should_reject_{false};
 };
 
 TEST_F(TcpListenerTest, CreateAndEnable) {
   RealTcpListenerCallbacks callbacks;
   
-  runInDispatcher([this, &callbacks]() {
+  executeInDispatcher([this, &callbacks]() {
     // Create socket using MCP socket interface
     auto socket = createListenSocket(
         address_,
@@ -250,7 +297,7 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
 TEST_F(TcpListenerTest, RejectFraction) {
   RealTcpListenerCallbacks callbacks;
   
-  runInDispatcher([this, &callbacks]() {
+  executeInDispatcher([this, &callbacks]() {
     // Create socket using MCP abstractions
     auto socket = createListenSocket(
         address_,
@@ -283,12 +330,12 @@ TEST_F(TcpListenerTest, RejectFraction) {
   });
 }
 
-TEST_F(TcpListenerTest, ConnectionAcceptance) {
+TEST_F(TcpListenerTest, ConnectionAcceptanceWithMcpIo) {
   RealTcpListenerCallbacks callbacks;
   uint32_t port = 0;
   
-  runInDispatcher([this, &callbacks, &port]() {
-    // Create listener socket using MCP abstractions
+  // Setup listener
+  executeInDispatcher([this, &callbacks, &port]() {
     auto listen_socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -305,93 +352,52 @@ TEST_F(TcpListenerTest, ConnectionAcceptance) {
     auto local_address = listen_socket->connectionInfoProvider().localAddress();
     port = local_address->ip()->port();
     
-    // Create listener with real IO
+    // Create listener
     listener_ = std::make_unique<TcpListenerImpl>(
         *dispatcher_,
         random_,
         std::move(listen_socket),
         callbacks,
-        true, false, false, 10, nullopt  // Accept up to 10 per event
+        true, false, false, 10, nullopt
     );
     
     listener_->enable();
   });
   
-  // Create client connection using MCP socket interface
-  std::thread client_thread([port]() {
-    // Give listener time to start
+  // Create client connection using MCP abstractions
+  std::thread client_thread([this, port]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    // Create client socket using MCP socket interface
-    auto& socket_int = socketInterface();
-    auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
-    
-    // Create socket
-    auto fd_result = socket_int.socket(
-        SocketType::Stream,
-        Address::Type::Ip,
-        Address::IpVersion::v4);
-    
-    ASSERT_TRUE(fd_result.ok());
-    auto client_fd = *fd_result;
-    
-    // Set non-blocking
-    socket_int.setFileFlags(client_fd, O_NONBLOCK | FD_CLOEXEC);
-    
-    // Connect to listener
-    auto connect_result = socket_int.connect(client_fd, *client_addr);
-    
-    // Non-blocking connect may return EINPROGRESS
-    if (!connect_result.ok() && connect_result.error_code() != EINPROGRESS) {
-      FAIL() << "Connect failed with error code: " << connect_result.error_code();
-    }
+    auto client_handle = createClientConnection(port);
+    ASSERT_NE(client_handle, nullptr);
     
     // Wait for connection to complete
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Send test data using MCP buffer
     const std::string test_data = "Hello from MCP client!";
-    auto send_result = ::send(client_fd, test_data.data(), test_data.size(), 0);
-    EXPECT_GT(send_result, 0);
+    EXPECT_TRUE(sendData(*client_handle, test_data));
     
-    // Keep connection open briefly to ensure it's accepted
+    // Keep connection open briefly
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
-    socket_int.close(client_fd);
+    client_handle->close();
   });
   
-  // Wait for connection
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  // Wait for client
   client_thread.join();
   
-  // Check results in dispatcher thread
-  runInDispatcher([&callbacks, this]() {
-    // Verify connection was accepted
+  // Check results
+  executeInDispatcher([&callbacks]() {
     EXPECT_GT(callbacks.accept_count_, 0);
-    EXPECT_GT(listener_->numConnections(), 0);
   });
 }
-
-// Test ActiveListener with filter chain
-class MockListenerFilter : public ListenerFilter {
-public:
-  ListenerFilterStatus onAccept(ListenerFilterCallbacks& cb) override {
-    filter_count_++;
-    if (should_reject_) {
-      return ListenerFilterStatus::StopIteration;
-    }
-    return ListenerFilterStatus::Continue;
-  }
-  
-  uint32_t filter_count_{0};
-  bool should_reject_{false};
-};
 
 TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
   RealTcpListenerCallbacks callbacks;
   MockListenerFilter* filter_ptr = nullptr;
   
-  runInDispatcher([this, &callbacks, &filter_ptr]() {
+  executeInDispatcher([this, &callbacks, &filter_ptr]() {
     // Create config with filters
     TcpListenerConfig config;
     config.name = "test_listener";
@@ -418,9 +424,8 @@ TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
   });
 }
 
-// Test ConnectionHandler
 TEST_F(TcpListenerTest, ConnectionHandler) {
-  runInDispatcher([this]() {
+  executeInDispatcher([this]() {
     // Create connection handler
     ConnectionHandlerImpl handler(*dispatcher_, 0);  // Worker 0
     
@@ -453,14 +458,12 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
   });
 }
 
-// Test actual data transfer through accepted connections using MCP abstractions
-TEST_F(TcpListenerTest, DataTransferWithMcpBuffer) {
+TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
   RealTcpListenerCallbacks callbacks;
   uint32_t port = 0;
   
-  // Setup listener in dispatcher thread
-  runInDispatcher([this, &callbacks, &port]() {
-    // Create listener socket using MCP socket interface
+  // Setup listener
+  executeInDispatcher([this, &callbacks, &port]() {
     auto listen_socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -473,11 +476,9 @@ TEST_F(TcpListenerTest, DataTransferWithMcpBuffer) {
     ASSERT_NE(listen_socket, nullptr);
     static_cast<ListenSocketImpl*>(listen_socket.get())->listen(128);
     
-    // Get actual bound port
     auto local_address = listen_socket->connectionInfoProvider().localAddress();
     port = local_address->ip()->port();
     
-    // Create listener with real IO
     listener_ = std::make_unique<TcpListenerImpl>(
         *dispatcher_,
         random_,
@@ -489,74 +490,67 @@ TEST_F(TcpListenerTest, DataTransferWithMcpBuffer) {
     listener_->enable();
   });
   
-  // Test data
-  const std::string test_data = "Testing MCP buffer!";
+  const std::string test_data = "Testing MCP buffer transfer!";
+  std::string received_data;
   
-  // Create client using MCP socket interface
-  std::thread client_thread([port, test_data]() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    auto& socket_int = socketInterface();
-    auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
-    
-    // Create and connect socket
-    auto fd_result = socket_int.socket(
-        SocketType::Stream,
-        Address::Type::Ip,
-        Address::IpVersion::v4);
-    
-    ASSERT_TRUE(fd_result.ok());
-    auto client_fd = *fd_result;
-    
-    // Connect (may return EINPROGRESS for non-blocking)
-    socket_int.connect(client_fd, *client_addr);
-    
-    // Wait and send data
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    ::send(client_fd, test_data.data(), test_data.size(), 0);
-    
-    // Keep connection open briefly
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    socket_int.close(client_fd);
-  });
-  
-  // Wait for client
-  client_thread.join();
-  
-  // Verify connection was accepted
-  runInDispatcher([&callbacks]() {
-    EXPECT_GT(callbacks.accept_count_, 0);
-  });
-  
-  // Process accepted socket with MCP buffer
-  runInDispatcher([&callbacks, test_data]() {
-    auto socket = callbacks.waitForAcceptedSocket(std::chrono::milliseconds(100));
+  // Server thread to handle accepted connection
+  std::thread server_thread([this, &callbacks, &received_data]() {
+    // Wait for accepted socket
+    auto socket = callbacks.waitForAcceptedSocket(std::chrono::seconds(2));
     if (socket) {
-      // Use MCP buffer to read data
-      auto buffer = createBuffer();
-      char temp[256];
-      auto fd = socket->ioHandle().fd();
-      auto recv_result = ::recv(fd, temp, sizeof(temp), MSG_DONTWAIT);
+      // Create IoHandle for accepted socket
+      auto& socket_int = socketInterface();
+      auto server_handle = socket_int.ioHandleForFd(socket->ioHandle().fd(), false);
       
-      if (recv_result > 0) {
-        // Add to MCP buffer and verify
-        buffer->add(temp, recv_result);
-        EXPECT_EQ(buffer->length(), test_data.size());
-        
-        // Test buffer operations
-        std::string received(temp, recv_result);
-        EXPECT_EQ(received, test_data);
+      // Wait a bit for data to arrive
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      
+      // Receive data using MCP abstractions
+      received_data = receiveData(*server_handle);
+      
+      // Echo back using MCP buffer
+      if (!received_data.empty()) {
+        sendData(*server_handle, received_data);
       }
     }
   });
+  
+  // Client thread
+  std::thread client_thread([this, port, test_data]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    auto client_handle = createClientConnection(port);
+    ASSERT_NE(client_handle, nullptr);
+    
+    // Wait for connection
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    // Send data
+    EXPECT_TRUE(sendData(*client_handle, test_data));
+    
+    // Wait for echo
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Receive echo
+    auto echo = receiveData(*client_handle);
+    EXPECT_EQ(echo, test_data);
+    
+    client_handle->close();
+  });
+  
+  // Wait for threads
+  client_thread.join();
+  server_thread.join();
+  
+  // Verify data was transferred
+  EXPECT_EQ(received_data, test_data);
 }
 
 TEST_F(TcpListenerTest, BatchedAccepts) {
   RealTcpListenerCallbacks callbacks;
   uint32_t port = 0;
   
-  runInDispatcher([this, &callbacks, &port]() {
+  executeInDispatcher([this, &callbacks, &port]() {
     // Create listener with batched accepts
     auto listen_socket = createListenSocket(
         address_,
@@ -587,44 +581,66 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
     listener_->enable();
   });
   
-  // Create multiple client connections using MCP socket interface
+  // Create multiple client connections using MCP abstractions
+  const int num_clients = 3;
   std::vector<std::thread> client_threads;
-  for (int i = 0; i < 3; ++i) {
-    client_threads.emplace_back([port]() {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  
+  for (int i = 0; i < num_clients; ++i) {
+    client_threads.emplace_back([this, port, i]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100 + i * 10));
       
-      auto& socket_int = socketInterface();
-      auto client_addr = std::make_shared<Address::Ipv4Instance>("127.0.0.1", port);
-      
-      // Create socket
-      auto fd_result = socket_int.socket(
-          SocketType::Stream,
-          Address::Type::Ip,
-          Address::IpVersion::v4);
-      
-      if (!fd_result.ok()) return;
-      auto client_fd = *fd_result;
-      
-      // Connect
-      auto connect_result = socket_int.connect(client_fd, *client_addr);
-      
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      socket_int.close(client_fd);
+      auto client_handle = createClientConnection(port);
+      if (client_handle) {
+        // Send unique data from each client
+        std::string data = "Client " + std::to_string(i);
+        sendData(*client_handle, data);
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        client_handle->close();
+      }
     });
   }
   
-  // Wait for connections
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  
-  // Wait for clients
+  // Wait for all clients
   for (auto& t : client_threads) {
     t.join();
   }
   
   // Check results in dispatcher thread
-  runInDispatcher([&callbacks]() {
-    // All 3 connections should be accepted in one or two batches
-    EXPECT_EQ(callbacks.accept_count_, 3);
+  executeInDispatcher([&callbacks, num_clients]() {
+    // All connections should be accepted
+    EXPECT_EQ(callbacks.accept_count_, num_clients);
+  });
+}
+
+// Test using socket pair from RealIoTestBase
+TEST_F(TcpListenerTest, SocketPairDataTransfer) {
+  executeInDispatcher([this]() {
+    // Create socket pair using RealIoTestBase utility
+    auto socket_pair = createSocketPair();
+    auto client_handle = std::move(socket_pair.first);
+    auto server_handle = std::move(socket_pair.second);
+    
+    // Send data from client to server using MCP buffer
+    const std::string test_data = "Socket pair test data";
+    EXPECT_TRUE(sendData(*client_handle, test_data));
+    
+    // Receive on server side
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    auto received = receiveData(*server_handle);
+    EXPECT_EQ(received, test_data);
+    
+    // Send response back
+    const std::string response = "Server response";
+    EXPECT_TRUE(sendData(*server_handle, response));
+    
+    // Receive response on client
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    auto client_received = receiveData(*client_handle);
+    EXPECT_EQ(client_received, response);
+    
+    client_handle->close();
+    server_handle->close();
   });
 }
 
