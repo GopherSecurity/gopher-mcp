@@ -234,6 +234,10 @@ protected:
   std::unique_ptr<TcpListenerImpl> listener_;
   std::unique_ptr<TcpActiveListener> active_listener_;
   std::mt19937 random_{std::random_device{}()};
+  
+  // Keep callbacks alive for the lifetime of the test
+  std::unique_ptr<RealTcpListenerCallbacks> tcp_callbacks_;
+  std::unique_ptr<RealListenerCallbacks> callbacks_;
 };
 
 // Test filter for listener filter chain testing
@@ -252,9 +256,9 @@ public:
 };
 
 TEST_F(TcpListenerTest, CreateAndEnable) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   
-  executeInDispatcher([this, &callbacks]() {
+  executeInDispatcher([this]() {
     // Create socket using MCP socket interface
     auto socket = createListenSocket(
         address_,
@@ -276,7 +280,7 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
         *dispatcher_,
         random_,
         std::move(socket),
-        callbacks,
+        *tcp_callbacks_,
         true,    // bind_to_port
         false,   // ignore_global_conn_limit
         false,   // bypass_overload_manager
@@ -286,18 +290,18 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
     
     // Enable listener - this sets up real file event with dispatcher
     listener_->enable();
-    EXPECT_EQ(callbacks.enabled_count_, 1);
+    EXPECT_EQ(tcp_callbacks_->enabled_count_, 1);
     
     // Disable listener - this removes file event from dispatcher
     listener_->disable();
-    EXPECT_EQ(callbacks.disabled_count_, 1);
+    EXPECT_EQ(tcp_callbacks_->disabled_count_, 1);
   });
 }
 
 TEST_F(TcpListenerTest, RejectFraction) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   
-  executeInDispatcher([this, &callbacks]() {
+  executeInDispatcher([this]() {
     // Create socket using MCP abstractions
     auto socket = createListenSocket(
         address_,
@@ -316,7 +320,7 @@ TEST_F(TcpListenerTest, RejectFraction) {
         *dispatcher_,
         random_,
         std::move(socket),
-        callbacks,
+        *tcp_callbacks_,
         true, false, false, 1, nullopt
     );
     
@@ -331,11 +335,11 @@ TEST_F(TcpListenerTest, RejectFraction) {
 }
 
 TEST_F(TcpListenerTest, ConnectionAcceptanceWithMcpIo) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   uint32_t port = 0;
   
   // Setup listener
-  executeInDispatcher([this, &callbacks, &port]() {
+  executeInDispatcher([this, &port]() {
     auto listen_socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -357,7 +361,7 @@ TEST_F(TcpListenerTest, ConnectionAcceptanceWithMcpIo) {
         *dispatcher_,
         random_,
         std::move(listen_socket),
-        callbacks,
+        *tcp_callbacks_,
         true, false, false, 10, nullopt
     );
     
@@ -388,16 +392,16 @@ TEST_F(TcpListenerTest, ConnectionAcceptanceWithMcpIo) {
   client_thread.join();
   
   // Check results
-  executeInDispatcher([&callbacks]() {
-    EXPECT_GT(callbacks.accept_count_, 0);
+  executeInDispatcher([this]() {
+    EXPECT_GT(tcp_callbacks_->accept_count_, 0);
   });
 }
 
 TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   MockListenerFilter* filter_ptr = nullptr;
   
-  executeInDispatcher([this, &callbacks, &filter_ptr]() {
+  executeInDispatcher([this, &filter_ptr]() {
     // Create config with filters
     TcpListenerConfig config;
     config.name = "test_listener";
@@ -413,7 +417,7 @@ TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
     
     // Create active listener - store as member so it doesn't get destroyed
     active_listener_ = std::make_unique<TcpActiveListener>(
-        *dispatcher_, std::move(config), callbacks);
+        *dispatcher_, std::move(config), *tcp_callbacks_);
     
     // Enable listener
     active_listener_->enable();
@@ -439,10 +443,10 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
     config.address = address_;
     config.bind_to_port = true;
     
-    RealTcpListenerCallbacks callbacks;
+    RealTcpListenerCallbacks local_callbacks;
     
     // Add listener
-    handler.addListener(std::move(config), callbacks);
+    handler.addListener(std::move(config), local_callbacks);
     
     // Enable all listeners
     handler.enableListeners();
@@ -459,11 +463,11 @@ TEST_F(TcpListenerTest, ConnectionHandler) {
 }
 
 TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   uint32_t port = 0;
   
   // Setup listener
-  executeInDispatcher([this, &callbacks, &port]() {
+  executeInDispatcher([this, &port]() {
     auto listen_socket = createListenSocket(
         address_,
         SocketCreationOptions{
@@ -483,7 +487,7 @@ TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
         *dispatcher_,
         random_,
         std::move(listen_socket),
-        callbacks,
+        *tcp_callbacks_,
         true, false, false, 10, nullopt
     );
     
@@ -494,9 +498,9 @@ TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
   std::string received_data;
   
   // Server thread to handle accepted connection
-  std::thread server_thread([this, &callbacks, &received_data]() {
+  std::thread server_thread([this, &received_data]() {
     // Wait for accepted socket
-    auto socket = callbacks.waitForAcceptedSocket(std::chrono::seconds(2));
+    auto socket = tcp_callbacks_->waitForAcceptedSocket(std::chrono::seconds(2));
     if (socket) {
       // Create IoHandle for accepted socket
       auto& socket_int = socketInterface();
@@ -547,10 +551,10 @@ TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
 }
 
 TEST_F(TcpListenerTest, BatchedAccepts) {
-  RealTcpListenerCallbacks callbacks;
+  tcp_callbacks_ = std::make_unique<RealTcpListenerCallbacks>();
   uint32_t port = 0;
   
-  executeInDispatcher([this, &callbacks, &port]() {
+  executeInDispatcher([this, &port]() {
     // Create listener with batched accepts
     auto listen_socket = createListenSocket(
         address_,
@@ -572,7 +576,7 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
         *dispatcher_,
         random_,
         std::move(listen_socket),
-        callbacks,
+        *tcp_callbacks_,
         true, false, false, 
         5,       // Accept up to 5 connections per socket event
         nullopt
@@ -607,9 +611,9 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
   }
   
   // Check results in dispatcher thread
-  executeInDispatcher([&callbacks, num_clients]() {
+  executeInDispatcher([this, num_clients]() {
     // All connections should be accepted
-    EXPECT_EQ(callbacks.accept_count_, num_clients);
+    EXPECT_EQ(tcp_callbacks_->accept_count_, num_clients);
   });
 }
 
