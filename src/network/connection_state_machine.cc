@@ -4,6 +4,7 @@
  */
 
 #include "mcp/network/connection_state_machine.h"
+#include "mcp/network/connection.h"
 
 #include <algorithm>
 #include <sstream>
@@ -172,16 +173,32 @@ ConnectionStateMachineEvent mapConnectionEvent(ConnectionEvent event) {
 // ===== ConnectionStateMachine Implementation =====
 
 ConnectionStateMachine::ConnectionStateMachine(
+    event::Dispatcher& dispatcher)
+    : dispatcher_(dispatcher),
+      connection_(nullptr),
+      config_(),
+      current_reconnect_delay_(config_.initial_reconnect_delay) {
+  // Connection will be set later if needed
+  
+  // Initialize state entry time
+  state_entry_time_ = std::chrono::steady_clock::now();
+  
+  // Set initial state based on mode
+  if (config_.mode == ConnectionMode::Server) {
+    current_state_ = ConnectionMachineState::Initialized;
+  } else {
+    current_state_ = ConnectionMachineState::Uninitialized;
+  }
+}
+
+ConnectionStateMachine::ConnectionStateMachine(
     event::Dispatcher& dispatcher,
-    Connection& connection,
     const ConnectionStateMachineConfig& config)
     : dispatcher_(dispatcher),
-      connection_(connection),
+      connection_(nullptr),
       config_(config),
       current_reconnect_delay_(config.initial_reconnect_delay) {
-  
-  // Register as connection callbacks
-  connection_.addConnectionCallbacks(*this);
+  // Connection will be set later if needed
   
   // Initialize state entry time
   state_entry_time_ = std::chrono::steady_clock::now();
@@ -198,8 +215,8 @@ ConnectionStateMachine::~ConnectionStateMachine() {
   // Cancel all timers
   cancelAllTimers();
   
-  // Remove callbacks
-  connection_.removeConnectionCallbacks(*this);
+  // Clean up connection reference if set
+  // Note: We don't register as callbacks anymore
 }
 
 // ===== Core State Machine Interface =====
@@ -410,7 +427,9 @@ void ConnectionStateMachine::reset() {
   assertInDispatcherThread();
   
   forceTransition(ConnectionMachineState::Aborted, "Reset requested");
-  connection_.close(ConnectionCloseType::NoFlush);
+  if (connection_) {
+    connection_->close(ConnectionCloseType::NoFlush);
+  }
 }
 
 // ===== State Transition Logic =====
@@ -1080,6 +1099,22 @@ bool ConnectionStatePatterns::canReconnect(ConnectionMachineState state) {
   return (state == ConnectionMachineState::Error ||
           state == ConnectionMachineState::Closed) &&
          !isConnecting(state);
+}
+
+// ===== Metrics and Monitoring =====
+
+const ConnectionStats* ConnectionStateMachine::getStats() const {
+  return stats_.get();
+}
+
+// ===== State Observers =====
+
+void ConnectionStateMachine::addStateChangeListener(StateChangeCallback callback) {
+  state_change_listeners_.push_back(callback);
+}
+
+void ConnectionStateMachine::clearStateChangeListeners() {
+  state_change_listeners_.clear();
 }
 
 }  // namespace network
