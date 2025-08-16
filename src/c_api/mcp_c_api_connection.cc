@@ -26,8 +26,8 @@ mcp_connection_t mcp_connection_create_client(
     CHECK_HANDLE_RETURN_NULL(dispatcher);
     
     TRY_CATCH_NULL({
-        auto dispatcher_impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
-        auto conn_impl = new mcp_connection_impl();
+        auto dispatcher_impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+        auto conn_impl = new mcp::c_api::mcp_connection_impl();
         conn_impl->dispatcher = dispatcher_impl;
         
         // Create transport socket based on type
@@ -97,7 +97,7 @@ mcp_result_t mcp_connection_configure(
     CHECK_HANDLE(connection);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         // Configure address if provided
         if (address) {
@@ -136,7 +136,7 @@ mcp_result_t mcp_connection_set_callbacks(
     CHECK_HANDLE(connection);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         // Store callbacks
         impl->state_callback = state_cb;
@@ -164,7 +164,7 @@ mcp_result_t mcp_connection_set_watermarks(
     }
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         impl->connection->setBufferLimits(config->high_watermark);
         // Note: Low watermark would need additional API in ConnectionImpl
@@ -177,7 +177,7 @@ mcp_result_t mcp_connection_connect(mcp_connection_t connection) {
     CHECK_HANDLE(connection);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         // Ensure we're in dispatcher thread
         if (!mcp_dispatcher_is_thread(impl->dispatcher)) {
@@ -209,7 +209,7 @@ mcp_result_t mcp_connection_write(
     }
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         // Create buffer from data
         auto buffer = std::make_unique<mcp::Buffer>();
@@ -246,7 +246,7 @@ mcp_result_t mcp_connection_close(mcp_connection_t connection, bool flush) {
     CHECK_HANDLE(connection);
     
     TRY_CATCH({
-        auto impl = static_cast<mcp_connection_impl*>(connection);
+        auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
         
         impl->current_state = MCP_CONNECTION_STATE_DISCONNECTING;
         
@@ -325,7 +325,7 @@ mcp_listener_t mcp_listener_create(
     CHECK_HANDLE_RETURN_NULL(dispatcher);
     
     TRY_CATCH_NULL({
-        auto dispatcher_impl = static_cast<mcp_dispatcher_impl*>(dispatcher);
+        auto dispatcher_impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
         auto listener_impl = new mcp_listener_impl();
         listener_impl->dispatcher = dispatcher_impl;
         
@@ -419,7 +419,7 @@ mcp_result_t mcp_listener_set_accept_callback(
                 std::make_shared<mcp::network::ListenerCallbacks>(
                     [impl](mcp::network::ConnectionSocketPtr&& socket) {
                         // Create connection wrapper for accepted socket
-                        auto conn_impl = new mcp_connection_impl();
+                        auto conn_impl = new mcp::c_api::mcp_connection_impl();
                         conn_impl->dispatcher = impl->dispatcher;
                         
                         // Create connection from accepted socket
