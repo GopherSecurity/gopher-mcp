@@ -21,7 +21,7 @@ getValidTransitions() {
       transitions = {
           // Initial states
           {ConnectionMachineState::Uninitialized,
-           {ConnectionMachineState::Initialized, ConnectionMachineState::Error}},
+           {ConnectionMachineState::Initialized, ConnectionMachineState::Connecting, ConnectionMachineState::Error}},
           
           {ConnectionMachineState::Initialized,
            {ConnectionMachineState::Resolving, ConnectionMachineState::Connecting,
