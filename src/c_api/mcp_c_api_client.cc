@@ -16,7 +16,7 @@ mcp_client_t* mcp_client_create(mcp_context_t* context) {
   if (!context) {
     return nullptr;
   }
-  
+
   try {
     auto client = new mcp_client();
     // TODO: Initialize client with proper dispatcher and configuration
@@ -26,15 +26,13 @@ mcp_client_t* mcp_client_create(mcp_context_t* context) {
   }
 }
 
-void mcp_client_destroy(mcp_client_t* client) {
-  delete client;
-}
+void mcp_client_destroy(mcp_client_t* client) { delete client; }
 
 mcp_error_t mcp_client_connect(mcp_client_t* client, const char* uri) {
   if (!client || !uri) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Implement connection logic
     return MCP_SUCCESS;
@@ -47,7 +45,7 @@ mcp_error_t mcp_client_disconnect(mcp_client_t* client) {
   if (!client) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Implement disconnection logic
     return MCP_SUCCESS;
@@ -63,7 +61,7 @@ mcp_error_t mcp_client_initialize(mcp_client_t* client,
   if (!client || !protocol_version) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Send initialize request
     return MCP_SUCCESS;
@@ -79,7 +77,7 @@ mcp_error_t mcp_client_send_request(mcp_client_t* client,
   if (!client || !request) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Send request and register callback
     return MCP_SUCCESS;
@@ -93,7 +91,7 @@ mcp_error_t mcp_client_send_notification(mcp_client_t* client,
   if (!client || !notification) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Send notification
     return MCP_SUCCESS;
@@ -102,4 +100,4 @@ mcp_error_t mcp_client_send_notification(mcp_client_t* client,
   }
 }
 
-} // extern "C"
+}  // extern "C"

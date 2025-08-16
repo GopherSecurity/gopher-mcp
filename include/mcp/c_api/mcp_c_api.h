@@ -1,11 +1,11 @@
 /**
  * @file mcp_c_api.h
  * @brief C API for MCP C++ SDK
- * 
+ *
  * This header provides the complete C API for the MCP C++ SDK.
  * It follows the event-driven, thread-confined architecture of the C++ SDK
  * while providing a C-compatible interface for FFI bindings.
- * 
+ *
  * Architecture:
  * - All operations happen in dispatcher thread context
  * - Callbacks are invoked in dispatcher thread
@@ -24,7 +24,8 @@ extern "C" {
 
 /* ============================================================================
  * Library Initialization & Cleanup
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Initialize the MCP library
@@ -54,7 +55,8 @@ const char* mcp_get_last_error(void);
 
 /* ============================================================================
  * Event Loop & Dispatcher
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create a new dispatcher (event loop)
@@ -75,7 +77,8 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher);
  * @param timeout_ms Maximum time to run in milliseconds
  * @return MCP_OK on success
  */
-mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher, uint32_t timeout_ms);
+mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
+                                        uint32_t timeout_ms);
 
 /**
  * Stop the dispatcher
@@ -90,11 +93,9 @@ void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher);
  * @param user_data User data for callback
  * @return MCP_OK on success
  */
-mcp_result_t mcp_dispatcher_post(
-    mcp_dispatcher_t dispatcher,
-    mcp_callback_t callback,
-    void* user_data
-);
+mcp_result_t mcp_dispatcher_post(mcp_dispatcher_t dispatcher,
+                                 mcp_callback_t callback,
+                                 void* user_data);
 
 /**
  * Check if current thread is dispatcher thread
@@ -110,11 +111,9 @@ bool mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher);
  * @param user_data User data for callback
  * @return Timer ID or 0 on error
  */
-uint64_t mcp_dispatcher_create_timer(
-    mcp_dispatcher_t dispatcher,
-    mcp_timer_callback_t callback,
-    void* user_data
-);
+uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
+                                     mcp_timer_callback_t callback,
+                                     void* user_data);
 
 /**
  * Enable/arm a timer
@@ -124,26 +123,26 @@ uint64_t mcp_dispatcher_create_timer(
  * @param repeat Whether to repeat
  * @return MCP_OK on success
  */
-mcp_result_t mcp_dispatcher_enable_timer(
-    mcp_dispatcher_t dispatcher,
-    uint64_t timer_id,
-    uint32_t timeout_ms,
-    bool repeat
-);
+mcp_result_t mcp_dispatcher_enable_timer(mcp_dispatcher_t dispatcher,
+                                         uint64_t timer_id,
+                                         uint32_t timeout_ms,
+                                         bool repeat);
 
 /**
  * Disable a timer
  * @param dispatcher Dispatcher handle
  * @param timer_id Timer ID
  */
-void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher, uint64_t timer_id);
+void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher,
+                                  uint64_t timer_id);
 
 /**
  * Destroy a timer
  * @param dispatcher Dispatcher handle
  * @param timer_id Timer ID
  */
-void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher, uint64_t timer_id);
+void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher,
+                                  uint64_t timer_id);
 
 /**
  * Destroy dispatcher
@@ -153,39 +152,40 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher);
 
 /* ============================================================================
  * Connection Management
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Transport configuration for MCP connections
  * This should be populated based on MCP client/server capabilities
  */
 typedef struct mcp_transport_config {
-    mcp_transport_type_t type;
-    
-    // Transport-specific configuration
-    union {
-        struct {
-            bool use_tls;
-            const char* alpn_protocols;  // Comma-separated ALPN protocols
-        } tcp;
-        
-        struct {
-            int stdin_fd;   // -1 for default stdin
-            int stdout_fd;  // -1 for default stdout
-            int stderr_fd;  // -1 for default stderr
-        } stdio;
-        
-        struct {
-            const char* http_headers;  // Additional HTTP headers for MCP
-            uint32_t retry_delay_ms;
-            uint32_t max_retries;
-        } http_sse;
-    } config;
-    
-    // Common options
-    uint32_t connect_timeout_ms;
-    uint32_t idle_timeout_ms;
-    bool enable_keepalive;
+  mcp_transport_type_t type;
+
+  // Transport-specific configuration
+  union {
+    struct {
+      bool use_tls;
+      const char* alpn_protocols;  // Comma-separated ALPN protocols
+    } tcp;
+
+    struct {
+      int stdin_fd;   // -1 for default stdin
+      int stdout_fd;  // -1 for default stdout
+      int stderr_fd;  // -1 for default stderr
+    } stdio;
+
+    struct {
+      const char* http_headers;  // Additional HTTP headers for MCP
+      uint32_t retry_delay_ms;
+      uint32_t max_retries;
+    } http_sse;
+  } config;
+
+  // Common options
+  uint32_t connect_timeout_ms;
+  uint32_t idle_timeout_ms;
+  bool enable_keepalive;
 } mcp_transport_config_t;
 
 /**
@@ -196,8 +196,7 @@ typedef struct mcp_transport_config {
  */
 mcp_connection_t mcp_connection_create_client_ex(
     mcp_dispatcher_t dispatcher,
-    const mcp_transport_config_t* transport_config
-);
+    const mcp_transport_config_t* transport_config);
 
 /**
  * Create a client connection (legacy, uses default configuration)
@@ -205,10 +204,8 @@ mcp_connection_t mcp_connection_create_client_ex(
  * @param transport Transport type
  * @return Connection handle or NULL on error
  */
-mcp_connection_t mcp_connection_create_client(
-    mcp_dispatcher_t dispatcher,
-    mcp_transport_type_t transport
-);
+mcp_connection_t mcp_connection_create_client(mcp_dispatcher_t dispatcher,
+                                              mcp_transport_type_t transport);
 
 /**
  * Configure connection
@@ -218,12 +215,10 @@ mcp_connection_t mcp_connection_create_client(
  * @param ssl_config SSL configuration (NULL for non-SSL)
  * @return MCP_OK on success
  */
-mcp_result_t mcp_connection_configure(
-    mcp_connection_t connection,
-    const mcp_address_t* address,
-    const mcp_socket_options_t* options,
-    const mcp_ssl_config_t* ssl_config
-);
+mcp_result_t mcp_connection_configure(mcp_connection_t connection,
+                                      const mcp_address_t* address,
+                                      const mcp_socket_options_t* options,
+                                      const mcp_ssl_config_t* ssl_config);
 
 /**
  * Set connection callbacks
@@ -239,8 +234,7 @@ mcp_result_t mcp_connection_set_callbacks(
     mcp_connection_state_callback_t state_cb,
     mcp_data_callback_t data_cb,
     mcp_error_callback_t error_cb,
-    void* user_data
-);
+    void* user_data);
 
 /**
  * Set watermarks for flow control
@@ -249,9 +243,7 @@ mcp_result_t mcp_connection_set_callbacks(
  * @return MCP_OK on success
  */
 mcp_result_t mcp_connection_set_watermarks(
-    mcp_connection_t connection,
-    const mcp_watermark_config_t* config
-);
+    mcp_connection_t connection, const mcp_watermark_config_t* config);
 
 /**
  * Connect (async)
@@ -269,13 +261,11 @@ mcp_result_t mcp_connection_connect(mcp_connection_t connection);
  * @param user_data User data for callback
  * @return MCP_OK if write queued
  */
-mcp_result_t mcp_connection_write(
-    mcp_connection_t connection,
-    const uint8_t* data,
-    size_t length,
-    mcp_write_callback_t callback,
-    void* user_data
-);
+mcp_result_t mcp_connection_write(mcp_connection_t connection,
+                                  const uint8_t* data,
+                                  size_t length,
+                                  mcp_write_callback_t callback,
+                                  void* user_data);
 
 /**
  * Close connection
@@ -299,11 +289,9 @@ mcp_connection_state_t mcp_connection_get_state(mcp_connection_t connection);
  * @param bytes_written Output: total bytes written
  * @return MCP_OK on success
  */
-mcp_result_t mcp_connection_get_stats(
-    mcp_connection_t connection,
-    uint64_t* bytes_read,
-    uint64_t* bytes_written
-);
+mcp_result_t mcp_connection_get_stats(mcp_connection_t connection,
+                                      uint64_t* bytes_read,
+                                      uint64_t* bytes_written);
 
 /**
  * Destroy connection
@@ -313,7 +301,8 @@ void mcp_connection_destroy(mcp_connection_t connection);
 
 /* ============================================================================
  * Server & Listener
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create a listener
@@ -321,10 +310,8 @@ void mcp_connection_destroy(mcp_connection_t connection);
  * @param transport Transport type
  * @return Listener handle or NULL on error
  */
-mcp_listener_t mcp_listener_create(
-    mcp_dispatcher_t dispatcher,
-    mcp_transport_type_t transport
-);
+mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
+                                   mcp_transport_type_t transport);
 
 /**
  * Configure listener
@@ -334,12 +321,10 @@ mcp_listener_t mcp_listener_create(
  * @param ssl_config SSL configuration (NULL for non-SSL)
  * @return MCP_OK on success
  */
-mcp_result_t mcp_listener_configure(
-    mcp_listener_t listener,
-    const mcp_address_t* address,
-    const mcp_socket_options_t* options,
-    const mcp_ssl_config_t* ssl_config
-);
+mcp_result_t mcp_listener_configure(mcp_listener_t listener,
+                                    const mcp_address_t* address,
+                                    const mcp_socket_options_t* options,
+                                    const mcp_ssl_config_t* ssl_config);
 
 /**
  * Set accept callback
@@ -348,11 +333,9 @@ mcp_result_t mcp_listener_configure(
  * @param user_data User data for callback
  * @return MCP_OK on success
  */
-mcp_result_t mcp_listener_set_accept_callback(
-    mcp_listener_t listener,
-    mcp_accept_callback_t callback,
-    void* user_data
-);
+mcp_result_t mcp_listener_set_accept_callback(mcp_listener_t listener,
+                                              mcp_accept_callback_t callback,
+                                              void* user_data);
 
 /**
  * Start listening
@@ -376,7 +359,8 @@ void mcp_listener_destroy(mcp_listener_t listener);
 
 /* ============================================================================
  * MCP Client
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create MCP client
@@ -384,10 +368,8 @@ void mcp_listener_destroy(mcp_listener_t listener);
  * @param config Client configuration
  * @return Client handle or NULL on error
  */
-mcp_client_t mcp_client_create(
-    mcp_dispatcher_t dispatcher,
-    const mcp_client_config_t* config
-);
+mcp_client_t mcp_client_create(mcp_dispatcher_t dispatcher,
+                               const mcp_client_config_t* config);
 
 /**
  * Set MCP message callbacks
@@ -403,8 +385,7 @@ mcp_result_t mcp_client_set_callbacks(
     mcp_request_callback_t request_cb,
     mcp_response_callback_t response_cb,
     mcp_notification_callback_t notification_cb,
-    void* user_data
-);
+    void* user_data);
 
 /**
  * Connect client
@@ -427,11 +408,9 @@ mcp_request_id_t mcp_client_initialize(mcp_client_t client);
  * @param params Parameters (JSON value)
  * @return Request ID for tracking
  */
-mcp_request_id_t mcp_client_send_request(
-    mcp_client_t client,
-    mcp_string_t method,
-    mcp_json_value_t params
-);
+mcp_request_id_t mcp_client_send_request(mcp_client_t client,
+                                         mcp_string_t method,
+                                         mcp_json_value_t params);
 
 /**
  * Send notification
@@ -440,11 +419,9 @@ mcp_request_id_t mcp_client_send_request(
  * @param params Parameters (JSON value)
  * @return MCP_OK on success
  */
-mcp_result_t mcp_client_send_notification(
-    mcp_client_t client,
-    mcp_string_t method,
-    mcp_json_value_t params
-);
+mcp_result_t mcp_client_send_notification(mcp_client_t client,
+                                          mcp_string_t method,
+                                          mcp_json_value_t params);
 
 /**
  * List available tools
@@ -460,11 +437,9 @@ mcp_request_id_t mcp_client_list_tools(mcp_client_t client);
  * @param arguments Tool arguments (JSON value)
  * @return Request ID for tracking
  */
-mcp_request_id_t mcp_client_call_tool(
-    mcp_client_t client,
-    mcp_string_t name,
-    mcp_json_value_t arguments
-);
+mcp_request_id_t mcp_client_call_tool(mcp_client_t client,
+                                      mcp_string_t name,
+                                      mcp_json_value_t arguments);
 
 /**
  * List resources
@@ -479,10 +454,8 @@ mcp_request_id_t mcp_client_list_resources(mcp_client_t client);
  * @param uri Resource URI
  * @return Request ID for tracking
  */
-mcp_request_id_t mcp_client_read_resource(
-    mcp_client_t client,
-    mcp_string_t uri
-);
+mcp_request_id_t mcp_client_read_resource(mcp_client_t client,
+                                          mcp_string_t uri);
 
 /**
  * List prompts
@@ -498,11 +471,9 @@ mcp_request_id_t mcp_client_list_prompts(mcp_client_t client);
  * @param arguments Prompt arguments (map of string to string)
  * @return Request ID for tracking
  */
-mcp_request_id_t mcp_client_get_prompt(
-    mcp_client_t client,
-    mcp_string_t name,
-    mcp_map_t arguments
-);
+mcp_request_id_t mcp_client_get_prompt(mcp_client_t client,
+                                       mcp_string_t name,
+                                       mcp_map_t arguments);
 
 /**
  * Disconnect client
@@ -518,7 +489,8 @@ void mcp_client_destroy(mcp_client_t client);
 
 /* ============================================================================
  * MCP Server
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create MCP server
@@ -526,10 +498,8 @@ void mcp_client_destroy(mcp_client_t client);
  * @param config Server configuration
  * @return Server handle or NULL on error
  */
-mcp_server_t mcp_server_create(
-    mcp_dispatcher_t dispatcher,
-    const mcp_server_config_t* config
-);
+mcp_server_t mcp_server_create(mcp_dispatcher_t dispatcher,
+                               const mcp_server_config_t* config);
 
 /**
  * Set MCP message callbacks
@@ -543,8 +513,7 @@ mcp_result_t mcp_server_set_callbacks(
     mcp_server_t server,
     mcp_request_callback_t request_cb,
     mcp_notification_callback_t notification_cb,
-    void* user_data
-);
+    void* user_data);
 
 /**
  * Register tool
@@ -552,10 +521,8 @@ mcp_result_t mcp_server_set_callbacks(
  * @param tool Tool definition
  * @return MCP_OK on success
  */
-mcp_result_t mcp_server_register_tool(
-    mcp_server_t server,
-    const mcp_tool_t* tool
-);
+mcp_result_t mcp_server_register_tool(mcp_server_t server,
+                                      const mcp_tool_t* tool);
 
 /**
  * Register resource template
@@ -564,9 +531,7 @@ mcp_result_t mcp_server_register_tool(
  * @return MCP_OK on success
  */
 mcp_result_t mcp_server_register_resource(
-    mcp_server_t server,
-    const mcp_resource_template_t* resource
-);
+    mcp_server_t server, const mcp_resource_template_t* resource);
 
 /**
  * Register prompt
@@ -574,10 +539,8 @@ mcp_result_t mcp_server_register_resource(
  * @param prompt Prompt definition
  * @return MCP_OK on success
  */
-mcp_result_t mcp_server_register_prompt(
-    mcp_server_t server,
-    const mcp_prompt_t* prompt
-);
+mcp_result_t mcp_server_register_prompt(mcp_server_t server,
+                                        const mcp_prompt_t* prompt);
 
 /**
  * Start server
@@ -593,11 +556,9 @@ mcp_result_t mcp_server_start(mcp_server_t server);
  * @param result Result (JSON value)
  * @return MCP_OK on success
  */
-mcp_result_t mcp_server_send_response(
-    mcp_server_t server,
-    mcp_request_id_t request_id,
-    mcp_json_value_t result
-);
+mcp_result_t mcp_server_send_response(mcp_server_t server,
+                                      mcp_request_id_t request_id,
+                                      mcp_json_value_t result);
 
 /**
  * Send error response
@@ -606,11 +567,9 @@ mcp_result_t mcp_server_send_response(
  * @param error Error details
  * @return MCP_OK on success
  */
-mcp_result_t mcp_server_send_error(
-    mcp_server_t server,
-    mcp_request_id_t request_id,
-    const mcp_jsonrpc_error_t* error
-);
+mcp_result_t mcp_server_send_error(mcp_server_t server,
+                                   mcp_request_id_t request_id,
+                                   const mcp_jsonrpc_error_t* error);
 
 /**
  * Send notification
@@ -619,11 +578,9 @@ mcp_result_t mcp_server_send_error(
  * @param params Parameters (JSON value)
  * @return MCP_OK on success
  */
-mcp_result_t mcp_server_send_notification(
-    mcp_server_t server,
-    mcp_string_t method,
-    mcp_json_value_t params
-);
+mcp_result_t mcp_server_send_notification(mcp_server_t server,
+                                          mcp_string_t method,
+                                          mcp_json_value_t params);
 
 /**
  * Stop server
@@ -639,7 +596,8 @@ void mcp_server_destroy(mcp_server_t server);
 
 /* ============================================================================
  * JSON Value Management
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create JSON null value
@@ -680,7 +638,8 @@ mcp_json_value_t mcp_json_array(void);
  * @param value Value to add
  * @return MCP_OK on success
  */
-mcp_result_t mcp_json_array_append(mcp_json_value_t array, mcp_json_value_t value);
+mcp_result_t mcp_json_array_append(mcp_json_value_t array,
+                                   mcp_json_value_t value);
 
 /**
  * Create JSON object
@@ -695,11 +654,9 @@ mcp_json_value_t mcp_json_object(void);
  * @param value Property value
  * @return MCP_OK on success
  */
-mcp_result_t mcp_json_object_set(
-    mcp_json_value_t object,
-    mcp_string_t key,
-    mcp_json_value_t value
-);
+mcp_result_t mcp_json_object_set(mcp_json_value_t object,
+                                 mcp_string_t key,
+                                 mcp_json_value_t value);
 
 /**
  * Parse JSON from string
@@ -722,12 +679,12 @@ mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value, bool pretty);
  * @return Value type
  */
 typedef enum {
-    MCP_JSON_NULL,
-    MCP_JSON_BOOL,
-    MCP_JSON_NUMBER,
-    MCP_JSON_STRING,
-    MCP_JSON_ARRAY,
-    MCP_JSON_OBJECT
+  MCP_JSON_NULL,
+  MCP_JSON_BOOL,
+  MCP_JSON_NUMBER,
+  MCP_JSON_STRING,
+  MCP_JSON_ARRAY,
+  MCP_JSON_OBJECT
 } mcp_json_type_t;
 
 mcp_json_type_t mcp_json_get_type(mcp_json_value_t value);
@@ -784,17 +741,13 @@ mcp_json_value_t mcp_json_object_get(mcp_json_value_t value, mcp_string_t key);
  * @param callback Callback for each property
  * @param user_data User data for callback
  */
-typedef void (*mcp_json_object_iterator_t)(
-    mcp_string_t key,
-    mcp_json_value_t value,
-    void* user_data
-);
+typedef void (*mcp_json_object_iterator_t)(mcp_string_t key,
+                                           mcp_json_value_t value,
+                                           void* user_data);
 
-void mcp_json_object_iterate(
-    mcp_json_value_t value,
-    mcp_json_object_iterator_t callback,
-    void* user_data
-);
+void mcp_json_object_iterate(mcp_json_value_t value,
+                             mcp_json_object_iterator_t callback,
+                             void* user_data);
 
 /**
  * Clone JSON value
@@ -811,7 +764,8 @@ void mcp_json_release(mcp_json_value_t value);
 
 /* ============================================================================
  * Utility Functions
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Create string from C string
@@ -855,7 +809,9 @@ mcp_buffer_t* mcp_buffer_create(size_t capacity);
  * @param length Data length
  * @return MCP_OK on success
  */
-mcp_result_t mcp_buffer_append(mcp_buffer_t* buffer, const uint8_t* data, size_t length);
+mcp_result_t mcp_buffer_append(mcp_buffer_t* buffer,
+                               const uint8_t* data,
+                               size_t length);
 
 /**
  * Free buffer

@@ -18,7 +18,7 @@ mcp_server_t* mcp_server_create(mcp_context_t* context,
   if (!context || !server_name || !server_version) {
     return nullptr;
   }
-  
+
   try {
     auto server = new mcp_server();
     // TODO: Initialize server with proper configuration
@@ -28,15 +28,13 @@ mcp_server_t* mcp_server_create(mcp_context_t* context,
   }
 }
 
-void mcp_server_destroy(mcp_server_t* server) {
-  delete server;
-}
+void mcp_server_destroy(mcp_server_t* server) { delete server; }
 
 mcp_error_t mcp_server_start(mcp_server_t* server, const char* address) {
   if (!server || !address) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Start server on specified address
     return MCP_SUCCESS;
@@ -49,7 +47,7 @@ mcp_error_t mcp_server_stop(mcp_server_t* server) {
   if (!server) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Stop server
     return MCP_SUCCESS;
@@ -66,7 +64,7 @@ mcp_error_t mcp_server_register_tool(mcp_server_t* server,
   if (!server || !name || !handler) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Register tool handler
     return MCP_SUCCESS;
@@ -84,7 +82,7 @@ mcp_error_t mcp_server_register_resource(mcp_server_t* server,
   if (!server || !uri || !name || !handler) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Register resource handler
     return MCP_SUCCESS;
@@ -101,7 +99,7 @@ mcp_error_t mcp_server_register_prompt(mcp_server_t* server,
   if (!server || !name || !handler) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Register prompt handler
     return MCP_SUCCESS;
@@ -116,7 +114,7 @@ mcp_error_t mcp_server_send_notification(mcp_server_t* server,
   if (!server || !notification) {
     return MCP_ERROR_INVALID_ARGUMENT;
   }
-  
+
   try {
     // TODO: Send notification to connection or broadcast
     return MCP_SUCCESS;
@@ -125,4 +123,4 @@ mcp_error_t mcp_server_send_notification(mcp_server_t* server,
   }
 }
 
-} // extern "C"
+}  // extern "C"

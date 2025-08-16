@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Prevent in-source builds
+#Prevent in - source builds
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed.
 Please create a build directory and run cmake from there:
@@ -12,38 +12,38 @@ endif()
 
 project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES C CXX)
 
-# Set C++ standard
+#Set C++ standard
 if(NOT CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 14)
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Option to use std::optional/variant when available
+#Option to use std::optional / variant when available
 option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++17)" ON)
 
-# Option to enable strict warnings (disable for development)
+#Option to enable strict warnings(disable for development)
 option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 
-# Option to build C API bindings
+#Option to build C API bindings
 option(BUILD_C_API "Build C API bindings" OFF)  # TODO: Re-enable after fixing compilation issues
 
-# Option to build language binding examples
+#Option to build language binding examples
 option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" ON)
 
-# Set default build type if not specified
+#Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# Compiler flags
+#Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
     
     if(MCP_STRICT_WARNINGS)
         add_compile_options(-Werror)
     else()
-        # Disable warnings for unused entities during development
+#Disable warnings for unused entities during development
         add_compile_options(-Wno-unused-parameter -Wno-unused-variable -Wno-unused-const-variable)
         add_compile_options(-Wno-unused-function -Wno-unused-private-field)
     endif()
@@ -60,28 +60,28 @@ elseif(MSVC)
     add_compile_options(/W4 /WX)
 endif()
 
-# Include directories
+#Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
-# Configure based on C++ standard
+#Configure based on C++ standard
 if(CMAKE_CXX_STANDARD GREATER_EQUAL 17 AND MCP_USE_STD_TYPES)
     add_compile_definitions(MCP_USE_STD_OPTIONAL_VARIANT=1)
 else()
     add_compile_definitions(MCP_USE_STD_OPTIONAL_VARIANT=0)
 endif()
 
-# Find packages
+#Find packages
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-# Find libevent
+#Find libevent
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
     pkg_check_modules(LIBEVENT libevent)
 endif()
 
 if(NOT LIBEVENT_FOUND)
-    # Try to find libevent manually
+#Try to find libevent manually
     find_path(LIBEVENT_INCLUDE_DIR event2/event.h
         PATHS /usr/local/include /usr/include
     )
@@ -103,7 +103,7 @@ if(NOT LIBEVENT_FOUND)
         endif()
     endif()
 else()
-    # If pkg-config found it, we need to add pthreads library manually
+#If pkg - config found it, we need to add pthreads library manually
     find_library(LIBEVENT_PTHREADS_LIBRARY
         NAMES event_pthreads
         PATHS ${LIBEVENT_LIBRARY_DIRS} /usr/local/lib
@@ -117,15 +117,15 @@ if(NOT LIBEVENT_FOUND)
     message(FATAL_ERROR "libevent not found. Please install libevent development package.")
 endif()
 
-# Dependencies via FetchContent
+#Dependencies via FetchContent
 include(FetchContent)
 
-# llhttp - High-performance HTTP parser
-# Option to enable/disable llhttp (can be disabled if build issues)
+#llhttp - High - performance HTTP parser
+#Option to enable / disable llhttp(can be disabled if build issues)
 option(MCP_USE_LLHTTP "Use llhttp for HTTP/1.x parsing" ON)
 
 if(MCP_USE_LLHTTP)
-    # Use a simpler approach - download just the release archive
+#Use a simpler approach - download just the release archive
     FetchContent_Declare(
         llhttp
         URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.1.3.tar.gz
@@ -134,9 +134,9 @@ if(MCP_USE_LLHTTP)
     FetchContent_GetProperties(llhttp)
     if(NOT llhttp_POPULATED)
         FetchContent_Populate(llhttp)
-        
-        # Build llhttp as a simple static library
-        # The release archive contains pre-generated C files
+
+#Build llhttp as a simple static library
+#The release archive contains pre - generated C files
         file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
         
         add_library(llhttp STATIC ${LLHTTP_SOURCES})
