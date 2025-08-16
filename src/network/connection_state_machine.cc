@@ -15,138 +15,138 @@ namespace {
 
 // State transition validation matrix
 // This defines valid state transitions following production connection model
-const std::unordered_map<ConnectionState, std::unordered_set<ConnectionState>>&
+const std::unordered_map<ConnectionMachineState, std::unordered_set<ConnectionMachineState>>&
 getValidTransitions() {
-  static const std::unordered_map<ConnectionState, std::unordered_set<ConnectionState>>
+  static const std::unordered_map<ConnectionMachineState, std::unordered_set<ConnectionMachineState>>
       transitions = {
           // Initial states
-          {ConnectionState::Uninitialized,
-           {ConnectionState::Initialized, ConnectionState::Error}},
+          {ConnectionMachineState::Uninitialized,
+           {ConnectionMachineState::Initialized, ConnectionMachineState::Error}},
           
-          {ConnectionState::Initialized,
-           {ConnectionState::Resolving, ConnectionState::Connecting,
-            ConnectionState::Listening, ConnectionState::Closed, ConnectionState::Error}},
+          {ConnectionMachineState::Initialized,
+           {ConnectionMachineState::Resolving, ConnectionMachineState::Connecting,
+            ConnectionMachineState::Listening, ConnectionMachineState::Closed, ConnectionMachineState::Error}},
           
           // Client connecting states
-          {ConnectionState::Resolving,
-           {ConnectionState::Connecting, ConnectionState::Error,
-            ConnectionState::WaitingToReconnect}},
+          {ConnectionMachineState::Resolving,
+           {ConnectionMachineState::Connecting, ConnectionMachineState::Error,
+            ConnectionMachineState::WaitingToReconnect}},
           
-          {ConnectionState::Connecting,
-           {ConnectionState::TcpConnected, ConnectionState::Error,
-            ConnectionState::WaitingToReconnect, ConnectionState::Closed}},
+          {ConnectionMachineState::Connecting,
+           {ConnectionMachineState::TcpConnected, ConnectionMachineState::Error,
+            ConnectionMachineState::WaitingToReconnect, ConnectionMachineState::Closed}},
           
-          {ConnectionState::TcpConnected,
-           {ConnectionState::HandshakeInProgress, ConnectionState::Connected,
-            ConnectionState::Error, ConnectionState::Closing}},
+          {ConnectionMachineState::TcpConnected,
+           {ConnectionMachineState::HandshakeInProgress, ConnectionMachineState::Connected,
+            ConnectionMachineState::Error, ConnectionMachineState::Closing}},
           
-          {ConnectionState::HandshakeInProgress,
-           {ConnectionState::Connected, ConnectionState::Error,
-            ConnectionState::Closing, ConnectionState::WaitingToReconnect}},
+          {ConnectionMachineState::HandshakeInProgress,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Error,
+            ConnectionMachineState::Closing, ConnectionMachineState::WaitingToReconnect}},
           
           // Server accepting states
-          {ConnectionState::Listening,
-           {ConnectionState::Accepting, ConnectionState::Closed,
-            ConnectionState::Error}},
+          {ConnectionMachineState::Listening,
+           {ConnectionMachineState::Accepting, ConnectionMachineState::Closed,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Accepting,
-           {ConnectionState::Accepted, ConnectionState::Listening,
-            ConnectionState::Error}},
+          {ConnectionMachineState::Accepting,
+           {ConnectionMachineState::Accepted, ConnectionMachineState::Listening,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Accepted,
-           {ConnectionState::HandshakeInProgress, ConnectionState::Connected,
-            ConnectionState::Error, ConnectionState::Closing}},
+          {ConnectionMachineState::Accepted,
+           {ConnectionMachineState::HandshakeInProgress, ConnectionMachineState::Connected,
+            ConnectionMachineState::Error, ConnectionMachineState::Closing}},
           
           // Connected states
-          {ConnectionState::Connected,
-           {ConnectionState::Reading, ConnectionState::Writing,
-            ConnectionState::Idle, ConnectionState::Processing,
-            ConnectionState::ReadDisabled, ConnectionState::WriteDisabled,
-            ConnectionState::HalfClosedLocal, ConnectionState::HalfClosedRemote,
-            ConnectionState::Closing, ConnectionState::Error}},
+          {ConnectionMachineState::Connected,
+           {ConnectionMachineState::Reading, ConnectionMachineState::Writing,
+            ConnectionMachineState::Idle, ConnectionMachineState::Processing,
+            ConnectionMachineState::ReadDisabled, ConnectionMachineState::WriteDisabled,
+            ConnectionMachineState::HalfClosedLocal, ConnectionMachineState::HalfClosedRemote,
+            ConnectionMachineState::Closing, ConnectionMachineState::Error}},
           
-          {ConnectionState::Reading,
-           {ConnectionState::Connected, ConnectionState::Processing,
-            ConnectionState::Writing, ConnectionState::Idle,
-            ConnectionState::ReadDisabled, ConnectionState::HalfClosedRemote,
-            ConnectionState::Closing, ConnectionState::Error}},
+          {ConnectionMachineState::Reading,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Processing,
+            ConnectionMachineState::Writing, ConnectionMachineState::Idle,
+            ConnectionMachineState::ReadDisabled, ConnectionMachineState::HalfClosedRemote,
+            ConnectionMachineState::Closing, ConnectionMachineState::Error}},
           
-          {ConnectionState::Writing,
-           {ConnectionState::Connected, ConnectionState::Reading,
-            ConnectionState::Idle, ConnectionState::WriteDisabled,
-            ConnectionState::Flushing, ConnectionState::HalfClosedLocal,
-            ConnectionState::Closing, ConnectionState::Error}},
+          {ConnectionMachineState::Writing,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Reading,
+            ConnectionMachineState::Idle, ConnectionMachineState::WriteDisabled,
+            ConnectionMachineState::Flushing, ConnectionMachineState::HalfClosedLocal,
+            ConnectionMachineState::Closing, ConnectionMachineState::Error}},
           
-          {ConnectionState::Idle,
-           {ConnectionState::Reading, ConnectionState::Writing,
-            ConnectionState::Connected, ConnectionState::Closing,
-            ConnectionState::Error}},
+          {ConnectionMachineState::Idle,
+           {ConnectionMachineState::Reading, ConnectionMachineState::Writing,
+            ConnectionMachineState::Connected, ConnectionMachineState::Closing,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Processing,
-           {ConnectionState::Connected, ConnectionState::Reading,
-            ConnectionState::Writing, ConnectionState::Idle,
-            ConnectionState::Closing, ConnectionState::Error}},
+          {ConnectionMachineState::Processing,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Reading,
+            ConnectionMachineState::Writing, ConnectionMachineState::Idle,
+            ConnectionMachineState::Closing, ConnectionMachineState::Error}},
           
           // Flow control states
-          {ConnectionState::ReadDisabled,
-           {ConnectionState::Connected, ConnectionState::Writing,
-            ConnectionState::Paused, ConnectionState::Closing,
-            ConnectionState::Error}},
+          {ConnectionMachineState::ReadDisabled,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Writing,
+            ConnectionMachineState::Paused, ConnectionMachineState::Closing,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::WriteDisabled,
-           {ConnectionState::Connected, ConnectionState::Reading,
-            ConnectionState::Paused, ConnectionState::Closing,
-            ConnectionState::Error}},
+          {ConnectionMachineState::WriteDisabled,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Reading,
+            ConnectionMachineState::Paused, ConnectionMachineState::Closing,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Paused,
-           {ConnectionState::Connected, ConnectionState::ReadDisabled,
-            ConnectionState::WriteDisabled, ConnectionState::Closing,
-            ConnectionState::Error}},
+          {ConnectionMachineState::Paused,
+           {ConnectionMachineState::Connected, ConnectionMachineState::ReadDisabled,
+            ConnectionMachineState::WriteDisabled, ConnectionMachineState::Closing,
+            ConnectionMachineState::Error}},
           
           // Closing states
-          {ConnectionState::HalfClosedLocal,
-           {ConnectionState::Reading, ConnectionState::Closing,
-            ConnectionState::Closed, ConnectionState::Error}},
+          {ConnectionMachineState::HalfClosedLocal,
+           {ConnectionMachineState::Reading, ConnectionMachineState::Closing,
+            ConnectionMachineState::Closed, ConnectionMachineState::Error}},
           
-          {ConnectionState::HalfClosedRemote,
-           {ConnectionState::Writing, ConnectionState::Flushing,
-            ConnectionState::Closing, ConnectionState::Closed,
-            ConnectionState::Error}},
+          {ConnectionMachineState::HalfClosedRemote,
+           {ConnectionMachineState::Writing, ConnectionMachineState::Flushing,
+            ConnectionMachineState::Closing, ConnectionMachineState::Closed,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Closing,
-           {ConnectionState::Draining, ConnectionState::Flushing,
-            ConnectionState::Closed, ConnectionState::Error}},
+          {ConnectionMachineState::Closing,
+           {ConnectionMachineState::Draining, ConnectionMachineState::Flushing,
+            ConnectionMachineState::Closed, ConnectionMachineState::Error}},
           
-          {ConnectionState::Draining,
-           {ConnectionState::Flushing, ConnectionState::Closed,
-            ConnectionState::Error}},
+          {ConnectionMachineState::Draining,
+           {ConnectionMachineState::Flushing, ConnectionMachineState::Closed,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Flushing,
-           {ConnectionState::Closed, ConnectionState::Error}},
+          {ConnectionMachineState::Flushing,
+           {ConnectionMachineState::Closed, ConnectionMachineState::Error}},
           
           // Terminal states
-          {ConnectionState::Closed,
-           {ConnectionState::Initialized, ConnectionState::WaitingToReconnect}},
+          {ConnectionMachineState::Closed,
+           {ConnectionMachineState::Initialized, ConnectionMachineState::WaitingToReconnect}},
           
-          {ConnectionState::Error,
-           {ConnectionState::Closed, ConnectionState::WaitingToReconnect,
-            ConnectionState::Recovering}},
+          {ConnectionMachineState::Error,
+           {ConnectionMachineState::Closed, ConnectionMachineState::WaitingToReconnect,
+            ConnectionMachineState::Recovering}},
           
-          {ConnectionState::Aborted,
-           {ConnectionState::Closed, ConnectionState::WaitingToReconnect}},
+          {ConnectionMachineState::Aborted,
+           {ConnectionMachineState::Closed, ConnectionMachineState::WaitingToReconnect}},
           
           // Recovery states
-          {ConnectionState::Reconnecting,
-           {ConnectionState::Resolving, ConnectionState::Connecting,
-            ConnectionState::Error, ConnectionState::WaitingToReconnect}},
+          {ConnectionMachineState::Reconnecting,
+           {ConnectionMachineState::Resolving, ConnectionMachineState::Connecting,
+            ConnectionMachineState::Error, ConnectionMachineState::WaitingToReconnect}},
           
-          {ConnectionState::WaitingToReconnect,
-           {ConnectionState::Reconnecting, ConnectionState::Closed,
-            ConnectionState::Error}},
+          {ConnectionMachineState::WaitingToReconnect,
+           {ConnectionMachineState::Reconnecting, ConnectionMachineState::Closed,
+            ConnectionMachineState::Error}},
           
-          {ConnectionState::Recovering,
-           {ConnectionState::Connected, ConnectionState::Error,
-            ConnectionState::Closed}}
+          {ConnectionMachineState::Recovering,
+           {ConnectionMachineState::Connected, ConnectionMachineState::Error,
+            ConnectionMachineState::Closed}}
       };
   
   return transitions;
@@ -187,9 +187,9 @@ ConnectionStateMachine::ConnectionStateMachine(
   
   // Set initial state based on mode
   if (config_.mode == ConnectionMode::Server) {
-    current_state_ = ConnectionState::Initialized;
+    current_state_ = ConnectionMachineState::Initialized;
   } else {
-    current_state_ = ConnectionState::Uninitialized;
+    current_state_ = ConnectionMachineState::Uninitialized;
   }
 }
 
@@ -286,7 +286,7 @@ bool ConnectionStateMachine::handleEvent(ConnectionStateMachineEvent event) {
   return handled;
 }
 
-void ConnectionStateMachine::forceTransition(ConnectionState new_state,
+void ConnectionStateMachine::forceTransition(ConnectionMachineState new_state,
                                             const std::string& reason) {
   assertInDispatcherThread();
   
@@ -367,7 +367,7 @@ void ConnectionStateMachine::listen(
   }
   
   // Transition to listening state
-  if (transitionTo(ConnectionState::Listening,
+  if (transitionTo(ConnectionMachineState::Listening,
                   ConnectionStateMachineEvent::SocketListening,
                   "Starting to listen")) {
     if (callback) {
@@ -383,21 +383,21 @@ void ConnectionStateMachine::listen(
 void ConnectionStateMachine::close(ConnectionCloseType type) {
   assertInDispatcherThread();
   
-  ConnectionState target_state;
+  ConnectionMachineState target_state;
   
   switch (type) {
     case ConnectionCloseType::FlushWrite:
-      target_state = ConnectionState::Flushing;
+      target_state = ConnectionMachineState::Flushing;
       break;
     case ConnectionCloseType::NoFlush:
-      target_state = ConnectionState::Closing;
+      target_state = ConnectionMachineState::Closing;
       break;
     case ConnectionCloseType::FlushWriteAndDelay:
-      target_state = ConnectionState::Draining;
+      target_state = ConnectionMachineState::Draining;
       startDrainTimer();
       break;
     default:
-      target_state = ConnectionState::Closing;
+      target_state = ConnectionMachineState::Closing;
   }
   
   transitionTo(target_state,
@@ -408,14 +408,14 @@ void ConnectionStateMachine::close(ConnectionCloseType type) {
 void ConnectionStateMachine::reset() {
   assertInDispatcherThread();
   
-  forceTransition(ConnectionState::Aborted, "Reset requested");
+  forceTransition(ConnectionMachineState::Aborted, "Reset requested");
   connection_.close(ConnectionCloseType::NoFlush);
 }
 
 // ===== State Transition Logic =====
 
 bool ConnectionStateMachine::transitionTo(
-    ConnectionState new_state,
+    ConnectionMachineState new_state,
     ConnectionStateMachineEvent event,
     const std::string& reason) {
   assertInDispatcherThread();
@@ -476,8 +476,8 @@ bool ConnectionStateMachine::transitionTo(
 }
 
 bool ConnectionStateMachine::isValidTransition(
-    ConnectionState from,
-    ConnectionState to,
+    ConnectionMachineState from,
+    ConnectionMachineState to,
     ConnectionStateMachineEvent event) const {
   
   const auto& transitions = getValidTransitions();
@@ -490,7 +490,7 @@ bool ConnectionStateMachine::isValidTransition(
   return it->second.find(to) != it->second.end();
 }
 
-std::unordered_set<ConnectionState>
+std::unordered_set<ConnectionMachineState>
 ConnectionStateMachine::getValidNextStates() const {
   const auto& transitions = getValidTransitions();
   auto it = transitions.find(current_state_.load());
@@ -502,18 +502,18 @@ ConnectionStateMachine::getValidNextStates() const {
   return it->second;
 }
 
-void ConnectionStateMachine::onStateEnter(ConnectionState state) {
+void ConnectionStateMachine::onStateEnter(ConnectionMachineState state) {
   // State-specific entry actions
   switch (state) {
-    case ConnectionState::Connecting:
+    case ConnectionMachineState::Connecting:
       startConnectTimer();
       break;
       
-    case ConnectionState::HandshakeInProgress:
+    case ConnectionMachineState::HandshakeInProgress:
       startHandshakeTimer();
       break;
       
-    case ConnectionState::Connected:
+    case ConnectionMachineState::Connected:
       // Notify success callbacks
       for (auto& callback : pending_callbacks_) {
         callback(true);
@@ -526,15 +526,15 @@ void ConnectionStateMachine::onStateEnter(ConnectionState state) {
       }
       break;
       
-    case ConnectionState::Draining:
+    case ConnectionMachineState::Draining:
       startDrainTimer();
       break;
       
-    case ConnectionState::WaitingToReconnect:
+    case ConnectionMachineState::WaitingToReconnect:
       startReconnectTimer();
       break;
       
-    case ConnectionState::Error:
+    case ConnectionMachineState::Error:
       consecutive_errors_++;
       if (config_.enable_auto_reconnect &&
           reconnect_attempts_ < config_.max_reconnect_attempts) {
@@ -542,7 +542,7 @@ void ConnectionStateMachine::onStateEnter(ConnectionState state) {
       }
       break;
       
-    case ConnectionState::Closed:
+    case ConnectionMachineState::Closed:
       // Notify failure callbacks
       for (auto& callback : pending_callbacks_) {
         callback(false);
@@ -555,29 +555,29 @@ void ConnectionStateMachine::onStateEnter(ConnectionState state) {
   }
 }
 
-void ConnectionStateMachine::onStateExit(ConnectionState state) {
+void ConnectionStateMachine::onStateExit(ConnectionMachineState state) {
   // State-specific exit actions
   switch (state) {
-    case ConnectionState::Connecting:
+    case ConnectionMachineState::Connecting:
       if (connect_timer_) {
         connect_timer_->disableTimer();
       }
       break;
       
-    case ConnectionState::HandshakeInProgress:
+    case ConnectionMachineState::HandshakeInProgress:
       if (handshake_timer_) {
         handshake_timer_->disableTimer();
       }
       break;
       
-    case ConnectionState::Connected:
-    case ConnectionState::Idle:
+    case ConnectionMachineState::Connected:
+    case ConnectionMachineState::Idle:
       if (idle_timer_) {
         idle_timer_->disableTimer();
       }
       break;
       
-    case ConnectionState::Draining:
+    case ConnectionMachineState::Draining:
       if (drain_timer_) {
         drain_timer_->disableTimer();
       }
@@ -596,27 +596,24 @@ void ConnectionStateMachine::handleSocketEvent(
   
   switch (event) {
     case ConnectionStateMachineEvent::SocketConnected:
-      if (current == ConnectionState::Connecting) {
-        transitionTo(ConnectionState::TcpConnected, event,
+      if (current == ConnectionMachineState::Connecting) {
+        transitionTo(ConnectionMachineState::TcpConnected, event,
                     "TCP connection established");
         
-        // Check if transport socket needs handshake
-        if (transport_socket_ && transport_socket_->requiresHandshake()) {
-          handleEvent(ConnectionStateMachineEvent::HandshakeStarted);
-        } else {
-          transitionTo(ConnectionState::Connected, event,
-                      "Connection fully established");
-        }
+        // For now, assume no handshake needed
+        // TODO: Add transport socket handshake detection when available
+        transitionTo(ConnectionMachineState::Connected, event,
+                    "Connection fully established");
       }
       break;
       
     case ConnectionStateMachineEvent::SocketError:
-      transitionTo(ConnectionState::Error, event, "Socket error");
+      transitionTo(ConnectionMachineState::Error, event, "Socket error");
       break;
       
     case ConnectionStateMachineEvent::SocketClosed:
       if (!ConnectionStatePatterns::isTerminal(current)) {
-        transitionTo(ConnectionState::Closed, event, "Socket closed");
+        transitionTo(ConnectionMachineState::Closed, event, "Socket closed");
       }
       break;
       
@@ -631,25 +628,25 @@ void ConnectionStateMachine::handleIoEvent(
   
   switch (event) {
     case ConnectionStateMachineEvent::ReadReady:
-      if (current == ConnectionState::Connected ||
-          current == ConnectionState::Idle) {
-        transitionTo(ConnectionState::Reading, event, "Read ready");
+      if (current == ConnectionMachineState::Connected ||
+          current == ConnectionMachineState::Idle) {
+        transitionTo(ConnectionMachineState::Reading, event, "Read ready");
       }
       break;
       
     case ConnectionStateMachineEvent::WriteReady:
-      if (current == ConnectionState::Connected ||
-          current == ConnectionState::Idle) {
-        transitionTo(ConnectionState::Writing, event, "Write ready");
+      if (current == ConnectionMachineState::Connected ||
+          current == ConnectionMachineState::Idle) {
+        transitionTo(ConnectionMachineState::Writing, event, "Write ready");
       }
       break;
       
     case ConnectionStateMachineEvent::EndOfStream:
       if (config_.enable_half_close) {
-        transitionTo(ConnectionState::HalfClosedRemote, event,
+        transitionTo(ConnectionMachineState::HalfClosedRemote, event,
                     "Remote end of stream");
       } else {
-        transitionTo(ConnectionState::Closing, event,
+        transitionTo(ConnectionMachineState::Closing, event,
                     "End of stream - closing");
       }
       break;
@@ -663,18 +660,17 @@ void ConnectionStateMachine::handleTransportEvent(
     ConnectionStateMachineEvent event) {
   switch (event) {
     case ConnectionStateMachineEvent::HandshakeStarted:
-      transitionTo(ConnectionState::HandshakeInProgress, event,
+      transitionTo(ConnectionMachineState::HandshakeInProgress, event,
                   "Transport handshake started");
       break;
       
     case ConnectionStateMachineEvent::HandshakeComplete:
-      transport_connected_ = true;
-      transitionTo(ConnectionState::Connected, event,
+      transitionTo(ConnectionMachineState::Connected, event,
                   "Transport handshake complete");
       break;
       
     case ConnectionStateMachineEvent::HandshakeFailed:
-      transitionTo(ConnectionState::Error, event,
+      transitionTo(ConnectionMachineState::Error, event,
                   "Transport handshake failed");
       break;
       
@@ -689,9 +685,9 @@ void ConnectionStateMachine::handleApplicationEvent(
   
   switch (event) {
     case ConnectionStateMachineEvent::ConnectionRequested:
-      if (current == ConnectionState::Uninitialized ||
-          current == ConnectionState::Initialized) {
-        transitionTo(ConnectionState::Connecting, event,
+      if (current == ConnectionMachineState::Uninitialized ||
+          current == ConnectionMachineState::Initialized) {
+        transitionTo(ConnectionMachineState::Connecting, event,
                     "Connection requested");
       }
       break;
@@ -710,7 +706,7 @@ void ConnectionStateMachine::handleApplicationEvent(
       if (ConnectionStatePatterns::canRead(current)) {
         read_disable_count_++;
         if (read_disable_count_ == 1) {
-          transitionTo(ConnectionState::ReadDisabled, event,
+          transitionTo(ConnectionMachineState::ReadDisabled, event,
                       "Read disabled");
         }
       }
@@ -720,7 +716,7 @@ void ConnectionStateMachine::handleApplicationEvent(
       if (ConnectionStatePatterns::canWrite(current)) {
         write_disable_count_++;
         if (write_disable_count_ == 1) {
-          transitionTo(ConnectionState::WriteDisabled, event,
+          transitionTo(ConnectionMachineState::WriteDisabled, event,
                       "Write disabled");
         }
       }
@@ -735,15 +731,15 @@ void ConnectionStateMachine::handleTimerEvent(
     ConnectionStateMachineEvent event) {
   switch (event) {
     case ConnectionStateMachineEvent::ConnectTimeout:
-      transitionTo(ConnectionState::Error, event, "Connect timeout");
+      transitionTo(ConnectionMachineState::Error, event, "Connect timeout");
       break;
       
     case ConnectionStateMachineEvent::IdleTimeout:
-      transitionTo(ConnectionState::Closing, event, "Idle timeout");
+      transitionTo(ConnectionMachineState::Closing, event, "Idle timeout");
       break;
       
     case ConnectionStateMachineEvent::DrainTimeout:
-      transitionTo(ConnectionState::Closed, event, "Drain timeout");
+      transitionTo(ConnectionMachineState::Closed, event, "Drain timeout");
       break;
       
     default:
@@ -861,7 +857,7 @@ void ConnectionStateMachine::cancelAllTimers() {
 void ConnectionStateMachine::initiateReconnection() {
   if (!config_.enable_auto_reconnect ||
       reconnect_attempts_ >= config_.max_reconnect_attempts) {
-    transitionTo(ConnectionState::Closed,
+    transitionTo(ConnectionMachineState::Closed,
                 ConnectionStateMachineEvent::RecoveryFailed,
                 "Max reconnection attempts reached");
     return;
@@ -870,18 +866,17 @@ void ConnectionStateMachine::initiateReconnection() {
   reconnect_attempts_++;
   
   // Calculate backoff delay
-  current_reconnect_delay_ = std::min(
-      current_reconnect_delay_ * config_.reconnect_backoff_multiplier,
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          config_.max_reconnect_delay));
+  auto next_delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+      current_reconnect_delay_ * config_.reconnect_backoff_multiplier);
+  current_reconnect_delay_ = std::min(next_delay, config_.max_reconnect_delay);
   
-  transitionTo(ConnectionState::WaitingToReconnect,
+  transitionTo(ConnectionMachineState::WaitingToReconnect,
               ConnectionStateMachineEvent::ReconnectRequested,
               "Waiting to reconnect");
 }
 
 void ConnectionStateMachine::handleReconnectTimeout() {
-  transitionTo(ConnectionState::Reconnecting,
+  transitionTo(ConnectionMachineState::Reconnecting,
               ConnectionStateMachineEvent::ReconnectRequested,
               "Attempting reconnection");
   
@@ -906,7 +901,7 @@ void ConnectionStateMachine::handleRecoveryFailure(const std::string& reason) {
     config_.error_callback("Recovery failed: " + reason);
   }
   
-  transitionTo(ConnectionState::Error,
+  transitionTo(ConnectionMachineState::Error,
               ConnectionStateMachineEvent::RecoveryFailed,
               reason);
 }
@@ -922,7 +917,7 @@ void ConnectionStateMachine::onAboveWriteBufferHighWatermark() {
   if (ConnectionStatePatterns::canWrite(current)) {
     write_disable_count_++;
     if (write_disable_count_ == 1) {
-      transitionTo(ConnectionState::WriteDisabled,
+      transitionTo(ConnectionMachineState::WriteDisabled,
                   ConnectionStateMachineEvent::WriteDisableRequested,
                   "Write buffer above high watermark");
     }
@@ -931,10 +926,10 @@ void ConnectionStateMachine::onAboveWriteBufferHighWatermark() {
 
 void ConnectionStateMachine::onBelowWriteBufferLowWatermark() {
   auto current = current_state_.load();
-  if (current == ConnectionState::WriteDisabled && write_disable_count_ > 0) {
+  if (current == ConnectionMachineState::WriteDisabled && write_disable_count_ > 0) {
     write_disable_count_--;
     if (write_disable_count_ == 0) {
-      transitionTo(ConnectionState::Connected,
+      transitionTo(ConnectionMachineState::Connected,
                   ConnectionStateMachineEvent::WriteReady,
                   "Write buffer below low watermark");
     }
@@ -973,36 +968,36 @@ void ConnectionStateMachine::recordStateTransition(
   }
 }
 
-std::string ConnectionStateMachine::getStateName(ConnectionState state) {
+std::string ConnectionStateMachine::getStateName(ConnectionMachineState state) {
   switch (state) {
-    case ConnectionState::Uninitialized: return "Uninitialized";
-    case ConnectionState::Initialized: return "Initialized";
-    case ConnectionState::Resolving: return "Resolving";
-    case ConnectionState::Connecting: return "Connecting";
-    case ConnectionState::TcpConnected: return "TcpConnected";
-    case ConnectionState::HandshakeInProgress: return "HandshakeInProgress";
-    case ConnectionState::Listening: return "Listening";
-    case ConnectionState::Accepting: return "Accepting";
-    case ConnectionState::Accepted: return "Accepted";
-    case ConnectionState::Connected: return "Connected";
-    case ConnectionState::Reading: return "Reading";
-    case ConnectionState::Writing: return "Writing";
-    case ConnectionState::Idle: return "Idle";
-    case ConnectionState::Processing: return "Processing";
-    case ConnectionState::ReadDisabled: return "ReadDisabled";
-    case ConnectionState::WriteDisabled: return "WriteDisabled";
-    case ConnectionState::Paused: return "Paused";
-    case ConnectionState::HalfClosedLocal: return "HalfClosedLocal";
-    case ConnectionState::HalfClosedRemote: return "HalfClosedRemote";
-    case ConnectionState::Closing: return "Closing";
-    case ConnectionState::Draining: return "Draining";
-    case ConnectionState::Flushing: return "Flushing";
-    case ConnectionState::Closed: return "Closed";
-    case ConnectionState::Error: return "Error";
-    case ConnectionState::Aborted: return "Aborted";
-    case ConnectionState::Reconnecting: return "Reconnecting";
-    case ConnectionState::WaitingToReconnect: return "WaitingToReconnect";
-    case ConnectionState::Recovering: return "Recovering";
+    case ConnectionMachineState::Uninitialized: return "Uninitialized";
+    case ConnectionMachineState::Initialized: return "Initialized";
+    case ConnectionMachineState::Resolving: return "Resolving";
+    case ConnectionMachineState::Connecting: return "Connecting";
+    case ConnectionMachineState::TcpConnected: return "TcpConnected";
+    case ConnectionMachineState::HandshakeInProgress: return "HandshakeInProgress";
+    case ConnectionMachineState::Listening: return "Listening";
+    case ConnectionMachineState::Accepting: return "Accepting";
+    case ConnectionMachineState::Accepted: return "Accepted";
+    case ConnectionMachineState::Connected: return "Connected";
+    case ConnectionMachineState::Reading: return "Reading";
+    case ConnectionMachineState::Writing: return "Writing";
+    case ConnectionMachineState::Idle: return "Idle";
+    case ConnectionMachineState::Processing: return "Processing";
+    case ConnectionMachineState::ReadDisabled: return "ReadDisabled";
+    case ConnectionMachineState::WriteDisabled: return "WriteDisabled";
+    case ConnectionMachineState::Paused: return "Paused";
+    case ConnectionMachineState::HalfClosedLocal: return "HalfClosedLocal";
+    case ConnectionMachineState::HalfClosedRemote: return "HalfClosedRemote";
+    case ConnectionMachineState::Closing: return "Closing";
+    case ConnectionMachineState::Draining: return "Draining";
+    case ConnectionMachineState::Flushing: return "Flushing";
+    case ConnectionMachineState::Closed: return "Closed";
+    case ConnectionMachineState::Error: return "Error";
+    case ConnectionMachineState::Aborted: return "Aborted";
+    case ConnectionMachineState::Reconnecting: return "Reconnecting";
+    case ConnectionMachineState::WaitingToReconnect: return "WaitingToReconnect";
+    case ConnectionMachineState::Recovering: return "Recovering";
     default: return "Unknown";
   }
 }
@@ -1028,53 +1023,53 @@ std::string ConnectionStateMachine::getEventName(
 
 // ===== ConnectionStatePatterns Implementation =====
 
-bool ConnectionStatePatterns::canRead(ConnectionState state) {
-  return state == ConnectionState::Connected ||
-         state == ConnectionState::Reading ||
-         state == ConnectionState::Idle ||
-         state == ConnectionState::HalfClosedLocal;
+bool ConnectionStatePatterns::canRead(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Connected ||
+         state == ConnectionMachineState::Reading ||
+         state == ConnectionMachineState::Idle ||
+         state == ConnectionMachineState::HalfClosedLocal;
 }
 
-bool ConnectionStatePatterns::canWrite(ConnectionState state) {
-  return state == ConnectionState::Connected ||
-         state == ConnectionState::Writing ||
-         state == ConnectionState::Idle ||
-         state == ConnectionState::HalfClosedRemote ||
-         state == ConnectionState::Flushing;
+bool ConnectionStatePatterns::canWrite(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Connected ||
+         state == ConnectionMachineState::Writing ||
+         state == ConnectionMachineState::Idle ||
+         state == ConnectionMachineState::HalfClosedRemote ||
+         state == ConnectionMachineState::Flushing;
 }
 
-bool ConnectionStatePatterns::isTerminal(ConnectionState state) {
-  return state == ConnectionState::Closed ||
-         state == ConnectionState::Error ||
-         state == ConnectionState::Aborted;
+bool ConnectionStatePatterns::isTerminal(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Closed ||
+         state == ConnectionMachineState::Error ||
+         state == ConnectionMachineState::Aborted;
 }
 
-bool ConnectionStatePatterns::isConnecting(ConnectionState state) {
-  return state == ConnectionState::Resolving ||
-         state == ConnectionState::Connecting ||
-         state == ConnectionState::TcpConnected ||
-         state == ConnectionState::HandshakeInProgress;
+bool ConnectionStatePatterns::isConnecting(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Resolving ||
+         state == ConnectionMachineState::Connecting ||
+         state == ConnectionMachineState::TcpConnected ||
+         state == ConnectionMachineState::HandshakeInProgress;
 }
 
-bool ConnectionStatePatterns::isConnected(ConnectionState state) {
-  return state == ConnectionState::Connected ||
-         state == ConnectionState::Reading ||
-         state == ConnectionState::Writing ||
-         state == ConnectionState::Idle ||
-         state == ConnectionState::Processing;
+bool ConnectionStatePatterns::isConnected(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Connected ||
+         state == ConnectionMachineState::Reading ||
+         state == ConnectionMachineState::Writing ||
+         state == ConnectionMachineState::Idle ||
+         state == ConnectionMachineState::Processing;
 }
 
-bool ConnectionStatePatterns::isClosing(ConnectionState state) {
-  return state == ConnectionState::Closing ||
-         state == ConnectionState::Draining ||
-         state == ConnectionState::Flushing ||
-         state == ConnectionState::HalfClosedLocal ||
-         state == ConnectionState::HalfClosedRemote;
+bool ConnectionStatePatterns::isClosing(ConnectionMachineState state) {
+  return state == ConnectionMachineState::Closing ||
+         state == ConnectionMachineState::Draining ||
+         state == ConnectionMachineState::Flushing ||
+         state == ConnectionMachineState::HalfClosedLocal ||
+         state == ConnectionMachineState::HalfClosedRemote;
 }
 
-bool ConnectionStatePatterns::canReconnect(ConnectionState state) {
-  return (state == ConnectionState::Error ||
-          state == ConnectionState::Closed) &&
+bool ConnectionStatePatterns::canReconnect(ConnectionMachineState state) {
+  return (state == ConnectionMachineState::Error ||
+          state == ConnectionMachineState::Closed) &&
          !isConnecting(state);
 }
 

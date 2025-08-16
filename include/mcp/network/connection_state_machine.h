@@ -71,7 +71,7 @@ namespace network {
  * - Terminal: Final states
  * - Recovery: Error recovery states
  */
-enum class ConnectionState {
+enum class ConnectionMachineState {
   // ===== Initial States =====
   Uninitialized,      // Connection not yet initialized
   Initialized,        // Socket created, ready to connect/accept
@@ -178,8 +178,8 @@ enum class ConnectionStateMachineEvent {
  * State transition context with detailed information
  */
 struct StateTransitionContext {
-  ConnectionState from_state;
-  ConnectionState to_state;
+  ConnectionMachineState from_state;
+  ConnectionMachineState to_state;
   ConnectionStateMachineEvent triggering_event;
   std::chrono::steady_clock::time_point timestamp;
   std::string reason;
@@ -230,7 +230,7 @@ struct ConnectionStateMachineConfig {
   // Callbacks
   std::function<void(const StateTransitionContext&)> state_change_callback;
   std::function<void(const std::string&)> error_callback;
-  std::function<void(ConnectionState)> recovery_callback;
+  std::function<void(ConnectionMachineState)> recovery_callback;
 };
 
 /**
@@ -261,9 +261,7 @@ struct ConnectionStateMachineConfig {
  * state_machine->connect(address);
  * @endcode
  */
-class ConnectionStateMachine : public ConnectionCallbacks,
-                               public FilterManagerCallbacks,
-                               public TransportSocketCallbacks {
+class ConnectionStateMachine : public ConnectionCallbacks {
 public:
   using StateChangeCallback = std::function<void(const StateTransitionContext&)>;
   using CompletionCallback = std::function<void(bool success)>;
@@ -287,7 +285,7 @@ public:
   /**
    * Get current state
    */
-  ConnectionState currentState() const {
+  ConnectionMachineState currentState() const {
     return current_state_.load(std::memory_order_acquire);
   }
   
@@ -303,7 +301,7 @@ public:
    * Force transition to a state (bypasses validation)
    * Use only for error recovery scenarios
    */
-  void forceTransition(ConnectionState new_state, const std::string& reason);
+  void forceTransition(ConnectionMachineState new_state, const std::string& reason);
   
   // ===== Connection Operations =====
   
@@ -401,21 +399,6 @@ public:
   void onAboveWriteBufferHighWatermark() override;
   void onBelowWriteBufferLowWatermark() override;
   
-  // ===== FilterManagerCallbacks Interface =====
-  
-  void onContinueReading(ReadBufferSource* source,
-                         bool end_stream) override;
-  void onFilterError(FilterErrorReason reason) override;
-  
-  // ===== TransportSocketCallbacks Interface =====
-  
-  IoHandle& ioHandle() override;
-  const IoHandle& ioHandle() const override;
-  Connection& connection() override { return connection_; }
-  void raiseEvent(ConnectionEvent event) override;
-  bool shouldDrainReadBuffer() override;
-  void setTransportSocketIsReadable() override;
-  void flushWriteBuffer() override;
   
 protected:
   // ===== State Transition Logic =====
@@ -423,31 +406,31 @@ protected:
   /**
    * Execute state transition
    */
-  bool transitionTo(ConnectionState new_state,
+  bool transitionTo(ConnectionMachineState new_state,
                    ConnectionStateMachineEvent event,
                    const std::string& reason);
   
   /**
    * Check if transition is valid
    */
-  bool isValidTransition(ConnectionState from,
-                        ConnectionState to,
+  bool isValidTransition(ConnectionMachineState from,
+                        ConnectionMachineState to,
                         ConnectionStateMachineEvent event) const;
   
   /**
    * Get valid next states for current state
    */
-  std::unordered_set<ConnectionState> getValidNextStates() const;
+  std::unordered_set<ConnectionMachineState> getValidNextStates() const;
   
   /**
    * Called when entering a state
    */
-  virtual void onStateEnter(ConnectionState state);
+  virtual void onStateEnter(ConnectionMachineState state);
   
   /**
    * Called when exiting a state
    */
-  virtual void onStateExit(ConnectionState state);
+  virtual void onStateExit(ConnectionMachineState state);
   
   // ===== Event Handlers =====
   
@@ -503,7 +486,7 @@ protected:
   /**
    * Get human-readable state name
    */
-  static std::string getStateName(ConnectionState state);
+  static std::string getStateName(ConnectionMachineState state);
   
   /**
    * Get human-readable event name
@@ -518,7 +501,7 @@ private:
   ConnectionStateMachineConfig config_;
   
   // Current state (atomic for safe cross-thread reads)
-  std::atomic<ConnectionState> current_state_{ConnectionState::Uninitialized};
+  std::atomic<ConnectionMachineState> current_state_{ConnectionMachineState::Uninitialized};
   
   // State timing
   std::chrono::steady_clock::time_point state_entry_time_;
@@ -575,15 +558,6 @@ private:
   std::vector<StateChangeCallback> state_change_listeners_;
   std::vector<CompletionCallback> pending_callbacks_;
   
-  // ===== Filter Chain Integration =====
-  
-  FilterManagerPtr filter_manager_;
-  bool filter_chain_initialized_{false};
-  
-  // ===== Transport Socket Integration =====
-  
-  TransportSocketPtr transport_socket_;
-  bool transport_connected_{false};
 };
 
 /**
@@ -617,42 +591,42 @@ public:
   /**
    * Check if state allows reading
    */
-  static bool canRead(ConnectionState state);
+  static bool canRead(ConnectionMachineState state);
   
   /**
    * Check if state allows writing
    */
-  static bool canWrite(ConnectionState state);
+  static bool canWrite(ConnectionMachineState state);
   
   /**
    * Check if state is terminal
    */
-  static bool isTerminal(ConnectionState state);
+  static bool isTerminal(ConnectionMachineState state);
   
   /**
    * Check if state is in connecting phase
    */
-  static bool isConnecting(ConnectionState state);
+  static bool isConnecting(ConnectionMachineState state);
   
   /**
    * Check if state is connected
    */
-  static bool isConnected(ConnectionState state);
+  static bool isConnected(ConnectionMachineState state);
   
   /**
    * Check if state is in closing phase
    */
-  static bool isClosing(ConnectionState state);
+  static bool isClosing(ConnectionMachineState state);
   
   /**
    * Check if state allows reconnection
    */
-  static bool canReconnect(ConnectionState state);
+  static bool canReconnect(ConnectionMachineState state);
   
   /**
    * Get appropriate close state based on current state
    */
-  static ConnectionState getCloseState(ConnectionState current,
+  static ConnectionMachineState getCloseState(ConnectionMachineState current,
                                        ConnectionCloseType type);
 };
 
