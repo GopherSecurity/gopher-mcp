@@ -394,18 +394,23 @@ TEST_F(FilterChainStateMachineTest, BufferingWithWatermarks) {
   state_machine_->pause();
   
   // Buffer data while paused
-  OwnedBuffer data;
+  OwnedBuffer data1;
   std::string large_data(512, 'X');
-  data.add(large_data.data(), large_data.size());
+  data1.add(large_data.data(), large_data.size());
   
   // First chunk should buffer
-  auto status = state_machine_->onData(data, false);
+  auto status = state_machine_->onData(data1, false);
   EXPECT_EQ(FilterStatus::StopIteration, status);
   EXPECT_EQ(512, state_machine_->bufferedBytes());
   
-  // Add more to exceed high watermark
-  data.add(large_data.data(), large_data.size());
-  status = state_machine_->onData(data, false);
+  // Second chunk to exceed high watermark (768 bytes)
+  OwnedBuffer data2;
+  std::string more_data(300, 'Y');  // 512 + 300 = 812 > 768
+  data2.add(more_data.data(), more_data.size());
+  status = state_machine_->onData(data2, false);
+  
+  // Check current state and buffered bytes
+  EXPECT_EQ(812, state_machine_->bufferedBytes());
   
   // Should trigger high watermark
   bool found_watermark = false;
@@ -415,6 +420,18 @@ TEST_F(FilterChainStateMachineTest, BufferingWithWatermarks) {
       break;
     }
   }
+  
+  // Debug: print all state changes if watermark not found
+  if (!found_watermark) {
+    for (const auto& change : state_changes_) {
+      std::cout << "State change: " << static_cast<int>(change.from) 
+                << " -> " << static_cast<int>(change.to) 
+                << " (" << change.reason << ")\n";
+    }
+    std::cout << "Current state: " << static_cast<int>(state_machine_->currentState()) << "\n";
+    std::cout << "Buffered bytes: " << state_machine_->bufferedBytes() << "\n";
+  }
+  
   EXPECT_TRUE(found_watermark);
 }
 
