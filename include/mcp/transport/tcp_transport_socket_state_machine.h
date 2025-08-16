@@ -11,12 +11,17 @@
 #define MCP_TRANSPORT_TCP_TRANSPORT_SOCKET_STATE_MACHINE_H
 
 #include "mcp/transport/transport_socket_state_machine.h"
-#include "mcp/transport/transport_socket.h"
+#include "mcp/network/transport_socket.h"
 #include "mcp/network/connection.h"
 #include "mcp/buffer.h"
 
 namespace mcp {
 namespace transport {
+
+// Import network namespace types
+using network::TransportSocket;
+using network::TransportSocketCallbacks;
+using BufferPtr = std::unique_ptr<Buffer>;
 
 /**
  * TCP-specific state machine configuration
@@ -68,17 +73,16 @@ public:
 
   // ===== TransportSocket Interface =====
   
-  IoResult doRead(Buffer& buffer) override;
-  IoResult doWrite(Buffer& buffer, bool end_stream) override;
-  IoResult doConnect(network::ConnectionSocket& socket) override;
-  IoResult doHandshake() override { return {PostIoAction::Continue, 0, false}; }
-  void closeSocket(event::ConnectionCloseType type) override;
+  TransportIoResult doRead(Buffer& buffer) override;
+  TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
+  VoidResult connect(network::Socket& socket) override;
+  void closeSocket(network::ConnectionEvent event) override;
   void onConnected() override;
   
   std::string protocol() const override { return "tcp"; }
+  std::string failureReason() const override { return ""; }
   bool canFlushClose() override { return true; }
-  TransportSocketOptionsConstSharedPtr options() const override { return nullptr; }
-  Ssl::ConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
+  network::SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
   
   void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override {
     callbacks_ = &callbacks;
@@ -109,12 +113,12 @@ private:
   /**
    * Handle read operation based on current state
    */
-  IoResult handleRead(Buffer& buffer);
+  TransportIoResult handleRead(Buffer& buffer);
   
   /**
    * Handle write operation based on current state
    */
-  IoResult handleWrite(Buffer& buffer, bool end_stream);
+  TransportIoResult handleWrite(Buffer& buffer, bool end_stream);
   
   /**
    * Initiate reconnection (if enabled)
@@ -156,18 +160,10 @@ private:
 /**
  * Factory for creating TCP transport sockets with state machines
  */
-class TcpTransportSocketStateMachineFactory : public TransportSocketFactory,
-                                              public TransportSocketStateMachineFactory {
+class TcpTransportSocketStateMachineFactory : public TransportSocketStateMachineFactory {
 public:
   TcpTransportSocketStateMachineFactory(TcpStateMachineConfig config)
       : config_(config) {}
-  
-  // TransportSocketFactory interface
-  TransportSocketPtr createTransportSocket(
-      TransportSocketOptionsConstSharedPtr options,
-      std::shared_ptr<const Upstream::HostDescription> host) const override;
-  
-  bool implementsSecureTransport() const override { return false; }
   
   // TransportSocketStateMachineFactory interface
   std::unique_ptr<TransportSocketStateMachine> 
