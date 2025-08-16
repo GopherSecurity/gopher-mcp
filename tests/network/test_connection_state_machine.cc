@@ -99,7 +99,7 @@ protected:
     };
     
     state_machine_ = std::make_unique<ConnectionStateMachine>(
-        *dispatcher_, *connection_, config_);
+        *dispatcher_, config_);
   }
   
   // Helper to run event loop for a duration in a worker thread
@@ -586,7 +586,7 @@ TEST_F(ConnectionStateMachineTest, ConnectionStateMachineBuilder) {
       .withStateChangeCallback([&callback_invoked](const StateTransitionContext& ctx) {
         callback_invoked = true;
       })
-      .build(*dispatcher_, *connection);
+      .build(*dispatcher_);
   
   EXPECT_EQ(ConnectionMachineState::Uninitialized, state_machine->currentState());
   
