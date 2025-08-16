@@ -195,14 +195,17 @@ TEST_F(TransportSocketStateMachineTest, StateHistory) {
     state_machine_->transitionTo(TransportSocketState::HandshakeInProgress, "4", nullptr);
     state_machine_->handleHandshakeResult(true);
     
-    // Check history
+    // Check history - now expecting 6 transitions due to HandshakeComplete intermediate state
     auto& history = state_machine_->getStateHistory();
-    EXPECT_GE(history.size(), 5);
+    EXPECT_GE(history.size(), 6);
     
     // Verify transitions are in order
     EXPECT_EQ(history[0].to_state, TransportSocketState::Initialized);
     EXPECT_EQ(history[1].to_state, TransportSocketState::Connecting);
     EXPECT_EQ(history[2].to_state, TransportSocketState::TcpConnected);
+    EXPECT_EQ(history[3].to_state, TransportSocketState::HandshakeInProgress);
+    EXPECT_EQ(history[4].to_state, TransportSocketState::HandshakeComplete);
+    EXPECT_EQ(history[5].to_state, TransportSocketState::Connected);
   });
 }
 
@@ -280,6 +283,8 @@ TEST_F(TransportSocketStateMachineTest, IoEventHandling) {
     state_machine_->transitionTo(TransportSocketState::Connected, "Read complete", nullptr);
     
     // Handle writable event when write-blocked
+    // First transition to Writing, then to WriteBlocked (valid state path)
+    state_machine_->transitionTo(TransportSocketState::Writing, "Start write", nullptr);
     state_machine_->transitionTo(TransportSocketState::WriteBlocked, "Buffer full", nullptr);
     state_machine_->handleIoReady(false, true);
     EXPECT_EQ(state_machine_->currentState(), TransportSocketState::Writing);

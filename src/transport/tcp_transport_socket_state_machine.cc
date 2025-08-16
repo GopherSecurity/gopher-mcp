@@ -43,8 +43,8 @@ TcpTransportSocketStateMachine::TcpTransportSocketStateMachine(
   pending_read_data_ = createBuffer();
   pending_write_data_ = createBuffer();
   
-  // Server mode - already connected
-  current_state_ = TransportSocketState::TcpConnected;
+  // Don't assume connection state - let the user set it appropriately
+  // The state will remain Uninitialized until explicitly connected
   
   // Configure TCP options
   configureTcpOptions();
@@ -97,7 +97,16 @@ TransportIoResult TcpTransportSocketStateMachine::doWrite(
 VoidResult TcpTransportSocketStateMachine::connect(network::Socket& socket) {
   assertInDispatcherThread();
   
-  // Transition to connecting
+  // If uninitialized, first transition to initialized
+  if (current_state_ == TransportSocketState::Uninitialized) {
+    auto init_result = transitionTo(TransportSocketState::Initialized, 
+                                   "Socket initialized", nullptr);
+    if (!init_result.success) {
+      return VoidResult(Error{-1, init_result.error_message});
+    }
+  }
+  
+  // Now transition to connecting
   auto result = transitionTo(TransportSocketState::Connecting, 
                             "Connect initiated", nullptr);
   if (!result.success) {
