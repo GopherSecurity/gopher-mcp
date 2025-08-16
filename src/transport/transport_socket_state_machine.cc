@@ -123,8 +123,6 @@ void TransportSocketStateMachine::handleIoReady(bool readable, bool writable) {
     case TransportSocketState::Idle:
       if (readable) {
         transitionTo(TransportSocketState::Reading, "Socket readable", nullptr);
-      } else if (writable && current_state_ == TransportSocketState::WriteBlocked) {
-        transitionTo(TransportSocketState::Writing, "Socket writable", nullptr);
       }
       break;
       
@@ -172,8 +170,12 @@ void TransportSocketStateMachine::handleHandshakeResult(
   assertInDispatcherThread();
   
   if (success) {
-    transitionTo(TransportSocketState::Connected,
+    // First transition to HandshakeComplete state as per valid state transitions
+    transitionTo(TransportSocketState::HandshakeComplete,
                 "Handshake completed successfully", nullptr);
+    // Then transition to Connected state
+    transitionTo(TransportSocketState::Connected,
+                "Ready for data transfer", nullptr);
   } else {
     if (config_.error_callback) {
       config_.error_callback("Handshake failed: " + error_message);
