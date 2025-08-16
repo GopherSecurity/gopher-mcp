@@ -61,7 +61,7 @@ class EventLoopTest : public ::testing::Test {
 TEST_F(EventLoopTest, BasicProperties) {
   EXPECT_EQ("test", dispatcher_->name());
   EXPECT_EQ("libevent", factory_->backendName());
-  EXPECT_FALSE(dispatcher_->isThreadSafe()); // Not in dispatcher thread yet
+  EXPECT_FALSE(dispatcher_->isThreadSafe());  // Not in dispatcher thread yet
 }
 
 // Test post callback functionality
@@ -636,7 +636,8 @@ TEST_F(EventLoopTest, ThreadSafetyCheck) {
   auto thread =
       std::thread([&]() { other_dispatcher->run(RunType::RunUntilExit); });
 
-  // Check from main thread - should be false since dispatcher is in another thread
+  // Check from main thread - should be false since dispatcher is in another
+  // thread
   EXPECT_FALSE(other_dispatcher->isThreadSafe());
 
   // Check from dispatcher thread

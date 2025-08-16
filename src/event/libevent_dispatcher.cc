@@ -60,8 +60,7 @@ static LibeventInitializer libevent_initializer;
 }  // namespace
 
 // LibeventDispatcher implementation
-LibeventDispatcher::LibeventDispatcher(const std::string& name)
-    : name_(name) {
+LibeventDispatcher::LibeventDispatcher(const std::string& name) : name_(name) {
   // Don't set thread_id_ here - it should only be set when run() is called
   initializeLibevent();
   updateApproximateMonotonicTime();
