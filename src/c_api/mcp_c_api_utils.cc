@@ -651,3 +651,33 @@ extern "C" void mcp_model_preferences_free(mcp_model_preferences_t* prefs) {
 
 } // namespace c_api
 } // namespace mcp
+
+// Extern C functions for content block utilities
+extern "C" {
+
+bool mcp_content_block_is_text(const mcp_content_block_t* block) {
+    return block && block->type == MCP_CONTENT_TEXT;
+}
+
+bool mcp_content_block_is_image(const mcp_content_block_t* block) {
+    return block && block->type == MCP_CONTENT_IMAGE;
+}
+
+bool mcp_content_block_is_audio(const mcp_content_block_t* block) {
+    return block && block->type == MCP_CONTENT_AUDIO;
+}
+
+bool mcp_content_block_is_resource(const mcp_content_block_t* block) {
+    return block && (block->type == MCP_CONTENT_RESOURCE || 
+                    block->type == MCP_CONTENT_RESOURCE_LINK);
+}
+
+void mcp_string_free(mcp_string_t* str) {
+    if (str && str->data) {
+        free(const_cast<char*>(str->data));
+        str->data = nullptr;
+        str->length = 0;
+    }
+}
+
+} // extern "C"

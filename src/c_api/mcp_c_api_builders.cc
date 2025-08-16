@@ -32,12 +32,25 @@ extern "C" mcp_content_block_t* mcp_text_content_create(const char* text) {
     auto* block = static_cast<mcp_content_block_t*>(std::calloc(1, sizeof(mcp_content_block_t)));
     if (!block) return nullptr;
     
-    block->type = MCP_CONTENT_TEXT;
-    block->text.text = alloc_string(text);
-    if (!block->text.text) {
+    auto* text_content = static_cast<mcp_text_content_t*>(std::calloc(1, sizeof(mcp_text_content_t)));
+    if (!text_content) {
         std::free(block);
         return nullptr;
     }
+    
+    text_content->type.data = "text";
+    text_content->type.length = 4;
+    text_content->text.data = alloc_string(text);
+    text_content->text.length = std::strlen(text);
+    
+    if (!text_content->text.data) {
+        std::free(text_content);
+        std::free(block);
+        return nullptr;
+    }
+    
+    block->type = MCP_CONTENT_TEXT;
+    block->content.text = text_content;
     
     return block;
 }
@@ -80,16 +93,29 @@ extern "C" mcp_content_block_t* mcp_image_content_create(
     auto* block = static_cast<mcp_content_block_t*>(std::calloc(1, sizeof(mcp_content_block_t)));
     if (!block) return nullptr;
     
-    block->type = MCP_CONTENT_IMAGE;
-    block->image.data = alloc_string(data);
-    block->image.mime_type = alloc_string(mime_type);
-    
-    if (!block->image.data || !block->image.mime_type) {
-        std::free(block->image.data);
-        std::free(block->image.mime_type);
+    auto* image_content = static_cast<mcp_image_content_t*>(std::calloc(1, sizeof(mcp_image_content_t)));
+    if (!image_content) {
         std::free(block);
         return nullptr;
     }
+    
+    image_content->type.data = "image";
+    image_content->type.length = 5;
+    image_content->data.data = alloc_string(data);
+    image_content->data.length = std::strlen(data);
+    image_content->mime_type.data = alloc_string(mime_type);
+    image_content->mime_type.length = std::strlen(mime_type);
+    
+    if (!image_content->data.data || !image_content->mime_type.data) {
+        if (image_content->data.data) std::free(const_cast<char*>(image_content->data.data));
+        if (image_content->mime_type.data) std::free(const_cast<char*>(image_content->mime_type.data));
+        std::free(image_content);
+        std::free(block);
+        return nullptr;
+    }
+    
+    block->type = MCP_CONTENT_IMAGE;
+    block->content.image = image_content;
     
     return block;
 }
@@ -103,16 +129,29 @@ extern "C" mcp_content_block_t* mcp_audio_content_create(
     auto* block = static_cast<mcp_content_block_t*>(std::calloc(1, sizeof(mcp_content_block_t)));
     if (!block) return nullptr;
     
-    block->type = MCP_CONTENT_AUDIO;
-    block->audio.data = alloc_string(data);
-    block->audio.mime_type = alloc_string(mime_type);
-    
-    if (!block->audio.data || !block->audio.mime_type) {
-        std::free(block->audio.data);
-        std::free(block->audio.mime_type);
+    auto* audio_content = static_cast<mcp_audio_content_t*>(std::calloc(1, sizeof(mcp_audio_content_t)));
+    if (!audio_content) {
         std::free(block);
         return nullptr;
     }
+    
+    audio_content->type.data = "audio";
+    audio_content->type.length = 5;
+    audio_content->data.data = alloc_string(data);
+    audio_content->data.length = std::strlen(data);
+    audio_content->mime_type.data = alloc_string(mime_type);
+    audio_content->mime_type.length = std::strlen(mime_type);
+    
+    if (!audio_content->data.data || !audio_content->mime_type.data) {
+        if (audio_content->data.data) std::free(const_cast<char*>(audio_content->data.data));
+        if (audio_content->mime_type.data) std::free(const_cast<char*>(audio_content->mime_type.data));
+        std::free(audio_content);
+        std::free(block);
+        return nullptr;
+    }
+    
+    block->type = MCP_CONTENT_AUDIO;
+    block->content.audio = audio_content;
     
     return block;
 }
