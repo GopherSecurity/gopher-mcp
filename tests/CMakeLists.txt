@@ -77,6 +77,15 @@ add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
 add_executable(test_builders core/test_builders.cc)
 
+# C API tests
+if(BUILD_C_API)
+    add_executable(test_c_api_types test_c_api_types.cc)
+    add_executable(test_c_api_builders c_api/test_c_api_builders.cc)
+    add_executable(test_c_api_type_helpers c_api/test_c_api_type_helpers.cc)
+    add_executable(test_c_api_protocol_types c_api/test_c_api_protocol_types.cc)
+    add_executable(test_c_api_memory c_api/test_c_api_memory.cc)
+endif()
+
 # Network tests for recent fixes
 add_executable(test_connection_pool_callbacks network/test_connection_pool_callbacks.cc)
 add_executable(test_connection_utility network/test_connection_utility.cc)
@@ -515,6 +524,44 @@ target_link_libraries(test_builders
     gtest_main
     Threads::Threads
 )
+
+# Link libraries for C API tests
+if(BUILD_C_API)
+    target_link_libraries(test_c_api_types
+        mcp-sdk
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_api_builders
+        mcp-sdk
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_api_type_helpers
+        mcp-sdk
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_api_protocol_types
+        mcp-sdk
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_api_memory
+        mcp-sdk
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+endif()
 
 # Link libraries for new tests
 target_link_libraries(test_connection_pool_callbacks
