@@ -418,7 +418,7 @@ TEST_F(TcpTransportSocketStateMachineTest, CreateTcpStateMachine) {
     // Create connection socket
     auto local_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
     auto remote_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
-    auto conn_socket = std::make_unique<network::AcceptedSocketImpl>(
+    auto conn_socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(client_handle), local_addr, remote_addr);
     
     // Create TCP transport socket with state machine
@@ -443,16 +443,16 @@ TEST_F(TcpTransportSocketStateMachineTest, TcpConnectionFlow) {
     // Create connection socket
     auto local_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
     auto remote_addr = std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
-    auto conn_socket = std::make_unique<network::AcceptedSocketImpl>(
+    auto conn_socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(client_handle), local_addr, remote_addr);
     
     // Create TCP transport
     auto tcp_transport = std::make_unique<TcpTransportSocketStateMachine>(
         *conn_socket, *dispatcher_, tcp_config_);
     
-    // Perform connection
+    // Perform connection  
     auto result = tcp_transport->connect(*conn_socket);
-    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(holds_alternative<std::nullptr_t>(result));
     
     // Notify connected
     tcp_transport->onConnected();
