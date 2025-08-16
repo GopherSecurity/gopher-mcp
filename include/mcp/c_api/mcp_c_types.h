@@ -205,7 +205,17 @@ typedef struct mcp_image_content {
 } mcp_image_content_t;
 
 /**
- * Resource content
+ * Resource type
+ */
+typedef struct mcp_resource {
+    mcp_string_t uri;
+    mcp_string_t name;
+    mcp_optional_t* description;  /* optional string */
+    mcp_optional_t* mime_type;     /* optional string */
+} mcp_resource_t;
+
+/**
+ * Resource content (embedded)
  */
 typedef struct mcp_embedded_resource {
     mcp_string_t type; /* "resource" */
@@ -809,6 +819,27 @@ typedef struct mcp_paginated_request {
 typedef struct mcp_paginated_result {
     mcp_optional_t next_cursor;
 } mcp_paginated_result_t;
+
+/**
+ * Protocol-specific requests
+ */
+typedef struct mcp_call_tool_request {
+    mcp_string_t name;
+    mcp_optional_t arguments;  /* JSON value */
+} mcp_call_tool_request_t;
+
+typedef struct mcp_get_prompt_request {
+    mcp_string_t name;
+    mcp_optional_t arguments;  /* JSON value */
+} mcp_get_prompt_request_t;
+
+typedef struct mcp_read_resource_request {
+    mcp_string_t uri;
+} mcp_read_resource_request_t;
+
+typedef struct mcp_set_level_request {
+    mcp_logging_level_t level;
+} mcp_set_level_request_t;
 
 /**
  * Protocol-specific results
