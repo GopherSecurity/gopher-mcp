@@ -5,6 +5,7 @@
  * - Handles Server-Sent Events protocol
  * - Works on top of HTTP layer
  * - Completely separate from transport
+ * - Integrates with SseCodecStateMachine for state management
  */
 
 #include "mcp/filter/sse_codec_filter.h"
@@ -15,8 +16,11 @@ namespace mcp {
 namespace filter {
 
 // Constructor
-SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks, bool is_server)
+SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks, 
+                               event::Dispatcher& dispatcher,
+                               bool is_server)
     : event_callbacks_(callbacks),
+      dispatcher_(dispatcher),
       is_server_(is_server) {
   
   if (!is_server_) {
@@ -27,19 +31,40 @@ SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks, bool is_server)
   
   // Create event encoder
   event_encoder_ = std::make_unique<EventEncoderImpl>(*this);
+  
+  // Initialize SSE codec state machine
+  SseCodecStateMachineConfig config;
+  config.keep_alive_interval = std::chrono::milliseconds(30000);  // 30s keep-alive
+  config.event_timeout = std::chrono::milliseconds(5000);         // 5s event timeout
+  config.enable_keep_alive = true;
+  config.state_change_callback = [this](const SseCodecStateTransitionContext& ctx) {
+    onCodecStateChange(ctx);
+  };
+  config.error_callback = [this](const std::string& error) {
+    onCodecError(error);
+  };
+  
+  if (is_server_) {
+    // Server mode - configure keep-alive callback
+    config.keep_alive_callback = [this]() {
+      sendKeepAliveComment();
+    };
+  }
+  
+  state_machine_ = std::make_unique<SseCodecStateMachine>(dispatcher_, config);
 }
 
 SseCodecFilter::~SseCodecFilter() = default;
 
 // network::ReadFilter interface
 network::FilterStatus SseCodecFilter::onNewConnection() {
-  state_ = CodecState::WAITING_FOR_STREAM;
+  // State machine starts in Idle state by default
   return network::FilterStatus::Continue;
 }
 
 network::FilterStatus SseCodecFilter::onData(Buffer& data, bool end_stream) {
-  if (state_ != CodecState::STREAMING) {
-    // Not in SSE mode yet, pass through
+  if (!state_machine_->isStreaming()) {
+    // Not in SSE streaming mode yet, pass through
     return network::FilterStatus::Continue;
   }
   
@@ -49,7 +74,7 @@ network::FilterStatus SseCodecFilter::onData(Buffer& data, bool end_stream) {
   }
   
   if (end_stream) {
-    state_ = CodecState::CLOSED;
+    state_machine_->handleEvent(SseCodecEvent::CloseStream);
   }
   
   return network::FilterStatus::Continue;
@@ -62,21 +87,11 @@ network::FilterStatus SseCodecFilter::onWrite(Buffer& data, bool end_stream) {
 }
 
 void SseCodecFilter::startEventStream() {
-  state_ = CodecState::STREAMING;
+  state_machine_->handleEvent(SseCodecEvent::StartStream);
   
-  if (is_server_ && write_callbacks_) {
-    // Start keep-alive timer for server mode
-    if (!keep_alive_timer_) {
-      keep_alive_timer_ = write_callbacks_->connection().dispatcher().createTimer(
-          [this]() {
-            // Send keep-alive comment
-            event_encoder_->encodeComment("keep-alive");
-            
-            // Reschedule timer
-            keep_alive_timer_->enableTimer(kKeepAliveInterval);
-          });
-      keep_alive_timer_->enableTimer(kKeepAliveInterval);
-    }
+  if (is_server_) {
+    // Server mode - start keep-alive timer managed by state machine
+    state_machine_->startKeepAliveTimer();
   }
 }
 
@@ -141,6 +156,9 @@ void SseCodecFilter::ParserCallbacks::onSseError(const std::string& error) {
 void SseCodecFilter::EventEncoderImpl::encodeEvent(const std::string& event,
                                                    const std::string& data,
                                                    const optional<std::string>& id) {
+  // Trigger send event in state machine
+  parent_.state_machine_->handleEvent(SseCodecEvent::SendEvent);
+  
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
   
   // Format SSE event
@@ -159,6 +177,9 @@ void SseCodecFilter::EventEncoderImpl::encodeEvent(const std::string& event,
   
   // Send event
   parent_.sendEventData(parent_.event_buffer_);
+  
+  // Mark event as sent
+  parent_.state_machine_->handleEvent(SseCodecEvent::EventSent);
 }
 
 void SseCodecFilter::EventEncoderImpl::encodeComment(const std::string& comment) {
@@ -182,6 +203,22 @@ void SseCodecFilter::EventEncoderImpl::encodeRetry(uint32_t retry_ms) {
   
   // Send retry
   parent_.sendEventData(parent_.event_buffer_);
+}
+
+// State machine callback handlers
+void SseCodecFilter::onCodecStateChange(const SseCodecStateTransitionContext& context) {
+  // Handle state changes as needed
+  // For example, logging, metrics, or connection management
+}
+
+void SseCodecFilter::onCodecError(const std::string& error) {
+  // Handle codec-level errors
+  state_machine_->handleEvent(SseCodecEvent::StreamError);
+  event_callbacks_.onError("SSE codec error: " + error);
+}
+
+void SseCodecFilter::sendKeepAliveComment() {
+  event_encoder_->encodeComment("keep-alive");
 }
 
 } // namespace filter
