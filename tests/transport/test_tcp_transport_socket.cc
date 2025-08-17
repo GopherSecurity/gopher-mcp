@@ -98,14 +98,13 @@ class TcpTransportSocketTest : public test::RealListenerTestBase {
     RealListenerTestBase::TearDown();
   }
 
-
   // Helper to run a client-server test with proper synchronization
   void runClientServerTest(std::function<void()> test_func) {
     // Perform all setup in a single dispatcher call to avoid race conditions
     executeInDispatcher([this, test_func]() {
       // Setup listener
       listen_port_ = createRealListener();
-      
+
       // Create client connection
       auto address = std::make_shared<network::Address::Ipv4Instance>(
           "127.0.0.1", listen_port_);
@@ -134,8 +133,8 @@ class TcpTransportSocketTest : public test::RealListenerTestBase {
       auto result = client_transport_->connect(client_connection_->socket());
       EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(result));
 
-      // Accept server connection (call directly, we're already in dispatcher thread)
-      // Since socket is non-blocking, we may need to retry
+      // Accept server connection (call directly, we're already in dispatcher
+      // thread) Since socket is non-blocking, we may need to retry
       network::IoHandlePtr accepted_handle;
       int retry_count = 0;
       while (retry_count < 100) {  // Try for up to 1 second
@@ -144,17 +143,18 @@ class TcpTransportSocketTest : public test::RealListenerTestBase {
           accepted_handle = std::move(*accepted);
           break;
         }
-        
-        // For non-blocking socket, EAGAIN/EWOULDBLOCK is expected if no connection yet
+
+        // For non-blocking socket, EAGAIN/EWOULDBLOCK is expected if no
+        // connection yet
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           std::this_thread::sleep_for(std::chrono::milliseconds(10));
           retry_count++;
           continue;
         }
-        
+
         throw std::runtime_error("Failed to accept connection");
       }
-      
+
       if (!accepted_handle) {
         throw std::runtime_error("Accept timed out");
       }
@@ -214,20 +214,23 @@ TEST_F(TcpTransportSocketTest, CreateAndDestroy) {
 TEST_F(TcpTransportSocketTest, SetCallbacks) {
   executeInDispatcher([this]() {
     // Create a simple client connection for testing callbacks
-    auto address = std::make_shared<network::Address::Ipv4Instance>(
-        "127.0.0.1", 8080);
+    auto address =
+        std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 8080);
     auto io_handle = std::make_unique<network::IoSocketHandleImpl>();
     auto socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, address);
-    
+
     client_connection_ = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), nullptr, false);
-    
-    client_transport_ = std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
-    client_callbacks_ = std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
-    
+
+    client_transport_ =
+        std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
+    client_callbacks_ =
+        std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
+
     // Setting callbacks should not crash
-    EXPECT_NO_THROW(client_transport_->setTransportSocketCallbacks(*client_callbacks_));
+    EXPECT_NO_THROW(
+        client_transport_->setTransportSocketCallbacks(*client_callbacks_));
   });
 }
 
@@ -236,17 +239,19 @@ TEST_F(TcpTransportSocketTest, SetCallbacks) {
 TEST_F(TcpTransportSocketTest, ConnectToSocket) {
   executeInDispatcher([this]() {
     // Create a simple client connection for testing
-    auto address = std::make_shared<network::Address::Ipv4Instance>(
-        "127.0.0.1", 8080);
+    auto address =
+        std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 8080);
     auto io_handle = std::make_unique<network::IoSocketHandleImpl>();
     auto socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, address);
-    
+
     client_connection_ = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), nullptr, false);
-    
-    client_transport_ = std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
-    client_callbacks_ = std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
+
+    client_transport_ =
+        std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
+    client_callbacks_ =
+        std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
     client_transport_->setTransportSocketCallbacks(*client_callbacks_);
 
     // Connect using the client socket (will fail but should not crash)
@@ -254,7 +259,7 @@ TEST_F(TcpTransportSocketTest, ConnectToSocket) {
 
     // Result should be well-formed (success or error)
     // For a non-existent endpoint, it may succeed (non-blocking) or fail
-    EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(result) || 
+    EXPECT_TRUE(mcp::holds_alternative<std::nullptr_t>(result) ||
                 mcp::holds_alternative<mcp::Error>(result));
   });
 }
@@ -262,24 +267,27 @@ TEST_F(TcpTransportSocketTest, ConnectToSocket) {
 TEST_F(TcpTransportSocketTest, OnConnectedCallback) {
   executeInDispatcher([this]() {
     // Create a simple client connection for testing
-    auto address = std::make_shared<network::Address::Ipv4Instance>(
-        "127.0.0.1", 8080);
+    auto address =
+        std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 8080);
     auto io_handle = std::make_unique<network::IoSocketHandleImpl>();
     auto socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, address);
-    
+
     client_connection_ = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), nullptr, false);
-    
-    client_transport_ = std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
-    client_callbacks_ = std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
+
+    client_transport_ =
+        std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
+    client_callbacks_ =
+        std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
     client_transport_->setTransportSocketCallbacks(*client_callbacks_);
 
     // Manually trigger onConnected as this is normally done by ConnectionImpl
     EXPECT_NO_THROW(client_transport_->onConnected());
 
     // The TCP transport might not raise a Connected event directly
-    // since it's the Connection's responsibility. We just test that it doesn't crash.
+    // since it's the Connection's responsibility. We just test that it doesn't
+    // crash.
   });
 }
 
@@ -357,21 +365,24 @@ TEST_F(TcpTransportSocketTest, DISABLED_BidirectionalDataTransfer) {
 TEST_F(TcpTransportSocketTest, CloseSocket) {
   executeInDispatcher([this]() {
     // Create a simple client connection for testing
-    auto address = std::make_shared<network::Address::Ipv4Instance>(
-        "127.0.0.1", 8080);
+    auto address =
+        std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 8080);
     auto io_handle = std::make_unique<network::IoSocketHandleImpl>();
     auto socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, address);
-    
+
     client_connection_ = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), nullptr, false);
-    
-    client_transport_ = std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
-    client_callbacks_ = std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
+
+    client_transport_ =
+        std::make_unique<TcpTransportSocket>(*dispatcher_, config_);
+    client_callbacks_ =
+        std::make_unique<TestTransportSocketCallbacks>(*client_connection_);
     client_transport_->setTransportSocketCallbacks(*client_callbacks_);
 
     // Close should trigger event
-    EXPECT_NO_THROW(client_transport_->closeSocket(network::ConnectionEvent::LocalClose));
+    EXPECT_NO_THROW(
+        client_transport_->closeSocket(network::ConnectionEvent::LocalClose));
 
     // Verify close event was raised
     EXPECT_EQ(client_callbacks_->lastEvent(),

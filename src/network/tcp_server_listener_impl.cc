@@ -3,17 +3,18 @@
  * @brief Simplified TCP listener implementation following production patterns
  */
 
-#include "mcp/network/server_listener_impl.h"
-#include "mcp/network/connection_impl.h"
-#include "mcp/network/socket_impl.h"
-#include "mcp/network/io_socket_handle_impl.h"
-#include "mcp/stream_info/stream_info_impl.h"
-
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
+
 #include <netinet/tcp.h>
 #include <sys/socket.h>
-#include <unistd.h>
+
+#include "mcp/network/connection_impl.h"
+#include "mcp/network/io_socket_handle_impl.h"
+#include "mcp/network/server_listener_impl.h"
+#include "mcp/network/socket_impl.h"
+#include "mcp/stream_info/stream_info_impl.h"
 
 namespace mcp {
 namespace network {
@@ -23,7 +24,7 @@ std::atomic<uint64_t> TcpActiveListener::next_listener_tag_{1};
 
 // Placeholder for LoadShedPoint until we implement overload manager
 class LoadShedPoint {
-public:
+ public:
   bool shouldShed() const { return false; }
 };
 
@@ -33,8 +34,7 @@ public:
 
 BaseListenerImpl::BaseListenerImpl(event::Dispatcher& dispatcher,
                                    SocketSharedPtr socket)
-    : dispatcher_(dispatcher),
-      socket_(std::move(socket)) {
+    : dispatcher_(dispatcher), socket_(std::move(socket)) {
   if (socket_) {
     local_address_ = socket_->connectionInfoProvider().localAddress();
   }
@@ -61,7 +61,6 @@ TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
       bypass_overload_manager_(bypass_overload_manager),
       max_connections_per_event_(max_connections_per_event),
       overload_state_(overload_state) {
-  
   // Create file event for accept but don't enable yet
   // Only if we're actually bound to a port
   if (bind_to_port_ && socket_) {
@@ -84,12 +83,12 @@ void TcpListenerImpl::disable() {
   if (!enabled_) {
     return;
   }
-  
+
   enabled_ = false;
   if (file_event_) {
     file_event_->setEnabled(0);
   }
-  
+
   cb_.onListenerDisabled();
 }
 
@@ -97,12 +96,12 @@ void TcpListenerImpl::enable() {
   if (enabled_) {
     return;
   }
-  
+
   enabled_ = true;
   if (file_event_) {
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
   }
-  
+
   cb_.onListenerEnabled();
 }
 
@@ -119,11 +118,11 @@ void TcpListenerImpl::onSocketEvent(uint32_t events) {
   if (!(events & static_cast<uint32_t>(event::FileReadyType::Read))) {
     return;
   }
-  
+
   // Accept up to max_connections_per_event_ connections
   // This batching improves performance under high connection rates
   uint32_t connections_accepted = 0;
-  
+
   while (connections_accepted < max_connections_per_event_) {
     if (!doAccept()) {
       // Error or would block - stop accepting for now
@@ -131,7 +130,7 @@ void TcpListenerImpl::onSocketEvent(uint32_t events) {
     }
     connections_accepted++;
   }
-  
+
   // For edge-triggered mode, reactivate if we accepted max connections
   // (there might be more pending)
   if (connections_accepted == max_connections_per_event_ && file_event_) {
@@ -145,28 +144,27 @@ bool TcpListenerImpl::doAccept() {
     num_rejected_connections_++;
     return true;  // Return true to continue accepting other connections
   }
-  
+
   // Check probabilistic rejection for gradual load shedding
   if (shouldRejectProbabilistically()) {
     num_rejected_connections_++;
     return true;  // Return true to continue accepting other connections
   }
-  
+
   // Check load shed point from overload manager
   if (listener_accept_ && listener_accept_->shouldShed()) {
     num_rejected_connections_++;
     return true;
   }
-  
+
   // Accept the connection
   sockaddr_storage addr;
   socklen_t addr_len = sizeof(addr);
-  
+
   // Accept new connection
   int new_fd = ::accept(socket_->ioHandle().fd(),
-                        reinterpret_cast<sockaddr*>(&addr),
-                        &addr_len);
-  
+                        reinterpret_cast<sockaddr*>(&addr), &addr_len);
+
   if (new_fd < 0) {
     // Would block or error
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -180,44 +178,45 @@ bool TcpListenerImpl::doAccept() {
     // Other error - log and continue
     return false;
   }
-  
+
   // Create IO handle for accepted socket
   auto io_handle = std::make_unique<IoSocketHandleImpl>(new_fd);
-  
+
   // Set non-blocking mode immediately
   int flags = fcntl(new_fd, F_GETFL, 0);
   if (flags >= 0) {
     fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
   }
-  
+
   // Set close-on-exec
   fcntl(new_fd, F_SETFD, FD_CLOEXEC);
-  
+
   // Create address from sockaddr
   auto remote_address = Address::addressFromSockAddr(addr, addr_len);
   if (!remote_address) {
     ::close(new_fd);
     return true;  // Continue accepting
   }
-  
+
   // Create connection socket with proper addresses
   auto connection_socket = std::make_unique<ConnectionSocketImpl>(
       std::move(io_handle), local_address_, remote_address);
-  
+
   // Apply socket options to new connection
   if (socket_) {
     // TCP_NODELAY is commonly set for low latency
     int val = 1;
-    connection_socket->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
+    connection_socket->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val,
+                                       sizeof(val));
   }
-  
+
   // Update metrics
   num_connections_++;
-  
+
   // Hand off to callback
   // The callback will handle filter chains and connection creation
   cb_.onAccept(std::move(connection_socket));
-  
+
   return true;
 }
 
@@ -225,7 +224,7 @@ bool TcpListenerImpl::rejectCxOverGlobalLimit() const {
   // Check thread-local overload state if available
   if (overload_state_.has_value()) {
     auto& state = overload_state_.value().get();
-    if (state.global_cx_count && 
+    if (state.global_cx_count &&
         state.global_cx_count->load() >= state.global_cx_limit) {
       return true;
     }
@@ -237,11 +236,11 @@ bool TcpListenerImpl::shouldRejectProbabilistically() {
   if (reject_fraction_ == UnitFloat::min()) {
     return false;  // No rejection
   }
-  
+
   if (reject_fraction_ == UnitFloat::max()) {
     return true;  // Reject all
   }
-  
+
   // Generate random float between 0 and 1
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
   return dist(random_) < reject_fraction_.value();
@@ -256,14 +255,14 @@ struct TcpActiveListener::FilterChainContext : public ListenerFilterCallbacks {
   TcpActiveListener& parent;
   ConnectionSocketPtr socket_ptr;
   size_t current_filter_index{0};
-  
+
   FilterChainContext(TcpActiveListener& p, ConnectionSocketPtr s)
       : parent(p), socket_ptr(std::move(s)) {}
-  
+
   // ListenerFilterCallbacks interface
   ConnectionSocket& socket() override { return *socket_ptr; }
   event::Dispatcher& dispatcher() override { return parent.dispatcher_; }
-  
+
   void continueFilterChain(bool success) override {
     if (!success) {
       // Filter rejected the connection
@@ -271,7 +270,7 @@ struct TcpActiveListener::FilterChainContext : public ListenerFilterCallbacks {
       parent.removeFilterContext(this);
       return;
     }
-    
+
     // Continue processing filters
     current_filter_index++;
     parent.processNextFilter(this);
@@ -279,50 +278,43 @@ struct TcpActiveListener::FilterChainContext : public ListenerFilterCallbacks {
 };
 
 TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
-                               TcpListenerConfig config,
-                               ListenerCallbacks& parent_cb)
+                                     TcpListenerConfig config,
+                                     ListenerCallbacks& parent_cb)
     : dispatcher_(dispatcher),
       config_(std::move(config)),
       parent_cb_(parent_cb),
       random_(std::random_device{}()),
       listener_tag_(next_listener_tag_++) {
-  
   // Create socket if not provided
   if (!config_.socket && config_.address) {
     // Create and bind socket
     auto socket_result = createListenSocket(
         config_.address,
         SocketCreationOptions{
-            .non_blocking = true,
-            .close_on_exec = true,
-            .reuse_address = true
-        },
+            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
         config_.bind_to_port);
-    
+
     if (socket_result) {
       config_.socket = std::move(socket_result);
-      
+
       // Listen on the socket
       if (config_.bind_to_port) {
-        static_cast<ListenSocketImpl*>(config_.socket.get())->listen(config_.backlog);
+        static_cast<ListenSocketImpl*>(config_.socket.get())
+            ->listen(config_.backlog);
       }
     }
   }
-  
+
   // Create the actual TCP listener
   if (config_.socket) {
     listener_ = std::make_unique<TcpListenerImpl>(
-        dispatcher_,
-        random_,
-        config_.socket,
+        dispatcher_, random_, config_.socket,
         *this,  // We are the callbacks
-        config_.bind_to_port,
-        config_.ignore_global_conn_limit,
-        config_.bypass_overload_manager,
-        config_.max_connections_per_event,
+        config_.bind_to_port, config_.ignore_global_conn_limit,
+        config_.bypass_overload_manager, config_.max_connections_per_event,
         nullopt  // Overload state would come from ListenerManager
     );
-    
+
     // Set initial reject fraction
     listener_->setRejectFraction(UnitFloat(config_.initial_reject_fraction));
   }
@@ -352,7 +344,8 @@ void TcpActiveListener::setRejectFraction(UnitFloat fraction) {
   }
 }
 
-void TcpActiveListener::configureLoadShedPoints(LoadShedPoint& load_shed_point) {
+void TcpActiveListener::configureLoadShedPoints(
+    LoadShedPoint& load_shed_point) {
   if (listener_) {
     listener_->configureLoadShedPoints(load_shed_point);
   }
@@ -377,10 +370,10 @@ void TcpActiveListener::runFilterChain(ConnectionSocketPtr&& socket) {
   // Create filter context
   auto context = std::make_unique<FilterChainContext>(*this, std::move(socket));
   auto context_ptr = context.get();
-  
+
   // Store the context
   pending_filter_contexts_.push_back(std::move(context));
-  
+
   // Start processing filters
   processNextFilter(context_ptr);
 }
@@ -394,11 +387,11 @@ void TcpActiveListener::processNextFilter(FilterChainContext* context) {
     createConnection(std::move(socket));
     return;
   }
-  
+
   // Process current filter
   auto& filter = config_.listener_filters[context->current_filter_index];
   auto status = filter->onAccept(*context);
-  
+
   if (status == ListenerFilterStatus::Continue) {
     // Filter passed synchronously, continue to next
     context->current_filter_index++;
@@ -425,34 +418,34 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
   // 3. Create connection with proper filter chain
   // 4. Initialize the connection
   // 5. Hand off to connection manager
-  
+
   // For now, create a basic connection
   if (config_.transport_socket_factory) {
     // Create transport socket
-    auto transport_socket = config_.transport_socket_factory->createTransportSocket();
-    
+    auto transport_socket =
+        config_.transport_socket_factory->createTransportSocket();
+
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
-    
+
     // Create server connection
     auto connection = ConnectionImpl::createServerConnection(
-        dispatcher_,
-        std::move(socket),
-        std::move(transport_socket),
+        dispatcher_, std::move(socket), std::move(transport_socket),
         *stream_info);
-    
+
     // Set buffer limits
     connection->setBufferLimits(config_.per_connection_buffer_limit);
-    
+
     // Apply filter chain if configured
     if (config_.filter_chain_factory) {
       auto* conn_impl = dynamic_cast<ConnectionImplBase*>(connection.get());
       if (conn_impl) {
-        config_.filter_chain_factory->createFilterChain(conn_impl->filterManager());
+        config_.filter_chain_factory->createFilterChain(
+            conn_impl->filterManager());
         conn_impl->filterManager().initializeReadFilters();
       }
     }
-    
+
     // Hand off to parent (usually ListenerManager)
     parent_cb_.onNewConnection(std::move(connection));
   } else {
@@ -471,7 +464,6 @@ std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
     const TcpListenerConfig& config,
     TcpListenerCallbacks& cb,
     ThreadLocalOverloadStateOptRef overload_state) {
-  
   // Create socket if needed
   SocketSharedPtr socket = config.socket;
   if (!socket && config.address) {
@@ -479,33 +471,30 @@ std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
     auto socket_result = createListenSocket(
         config.address,
         SocketCreationOptions{
-            .non_blocking = true,
-            .close_on_exec = true,
-            .reuse_address = true
-        },
+            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
         config.bind_to_port);
-    
+
     if (socket_result) {
       socket = std::move(socket_result);
-      
+
       if (config.bind_to_port) {
         // Listen on the socket
         static_cast<ListenSocketImpl*>(socket.get())->listen(config.backlog);
       }
     }
   }
-  
+
   if (!socket) {
     return nullptr;
   }
-  
+
   // Apply socket options
   if (config.socket_options) {
     for (const auto& option : *config.socket_options) {
       option->setOption(*socket);
     }
   }
-  
+
   // Enable SO_REUSEPORT if requested
   if (config.enable_reuse_port) {
 #ifdef SO_REUSEPORT
@@ -513,20 +502,14 @@ std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
     socket->setSocketOption(SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
 #endif
   }
-  
+
   // Create random generator for this listener
   std::mt19937 random(std::random_device{}());
-  
+
   return std::make_unique<TcpListenerImpl>(
-      dispatcher,
-      random,
-      socket,
-      cb,
-      config.bind_to_port,
-      config.ignore_global_conn_limit,
-      config.bypass_overload_manager,
-      config.max_connections_per_event,
-      overload_state);
+      dispatcher, random, socket, cb, config.bind_to_port,
+      config.ignore_global_conn_limit, config.bypass_overload_manager,
+      config.max_connections_per_event, overload_state);
 }
 
 }  // namespace network
