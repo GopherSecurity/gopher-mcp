@@ -255,13 +255,37 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
 
 TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
                                                   bool end_stream) {
-  // Check if we can write in current state
+  // Debug: Log incoming data from network
+  std::cerr << "[HttpSseTransportSocket::doWrite] Called with " << buffer.length() 
+            << " bytes in " << (is_server_mode_ ? "SERVER" : "CLIENT") 
+            << " mode, state=" << HttpSseStateMachine::getStateName(state_machine_->getCurrentState()) 
+            << std::endl;
+  
+  // CRITICAL FIX: In server mode, doWrite receives incoming HTTP requests from network
+  // Flow: Network → doWrite (incoming HTTP data) → Parse → Store for doRead
+  if (is_server_mode_ && buffer.length() > 0 &&
+      HttpSseStatePatterns::canReceiveData(state_machine_->getCurrentState())) {
+    std::cerr << "[HttpSseTransportSocket::doWrite] SERVER: Processing " << buffer.length() 
+              << " bytes of incoming HTTP data" << std::endl;
+    
+    // Parse incoming HTTP request data
+    if (parser_) {
+      parser_->execute(buffer.toString());
+      buffer.drain(buffer.length()); // Consume the processed data
+      
+      // Return that we processed the data
+      return {TransportIoResult::CONTINUE, 0, false, nullopt};
+    }
+  }
+
+  // Check if we can write in current state (for outgoing data)
   if (!HttpSseStatePatterns::canSendData(state_machine_->getCurrentState())) {
+    std::cerr << "[HttpSseTransportSocket::doWrite] Cannot send data in current state, pausing" << std::endl;
     return {TransportIoResult::CONTINUE, 0, false,
             nullopt};  // Pause by returning 0 bytes
   }
 
-  // In server mode, wrap JSON-RPC response in HTTP if needed
+  // In client mode or server response mode, wrap JSON-RPC response in HTTP if needed
   if (is_server_mode_ && buffer.length() > 0 && 
       state_machine_->getCurrentState() == HttpSseState::ServerResponseSending) {
     // Build HTTP response with the JSON-RPC content

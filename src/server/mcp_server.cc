@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <future>
+
+#include "mcp/filter/json_rpc_filter_factory.h"
 #include <iostream>
 #include <sstream>
 
@@ -163,24 +165,40 @@ void McpServer::performListen() {
       tcp_config.address = tcp_address;
       tcp_config.bind_to_port = true;
       tcp_config.enable_reuse_port = false;  // Single process listener
+      
+      // CRITICAL: Set up HTTP+SSE transport socket factory for server mode
+      // Use the existing reusable HttpSseTransportSocketFactory
+      // Flow: Accept socket → Create transport → Process HTTP/SSE protocol
+      transport::HttpSseTransportSocketConfig http_config;
+      
+      // Use configuration values instead of hardcoding
+      // Endpoint URL is constructed from the bind address
+      http_config.endpoint_url = "http://0.0.0.0:" + std::to_string(port);
+      
+      // Use paths from server configuration
+      http_config.request_endpoint_path = config_.http_rpc_path;
+      http_config.sse_endpoint_path = config_.http_sse_path;
+      
+      // SSL configuration based on protocol (https:// would set this to true)
+      http_config.use_ssl = (address.find("https://") == 0);
+      
+      // Create the reusable factory (supports both client and server modes)
+      tcp_config.transport_socket_factory = 
+          std::make_shared<transport::HttpSseTransportSocketFactory>(
+              http_config, *main_dispatcher_);
+      
+      // Set up filter chain factory to process JSON-RPC messages
+      // Use the reusable JsonRpcFilterChainFactory component
+      // HTTP transport handles framing, so disable it in the filter
+      tcp_config.filter_chain_factory = 
+          std::make_shared<filter::JsonRpcFilterChainFactory>(
+              *this, false /* use_framing */);
+      
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
       tcp_config.max_connections_per_event =
           10;  // Process up to 10 accepts per event
 
-      // Create HTTP+SSE transport socket factory
-      transport::HttpSseTransportSocketConfig http_config;
-      http_config.endpoint_url = address;
-      tcp_config.transport_socket_factory =
-          std::make_shared<transport::HttpSseTransportSocketFactory>(
-              http_config, *main_dispatcher_);
-
-      // Create filter chain factory for JSON-RPC processing
-      auto filter_factory = std::make_shared<network::FilterChainFactoryImpl>();
-      filter_factory->addFilterFactory([this]() -> network::FilterSharedPtr {
-        return std::make_shared<JsonRpcMessageFilter>(*this);
-      });
-      tcp_config.filter_chain_factory = filter_factory;
 
       // Create TcpActiveListener with this server as callbacks
       // Following production pattern: listener owns socket, manages accepts,
