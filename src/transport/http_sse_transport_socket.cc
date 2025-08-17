@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 #include <sstream>
 
 #include "mcp/buffer.h"
@@ -269,9 +270,16 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
               << " bytes of incoming HTTP data" << std::endl;
     
     // Parse incoming HTTP request data
-    if (parser_) {
-      parser_->execute(buffer.toString());
-      buffer.drain(buffer.length()); // Consume the processed data
+    if (request_parser_) {
+      // Zero-copy parsing: use linearize to get contiguous memory
+      // Flow: linearize ensures data is contiguous → pass direct pointer to parser
+      // Why: Avoids string allocation and memory copy for better performance
+      size_t data_len = buffer.length();
+      if (data_len > 0) {
+        const char* data = static_cast<const char*>(buffer.linearize(data_len));
+        size_t consumed = request_parser_->execute(data, data_len);
+        buffer.drain(consumed); // Only drain what was actually consumed
+      }
       
       // Return that we processed the data
       return {TransportIoResult::CONTINUE, 0, false, nullopt};
