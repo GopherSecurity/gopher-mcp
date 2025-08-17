@@ -217,8 +217,14 @@ class HttpSseTransportSocket : public network::TransportSocket,
   // State callbacks
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
-  bool is_server_mode_{false};  // Track if this is a server-side socket
-  bool shutting_down_{false};   // Track if we're shutting down
+  
+  // Connection state flags for managing complex lifecycle
+  bool is_server_mode_{false};      // Track if this is a server-side socket
+  bool shutting_down_{false};       // SAFETY: Prevents callbacks during destruction
+                                     // Set in destructor to avoid pure virtual calls
+  bool on_connected_called_{false}; // IDEMPOTENCY: Ensures onConnected() is called once
+                                     // Prevents duplicate state transitions from multiple
+                                     // layers (McpConnectionManager, stdio, server accept)
 
   // HTTP parsers
   std::unique_ptr<http::HttpParser> request_parser_;

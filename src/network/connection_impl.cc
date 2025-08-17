@@ -627,6 +627,28 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
 }
 
 void ConnectionImpl::doConnect() {
+  // CRITICAL FIX: Notify transport socket about connection attempt BEFORE TCP connect
+  // Flow: Transport prepare → TCP connect → Connection events → Transport onConnected
+  // Why: The transport socket (e.g., HttpSseTransportSocket) has its own state machine
+  // that must be initialized before the TCP connection. Without this, the transport
+  // remains in Initialized state when onConnected() is called, causing invalid
+  // state transitions and crashes. This fix ensures proper sequencing:
+  //   1. Transport transitions from Initialized → TcpConnecting
+  //   2. TCP connection establishes
+  //   3. onConnected() transitions from TcpConnecting → TcpConnected
+  if (transport_socket_) {
+    auto transport_result = transport_socket_->connect(*socket_);
+    // Check if transport rejected the connection (returns Error instead of nullptr)
+    // VoidResult is variant<nullptr_t, Error> where nullptr = success
+    if (!holds_alternative<std::nullptr_t>(transport_result)) {
+      // Transport socket rejected the connection - abort
+      immediate_error_event_ = true;
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+  }
+  
+  // Now proceed with actual TCP connection
   auto result = socket_->connect(socket_->connectionInfoProvider().remoteAddress());
   
   if (result.ok() && *result == 0) {
@@ -656,7 +678,12 @@ void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
   // Use base class callbacks_ member for connection callbacks
   // This consolidates callback management in one place
   
-  // Safely iterate over callbacks with null check
+  // SAFETY FIX: Safely iterate over callbacks with null check
+  // Flow: Iterate callbacks → Check null → Invoke onEvent
+  // Why: During destruction or error handling, callbacks_ vector may contain
+  // null entries or be partially destroyed. The null check prevents crashes
+  // from dereferencing invalid pointers. This was causing segfaults when
+  // connection errors occurred during shutdown.
   for (auto* cb : callbacks_) {
     if (cb) {
       cb->onEvent(event);

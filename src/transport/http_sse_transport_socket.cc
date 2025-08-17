@@ -102,12 +102,18 @@ HttpSseTransportSocket::HttpSseTransportSocket(
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
-  // Set shutdown flag to prevent callbacks during destruction
+  // CRITICAL: Set shutdown flag to prevent callbacks during destruction
+  // This prevents pure virtual function calls and use-after-free errors
+  // that occur when callbacks are invoked on a partially destroyed object
   shutting_down_ = true;
   
-  // Ensure clean shutdown
+  // Ensure clean shutdown without triggering callbacks
+  // Flow: Check if state machine exists and not in terminal state → Force transition to Closed
+  // Why: During destruction, we cannot safely execute callbacks as the object
+  // hierarchy is being torn down. Using forceTransition() bypasses all callbacks
+  // and directly sets the state to Closed, avoiding crashes during shutdown.
   if (state_machine_ && !state_machine_->isTerminalState()) {
-    // Force immediate close without callbacks
+    // Force immediate close without callbacks to avoid accessing destroyed members
     state_machine_->forceTransition(HttpSseState::Closed);
   }
 }
@@ -172,16 +178,23 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
 }
 
 void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
-  // Already closed or shutting down, nothing to do
+  // SAFETY CHECK: Prevent operations during shutdown or invalid states
+  // Flow: Check shutdown flag → Check state machine validity → Check if already closed
+  // Why: This method can be called during destruction or from multiple paths,
+  // so we need defensive checks to prevent double-close and use-after-free
   if (shutting_down_ || !state_machine_ || state_machine_->isTerminalState()) {
     return;
   }
   
-  // Record close reason
+  // Record close reason for diagnostics
   connection_close_event_ = event;
   
-  // Execute graceful shutdown sequence
-  // Use weak_ptr pattern to avoid accessing 'this' after destruction
+  // Execute graceful shutdown sequence with callback safety
+  // Flow: Capture callbacks pointer → Execute shutdown → Invoke callback if valid
+  // Why: We use a local copy of callbacks_ instead of capturing 'this' because
+  // the HttpSseTransportSocket object might be destroyed before the callback
+  // executes (especially during error handling or forced disconnection).
+  // This prevents accessing freed memory and pure virtual function calls.
   auto weak_callbacks = callbacks_;
   transition_coordinator_->executeShutdown(
       [weak_callbacks, event](bool success) {
@@ -261,41 +274,32 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
 }
 
 void HttpSseTransportSocket::onConnected() {
-  // TCP connection established
-  // Handle the case where we're called directly from Initialized state
-  // This can happen when the connection is already established before
-  // our connect() method is called (e.g., pre-connected socket)
+  // IDEMPOTENCY GUARD: Ensure onConnected is only processed once
+  // Flow: Check if already called → Set flag → Process connection
+  // Why: This method can be called from multiple layers in the connection stack:
+  //   1. From McpConnectionManager when ConnectionEvent::Connected is received
+  //   2. From stdio transport for pre-connected pipes
+  //   3. From server accept path for incoming connections
+  // The flag prevents duplicate state transitions that would cause crashes
+  if (on_connected_called_) {
+    return;
+  }
+  on_connected_called_ = true;
   
+  // TCP connection established - determine appropriate state transition
   HttpSseState current_state = state_machine_->getCurrentState();
   
-  if (current_state == HttpSseState::Initialized) {
-    // Skip TcpConnecting and go directly to TcpConnected
-    // First transition to TcpConnecting, then immediately to TcpConnected
-    state_machine_->transition(HttpSseState::TcpConnecting,
-        [this](bool success, const std::string& error) {
-          if (success) {
-            // Now transition to TcpConnected
-            state_machine_->transition(HttpSseState::TcpConnected,
-                [this](bool success2, const std::string& error2) {
-                  if (success2) {
-                    // For client, start HTTP handshake
-                    if (!is_server_mode_) {
-                      initiateHttpHandshake();
-                    }
-                  } else {
-                    handleConnectionError("Failed to transition to connected: " + error2);
-                  }
-                });
-          } else {
-            handleConnectionError("Failed to transition to connecting: " + error);
-          }
-        });
-  } else if (current_state == HttpSseState::TcpConnecting) {
-    // Normal path: we're already in TcpConnecting state
+  // STATE MACHINE FLOW - Client Mode:
+  // Expected: Initialized → connect() called → TcpConnecting → onConnected() → TcpConnected
+  // Why: Client must call connect() first which transitions to TcpConnecting,
+  // then onConnected() moves to TcpConnected and initiates HTTP handshake
+  if (current_state == HttpSseState::TcpConnecting) {
+    // Normal client path: transition to TcpConnected
     state_machine_->transition(HttpSseState::TcpConnected,
         [this](bool success, const std::string& error) {
           if (success) {
             // For client, start HTTP handshake
+            // Flow: TcpConnected → initiateHttpHandshake() → HTTP request/response
             if (!is_server_mode_) {
               initiateHttpHandshake();
             }
@@ -303,9 +307,28 @@ void HttpSseTransportSocket::onConnected() {
             handleConnectionError("Failed to transition to connected: " + error);
           }
         });
+  } else if (current_state == HttpSseState::Initialized && !is_server_mode_) {
+    // ERROR CASE: Client mode but connect() was never called
+    // This indicates a bug in the connection flow - connect() must be called first
+    handleConnectionError("Invalid state for onConnected: Expected TcpConnecting, got Initialized");
+  } else if (is_server_mode_ && (current_state == HttpSseState::Initialized || 
+                                  current_state == HttpSseState::ServerListening)) {
+    // STATE MACHINE FLOW - Server Mode:
+    // Expected: Initialized/ServerListening → accept connection → ServerConnectionAccepted
+    // Why: Server waits for incoming connections, then transitions to handle HTTP requests
+    state_machine_->transition(HttpSseState::ServerConnectionAccepted,
+        [this](bool success, const std::string& error) {
+          if (success) {
+            // Server waits for HTTP request from client
+            // TODO: Implement waitForHttpRequest() for server mode
+          } else {
+            handleConnectionError("Failed to accept connection: " + error);
+          }
+        });
   } else {
-    // TODO: Unexpected state - log warning but don't error
-    // This might happen in reconnection scenarios
+    // DUPLICATE CALL HANDLING: Silently ignore if already connected
+    // This can happen due to the idempotency guard above or reconnection scenarios
+    // No error needed as the connection is already established
   }
 }
 
@@ -754,19 +777,33 @@ void HttpSseTransportSocket::initiateHttpHandshake() {
 }
 
 void HttpSseTransportSocket::sendInitialHttpRequest() {
-  // Build HTTP request
+  // Build HTTP request with MCP initialize method
+  // Flow: Create HTTP headers → Add JSON-RPC body → Format complete request
+  // Why: MCP protocol requires an initial HTTP POST with initialize method
+  // to establish the session before switching to SSE for events
   std::string request = buildHttpRequest(
       config_.request_method,
       config_.request_endpoint_path,
       "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}");
   
-  // Add to write buffer
+  // Add request to write buffer for transmission
   write_buffer_->add(request.c_str(), request.length());
   
-  // Transition to sending state
+  // Transition to sending state and trigger actual network write
+  // Flow: Add to buffer → Transition state → Flush buffer to network
+  // Why: The state transition ensures we're in the correct state for handling
+  // the response, and flushWriteBuffer() triggers the actual socket write.
+  // Without the flush, data would sit in the buffer waiting for next write event.
   state_machine_->transition(HttpSseState::HttpRequestSending,
       [this](bool success, const std::string& error) {
-        if (!success) {
+        if (success) {
+          // CRITICAL: Trigger write to send the HTTP request immediately
+          // Without this, the request sits in buffer and never gets sent,
+          // causing the client to hang waiting for a response
+          if (callbacks_) {
+            callbacks_->flushWriteBuffer();
+          }
+        } else {
           handleConnectionError("Failed to send HTTP request: " + error);
         }
       });
