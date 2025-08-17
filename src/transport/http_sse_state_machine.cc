@@ -662,6 +662,7 @@ void HttpSseStateMachine::initializeServerTransitions() {
   
   valid_transitions_[HttpSseState::Initialized] = {
     HttpSseState::ServerListening,
+    HttpSseState::ServerConnectionAccepted,  // Direct accept for pre-connected sockets
     HttpSseState::Closed,
     HttpSseState::Error
   };
@@ -909,6 +910,7 @@ bool HttpSseStatePatterns::isHttpRequestState(HttpSseState state) {
     case HttpSseState::HttpRequestSending:
     case HttpSseState::HttpRequestBodySending:
     case HttpSseState::HttpRequestSent:
+    case HttpSseState::ServerRequestReceiving:  // Server-side request processing
       return true;
     default:
       return false;
