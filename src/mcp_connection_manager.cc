@@ -643,7 +643,14 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     // Connection established successfully
     connected_ = true;
     
-    // For HTTP/SSE transport, notify the transport socket about connection
+    // TRANSPORT NOTIFICATION: Notify HTTP/SSE transport about TCP connection
+    // Flow: TCP connected → ConnectionEvent::Connected → transport.onConnected()
+    // Why: The HTTP/SSE transport needs to know when the underlying TCP connection
+    // is established so it can begin the HTTP handshake. This is different from
+    // stdio transport which has pre-connected pipes. The transport's state machine
+    // expects this call to transition from TcpConnecting → TcpConnected.
+    // Note: ConnectionImpl already called transport->connect() before TCP connect,
+    // so the transport is in TcpConnecting state waiting for this notification.
     if (config_.transport_type == TransportType::HttpSse && active_connection_) {
       auto& transport = active_connection_->transportSocket();
       transport.onConnected();
