@@ -119,6 +119,11 @@ struct ServerOptions {
   int session_timeout_minutes = 30;
   int request_queue_size = 500;
   int request_timeout_seconds = 60;
+  
+  // HTTP/SSE endpoint paths (configurable)
+  std::string http_rpc_path = "/rpc";
+  std::string http_sse_path = "/events";
+  std::string http_health_path = "/health";
 };
 
 void signal_handler(int signal) {
@@ -154,6 +159,9 @@ void printUsage(const char* program) {
   std::cerr << "  --max-sessions <n>   Maximum concurrent sessions (default: 100)\n";
   std::cerr << "  --metrics            Enable metrics endpoint\n";
   std::cerr << "  --verbose            Enable verbose logging\n";
+  std::cerr << "  --rpc-path <path>    HTTP JSON-RPC endpoint path (default: /rpc)\n";
+  std::cerr << "  --sse-path <path>    HTTP SSE events endpoint path (default: /events)\n";
+  std::cerr << "  --health-path <path> HTTP health check endpoint path (default: /health)\n";
   std::cerr << "  --help               Show this help message\n";
 }
 
@@ -187,6 +195,15 @@ ServerOptions parseArguments(int argc, char* argv[]) {
     }
     else if (arg == "--verbose") {
       options.verbose = true;
+    }
+    else if (arg == "--rpc-path" && i + 1 < argc) {
+      options.http_rpc_path = argv[++i];
+    }
+    else if (arg == "--sse-path" && i + 1 < argc) {
+      options.http_sse_path = argv[++i];
+    }
+    else if (arg == "--health-path" && i + 1 < argc) {
+      options.http_health_path = argv[++i];
     }
     else {
       std::cerr << "[ERROR] Unknown option: " << arg << std::endl;
@@ -813,6 +830,11 @@ int main(int argc, char* argv[]) {
   config.server_version = "2.0.0";
   config.instructions = "Enterprise MCP server with full feature set";
   
+  // HTTP/SSE endpoint configuration
+  config.http_rpc_path = options.http_rpc_path;
+  config.http_sse_path = options.http_sse_path;
+  config.http_health_path = options.http_health_path;
+  
   // Transport settings
   if (options.transport == "all") {
     config.supported_transports = {TransportType::HttpSse, TransportType::Stdio, TransportType::WebSocket};
@@ -904,9 +926,9 @@ int main(int argc, char* argv[]) {
   
   if (options.transport == "http" || options.transport == "all") {
     std::cerr << "\n[INFO] HTTP/SSE Endpoints:" << std::endl;
-    std::cerr << "  JSON-RPC: POST http://" << options.host << ":" << options.port << "/rpc" << std::endl;
-    std::cerr << "  SSE Events: GET http://" << options.host << ":" << options.port << "/events" << std::endl;
-    std::cerr << "  Health: GET http://" << options.host << ":" << options.port << "/health" << std::endl;
+    std::cerr << "  JSON-RPC: POST http://" << options.host << ":" << options.port << config.http_rpc_path << std::endl;
+    std::cerr << "  SSE Events: GET http://" << options.host << ":" << options.port << config.http_sse_path << std::endl;
+    std::cerr << "  Health: GET http://" << options.host << ":" << options.port << config.http_health_path << std::endl;
     if (options.metrics) {
       std::cerr << "  Metrics: GET http://" << options.host << ":" << options.port << "/metrics" << std::endl;
     }

@@ -234,6 +234,14 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   if (transport_socket_) {
     transport_socket_->setTransportSocketCallbacks(
         static_cast<TransportSocketCallbacks&>(*this));
+    
+    // CRITICAL: For server connections, notify transport socket that connection is established
+    // Server connections are already connected when created (socket was accepted)
+    // Without this, HTTP+SSE transport won't initialize properly for server mode
+    // Flow: Accept socket → Create connection (connected=true) → Notify transport
+    if (connected) {
+      transport_socket_->onConnected();
+    }
   }
 
   // Configure socket with optimal settings
