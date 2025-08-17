@@ -3,6 +3,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/buffer.h"
 #include "mcp/http/sse_parser.h"
+#include "mcp/filter/sse_codec_state_machine.h"
 #include "mcp/event/event_loop.h"
 #include <memory>
 #include <functional>
@@ -172,15 +173,21 @@ private:
   static void formatSseField(Buffer& buffer,
                              const std::string& field,
                              const std::string& value);
-
-  // State management
-  enum class CodecState {
-    WAITING_FOR_STREAM,   // Waiting for SSE stream to start
-    STREAMING,            // Processing SSE events
-    CLOSED                // Stream closed
-  };
   
-  CodecState state_{CodecState::WAITING_FOR_STREAM};
+  /**
+   * Handle state machine state changes
+   */
+  void onCodecStateChange(SseCodecState old_state, SseCodecState new_state);
+  
+  /**
+   * Handle state machine errors
+   */
+  void onCodecError(const std::string& error);
+  
+  /**
+   * Send keep-alive comment
+   */
+  void sendKeepAliveComment();
   
   // Components
   EventCallbacks& event_callbacks_;
@@ -192,13 +199,10 @@ private:
   std::unique_ptr<http::SseParser> parser_;
   std::unique_ptr<ParserCallbacks> parser_callbacks_;
   std::unique_ptr<EventEncoderImpl> event_encoder_;
+  std::unique_ptr<SseCodecStateMachine> state_machine_;
   
   // Event buffering
   OwnedBuffer event_buffer_;
-  
-  // Keep-alive timer for server mode
-  event::TimerPtr keep_alive_timer_;
-  static constexpr std::chrono::seconds kKeepAliveInterval{30};
 };
 
 

@@ -3,6 +3,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/buffer.h"
 #include "mcp/http/http_parser.h"
+#include "mcp/filter/http_codec_state_machine.h"
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
 #include <memory>
@@ -176,17 +177,16 @@ private:
    * Following production pattern of using connection for writes
    */
   void sendResponseData(Buffer& data);
-
-  // State management
-  enum class CodecState {
-    IDLE,                    // Waiting for request
-    PROCESSING_HEADERS,      // Processing request headers
-    PROCESSING_BODY,         // Processing request body
-    SENDING_RESPONSE,        // Sending response
-    COMPLETE                 // Request/response complete
-  };
   
-  CodecState state_{CodecState::IDLE};
+  /**
+   * Handle state machine state changes
+   */
+  void onCodecStateChange(HttpCodecState old_state, HttpCodecState new_state);
+  
+  /**
+   * Handle state machine errors
+   */
+  void onCodecError(const std::string& error);
   
   // Components
   RequestCallbacks& request_callbacks_;
@@ -197,6 +197,7 @@ private:
   std::unique_ptr<http::HttpParser> parser_;
   std::unique_ptr<ParserCallbacks> parser_callbacks_;
   std::unique_ptr<ResponseEncoderImpl> response_encoder_;
+  std::unique_ptr<HttpCodecStateMachine> state_machine_;
   
   // Request state
   std::map<std::string, std::string> current_headers_;
