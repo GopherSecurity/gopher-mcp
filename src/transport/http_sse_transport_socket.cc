@@ -102,10 +102,11 @@ HttpSseTransportSocket::HttpSseTransportSocket(
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
-  // CRITICAL: Set shutdown flag to prevent callbacks during destruction
+  // CRITICAL: Set shutdown flag atomically to prevent callbacks during destruction
   // This prevents pure virtual function calls and use-after-free errors
   // that occur when callbacks are invoked on a partially destroyed object
-  shutting_down_ = true;
+  // Uses memory_order_release to ensure all previous writes are visible
+  shutting_down_.store(true, std::memory_order_release);
   
   // Ensure clean shutdown without triggering callbacks
   // Flow: Check if state machine exists and not in terminal state → Force transition to Closed
@@ -182,7 +183,9 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
   // Flow: Check shutdown flag → Check state machine validity → Check if already closed
   // Why: This method can be called during destruction or from multiple paths,
   // so we need defensive checks to prevent double-close and use-after-free
-  if (shutting_down_ || !state_machine_ || state_machine_->isTerminalState()) {
+  // Uses memory_order_acquire to synchronize with destructor's memory_order_release
+  if (shutting_down_.load(std::memory_order_acquire) || 
+      !state_machine_ || state_machine_->isTerminalState()) {
     return;
   }
   
@@ -274,17 +277,20 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
 }
 
 void HttpSseTransportSocket::onConnected() {
-  // IDEMPOTENCY GUARD: Ensure onConnected is only processed once
-  // Flow: Check if already called → Set flag → Process connection
-  // Why: This method can be called from multiple layers in the connection stack:
+  // THREAD-SAFE IDEMPOTENCY GUARD: Ensure onConnected is only processed once
+  // Flow: Atomically test-and-set flag → Process connection if first call
+  // Why: This method can be called from multiple threads/layers:
   //   1. From McpConnectionManager when ConnectionEvent::Connected is received
-  //   2. From stdio transport for pre-connected pipes
+  //   2. From stdio transport for pre-connected pipes  
   //   3. From server accept path for incoming connections
-  // The flag prevents duplicate state transitions that would cause crashes
-  if (on_connected_called_) {
+  //   4. From worker threads in async scenarios
+  // The atomic exchange ensures exactly-once execution even with concurrent calls
+  bool expected = false;
+  if (!on_connected_called_.compare_exchange_strong(expected, true, 
+                                                     std::memory_order_acq_rel)) {
+    // Already called by another thread, silently return
     return;
   }
-  on_connected_called_ = true;
   
   // TCP connection established - determine appropriate state transition
   HttpSseState current_state = state_machine_->getCurrentState();
