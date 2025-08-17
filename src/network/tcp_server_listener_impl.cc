@@ -437,12 +437,16 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
     connection->setBufferLimits(config_.per_connection_buffer_limit);
 
     // Apply filter chain if configured
+    // Following production pattern: filter chain factory adds filters to connection
     if (config_.filter_chain_factory) {
-      auto* conn_impl = dynamic_cast<ConnectionImplBase*>(connection.get());
+      // Get filter manager from connection
+      auto* conn_impl = dynamic_cast<ConnectionImpl*>(connection.get());
       if (conn_impl) {
-        config_.filter_chain_factory->createFilterChain(
-            conn_impl->filterManager());
-        conn_impl->filterManager().initializeReadFilters();
+        // Create filter chain via filter manager
+        config_.filter_chain_factory->createFilterChain(conn_impl->filterManager());
+        
+        // Initialize read filters after they've been added
+        conn_impl->initializeReadFilters();
       }
     }
 
