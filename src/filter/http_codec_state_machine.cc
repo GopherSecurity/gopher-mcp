@@ -19,6 +19,9 @@ HttpCodecStateMachine::HttpCodecStateMachine(
   current_state_ = HttpCodecState::WaitingForRequest;
   state_entry_time_ = std::chrono::steady_clock::now();
   
+  // Initialize from config
+  keep_alive_enabled_ = config_.enable_keep_alive;
+  
   // Initialize valid transitions
   initializeTransitions();
   
@@ -76,7 +79,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
     case HttpCodecState::ReceivingHeaders:
       if (event == HttpCodecEvent::HeadersComplete) {
         // Check if there's a body
-        if (current_header_size_ > 0) {  // Simplified check
+        if (expect_request_body_) {
           new_state = HttpCodecState::ReceivingBody;
           reason = "Headers complete, receiving body";
         } else {
@@ -117,6 +120,9 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
           new_state = HttpCodecState::Closed;
           reason = "Response complete, closing";
         }
+      } else if (event == HttpCodecEvent::Reset) {
+        new_state = HttpCodecState::WaitingForRequest;
+        reason = "Reset for next request";
       } else if (event == HttpCodecEvent::Close) {
         new_state = HttpCodecState::Closed;
         reason = "Connection close during response";
@@ -132,10 +138,13 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
       break;
       
     case HttpCodecState::Error:
-      // Terminal state - no transitions except reset
+      // Terminal state - transitions to reset or close
       if (event == HttpCodecEvent::Reset) {
         new_state = HttpCodecState::WaitingForRequest;
         reason = "Reset after error";
+      } else if (event == HttpCodecEvent::Close) {
+        new_state = HttpCodecState::Closed;
+        reason = "Close after error";
       }
       break;
   }
@@ -145,11 +154,23 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
     return transitionTo(new_state, event, reason, callback);
   }
   
-  // No transition
+  // No transition - check if this is a valid no-op or an error
+  
+  // Terminal states should reject non-reset events
+  if ((current == HttpCodecState::Error || current == HttpCodecState::Closed) && 
+      event != HttpCodecEvent::Reset) {
+    // Invalid event in terminal state
+    if (callback) {
+      dispatcher_.post([callback]() { callback(false); });
+    }
+    return HttpCodecStateTransitionResult::Failure("Invalid event in terminal state");
+  }
+  
+  // Valid no-op
   if (callback) {
     dispatcher_.post([callback]() { callback(true); });
   }
-  return HttpCodecStateTransitionResult::Success(current_state_);
+  return HttpCodecStateTransitionResult::Success(current);
 }
 
 HttpCodecStateTransitionResult HttpCodecStateMachine::transitionTo(
@@ -224,8 +245,9 @@ void HttpCodecStateMachine::scheduleTransition(
 }
 
 void HttpCodecStateMachine::resetForNextRequest(CompletionCallback callback) {
-  if (current_state_ == HttpCodecState::SendingResponse ||
-      current_state_ == HttpCodecState::WaitingForRequest) {
+  HttpCodecState current = current_state_.load(std::memory_order_acquire);
+  if (current == HttpCodecState::SendingResponse ||
+      current == HttpCodecState::WaitingForRequest) {
     handleEvent(HttpCodecEvent::Reset, callback);
   } else {
     handleEvent(HttpCodecEvent::Close, callback);
@@ -386,7 +408,8 @@ void HttpCodecStateMachine::onStateEnter(HttpCodecState state, CompletionCallbac
       if (idle_timer_ && config_.idle_timeout.count() > 0) {
         idle_timer_->enableTimer(config_.idle_timeout);
       }
-      // Reset size tracking for new request
+      // Reset tracking for new request
+      expect_request_body_ = false;
       current_header_size_ = 0;
       current_body_size_ = 0;
       break;

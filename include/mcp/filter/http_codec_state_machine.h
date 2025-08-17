@@ -206,6 +206,13 @@ public:
    */
   void resetForNextRequest(CompletionCallback callback = nullptr);
   
+  /**
+   * Set whether to expect a request body (for testing)
+   */
+  void setExpectRequestBody(bool expect_body) {
+    expect_request_body_ = expect_body;
+  }
+  
   // ===== State Queries =====
   
   bool canReceiveRequest() const {
@@ -422,6 +429,7 @@ private:
   // State tracking
   bool transition_in_progress_{false};
   bool keep_alive_enabled_{true};
+  bool expect_request_body_{false};  // Whether current request has a body
   size_t current_header_size_{0};
   size_t current_body_size_{0};
 };
