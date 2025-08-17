@@ -776,6 +776,17 @@ target_link_libraries(test_http_codec_state_machine
 )
 add_test(NAME HttpCodecStateMachineTest COMMAND test_http_codec_state_machine)
 
+add_executable(test_http_server_codec_filter filter/test_http_server_codec_filter_simple.cc)
+target_link_libraries(test_http_server_codec_filter 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME HttpServerCodecFilterTest COMMAND test_http_server_codec_filter)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine 
     mcp-sdk
@@ -786,6 +797,17 @@ target_link_libraries(test_sse_codec_state_machine
     Threads::Threads
 )
 add_test(NAME SseCodecStateMachineTest COMMAND test_sse_codec_state_machine)
+
+add_executable(test_sse_codec_filter filter/test_sse_codec_filter_simple.cc)
+target_link_libraries(test_sse_codec_filter 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME SseCodecFilterTest COMMAND test_sse_codec_filter)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
