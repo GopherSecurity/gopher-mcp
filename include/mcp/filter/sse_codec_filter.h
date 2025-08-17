@@ -147,11 +147,9 @@ private:
   public:
     ParserCallbacks(SseCodecFilter& parent) : parent_(parent) {}
     
-    void onEvent(const std::string& event,
-                const std::string& data,
-                const optional<std::string>& id);
-    void onComment(const std::string& comment);
-    void onRetry(uint32_t retry_ms);
+    void onSseEvent(const http::SseEvent& event) override;
+    void onSseComment(const std::string& comment) override;
+    void onSseError(const std::string& error) override;
     
   private:
     SseCodecFilter& parent_;

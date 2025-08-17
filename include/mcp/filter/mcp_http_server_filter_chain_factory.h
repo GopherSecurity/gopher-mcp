@@ -69,12 +69,14 @@ private:
   class McpProtocolBridge : public HttpServerCodecFilter::RequestCallbacks,
                            public SseCodecFilter::EventCallbacks {
   public:
-    McpProtocolBridge(McpMessageCallbacks& callbacks,
-                     HttpServerCodecFilter& http_filter,
-                     SseCodecFilter& sse_filter)
-        : message_callbacks_(callbacks),
-          http_filter_(http_filter),
-          sse_filter_(sse_filter) {}
+    McpProtocolBridge(McpMessageCallbacks& callbacks)
+        : message_callbacks_(callbacks) {}
+    
+    void setFilters(HttpServerCodecFilter* http_filter,
+                   SseCodecFilter* sse_filter) {
+      http_filter_ = http_filter;
+      sse_filter_ = sse_filter;
+    }
     
     // HttpServerCodecFilter::RequestCallbacks
     void onHeaders(const std::map<std::string, std::string>& headers,
@@ -99,8 +101,8 @@ private:
     
   private:
     McpMessageCallbacks& message_callbacks_;
-    HttpServerCodecFilter& http_filter_;
-    SseCodecFilter& sse_filter_;
+    HttpServerCodecFilter* http_filter_{nullptr};
+    SseCodecFilter* sse_filter_{nullptr};
     
     // Request state
     enum class RequestMode {

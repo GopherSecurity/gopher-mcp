@@ -152,6 +152,7 @@ private:
     http::ParserCallbackResult onMessageComplete() override;
     http::ParserCallbackResult onChunkHeader(size_t chunk_size) override;
     http::ParserCallbackResult onChunkComplete() override;
+    void onError(const std::string& error) override;
     
   private:
     HttpServerCodecFilter& parent_;
