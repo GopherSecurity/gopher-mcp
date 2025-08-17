@@ -104,8 +104,8 @@ TEST_F(HttpCodecStateMachineTest, HeadersCompleteWithBody) {
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
   
-  // Simulate having body by setting header size
-  // The implementation should handle body based on headers
+  // Simulate request with body (e.g., Content-Length > 0)
+  state_machine_->setExpectRequestBody(true);
   
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
@@ -116,7 +116,9 @@ TEST_F(HttpCodecStateMachineTest, HeadersCompleteWithBody) {
 TEST_F(HttpCodecStateMachineTest, BodyDataAndComplete) {
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  // The implementation should handle body based on headers
+  
+  // Simulate request with body
+  state_machine_->setExpectRequestBody(true);
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
   
@@ -178,7 +180,9 @@ TEST_F(HttpCodecStateMachineTest, ParseErrorInHeaders) {
 TEST_F(HttpCodecStateMachineTest, ParseErrorInBody) {
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  // The implementation should handle body based on headers
+  
+  // Simulate request with body
+  state_machine_->setExpectRequestBody(true);
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
   expectState(HttpCodecState::ReceivingBody);
@@ -250,7 +254,9 @@ TEST_F(HttpCodecStateMachineTest, BodyTimeout) {
   
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  // The implementation should handle body based on headers
+  
+  // Simulate request with body
+  state_machine_->setExpectRequestBody(true);
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
   expectState(HttpCodecState::ReceivingBody);
