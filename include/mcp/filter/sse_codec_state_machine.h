@@ -159,7 +159,7 @@ public:
   SseCodecStateMachine(event::Dispatcher& dispatcher,
                       const SseCodecStateMachineConfig& config);
   
-  ~SseCodecStateMachine();
+  virtual ~SseCodecStateMachine();
   
   // ===== Core State Machine Interface =====
   
@@ -312,7 +312,8 @@ public:
    * Get bytes sent
    */
   uint64_t getBytesSent() const {
-    return bytes_sent_.load(std::memory_order_relaxed);
+    // TODO: Track bytes sent when integrated with transport
+    return 0;
   }
   
   // ===== Timer Management =====
@@ -426,7 +427,7 @@ private:
   SseCodecStateMachineConfig config_;
   
   // Current state
-  std::atomic<SseCodecState> current_state_{SseCodecState::Uninitialized};
+  std::atomic<SseCodecState> current_state_{SseCodecState::Idle};
   std::chrono::steady_clock::time_point state_entry_time_;
   
   // State history
