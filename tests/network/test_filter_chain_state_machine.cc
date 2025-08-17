@@ -370,24 +370,31 @@ TEST_F(FilterChainStateMachineTest, WatermarkFlowControl) {
 
   state_machine_->initialize();
   state_machine_->start();
+  
+  // Pause the filter chain to enable buffering (watermarks only apply to buffered data)
   state_machine_->pause();
+  EXPECT_EQ(FilterChainState::Paused, state_machine_->currentState());
 
   // Add data to trigger high watermark
   OwnedBuffer data1;
   std::string large_data(60, 'x');
   data1.add(large_data.data(), large_data.size());
 
+  // When paused, onData buffers the data and returns StopIteration (successful buffering)
   auto status = state_machine_->onData(data1, false);
-  EXPECT_EQ(status, FilterStatus::Continue);
+  EXPECT_EQ(status, FilterStatus::StopIteration);
+  
+  // Should transition to Buffering state after first data
+  EXPECT_EQ(FilterChainState::Buffering, state_machine_->currentState());
 
   // Add more data to exceed high watermark
   OwnedBuffer data2;
   data2.add(large_data.data(), large_data.size());
 
   status = state_machine_->onData(data2, false);
-  EXPECT_EQ(status, FilterStatus::Continue);
+  EXPECT_EQ(status, FilterStatus::StopIteration);
 
-  // Should be above high watermark
+  // Should be above high watermark now (60 + 60 = 120 > 100)
   EXPECT_EQ(FilterChainState::AboveHighWatermark, state_machine_->currentState());
 }
 
