@@ -1,6 +1,6 @@
 /**
- * @file listener_impl.h
- * @brief Simplified production-grade listener following industrial best
+ * @file server_listener_impl.h
+ * @brief Server-side production-grade listener following industrial best
  * practices
  *
  * Design principles from production servers:
