@@ -14,33 +14,12 @@ namespace network {
 FilterManagerImpl::FilterManagerImpl(FilterManagerConnection& connection,
                                      event::Dispatcher& dispatcher)
     : connection_(connection),
+      dispatcher_(&dispatcher),
       current_read_filter_(read_filters_.end()),
       current_write_filter_(write_filters_.end()) {
-  
-  // Initialize filter chain state machine with dispatcher and connection
-  FilterChainConfig config;
-  config.state_change_callback = [this](FilterChainState from, FilterChainState to, 
-                                        const std::string& reason) {
-    onStateChanged(from, to);
-  };
-  
-  // Cast FilterManagerConnection to Connection
-  // Note: This assumes FilterManagerConnection is implemented by Connection
-  Connection* conn = dynamic_cast<Connection*>(&connection);
-  if (conn) {
-    state_machine_ = std::make_unique<FilterChainStateMachine>(dispatcher, *conn, config);
-  } else {
-    // Cannot create state machine without proper Connection object
-    // This is expected for tests that use mock connections
-  }
-  
-  // Configure state machine behavior
-  configureStateMachine();
-  
-  // Initialize the state machine if it was created
-  if (state_machine_) {
-    state_machine_->initialize();
-  }
+  // Store the dispatcher for later use
+  // We'll create the state machine lazily when initializeReadFilters is called
+  // to ensure we're in the dispatcher thread
 }
 
 FilterManagerImpl::~FilterManagerImpl() = default;
@@ -68,6 +47,24 @@ void FilterManagerImpl::removeReadFilter(ReadFilterSharedPtr filter) {
 bool FilterManagerImpl::initializeReadFilters() {
   if (initialized_) {
     return true;
+  }
+
+  // Create state machine now if we have a dispatcher and haven't created it yet
+  // This ensures we're in the dispatcher thread when creating the state machine
+  if (!state_machine_ && dispatcher_) {
+    FilterChainConfig config;
+    config.state_change_callback = [this](FilterChainState from, FilterChainState to, 
+                                          const std::string& reason) {
+      onStateChanged(from, to);
+    };
+    
+    // Cast FilterManagerConnection to Connection
+    Connection* conn = dynamic_cast<Connection*>(&connection_);
+    if (conn) {
+      state_machine_ = std::make_unique<FilterChainStateMachine>(*dispatcher_, *conn, config);
+      configureStateMachine();
+      state_machine_->initialize();
+    }
   }
 
   for (auto& filter : read_filters_) {
