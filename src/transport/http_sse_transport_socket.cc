@@ -98,8 +98,14 @@ HttpSseTransportSocket::HttpSseTransportSocket(
   // Configure reconnection strategy
   configureReconnectionStrategy();
 
-  // Transition to initialized state
-  state_machine_->transition(HttpSseState::Initialized);
+  // Following production pattern: Server connections don't transition to initial state in constructor
+  // Flow: Constructor → [no state change] → onConnected() → State transition
+  // Why: State transitions happen after filter initialization, ensuring proper callback ordering
+  if (!is_server_mode_) {
+    // Client starts in initialized state waiting for connect()
+    state_machine_->transition(HttpSseState::Initialized);
+  }
+  // Server mode: stays in Uninitialized until onConnected() is called
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
@@ -129,6 +135,7 @@ HttpSseTransportSocket::~HttpSseTransportSocket() {
 void HttpSseTransportSocket::setTransportSocketCallbacks(
     network::TransportSocketCallbacks& callbacks) {
   callbacks_ = &callbacks;
+  std::cerr << "[HttpSseTransportSocket] Callbacks set, server mode: " << is_server_mode_ << std::endl;
 }
 
 std::string HttpSseTransportSocket::protocol() const { return "http+sse"; }
@@ -215,76 +222,79 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
 }
 
 TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
-  // In server mode, check if we have buffered request data to deliver
-  if (is_server_mode_ && have_data_to_deliver_ && read_buffer_->length() > 0) {
-    // Move buffered request data to output buffer
-    buffer.move(*read_buffer_);
-    have_data_to_deliver_ = false;
-    return {TransportIoResult::CONTINUE, buffer.length(), false, nullopt};
-  }
-
+  // CRITICAL: Transport socket must read from underlying socket
+  // Flow: doRead() → Read from TCP socket → Process HTTP/SSE → Return JSON-RPC to app
+  // Why: Transport sockets are responsible for both I/O and protocol processing
+  
+  std::cerr << "[doRead] Server mode: " << is_server_mode_ 
+            << ", State: " << HttpSseStateMachine::getStateName(state_machine_->getCurrentState())
+            << ", Callbacks: " << (callbacks_ ? "set" : "null") << std::endl;
+  
   // Check if we can read in current state
   if (!HttpSseStatePatterns::canReceiveData(
           state_machine_->getCurrentState())) {
-    return {TransportIoResult::CONTINUE, 0, false,
-            nullopt};  // Pause by returning 0 bytes
+    // Not ready to receive - return 0 bytes without error
+    std::cerr << "[doRead] Cannot receive data in current state" << std::endl;
+    return {TransportIoResult::CONTINUE, 0, false, nullopt};
   }
 
-  // Move data from socket buffer to our read buffer
-  size_t bytes_read = buffer.length();
-  if (bytes_read > 0) {
-    read_buffer_->move(buffer);
-    bytes_received_ += bytes_read;
-
-    // Check watermarks
-    if (read_buffer_->length() > kHighWatermark) {
-      // Notify high watermark reached
-      if (callbacks_) {
-        // Flow control notification - buffer above high watermark
+  TransportIoResult result = {TransportIoResult::CONTINUE, 0, false, nullopt};
+  
+  // Read from the underlying TCP socket
+  if (callbacks_) {
+    // Production pattern: Read directly from socket into buffer
+    // Flow: TCP socket → buffer → HTTP parsing → JSON-RPC extraction
+    IoCallResult io_result = callbacks_->ioHandle().read(buffer, nullopt);
+    
+    if (io_result.ok()) {
+      size_t bytes_read = *io_result;
+      
+      if (bytes_read == 0) {
+        // Remote closed connection
+        result.end_stream_read_ = true;
+        result.action_ = TransportIoResult::CLOSE;
+        return result;
+      }
+      
+      // Process the received data through HTTP/SSE protocol layers
+      bytes_received_ += bytes_read;
+      
+      // Move data to internal buffer for protocol processing
+      read_buffer_->move(buffer);
+      
+      // Process based on current state (HTTP parsing, SSE parsing, etc.)
+      processReceivedData();
+      
+      // For server mode: If we have parsed JSON-RPC ready, return it to app
+      if (is_server_mode_ && have_data_to_deliver_ && read_buffer_->length() > 0) {
+        buffer.move(*read_buffer_);
+        have_data_to_deliver_ = false;
+        // Return the parsed JSON-RPC data
+        result.bytes_processed_ = buffer.length();
+      } else {
+        // No application data ready yet, keep reading
+        result.bytes_processed_ = 0;
+      }
+    } else {
+      // Handle socket errors
+      if (!io_result.wouldBlock()) {
+        result.action_ = TransportIoResult::CLOSE;
+        result.error_ = Error(io_result.error_code(), 
+                            io_result.error_info ? io_result.error_info->message : "Read error");
+        failure_reason_ = "Socket read error";
       }
     }
-
-    // Process received data based on current state
-    processReceivedData();
   }
 
-  // Determine next action based on state
-  TransportIoResult::PostIoAction action = determineReadAction();
-
-  return {action, bytes_read, false, nullopt};
+  return result;
 }
 
 TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
                                                   bool end_stream) {
-  // Debug: Log incoming data from network
-  std::cerr << "[HttpSseTransportSocket::doWrite] Called with " << buffer.length() 
-            << " bytes in " << (is_server_mode_ ? "SERVER" : "CLIENT") 
-            << " mode, state=" << HttpSseStateMachine::getStateName(state_machine_->getCurrentState()) 
-            << std::endl;
-  
-  // CRITICAL FIX: In server mode, doWrite receives incoming HTTP requests from network
-  // Flow: Network → doWrite (incoming HTTP data) → Parse → Store for doRead
-  if (is_server_mode_ && buffer.length() > 0 &&
-      HttpSseStatePatterns::canReceiveData(state_machine_->getCurrentState())) {
-    std::cerr << "[HttpSseTransportSocket::doWrite] SERVER: Processing " << buffer.length() 
-              << " bytes of incoming HTTP data" << std::endl;
-    
-    // Parse incoming HTTP request data
-    if (request_parser_) {
-      // Zero-copy parsing: use linearize to get contiguous memory
-      // Flow: linearize ensures data is contiguous → pass direct pointer to parser
-      // Why: Avoids string allocation and memory copy for better performance
-      size_t data_len = buffer.length();
-      if (data_len > 0) {
-        const char* data = static_cast<const char*>(buffer.linearize(data_len));
-        size_t consumed = request_parser_->execute(data, data_len);
-        buffer.drain(consumed); // Only drain what was actually consumed
-      }
-      
-      // Return that we processed the data
-      return {TransportIoResult::CONTINUE, 0, false, nullopt};
-    }
-  }
+  // Following production transport socket pattern:
+  // doWrite() is for OUTGOING data (app → network), not incoming
+  // The confusion arose from misunderstanding the data flow
+  // Correct flow: Network → doRead() → App → doWrite() → Network
 
   // Check if we can write in current state (for outgoing data)
   if (!HttpSseStatePatterns::canSendData(state_machine_->getCurrentState())) {
@@ -309,23 +319,32 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
     buffer.prepend(headers.c_str(), headers.length());
   }
 
-  // Process pending writes first
-  if (write_buffer_->length() > 0) {
-    buffer.move(*write_buffer_);
-  }
-
-  // Process queued requests if connected
-  if (state_machine_->isConnected()) {
-    flushPendingRequests();
-  }
-
-  size_t bytes_written = buffer.length();
-  if (bytes_written > 0) {
-    bytes_sent_ += bytes_written;
-
-    // Check watermarks
-    if (buffer.length() < kLowWatermark && callbacks_) {
-      // Flow control notification - buffer below low watermark
+  // Write data to the underlying TCP socket
+  TransportIoResult result = {TransportIoResult::CONTINUE, 0, false, nullopt};
+  
+  if (callbacks_ && buffer.length() > 0) {
+    // Production pattern: Write directly to socket
+    // Flow: Application data → Protocol formatting → TCP socket
+    IoCallResult io_result = callbacks_->ioHandle().write(buffer);
+    
+    if (io_result.ok()) {
+      size_t bytes_written = *io_result;
+      result.bytes_processed_ = bytes_written;
+      bytes_sent_ += bytes_written;
+      
+      // Check if all data was written
+      if (buffer.length() > 0) {
+        // Not all data written, save remainder for next write
+        write_buffer_->move(buffer);
+      }
+    } else {
+      // Handle socket errors
+      if (!io_result.wouldBlock()) {
+        result.action_ = TransportIoResult::CLOSE;
+        result.error_ = Error(io_result.error_code(),
+                            io_result.error_info ? io_result.error_info->message : "Write error");
+        failure_reason_ = "Socket write error";
+      }
     }
   }
 
@@ -334,13 +353,14 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
     handleEndStream();
   }
 
-  // Determine next action based on state
-  TransportIoResult::PostIoAction action = determineWriteAction();
-
-  return {action, bytes_written, false, nullopt};
+  return result;
 }
 
 void HttpSseTransportSocket::onConnected() {
+  std::cerr << "[onConnected] Called, server mode: " << is_server_mode_ 
+            << ", Current state: " << HttpSseStateMachine::getStateName(state_machine_->getCurrentState()) 
+            << std::endl;
+            
   // THREAD-SAFE IDEMPOTENCY GUARD: Ensure onConnected is only processed once
   // Flow: Atomically test-and-set flag → Process connection if first call
   // Why: This method can be called from multiple threads/layers:
@@ -354,6 +374,7 @@ void HttpSseTransportSocket::onConnected() {
   if (!on_connected_called_.compare_exchange_strong(
           expected, true, std::memory_order_acq_rel)) {
     // Already called by another thread, silently return
+    std::cerr << "[onConnected] Already called, returning" << std::endl;
     return;
   }
 
@@ -390,24 +411,29 @@ void HttpSseTransportSocket::onConnected() {
         "Invalid state for onConnected: Expected TcpConnecting, got "
         "Initialized");
   } else if (is_server_mode_ &&
-             (current_state == HttpSseState::Initialized ||
-              current_state == HttpSseState::ServerListening)) {
-    // STATE MACHINE FLOW - Server Mode:
-    // Expected: Initialized/ServerListening → accept connection →
-    // ServerConnectionAccepted → ServerRequestReceiving
-    // Why: Server accepts connection then immediately transitions to receive HTTP requests
-    // Following production pattern: Connection established → Ready to receive data
+             (current_state == HttpSseState::Uninitialized ||
+              current_state == HttpSseState::Initialized)) {
+    // Following production's ServerConnectionImpl::initializeReadFilters() pattern:
+    // Flow: Accept → Create connection → Initialize filters → onConnected() → Ready to receive
+    // Why: Server connections are created in "connected" state and must explicitly
+    // signal to the transport socket that the underlying socket is connected.
+    // This happens AFTER filter initialization to ensure proper event ordering.
+    
+    // Server immediately transitions to request receiving state
+    // No intermediate states needed - we're already connected
     state_machine_->transition(
-        HttpSseState::ServerConnectionAccepted,
+        HttpSseState::ServerRequestReceiving,
         [this](bool success, const std::string& error) {
           if (success) {
-            // Server immediately transitions to request receiving state
-            // Flow: ServerConnectionAccepted → ServerRequestReceiving → Parse HTTP
-            // This follows production pattern where accepted connections are
-            // immediately ready to receive data
-            state_machine_->transition(HttpSseState::ServerRequestReceiving);
+            // Following production pattern: Notify that transport is ready for reads
+            // This enables the connection to start processing incoming data
+            if (callbacks_) {
+              // Signal that we're ready to receive data
+              // This will trigger onReadReady() when data arrives
+              callbacks_->setTransportSocketIsReadable();
+            }
           } else {
-            handleConnectionError("Failed to accept connection: " + error);
+            handleConnectionError("Failed to transition to request receiving: " + error);
           }
         });
   } else {
