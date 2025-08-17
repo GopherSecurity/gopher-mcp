@@ -49,10 +49,11 @@ SseCodecStateTransitionResult SseCodecStateMachine::handleEvent(
   assertInDispatcherThread();
   
   // Map event to appropriate state transition
-  SseCodecState new_state = current_state_;
+  SseCodecState current = current_state_.load(std::memory_order_acquire);
+  SseCodecState new_state = current;
   std::string reason;
   
-  switch (current_state_) {
+  switch (current) {
     case SseCodecState::Idle:
       if (event == SseCodecEvent::StartStream) {
         new_state = SseCodecState::StreamActive;
@@ -108,7 +109,7 @@ SseCodecStateTransitionResult SseCodecStateMachine::handleEvent(
   }
   
   // Perform transition if state changed
-  if (new_state != current_state_) {
+  if (new_state != current) {
     return transitionTo(new_state, event, reason, callback);
   }
   
@@ -343,9 +344,12 @@ void SseCodecStateMachine::onStateExit(SseCodecState state, CompletionCallback c
   // Check for exit action
   auto it = exit_actions_.find(state);
   if (it != exit_actions_.end()) {
-    it->second(state, callback);
+    // Wrap the completion callback to match the expected signature
+    it->second(state, [callback]() { 
+      if (callback) callback(true); 
+    });
   } else if (callback) {
-    callback();
+    callback(true);
   }
   
   // Stop state-specific timers
@@ -369,9 +373,12 @@ void SseCodecStateMachine::onStateEnter(SseCodecState state, CompletionCallback 
   // Check for entry action
   auto it = entry_actions_.find(state);
   if (it != entry_actions_.end()) {
-    it->second(state, callback);
+    // Wrap the completion callback to match the expected signature
+    it->second(state, [callback]() { 
+      if (callback) callback(true); 
+    });
   } else if (callback) {
-    callback();
+    callback(true);
   }
   
   // Start state-specific timers
@@ -448,7 +455,7 @@ void SseCodecStateMachine::executeTransition(
   auto time_in_state = getTimeInCurrentState();
   
   // Exit old state
-  onStateExit(old_state, [this, old_state, new_state, event, reason, time_in_state, callback]() {
+  onStateExit(old_state, [this, old_state, new_state, event, reason, time_in_state, callback](bool exit_success) {
     // Update state
     current_state_ = new_state;
     state_entry_time_ = std::chrono::steady_clock::now();

@@ -764,6 +764,29 @@ add_test(NAME FilterChainStateMachineTest COMMAND test_filter_chain_state_machin
 add_test(NAME EventLoopRealIoTest COMMAND test_event_loop_real_io)
 add_test(NAME ConnectionManagerRealIoTest COMMAND test_connection_manager_real_io)
 
+# Filter state machine tests
+add_executable(test_http_codec_state_machine filter/test_http_codec_state_machine.cc)
+target_link_libraries(test_http_codec_state_machine 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME HttpCodecStateMachineTest COMMAND test_http_codec_state_machine)
+
+add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
+target_link_libraries(test_sse_codec_state_machine 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME SseCodecStateMachineTest COMMAND test_sse_codec_state_machine)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
@@ -783,6 +806,7 @@ add_custom_target(run_tests
             test_stdio_transport_socket test_http_transport_socket test_http_sse_transport_socket
             test_mcp_connection_manager test_builders
             test_event_loop_real_io test_connection_manager_real_io
+            test_http_codec_state_machine test_sse_codec_state_machine
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running tests..."
 )
