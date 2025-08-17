@@ -181,7 +181,7 @@ private:
   /**
    * Handle state machine state changes
    */
-  void onCodecStateChange(HttpCodecState old_state, HttpCodecState new_state);
+  void onCodecStateChange(const HttpCodecStateTransitionContext& context);
   
   /**
    * Handle state machine errors

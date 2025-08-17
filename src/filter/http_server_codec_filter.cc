@@ -5,12 +5,15 @@
  * - Handles HTTP/1.1 protocol processing
  * - Completely separate from transport layer
  * - Works with any transport socket that provides raw I/O
+ * - Integrates with HttpCodecStateMachine for state management
  */
 
 #include "mcp/filter/http_server_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/http/llhttp_parser.h"
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 namespace mcp {
 namespace filter {
@@ -32,20 +35,36 @@ HttpServerCodecFilter::HttpServerCodecFilter(RequestCallbacks& callbacks,
   
   // Initialize response encoder
   response_encoder_ = std::make_unique<ResponseEncoderImpl>(*this);
+  
+  // Initialize HTTP codec state machine
+  HttpCodecStateMachineConfig config;
+  config.header_timeout = std::chrono::milliseconds(30000);
+  config.body_timeout = std::chrono::milliseconds(60000);
+  config.idle_timeout = std::chrono::milliseconds(120000);
+  config.enable_keep_alive = true;
+  config.state_change_callback = [this](const HttpCodecStateTransitionContext& ctx) {
+    onCodecStateChange(ctx);
+  };
+  config.error_callback = [this](const std::string& error) {
+    onCodecError(error);
+  };
+  
+  state_machine_ = std::make_unique<HttpCodecStateMachine>(dispatcher_, config);
 }
 
 HttpServerCodecFilter::~HttpServerCodecFilter() = default;
 
 // network::ReadFilter interface
 network::FilterStatus HttpServerCodecFilter::onNewConnection() {
-  state_ = CodecState::IDLE;
+  // State machine starts in WaitingForRequest state by default
   return network::FilterStatus::Continue;
 }
 
 network::FilterStatus HttpServerCodecFilter::onData(Buffer& data, bool end_stream) {
-  if (state_ == CodecState::COMPLETE) {
-    // Previous request complete, reset for next
-    state_ = CodecState::IDLE;
+  // Check if we need to reset for next request
+  if (state_machine_->currentState() == HttpCodecState::Closed) {
+    // Reset for next request if connection was closed
+    state_machine_->resetForNextRequest();
     current_headers_.clear();
     current_body_.clear();
   }
@@ -85,7 +104,7 @@ void HttpServerCodecFilter::dispatch(Buffer& data) {
 }
 
 void HttpServerCodecFilter::handleParserError(const std::string& error) {
-  state_ = CodecState::COMPLETE;
+  state_machine_->handleEvent(HttpCodecEvent::ParseError);
   request_callbacks_.onError(error);
 }
 
@@ -97,7 +116,7 @@ void HttpServerCodecFilter::sendResponseData(Buffer& data) {
 
 // ParserCallbacks implementation
 http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onMessageBegin() {
-  parent_.state_ = CodecState::PROCESSING_HEADERS;
+  parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   parent_.current_headers_.clear();
   parent_.current_body_.clear();
   current_header_field_.clear();
@@ -150,8 +169,26 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeadersComp
   // Check keep-alive
   parent_.keep_alive_ = parent_.parser_->shouldKeepAlive();
   
+  // Determine if request has body based on Content-Length or Transfer-Encoding
+  bool has_body = false;
+  auto content_length_it = parent_.current_headers_.find("content-length");
+  auto transfer_encoding_it = parent_.current_headers_.find("transfer-encoding");
+  
+  if (content_length_it != parent_.current_headers_.end()) {
+    int content_length = std::stoi(content_length_it->second);
+    has_body = (content_length > 0);
+  } else if (transfer_encoding_it != parent_.current_headers_.end() &&
+             transfer_encoding_it->second.find("chunked") != std::string::npos) {
+    has_body = true;
+  }
+  
+  // Set body expectation for state machine
+  parent_.state_machine_->setExpectRequestBody(has_body);
+  
+  // Trigger headers complete event
+  parent_.state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
+  
   // Notify callbacks
-  parent_.state_ = CodecState::PROCESSING_BODY;
   parent_.request_callbacks_.onHeaders(parent_.current_headers_, parent_.keep_alive_);
   
   return http::ParserCallbackResult::Success;
@@ -160,11 +197,12 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeadersComp
 http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   parent_.current_body_.append(data, length);
+  parent_.state_machine_->handleEvent(HttpCodecEvent::BodyData);
   return http::ParserCallbackResult::Success;
 }
 
 http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onMessageComplete() {
-  parent_.state_ = CodecState::COMPLETE;
+  parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
   
   // Send body to callbacks
   if (!parent_.current_body_.empty()) {
@@ -195,7 +233,7 @@ void HttpServerCodecFilter::ResponseEncoderImpl::encodeHeaders(
     const std::map<std::string, std::string>& headers,
     bool end_stream) {
   
-  parent_.state_ = CodecState::SENDING_RESPONSE;
+  parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
   
   // Build HTTP response
   std::ostringstream response;
@@ -214,8 +252,8 @@ void HttpServerCodecFilter::ResponseEncoderImpl::encodeHeaders(
   response << "\r\n";
   
   // Add headers
-  for (const auto& [key, value] : headers) {
-    response << key << ": " << value << "\r\n";
+  for (const auto& header : headers) {
+    response << header.first << ": " << header.second << "\r\n";
   }
   
   // End headers
@@ -227,7 +265,7 @@ void HttpServerCodecFilter::ResponseEncoderImpl::encodeHeaders(
   parent_.sendResponseData(parent_.response_buffer_);
   
   if (end_stream) {
-    parent_.state_ = CodecState::COMPLETE;
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
   }
 }
 
@@ -236,8 +274,19 @@ void HttpServerCodecFilter::ResponseEncoderImpl::encodeData(Buffer& data, bool e
   parent_.sendResponseData(data);
   
   if (end_stream) {
-    parent_.state_ = CodecState::COMPLETE;
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
   }
+}
+
+// State machine callback handlers
+void HttpServerCodecFilter::onCodecStateChange(const HttpCodecStateTransitionContext& context) {
+  // Handle state changes as needed
+  // For example, logging, metrics, or connection management
+}
+
+void HttpServerCodecFilter::onCodecError(const std::string& error) {
+  // Handle codec-level errors
+  request_callbacks_.onError("HTTP codec error: " + error);
 }
 
 } // namespace filter
