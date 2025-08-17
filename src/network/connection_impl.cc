@@ -1,15 +1,18 @@
 #include "mcp/network/connection_impl.h"
+
+#include <algorithm>
+#include <iostream>
+#include <sstream>
+
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+
 #include "mcp/buffer.h"
+#include "mcp/event/event_loop.h"
 #include "mcp/network/connection_utility.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/event/event_loop.h"
-#include <algorithm>
-#include <sstream>
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 
 namespace mcp {
 namespace network {
@@ -31,10 +34,9 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
       write_buffer_([this]() { return onWriteBufferLowWatermark(); },
                     [this]() { return onWriteBufferHighWatermark(); },
                     [this]() { return onWriteBufferBelowLowWatermark(); }) {
-  
   // Initialize connection state machine
   state_machine_ = std::make_unique<ConnectionStateMachine>(dispatcher);
-  
+
   // Register state change listener
   state_machine_->addStateChangeListener(
       [this](const StateTransitionContext& ctx) {
@@ -48,7 +50,7 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
             // During connection establishment, keep current state
             // The connecting_ flag tracks this separately
             break;
-            
+
           // Open states
           case ConnectionMachineState::Connected:
           case ConnectionMachineState::Reading:
@@ -57,7 +59,7 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
           case ConnectionMachineState::Idle:
             state_ = ConnectionState::Open;
             break;
-            
+
           // Closing states
           case ConnectionMachineState::Closing:
           case ConnectionMachineState::Draining:
@@ -66,26 +68,26 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
           case ConnectionMachineState::HalfClosedRemote:
             state_ = ConnectionState::Closing;
             break;
-            
+
           // Closed states
           case ConnectionMachineState::Closed:
           case ConnectionMachineState::Error:
           case ConnectionMachineState::Aborted:
             state_ = ConnectionState::Closed;
             break;
-            
+
           // Initial states - don't change connection state
           case ConnectionMachineState::Uninitialized:
           case ConnectionMachineState::Initialized:
             // Keep current state
             break;
-            
+
           default:
             // Keep current state for other machine states
             break;
         }
       });
-  
+
   // State machine starts in appropriate initial state
 }
 
@@ -96,9 +98,8 @@ void ConnectionImplBase::addConnectionCallbacks(ConnectionCallbacks& cb) {
 }
 
 void ConnectionImplBase::removeConnectionCallbacks(ConnectionCallbacks& cb) {
-  callbacks_.erase(
-      std::remove(callbacks_.begin(), callbacks_.end(), &cb),
-      callbacks_.end());
+  callbacks_.erase(std::remove(callbacks_.begin(), callbacks_.end(), &cb),
+                   callbacks_.end());
 }
 
 void ConnectionImplBase::addBytesSentCallback(BytesSentCb cb) {
@@ -125,7 +126,8 @@ void ConnectionImplBase::onWriteReady() {
   // Implemented in ConnectionImpl
 }
 
-void ConnectionImplBase::updateReadBufferStats(uint64_t num_read, uint64_t new_size) {
+void ConnectionImplBase::updateReadBufferStats(uint64_t num_read,
+                                               uint64_t new_size) {
   // Update read statistics
   if (stats_.has_value()) {
     stats_->read_total_ += num_read;
@@ -133,7 +135,8 @@ void ConnectionImplBase::updateReadBufferStats(uint64_t num_read, uint64_t new_s
   }
 }
 
-void ConnectionImplBase::updateWriteBufferStats(uint64_t num_written, uint64_t new_size) {
+void ConnectionImplBase::updateWriteBufferStats(uint64_t num_written,
+                                                uint64_t new_size) {
   // Update write statistics
   if (stats_.has_value()) {
     stats_->write_total_ += num_written;
@@ -161,8 +164,9 @@ void ConnectionImplBase::onReadBufferLowWatermark() {
 void ConnectionImplBase::onReadBufferHighWatermark() {
   // Stop reading when buffer is full
   if (file_event_) {
-    file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Write) |
-                           static_cast<uint32_t>(event::FileReadyType::Closed));
+    file_event_->setEnabled(
+        static_cast<uint32_t>(event::FileReadyType::Write) |
+        static_cast<uint32_t>(event::FileReadyType::Closed));
   }
 }
 
@@ -220,46 +224,48 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
                                SocketPtr&& socket,
                                TransportSocketPtr&& transport_socket,
                                bool connected)
-    : ConnectionImplBase(dispatcher, std::move(socket), std::move(transport_socket)) {
-  
+    : ConnectionImplBase(
+          dispatcher, std::move(socket), std::move(transport_socket)) {
   // Set initial state
   connecting_ = !connected;
   state_ = connected ? ConnectionState::Open : ConnectionState::Open;
-  
+
   // Set up transport socket callbacks
   if (transport_socket_) {
-    transport_socket_->setTransportSocketCallbacks(static_cast<TransportSocketCallbacks&>(*this));
+    transport_socket_->setTransportSocketCallbacks(
+        static_cast<TransportSocketCallbacks&>(*this));
   }
-  
+
   // Configure socket with optimal settings
   SocketConfigUtility::configureSocket(*socket_, is_server_connection_);
-  
+
   // Apply socket options if any
   // auto socket_options = socketOptions();
   // if (socket_options) {
   //   ConnectionUtility::applySocketOptions(*socket_, socket_options_);
   // }
-  
+
   // Create file event for socket I/O
-  // Flow: Socket created -> Register file event -> Enable read/write based on state
-  // Server connections: Enable read immediately to receive requests
-  // Client connections: Enable write first for connect, then read after connected
+  // Flow: Socket created -> Register file event -> Enable read/write based on
+  // state Server connections: Enable read immediately to receive requests
+  // Client connections: Enable write first for connect, then read after
+  // connected
   if (socket_) {
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-        // For pipe sockets, use level-triggered events to ensure we don't miss data
-        // that's already in the buffer when we set up the event
-        auto trigger_type = (socket_->addressType() == network::Address::Type::Pipe)
-            ? event::FileTriggerType::Level
-            : event::FileTriggerType::Edge;
-        
+        // For pipe sockets, use level-triggered events to ensure we don't miss
+        // data that's already in the buffer when we set up the event
+        auto trigger_type =
+            (socket_->addressType() == network::Address::Type::Pipe)
+                ? event::FileTriggerType::Level
+                : event::FileTriggerType::Edge;
+
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
-            [this](uint32_t events) { onFileEvent(events); },
-            trigger_type,
+            [this](uint32_t events) { onFileEvent(events); }, trigger_type,
             static_cast<uint32_t>(event::FileReadyType::Closed));
-    
+
         // Enable appropriate events based on connection state
         if (connected) {
           // Already connected (server connection) - enable read events
@@ -283,61 +289,59 @@ ConnectionImpl::~ConnectionImpl() {
   }
 }
 
-void ConnectionImpl::close(ConnectionCloseType type) {
-  close(type, "");
-}
+void ConnectionImpl::close(ConnectionCloseType type) { close(type, ""); }
 
-void ConnectionImpl::close(ConnectionCloseType type, const std::string& details) {
+void ConnectionImpl::close(ConnectionCloseType type,
+                           const std::string& details) {
   if (state_ == ConnectionState::Closed) {
     return;
   }
-  
+
   // Transition state machine to Closing
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::CloseRequested);
   }
-  
+
   local_close_reason_ = std::string(details);
-  
+
   switch (type) {
-  case ConnectionCloseType::NoFlush:
-    closeSocket(ConnectionEvent::LocalClose);
-    break;
-    
-  case ConnectionCloseType::FlushWrite:
-    state_ = ConnectionState::Closing;
-    if (write_buffer_.length() == 0) {
+    case ConnectionCloseType::NoFlush:
       closeSocket(ConnectionEvent::LocalClose);
-    } else {
-      // Will close after write buffer is drained
+      break;
+
+    case ConnectionCloseType::FlushWrite:
+      state_ = ConnectionState::Closing;
+      if (write_buffer_.length() == 0) {
+        closeSocket(ConnectionEvent::LocalClose);
+      } else {
+        // Will close after write buffer is drained
+        write_half_closed_ = true;
+        doWrite();
+      }
+      break;
+
+    case ConnectionCloseType::FlushWriteAndDelay:
+      state_ = ConnectionState::Closing;
       write_half_closed_ = true;
+      if (delayed_close_timer_ == nullptr) {
+        delayed_close_timer_ =
+            dispatcher_.createTimer([this]() { onDelayedCloseTimeout(); });
+      }
+      delayed_close_timer_->enableTimer(delayed_close_timeout_);
       doWrite();
-    }
-    break;
-    
-  case ConnectionCloseType::FlushWriteAndDelay:
-    state_ = ConnectionState::Closing;
-    write_half_closed_ = true;
-    if (delayed_close_timer_ == nullptr) {
-      delayed_close_timer_ = dispatcher_.createTimer([this]() {
-        onDelayedCloseTimeout();
-      });
-    }
-    delayed_close_timer_->enableTimer(delayed_close_timeout_);
-    doWrite();
-    break;
-    
-  case ConnectionCloseType::Abort:
-  case ConnectionCloseType::AbortReset:
-    // Reset connection immediately
-    {
-      struct linger lng;
-      lng.l_onoff = 1;
-      lng.l_linger = 0;
-      socket_->setSocketOption(SOL_SOCKET, SO_LINGER, &lng, sizeof(lng));
-    }
-    closeSocket(ConnectionEvent::LocalClose);
-    break;
+      break;
+
+    case ConnectionCloseType::Abort:
+    case ConnectionCloseType::AbortReset:
+      // Reset connection immediately
+      {
+        struct linger lng;
+        lng.l_onoff = 1;
+        lng.l_linger = 0;
+        socket_->setSocketOption(SOL_SOCKET, SO_LINGER, &lng, sizeof(lng));
+      }
+      closeSocket(ConnectionEvent::LocalClose);
+      break;
   }
 }
 
@@ -345,12 +349,12 @@ void ConnectionImpl::hashKey(std::vector<uint8_t>& hash) const {
   // Hash local and remote addresses
   const auto local = socket_->connectionInfoProvider().localAddress();
   const auto remote = socket_->connectionInfoProvider().remoteAddress();
-  
+
   if (local) {
     const auto addr_str = local->asString();
     hash.insert(hash.end(), addr_str.begin(), addr_str.end());
   }
-  
+
   if (remote) {
     const auto addr_str = remote->asString();
     hash.insert(hash.end(), addr_str.begin(), addr_str.end());
@@ -387,7 +391,7 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
   }
 }
 
-optional<Connection::UnixDomainSocketPeerCredentials> 
+optional<Connection::UnixDomainSocketPeerCredentials>
 ConnectionImpl::unixSocketPeerCredentials() const {
   return ConnectionUtility::getUnixSocketPeerCredentials(*socket_);
 }
@@ -406,23 +410,23 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   if (state_ != ConnectionState::Open || write_half_closed_) {
     return;
   }
-  
+
   if (end_stream) {
     write_half_closed_ = true;
   }
-  
+
   // Filter chain processes the write
   filter_manager_.onWrite();
-  
+
   // Move data to write buffer
   // CRITICAL: The move() function moves data FROM the source TO the destination
   // We need to move FROM data TO write_buffer_, so data should be the source
   // The correct call is: data.move(write_buffer_) not write_buffer_.move(data)
   data.move(write_buffer_);  // Move FROM data TO write_buffer_
-  
+
   // Update stats
   updateWriteBufferStats(data.length(), write_buffer_.length());
-  
+
   // Check watermarks
   if (write_buffer_.length() > high_watermark_ && !above_high_watermark_) {
     above_high_watermark_ = true;
@@ -430,7 +434,7 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
       cb->onAboveWriteBufferHighWatermark();
     }
   }
-  
+
   // Schedule write
   if (!write_scheduled_) {
     write_scheduled_ = true;
@@ -463,7 +467,8 @@ optional<std::chrono::milliseconds> ConnectionImpl::lastRoundTripTime() const {
 void ConnectionImpl::configureInitialCongestionWindow(
     uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) {
   if (transport_socket_) {
-    transport_socket_->configureInitialCongestionWindow(bandwidth_bits_per_sec, rtt);
+    transport_socket_->configureInitialCongestionWindow(bandwidth_bits_per_sec,
+                                                        rtt);
   }
 }
 
@@ -489,26 +494,29 @@ void ConnectionImpl::raiseEvent(ConnectionEvent event) {
 void ConnectionImpl::flushWriteBuffer() {
   // Flush any pending data in write buffer
   // Called by transport socket when it needs to send data immediately
-  // Flow: Transport has data -> flushWriteBuffer -> doWrite -> Transport adds data -> Socket write
-  // Zero-copy: Transport manipulates write_buffer_ directly, no intermediate allocation
-  
-  // Simply trigger a write, which will call transport's doWrite to process the buffer
-  // The transport will add any pending data during the doWrite call
+  // Flow: Transport has data -> flushWriteBuffer -> doWrite -> Transport adds
+  // data -> Socket write Zero-copy: Transport manipulates write_buffer_
+  // directly, no intermediate allocation
+
+  // Simply trigger a write, which will call transport's doWrite to process the
+  // buffer The transport will add any pending data during the doWrite call
   doWrite();
 }
 
-void ConnectionImpl::setTransportSocketConnectTimeout(std::chrono::milliseconds timeout) {
+void ConnectionImpl::setTransportSocketConnectTimeout(
+    std::chrono::milliseconds timeout) {
   transport_connect_timeout_ = timeout;
 }
 
 void ConnectionImpl::connect() {
   connecting_ = true;
-  
+
   // Transition state machine to Connecting
   if (state_machine_) {
-    state_machine_->handleEvent(ConnectionStateMachineEvent::ConnectionRequested);
+    state_machine_->handleEvent(
+        ConnectionStateMachineEvent::ConnectionRequested);
   }
-  
+
   doConnect();
 }
 
@@ -536,18 +544,17 @@ bool ConnectionImpl::initializeReadFilters() {
 
 void ConnectionImpl::onFileEvent(uint32_t events) {
   // Handle file events from event loop
-  // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle read/write/close
-  // All callbacks are invoked in dispatcher thread context
-  
-  
+  // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle
+  // read/write/close All callbacks are invoked in dispatcher thread context
+
   if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
     onWriteReady();
   }
-  
+
   if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
     onReadReady();
   }
-  
+
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
     // Remote close detected
     detected_close_type_ = DetectedCloseType::RemoteReset;
@@ -565,25 +572,25 @@ void ConnectionImpl::onReadReady() {
 
 void ConnectionImpl::onWriteReady() {
   write_ready_ = true;
-  
+
   // Notify state machine of write ready event
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::WriteReady);
   }
-  
+
   if (connecting_) {
     // Connection completed
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
-    
+
     // Notify state machine of connection success
     if (state_machine_) {
       state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
     }
-    
+
     raiseConnectionEvent(ConnectionEvent::Connected);
-    
+
     // Enable read events
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
   } else {
@@ -595,17 +602,17 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (state_ == ConnectionState::Closed) {
     return;
   }
-  
+
   // Transition state machine to Closed
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::SocketClosed);
   }
-  
+
   state_ = ConnectionState::Closed;
-  
+
   // Disable all file events
   file_event_.reset();
-  
+
   // Cancel timers
   if (delayed_close_timer_) {
     delayed_close_timer_->disableTimer();
@@ -613,33 +620,34 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (transport_connect_timer_) {
     transport_connect_timer_->disableTimer();
   }
-  
+
   // Close transport socket
   if (transport_socket_) {
     transport_socket_->closeSocket(close_type);
   }
-  
+
   // Close actual socket
   socket_->close();
-  
+
   // Raise close event
   raiseConnectionEvent(close_type);
 }
 
 void ConnectionImpl::doConnect() {
-  // CRITICAL FIX: Notify transport socket about connection attempt BEFORE TCP connect
-  // Flow: Transport prepare → TCP connect → Connection events → Transport onConnected
-  // Why: The transport socket (e.g., HttpSseTransportSocket) has its own state machine
-  // that must be initialized before the TCP connection. Without this, the transport
-  // remains in Initialized state when onConnected() is called, causing invalid
-  // state transitions and crashes. This fix ensures proper sequencing:
+  // CRITICAL FIX: Notify transport socket about connection attempt BEFORE TCP
+  // connect Flow: Transport prepare → TCP connect → Connection events →
+  // Transport onConnected Why: The transport socket (e.g.,
+  // HttpSseTransportSocket) has its own state machine that must be initialized
+  // before the TCP connection. Without this, the transport remains in
+  // Initialized state when onConnected() is called, causing invalid state
+  // transitions and crashes. This fix ensures proper sequencing:
   //   1. Transport transitions from Initialized → TcpConnecting
   //   2. TCP connection establishes
   //   3. onConnected() transitions from TcpConnecting → TcpConnected
   if (transport_socket_) {
     auto transport_result = transport_socket_->connect(*socket_);
-    // Check if transport rejected the connection (returns Error instead of nullptr)
-    // VoidResult is variant<nullptr_t, Error> where nullptr = success
+    // Check if transport rejected the connection (returns Error instead of
+    // nullptr) VoidResult is variant<nullptr_t, Error> where nullptr = success
     if (!holds_alternative<std::nullptr_t>(transport_result)) {
       // Transport socket rejected the connection - abort
       immediate_error_event_ = true;
@@ -647,18 +655,20 @@ void ConnectionImpl::doConnect() {
       return;
     }
   }
-  
+
   // Now proceed with actual TCP connection
-  auto result = socket_->connect(socket_->connectionInfoProvider().remoteAddress());
-  
+  auto result =
+      socket_->connect(socket_->connectionInfoProvider().remoteAddress());
+
   if (result.ok() && *result == 0) {
-    // Immediate connection success (rare for TCP but can happen with local connections)
-    // Schedule the Connected event to be handled in the next dispatcher iteration
-    // This ensures all callbacks are invoked in proper dispatcher thread context
+    // Immediate connection success (rare for TCP but can happen with local
+    // connections) Schedule the Connected event to be handled in the next
+    // dispatcher iteration This ensures all callbacks are invoked in proper
+    // dispatcher thread context
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
-    
+
     // Post the event to dispatcher to ensure proper thread context
     dispatcher_.post([this]() {
       raiseConnectionEvent(ConnectionEvent::Connected);
@@ -677,7 +687,7 @@ void ConnectionImpl::doConnect() {
 void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
   // Use base class callbacks_ member for connection callbacks
   // This consolidates callback management in one place
-  
+
   // SAFETY FIX: Safely iterate over callbacks with null check
   // Flow: Iterate callbacks → Check null → Invoke onEvent
   // Why: During destruction or error handling, callbacks_ vector may contain
@@ -689,43 +699,43 @@ void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
       cb->onEvent(event);
     }
   }
-  
+
   filter_manager_.onConnectionEvent(event);
 }
 
 void ConnectionImpl::doRead() {
   // Read data from socket through transport socket abstraction
-  // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead -> Transport::doRead
-  // All operations happen in dispatcher thread context
-  
-  
+  // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
+  // Transport::doRead All operations happen in dispatcher thread context
+
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
     return;
   }
-  
+
   while (true) {
     // Read from socket into buffer
     auto result = doReadFromSocket();
-    
+
     // Check for errors
     if (!result.ok()) {
       // Socket error - close the connection
       closeSocket(ConnectionEvent::RemoteClose);
       return;
     }
-    
+
     // Check the action to take based on the result
     if (result.action_ == TransportIoResult::CLOSE) {
       // Transport indicated connection should be closed
       closeSocket(ConnectionEvent::RemoteClose);
       return;
     }
-    
+
     // Check if we got any data
     if (result.bytes_processed_ == 0) {
-      // No data available right now (EAGAIN case handled by transport returning stop())
-      // or EOF (handled by transport returning endStream with end_stream_read_ = true)
-      
+      // No data available right now (EAGAIN case handled by transport returning
+      // stop()) or EOF (handled by transport returning endStream with
+      // end_stream_read_ = true)
+
       if (result.end_stream_read_) {
         // This is a real EOF - the other end closed the connection
         read_half_closed_ = true;
@@ -733,18 +743,18 @@ void ConnectionImpl::doRead() {
         closeSocket(ConnectionEvent::RemoteClose);
         return;
       }
-      
+
       // No data available, but not EOF - just stop reading for now
       // The event loop will trigger another read when data is available
       break;
     }
-    
+
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
-    
+
     // Process through filter chain
     processReadBuffer();
-    
+
     if (read_disable_count_ > 0) {
       // Reading was disabled during processing
       break;
@@ -754,7 +764,7 @@ void ConnectionImpl::doRead() {
 
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket directly
-  
+
   // Read from transport socket
   if (!transport_socket_) {
     Error err;
@@ -775,12 +785,11 @@ void ConnectionImpl::doWrite() {
   // Write data to socket through transport socket abstraction
   // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
   // All operations happen in dispatcher thread context
-  
-  
+
   if (state_ != ConnectionState::Open) {
     return;
   }
-  
+
   // Let transport socket process the buffer first
   // This allows the transport to add any pending data (like HTTP headers)
   // even if write_buffer_ is initially empty
@@ -797,38 +806,41 @@ void ConnectionImpl::doWrite() {
       return;
     }
   }
-  
+
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
     return;
   }
-  
+
   // The transport socket now handles the actual socket write
   // Keep writing while buffer has data
   while (write_buffer_.length() > 0) {
     // Call transport to write - it handles socket I/O and drains buffer
-    auto write_result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
-    
+    auto write_result =
+        transport_socket_->doWrite(write_buffer_, write_half_closed_);
+
     if (!write_result.ok()) {
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
-    
+
     if (write_result.action_ == TransportIoResult::CLOSE) {
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
-    
+
     // Check if transport couldn't write (would block)
-    if (write_result.bytes_processed_ == 0 && write_result.action_ == TransportIoResult::CONTINUE) {
+    if (write_result.bytes_processed_ == 0 &&
+        write_result.action_ == TransportIoResult::CONTINUE) {
       // Socket would block, enable write events
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
       break;
     }
-    
+
     // Update stats based on what transport wrote
-    updateWriteBufferStats(write_result.bytes_processed_, write_buffer_.length());
-    
+    updateWriteBufferStats(write_result.bytes_processed_,
+                           write_buffer_.length());
+
     // Check watermarks
     if (above_high_watermark_ && write_buffer_.length() < low_watermark_) {
       above_high_watermark_ = false;
@@ -836,15 +848,15 @@ void ConnectionImpl::doWrite() {
         cb->onBelowWriteBufferLowWatermark();
       }
     }
-    
+
     // If transport wrote everything, we're done
     if (write_buffer_.length() == 0) {
       break;
     }
-    
+
     // Continue loop to write more if buffer still has data
   }
-  
+
   if (write_buffer_.length() == 0 && write_half_closed_) {
     // All data written and we're closing
     if (state_ == ConnectionState::Closing) {
@@ -853,7 +865,8 @@ void ConnectionImpl::doWrite() {
   }
 }
 
-// doWriteToSocket removed - doWrite now handles socket write directly for zero-copy
+// doWriteToSocket removed - doWrite now handles socket write directly for
+// zero-copy
 
 void ConnectionImpl::handleWrite(bool all_data_sent) {
   if (all_data_sent) {
@@ -869,16 +882,18 @@ void ConnectionImpl::setReadBufferReady() {
   });
 }
 
-void ConnectionImpl::updateReadBufferStats(uint64_t num_read, uint64_t new_size) {
+void ConnectionImpl::updateReadBufferStats(uint64_t num_read,
+                                           uint64_t new_size) {
   if (stats_.has_value()) {
     ConnectionStats& stats = *stats_;
-    ConnectionUtility::updateBufferStats(num_read, new_size, 
+    ConnectionUtility::updateBufferStats(num_read, new_size,
                                          last_read_buffer_size_, stats);
   }
   last_read_buffer_size_ = new_size;
 }
 
-void ConnectionImpl::updateWriteBufferStats(uint64_t num_written, uint64_t new_size) {
+void ConnectionImpl::updateWriteBufferStats(uint64_t num_written,
+                                            uint64_t new_size) {
   if (stats_.has_value()) {
     ConnectionStats& stats = *stats_;
     ConnectionUtility::updateBufferStats(num_written, new_size,
@@ -912,21 +927,22 @@ void ConnectionImpl::disableFileEvents(uint32_t events) {
 
 uint32_t ConnectionImpl::getReadyEvents() {
   uint32_t events = 0;
-  
+
   if (write_ready_ || write_buffer_.length() > 0) {
     events |= static_cast<uint32_t>(event::FileReadyType::Write);
   }
-  
+
   if (read_buffer_.length() > 0) {
     events |= static_cast<uint32_t>(event::FileReadyType::Read);
   }
-  
+
   return events;
 }
 
 // ConnectionUtility implementation
 
-void ConnectionUtility::updateBufferStats(uint64_t delta, uint64_t new_total,
+void ConnectionUtility::updateBufferStats(uint64_t delta,
+                                          uint64_t new_total,
                                           uint64_t& previous_total,
                                           ConnectionStats& stats) {
   if (new_total > previous_total) {
@@ -938,18 +954,18 @@ void ConnectionUtility::updateBufferStats(uint64_t delta, uint64_t new_total,
   }
 }
 
-bool ConnectionUtility::applySocketOptions(Socket& socket,
-                                          const SocketOptionsSharedPtr& options) {
+bool ConnectionUtility::applySocketOptions(
+    Socket& socket, const SocketOptionsSharedPtr& options) {
   if (!options) {
     return true;
   }
-  
+
   for (const auto& option : *options) {
     if (!option->setOption(socket)) {
       return false;
     }
   }
-  
+
   return true;
 }
 
@@ -963,14 +979,14 @@ ConnectionUtility::getUnixSocketPeerCredentials(const Socket& socket) {
 void ConnectionUtility::configureSocket(Socket& socket, bool is_server) {
   // Set socket to non-blocking mode
   socket.setBlocking(false);
-  
+
   // Enable TCP keep-alive
   int val = 1;
   socket.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val));
-  
+
   // Disable Nagle's algorithm for low latency
   socket.setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
-  
+
   if (is_server) {
     // Server-specific socket options
     socket.setSocketOption(SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
@@ -984,7 +1000,7 @@ ConnectionEventLogger::ConnectionEventLogger(const Connection& connection)
   // Generate connection ID for logging
   std::vector<uint8_t> hash;
   connection.hashKey(hash);
-  
+
   std::stringstream ss;
   for (auto byte : hash) {
     ss << std::hex << static_cast<int>(byte);
@@ -992,35 +1008,38 @@ ConnectionEventLogger::ConnectionEventLogger(const Connection& connection)
   connection_id_ = ss.str();
 }
 
-void ConnectionEventLogger::logEvent(ConnectionEvent event, const std::string& details) {
+void ConnectionEventLogger::logEvent(ConnectionEvent event,
+                                     const std::string& details) {
   // Log connection events
   const char* event_name = nullptr;
   switch (event) {
-  case ConnectionEvent::Connected:
-    event_name = "Connected";
-    break;
-  case ConnectionEvent::RemoteClose:
-    event_name = "RemoteClose";
-    break;
-  case ConnectionEvent::LocalClose:
-    event_name = "LocalClose";
-    break;
-  case ConnectionEvent::ConnectedZeroRtt:
-    event_name = "ConnectedZeroRtt";
-    break;
+    case ConnectionEvent::Connected:
+      event_name = "Connected";
+      break;
+    case ConnectionEvent::RemoteClose:
+      event_name = "RemoteClose";
+      break;
+    case ConnectionEvent::LocalClose:
+      event_name = "LocalClose";
+      break;
+    case ConnectionEvent::ConnectedZeroRtt:
+      event_name = "ConnectedZeroRtt";
+      break;
   }
-  
+
   if (event_name) {
     // Would log: [connection_id_] Event: event_name details
   }
 }
 
 void ConnectionEventLogger::logRead(size_t bytes_read, size_t buffer_size) {
-  // Would log: [connection_id_] Read: bytes_read bytes, buffer size: buffer_size
+  // Would log: [connection_id_] Read: bytes_read bytes, buffer size:
+  // buffer_size
 }
 
 void ConnectionEventLogger::logWrite(size_t bytes_written, size_t buffer_size) {
-  // Would log: [connection_id_] Write: bytes_written bytes, buffer size: buffer_size
+  // Would log: [connection_id_] Write: bytes_written bytes, buffer size:
+  // buffer_size
 }
 
 void ConnectionEventLogger::logError(const std::string& error) {
@@ -1029,21 +1048,22 @@ void ConnectionEventLogger::logError(const std::string& error) {
 
 // ConnectionImpl state machine integration
 
-void ConnectionImpl::onStateChanged(ConnectionState old_state, ConnectionState new_state) {
-  // This function is no longer needed as state changes are handled in the lambda
-  // registered with the state machine
+void ConnectionImpl::onStateChanged(ConnectionState old_state,
+                                    ConnectionState new_state) {
+  // This function is no longer needed as state changes are handled in the
+  // lambda registered with the state machine
 }
 
 void ConnectionImpl::configureStateMachine() {
   // Configure state machine behavior
   // Called during initialization
-  
+
   if (!state_machine_) {
     return;
   }
-  
+
   // State machine is configured via the lambda registered in constructor
 }
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp

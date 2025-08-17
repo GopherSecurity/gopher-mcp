@@ -1,6 +1,7 @@
 /**
  * @file server_listener_manager.h
- * @brief Server listener manager for managing server-side listeners and tracking connections
+ * @brief Server listener manager for managing server-side listeners and
+ * tracking connections
  *
  * Following production patterns:
  * - Manages multiple listeners
@@ -100,7 +101,7 @@ class ServerListenerManager {
  * - Handles reject fraction for load shedding
  */
 class ServerListenerManagerImpl : public ServerListenerManager,
-                              public ListenerCallbacks {
+                                  public ListenerCallbacks {
  public:
   /**
    * Constructor
@@ -216,11 +217,13 @@ class ServerListenerManagerFactory {
 /**
  * Default listener manager factory
  */
-class DefaultServerListenerManagerFactory : public ServerListenerManagerFactory {
+class DefaultServerListenerManagerFactory
+    : public ServerListenerManagerFactory {
  public:
   std::unique_ptr<ServerListenerManager> createServerListenerManager(
       event::Dispatcher& dispatcher, optional<uint32_t> worker_index) override {
-    return std::make_unique<ServerListenerManagerImpl>(dispatcher, worker_index);
+    return std::make_unique<ServerListenerManagerImpl>(dispatcher,
+                                                       worker_index);
   }
 
   std::string name() const override { return "mcp.listener_manager.default"; }
