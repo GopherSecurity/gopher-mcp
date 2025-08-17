@@ -97,9 +97,12 @@ public:
   /**
    * Constructor
    * @param callbacks Event callbacks for application layer
+   * @param dispatcher Event dispatcher for async operations
    * @param is_server True for server mode (encoding), false for client (decoding)
    */
-  SseCodecFilter(EventCallbacks& callbacks, bool is_server);
+  SseCodecFilter(EventCallbacks& callbacks, 
+                 event::Dispatcher& dispatcher,
+                 bool is_server);
   
   ~SseCodecFilter() override;
 
@@ -177,7 +180,7 @@ private:
   /**
    * Handle state machine state changes
    */
-  void onCodecStateChange(SseCodecState old_state, SseCodecState new_state);
+  void onCodecStateChange(const SseCodecStateTransitionContext& context);
   
   /**
    * Handle state machine errors
@@ -191,6 +194,7 @@ private:
   
   // Components
   EventCallbacks& event_callbacks_;
+  event::Dispatcher& dispatcher_;
   bool is_server_;  // True for server mode (encoding)
   
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
