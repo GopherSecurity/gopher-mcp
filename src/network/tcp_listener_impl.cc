@@ -320,7 +320,7 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
         config_.ignore_global_conn_limit,
         config_.bypass_overload_manager,
         config_.max_connections_per_event,
-        nullopt  // Overload state would come from ConnectionHandler
+        nullopt  // Overload state would come from ListenerManager
     );
     
     // Set initial reject fraction
@@ -453,7 +453,7 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
       }
     }
     
-    // Hand off to parent (usually ConnectionHandler)
+    // Hand off to parent (usually ListenerManager)
     parent_cb_.onNewConnection(std::move(connection));
   } else {
     // No transport socket factory configured

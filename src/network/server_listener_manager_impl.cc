@@ -1,9 +1,9 @@
 /**
- * @file connection_handler_impl.cc
- * @brief Connection handler implementation for managing listeners
+ * @file server_listener_manager_impl.cc
+ * @brief Server listener manager implementation for managing server-side listeners
  */
 
-#include "mcp/network/connection_handler.h"
+#include "mcp/network/server_listener_manager.h"
 #include "mcp/network/connection_impl.h"
 
 #include <sstream>
@@ -12,11 +12,11 @@ namespace mcp {
 namespace network {
 
 // =================================================================
-// ConnectionHandlerImpl
+// ServerListenerManagerImpl
 // =================================================================
 
-ConnectionHandlerImpl::ConnectionHandlerImpl(event::Dispatcher& dispatcher,
-                                           optional<uint32_t> worker_index)
+ServerListenerManagerImpl::ServerListenerManagerImpl(event::Dispatcher& dispatcher,
+                                                      optional<uint32_t> worker_index)
     : dispatcher_(dispatcher),
       worker_index_(worker_index) {
   // Create stat prefix based on worker index
@@ -30,9 +30,9 @@ ConnectionHandlerImpl::ConnectionHandlerImpl(event::Dispatcher& dispatcher,
   createOverloadState();
 }
 
-ConnectionHandlerImpl::ConnectionHandlerImpl(event::Dispatcher& dispatcher,
-                                           optional<uint32_t> worker_index,
-                                           OverloadManager& overload_manager)
+ServerListenerManagerImpl::ServerListenerManagerImpl(event::Dispatcher& dispatcher,
+                                                     optional<uint32_t> worker_index,
+                                                     OverloadManager& overload_manager)
     : dispatcher_(dispatcher),
       worker_index_(worker_index),
       overload_manager_(&overload_manager) {
@@ -47,11 +47,11 @@ ConnectionHandlerImpl::ConnectionHandlerImpl(event::Dispatcher& dispatcher,
   createOverloadState();
 }
 
-ConnectionHandlerImpl::~ConnectionHandlerImpl() {
+ServerListenerManagerImpl::~ServerListenerManagerImpl() {
   stopListeners();
 }
 
-void ConnectionHandlerImpl::incNumConnections() {
+void ServerListenerManagerImpl::incNumConnections() {
   num_connections_++;
   
   // Update global count in overload state if available
@@ -60,7 +60,7 @@ void ConnectionHandlerImpl::incNumConnections() {
   }
 }
 
-void ConnectionHandlerImpl::decNumConnections() {
+void ServerListenerManagerImpl::decNumConnections() {
   if (num_connections_ > 0) {
     num_connections_--;
     
@@ -71,8 +71,8 @@ void ConnectionHandlerImpl::decNumConnections() {
   }
 }
 
-void ConnectionHandlerImpl::addListener(ListenerConfig config,
-                                       ListenerCallbacks& callbacks) {
+void ServerListenerManagerImpl::addListener(ListenerConfig config,
+                                    ListenerCallbacks& callbacks) {
   // Generate listener tag if not provided
   static std::atomic<uint64_t> next_tag{1};
   uint64_t listener_tag = next_tag++;
@@ -130,7 +130,7 @@ void ConnectionHandlerImpl::addListener(ListenerConfig config,
   }
 }
 
-void ConnectionHandlerImpl::removeListener(uint64_t listener_tag) {
+void ServerListenerManagerImpl::removeListener(uint64_t listener_tag) {
   auto it = listeners_.find(listener_tag);
   if (it != listeners_.end()) {
     // Remove from address map
@@ -144,7 +144,7 @@ void ConnectionHandlerImpl::removeListener(uint64_t listener_tag) {
   }
 }
 
-void ConnectionHandlerImpl::stopListeners() {
+void ServerListenerManagerImpl::stopListeners() {
   // Disable all listeners
   disableListeners();
   
@@ -153,28 +153,28 @@ void ConnectionHandlerImpl::stopListeners() {
   listeners_.clear();
 }
 
-void ConnectionHandlerImpl::disableListeners() {
+void ServerListenerManagerImpl::disableListeners() {
   listeners_disabled_ = true;
   for (auto& pair : listeners_) {
     pair.second->listener->disable();
   }
 }
 
-void ConnectionHandlerImpl::enableListeners() {
+void ServerListenerManagerImpl::enableListeners() {
   listeners_disabled_ = false;
   for (auto& pair : listeners_) {
     pair.second->listener->enable();
   }
 }
 
-void ConnectionHandlerImpl::setListenerRejectFraction(UnitFloat reject_fraction) {
+void ServerListenerManagerImpl::setListenerRejectFraction(UnitFloat reject_fraction) {
   listener_reject_fraction_ = reject_fraction;
   for (auto& pair : listeners_) {
     pair.second->listener->setRejectFraction(reject_fraction);
   }
 }
 
-void ConnectionHandlerImpl::onAccept(ConnectionSocketPtr&& socket) {
+void ServerListenerManagerImpl::onAccept(ConnectionSocketPtr&& socket) {
   // This is called by TcpActiveListener after filters pass
   // We need to find which listener this came from and forward to its callbacks
   
@@ -187,7 +187,7 @@ void ConnectionHandlerImpl::onAccept(ConnectionSocketPtr&& socket) {
   // 3. Or create a connection directly here
 }
 
-void ConnectionHandlerImpl::onNewConnection(ConnectionPtr&& connection) {
+void ServerListenerManagerImpl::onNewConnection(ConnectionPtr&& connection) {
   // This is called by TcpActiveListener when a connection is fully created
   // Increment connection count
   incNumConnections();
@@ -200,7 +200,7 @@ void ConnectionHandlerImpl::onNewConnection(ConnectionPtr&& connection) {
   // In a real implementation, we'd track which listener created this connection
 }
 
-TcpActiveListener* ConnectionHandlerImpl::getListener(uint64_t listener_tag) {
+TcpActiveListener* ServerListenerManagerImpl::getListener(uint64_t listener_tag) {
   auto it = listeners_.find(listener_tag);
   if (it != listeners_.end()) {
     return it->second->listener.get();
@@ -208,7 +208,7 @@ TcpActiveListener* ConnectionHandlerImpl::getListener(uint64_t listener_tag) {
   return nullptr;
 }
 
-TcpActiveListener* ConnectionHandlerImpl::getListenerByAddress(const Address::Instance& address) {
+TcpActiveListener* ServerListenerManagerImpl::getListenerByAddress(const Address::Instance& address) {
   auto it = listeners_by_address_.find(address.asString());
   if (it != listeners_by_address_.end()) {
     return it->second->listener.get();
@@ -216,7 +216,7 @@ TcpActiveListener* ConnectionHandlerImpl::getListenerByAddress(const Address::In
   return nullptr;
 }
 
-void ConnectionHandlerImpl::createOverloadState() {
+void ServerListenerManagerImpl::createOverloadState() {
   overload_state_ = std::make_unique<ThreadLocalOverloadState>();
   
   // Point to our connection count

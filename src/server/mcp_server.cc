@@ -12,7 +12,7 @@
 
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
-// to avoid conflicts with existing ConnectionHandler in connection_manager.h
+// to avoid conflicts with existing connection management in connection_manager.h
 #include "mcp/network/listener_impl.h"
 
 namespace mcp {
@@ -84,7 +84,7 @@ void McpServer::performListen() {
       // Transport selection flow (unchanged):
       // 1. Parse the address URL to determine transport type
       // 2. Create appropriate listener configuration
-      // 3. Use ConnectionHandler to manage listeners and connections
+      // 3. Use listener management infrastructure for server connections
       
       // Determine transport type from address format:
       // - "stdio://" or no prefix -> stdio transport (uses stdin/stdout)
@@ -131,7 +131,7 @@ void McpServer::performListen() {
           return;
         }
       } else if (transport_type == TransportType::HttpSse) {
-        // IMPROVEMENT: Use TcpListenerImpl and ConnectionHandler for HTTP+SSE
+        // IMPROVEMENT: Use TcpListenerImpl and listener management for HTTP+SSE
         // This provides better connection lifecycle management and error handling
         
         // Parse URL to extract listening port
@@ -908,7 +908,7 @@ void McpServer::stopBackgroundTasks() {
 // 4. onNewConnection() called with fully initialized connection
 
 void McpServer::onAccept(network::ConnectionSocketPtr&& socket) {
-  // CALLBACK FLOW: TcpListenerImpl → ConnectionHandler → McpServer
+  // CALLBACK FLOW: TcpListenerImpl → TcpActiveListener → McpServer
   // This is called when a raw socket is accepted but before connection is created
   // Following production pattern: we can reject connections early or apply socket options
   
@@ -918,16 +918,16 @@ void McpServer::onAccept(network::ConnectionSocketPtr&& socket) {
   // - Select appropriate filter chain based on SNI
   
   // For now, we don't need socket-level processing
-  // The ConnectionHandler will create the connection with appropriate transport
+  // The TcpActiveListener will create the connection with appropriate transport
 }
 
 void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
-  // CALLBACK FLOW: ConnectionHandler → McpServer
+  // CALLBACK FLOW: TcpActiveListener → McpServer
   // This is called when a connection is fully established with transport and filters
   // Following production pattern: connection is ready for protocol processing
   
   // Create session for this connection
-  // IMPORTANT: Store raw pointer, ownership remains with ConnectionHandler
+  // IMPORTANT: Store raw pointer, ownership remains with TcpActiveListener
   network::Connection* conn_ptr = connection.get();
   auto session = session_manager_->createSession(conn_ptr);
   

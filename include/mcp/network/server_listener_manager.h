@@ -1,6 +1,6 @@
 /**
- * @file connection_handler.h
- * @brief Connection handler for managing listeners and connections
+ * @file server_listener_manager.h
+ * @brief Server listener manager for managing server-side listeners and tracking connections
  *
  * Following production patterns:
  * - Manages multiple listeners
@@ -9,8 +9,8 @@
  * - Per-worker thread model
  */
 
-#ifndef MCP_NETWORK_CONNECTION_HANDLER_H
-#define MCP_NETWORK_CONNECTION_HANDLER_H
+#ifndef MCP_NETWORK_SERVER_LISTENER_MANAGER_H
+#define MCP_NETWORK_SERVER_LISTENER_MANAGER_H
 
 #include <atomic>
 #include <memory>
@@ -28,13 +28,14 @@ namespace network {
 class OverloadManager;
 
 /**
- * Connection handler interface
+ * Listener manager interface
  *
- * Manages listeners and tracks connections globally
+ * Manages server-side listeners and tracks accepted connections globally
+ * Note: This is for server-side use only, not for client connections
  */
-class ConnectionHandler {
+class ServerListenerManager {
  public:
-  virtual ~ConnectionHandler() = default;
+  virtual ~ServerListenerManager() = default;
 
   /**
    * Get total number of connections across all listeners
@@ -89,7 +90,7 @@ class ConnectionHandler {
 };
 
 /**
- * Connection handler implementation
+ * Listener manager implementation
  *
  * Production-style connection handler that:
  * - Manages multiple listeners per worker
@@ -98,7 +99,7 @@ class ConnectionHandler {
  * - Supports listener enable/disable
  * - Handles reject fraction for load shedding
  */
-class ConnectionHandlerImpl : public ConnectionHandler,
+class ServerListenerManagerImpl : public ServerListenerManager,
                               public ListenerCallbacks {
  public:
   /**
@@ -107,8 +108,8 @@ class ConnectionHandlerImpl : public ConnectionHandler,
    * @param dispatcher Event dispatcher for this worker
    * @param worker_index Optional worker index (nullopt for main thread)
    */
-  ConnectionHandlerImpl(event::Dispatcher& dispatcher,
-                        optional<uint32_t> worker_index = nullopt);
+  ServerListenerManagerImpl(event::Dispatcher& dispatcher,
+                            optional<uint32_t> worker_index = nullopt);
 
   /**
    * Constructor with overload manager
@@ -117,13 +118,13 @@ class ConnectionHandlerImpl : public ConnectionHandler,
    * @param worker_index Worker index
    * @param overload_manager Overload manager for load shedding
    */
-  ConnectionHandlerImpl(event::Dispatcher& dispatcher,
-                        optional<uint32_t> worker_index,
-                        OverloadManager& overload_manager);
+  ServerListenerManagerImpl(event::Dispatcher& dispatcher,
+                            optional<uint32_t> worker_index,
+                            OverloadManager& overload_manager);
 
-  ~ConnectionHandlerImpl() override;
+  ~ServerListenerManagerImpl() override;
 
-  // ConnectionHandler interface
+  // ServerListenerManager interface
   uint64_t numConnections() const override { return num_connections_.load(); }
   void incNumConnections() override;
   void decNumConnections() override;
@@ -194,16 +195,16 @@ class ConnectionHandlerImpl : public ConnectionHandler,
 };
 
 /**
- * Connection handler factory
+ * Listener manager factory
  */
-class ConnectionHandlerFactory {
+class ServerListenerManagerFactory {
  public:
-  virtual ~ConnectionHandlerFactory() = default;
+  virtual ~ServerListenerManagerFactory() = default;
 
   /**
-   * Create a connection handler
+   * Create a listener manager
    */
-  virtual std::unique_ptr<ConnectionHandler> createConnectionHandler(
+  virtual std::unique_ptr<ServerListenerManager> createServerListenerManager(
       event::Dispatcher& dispatcher, optional<uint32_t> worker_index) = 0;
 
   /**
@@ -213,19 +214,19 @@ class ConnectionHandlerFactory {
 };
 
 /**
- * Default connection handler factory
+ * Default listener manager factory
  */
-class DefaultConnectionHandlerFactory : public ConnectionHandlerFactory {
+class DefaultServerListenerManagerFactory : public ServerListenerManagerFactory {
  public:
-  std::unique_ptr<ConnectionHandler> createConnectionHandler(
+  std::unique_ptr<ServerListenerManager> createServerListenerManager(
       event::Dispatcher& dispatcher, optional<uint32_t> worker_index) override {
-    return std::make_unique<ConnectionHandlerImpl>(dispatcher, worker_index);
+    return std::make_unique<ServerListenerManagerImpl>(dispatcher, worker_index);
   }
 
-  std::string name() const override { return "mcp.connection_handler.default"; }
+  std::string name() const override { return "mcp.listener_manager.default"; }
 };
 
 }  // namespace network
 }  // namespace mcp
 
-#endif  // MCP_NETWORK_CONNECTION_HANDLER_H
+#endif  // MCP_NETWORK_SERVER_LISTENER_MANAGER_H
