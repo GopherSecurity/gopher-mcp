@@ -740,6 +740,9 @@ add_test(NAME StdioEchoServerAdvancedTest COMMAND test_stdio_echo_server_advance
 add_test(NAME TcpEchoClientBasicTest COMMAND test_tcp_echo_client_basic)
 add_test(NAME TcpEchoServerBasicTest COMMAND test_tcp_echo_server_basic)
 
+# TCP transport socket test
+add_test(NAME TcpTransportSocketTest COMMAND test_tcp_transport_socket)
+
 # Full stack transport test
 add_test(NAME FullStackTransportTest COMMAND test_full_stack_transport)
 
