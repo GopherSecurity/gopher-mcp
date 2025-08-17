@@ -102,9 +102,13 @@ HttpSseTransportSocket::HttpSseTransportSocket(
 }
 
 HttpSseTransportSocket::~HttpSseTransportSocket() {
+  // Set shutdown flag to prevent callbacks during destruction
+  shutting_down_ = true;
+  
   // Ensure clean shutdown
-  if (!state_machine_->isTerminalState()) {
-    closeSocket(network::ConnectionEvent::LocalClose);
+  if (state_machine_ && !state_machine_->isTerminalState()) {
+    // Force immediate close without callbacks
+    state_machine_->forceTransition(HttpSseState::Closed);
   }
 }
 
@@ -168,8 +172,8 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
 }
 
 void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
-  // Already closed, nothing to do
-  if (state_machine_->isTerminalState()) {
+  // Already closed or shutting down, nothing to do
+  if (shutting_down_ || !state_machine_ || state_machine_->isTerminalState()) {
     return;
   }
   
@@ -177,10 +181,14 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
   connection_close_event_ = event;
   
   // Execute graceful shutdown sequence
+  // Use weak_ptr pattern to avoid accessing 'this' after destruction
+  auto weak_callbacks = callbacks_;
   transition_coordinator_->executeShutdown(
-      [this, event](bool success) {
-        if (callbacks_) {
-          callbacks_->raiseEvent(event);
+      [weak_callbacks, event](bool success) {
+        // Only raise event if callbacks still valid
+        // During destruction, callbacks_ may be invalidated
+        if (weak_callbacks) {
+          weak_callbacks->raiseEvent(event);
         }
       });
 }
@@ -254,17 +262,51 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer, bool end_strea
 
 void HttpSseTransportSocket::onConnected() {
   // TCP connection established
-  state_machine_->transition(HttpSseState::TcpConnected,
-      [this](bool success, const std::string& error) {
-        if (success) {
-          // For client, start HTTP handshake
-          if (!is_server_mode_) {
-            initiateHttpHandshake();
+  // Handle the case where we're called directly from Initialized state
+  // This can happen when the connection is already established before
+  // our connect() method is called (e.g., pre-connected socket)
+  
+  HttpSseState current_state = state_machine_->getCurrentState();
+  
+  if (current_state == HttpSseState::Initialized) {
+    // Skip TcpConnecting and go directly to TcpConnected
+    // First transition to TcpConnecting, then immediately to TcpConnected
+    state_machine_->transition(HttpSseState::TcpConnecting,
+        [this](bool success, const std::string& error) {
+          if (success) {
+            // Now transition to TcpConnected
+            state_machine_->transition(HttpSseState::TcpConnected,
+                [this](bool success2, const std::string& error2) {
+                  if (success2) {
+                    // For client, start HTTP handshake
+                    if (!is_server_mode_) {
+                      initiateHttpHandshake();
+                    }
+                  } else {
+                    handleConnectionError("Failed to transition to connected: " + error2);
+                  }
+                });
+          } else {
+            handleConnectionError("Failed to transition to connecting: " + error);
           }
-        } else {
-          handleConnectionError("Failed to transition to connected: " + error);
-        }
-      });
+        });
+  } else if (current_state == HttpSseState::TcpConnecting) {
+    // Normal path: we're already in TcpConnecting state
+    state_machine_->transition(HttpSseState::TcpConnected,
+        [this](bool success, const std::string& error) {
+          if (success) {
+            // For client, start HTTP handshake
+            if (!is_server_mode_) {
+              initiateHttpHandshake();
+            }
+          } else {
+            handleConnectionError("Failed to transition to connected: " + error);
+          }
+        });
+  } else {
+    // TODO: Unexpected state - log warning but don't error
+    // This might happen in reconnection scenarios
+  }
 }
 
 // =============================================================================

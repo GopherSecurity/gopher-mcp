@@ -218,6 +218,7 @@ class HttpSseTransportSocket : public network::TransportSocket,
   network::TransportSocketCallbacks* callbacks_{nullptr};
   std::string failure_reason_;
   bool is_server_mode_{false};  // Track if this is a server-side socket
+  bool shutting_down_{false};   // Track if we're shutting down
 
   // HTTP parsers
   std::unique_ptr<http::HttpParser> request_parser_;

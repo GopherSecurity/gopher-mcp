@@ -656,8 +656,11 @@ void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
   // Use base class callbacks_ member for connection callbacks
   // This consolidates callback management in one place
   
+  // Safely iterate over callbacks with null check
   for (auto* cb : callbacks_) {
-    cb->onEvent(event);
+    if (cb) {
+      cb->onEvent(event);
+    }
   }
   
   filter_manager_.onConnectionEvent(event);
