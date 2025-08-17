@@ -49,6 +49,12 @@ add_executable(test_ssl_state_machine transport/test_ssl_state_machine.cc)
 add_executable(test_https_sse_factory transport/test_https_sse_factory.cc)
 add_executable(test_ssl_integration transport/test_ssl_integration.cc)
 
+# TCP transport tests
+add_executable(test_tcp_transport_socket transport/test_tcp_transport_socket.cc)
+
+# Full stack transport tests
+add_executable(test_full_stack_transport transport/test_full_stack_transport.cc)
+
 # HTTP SSE state machine test
 add_executable(test_http_sse_state_machine transport/test_http_sse_state_machine.cc)
 
@@ -387,6 +393,26 @@ target_link_libraries(test_ssl_integration
     OpenSSL::Crypto
 )
 
+target_link_libraries(test_tcp_transport_socket
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_full_stack_transport
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
 # HTTP SSE state machine test libraries
 target_link_libraries(test_http_sse_state_machine
     mcp-sdk
@@ -713,6 +739,9 @@ add_test(NAME StdioEchoServerAdvancedTest COMMAND test_stdio_echo_server_advance
 # TCP echo tests
 add_test(NAME TcpEchoClientBasicTest COMMAND test_tcp_echo_client_basic)
 add_test(NAME TcpEchoServerBasicTest COMMAND test_tcp_echo_server_basic)
+
+# Full stack transport test
+add_test(NAME FullStackTransportTest COMMAND test_full_stack_transport)
 
 
 # MCP tests
