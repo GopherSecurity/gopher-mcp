@@ -232,7 +232,7 @@ void FilterManagerImpl::onStateChanged(FilterChainState old_state, FilterChainSt
   
   // Log state transitions for debugging
   // TODO: Add proper logging
-  // ENVOY_CONN_LOG(debug, "Filter chain state transition: {} -> {}", 
+  // CONN_LOG(debug, "Filter chain state transition: {} -> {}", 
   //               connection_, FilterChainStateMachine::getStateName(old_state),
   //               FilterChainStateMachine::getStateName(new_state));
   

@@ -132,7 +132,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void closeSocket(ConnectionEvent close_type);
   void doConnect();
   void raiseConnectionEvent(ConnectionEvent event);
-  
+
   // State machine integration
   void onStateChanged(ConnectionState old_state, ConnectionState new_state);
   void configureStateMachine();
