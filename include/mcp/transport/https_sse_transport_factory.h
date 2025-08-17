@@ -171,8 +171,8 @@ class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
 
  private:
   HttpSseTransportSocketConfig config_;  // Configuration
-  event::Dispatcher* dispatcher_;        // Event dispatcher pointer for const methods
-  bool use_ssl_;                         // SSL enabled flag
+  event::Dispatcher* dispatcher_;  // Event dispatcher pointer for const methods
+  bool use_ssl_;                   // SSL enabled flag
 
   // Cached SSL contexts (created on demand)
   mutable SslContextSharedPtr client_ssl_context_;
