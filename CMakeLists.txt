@@ -388,6 +388,9 @@ if(BUILD_EXAMPLES)
     
     # Add MCP examples subdirectory
     add_subdirectory(examples/mcp)
+    
+    # Add transport examples subdirectory
+    add_subdirectory(examples/transport)
 endif()
 
 # Add custom target for formatting
