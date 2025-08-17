@@ -40,6 +40,13 @@
 #include "mcp/types.h"
 
 namespace mcp {
+
+// Forward declarations from network layer
+namespace network {
+class ListenerCallbacks;
+class TcpActiveListener;
+}  // namespace network
+
 namespace server {
 
 // Forward declarations
@@ -553,16 +560,27 @@ class SessionManager {
 /**
  * Enterprise-grade MCP Server
  *
- * Architecture:
+ * Architecture (production-grade patterns):
  * - Inherits from ApplicationBase for worker thread model
  * - Implements McpMessageCallbacks for protocol handling
+ * - Implements ListenerCallbacks for connection acceptance
+ * - Implements ConnectionCallbacks for connection lifecycle
+ * - Uses robust listener management infrastructure
  * - Uses filter chain for extensible message processing
  * - Manages sessions with timeout and cleanup
  * - Provides handler registration for requests and notifications
  * - Implements resource, tool, and prompt management
+ * 
+ * Connection Flow (production architecture):
+ * 1. TcpListenerImpl accepts socket
+ * 2. Listener infrastructure manages lifecycle
+ * 3. Filter chain processes messages
+ * 4. McpServer handles protocol logic
  */
 class McpServer : public application::ApplicationBase,
-                  public McpMessageCallbacks {
+                  public McpMessageCallbacks,
+                  public network::ListenerCallbacks,
+                  public network::ConnectionCallbacks {
  public:
   McpServer(const McpServerConfig& config);
   ~McpServer() override;
@@ -634,6 +652,20 @@ class McpServer : public application::ApplicationBase,
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
+  
+  // ListenerCallbacks overrides (production pattern)
+  // Called when listener accepts a new socket
+  void onAccept(network::ConnectionSocketPtr&& socket) override;
+  // Called when connection is fully established with filters
+  void onNewConnection(network::ConnectionPtr&& connection) override;
+  
+  // ConnectionCallbacks overrides (for connection lifecycle tracking)
+  void onEvent(network::ConnectionEvent event) override {
+    // Forward to existing handler
+    onConnectionEvent(event);
+  }
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
 
  private:
   // Register built-in handlers
@@ -672,7 +704,13 @@ class McpServer : public application::ApplicationBase,
   McpServerConfig config_;
   McpServerStats server_stats_;
 
-  // Connection management
+  // Connection management (production pattern)
+  // IMPROVEMENT: Using TcpActiveListener for robust listener management
+  // Following production architecture for better connection lifecycle handling
+  std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
+  
+  // Legacy connection managers (for stdio transport)
+  // TODO: Migrate stdio to use listener pattern
   std::vector<std::unique_ptr<McpConnectionManager>> connection_managers_;
   std::atomic<bool> server_running_{false};
 
