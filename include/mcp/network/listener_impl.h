@@ -268,7 +268,7 @@ class ListenerFactory {
  * TCP Active listener wrapper
  *
  * Manages listener lifecycle and filter chains
- * This is what ConnectionHandler actually manages
+ * This is what ListenerManager actually manages
  */
 class TcpActiveListener : public TcpListenerCallbacks {
  public:

@@ -13,7 +13,7 @@
 
 #include "../integration/real_io_test_base.h"
 #include "mcp/network/listener_impl.h"
-#include "mcp/network/connection_handler.h"
+#include "mcp/network/server_listener_manager.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/socket_impl.h"
@@ -428,10 +428,10 @@ TEST_F(TcpListenerTest, ActiveListenerWithFilters) {
   });
 }
 
-TEST_F(TcpListenerTest, ConnectionHandler) {
+TEST_F(TcpListenerTest, ServerListenerManager) {
   executeInDispatcher([this]() {
-    // Create connection handler
-    ConnectionHandlerImpl handler(*dispatcher_, 0);  // Worker 0
+    // Create server listener manager
+    ServerListenerManagerImpl handler(*dispatcher_, 0);  // Worker 0
     
     // Verify initial state
     EXPECT_EQ(handler.numConnections(), 0);
