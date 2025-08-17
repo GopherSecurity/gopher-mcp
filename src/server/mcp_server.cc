@@ -10,6 +10,7 @@
 #include <future>
 
 #include "mcp/filter/json_rpc_filter_factory.h"
+#include "mcp/filter/mcp_http_server_filter_chain_factory.h"
 #include <iostream>
 #include <sstream>
 
@@ -166,33 +167,21 @@ void McpServer::performListen() {
       tcp_config.bind_to_port = true;
       tcp_config.enable_reuse_port = false;  // Single process listener
       
-      // CRITICAL: Set up HTTP+SSE transport socket factory for server mode
-      // Use the existing reusable HttpSseTransportSocketFactory
-      // Flow: Accept socket → Create transport → Process HTTP/SSE protocol
-      transport::HttpSseTransportSocketConfig http_config;
+      // Following production architecture: Transport sockets handle ONLY I/O
+      // Protocol processing happens in filters, not transport sockets
+      // Flow: TCP Socket → RawBufferSocket (I/O) → HTTP Filter → SSE Filter → App
       
-      // Use configuration values instead of hardcoding
-      // Endpoint URL is constructed from the bind address
-      http_config.endpoint_url = "http://0.0.0.0:" + std::to_string(port);
-      
-      // Use paths from server configuration
-      http_config.request_endpoint_path = config_.http_rpc_path;
-      http_config.sse_endpoint_path = config_.http_sse_path;
-      
-      // SSL configuration based on protocol (https:// would set this to true)
-      http_config.use_ssl = (address.find("https://") == 0);
-      
-      // Create the reusable factory (supports both client and server modes)
+      // Use RawBufferTransportSocketFactory for pure I/O
+      // This follows production pattern where transport sockets don't know protocols
       tcp_config.transport_socket_factory = 
-          std::make_shared<transport::HttpSseTransportSocketFactory>(
-              http_config, *main_dispatcher_);
+          std::make_shared<network::RawBufferTransportSocketFactory>();
       
-      // Set up filter chain factory to process JSON-RPC messages
-      // Use the reusable JsonRpcFilterChainFactory component
-      // HTTP transport handles framing, so disable it in the filter
+      // Create filter chain factory that implements the protocol stack
+      // Following production pattern: Filters handle ALL protocol logic
+      // HTTP codec, SSE codec, and JSON-RPC are ALL filters
       tcp_config.filter_chain_factory = 
-          std::make_shared<filter::JsonRpcFilterChainFactory>(
-              *this, false /* use_framing */);
+          std::make_shared<filter::McpHttpServerFilterChainFactory>(
+              *main_dispatcher_, *this);
       
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
