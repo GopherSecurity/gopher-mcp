@@ -326,7 +326,8 @@ class FilterManagerImpl : public FilterManager,
                           public ReadFilterCallbacks,
                           public WriteFilterCallbacks {
  public:
-  FilterManagerImpl(FilterManagerConnection& connection, event::Dispatcher& dispatcher);
+  FilterManagerImpl(FilterManagerConnection& connection,
+                    event::Dispatcher& dispatcher);
   ~FilterManagerImpl() override;
 
   // FilterManager interface
@@ -357,7 +358,7 @@ class FilterManagerImpl : public FilterManager,
   FilterStatus onContinueReading(Buffer& buffer, bool end_stream);
   void onContinueWriting(Buffer& buffer, bool end_stream);
   void callOnConnectionEvent(ConnectionEvent event);
-  
+
   // State machine integration
   void onStateChanged(FilterChainState old_state, FilterChainState new_state);
   void configureStateMachine();
@@ -374,7 +375,7 @@ class FilterManagerImpl : public FilterManager,
 
   // State machine for managing filter chain lifecycle
   std::unique_ptr<FilterChainStateMachine> state_machine_;
-  
+
   // State
   bool initialized_{false};
   bool upstream_filters_initialized_{false};

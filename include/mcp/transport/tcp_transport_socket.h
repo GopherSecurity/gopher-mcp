@@ -1,5 +1,5 @@
 /**
- * @file tcp_transport_socket.h  
+ * @file tcp_transport_socket.h
  * @brief TCP transport socket implementation using state machine
  *
  * This implementation provides a basic TCP transport socket that integrates
@@ -27,20 +27,20 @@ namespace transport {
 struct TcpTransportSocketConfig {
   // Connection timeout in milliseconds
   std::chrono::milliseconds connect_timeout{30000};
-  
+
   // Read/write timeout in milliseconds
   std::chrono::milliseconds io_timeout{60000};
-  
+
   // Enable TCP keep-alive
   bool tcp_keepalive{true};
-  
+
   // TCP no-delay (disable Nagle's algorithm)
   bool tcp_nodelay{true};
 };
 
 /**
  * TCP transport socket implementation
- * 
+ *
  * Provides a basic TCP transport that integrates with the
  * TcpTransportSocketStateMachine for proper state management.
  */
@@ -61,28 +61,32 @@ class TcpTransportSocket : public network::TransportSocket {
   network::TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
   VoidResult connect(network::Socket& socket) override;
-  network::SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
+  network::SslConnectionInfoConstSharedPtr ssl() const override {
+    return nullptr;
+  }
   bool startSecureTransport() override { return false; }
-  void configureInitialCongestionWindow(uint64_t bandwidth_bits_per_sec,
-                                       std::chrono::microseconds rtt) override {}
+  void configureInitialCongestionWindow(
+      uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) override {
+  }
 
  private:
   // State machine integration
-  void onStateChanged(TransportSocketState old_state, TransportSocketState new_state);
+  void onStateChanged(TransportSocketState old_state,
+                      TransportSocketState new_state);
   void configureStateMachine();
-  
+
   // Configuration
   TcpTransportSocketConfig config_;
-  
+
   // State machine
   std::unique_ptr<TransportSocketStateMachine> state_machine_;
-  
+
   // Callbacks
   network::TransportSocketCallbacks* callbacks_{nullptr};
-  
+
   // Failure reason
   std::string failure_reason_;
-  
+
   // Dispatcher reference
   event::Dispatcher& dispatcher_;
 };
@@ -90,7 +94,7 @@ class TcpTransportSocket : public network::TransportSocket {
 using TcpTransportSocketPtr = std::unique_ptr<TcpTransportSocket>;
 using TcpTransportSocketSharedPtr = std::shared_ptr<TcpTransportSocket>;
 
-} // namespace transport
-} // namespace mcp
+}  // namespace transport
+}  // namespace mcp
 
-#endif // MCP_TRANSPORT_TCP_TRANSPORT_SOCKET_H
+#endif  // MCP_TRANSPORT_TCP_TRANSPORT_SOCKET_H

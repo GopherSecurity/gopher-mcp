@@ -281,7 +281,7 @@ class ConnectionStateMachine {
    * @param dispatcher Event dispatcher for async operations
    */
   explicit ConnectionStateMachine(event::Dispatcher& dispatcher);
-  
+
   /**
    * Constructor with configuration
    *
