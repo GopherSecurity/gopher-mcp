@@ -21,9 +21,8 @@ SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks, bool is_server)
   
   if (!is_server_) {
     // Client mode - create SSE parser
-    parser_ = std::make_unique<http::SseParser>();
     parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
-    parser_->setCallbacks(*parser_callbacks_);
+    parser_ = std::make_unique<http::SseParser>(parser_callbacks_.get());
   }
   
   // Create event encoder
@@ -96,7 +95,7 @@ void SseCodecFilter::dispatch(Buffer& data) {
   const char* raw_data = static_cast<const char*>(data.linearize(data_len));
   
   // Parse SSE data
-  size_t consumed = parser_->execute(raw_data, data_len);
+  size_t consumed = parser_->parse(raw_data, data_len);
   
   // Drain consumed data from buffer
   data.drain(consumed);
@@ -124,18 +123,18 @@ void SseCodecFilter::formatSseField(Buffer& buffer,
 }
 
 // ParserCallbacks implementation
-void SseCodecFilter::ParserCallbacks::onEvent(const std::string& event,
-                                              const std::string& data,
-                                              const optional<std::string>& id) {
-  parent_.event_callbacks_.onEvent(event, data, id);
+void SseCodecFilter::ParserCallbacks::onSseEvent(const http::SseEvent& event) {
+  // Convert SseEvent to our callback interface
+  std::string event_type = event.event.value_or("");
+  parent_.event_callbacks_.onEvent(event_type, event.data, event.id);
 }
 
-void SseCodecFilter::ParserCallbacks::onComment(const std::string& comment) {
+void SseCodecFilter::ParserCallbacks::onSseComment(const std::string& comment) {
   parent_.event_callbacks_.onComment(comment);
 }
 
-void SseCodecFilter::ParserCallbacks::onRetry(uint32_t retry_ms) {
-  // Could store retry value for reconnection logic
+void SseCodecFilter::ParserCallbacks::onSseError(const std::string& error) {
+  parent_.event_callbacks_.onError(error);
 }
 
 // EventEncoderImpl implementation

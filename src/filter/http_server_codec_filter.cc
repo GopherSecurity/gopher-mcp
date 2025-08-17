@@ -9,6 +9,7 @@
 
 #include "mcp/filter/http_server_codec_filter.h"
 #include "mcp/network/connection.h"
+#include "mcp/http/llhttp_parser.h"
 #include <sstream>
 
 namespace mcp {
@@ -19,10 +20,15 @@ HttpServerCodecFilter::HttpServerCodecFilter(RequestCallbacks& callbacks,
                                              event::Dispatcher& dispatcher)
     : request_callbacks_(callbacks),
       dispatcher_(dispatcher) {
-  // Initialize HTTP parser
-  parser_ = std::make_unique<http::HttpParser>(http::HttpParser::Type::REQUEST);
+  // Initialize HTTP parser callbacks
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
-  parser_->setCallbacks(*parser_callbacks_);
+  
+  // Create HTTP/1.1 parser using llhttp
+  // We directly create an LLHttpParser since we know we're handling HTTP/1.1
+  parser_ = std::make_unique<http::LLHttpParser>(
+      http::HttpParserType::REQUEST, 
+      parser_callbacks_.get(),
+      http::HttpVersion::HTTP_1_1);
   
   // Initialize response encoder
   response_encoder_ = std::make_unique<ResponseEncoderImpl>(*this);
@@ -73,8 +79,8 @@ void HttpServerCodecFilter::dispatch(Buffer& data) {
   data.drain(consumed);
   
   // Check for parser errors
-  if (parser_->hasError()) {
-    handleParserError(parser_->getErrorDescription());
+  if (parser_->getStatus() == http::ParserStatus::Error) {
+    handleParserError(parser_->getError());
   }
 }
 
@@ -177,6 +183,10 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onChunkHeader
 
 http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onChunkComplete() {
   return http::ParserCallbackResult::Success;
+}
+
+void HttpServerCodecFilter::ParserCallbacks::onError(const std::string& error) {
+  parent_.handleParserError(error);
 }
 
 // ResponseEncoderImpl implementation

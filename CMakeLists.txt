@@ -253,6 +253,9 @@ set(MCP_SDK_SOURCES
     src/transport/transport_socket_state_machine.cc
     src/transport/tcp_transport_socket_state_machine.cc
     src/transport/tcp_transport_socket.cc
+    src/filter/http_server_codec_filter.cc
+    src/filter/sse_codec_filter.cc
+    src/filter/mcp_http_server_filter_chain_factory.cc
     src/mcp_connection_manager.cc
     src/client/mcp_client.cc
     src/server/mcp_server.cc
