@@ -5,7 +5,7 @@
 
 #include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/network/connection_impl.h"
-#include "mcp/network/listener_impl.h"
+#include "mcp/network/server_listener_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/ssl_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"

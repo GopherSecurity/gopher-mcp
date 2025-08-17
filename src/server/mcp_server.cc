@@ -13,7 +13,7 @@
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
 // to avoid conflicts with existing connection management in connection_manager.h
-#include "mcp/network/listener_impl.h"
+#include "mcp/network/server_listener_impl.h"
 
 namespace mcp {
 namespace server {
