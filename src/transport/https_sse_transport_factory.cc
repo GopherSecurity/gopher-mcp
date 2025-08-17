@@ -4,6 +4,7 @@
  */
 
 #include "mcp/transport/https_sse_transport_factory.h"
+#include "mcp/transport/tcp_transport_socket.h"
 
 #include <algorithm>
 #include <cctype>
@@ -14,7 +15,7 @@ namespace transport {
 HttpsSseTransportFactory::HttpsSseTransportFactory(
     const HttpSseTransportSocketConfig& config,
     event::Dispatcher& dispatcher)
-    : config_(config), dispatcher_(dispatcher) {
+    : config_(config), dispatcher_(&dispatcher) {
   
   // Check if SSL should be used based on URL or explicit configuration
   // Only auto-detect if use_ssl was not explicitly set
@@ -102,7 +103,7 @@ network::TransportSocketPtr HttpsSseTransportFactory::createClientTransport(
   // Wrap with HTTP+SSE
   // Note: HttpSseTransportSocket takes ownership of inner socket
   auto http_sse_socket = std::make_unique<HttpSseTransportSocket>(
-      config_, dispatcher_, false);  // false = client mode
+      config_, *dispatcher_, false);  // false = client mode
   
   return http_sse_socket;
 }
@@ -119,7 +120,7 @@ network::TransportSocketPtr HttpsSseTransportFactory::createServerTransport() co
   
   // Wrap with HTTP+SSE
   auto http_sse_socket = std::make_unique<HttpSseTransportSocket>(
-      config_, dispatcher_, true);  // true = server mode
+      config_, *dispatcher_, true);  // true = server mode
   
   return http_sse_socket;
 }
@@ -196,15 +197,18 @@ Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
 
 network::TransportSocketPtr HttpsSseTransportFactory::createTcpSocket() const {
   // Create a basic TCP socket
-  // This would typically use a TCP transport socket implementation
-  // For now, return nullptr as placeholder - actual implementation
-  // would create real TCP socket
+  // Use TcpTransportSocket for standard TCP connections
   
-  // In real implementation:
-  // return std::make_unique<TcpTransportSocket>(dispatcher_);
+  // Create TCP transport socket configuration
+  TcpTransportSocketConfig tcp_config;
+  tcp_config.tcp_nodelay = true;  // Enable TCP_NODELAY for low latency
+  tcp_config.tcp_keepalive = true;  // Enable keep-alive
+  tcp_config.connect_timeout = std::chrono::milliseconds(30000);  // 30 second timeout
+  tcp_config.io_timeout = std::chrono::milliseconds(60000);  // 60 second I/O timeout
   
-  // Placeholder - actual TCP socket creation would go here
-  return nullptr;
+  // Create and return TCP transport socket
+  // dispatcher_ is mutable so we can use it in const methods
+  return std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
 }
 
 network::TransportSocketPtr HttpsSseTransportFactory::wrapWithSsl(
@@ -236,7 +240,7 @@ network::TransportSocketPtr HttpsSseTransportFactory::wrapWithSsl(
       std::move(inner_socket),
       get<SslContextSharedPtr>(context_result),
       role,
-      dispatcher_);
+      *dispatcher_);
   
   // Could set handshake callbacks here if needed
   // ssl_socket->setHandshakeCallbacks(...);
