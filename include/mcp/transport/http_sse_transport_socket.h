@@ -219,12 +219,13 @@ class HttpSseTransportSocket : public network::TransportSocket,
   std::string failure_reason_;
   
   // Connection state flags for managing complex lifecycle
-  bool is_server_mode_{false};      // Track if this is a server-side socket
-  bool shutting_down_{false};       // SAFETY: Prevents callbacks during destruction
-                                     // Set in destructor to avoid pure virtual calls
-  bool on_connected_called_{false}; // IDEMPOTENCY: Ensures onConnected() is called once
-                                     // Prevents duplicate state transitions from multiple
-                                     // layers (McpConnectionManager, stdio, server accept)
+  bool is_server_mode_{false};           // Track if this is a server-side socket (set once in constructor)
+  std::atomic<bool> shutting_down_{false}; // THREAD-SAFE: Prevents callbacks during destruction
+                                          // Set atomically in destructor (any thread) to avoid pure virtual calls
+                                          // Read in dispatcher thread during callback execution
+  std::atomic<bool> on_connected_called_{false}; // THREAD-SAFE IDEMPOTENCY: Ensures onConnected() is called once
+                                                  // Prevents duplicate state transitions from multiple threads/layers
+                                                  // (McpConnectionManager, stdio, server accept, worker threads)
 
   // HTTP parsers
   std::unique_ptr<http::HttpParser> request_parser_;
