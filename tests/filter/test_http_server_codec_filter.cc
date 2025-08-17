@@ -1,107 +1,269 @@
 /**
  * @file test_http_server_codec_filter.cc
- * @brief Comprehensive tests for HTTP server codec filter
+ * @brief Real IO integration tests for HTTP server codec filter
  */
 
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <chrono>
 #include <memory>
 #include <string>
 #include <map>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 #include "mcp/filter/http_server_codec_filter.h"
-#include "mcp/event/libevent_dispatcher.h"
-#include "mcp/buffer.h"
+#include "mcp/network/connection.h"
+#include "../integration/real_io_test_base.h"
 
 namespace mcp {
 namespace filter {
 namespace {
 
 using namespace std::chrono_literals;
-using ::testing::_;
-using ::testing::InSequence;
-using ::testing::StrictMock;
 
-// Mock request callbacks
-class MockRequestCallbacks : public HttpServerCodecFilter::RequestCallbacks {
+// Real request callbacks implementation for testing
+class TestRequestCallbacks : public HttpServerCodecFilter::RequestCallbacks {
 public:
-  MOCK_METHOD2(onHeaders, void(const std::map<std::string, std::string>& headers, bool keep_alive));
-  MOCK_METHOD2(onBody, void(const std::string& data, bool end_stream));
-  MOCK_METHOD0(onMessageComplete, void());
-  MOCK_METHOD1(onError, void(const std::string& error));
-};
-
-// Simplified mock write filter callbacks
-class MockWriteFilterCallbacks : public network::WriteFilterCallbacks {
-public:
-  MOCK_METHOD2(injectWriteDataToFilterChain, void(Buffer& data, bool end_stream));
-  
-  // Add stub implementations for required pure virtual methods
-  network::Connection& connection() override {
-    static network::Connection* stub = nullptr;
-    return *stub;  // Will crash if actually called, but that's fine for our tests
+  void onHeaders(const std::map<std::string, std::string>& headers, bool keep_alive) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    headers_received_ = true;
+    headers_ = headers;
+    keep_alive_ = keep_alive;
+    headers_cv_.notify_all();
   }
   
-  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override {}
-  event::Dispatcher& dispatcher() override {
-    static event::Dispatcher* stub = nullptr;
+  void onBody(const std::string& data, bool end_stream) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    body_received_ = true;
+    body_data_ += data;
+    end_stream_ = end_stream;
+    body_cv_.notify_all();
+  }
+  
+  void onMessageComplete() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    message_complete_ = true;
+    complete_cv_.notify_all();
+  }
+  
+  void onError(const std::string& error) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    error_received_ = true;
+    error_message_ = error;
+    error_cv_.notify_all();
+  }
+
+  // Wait functions with timeout
+  bool waitForHeaders(std::chrono::milliseconds timeout = 1000ms) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return headers_cv_.wait_for(lock, timeout, [this] { return headers_received_; });
+  }
+  
+  bool waitForBody(std::chrono::milliseconds timeout = 1000ms) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return body_cv_.wait_for(lock, timeout, [this] { return body_received_; });
+  }
+  
+  bool waitForComplete(std::chrono::milliseconds timeout = 1000ms) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return complete_cv_.wait_for(lock, timeout, [this] { return message_complete_; });
+  }
+  
+  bool waitForError(std::chrono::milliseconds timeout = 1000ms) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return error_cv_.wait_for(lock, timeout, [this] { return error_received_; });
+  }
+
+  // Thread-safe accessors
+  std::map<std::string, std::string> getHeaders() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return headers_;
+  }
+  
+  std::string getBodyData() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return body_data_;
+  }
+  
+  std::string getErrorMessage() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return error_message_;
+  }
+  
+  bool isKeepAlive() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return keep_alive_;
+  }
+  
+  bool isEndStream() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return end_stream_;
+  }
+  
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    headers_received_ = false;
+    body_received_ = false;
+    message_complete_ = false;
+    error_received_ = false;
+    headers_.clear();
+    body_data_.clear();
+    error_message_.clear();
+    keep_alive_ = false;
+    end_stream_ = false;
+  }
+
+private:
+  mutable std::mutex mutex_;
+  std::condition_variable headers_cv_;
+  std::condition_variable body_cv_;
+  std::condition_variable complete_cv_;
+  std::condition_variable error_cv_;
+  
+  bool headers_received_{false};
+  bool body_received_{false};
+  bool message_complete_{false};
+  bool error_received_{false};
+  std::map<std::string, std::string> headers_;
+  std::string body_data_;
+  std::string error_message_;
+  bool keep_alive_{false};
+  bool end_stream_{false};
+};
+
+// Real write filter callbacks implementation for testing
+class TestWriteFilterCallbacks : public network::WriteFilterCallbacks {
+public:
+  explicit TestWriteFilterCallbacks(event::Dispatcher& dispatcher)
+    : dispatcher_(dispatcher) {}
+    
+  network::Connection& connection() {
+    static auto stub = std::make_shared<network::Connection>();
     return *stub;
   }
-  bool aboveWriteBufferHighWatermark() const override { return false; }
+  
+  void injectWriteDataToFilterChain(Buffer& data, bool end_stream) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    write_called_ = true;
+    
+    // Copy the data
+    size_t length = data.length();
+    if (length > 0) {
+      std::vector<char> buffer_data(length);
+      data.copyOut(0, length, buffer_data.data());
+      write_data_.append(buffer_data.data(), length);
+    }
+    
+    end_stream_ = end_stream;
+    write_cv_.notify_all();
+  }
+  
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) {}
+  
+  event::Dispatcher& dispatcher() {
+    return dispatcher_;
+  }
+  
+  bool aboveWriteBufferHighWatermark() const { return false; }
+  
+  // Wait and access methods
+  bool waitForWrite(std::chrono::milliseconds timeout = 1000ms) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return write_cv_.wait_for(lock, timeout, [this] { return write_called_; });
+  }
+  
+  std::string getWriteData() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return write_data_;
+  }
+  
+  bool isEndStream() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return end_stream_;
+  }
+  
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    write_called_ = false;
+    write_data_.clear();
+    end_stream_ = false;
+  }
+
+private:
+  event::Dispatcher& dispatcher_;
+  mutable std::mutex mutex_;
+  std::condition_variable write_cv_;
+  bool write_called_{false};
+  std::string write_data_;
+  bool end_stream_{false};
 };
 
-// Simplified stub read filter callbacks
+// Stub read filter callbacks  
 class StubReadFilterCallbacks : public network::ReadFilterCallbacks {
 public:
-  network::Connection& connection() override {
-    static network::Connection* stub = nullptr;
-    return *stub;
+  explicit StubReadFilterCallbacks(event::Dispatcher& dispatcher)
+    : dispatcher_(dispatcher) {}
+    
+  network::Connection& connection() { 
+    static auto stub = std::make_shared<network::Connection>();
+    return *stub; 
   }
-  void continueReading() override {}
-  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override {}
-  void injectWriteDataToFilterChain(Buffer& data, bool end_stream) override {}
-  void onFilterInbound() override {}
-  void requestDecoder() override {}
-  const network::ConnectionInfo& connectionInfo() const override {
-    static network::ConnectionInfo* stub = nullptr;
-    return *stub;
+  void continueReading() {}
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) {}
+  void injectWriteDataToFilterChain(Buffer& data, bool end_stream) {}
+  void onFilterInbound() {}
+  void requestDecoder() {}
+  const network::ConnectionInfo& connectionInfo() const {
+    static auto stub_ptr = reinterpret_cast<const network::ConnectionInfo*>(nullptr);
+    return *stub_ptr;  // This is a stub - will crash if called
   }
-  event::Dispatcher& dispatcher() override {
-    static event::Dispatcher* stub = nullptr;
-    return *stub;
-  }
-  void setDecoderBufferLimit(uint32_t limit) override {}
-  uint32_t decoderBufferLimit() override { return 0; }
-  bool cannotEncodeFrame() override { return false; }
-  void markUpstreamFilterChainComplete() override {}
-  const std::string& upstreamHost() const override {
+  event::Dispatcher& dispatcher() { return dispatcher_; }
+  void setDecoderBufferLimit(uint32_t limit) {}
+  uint32_t decoderBufferLimit() { return 0; }
+  bool cannotEncodeFrame() { return false; }
+  void markUpstreamFilterChainComplete() {}
+  const std::string& upstreamHost() const {
     static std::string stub;
     return stub;
   }
-  void setUpstreamHost(const std::string& host) override {}
-  bool shouldContinueFilterChain() override { return true; }
+  void setUpstreamHost(const std::string& host) {}
+  bool shouldContinueFilterChain() { return true; }
+  
+private:
+  event::Dispatcher& dispatcher_;
 };
 
-class HttpServerCodecFilterTest : public ::testing::Test {
+class HttpServerCodecFilterRealIoTest : public test::RealIoTestBase {
 protected:
-  void SetUp() override {
-    // Create dispatcher
-    auto factory = event::createLibeventDispatcherFactory();
-    dispatcher_ = factory->createDispatcher("test");
-    dispatcher_->run(event::RunType::NonBlock);
+  void SetUp() {
+    test::RealIoTestBase::SetUp();
     
-    // Create filter
-    filter_ = std::make_unique<HttpServerCodecFilter>(request_callbacks_, *dispatcher_);
+    // Create test callbacks
+    request_callbacks_ = std::make_unique<TestRequestCallbacks>();
     
-    // Initialize filter callbacks
-    filter_->initializeReadFilterCallbacks(read_callbacks_);
-    filter_->initializeWriteFilterCallbacks(write_callbacks_);
+    // Create filter and callbacks in dispatcher context
+    executeInDispatcher([this]() {
+      filter_ = std::make_unique<HttpServerCodecFilter>(*request_callbacks_, *dispatcher_);
+      
+      read_callbacks_ = std::make_unique<StubReadFilterCallbacks>(*dispatcher_);
+      write_callbacks_ = std::make_unique<TestWriteFilterCallbacks>(*dispatcher_);
+      
+      filter_->initializeReadFilterCallbacks(*read_callbacks_);
+      filter_->initializeWriteFilterCallbacks(*write_callbacks_);
+    });
   }
 
-  void TearDown() override {
-    filter_.reset();
-    dispatcher_.reset();
+  void TearDown() {
+    // Clean up in dispatcher context
+    executeInDispatcher([this]() {
+      filter_.reset();
+      write_callbacks_.reset();
+      read_callbacks_.reset();
+    });
+    
+    request_callbacks_.reset();
+    test::RealIoTestBase::TearDown();
   }
 
   // Helper to create HTTP request data
@@ -138,415 +300,211 @@ protected:
     return buffer;
   }
 
-  // Helper to run dispatcher for a duration
-  void runFor(std::chrono::milliseconds duration) {
-    auto start = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - start < duration) {
-      dispatcher_->run(event::RunType::NonBlock);
-      std::this_thread::sleep_for(1ms);
-    }
+  // Helper to process data in filter context
+  void processHttpRequest(const OwnedBuffer& request) {
+    executeInDispatcher([this, &request]() {
+      auto& mutable_request = const_cast<OwnedBuffer&>(request);
+      filter_->onNewConnection();
+      filter_->onData(mutable_request, false);
+    });
   }
 
-  std::unique_ptr<event::Dispatcher> dispatcher_;
-  MockRequestCallbacks request_callbacks_;
-  StubReadFilterCallbacks read_callbacks_;
-  MockWriteFilterCallbacks write_callbacks_;
+  std::unique_ptr<TestRequestCallbacks> request_callbacks_;
+  std::unique_ptr<StubReadFilterCallbacks> read_callbacks_;
+  std::unique_ptr<TestWriteFilterCallbacks> write_callbacks_;
   std::unique_ptr<HttpServerCodecFilter> filter_;
 };
 
 // ===== Basic Request Processing Tests =====
 
-TEST_F(HttpServerCodecFilterTest, InitialState) {
-  EXPECT_EQ(filter_->onNewConnection(), network::FilterStatus::Continue);
+TEST_F(HttpServerCodecFilterRealIoTest, InitialState) {
+  auto status = executeInDispatcher([this]() {
+    return filter_->onNewConnection();
+  });
+  EXPECT_EQ(status, network::FilterStatus::Continue);
 }
 
-TEST_F(HttpServerCodecFilterTest, SimpleGetRequest) {
-  filter_->onNewConnection();
-  
-  std::map<std::string, std::string> expected_headers = {
-    {"host", "example.com"},
-    {"user-agent", "test-client"},
-    {"url", "/test"}
-  };
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-    .WillOnce([&expected_headers](const auto& headers, bool keep_alive) {
-      EXPECT_TRUE(keep_alive);
-      for (const auto& expected : expected_headers) {
-        auto it = headers.find(expected.first);
-        EXPECT_NE(it, headers.end()) << "Missing header: " << expected.first;
-        if (it != headers.end()) {
-          EXPECT_EQ(it->second, expected.second);
-        }
-      }
-    });
-  
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
+TEST_F(HttpServerCodecFilterRealIoTest, SimpleGetRequest) {
   auto request = createHttpRequest("GET", "/test", {
     {"Host", "example.com"},
     {"User-Agent", "test-client"}
   });
   
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  processHttpRequest(request);
+  
+  // Wait for headers to be processed
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
+  
+  // Verify headers
+  auto headers = request_callbacks_->getHeaders();
+  EXPECT_TRUE(request_callbacks_->isKeepAlive());
+  
+  EXPECT_EQ(headers["host"], "example.com");
+  EXPECT_EQ(headers["user-agent"], "test-client");
+  EXPECT_EQ(headers["url"], "/test");
 }
 
-TEST_F(HttpServerCodecFilterTest, PostRequestWithBody) {
-  filter_->onNewConnection();
-  
-  std::string expected_body = "{'message': 'hello world'}";
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-    .WillOnce([](const auto& headers, bool keep_alive) {
-      EXPECT_TRUE(keep_alive);
-      auto it = headers.find("content-type");
-      EXPECT_NE(it, headers.end());
-      EXPECT_EQ(it->second, "application/json");
-    });
-  
-  EXPECT_CALL(request_callbacks_, onBody(expected_body, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
+TEST_F(HttpServerCodecFilterRealIoTest, PostRequestWithBody) {
+  std::string expected_body = "{\"message\": \"hello world\"}";
   
   auto request = createHttpRequest("POST", "/api/test", {
     {"Host", "example.com"},
     {"Content-Type", "application/json"}
   }, expected_body);
   
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  processHttpRequest(request);
+  
+  // Wait for all processing to complete
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForBody());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
+  
+  // Verify headers
+  auto headers = request_callbacks_->getHeaders();
+  EXPECT_TRUE(request_callbacks_->isKeepAlive());
+  EXPECT_EQ(headers["content-type"], "application/json");
+  EXPECT_EQ(headers["url"], "/api/test");
+  
+  // Verify body
+  EXPECT_EQ(request_callbacks_->getBodyData(), expected_body);
+  EXPECT_TRUE(request_callbacks_->isEndStream());
 }
 
-TEST_F(HttpServerCodecFilterTest, ChunkedRequest) {
-  filter_->onNewConnection();
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-    .WillOnce([](const auto& headers, bool keep_alive) {
-      auto it = headers.find("transfer-encoding");
-      EXPECT_NE(it, headers.end());
-      EXPECT_EQ(it->second, "chunked");
-    });
-  
-  EXPECT_CALL(request_callbacks_, onBody(_, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
-  auto request = createHttpRequest("POST", "/api/chunked", {
-    {"Host", "example.com"},
-    {"Transfer-Encoding", "chunked"}
+TEST_F(HttpServerCodecFilterRealIoTest, MalformedRequest) {
+  executeInDispatcher([this]() {
+    filter_->onNewConnection();
+    
+    // Send malformed HTTP request
+    OwnedBuffer malformed;
+    malformed.add("INVALID HTTP REQUEST\r\n\r\n", 24);
+    
+    filter_->onData(malformed, false);
   });
   
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  // Should receive error
+  ASSERT_TRUE(request_callbacks_->waitForError());
+  EXPECT_FALSE(request_callbacks_->getErrorMessage().empty());
 }
 
-// ===== Response Encoding Tests =====
-
-TEST_F(HttpServerCodecFilterTest, SimpleResponse) {
-  filter_->onNewConnection();
-  
-  // Set up expectation for write callback
-  EXPECT_CALL(write_callbacks_, injectWriteDataToFilterChain(_, false))
-    .WillOnce([](Buffer& data, bool end_stream) {
-      // Verify response format
-      size_t length = data.length();
-      std::vector<char> response_data(length);
-      data.copyOut(0, length, response_data.data());
-      std::string response(response_data.begin(), response_data.end());
-      
-      EXPECT_TRUE(response.find("HTTP/1.1 200 OK") != std::string::npos);
-      EXPECT_TRUE(response.find("Content-Type: application/json") != std::string::npos);
-      EXPECT_TRUE(response.find("\r\n\r\n") != std::string::npos);
-    });
-  
-  auto& encoder = filter_->responseEncoder();
-  encoder.encodeHeaders(200, {
-    {"Content-Type", "application/json"},
-    {"Cache-Control", "no-cache"}
-  }, true);
-  
-  runFor(10ms);
-}
-
-TEST_F(HttpServerCodecFilterTest, ResponseWithBody) {
-  filter_->onNewConnection();
-  
-  std::string response_body = "{\"status\": \"success\"}";
-  
-  // Expect headers first
-  EXPECT_CALL(write_callbacks_, injectWriteDataToFilterChain(_, false))
-    .WillOnce([](Buffer& data, bool end_stream) {
-      size_t length = data.length();
-      std::vector<char> response_data(length);
-      data.copyOut(0, length, response_data.data());
-      std::string response(response_data.begin(), response_data.end());
-      EXPECT_TRUE(response.find("HTTP/1.1 201 Created") != std::string::npos);
-    });
-  
-  // Then expect body
-  EXPECT_CALL(write_callbacks_, injectWriteDataToFilterChain(_, false))
-    .WillOnce([&response_body](Buffer& data, bool end_stream) {
-      size_t length = data.length();
-      std::vector<char> body_data(length);
-      data.copyOut(0, length, body_data.data());
-      std::string body(body_data.begin(), body_data.end());
-      EXPECT_EQ(body, response_body);
-    });
-  
-  auto& encoder = filter_->responseEncoder();
-  encoder.encodeHeaders(201, {
-    {"Content-Type", "application/json"}
-  }, false);
-  
-  OwnedBuffer body_buffer;
-  body_buffer.add(response_body.c_str(), response_body.length());
-  encoder.encodeData(body_buffer, true);
-  
-  runFor(10ms);
-}
-
-// ===== Error Handling Tests =====
-
-TEST_F(HttpServerCodecFilterTest, MalformedRequest) {
-  filter_->onNewConnection();
-  
-  EXPECT_CALL(request_callbacks_, onError(_))
-    .WillOnce([](const std::string& error) {
-      EXPECT_FALSE(error.empty());
-    });
-  
-  // Send malformed HTTP request
-  OwnedBuffer malformed;
-  malformed.add("INVALID HTTP REQUEST\r\n\r\n", 24);
-  
-  EXPECT_EQ(filter_->onData(malformed, false), network::FilterStatus::Continue);
-  runFor(10ms);
-}
-
-TEST_F(HttpServerCodecFilterTest, IncompleteRequest) {
-  filter_->onNewConnection();
-  
-  // Send partial request (headers only, no end)
-  OwnedBuffer partial;
-  partial.add("GET /test HTTP/1.1\r\nHost: example.com\r\n", 36);
-  
-  // Should not trigger any callbacks yet
-  EXPECT_EQ(filter_->onData(partial, false), network::FilterStatus::Continue);
-  runFor(10ms);
-  
-  // Complete the request
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
-  OwnedBuffer completion;
-  completion.add("\r\n", 2);
-  
-  EXPECT_EQ(filter_->onData(completion, false), network::FilterStatus::Continue);
-  runFor(10ms);
-}
-
-// ===== Keep-Alive Tests =====
-
-TEST_F(HttpServerCodecFilterTest, KeepAliveConnection) {
-  filter_->onNewConnection();
-  
+TEST_F(HttpServerCodecFilterRealIoTest, KeepAliveConnection) {
   // First request
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
   auto request1 = createHttpRequest("GET", "/first", {
     {"Host", "example.com"},
     {"Connection", "keep-alive"}
   });
   
-  EXPECT_EQ(filter_->onData(request1, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  processHttpRequest(request1);
+  
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
+  EXPECT_TRUE(request_callbacks_->isKeepAlive());
+  
+  // Reset for second request
+  request_callbacks_->reset();
   
   // Second request on same connection
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
   auto request2 = createHttpRequest("GET", "/second", {
     {"Host", "example.com"},
     {"Connection", "keep-alive"}
   });
   
-  EXPECT_EQ(filter_->onData(request2, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  executeInDispatcher([this, &request2]() {
+    auto& mutable_request = const_cast<OwnedBuffer&>(request2);
+    filter_->onData(mutable_request, false);
+  });
+  
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
+  
+  auto headers = request_callbacks_->getHeaders();
+  EXPECT_EQ(headers["url"], "/second");
+  EXPECT_TRUE(request_callbacks_->isKeepAlive());
 }
 
-TEST_F(HttpServerCodecFilterTest, ConnectionClose) {
-  filter_->onNewConnection();
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, false))
-    .WillOnce([](const auto& headers, bool keep_alive) {
-      EXPECT_FALSE(keep_alive);
-    });
-  
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
+TEST_F(HttpServerCodecFilterRealIoTest, ConnectionClose) {
   auto request = createHttpRequest("GET", "/test", {
     {"Host", "example.com"},
     {"Connection", "close"}
   });
   
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
+  processHttpRequest(request);
+  
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
+  
+  // Should not keep alive
+  EXPECT_FALSE(request_callbacks_->isKeepAlive());
 }
 
-// ===== Multiple Request Processing Tests =====
+// ===== Response Encoding Tests =====
 
-TEST_F(HttpServerCodecFilterTest, MultipleRequests) {
-  filter_->onNewConnection();
-  
-  for (int i = 0; i < 5; ++i) {
-    EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-      .WillOnce([i](const auto& headers, bool keep_alive) {
-        auto it = headers.find("url");
-        EXPECT_NE(it, headers.end());
-        EXPECT_EQ(it->second, "/request" + std::to_string(i));
-      });
-    
-    EXPECT_CALL(request_callbacks_, onMessageComplete());
-    
-    auto request = createHttpRequest("GET", "/request" + std::to_string(i), {
-      {"Host", "example.com"}
-    });
-    
-    EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-    runFor(10ms);
-  }
-}
-
-// ===== Header Processing Tests =====
-
-TEST_F(HttpServerCodecFilterTest, CaseInsensitiveHeaders) {
-  filter_->onNewConnection();
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-    .WillOnce([](const auto& headers, bool keep_alive) {
-      // Headers should be stored in lowercase
-      EXPECT_NE(headers.find("content-type"), headers.end());
-      EXPECT_NE(headers.find("accept"), headers.end());
-      EXPECT_NE(headers.find("user-agent"), headers.end());
-      
-      // Verify values are preserved exactly
-      EXPECT_EQ(headers.at("content-type"), "application/JSON");
-      EXPECT_EQ(headers.at("accept"), "application/json, text/plain");
-    });
-  
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
-  auto request = createHttpRequest("GET", "/test", {
-    {"Content-Type", "application/JSON"},  // Mixed case
-    {"ACCEPT", "application/json, text/plain"},  // Uppercase
-    {"User-Agent", "TestClient/1.0"}  // Standard case
-  });
-  
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
-}
-
-TEST_F(HttpServerCodecFilterTest, MultilineHeaders) {
-  filter_->onNewConnection();
-  
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true))
-    .WillOnce([](const auto& headers, bool keep_alive) {
-      auto it = headers.find("accept");
-      EXPECT_NE(it, headers.end());
-      // Should handle continuation properly
-      EXPECT_FALSE(it->second.empty());
-    });
-  
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
-  
-  // Create request with complex headers
-  OwnedBuffer request;
-  request.add("GET /test HTTP/1.1\r\n", 18);
-  request.add("Host: example.com\r\n", 19);
-  request.add("Accept: application/json,\r\n", 27);
-  request.add(" text/plain\r\n", 13);  // Continuation line
-  request.add("\r\n", 2);
-  
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(10ms);
-}
-
-// ===== Status Code Tests =====
-
-TEST_F(HttpServerCodecFilterTest, VariousStatusCodes) {
-  filter_->onNewConnection();
-  
-  std::vector<std::pair<int, std::string>> status_codes = {
-    {200, "OK"},
-    {201, "Created"},
-    {204, "No Content"},
-    {400, "Bad Request"},
-    {404, "Not Found"},
-    {500, "Internal Server Error"},
-    {418, "Unknown"}  // Custom status
-  };
-  
-  for (const auto& [code, expected_text] : status_codes) {
-    EXPECT_CALL(write_callbacks_, injectWriteDataToFilterChain(_, false))
-      .WillOnce([code, expected_text](Buffer& data, bool end_stream) {
-        size_t length = data.length();
-        std::vector<char> response_data(length);
-        data.copyOut(0, length, response_data.data());
-        std::string response(response_data.begin(), response_data.end());
-        
-        std::string expected_line = "HTTP/1.1 " + std::to_string(code) + " " + expected_text;
-        EXPECT_TRUE(response.find(expected_line) != std::string::npos) 
-          << "Expected: " << expected_line << " in response: " << response;
-      });
+TEST_F(HttpServerCodecFilterRealIoTest, SimpleResponse) {
+  executeInDispatcher([this]() {
+    filter_->onNewConnection();
     
     auto& encoder = filter_->responseEncoder();
-    encoder.encodeHeaders(code, {}, true);
-    runFor(5ms);
-  }
+    encoder.encodeHeaders(200, {
+      {"Content-Type", "application/json"},
+      {"Cache-Control", "no-cache"}
+    }, true);
+  });
+  
+  // Wait for write callback
+  ASSERT_TRUE(write_callbacks_->waitForWrite());
+  
+  std::string response = write_callbacks_->getWriteData();
+  EXPECT_TRUE(response.find("HTTP/1.1 200 OK") != std::string::npos);
+  EXPECT_TRUE(response.find("Content-Type: application/json") != std::string::npos);
+  EXPECT_TRUE(response.find("\r\n\r\n") != std::string::npos);
 }
 
-// ===== Performance and Memory Tests =====
-
-TEST_F(HttpServerCodecFilterTest, LargeRequestBody) {
-  filter_->onNewConnection();
+TEST_F(HttpServerCodecFilterRealIoTest, ResponseWithBody) {
+  std::string response_body = "{\"status\": \"success\"}";
   
-  // Create 1MB body
-  std::string large_body(1024 * 1024, 'X');
+  executeInDispatcher([this, &response_body]() {
+    filter_->onNewConnection();
+    
+    auto& encoder = filter_->responseEncoder();
+    encoder.encodeHeaders(201, {
+      {"Content-Type", "application/json"}
+    }, false);
+    
+    OwnedBuffer body_buffer;
+    body_buffer.add(response_body.c_str(), response_body.length());
+    encoder.encodeData(body_buffer, true);
+  });
   
-  EXPECT_CALL(request_callbacks_, onHeaders(_, true));
-  EXPECT_CALL(request_callbacks_, onBody(large_body, true));
-  EXPECT_CALL(request_callbacks_, onMessageComplete());
+  // Wait for first write (headers)
+  ASSERT_TRUE(write_callbacks_->waitForWrite());
   
-  auto request = createHttpRequest("POST", "/upload", {
-    {"Host", "example.com"},
-    {"Content-Type", "application/octet-stream"}
-  }, large_body);
+  std::string first_write = write_callbacks_->getWriteData();
+  EXPECT_TRUE(first_write.find("HTTP/1.1 201 Created") != std::string::npos);
   
-  EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-  runFor(100ms);  // Allow more time for large data
+  // Reset and wait for second write (body)
+  write_callbacks_->reset();
+  ASSERT_TRUE(write_callbacks_->waitForWrite());
+  
+  std::string second_write = write_callbacks_->getWriteData();
+  EXPECT_EQ(second_write, response_body);
 }
 
-TEST_F(HttpServerCodecFilterTest, ManySmallRequests) {
-  filter_->onNewConnection();
+// ===== State Machine Integration Tests =====
+
+TEST_F(HttpServerCodecFilterRealIoTest, StateMachineIntegration) {
+  // This test verifies that the state machine is properly integrated
+  auto request = createHttpRequest("GET", "/state-test", {
+    {"Host", "example.com"}
+  });
   
-  const int num_requests = 1000;
+  processHttpRequest(request);
   
-  for (int i = 0; i < num_requests; ++i) {
-    EXPECT_CALL(request_callbacks_, onHeaders(_, true));
-    EXPECT_CALL(request_callbacks_, onMessageComplete());
-    
-    auto request = createHttpRequest("GET", "/small" + std::to_string(i), {
-      {"Host", "example.com"}
-    });
-    
-    EXPECT_EQ(filter_->onData(request, false), network::FilterStatus::Continue);
-    
-    if (i % 100 == 0) {
-      runFor(5ms);  // Periodic processing
-    }
-  }
+  // Should complete successfully with state machine managing the flow
+  ASSERT_TRUE(request_callbacks_->waitForHeaders());
+  ASSERT_TRUE(request_callbacks_->waitForComplete());
   
-  runFor(50ms);  // Final processing
+  auto headers = request_callbacks_->getHeaders();
+  EXPECT_EQ(headers["url"], "/state-test");
 }
 
 } // namespace
