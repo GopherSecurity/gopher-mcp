@@ -214,6 +214,14 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
 }
 
 TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
+  // In server mode, check if we have buffered request data to deliver
+  if (is_server_mode_ && have_data_to_deliver_ && read_buffer_->length() > 0) {
+    // Move buffered request data to output buffer
+    buffer.move(*read_buffer_);
+    have_data_to_deliver_ = false;
+    return {TransportIoResult::CONTINUE, buffer.length(), false, nullopt};
+  }
+
   // Check if we can read in current state
   if (!HttpSseStatePatterns::canReceiveData(
           state_machine_->getCurrentState())) {
@@ -251,6 +259,22 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
   if (!HttpSseStatePatterns::canSendData(state_machine_->getCurrentState())) {
     return {TransportIoResult::CONTINUE, 0, false,
             nullopt};  // Pause by returning 0 bytes
+  }
+
+  // In server mode, wrap JSON-RPC response in HTTP if needed
+  if (is_server_mode_ && buffer.length() > 0 && 
+      state_machine_->getCurrentState() == HttpSseState::ServerResponseSending) {
+    // Build HTTP response with the JSON-RPC content
+    std::ostringstream response;
+    response << kHttpVersion << " 200 OK\r\n";
+    response << "Content-Type: " << kJsonRpcContentType << "\r\n";
+    response << "Content-Length: " << buffer.length() << "\r\n";
+    response << "Access-Control-Allow-Origin: *\r\n";  // For CORS
+    response << "\r\n";
+    
+    // Prepend HTTP headers to the buffer
+    auto headers = response.str();
+    buffer.prepend(headers.c_str(), headers.length());
   }
 
   // Process pending writes first
@@ -338,14 +362,18 @@ void HttpSseTransportSocket::onConnected() {
               current_state == HttpSseState::ServerListening)) {
     // STATE MACHINE FLOW - Server Mode:
     // Expected: Initialized/ServerListening → accept connection →
-    // ServerConnectionAccepted Why: Server waits for incoming connections, then
-    // transitions to handle HTTP requests
+    // ServerConnectionAccepted → ServerRequestReceiving
+    // Why: Server accepts connection then immediately transitions to receive HTTP requests
+    // Following production pattern: Connection established → Ready to receive data
     state_machine_->transition(
         HttpSseState::ServerConnectionAccepted,
         [this](bool success, const std::string& error) {
           if (success) {
-            // Server waits for HTTP request from client
-            // TODO: Implement waitForHttpRequest() for server mode
+            // Server immediately transitions to request receiving state
+            // Flow: ServerConnectionAccepted → ServerRequestReceiving → Parse HTTP
+            // This follows production pattern where accepted connections are
+            // immediately ready to receive data
+            state_machine_->transition(HttpSseState::ServerRequestReceiving);
           } else {
             handleConnectionError("Failed to accept connection: " + error);
           }
@@ -917,6 +945,16 @@ void HttpSseTransportSocket::processHttpRequest() {
   // Complete HTTP request received (server mode)
   requests_received_++;
 
+  // Pass the request body to the application layer if it contains JSON-RPC data
+  if (!current_request_body_.empty()) {
+    // Store the request body in the read buffer
+    // It will be delivered to the application on the next doRead call
+    read_buffer_->add(current_request_body_.c_str(), current_request_body_.length());
+    
+    // Mark that we have data ready to be read
+    have_data_to_deliver_ = true;
+  }
+
   // Process request and prepare response
   prepareHttpResponse();
 }
@@ -936,8 +974,10 @@ void HttpSseTransportSocket::prepareHttpResponse() {
     // Prepare SSE response
     prepareSseResponse();
   } else {
-    // Prepare regular HTTP response
-    prepareRegularHttpResponse();
+    // For regular HTTP requests, don't send immediate response
+    // The application layer will write the response when ready
+    // Just transition to response sending state
+    state_machine_->transition(HttpSseState::ServerResponseSending);
   }
 }
 
@@ -958,6 +998,7 @@ void HttpSseTransportSocket::prepareSseResponse() {
 }
 
 void HttpSseTransportSocket::prepareRegularHttpResponse() {
+  // This method is now used by the application to send responses
   // Build regular HTTP response
   std::ostringstream response;
   response << kHttpVersion << " 200 OK\r\n";
