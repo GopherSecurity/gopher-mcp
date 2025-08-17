@@ -152,7 +152,7 @@ public:
   HttpCodecStateMachine(event::Dispatcher& dispatcher,
                        const HttpCodecStateMachineConfig& config);
   
-  ~HttpCodecStateMachine();
+  virtual ~HttpCodecStateMachine();
   
   // ===== Core State Machine Interface =====
   
@@ -389,7 +389,7 @@ private:
   HttpCodecStateMachineConfig config_;
   
   // Current state
-  std::atomic<HttpCodecState> current_state_{HttpCodecState::Uninitialized};
+  std::atomic<HttpCodecState> current_state_{HttpCodecState::WaitingForRequest};
   std::chrono::steady_clock::time_point state_entry_time_;
   
   // State history
