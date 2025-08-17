@@ -364,6 +364,7 @@ class FilterManagerImpl : public FilterManager,
 
   // Member variables
   FilterManagerConnection& connection_;
+  event::Dispatcher* dispatcher_{nullptr};
   std::vector<ReadFilterSharedPtr> read_filters_;
   std::vector<WriteFilterSharedPtr> write_filters_;
 
