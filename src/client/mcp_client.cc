@@ -9,6 +9,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 
 namespace mcp {
@@ -526,11 +527,61 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
   
   // Add MCP-specific filters
   
-  // TODO: Replace with McpJsonRpcFilter once integrated with ApplicationBase
-  // For now, use a simple placeholder filter until proper integration
-  builder.addFilter([this]() -> network::FilterSharedPtr {
-    // Temporary: return null filter until McpJsonRpcFilter is integrated
-    // The actual JSON-RPC handling is done in onData callbacks
+  // Create JSON-RPC filter with proper parameters
+  // Uses the unified McpJsonRpcFilter for consistent message handling
+  
+  // Create adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
+  class JsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
+  public:
+    JsonRpcCallbackAdapter(McpMessageCallbacks& mcp_callbacks)
+        : mcp_callbacks_(mcp_callbacks) {}
+    
+    void onRequest(const jsonrpc::Request& request) override {
+      mcp_callbacks_.onRequest(request);
+    }
+    
+    void onNotification(const jsonrpc::Notification& notification) override {
+      mcp_callbacks_.onNotification(notification);
+    }
+    
+    void onResponse(const jsonrpc::Response& response) override {
+      mcp_callbacks_.onResponse(response);
+    }
+    
+    void onProtocolError(const Error& error) override {
+      mcp_callbacks_.onError(error);
+    }
+    
+  private:
+    McpMessageCallbacks& mcp_callbacks_;
+  };
+  
+  // Create the adapter (must be kept alive for filter lifetime)
+  // Store both adapter and filter together for lifetime management
+  struct FilterWithAdapter {
+    std::shared_ptr<JsonRpcCallbackAdapter> adapter;
+    std::shared_ptr<filter::McpJsonRpcFilter> filter;
+  };
+  
+  auto filter_bundle = std::make_shared<FilterWithAdapter>();
+  filter_bundle->adapter = std::make_shared<JsonRpcCallbackAdapter>(*this);
+  filter_bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
+      *filter_bundle->adapter,  // McpJsonRpcFilter::Callbacks interface
+      getMainDispatcher(),      // Event dispatcher
+      false);                   // Client mode
+  
+  // Configure framing based on transport type
+  // HTTP transport doesn't use framing (handled by HTTP/SSE layers)
+  bool use_framing = (config_.preferred_transport != TransportType::HttpSse);
+  filter_bundle->filter->setUseFraming(use_framing);
+  
+  // Add the filter instance directly
+  // The filter_bundle shared_ptr is captured to keep adapter alive
+  builder.addFilterInstance(filter_bundle->filter);
+  
+  // Store the bundle in a lambda capture to maintain lifetime
+  builder.addFilter([filter_bundle]() -> network::FilterSharedPtr {
+    // This lambda keeps filter_bundle alive
     return nullptr;
   });
   
