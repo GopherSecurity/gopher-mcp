@@ -50,7 +50,10 @@ public:
 };
 
 // JsonRpcMessageFilter tests
+// NOTE: JsonRpcMessageFilter has been removed in favor of McpJsonRpcFilter
+// These tests are temporarily disabled and should be rewritten for McpJsonRpcFilter
 
+/*
 class JsonRpcMessageFilterTest : public ::testing::Test {
 protected:
   void SetUp() override {
@@ -62,7 +65,9 @@ protected:
   MockMcpMessageCallbacks callbacks_;
   std::unique_ptr<JsonRpcMessageFilter> filter_;
 };
+*/
 
+/* Disabled - JsonRpcMessageFilter removed in favor of McpJsonRpcFilter
 TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   // Create JSON-RPC request
   std::string request_json = R"({"jsonrpc":"2.0","id":123,"method":"test_method","params":{"key":"value"}})";
@@ -233,6 +238,7 @@ TEST_F(JsonRpcMessageFilterTest, WriteFraming) {
   // Check message content
   EXPECT_EQ(test_data, framed_data.substr(4));
 }
+*/ // End of disabled JsonRpcMessageFilter tests
 
 // McpConnectionManager tests
 

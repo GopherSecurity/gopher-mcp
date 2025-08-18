@@ -191,6 +191,9 @@ class ConnectionPool {
 
 /**
  * Filter chain builder for modular protocol processing
+ * 
+ * Enhanced to support filters that need parameters like dispatcher and callbacks.
+ * This allows integration with our standardized filter architecture.
  */
 class FilterChainBuilder {
  public:
@@ -200,19 +203,42 @@ class FilterChainBuilder {
   void addFilter(FilterFactory factory) {
     filter_factories_.push_back(factory);
   }
+  
+  // Add a filter directly (for filters already created with parameters)
+  void addFilterInstance(network::FilterSharedPtr filter) {
+    if (filter) {
+      filter_instances_.push_back(filter);
+    }
+  }
 
   // Build the filter chain for a connection
   void buildChain(network::FilterManager& manager) {
-    for (const auto& factory : filter_factories_) {
-      auto filter = factory();
+    // First add any direct filter instances
+    for (const auto& filter : filter_instances_) {
       manager.addReadFilter(filter);
       manager.addWriteFilter(filter);
     }
+    
+    // Then add filters from factories
+    for (const auto& factory : filter_factories_) {
+      auto filter = factory();
+      if (filter) {
+        manager.addReadFilter(filter);
+        manager.addWriteFilter(filter);
+      }
+    }
     manager.initializeReadFilters();
+  }
+  
+  // Clear all filters (useful for resetting)
+  void clear() {
+    filter_factories_.clear();
+    filter_instances_.clear();
   }
 
  private:
   std::vector<FilterFactory> filter_factories_;
+  std::vector<network::FilterSharedPtr> filter_instances_;
 };
 
 /**
@@ -402,6 +428,15 @@ class ApplicationBase {
     return *workers_[index];
   }
 
+  // Get the main dispatcher for filter creation
+  // Protected so derived classes can access it for filter setup
+  event::Dispatcher& getMainDispatcher() {
+    if (!main_dispatcher_) {
+      throw std::runtime_error("Main dispatcher not initialized");
+    }
+    return *main_dispatcher_;
+  }
+  
   // Create filter chain for connections
   virtual void setupFilterChain(FilterChainBuilder& builder) {
     // Base filters - derived classes add more
