@@ -13,7 +13,7 @@ namespace mcp {
 namespace filter {
 
 /**
- * HttpServerCodecFilter - HTTP/1.1 server codec following production architecture
+ * HttpCodecFilter - HTTP/1.1 codec supporting both client and server modes
  * 
  * Following production design principles:
  * - Transport sockets handle ONLY raw I/O (bytes in/out)
@@ -22,28 +22,30 @@ namespace filter {
  * 
  * Architecture:
  * ```
- * [Network] → [RawBufferSocket] → [HttpServerCodecFilter] → [Application]
- *              (Pure I/O only)     (HTTP protocol only)      (Business logic)
+ * [Network] → [RawBufferSocket] → [HttpCodecFilter] → [Application]
+ *              (Pure I/O only)     (HTTP protocol only)    (Business logic)
  * ```
  * 
  * This filter:
- * - Parses incoming HTTP requests from raw bytes
- * - Formats outgoing HTTP responses to raw bytes
- * - Manages HTTP/1.1 protocol state machine
+ * - Server mode: Parses incoming requests, formats outgoing responses
+ * - Client mode: Formats outgoing requests, parses incoming responses
+ * - Manages HTTP/1.1 protocol state machine for both modes
  * - Does NOT touch sockets or perform I/O
  */
-class HttpServerCodecFilter : public network::Filter {
+class HttpCodecFilter : public network::Filter {
 public:
   /**
-   * HTTP request callback interface
-   * Following production RequestDecoder pattern
+   * HTTP message callback interface
+   * Supports both client and server modes
    */
-  class RequestCallbacks {
+  class MessageCallbacks {
   public:
-    virtual ~RequestCallbacks() = default;
+    virtual ~MessageCallbacks() = default;
     
     /**
      * Called when HTTP headers are complete
+     * Server mode: request headers received
+     * Client mode: response headers received
      * @param headers Map of header key-value pairs
      * @param keep_alive Whether connection should be kept alive
      */
@@ -51,14 +53,18 @@ public:
                           bool keep_alive) = 0;
     
     /**
-     * Called when request body data is received
+     * Called when message body data is received
+     * Server mode: request body data
+     * Client mode: response body data
      * @param data Body data
      * @param end_stream True if this is the last body chunk
      */
     virtual void onBody(const std::string& data, bool end_stream) = 0;
     
     /**
-     * Called when complete request is received
+     * Called when complete message is received
+     * Server mode: complete request received
+     * Client mode: complete response received
      */
     virtual void onMessageComplete() = 0;
     
@@ -69,40 +75,46 @@ public:
   };
   
   /**
-   * HTTP response encoder interface
-   * Following production ResponseEncoder pattern
+   * HTTP message encoder interface
+   * Supports both request and response encoding
    */
-  class ResponseEncoder {
+  class MessageEncoder {
   public:
-    virtual ~ResponseEncoder() = default;
+    virtual ~MessageEncoder() = default;
     
     /**
-     * Encode response headers
-     * @param status_code HTTP status code
-     * @param headers Response headers
-     * @param end_stream Whether this completes the response
+     * Encode HTTP headers
+     * Server mode: response headers with status code
+     * Client mode: request headers with method and path
+     * @param status_code_or_method Status code (server) or HTTP method (client)
+     * @param headers HTTP headers
+     * @param end_stream Whether this completes the message
+     * @param path Request path (client mode only, ignored in server mode)
      */
-    virtual void encodeHeaders(int status_code,
+    virtual void encodeHeaders(const std::string& status_code_or_method,
                               const std::map<std::string, std::string>& headers,
-                              bool end_stream) = 0;
+                              bool end_stream,
+                              const std::string& path = "") = 0;
     
     /**
-     * Encode response body
+     * Encode message body
      * @param data Body data
-     * @param end_stream Whether this completes the response
+     * @param end_stream Whether this completes the message
      */
     virtual void encodeData(Buffer& data, bool end_stream) = 0;
   };
 
   /**
    * Constructor
-   * @param callbacks Request callbacks for the application layer
+   * @param callbacks Message callbacks for the application layer
    * @param dispatcher Event dispatcher for async operations
+   * @param is_server True for server mode, false for client mode
    */
-  HttpServerCodecFilter(RequestCallbacks& callbacks,
-                        event::Dispatcher& dispatcher);
+  HttpCodecFilter(MessageCallbacks& callbacks,
+                  event::Dispatcher& dispatcher,
+                  bool is_server = true);
   
-  ~HttpServerCodecFilter() override;
+  ~HttpCodecFilter() override;
 
   // network::ReadFilter interface
   network::FilterStatus onNewConnection() override;
@@ -118,30 +130,32 @@ public:
   }
   
   /**
-   * Get response encoder for sending HTTP responses
-   * Following production pattern of encoder/decoder separation
+   * Get message encoder for sending HTTP messages
+   * Server mode: response encoder
+   * Client mode: request encoder
    */
-  ResponseEncoder& responseEncoder() { return *response_encoder_; }
+  MessageEncoder& messageEncoder() { return *message_encoder_; }
 
 private:
-  // Inner class implementing ResponseEncoder
-  class ResponseEncoderImpl : public ResponseEncoder {
+  // Inner class implementing MessageEncoder
+  class MessageEncoderImpl : public MessageEncoder {
   public:
-    ResponseEncoderImpl(HttpServerCodecFilter& parent) : parent_(parent) {}
+    MessageEncoderImpl(HttpCodecFilter& parent) : parent_(parent) {}
     
-    void encodeHeaders(int status_code,
+    void encodeHeaders(const std::string& status_code_or_method,
                        const std::map<std::string, std::string>& headers,
-                       bool end_stream) override;
+                       bool end_stream,
+                       const std::string& path = "") override;
     void encodeData(Buffer& data, bool end_stream) override;
     
   private:
-    HttpServerCodecFilter& parent_;
+    HttpCodecFilter& parent_;
   };
   
   // HTTP parser callbacks following production pattern
   class ParserCallbacks : public http::HttpParserCallbacks {
   public:
-    ParserCallbacks(HttpServerCodecFilter& parent) : parent_(parent) {}
+    ParserCallbacks(HttpCodecFilter& parent) : parent_(parent) {}
     
     http::ParserCallbackResult onMessageBegin() override;
     http::ParserCallbackResult onUrl(const char* data, size_t length) override;
@@ -156,7 +170,7 @@ private:
     void onError(const std::string& error) override;
     
   private:
-    HttpServerCodecFilter& parent_;
+    HttpCodecFilter& parent_;
     std::string current_header_field_;
     std::string current_header_value_;
   };
@@ -173,10 +187,11 @@ private:
   void handleParserError(const std::string& error);
   
   /**
-   * Send response data through filter chain
-   * Following production pattern of using connection for writes
+   * Send message data through filter chain
+   * Server mode: response data
+   * Client mode: request data
    */
-  void sendResponseData(Buffer& data);
+  void sendMessageData(Buffer& data);
   
   /**
    * Handle state machine state changes
@@ -189,23 +204,26 @@ private:
   void onCodecError(const std::string& error);
   
   // Components
-  RequestCallbacks& request_callbacks_;
+  MessageCallbacks& message_callbacks_;
   event::Dispatcher& dispatcher_;
+  bool is_server_;
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
   
   std::unique_ptr<http::HttpParser> parser_;
   std::unique_ptr<ParserCallbacks> parser_callbacks_;
-  std::unique_ptr<ResponseEncoderImpl> response_encoder_;
+  std::unique_ptr<MessageEncoderImpl> message_encoder_;
   std::unique_ptr<HttpCodecStateMachine> state_machine_;
   
-  // Request state
+  // Message state
   std::map<std::string, std::string> current_headers_;
   std::string current_body_;
+  std::string current_url_;  // For client mode request parsing
+  std::string current_status_; // For client mode response parsing
   bool keep_alive_{true};
   
-  // Response buffering
-  OwnedBuffer response_buffer_;
+  // Message buffering
+  OwnedBuffer message_buffer_;
 };
 
 
