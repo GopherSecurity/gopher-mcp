@@ -257,6 +257,7 @@ set(MCP_SDK_SOURCES
     src/filter/http_codec_state_machine.cc
     src/filter/sse_codec_state_machine.cc
     src/filter/mcp_http_filter_chain_factory.cc
+    src/filter/mcp_stdio_filter_chain_factory.cc
     src/filter/mcp_jsonrpc_filter.cc
     src/mcp_connection_manager.cc
     src/client/mcp_client.cc
