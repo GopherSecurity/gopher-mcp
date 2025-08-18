@@ -7,7 +7,7 @@
 #include "tests/test_utils/real_io_test_base.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
-#include "mcp/filter/mcp_http_server_filter_chain_factory.h"
+#include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/network/transport_socket.h"
