@@ -2,9 +2,40 @@
 
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/event/event_loop.h"
 
 namespace mcp {
 namespace filter {
+
+/**
+ * Direct callbacks adapter for JSON-RPC to MCP
+ * Simply forwards JSON-RPC messages to MCP callbacks
+ */
+class DirectJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
+public:
+  DirectJsonRpcCallbacks(McpMessageCallbacks& mcp_callbacks)
+      : mcp_callbacks_(mcp_callbacks) {}
+  
+  void onRequest(const jsonrpc::Request& request) override {
+    mcp_callbacks_.onRequest(request);
+  }
+  
+  void onNotification(const jsonrpc::Notification& notification) override {
+    mcp_callbacks_.onNotification(notification);
+  }
+  
+  void onResponse(const jsonrpc::Response& response) override {
+    mcp_callbacks_.onResponse(response);
+  }
+  
+  void onProtocolError(const Error& error) override {
+    mcp_callbacks_.onError(error);
+  }
+  
+private:
+  McpMessageCallbacks& mcp_callbacks_;
+};
 
 /**
  * Factory for creating JSON-RPC filter chains
@@ -19,29 +50,35 @@ class JsonRpcFilterChainFactory : public network::FilterChainFactory {
  public:
   /**
    * Constructor
+   * @param dispatcher Event dispatcher for async operations
    * @param callbacks Message callbacks for handling parsed JSON-RPC messages
    * @param use_framing Whether to use message framing (false for HTTP
    * transport)
    */
-  JsonRpcFilterChainFactory(McpMessageCallbacks& callbacks,
+  JsonRpcFilterChainFactory(event::Dispatcher& dispatcher,
+                            McpMessageCallbacks& callbacks,
                             bool use_framing = true)
-      : callbacks_(callbacks), use_framing_(use_framing) {}
+      : dispatcher_(dispatcher), callbacks_(callbacks), use_framing_(use_framing) {}
 
   /**
    * Create the filter chain
-   * Adds JsonRpcMessageFilter for both read and write paths
+   * Adds McpJsonRpcFilter for both read and write paths
    */
   bool createFilterChain(network::FilterManager& manager) const override {
+    // Create callbacks adapter
+    json_callbacks_ = std::make_shared<DirectJsonRpcCallbacks>(callbacks_);
+    
     // Create the JSON-RPC message filter
     // This filter parses incoming JSON-RPC and frames outgoing messages
-    auto filter = std::make_shared<JsonRpcMessageFilter>(callbacks_);
-    filter->setUseFraming(use_framing_);
+    filter_ = std::make_shared<McpJsonRpcFilter>(
+        *json_callbacks_, dispatcher_, false);  // false for client mode
+    filter_->setUseFraming(use_framing_);
 
     // Add to both read and write filter chains
     // Read: Parse incoming JSON-RPC messages
     // Write: Frame outgoing JSON-RPC responses (if framing enabled)
-    manager.addReadFilter(filter);
-    manager.addWriteFilter(filter);
+    manager.addReadFilter(filter_);
+    manager.addWriteFilter(filter_);
 
     return true;
   }
@@ -66,8 +103,13 @@ class JsonRpcFilterChainFactory : public network::FilterChainFactory {
   }
 
  private:
+  event::Dispatcher& dispatcher_;
   McpMessageCallbacks& callbacks_;
   bool use_framing_;
+  
+  // Store for lifetime management
+  mutable std::shared_ptr<DirectJsonRpcCallbacks> json_callbacks_;
+  mutable std::shared_ptr<McpJsonRpcFilter> filter_;
 };
 
 }  // namespace filter

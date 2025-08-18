@@ -5,17 +5,53 @@
  */
 
 #include "mcp/filter/mcp_stdio_filter_chain_factory.h"
-#include "mcp/mcp_connection_manager.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 
 namespace mcp {
 namespace filter {
 
+/**
+ * Direct callbacks adapter for JSON-RPC to MCP
+ * Simply forwards JSON-RPC messages to MCP callbacks
+ */
+class DirectJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
+public:
+  DirectJsonRpcCallbacks(McpMessageCallbacks& mcp_callbacks)
+      : mcp_callbacks_(mcp_callbacks) {}
+  
+  void onRequest(const jsonrpc::Request& request) override {
+    mcp_callbacks_.onRequest(request);
+  }
+  
+  void onNotification(const jsonrpc::Notification& notification) override {
+    mcp_callbacks_.onNotification(notification);
+  }
+  
+  void onResponse(const jsonrpc::Response& response) override {
+    mcp_callbacks_.onResponse(response);
+  }
+  
+  void onProtocolError(const Error& error) override {
+    mcp_callbacks_.onError(error);
+  }
+  
+private:
+  McpMessageCallbacks& mcp_callbacks_;
+};
+
 bool McpStdioFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
-  // Create simple JSON-RPC filter
-  // No protocol stack needed for direct transports
-  auto jsonrpc_filter = std::make_shared<JsonRpcMessageFilter>(message_callbacks_);
+  // Create callbacks adapter
+  auto callbacks = std::make_shared<DirectJsonRpcCallbacks>(message_callbacks_);
+  
+  // Create JSON-RPC filter (reuse the same filter used in HTTP+SSE stack)
+  // This ensures consistent JSON-RPC handling across all transports
+  auto jsonrpc_filter = std::make_shared<McpJsonRpcFilter>(
+      *callbacks, 
+      dispatcher_, 
+      false);  // Client mode for stdio (TODO: make configurable)
+  
   jsonrpc_filter->setUseFraming(use_framing_);
   
   // Add as both read and write filter
@@ -24,6 +60,7 @@ bool McpStdioFilterChainFactory::createFilterChain(
   
   // Store for lifetime management
   filters_.push_back(jsonrpc_filter);
+  callbacks_.push_back(callbacks);
   
   return true;
 }

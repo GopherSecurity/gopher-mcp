@@ -77,39 +77,6 @@ class McpMessageCallbacks {
 };
 
 /**
- * Direct JSON-RPC filter for simple transports
- * 
- * Architecture:
- * - For stdio/websocket: [Transport] → [JsonRpcMessageFilter] → [Application]
- * - For HTTP+SSE: [Transport] → [HttpSseJsonRpcFilter] → [Application]
- * 
- * This filter handles JSON-RPC directly without HTTP/SSE layers.
- * It's a simplified version for transports that don't need protocol stacks.
- */
-class JsonRpcMessageFilter : public network::NetworkFilterBase {
- public:
-  explicit JsonRpcMessageFilter(McpMessageCallbacks& callbacks);
-
-  // Network filter interface
-  network::FilterStatus onData(Buffer& data, bool end_stream) override;
-  network::FilterStatus onNewConnection() override;
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
-
-  // Configuration
-  void setUseFraming(bool use_framing) { use_framing_ = use_framing; }
-
- private:
-  // Message processing
-  void parseMessages(Buffer& data);
-  bool parseMessage(const std::string& json_str);
-  void frameMessage(Buffer& data);
-
-  McpMessageCallbacks& callbacks_;
-  std::string partial_message_;
-  bool use_framing_{true};
-};
-
-/**
  * MCP connection manager
  *
  * High-level interface for managing MCP connections

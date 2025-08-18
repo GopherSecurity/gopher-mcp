@@ -380,8 +380,12 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   // Add MCP-specific filters
 
   // Add JSON-RPC message filter for protocol handling
+  // TODO: Replace with McpJsonRpcFilter once integrated with ApplicationBase
+  // For now, use a simple placeholder filter until proper integration
   builder.addFilter([this]() -> network::FilterSharedPtr {
-    return std::make_shared<JsonRpcMessageFilter>(*this);
+    // Temporary: return null filter until McpJsonRpcFilter is integrated
+    // The actual JSON-RPC handling is done in onData callbacks
+    return nullptr;
   });
 
   // Add session tracking filter
