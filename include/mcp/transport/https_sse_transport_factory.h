@@ -156,12 +156,12 @@ class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
       network::TransportSocketPtr inner_socket, bool is_client) const;
 
   /**
-   * Extract hostname from URL for SNI
+   * Extract hostname from server address for SNI
    *
-   * @param url Full URL
+   * @param address Server address (hostname:port)
    * @return Hostname portion
    */
-  std::string extractHostname(const std::string& url) const;
+  std::string extractHostname(const std::string& address) const;
 
   /**
    * Build ALPN protocol list
@@ -196,10 +196,12 @@ class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
  * Example usage:
  * ```cpp
  * HttpSseTransportSocketConfig config;
- * config.endpoint_url = "https://api.example.com";
- * config.client_cert_path = "/path/to/client.crt";
- * config.client_key_path = "/path/to/client.key";
- * config.ca_cert_path = "/path/to/ca.crt";
+ * config.server_address = "127.0.0.1:8443";
+ * config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+ * config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+ * config.ssl_config->client_cert_path = "/path/to/client.crt";
+ * config.ssl_config->client_key_path = "/path/to/client.key";
+ * config.ssl_config->ca_cert_path = "/path/to/ca.crt";
  *
  * auto factory = createHttpsSseTransportFactory(config, dispatcher);
  * auto socket = factory->createTransportSocket(options);
@@ -221,16 +223,18 @@ inline std::unique_ptr<HttpsSseTransportFactory> createHttpsSseTransportFactory(
  * Example:
  * ```cpp
  * auto socket = createHttpsSseClientTransport(
- *     "https://api.example.com", dispatcher, true);
+ *     "api.example.com:443", dispatcher, true);
  * ```
  */
 inline network::TransportSocketPtr createHttpsSseClientTransport(
-    const std::string& url,
+    const std::string& server_address,
     event::Dispatcher& dispatcher,
-    bool verify_ssl = true) {
+    bool verify_peer = true) {
   HttpSseTransportSocketConfig config;
-  config.endpoint_url = url;
-  config.verify_ssl = verify_ssl;
+  config.server_address = server_address;
+  config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+  config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+  config.ssl_config->verify_peer = verify_peer;
 
   auto factory = createHttpsSseTransportFactory(config, dispatcher);
   return factory->createTransportSocket(nullptr);

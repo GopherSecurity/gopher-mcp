@@ -12,6 +12,7 @@
 #include "mcp/network/socket_impl.h"
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/transport/https_sse_transport_factory.h"
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/transport/stdio_transport_socket.h"
 
@@ -321,45 +322,32 @@ VoidResult McpConnectionManager::connect() {
       return makeVoidError(err);
     }
 
-    // Parse URL to get host and port
-    std::string url = config_.http_sse_config.value().endpoint_url;
+    // Parse server address to get host and port
+    std::string server_address = config_.http_sse_config.value().server_address;
     std::string host = "127.0.0.1";
     uint32_t port = 8080;
 
-    // Extract host and port from URL
-    // Support format: http://host:port/path or https://host:port/path
-    if (url.find("http://") == 0 || url.find("https://") == 0) {
-      size_t protocol_end = url.find("://") + 3;
-      size_t port_start = url.find(':', protocol_end);
-      size_t path_start = url.find('/', protocol_end);
-
-      if (port_start != std::string::npos &&
-          (path_start == std::string::npos || port_start < path_start)) {
-        // Has explicit port
-        host = url.substr(protocol_end, port_start - protocol_end);
-        if (host == "localhost") {
-          host = "127.0.0.1";
-        }
-        size_t port_end =
-            (path_start != std::string::npos) ? path_start : url.length();
-        std::string port_str =
-            url.substr(port_start + 1, port_end - port_start - 1);
+    // Extract host and port from server_address  
+    // Support format: host:port or IP:port
+    size_t colon_pos = server_address.rfind(':');
+    if (colon_pos != std::string::npos) {
+      host = server_address.substr(0, colon_pos);
+      std::string port_str = server_address.substr(colon_pos + 1);
+      try {
         port = std::stoi(port_str);
-      } else if (path_start != std::string::npos) {
-        // No explicit port, use default based on protocol
-        host = url.substr(protocol_end, path_start - protocol_end);
-        if (host == "localhost") {
-          host = "127.0.0.1";
-        }
-        port = (url.find("https://") == 0) ? 443 : 80;
-      } else {
-        // No path, just host
-        host = url.substr(protocol_end);
-        if (host == "localhost") {
-          host = "127.0.0.1";
-        }
-        port = (url.find("https://") == 0) ? 443 : 80;
+      } catch (const std::exception& e) {
+        // Invalid port, use default
+        // Invalid port, using default
+        port = 8080;
       }
+    } else {
+      // No port specified, use entire string as host
+      host = server_address;
+    }
+    
+    // Convert localhost to IP
+    if (host == "localhost") {
+      host = "127.0.0.1";
     }
 
     // Create TCP address for remote server
@@ -753,7 +741,7 @@ McpConnectionManager::createTransportSocketFactory() {
     case TransportType::HttpSse:
       if (config_.http_sse_config.has_value()) {
         // Create HTTP+SSE transport socket factory
-        return transport::createHttpSseTransportSocketFactory(
+        return transport::createHttpsSseTransportFactory(
             config_.http_sse_config.value(), dispatcher_);
       }
       break;

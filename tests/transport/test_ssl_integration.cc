@@ -448,9 +448,11 @@ TEST_F(SslIntegrationTest, SslShutdown) {
 TEST_F(SslIntegrationTest, HttpsSseFactoryWithSsl) {
   // Configure HTTPS+SSE
   HttpSseTransportSocketConfig config;
-  config.endpoint_url = "https://localhost:8443";
-  config.verify_ssl = false;  // Self-signed cert
-  config.alpn_protocols = {"http/1.1"};
+  config.server_address = "localhost:8443";
+  config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+  config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+  config.ssl_config->verify_peer = false;  // Self-signed cert
+  config.ssl_config->alpn_protocols = {"http/1.1"};
   
   // Create factory
   auto factory = createHttpsSseTransportFactory(config, *dispatcher_);
