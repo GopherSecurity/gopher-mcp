@@ -617,7 +617,7 @@ McpConnectionManager::createFilterChainFactory() {
     // No protocol stack needed - just JSON-RPC message handling
     
     return std::make_shared<filter::McpStdioFilterChainFactory>(
-        dispatcher_, *this, config_.use_message_framing);
+        dispatcher_, *this, is_server_, config_.use_message_framing);
   }
 }
 
