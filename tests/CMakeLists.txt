@@ -37,9 +37,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
-add_executable(test_http_sse_transport_socket_v2 transport/test_http_sse_transport_socket_v2.cc)
-# Additional HTTP SSE transport test files have been merged into test_http_sse_transport_socket.cc
-# to reduce duplication and improve maintainability
+add_executable(test_http_sse_transport_socket_simple transport/test_http_sse_transport_socket_simple.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
 # SSL/TLS transport tests
@@ -54,9 +52,6 @@ add_executable(test_tcp_transport_socket transport/test_tcp_transport_socket.cc)
 
 # Full stack transport tests
 add_executable(test_full_stack_transport transport/test_full_stack_transport.cc)
-
-# HTTP SSE state machine test
-add_executable(test_http_sse_state_machine transport/test_http_sse_state_machine.cc)
 
 # Transport socket state machine test
 add_executable(test_transport_socket_state_machine transport/test_transport_socket_state_machine.cc)
@@ -328,7 +323,7 @@ target_link_libraries(test_http_sse_transport_socket
     Threads::Threads
 )
 
-target_link_libraries(test_http_sse_transport_socket_v2
+target_link_libraries(test_http_sse_transport_socket
     mcp-sdk
     mcp-event
     gtest
@@ -337,8 +332,14 @@ target_link_libraries(test_http_sse_transport_socket_v2
     Threads::Threads
 )
 
-# Link libraries for the merged HTTP SSE transport socket tests are included
-# in the main test_http_sse_transport_socket target above
+target_link_libraries(test_http_sse_transport_socket_simple
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
 
 # SSL/TLS transport test libraries
 target_link_libraries(test_ssl_context
@@ -414,16 +415,6 @@ target_link_libraries(test_full_stack_transport
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto
-)
-
-# HTTP SSE state machine test libraries
-target_link_libraries(test_http_sse_state_machine
-    mcp-sdk
-    mcp-event
-    gtest
-    gmock
-    gtest_main
-    Threads::Threads
 )
 
 # Transport socket state machine test libraries
@@ -710,8 +701,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 # Transport tests
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
-add_test(NAME HttpSseTransportSocketV2Test COMMAND test_http_sse_transport_socket_v2)
-# HttpSseTransportSocketRealIoTest merged into HttpSseTransportSocketTest to reduce duplication
+add_test(NAME HttpSseTransportSocketSimpleTest COMMAND test_http_sse_transport_socket_simple)
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 
 # SSL/TLS transport tests
@@ -722,7 +712,6 @@ add_test(NAME HttpsSseFactoryTest COMMAND test_https_sse_factory)
 add_test(NAME SslIntegrationTest COMMAND test_ssl_integration)
 
 # HTTP SSE state machine test
-add_test(NAME HttpSseStateMachineTest COMMAND test_http_sse_state_machine)
 
 # Transport socket state machine test
 add_test(NAME TransportSocketStateMachineTest COMMAND test_transport_socket_state_machine)

@@ -271,9 +271,7 @@ set(MCP_HTTP_SOURCES
 if(LLHTTP_FOUND)
     list(APPEND MCP_HTTP_SOURCES
         src/http/llhttp_parser.cc
-        src/transport/http_sse_transport_socket.cc  # New llhttp-based implementation
-        src/transport/http_sse_transport_socket_v2.cc  # V2 with layered architecture
-        src/transport/http_sse_state_machine.cc     # HTTP+SSE state machine
+        src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
     )
 endif()
 
