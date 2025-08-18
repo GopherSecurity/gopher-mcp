@@ -1,14 +1,14 @@
 /**
- * HTTP Server Codec Filter Implementation
+ * HTTP Codec Filter Implementation
  * 
  * Following production architecture:
- * - Handles HTTP/1.1 protocol processing
+ * - Handles HTTP/1.1 protocol processing for both client and server modes
  * - Completely separate from transport layer
  * - Works with any transport socket that provides raw I/O
  * - Integrates with HttpCodecStateMachine for state management
  */
 
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/http/llhttp_parser.h"
 #include <sstream>
@@ -19,25 +19,30 @@ namespace mcp {
 namespace filter {
 
 // Constructor
-HttpServerCodecFilter::HttpServerCodecFilter(RequestCallbacks& callbacks,
-                                             event::Dispatcher& dispatcher)
-    : request_callbacks_(callbacks),
-      dispatcher_(dispatcher) {
+HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
+                                 event::Dispatcher& dispatcher,
+                                 bool is_server)
+    : message_callbacks_(callbacks),
+      dispatcher_(dispatcher),
+      is_server_(is_server) {
   // Initialize HTTP parser callbacks
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
   
   // Create HTTP/1.1 parser using llhttp
-  // We directly create an LLHttpParser since we know we're handling HTTP/1.1
+  // Parser type depends on mode: REQUEST for server, RESPONSE for client
+  http::HttpParserType parser_type = is_server_ ? 
+      http::HttpParserType::REQUEST : http::HttpParserType::RESPONSE;
   parser_ = std::make_unique<http::LLHttpParser>(
-      http::HttpParserType::REQUEST, 
+      parser_type, 
       parser_callbacks_.get(),
       http::HttpVersion::HTTP_1_1);
   
-  // Initialize response encoder
-  response_encoder_ = std::make_unique<ResponseEncoderImpl>(*this);
+  // Initialize message encoder
+  message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
   
   // Initialize HTTP codec state machine
   HttpCodecStateMachineConfig config;
+  config.is_server = is_server_;  // Set mode
   config.header_timeout = std::chrono::milliseconds(30000);
   config.body_timeout = std::chrono::milliseconds(60000);
   config.idle_timeout = std::chrono::milliseconds(120000);
@@ -52,21 +57,24 @@ HttpServerCodecFilter::HttpServerCodecFilter(RequestCallbacks& callbacks,
   state_machine_ = std::make_unique<HttpCodecStateMachine>(dispatcher_, config);
 }
 
-HttpServerCodecFilter::~HttpServerCodecFilter() = default;
+HttpCodecFilter::~HttpCodecFilter() = default;
 
 // network::ReadFilter interface
-network::FilterStatus HttpServerCodecFilter::onNewConnection() {
-  // State machine starts in WaitingForRequest state by default
+network::FilterStatus HttpCodecFilter::onNewConnection() {
+  // State machine starts in appropriate state based on mode
+  // Server: WaitingForRequest, Client: Idle
   return network::FilterStatus::Continue;
 }
 
-network::FilterStatus HttpServerCodecFilter::onData(Buffer& data, bool end_stream) {
-  // Check if we need to reset for next request
+network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
+  // Check if we need to reset for next message
   if (state_machine_->currentState() == HttpCodecState::Closed) {
-    // Reset for next request if connection was closed
+    // Reset for next message if connection was closed
     state_machine_->resetForNextRequest();
     current_headers_.clear();
     current_body_.clear();
+    current_url_.clear();
+    current_status_.clear();
   }
   
   // Process HTTP data
@@ -76,13 +84,13 @@ network::FilterStatus HttpServerCodecFilter::onData(Buffer& data, bool end_strea
 }
 
 // network::WriteFilter interface
-network::FilterStatus HttpServerCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  // Pass through response data
+network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
+  // Pass through message data
   return network::FilterStatus::Continue;
 }
 
 // Process incoming HTTP data
-void HttpServerCodecFilter::dispatch(Buffer& data) {
+void HttpCodecFilter::dispatch(Buffer& data) {
   size_t data_len = data.length();
   if (data_len == 0) {
     return;
@@ -103,41 +111,56 @@ void HttpServerCodecFilter::dispatch(Buffer& data) {
   }
 }
 
-void HttpServerCodecFilter::handleParserError(const std::string& error) {
+void HttpCodecFilter::handleParserError(const std::string& error) {
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
-  request_callbacks_.onError(error);
+  message_callbacks_.onError(error);
 }
 
-void HttpServerCodecFilter::sendResponseData(Buffer& data) {
+void HttpCodecFilter::sendMessageData(Buffer& data) {
   if (write_callbacks_) {
     write_callbacks_->injectWriteDataToFilterChain(data, false);
   }
 }
 
 // ParserCallbacks implementation
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onMessageBegin() {
-  parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onMessageBegin() {
+  // Event depends on mode: RequestStart for server, SendResponse for client
+  if (parent_.is_server_) {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
+  } else {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
+  }
+  
   parent_.current_headers_.clear();
   parent_.current_body_.clear();
+  parent_.current_url_.clear();
+  parent_.current_status_.clear();
   current_header_field_.clear();
   current_header_value_.clear();
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onUrl(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onUrl(
     const char* data, size_t length) {
-  // Store URL in headers
-  parent_.current_headers_["url"] = std::string(data, length);
+  // Server mode: store URL for request
+  if (parent_.is_server_) {
+    parent_.current_url_ = std::string(data, length);
+    parent_.current_headers_["url"] = parent_.current_url_;
+  }
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onStatus(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onStatus(
     const char* data, size_t length) {
-  // Not used for request parsing
+  // Client mode: store status for response
+  if (!parent_.is_server_) {
+    parent_.current_status_ = std::string(data, length);
+    parent_.current_headers_["status"] = parent_.current_status_;
+  }
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeaderField(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeaderField(
     const char* data, size_t length) {
   // If we have a pending header value, store it
   if (!current_header_field_.empty() && !current_header_value_.empty()) {
@@ -152,13 +175,13 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeaderField
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeaderValue(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeaderValue(
     const char* data, size_t length) {
   current_header_value_.append(data, length);
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeadersComplete() {
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
   // Store last header
   if (!current_header_field_.empty() && !current_header_value_.empty()) {
     std::string lower_field = current_header_field_;
@@ -169,7 +192,7 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeadersComp
   // Check keep-alive
   parent_.keep_alive_ = parent_.parser_->shouldKeepAlive();
   
-  // Determine if request has body based on Content-Length or Transfer-Encoding
+  // Determine if message has body based on Content-Length or Transfer-Encoding
   bool has_body = false;
   auto content_length_it = parent_.current_headers_.find("content-length");
   auto transfer_encoding_it = parent_.current_headers_.find("transfer-encoding");
@@ -182,111 +205,133 @@ http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onHeadersComp
     has_body = true;
   }
   
-  // Set body expectation for state machine
-  parent_.state_machine_->setExpectRequestBody(has_body);
+  // Set body expectation for state machine based on mode
+  if (parent_.is_server_) {
+    parent_.state_machine_->setExpectRequestBody(has_body);
+  } else {
+    parent_.state_machine_->setExpectResponseBody(has_body);
+  }
   
   // Trigger headers complete event
   parent_.state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   
   // Notify callbacks
-  parent_.request_callbacks_.onHeaders(parent_.current_headers_, parent_.keep_alive_);
+  parent_.message_callbacks_.onHeaders(parent_.current_headers_, parent_.keep_alive_);
   
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onBody(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   parent_.current_body_.append(data, length);
   parent_.state_machine_->handleEvent(HttpCodecEvent::BodyData);
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onMessageComplete() {
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onMessageComplete() {
   parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
   
   // Send body to callbacks
   if (!parent_.current_body_.empty()) {
-    parent_.request_callbacks_.onBody(parent_.current_body_, true);
+    parent_.message_callbacks_.onBody(parent_.current_body_, true);
   }
   
-  parent_.request_callbacks_.onMessageComplete();
+  parent_.message_callbacks_.onMessageComplete();
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onChunkHeader(
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onChunkHeader(
     size_t chunk_size) {
   // Handle chunked encoding if needed
   return http::ParserCallbackResult::Success;
 }
 
-http::ParserCallbackResult HttpServerCodecFilter::ParserCallbacks::onChunkComplete() {
+http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onChunkComplete() {
   return http::ParserCallbackResult::Success;
 }
 
-void HttpServerCodecFilter::ParserCallbacks::onError(const std::string& error) {
+void HttpCodecFilter::ParserCallbacks::onError(const std::string& error) {
   parent_.handleParserError(error);
 }
 
-// ResponseEncoderImpl implementation
-void HttpServerCodecFilter::ResponseEncoderImpl::encodeHeaders(
-    int status_code,
+// MessageEncoderImpl implementation
+void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
+    const std::string& status_code_or_method,
     const std::map<std::string, std::string>& headers,
-    bool end_stream) {
+    bool end_stream,
+    const std::string& path) {
   
-  parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
+  std::ostringstream message;
   
-  // Build HTTP response
-  std::ostringstream response;
-  response << "HTTP/1.1 " << status_code << " ";
-  
-  // Add status text
-  switch (status_code) {
-    case 200: response << "OK"; break;
-    case 201: response << "Created"; break;
-    case 204: response << "No Content"; break;
-    case 400: response << "Bad Request"; break;
-    case 404: response << "Not Found"; break;
-    case 500: response << "Internal Server Error"; break;
-    default: response << "Unknown"; break;
+  if (parent_.is_server_) {
+    // Server mode: encode response
+    parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
+    
+    int status_code = std::stoi(status_code_or_method);
+    message << "HTTP/1.1 " << status_code << " ";
+    
+    // Add status text
+    switch (status_code) {
+      case 200: message << "OK"; break;
+      case 201: message << "Created"; break;
+      case 204: message << "No Content"; break;
+      case 400: message << "Bad Request"; break;
+      case 404: message << "Not Found"; break;
+      case 500: message << "Internal Server Error"; break;
+      default: message << "Unknown"; break;
+    }
+    message << "\r\n";
+  } else {
+    // Client mode: encode request
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
+    
+    message << status_code_or_method << " " << path << " HTTP/1.1\r\n";
   }
-  response << "\r\n";
   
   // Add headers
   for (const auto& header : headers) {
-    response << header.first << ": " << header.second << "\r\n";
+    message << header.first << ": " << header.second << "\r\n";
   }
   
   // End headers
-  response << "\r\n";
+  message << "\r\n";
   
-  // Send response headers
-  std::string response_str = response.str();
-  parent_.response_buffer_.add(response_str.c_str(), response_str.length());
-  parent_.sendResponseData(parent_.response_buffer_);
+  // Send message headers
+  std::string message_str = message.str();
+  parent_.message_buffer_.add(message_str.c_str(), message_str.length());
+  parent_.sendMessageData(parent_.message_buffer_);
   
   if (end_stream) {
-    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+    if (parent_.is_server_) {
+      parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+    } else {
+      parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
+    }
   }
 }
 
-void HttpServerCodecFilter::ResponseEncoderImpl::encodeData(Buffer& data, bool end_stream) {
-  // Send response body
-  parent_.sendResponseData(data);
+void HttpCodecFilter::MessageEncoderImpl::encodeData(Buffer& data, bool end_stream) {
+  // Send message body
+  parent_.sendMessageData(data);
   
   if (end_stream) {
-    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+    if (parent_.is_server_) {
+      parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+    } else {
+      parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
+    }
   }
 }
 
 // State machine callback handlers
-void HttpServerCodecFilter::onCodecStateChange(const HttpCodecStateTransitionContext& context) {
+void HttpCodecFilter::onCodecStateChange(const HttpCodecStateTransitionContext& context) {
   // Handle state changes as needed
   // For example, logging, metrics, or connection management
 }
 
-void HttpServerCodecFilter::onCodecError(const std::string& error) {
+void HttpCodecFilter::onCodecError(const std::string& error) {
   // Handle codec-level errors
-  request_callbacks_.onError("HTTP codec error: " + error);
+  message_callbacks_.onError("HTTP codec error: " + error);
 }
 
 } // namespace filter
