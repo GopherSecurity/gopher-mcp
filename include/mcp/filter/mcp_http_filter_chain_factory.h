@@ -15,7 +15,7 @@ namespace mcp {
 namespace filter {
 
 /**
- * MCP HTTP Server Filter Chain Factory
+ * MCP HTTP Filter Chain Factory
  * 
  * Following production FilterChainFactory pattern exactly:
  * - Creates the complete filter chain for a connection
@@ -24,14 +24,14 @@ namespace filter {
  * 
  * Based on: source/common/listener_manager/filter_chain_factory_context_callback.h
  */
-class McpHttpServerFilterChainFactory : public network::FilterChainFactory {
+class McpHttpFilterChainFactory : public network::FilterChainFactory {
 public:
   /**
    * Constructor
    * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling requests
    */
-  McpHttpServerFilterChainFactory(event::Dispatcher& dispatcher,
+  McpHttpFilterChainFactory(event::Dispatcher& dispatcher,
                                   McpMessageCallbacks& message_callbacks)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks) {}

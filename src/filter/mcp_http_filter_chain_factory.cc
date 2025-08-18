@@ -1,5 +1,5 @@
 /**
- * MCP HTTP Server Filter Chain Factory Implementation
+ * MCP HTTP Filter Chain Factory Implementation
  * 
  * Following production architecture exactly:
  * - Transport sockets handle ONLY I/O
@@ -7,7 +7,7 @@
  * - ConnectionImpl orchestrates everything
  */
 
-#include "mcp/filter/mcp_http_server_filter_chain_factory.h"
+#include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
@@ -18,7 +18,7 @@
 namespace mcp {
 namespace filter {
 
-bool McpHttpServerFilterChainFactory::createFilterChain(
+bool McpHttpFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Create protocol bridge that connects filters to MCP callbacks
@@ -47,12 +47,12 @@ bool McpHttpServerFilterChainFactory::createFilterChain(
   
   // Store bridge for lifetime management
   // Cast away const for now - we should redesign this to be cleaner
-  const_cast<McpHttpServerFilterChainFactory*>(this)->bridges_.push_back(std::move(bridge));
+  const_cast<McpHttpFilterChainFactory*>(this)->bridges_.push_back(std::move(bridge));
   
   return true;
 }
 
-bool McpHttpServerFilterChainFactory::createNetworkFilterChain(
+bool McpHttpFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& filter_factories) const {
   // Delegate to the main implementation
@@ -61,7 +61,7 @@ bool McpHttpServerFilterChainFactory::createNetworkFilterChain(
 
 // McpProtocolBridge implementation
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onHeaders(
+void McpHttpFilterChainFactory::McpProtocolBridge::onHeaders(
     const std::map<std::string, std::string>& headers,
     bool keep_alive) {
   
@@ -104,7 +104,7 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::onHeaders(
   }
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onBody(
+void McpHttpFilterChainFactory::McpProtocolBridge::onBody(
     const std::string& data, bool end_stream) {
   
   current_request_body_ += data;
@@ -151,13 +151,13 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::onBody(
   }
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onMessageComplete() {
+void McpHttpFilterChainFactory::McpProtocolBridge::onMessageComplete() {
   // Request processing complete
   // In HTTP mode, we've already sent the response
   // In SSE mode, the connection stays open
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onError(
+void McpHttpFilterChainFactory::McpProtocolBridge::onError(
     const std::string& error) {
   // HTTP parsing error
   // Send error response
@@ -177,7 +177,7 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::onError(
   message_callbacks_.onError(mcp_error);
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onEvent(
+void McpHttpFilterChainFactory::McpProtocolBridge::onEvent(
     const std::string& event,
     const std::string& data,
     const optional<std::string>& id) {
@@ -220,12 +220,12 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::onEvent(
   }
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::onComment(
+void McpHttpFilterChainFactory::McpProtocolBridge::onComment(
     const std::string& comment) {
   // SSE comments are used for keep-alive, ignore them
 }
 
-void McpHttpServerFilterChainFactory::McpProtocolBridge::sendResponse(
+void McpHttpFilterChainFactory::McpProtocolBridge::sendResponse(
     const std::string& response) {
   
   if (mode_ == RequestMode::HTTP_RPC) {
