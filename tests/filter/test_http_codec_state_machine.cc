@@ -75,7 +75,7 @@ protected:
 TEST_F(HttpCodecStateMachineTest, InitialState) {
   expectState(HttpCodecState::WaitingForRequest);
   EXPECT_TRUE(state_machine_->canReceiveRequest());
-  EXPECT_FALSE(state_machine_->isReceivingBody());
+  EXPECT_FALSE(state_machine_->isReceivingRequestBody());
   EXPECT_FALSE(state_machine_->hasError());
 }
 
@@ -86,14 +86,14 @@ TEST_F(HttpCodecStateMachineTest, RequestStartTransition) {
   EXPECT_TRUE(result.success);
   
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
   EXPECT_FALSE(state_machine_->canReceiveRequest());
 }
 
 TEST_F(HttpCodecStateMachineTest, HeadersCompleteWithoutBody) {
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
   
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
@@ -109,8 +109,8 @@ TEST_F(HttpCodecStateMachineTest, HeadersCompleteWithBody) {
   
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingBody);
-  EXPECT_TRUE(state_machine_->isReceivingBody());
+  expectState(HttpCodecState::ReceivingRequestBody);
+  EXPECT_TRUE(state_machine_->isReceivingRequestBody());
 }
 
 TEST_F(HttpCodecStateMachineTest, BodyDataAndComplete) {
@@ -125,7 +125,7 @@ TEST_F(HttpCodecStateMachineTest, BodyDataAndComplete) {
   // Receive body data (stays in same state)
   state_machine_->handleEvent(HttpCodecEvent::BodyData);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingBody);
+  expectState(HttpCodecState::ReceivingRequestBody);
   
   // Complete message
   state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
@@ -169,7 +169,7 @@ TEST_F(HttpCodecStateMachineTest, ResponseCompleteWithoutKeepAlive) {
 TEST_F(HttpCodecStateMachineTest, ParseErrorInHeaders) {
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
   
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
   runFor(10ms);
@@ -185,7 +185,7 @@ TEST_F(HttpCodecStateMachineTest, ParseErrorInBody) {
   state_machine_->setExpectRequestBody(true);
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingBody);
+  expectState(HttpCodecState::ReceivingRequestBody);
   
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
   runFor(10ms);
@@ -235,7 +235,7 @@ TEST_F(HttpCodecStateMachineTest, HeaderTimeout) {
   
   state_machine_->handleEvent(HttpCodecEvent::RequestStart);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
   
   // Wait for header timeout
   runFor(config_.header_timeout + 50ms);
@@ -259,7 +259,7 @@ TEST_F(HttpCodecStateMachineTest, BodyTimeout) {
   state_machine_->setExpectRequestBody(true);
   state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
   runFor(10ms);
-  expectState(HttpCodecState::ReceivingBody);
+  expectState(HttpCodecState::ReceivingRequestBody);
   
   // Wait for body timeout
   runFor(config_.body_timeout + 50ms);
@@ -310,8 +310,8 @@ TEST_F(HttpCodecStateMachineTest, StateChangeListeners) {
   
   ASSERT_GE(transitions.size(), 3);
   EXPECT_EQ(transitions[0].from_state, HttpCodecState::WaitingForRequest);
-  EXPECT_EQ(transitions[0].to_state, HttpCodecState::ReceivingHeaders);
-  EXPECT_EQ(transitions[1].from_state, HttpCodecState::ReceivingHeaders);
+  EXPECT_EQ(transitions[0].to_state, HttpCodecState::ReceivingRequestHeaders);
+  EXPECT_EQ(transitions[1].from_state, HttpCodecState::ReceivingRequestHeaders);
   EXPECT_EQ(transitions[1].to_state, HttpCodecState::SendingResponse);
   EXPECT_EQ(transitions[2].from_state, HttpCodecState::SendingResponse);
   EXPECT_EQ(transitions[2].to_state, HttpCodecState::WaitingForRequest);
@@ -338,7 +338,7 @@ TEST_F(HttpCodecStateMachineTest, EntryExitActions) {
   bool entry_called = false;
   bool exit_called = false;
   
-  state_machine_->setEntryAction(HttpCodecState::ReceivingHeaders,
+  state_machine_->setEntryAction(HttpCodecState::ReceivingRequestHeaders,
     [&entry_called](HttpCodecState state, std::function<void()> done) {
       entry_called = true;
       done();
@@ -373,7 +373,7 @@ TEST_F(HttpCodecStateMachineTest, AsyncCompletionCallback) {
   
   EXPECT_TRUE(callback_invoked);
   EXPECT_TRUE(success);
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
 }
 
 TEST_F(HttpCodecStateMachineTest, AsyncCallbackOnInvalidTransition) {
@@ -400,12 +400,12 @@ TEST_F(HttpCodecStateMachineTest, AsyncCallbackOnInvalidTransition) {
 TEST_F(HttpCodecStateMachineTest, ValidTransitions) {
   EXPECT_TRUE(state_machine_->isTransitionValid(
     HttpCodecState::WaitingForRequest, 
-    HttpCodecState::ReceivingHeaders,
+    HttpCodecState::ReceivingRequestHeaders,
     HttpCodecEvent::RequestStart));
   
   EXPECT_TRUE(state_machine_->isTransitionValid(
-    HttpCodecState::ReceivingHeaders,
-    HttpCodecState::ReceivingBody,
+    HttpCodecState::ReceivingRequestHeaders,
+    HttpCodecState::ReceivingRequestBody,
     HttpCodecEvent::HeadersComplete));
   
   EXPECT_TRUE(state_machine_->isTransitionValid(
@@ -422,7 +422,7 @@ TEST_F(HttpCodecStateMachineTest, InvalidTransitions) {
   
   EXPECT_FALSE(state_machine_->isTransitionValid(
     HttpCodecState::Closed,
-    HttpCodecState::ReceivingHeaders,
+    HttpCodecState::ReceivingRequestHeaders,
     HttpCodecEvent::RequestStart));
 }
 
@@ -445,8 +445,8 @@ TEST_F(HttpCodecStateMachineTest, CustomValidator) {
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
   runFor(10ms);
   
-  // Should still be in ReceivingHeaders due to validator
-  expectState(HttpCodecState::ReceivingHeaders);
+  // Should still be in ReceivingRequestHeaders due to validator
+  expectState(HttpCodecState::ReceivingRequestHeaders);
 }
 
 // ===== Force Transition Tests =====
@@ -470,7 +470,7 @@ TEST_F(HttpCodecStateMachineTest, ScheduledTransition) {
   expectState(HttpCodecState::WaitingForRequest);
   
   state_machine_->scheduleTransition(
-    HttpCodecState::ReceivingHeaders,
+    HttpCodecState::ReceivingRequestHeaders,
     HttpCodecEvent::RequestStart,
     "scheduled test");
   
@@ -480,7 +480,7 @@ TEST_F(HttpCodecStateMachineTest, ScheduledTransition) {
   // Run dispatcher to process scheduled transition
   runFor(10ms);
   
-  expectState(HttpCodecState::ReceivingHeaders);
+  expectState(HttpCodecState::ReceivingRequestHeaders);
 }
 
 // ===== Metrics Tests =====
@@ -584,10 +584,10 @@ TEST_F(HttpCodecStateMachineTest, ResetForNextRequestFromError) {
 TEST_F(HttpCodecStateMachineTest, StateNames) {
   EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::WaitingForRequest), 
             "WaitingForRequest");
-  EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::ReceivingHeaders),
-            "ReceivingHeaders");
-  EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::ReceivingBody),
-            "ReceivingBody");
+  EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::ReceivingRequestHeaders),
+            "ReceivingRequestHeaders");
+  EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::ReceivingRequestBody),
+            "ReceivingRequestBody");
   EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::SendingResponse),
             "SendingResponse");
   EXPECT_EQ(HttpCodecStateMachine::getStateName(HttpCodecState::Closed),
@@ -618,7 +618,7 @@ TEST_F(HttpCodecStateMachineTest, MultipleRequestCycles) {
     // Start request
     state_machine_->handleEvent(HttpCodecEvent::RequestStart);
     runFor(10ms);
-    expectState(HttpCodecState::ReceivingHeaders);
+    expectState(HttpCodecState::ReceivingRequestHeaders);
     
     // Complete headers
     state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
