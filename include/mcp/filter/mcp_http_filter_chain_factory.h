@@ -85,9 +85,8 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
   McpMessageCallbacks& message_callbacks_;
   bool is_server_;
 
-  // Store protocol adapters for lifetime management
-  // These adapters bridge between protocol layers
-  mutable std::vector<std::shared_ptr<void>> bridges_;
+  // Store filters for lifetime management
+  mutable std::vector<network::FilterSharedPtr> filters_;
 };
 
 }  // namespace filter
