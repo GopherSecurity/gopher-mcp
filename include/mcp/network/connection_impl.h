@@ -123,7 +123,7 @@ class ConnectionImpl : public ConnectionImplBase,
   // Event handlers (public for stdio transport initialization)
   void onReadReady();
   void onWriteReady();
-  
+
   // Get filter manager for filter chain factory
   FilterManager& filterManager() { return filter_manager_; }
 

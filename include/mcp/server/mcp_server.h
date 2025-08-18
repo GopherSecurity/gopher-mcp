@@ -69,7 +69,7 @@ struct McpServerConfig : public application::ApplicationBase::Config {
   // Transport configuration
   std::vector<TransportType> supported_transports = {TransportType::Stdio,
                                                      TransportType::HttpSse};
-  
+
   // HTTP/SSE specific configuration
   std::string http_rpc_path = "/rpc";        // Path for JSON-RPC over HTTP
   std::string http_sse_path = "/events";     // Path for SSE event stream

@@ -221,7 +221,8 @@ class HttpSseTransportSocket : public network::TransportSocket,
   // Connection state flags for managing complex lifecycle
   bool is_server_mode_{false};  // Track if this is a server-side socket (set
                                 // once in constructor)
-  bool have_data_to_deliver_{false};  // Server mode: have request data to deliver
+  bool have_data_to_deliver_{
+      false};  // Server mode: have request data to deliver
   std::atomic<bool> shutting_down_{
       false};  // THREAD-SAFE: Prevents callbacks during destruction
                // Set atomically in destructor (any thread) to avoid pure
