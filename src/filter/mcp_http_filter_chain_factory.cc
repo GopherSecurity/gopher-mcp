@@ -2,9 +2,10 @@
  * MCP HTTP+SSE Filter Chain Factory Implementation
  * 
  * Following production architecture strictly:
+ * - No separate adapter classes
+ * - Filters implement callback interfaces directly
+ * - Filter manager wires filters together
  * - Clean separation between protocol layers
- * - Each filter handles exactly one concern
- * - No mixing of protocol responsibilities
  */
 
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
@@ -12,95 +13,173 @@
 #include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/mcp_connection_manager.h"
-#include "mcp/network/connection.h"
 
 namespace mcp {
 namespace filter {
 
 /**
- * HTTP Protocol Adapter
- * Bridges HTTP codec filter to SSE filter for protocol flow
+ * Combined filter that implements all protocol layers
+ * Following production pattern: one filter class can handle multiple protocols
+ * by implementing the appropriate callback interfaces
  */
-class HttpToSseAdapter : public HttpCodecFilter::MessageCallbacks {
+class McpHttpSseJsonRpcFilter : public network::Filter,
+                                 public HttpCodecFilter::MessageCallbacks,
+                                 public SseCodecFilter::EventCallbacks,
+                                 public McpJsonRpcFilter::Callbacks {
 public:
-  HttpToSseAdapter(SseCodecFilter& sse_filter, bool is_server)
-      : sse_filter_(sse_filter), is_server_(is_server) {}
+  McpHttpSseJsonRpcFilter(event::Dispatcher& dispatcher,
+                          McpMessageCallbacks& mcp_callbacks,
+                          bool is_server)
+      : dispatcher_(dispatcher),
+        mcp_callbacks_(mcp_callbacks),
+        is_server_(is_server) {
+    // Create the protocol filters
+    // Each filter handles one protocol layer
+    http_filter_ = std::make_shared<HttpCodecFilter>(*this, dispatcher_, is_server_);
+    sse_filter_ = std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
+    jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
+  }
   
-  void onHeaders(const std::map<std::string, std::string>& headers,
-                 bool keep_alive) override {
-    // Determine if this is an SSE request/response
-    auto content_type = headers.find("content-type");
-    auto accept = headers.find("accept");
+  // ===== Network Filter Interface =====
+  
+  network::FilterStatus onData(Buffer& data, bool end_stream) override {
+    // Data flows through protocol layers in sequence
+    // HTTP -> SSE -> JSON-RPC
     
-    if (is_server_) {
-      // Server mode: Check if client wants SSE
-      if (accept != headers.end() && 
-          accept->second.find("text/event-stream") != std::string::npos) {
-        // Start SSE stream
-        is_sse_mode_ = true;
-        sse_filter_.startEventStream();
-      }
-    } else {
-      // Client mode: Check if server is sending SSE
-      if (content_type != headers.end() &&
-          content_type->second.find("text/event-stream") != std::string::npos) {
-        is_sse_mode_ = true;
-        // SSE filter will parse events from body
+    // First layer: HTTP codec processes the data
+    auto status = http_filter_->onData(data, end_stream);
+    if (status == network::FilterStatus::StopIteration) {
+      return status;
+    }
+    
+    // Second layer: SSE codec (if in SSE mode)
+    if (is_sse_mode_) {
+      status = sse_filter_->onData(data, end_stream);
+      if (status == network::FilterStatus::StopIteration) {
+        return status;
       }
     }
     
-    // Store headers for potential use
-    current_headers_ = headers;
-    keep_alive_ = keep_alive;
+    // Third layer: JSON-RPC (processes accumulated data)
+    if (pending_json_data_.length() > 0) {
+      status = jsonrpc_filter_->onData(pending_json_data_, end_stream);
+      pending_json_data_.drain(pending_json_data_.length());
+    }
+    
+    return status;
+  }
+  
+  network::FilterStatus onNewConnection() override {
+    // Initialize all protocol filters
+    http_filter_->onNewConnection();
+    sse_filter_->onNewConnection();
+    jsonrpc_filter_->onNewConnection();
+    return network::FilterStatus::Continue;
+  }
+  
+  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    // Write flows through filters in reverse order
+    // JSON-RPC -> SSE -> HTTP
+    
+    // JSON-RPC filter handles framing
+    auto status = jsonrpc_filter_->onWrite(data, end_stream);
+    if (status == network::FilterStatus::StopIteration) {
+      return status;
+    }
+    
+    // SSE filter formats events (if in SSE mode)
+    if (is_sse_mode_) {
+      status = sse_filter_->onWrite(data, end_stream);
+      if (status == network::FilterStatus::StopIteration) {
+        return status;
+      }
+    }
+    
+    // HTTP filter adds headers/framing
+    return http_filter_->onWrite(data, end_stream);
+  }
+  
+  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
+    read_callbacks_ = &callbacks;
+    http_filter_->initializeReadFilterCallbacks(callbacks);
+    sse_filter_->initializeReadFilterCallbacks(callbacks);
+    jsonrpc_filter_->initializeReadFilterCallbacks(callbacks);
+  }
+  
+  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {
+    write_callbacks_ = &callbacks;
+    http_filter_->initializeWriteFilterCallbacks(callbacks);
+    sse_filter_->initializeWriteFilterCallbacks(callbacks);
+    jsonrpc_filter_->initializeWriteFilterCallbacks(callbacks);
+  }
+  
+  // ===== HttpCodecFilter::MessageCallbacks =====
+  
+  void onHeaders(const std::map<std::string, std::string>& headers,
+                 bool keep_alive) override {
+    // Determine transport mode based on headers
+    if (is_server_) {
+      // Server: check Accept header for SSE
+      auto accept = headers.find("accept");
+      if (accept != headers.end() && 
+          accept->second.find("text/event-stream") != std::string::npos) {
+        is_sse_mode_ = true;
+        
+        // Send SSE response headers
+        std::map<std::string, std::string> response_headers = {
+          {"content-type", "text/event-stream"},
+          {"cache-control", "no-cache"},
+          {"connection", keep_alive ? "keep-alive" : "close"},
+          {"access-control-allow-origin", "*"}
+        };
+        
+        http_filter_->messageEncoder().encodeHeaders("200", response_headers, false);
+        sse_filter_->startEventStream();
+      } else {
+        is_sse_mode_ = false;
+      }
+    } else {
+      // Client: check Content-Type for SSE
+      auto content_type = headers.find("content-type");
+      is_sse_mode_ = content_type != headers.end() &&
+                     content_type->second.find("text/event-stream") != std::string::npos;
+    }
   }
   
   void onBody(const std::string& data, bool end_stream) override {
     if (is_sse_mode_) {
-      // Forward to SSE filter for event parsing
+      // In SSE mode, body contains event stream
+      // Forward to SSE filter for parsing
       auto buffer = std::make_unique<OwnedBuffer>();
       buffer->add(data);
-      sse_filter_.onData(*buffer, end_stream);
+      sse_filter_->onData(*buffer, end_stream);
     } else {
-      // Regular HTTP body - accumulate
-      current_body_ += data;
+      // In RPC mode, body contains JSON-RPC
+      // Accumulate and forward to JSON-RPC filter
+      pending_json_data_.add(data);
       if (end_stream) {
-        // Complete HTTP message received
-        onMessageComplete();
+        jsonrpc_filter_->onData(pending_json_data_, true);
+        pending_json_data_.drain(pending_json_data_.length());
       }
     }
   }
   
   void onMessageComplete() override {
-    // HTTP message complete (non-SSE mode)
-    // The JSON-RPC filter will handle the body content
-    // Reset for next message
-    current_headers_.clear();
-    current_body_.clear();
+    // HTTP message complete
+    if (!is_sse_mode_ && pending_json_data_.length() > 0) {
+      // Process any remaining JSON-RPC data
+      jsonrpc_filter_->onData(pending_json_data_, true);
+      pending_json_data_.drain(pending_json_data_.length());
+    }
   }
   
   void onError(const std::string& error) override {
     // HTTP protocol error
-    // This should be propagated to application layer
-    (void)error;
+    Error mcp_error(jsonrpc::INTERNAL_ERROR, "HTTP error: " + error);
+    mcp_callbacks_.onError(mcp_error);
   }
   
-private:
-  SseCodecFilter& sse_filter_;
-  bool is_server_;
-  bool is_sse_mode_{false};
-  bool keep_alive_{true};
-  std::map<std::string, std::string> current_headers_;
-  std::string current_body_;
-};
-
-/**
- * SSE to JSON-RPC Adapter
- * Bridges SSE events to JSON-RPC filter
- */
-class SseToJsonRpcAdapter : public SseCodecFilter::EventCallbacks {
-public:
-  SseToJsonRpcAdapter(McpJsonRpcFilter& jsonrpc_filter)
-      : jsonrpc_filter_(jsonrpc_filter) {}
+  // ===== SseCodecFilter::EventCallbacks =====
   
   void onEvent(const std::string& event,
                const std::string& data,
@@ -109,10 +188,10 @@ public:
     (void)id;
     
     // SSE event contains JSON-RPC message
-    // Forward to JSON-RPC filter for parsing
+    // Forward to JSON-RPC filter
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(data);
-    jsonrpc_filter_.onData(*buffer, false);
+    jsonrpc_filter_->onData(*buffer, false);
   }
   
   void onComment(const std::string& comment) override {
@@ -120,23 +199,7 @@ public:
     (void)comment;
   }
   
-  void onError(const std::string& error) override {
-    // SSE protocol error
-    (void)error;
-  }
-  
-private:
-  McpJsonRpcFilter& jsonrpc_filter_;
-};
-
-/**
- * JSON-RPC to Application Adapter
- * Bridges JSON-RPC filter to MCP application callbacks
- */
-class JsonRpcToMcpAdapter : public McpJsonRpcFilter::Callbacks {
-public:
-  JsonRpcToMcpAdapter(McpMessageCallbacks& mcp_callbacks)
-      : mcp_callbacks_(mcp_callbacks) {}
+  // ===== McpJsonRpcFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
     mcp_callbacks_.onRequest(request);
@@ -154,59 +217,55 @@ public:
     mcp_callbacks_.onError(error);
   }
   
+  // ===== Encoder Access =====
+  
+  HttpCodecFilter::MessageEncoder& httpEncoder() {
+    return http_filter_->messageEncoder();
+  }
+  
+  SseCodecFilter::EventEncoder& sseEncoder() {
+    return sse_filter_->eventEncoder();
+  }
+  
+  McpJsonRpcFilter::Encoder& jsonrpcEncoder() {
+    return jsonrpc_filter_->encoder();
+  }
+  
 private:
+  event::Dispatcher& dispatcher_;
   McpMessageCallbacks& mcp_callbacks_;
+  bool is_server_;
+  bool is_sse_mode_{false};
+  
+  // Protocol filters
+  std::shared_ptr<HttpCodecFilter> http_filter_;
+  std::shared_ptr<SseCodecFilter> sse_filter_;
+  std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
+  
+  // Filter callbacks
+  network::ReadFilterCallbacks* read_callbacks_{nullptr};
+  network::WriteFilterCallbacks* write_callbacks_{nullptr};
+  
+  // Buffered data
+  OwnedBuffer pending_json_data_;
 };
 
-// Main factory implementation
+// ===== Factory Implementation =====
 
 bool McpHttpFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
-  // Create adapters to bridge between protocol layers
-  // Following production pattern: adapters provide clean interfaces between layers
+  // Following production pattern: create a single combined filter
+  // that implements all the callback interfaces
+  auto combined_filter = std::make_shared<McpHttpSseJsonRpcFilter>(
+      dispatcher_, message_callbacks_, is_server_);
   
-  // 1. Create JSON-RPC to MCP adapter (top layer)
-  auto jsonrpc_adapter = std::make_unique<JsonRpcToMcpAdapter>(message_callbacks_);
+  // Add as both read and write filter
+  filter_manager.addReadFilter(combined_filter);
+  filter_manager.addWriteFilter(combined_filter);
   
-  // 2. Create JSON-RPC filter (handles JSON-RPC protocol)
-  auto jsonrpc_filter = std::make_shared<McpJsonRpcFilter>(
-      *jsonrpc_adapter, dispatcher_, is_server_);
-  
-  // 3. Create SSE to JSON-RPC adapter
-  auto sse_adapter = std::make_unique<SseToJsonRpcAdapter>(*jsonrpc_filter);
-  
-  // 4. Create SSE codec filter (handles SSE protocol)
-  auto sse_filter = std::make_shared<SseCodecFilter>(
-      *sse_adapter, dispatcher_, is_server_);
-  
-  // 5. Create HTTP to SSE adapter
-  auto http_adapter = std::make_unique<HttpToSseAdapter>(*sse_filter, is_server_);
-  
-  // 6. Create HTTP codec filter (handles HTTP protocol)
-  auto http_filter = std::make_shared<HttpCodecFilter>(
-      *http_adapter, dispatcher_, is_server_);
-  
-  // Add filters to filter manager in correct order
-  // Data flows through read filters in order, write filters in reverse
-  
-  // Layer 1: HTTP protocol
-  filter_manager.addReadFilter(http_filter);
-  filter_manager.addWriteFilter(http_filter);
-  
-  // Layer 2: SSE protocol (optional, based on headers)
-  filter_manager.addReadFilter(sse_filter);
-  filter_manager.addWriteFilter(sse_filter);
-  
-  // Layer 3: JSON-RPC protocol
-  filter_manager.addReadFilter(jsonrpc_filter);
-  filter_manager.addWriteFilter(jsonrpc_filter);
-  
-  // Store adapters for lifetime management
-  // NOTE: In production, these would be managed by a context object
-  bridges_.push_back(std::shared_ptr<void>(std::move(jsonrpc_adapter)));
-  bridges_.push_back(std::shared_ptr<void>(std::move(sse_adapter)));
-  bridges_.push_back(std::shared_ptr<void>(std::move(http_adapter)));
+  // Store for lifetime management
+  filters_.push_back(combined_filter);
   
   return true;
 }
@@ -215,7 +274,7 @@ bool McpHttpFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& filter_factories) const {
   
-  // First apply any additional filter factories
+  // Apply any additional filter factories first
   for (const auto& factory : filter_factories) {
     auto filter = factory();
     if (filter) {
@@ -224,7 +283,7 @@ bool McpHttpFilterChainFactory::createNetworkFilterChain(
     }
   }
   
-  // Then create our standard filter chain
+  // Then create our filter
   return createFilterChain(filter_manager);
 }
 
