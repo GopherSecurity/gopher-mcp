@@ -16,25 +16,26 @@ namespace transport {
 HttpsSseTransportFactory::HttpsSseTransportFactory(
     const HttpSseTransportSocketConfig& config, event::Dispatcher& dispatcher)
     : config_(config), dispatcher_(&dispatcher) {
-  // Check if SSL should be used based on URL or explicit configuration
-  // Only auto-detect if use_ssl was not explicitly set
-  // Since bool doesn't have an "unset" state, we'll respect the config value
-  // and only auto-detect if it's false AND the URL is HTTPS
-  use_ssl_ = config_.use_ssl || detectSslFromUrl(config_.endpoint_url);
+  // Check if SSL should be used based on configuration
+  use_ssl_ = (config_.underlying_transport == HttpSseTransportSocketConfig::UnderlyingTransport::SSL);
 
-  // However, if use_ssl is explicitly false, respect that even for HTTPS URLs
-  // This requires tracking whether it was explicitly set
-  // For now, we'll use the simpler logic: HTTPS always means SSL
-  // unless there's a way to track explicit setting
-
-  // Set SNI hostname if not provided but URL has hostname
-  if (use_ssl_ && !config_.sni_hostname.has_value()) {
-    config_.sni_hostname = extractHostname(config_.endpoint_url);
+  // If using SSL and ssl_config is not set, create default SSL config
+  if (use_ssl_ && !config_.ssl_config.has_value()) {
+    // Create a mutable copy to set defaults
+    config_.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
   }
 
-  // Set default ALPN protocols if not provided
-  if (use_ssl_ && !config_.alpn_protocols.has_value()) {
-    config_.alpn_protocols = buildAlpnProtocols();
+  // Set SNI hostname if not provided but we have a server address
+  if (use_ssl_ && config_.ssl_config.has_value()) {
+    auto& ssl_config = const_cast<HttpSseTransportSocketConfig::SslConfig&>(config_.ssl_config.value());
+    if (!ssl_config.sni_hostname.has_value() && !config_.server_address.empty()) {
+      ssl_config.sni_hostname = extractHostname(config_.server_address);
+    }
+
+    // Set default ALPN protocols if not provided
+    if (!ssl_config.alpn_protocols.has_value()) {
+      ssl_config.alpn_protocols = buildAlpnProtocols();
+    }
   }
 }
 
@@ -53,14 +54,16 @@ network::TransportSocketPtr HttpsSseTransportFactory::createTransportSocket(
 }
 
 bool HttpsSseTransportFactory::supportsAlpn() const {
-  return use_ssl_ && config_.alpn_protocols.has_value();
+  return use_ssl_ && config_.ssl_config.has_value() && 
+         config_.ssl_config.value().alpn_protocols.has_value();
 }
 
 std::string HttpsSseTransportFactory::defaultServerNameIndication() const {
-  if (!use_ssl_ || !config_.sni_hostname.has_value()) {
+  if (!use_ssl_ || !config_.ssl_config.has_value() || 
+      !config_.ssl_config.value().sni_hostname.has_value()) {
     return "";
   }
-  return config_.sni_hostname.value();
+  return config_.ssl_config.value().sni_hostname.value();
 }
 
 void HttpsSseTransportFactory::hashKey(
@@ -70,15 +73,16 @@ void HttpsSseTransportFactory::hashKey(
   const std::string factory_id = name();
   key.insert(key.end(), factory_id.begin(), factory_id.end());
 
-  // Add endpoint URL to hash
-  key.insert(key.end(), config_.endpoint_url.begin(),
-             config_.endpoint_url.end());
+  // Add server address to hash
+  key.insert(key.end(), config_.server_address.begin(),
+             config_.server_address.end());
 
   // Add SSL config to hash if using SSL
-  if (use_ssl_) {
-    key.push_back(config_.verify_ssl ? 1 : 0);
-    if (config_.sni_hostname.has_value()) {
-      const auto& sni = config_.sni_hostname.value();
+  if (use_ssl_ && config_.ssl_config.has_value()) {
+    const auto& ssl_config = config_.ssl_config.value();
+    key.push_back(ssl_config.verify_peer ? 1 : 0);
+    if (ssl_config.sni_hostname.has_value()) {
+      const auto& sni = ssl_config.sni_hostname.value();
       key.insert(key.end(), sni.begin(), sni.end());
     }
   }
@@ -100,10 +104,10 @@ network::TransportSocketPtr HttpsSseTransportFactory::createClientTransport(
   // Wrap with SSL if needed
   auto transport_socket = wrapWithSsl(std::move(tcp_socket), true);
 
-  // Wrap with HTTP+SSE
-  // Note: HttpSseTransportSocket takes ownership of inner socket
+  // Create HTTP+SSE transport socket
+  // The new architecture uses FilterManager for protocol processing
   auto http_sse_socket = std::make_unique<HttpSseTransportSocket>(
-      config_, *dispatcher_, false);  // false = client mode
+      config_, *dispatcher_, nullptr);  // nullptr = no custom filter chain
 
   return http_sse_socket;
 }
@@ -118,23 +122,13 @@ network::TransportSocketPtr HttpsSseTransportFactory::createServerTransport()
   // Wrap with SSL if needed
   auto transport_socket = wrapWithSsl(std::move(tcp_socket), false);
 
-  // Wrap with HTTP+SSE
+  // Create HTTP+SSE transport socket for server
   auto http_sse_socket = std::make_unique<HttpSseTransportSocket>(
-      config_, *dispatcher_, true);  // true = server mode
+      config_, *dispatcher_, nullptr);  // nullptr = no custom filter chain
 
   return http_sse_socket;
 }
 
-bool HttpsSseTransportFactory::detectSslFromUrl(const std::string& url) const {
-  // Check if URL starts with https://
-  if (url.size() >= 8) {
-    std::string protocol = url.substr(0, 8);
-    std::transform(protocol.begin(), protocol.end(), protocol.begin(),
-                   ::tolower);
-    return protocol == "https://";
-  }
-  return false;
-}
 
 Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
     bool is_client) const {
@@ -152,28 +146,35 @@ Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
   SslContextConfig ssl_config;
   ssl_config.is_client = is_client;
 
-  // Set certificates and keys
-  if (config_.client_cert_path.has_value()) {
-    ssl_config.cert_chain_file = config_.client_cert_path.value();
-  }
-  if (config_.client_key_path.has_value()) {
-    ssl_config.private_key_file = config_.client_key_path.value();
-  }
-  if (config_.ca_cert_path.has_value()) {
-    ssl_config.ca_cert_file = config_.ca_cert_path.value();
-  }
+  // Set certificates and keys from SSL config
+  if (config_.ssl_config.has_value()) {
+    const auto& ssl = config_.ssl_config.value();
+    
+    if (ssl.client_cert_path.has_value()) {
+      ssl_config.cert_chain_file = ssl.client_cert_path.value();
+    }
+    if (ssl.client_key_path.has_value()) {
+      ssl_config.private_key_file = ssl.client_key_path.value();
+    }
+    if (ssl.ca_cert_path.has_value()) {
+      ssl_config.ca_cert_file = ssl.ca_cert_path.value();
+    }
 
-  // Set verification
-  ssl_config.verify_peer = config_.verify_ssl;
+    // Set verification
+    ssl_config.verify_peer = ssl.verify_peer;
 
-  // Set SNI for client
-  if (is_client && config_.sni_hostname.has_value()) {
-    ssl_config.sni_hostname = config_.sni_hostname.value();
-  }
+    // Set SNI for client
+    if (is_client && ssl.sni_hostname.has_value()) {
+      ssl_config.sni_hostname = ssl.sni_hostname.value();
+    }
 
-  // Set ALPN protocols
-  if (config_.alpn_protocols.has_value()) {
-    ssl_config.alpn_protocols = config_.alpn_protocols.value();
+    // Set ALPN protocols
+    if (ssl.alpn_protocols.has_value()) {
+      ssl_config.alpn_protocols = ssl.alpn_protocols.value();
+    }
+  } else {
+    // Default SSL config if not provided
+    ssl_config.verify_peer = true;
   }
 
   // Set protocols (TLS versions)
@@ -246,40 +247,31 @@ network::TransportSocketPtr HttpsSseTransportFactory::wrapWithSsl(
 }
 
 std::string HttpsSseTransportFactory::extractHostname(
-    const std::string& url) const {
-  // Extract hostname from URL
-  // Format: https://hostname:port/path
-
-  // Find protocol end
-  size_t protocol_end = url.find("://");
-  if (protocol_end == std::string::npos) {
+    const std::string& address) const {
+  // Extract hostname from server address
+  // Format: "hostname:port" or "127.0.0.1:8080"
+  
+  if (address.empty()) {
     return "";
   }
 
-  size_t hostname_start = protocol_end + 3;
-  if (hostname_start >= url.size()) {
-    return "";
+  // Find port separator (colon from the end to handle IPv6)
+  size_t port_sep = address.rfind(':');
+  if (port_sep == std::string::npos) {
+    // No port, entire string is hostname
+    return address;
   }
 
-  // Find hostname end (port or path)
-  size_t hostname_end = url.find_first_of(":/?", hostname_start);
-  if (hostname_end == std::string::npos) {
-    hostname_end = url.size();
-  }
-
-  return url.substr(hostname_start, hostname_end - hostname_start);
+  // Extract hostname part before port
+  return address.substr(0, port_sep);
 }
 
 std::vector<std::string> HttpsSseTransportFactory::buildAlpnProtocols() const {
   // Build default ALPN protocol list
   std::vector<std::string> protocols;
 
-  // Add HTTP/2 if supported
-  if (config_.preferred_version == http::HttpVersion::HTTP_2) {
-    protocols.push_back("h2");
-  }
-
-  // Always support HTTP/1.1
+  // For now, we support HTTP/1.1 only with SSE
+  // HTTP/2 support can be added later if needed
   protocols.push_back("http/1.1");
 
   return protocols;

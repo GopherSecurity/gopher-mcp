@@ -760,17 +760,33 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
   if (transport == TransportType::Stdio) {
     config.stdio_config = transport::StdioTransportSocketConfig();
   } else if (transport == TransportType::HttpSse) {
-    // Configure HTTP+SSE transport
+    // Configure HTTP+SSE transport with new architecture
     transport::HttpSseTransportSocketConfig http_config;
-    http_config.endpoint_url = current_uri_;
-    http_config.request_endpoint_path = "/rpc";
-    http_config.sse_endpoint_path = "/events";
-    http_config.connect_timeout = std::chrono::milliseconds(30000);
-    http_config.request_timeout = config_.request_timeout;
     
-    // Add default headers
-    http_config.headers["Content-Type"] = "application/json";
-    http_config.headers["Accept"] = "text/event-stream";
+    // Parse URI to extract server address
+    // For now, assume format like "http://localhost:8080" or "localhost:8080"
+    std::string server_address = current_uri_;
+    if (server_address.find("http://") == 0) {
+      server_address = server_address.substr(7); // Remove "http://"
+    } else if (server_address.find("https://") == 0) {
+      server_address = server_address.substr(8); // Remove "https://"
+      http_config.underlying_transport = 
+          transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    }
+    
+    // Remove any path from the address
+    size_t path_pos = server_address.find('/');
+    if (path_pos != std::string::npos) {
+      server_address = server_address.substr(0, path_pos);
+    }
+    
+    http_config.server_address = server_address;
+    http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+    http_config.connect_timeout = std::chrono::milliseconds(30000);
+    http_config.idle_timeout = config_.request_timeout;
+    
+    // Note: Headers and paths are now handled by the filter chain
+    // The new architecture uses filters for HTTP protocol handling
     
     config.http_sse_config = http_config;
   }

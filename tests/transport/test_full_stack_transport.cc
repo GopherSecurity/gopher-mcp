@@ -39,11 +39,12 @@ class FullStackTransportTest : public test::RealListenerTestBase {
     config_.use_ssl = false;  // Start with non-SSL for simplicity
     config_.verify_ssl = false;
     config_.preferred_version = http::HttpVersion::HTTP_1_1;
-    config_.auto_reconnect = true;
-    config_.reconnect_delay = std::chrono::milliseconds(3000);
-    config_.request_timeout = std::chrono::milliseconds(30000);
-    config_.sse_endpoint_path = "/events";
-    config_.request_endpoint_path = "/rpc";
+    // Note: These fields are now handled by the filter chain in the new architecture
+    // config_.auto_reconnect = true;
+    // config_.reconnect_delay = std::chrono::milliseconds(3000);
+    // config_.request_timeout = std::chrono::milliseconds(30000);
+    // config_.sse_endpoint_path = "/events";
+    // config_.request_endpoint_path = "/rpc";
   }
 
   void TearDown() override {
