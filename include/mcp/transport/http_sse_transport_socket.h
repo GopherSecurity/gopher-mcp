@@ -1,329 +1,332 @@
+/**
+ * @file http_sse_transport_socket.h
+ * @brief HTTP+SSE Transport Socket following the layered architecture
+ *
+ * Design principles:
+ * - Transport sockets handle ONLY raw I/O (read/write bytes)
+ * - Filters handle ALL protocol processing (HTTP, SSE parsing)
+ * - Clear separation between transport and protocol layers
+ * - Thread-confined to dispatcher thread for lock-free operation
+ * - Uses filter chain for extensibility
+ *
+ * Layer architecture:
+ * 1. TransportSocket (this file) - Raw I/O only
+ * 2. FilterChain - Protocol processing
+ *    - HttpCodecFilter - HTTP/1.1 parsing and generation
+ *    - SseCodecFilter - SSE protocol handling
+ * 3. ConnectionManager - Connection lifecycle and MCP protocol
+ */
+
 #ifndef MCP_TRANSPORT_HTTP_SSE_TRANSPORT_SOCKET_H
 #define MCP_TRANSPORT_HTTP_SSE_TRANSPORT_SOCKET_H
 
-#include <atomic>
 #include <memory>
-#include <queue>
 #include <string>
+#include <vector>
 
 #include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
-#include "mcp/http/http_parser.h"
-#include "mcp/http/sse_parser.h"
+#include "mcp/network/address.h"
+#include "mcp/network/connection.h"
+#include "mcp/network/filter.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/transport/http_sse_state_machine.h"
 
 namespace mcp {
 namespace transport {
 
 /**
  * HTTP+SSE transport socket configuration
+ *
+ * This configuration is minimal - only transport-level settings.
+ * Protocol configuration happens in the filter chain.
  */
 struct HttpSseTransportSocketConfig {
-  // HTTP endpoint URL
-  std::string endpoint_url;
+  // Transport mode
+  enum class Mode {
+    CLIENT,  // Client mode - connects to server
+    SERVER   // Server mode - accepts connections
+  };
+  Mode mode{Mode::CLIENT};
 
-  // HTTP method (default POST for requests, GET for SSE stream)
-  std::string request_method{"POST"};
-  std::string sse_method{"GET"};
+  // Underlying transport (for client mode)
+  enum class UnderlyingTransport {
+    TCP,   // Direct TCP connection
+    SSL,   // SSL/TLS over TCP
+    STDIO  // Standard I/O pipes
+  };
+  UnderlyingTransport underlying_transport{UnderlyingTransport::TCP};
 
-  // HTTP headers
-  std::map<std::string, std::string> headers;
+  // Server endpoint (client mode only)
+  std::string server_address;  // e.g., "127.0.0.1:8080"
 
-  // Connection settings
+  // SSL/TLS configuration (if using SSL transport)
+  struct SslConfig {
+    bool verify_peer{true};
+    optional<std::string> ca_cert_path;
+    optional<std::string> client_cert_path;
+    optional<std::string> client_key_path;
+    optional<std::string> sni_hostname;
+    optional<std::vector<std::string>> alpn_protocols;
+  };
+  optional<SslConfig> ssl_config;
+
+  // Connection timeouts
   std::chrono::milliseconds connect_timeout{30000};
-  std::chrono::milliseconds request_timeout{60000};
-  std::chrono::milliseconds keepalive_interval{30000};
-  bool enable_keepalive{true};
+  std::chrono::milliseconds idle_timeout{120000};
 
-  // HTTP parser settings
-  size_t max_header_size{8192};
-  size_t max_body_size{10485760};  // 10MB default
-
-  // SSE settings
-  std::string sse_endpoint_path{"/events"};   // Path for SSE stream
-  std::string request_endpoint_path{"/rpc"};  // Path for JSON-RPC requests
-  bool auto_reconnect{true};
-  std::chrono::milliseconds reconnect_delay{3000};
-
-  // TLS/SSL configuration (if using HTTPS)
-  bool use_ssl{false};  // Auto-detected from URL, or forced
-  bool verify_ssl{true};
-  optional<std::string> ca_cert_path;
-  optional<std::string> client_cert_path;
-  optional<std::string> client_key_path;
-  optional<std::string> sni_hostname;                 // Server Name Indication
-  optional<std::vector<std::string>> alpn_protocols;  // ALPN protocols
-
-  // HTTP version preference
-  http::HttpVersion preferred_version{http::HttpVersion::HTTP_1_1};
-
-  // Parser factory (allows custom parser implementation)
-  std::shared_ptr<http::HttpParserFactory> parser_factory;
+  // Buffer limits
+  size_t read_buffer_limit{1048576};   // 1MB
+  size_t write_buffer_limit{1048576};  // 1MB
 };
 
 /**
- * HTTP+SSE transport socket with llhttp integration
+ * HTTP+SSE Transport Socket
  *
- * Implements bidirectional JSON-RPC over HTTP with Server-Sent Events
- * using proper HTTP parsing via llhttp and event-driven architecture
+ * This is a clean transport socket that:
+ * - Handles ONLY raw I/O operations
+ * - Delegates ALL protocol processing to the filter chain
+ * - Manages the underlying transport (TCP, SSL, or STDIO)
+ * - Provides a uniform interface regardless of underlying transport
+ *
+ * The transport socket does NOT:
+ * - Parse HTTP or SSE protocols
+ * - Manage HTTP state machines
+ * - Handle reconnection logic (that's in ConnectionManager)
  */
-class HttpSseTransportSocket : public network::TransportSocket,
-                               public http::HttpParserCallbacks,
-                               public http::SseParserCallbacks {
+class HttpSseTransportSocket : public network::TransportSocket {
  public:
-  explicit HttpSseTransportSocket(const HttpSseTransportSocketConfig& config,
-                                  event::Dispatcher& dispatcher,
-                                  bool is_server_mode = false);
+  /**
+   * Constructor
+   *
+   * @param config Transport configuration
+   * @param dispatcher Event dispatcher for async operations
+   * @param filter_chain Optional filter chain for protocol processing
+   */
+  HttpSseTransportSocket(
+      const HttpSseTransportSocketConfig& config,
+      event::Dispatcher& dispatcher,
+      std::unique_ptr<network::FilterManager> filter_manager = nullptr);
+
   ~HttpSseTransportSocket() override;
 
-  // TransportSocket interface
+  // ===== TransportSocket Interface =====
+
+  /**
+   * Set transport callbacks
+   * Called by ConnectionImpl to register for I/O events
+   */
   void setTransportSocketCallbacks(
       network::TransportSocketCallbacks& callbacks) override;
-  std::string protocol() const override;
-  std::string failureReason() const override;
+
+  /**
+   * Get protocol name
+   * @return "http+sse" for this transport
+   */
+  std::string protocol() const override { return "http+sse"; }
+
+  /**
+   * Get failure reason if transport failed
+   */
+  std::string failureReason() const override { return failure_reason_; }
+
+  /**
+   * Check if we can flush and close
+   * @return true if write buffer is empty
+   */
   bool canFlushClose() override;
+
+  /**
+   * Initiate connection (client mode)
+   * @param socket The socket to connect with
+   * @return Success or error result
+   */
   VoidResult connect(network::Socket& socket) override;
+
+  /**
+   * Close the transport socket
+   * @param event The close event type
+   */
   void closeSocket(network::ConnectionEvent event) override;
+
+  /**
+   * Read data from underlying transport
+   * @param buffer Buffer to read into
+   * @return Read result with bytes read and action
+   */
   TransportIoResult doRead(Buffer& buffer) override;
+
+  /**
+   * Write data to underlying transport
+   * @param buffer Buffer to write from
+   * @param end_stream Whether this is the last write
+   * @return Write result with bytes written and action
+   */
   TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
+
+  /**
+   * Called when underlying connection is established
+   */
   void onConnected() override;
 
-  // HttpParserCallbacks interface
-  http::ParserCallbackResult onMessageBegin() override;
-  http::ParserCallbackResult onUrl(const char* data, size_t length) override;
-  http::ParserCallbackResult onStatus(const char* data, size_t length) override;
-  http::ParserCallbackResult onHeaderField(const char* data,
-                                           size_t length) override;
-  http::ParserCallbackResult onHeaderValue(const char* data,
-                                           size_t length) override;
-  http::ParserCallbackResult onHeadersComplete() override;
-  http::ParserCallbackResult onBody(const char* data, size_t length) override;
-  http::ParserCallbackResult onMessageComplete() override;
-  http::ParserCallbackResult onChunkHeader(size_t length) override;
-  http::ParserCallbackResult onChunkComplete() override;
-  void onError(const std::string& error) override;
+  // ===== Additional Methods =====
 
-  // SseParserCallbacks interface
-  void onSseEvent(const http::SseEvent& event) override;
-  void onSseComment(const std::string& comment) override;
-  void onSseError(const std::string& error) override;
+  /**
+   * Set the filter manager for protocol processing
+   * Must be called before any I/O operations
+   */
+  void setFilterManager(std::unique_ptr<network::FilterManager> filter_manager);
+
+  /**
+   * Get the filter manager
+   */
+  network::FilterManager* filterManager() { return filter_manager_.get(); }
+
+  /**
+   * Check if transport is connected
+   */
+  bool isConnected() const { return connected_; }
+
+  /**
+   * Get transport statistics
+   */
+  struct Stats {
+    uint64_t bytes_sent{0};
+    uint64_t bytes_received{0};
+    uint64_t connect_attempts{0};
+    std::chrono::steady_clock::time_point connect_time;
+  };
+  const Stats& stats() const { return stats_; }
+
+ protected:
+  // ===== Protected Methods for Testing =====
+
+  /**
+   * Create underlying transport socket based on configuration
+   */
+  virtual std::unique_ptr<network::TransportSocket> createUnderlyingTransport();
+
+  /**
+   * Handle connection timeout
+   */
+  virtual void onConnectTimeout();
+
+  /**
+   * Handle idle timeout
+   */
+  virtual void onIdleTimeout();
 
  private:
-  // Request context
-  struct PendingRequest {
-    std::string id;
-    std::string body;
-    event::TimerPtr timeout_timer;
-    std::chrono::steady_clock::time_point sent_time;
-  };
+  // ===== Private Implementation =====
 
-  // State machine configuration
-  void configureStateMachine();
-  void configureStateEntryActions();
-  void configureStateExitActions();
-  void configureStateValidators();
-  void configureStateTimeouts();
-  void configureReconnectionStrategy();
+  /**
+   * Initialize the transport based on configuration
+   */
+  void initialize();
 
-  // Buffer management
-  void initializeBuffers();
-  void initializeParsers();
+  /**
+   * Process data through filter manager
+   */
+  TransportIoResult processFilterManagerRead(Buffer& buffer);
+  TransportIoResult processFilterManagerWrite(Buffer& buffer, bool end_stream);
 
-  // Data processing
-  void processReceivedData();
-  void processHttpData();
-  void processSseData();
+  /**
+   * Handle underlying transport events
+   */
+  void handleUnderlyingConnect();
+  void handleUnderlyingClose(network::ConnectionEvent event);
+  void handleUnderlyingError(const std::string& error);
 
-  // HTTP protocol handling
-  void initiateHttpHandshake();
-  void sendInitialHttpRequest();
-  void sendHttpRequest(const std::string& body, const std::string& path);
-  void handleHttpResponse();
-  void handleSuccessfulHttpResponse();
-  void handleErrorHttpResponse();
-  void handleHttpRequest();
-  void processHttpResponse();
-  void processHttpRequest();
-  void processIncomingRequest();
-  void prepareHttpResponse();
-  void prepareSseResponse();
-  void prepareRegularHttpResponse();
-  std::string buildHttpRequest(const std::string& method,
-                               const std::string& path,
-                               const std::string& body);
-
-  // SSE stream handling
-  void establishSseStream();
-  void handleSseStreamActive();
-  void notifySseStreamEstablished();
-  void sendSseConnectRequest();
-  void sendHttpUpgradeRequest();
-  void sendSseResponse();
-  void handleSseEvent(const http::SseEvent& event);
-
-  // State handling
-  void onStateChanged(HttpSseState old_state, HttpSseState new_state);
-  void handleTcpConnected();
-  void handleHttpRequestSent();
-  void handleErrorState();
-  void handleClosedState();
-  void updateState(HttpSseState new_state);
-
-  // Timer management
+  /**
+   * Timer management
+   */
   void startConnectTimer();
   void cancelConnectTimer();
-  void startKeepAliveTimer();
-  void cancelKeepAliveTimer();
-  void startRequestTimer(const std::string& request_id);
-  void scheduleReconnectTimer();
-  void sendKeepAlive();
+  void startIdleTimer();
+  void resetIdleTimer();
+  void cancelIdleTimer();
 
-  // Error handling
-  void handleConnectionError(const std::string& error);
-  void handleParseError(const std::string& error);
-  void handleConnectTimeout();
-  void handleRequestTimeout(const std::string& request_id);
+  /**
+   * Assert we're in dispatcher thread
+   */
+  void assertInDispatcherThread() const {
+    // TODO: Implement when dispatcher supports thread checking
+  }
 
-  // Reconnection logic
-  void scheduleReconnect();
-  void attemptReconnect();
-
-  // Request management
-  void flushPendingRequests();
-
-  // Helper methods
-  bool isInCriticalOperation() const;
-  TransportIoResult::PostIoAction determineReadAction() const;
-  TransportIoResult::PostIoAction determineWriteAction() const;
-  void handleEndStream();
-  void deliverHttpResponse();
-  void cleanupActiveStreams();
-  void notifyStateChange(HttpSseState old_state, HttpSseState new_state);
-  static std::string extractHostFromUrl(const std::string& url);
-  void logStateTransition(HttpSseState old_state, HttpSseState new_state);
-  void logRequestTimeout(const std::string& request_id);
+  // ===== Member Variables =====
 
   // Configuration
   HttpSseTransportSocketConfig config_;
 
-  // Event loop and dispatcher
+  // Event dispatcher
   event::Dispatcher& dispatcher_;
 
-  // State machine
-  std::unique_ptr<HttpSseStateMachine> state_machine_;
-  std::unique_ptr<HttpSseTransitionCoordinator> transition_coordinator_;
+  // Filter manager for protocol processing
+  std::unique_ptr<network::FilterManager> filter_manager_;
 
-  // State callbacks
+  // Underlying transport socket (TCP, SSL, or STDIO)
+  std::unique_ptr<network::TransportSocket> underlying_transport_;
+
+  // Callbacks from ConnectionImpl
   network::TransportSocketCallbacks* callbacks_{nullptr};
+
+  // Connection state
+  bool connected_{false};
+  bool connecting_{false};
+  bool closing_{false};
   std::string failure_reason_;
 
-  // Connection state flags for managing complex lifecycle
-  bool is_server_mode_{false};  // Track if this is a server-side socket (set
-                                // once in constructor)
-  bool have_data_to_deliver_{
-      false};  // Server mode: have request data to deliver
-  std::atomic<bool> shutting_down_{
-      false};  // THREAD-SAFE: Prevents callbacks during destruction
-               // Set atomically in destructor (any thread) to avoid pure
-               // virtual calls Read in dispatcher thread during callback
-               // execution
-  std::atomic<bool> on_connected_called_{
-      false};  // THREAD-SAFE IDEMPOTENCY: Ensures onConnected() is called once
-               // Prevents duplicate state transitions from multiple
-               // threads/layers (McpConnectionManager, stdio, server accept,
-               // worker threads)
-
-  // HTTP parsers
-  std::unique_ptr<http::HttpParser> request_parser_;
-  std::unique_ptr<http::HttpParser> response_parser_;
-  std::unique_ptr<http::SseParser> sse_parser_;
-
-  // Current HTTP message being parsed (simplified for callback-based parsing)
-  std::string current_header_field_;
-  std::string current_header_value_;
-  std::string accumulated_url_;  // Accumulate URL during parsing
-  bool processing_headers_{false};
-
-  // Request data (server mode)
-  std::map<std::string, std::string> current_request_headers_;
-  std::string current_request_body_;
-  std::string current_request_method_;
-  std::string current_request_url_;
-
-  // Response data (client mode)
-  std::map<std::string, std::string> current_response_headers_;
-  std::string current_response_body_;
-  int current_response_status_{0};
-
   // Buffers
-  std::unique_ptr<Buffer> read_buffer_;
-  std::unique_ptr<Buffer> write_buffer_;
-  std::unique_ptr<Buffer> sse_buffer_;
-
-  // Request tracking
-  std::queue<PendingRequest> pending_requests_;
-  std::map<std::string, PendingRequest> active_requests_;
-  uint64_t next_request_id_{1};
-
-  // Pending write data queue for immediate sends
-  std::queue<std::string> pending_write_data_;
+  OwnedBuffer read_buffer_;
+  OwnedBuffer write_buffer_;
 
   // Timers
-  event::TimerPtr keepalive_timer_;
-  event::TimerPtr reconnect_timer_;
-
-  // Metrics
-  uint64_t bytes_sent_{0};
-  uint64_t bytes_received_{0};
-  uint64_t requests_sent_{0};
-  uint64_t responses_received_{0};
-  uint64_t requests_received_{0};
-  uint64_t sse_events_received_{0};
-
-  // Connection info
-  bool sse_stream_active_{false};
-  std::string session_id_;
-  std::chrono::steady_clock::time_point connect_time_;
-  network::ConnectionEvent connection_close_event_;
-
-  // Watermark tracking
-  size_t read_buffer_low_watermark_;
-  size_t read_buffer_high_watermark_;
-  size_t write_buffer_low_watermark_;
-  size_t write_buffer_high_watermark_;
-
-  // Additional timers
   event::TimerPtr connect_timer_;
-  std::chrono::milliseconds connect_timeout_;
-  std::chrono::milliseconds request_timeout_;
-  std::chrono::milliseconds keepalive_interval_;
+  event::TimerPtr idle_timer_;
+
+  // Statistics
+  Stats stats_;
+
+  // Last activity time for idle timeout
+  std::chrono::steady_clock::time_point last_activity_time_;
 };
 
 /**
- * HTTP+SSE transport socket factory with llhttp
+ * HTTP+SSE Transport Socket Factory
+ *
+ * Creates transport sockets with appropriate filter chains
  */
 class HttpSseTransportSocketFactory
-    : public network::ClientTransportSocketFactory,
-      public network::ServerTransportSocketFactory {
+    : public network::TransportSocketFactoryBase {
  public:
+  /**
+   * Constructor
+   *
+   * @param config Transport configuration
+   * @param dispatcher Event dispatcher
+   */
   HttpSseTransportSocketFactory(const HttpSseTransportSocketConfig& config,
-                                event::Dispatcher& dispatcher);
+                                  event::Dispatcher& dispatcher);
 
-  // TransportSocketFactoryBase interface
+  // ===== TransportSocketFactoryBase Interface =====
+
   bool implementsSecureTransport() const override;
-  std::string name() const override { return "http+sse"; }
+  std::string name() const override { return "http+sse-v2"; }
 
-  // ClientTransportSocketFactory interface
+  /**
+   * Create a transport socket
+   *
+   * @return New transport socket with filter chain
+   */
+  network::TransportSocketPtr createTransportSocket() const;
+
+  /**
+   * Create a transport socket with options
+   *
+   * @param options Transport socket options
+   * @return New transport socket with filter chain
+   */
   network::TransportSocketPtr createTransportSocket(
-      network::TransportSocketOptionsSharedPtr options) const override;
-  bool supportsAlpn() const override { return true; }
-  std::string defaultServerNameIndication() const override;
-  void hashKey(std::vector<uint8_t>& key,
-               network::TransportSocketOptionsSharedPtr options) const override;
-
-  // ServerTransportSocketFactory interface
-  network::TransportSocketPtr createTransportSocket() const override;
+      network::TransportSocketOptionsSharedPtr options) const;
 
  private:
   HttpSseTransportSocketConfig config_;
@@ -331,13 +334,44 @@ class HttpSseTransportSocketFactory
 };
 
 /**
- * Create an HTTP+SSE transport socket factory with llhttp
+ * Builder for HTTP+SSE transport with filter chain
+ *
+ * This builder creates a properly configured transport socket
+ * with the appropriate filter chain for HTTP+SSE processing.
  */
-inline std::unique_ptr<network::TransportSocketFactoryBase>
-createHttpSseTransportSocketFactory(const HttpSseTransportSocketConfig& config,
-                                    event::Dispatcher& dispatcher) {
-  return std::make_unique<HttpSseTransportSocketFactory>(config, dispatcher);
-}
+class HttpSseTransportBuilder {
+ public:
+  HttpSseTransportBuilder(event::Dispatcher& dispatcher)
+      : dispatcher_(dispatcher) {}
+
+  // Configuration methods
+  HttpSseTransportBuilder& withMode(HttpSseTransportSocketConfig::Mode mode);
+  HttpSseTransportBuilder& withServerAddress(const std::string& address);
+  HttpSseTransportBuilder& withSsl(
+      const HttpSseTransportSocketConfig::SslConfig& ssl);
+  HttpSseTransportBuilder& withConnectTimeout(
+      std::chrono::milliseconds timeout);
+  HttpSseTransportBuilder& withIdleTimeout(std::chrono::milliseconds timeout);
+  HttpSseTransportBuilder& withHttpFilter(bool is_server);
+  HttpSseTransportBuilder& withSseFilter(bool is_server);
+
+  /**
+   * Build the transport socket with configured filter chain
+   */
+  std::unique_ptr<HttpSseTransportSocket> build();
+
+  /**
+   * Build a transport socket factory
+   */
+  std::unique_ptr<HttpSseTransportSocketFactory> buildFactory();
+
+ private:
+  event::Dispatcher& dispatcher_;
+  HttpSseTransportSocketConfig config_;
+  bool add_http_filter_{false};
+  bool add_sse_filter_{false};
+  bool is_server_{false};
+};
 
 }  // namespace transport
 }  // namespace mcp
