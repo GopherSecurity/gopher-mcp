@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mcp/network/filter.h"
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/event/event_loop.h"
@@ -66,19 +66,19 @@ private:
    * Bridge implementation that connects HTTP/SSE filters to MCP callbacks
    * This implements the protocol adaptation layer
    */
-  class McpProtocolBridge : public HttpServerCodecFilter::RequestCallbacks,
+  class McpProtocolBridge : public HttpCodecFilter::MessageCallbacks,
                            public SseCodecFilter::EventCallbacks {
   public:
     McpProtocolBridge(McpMessageCallbacks& callbacks)
         : message_callbacks_(callbacks) {}
     
-    void setFilters(HttpServerCodecFilter* http_filter,
+    void setFilters(HttpCodecFilter* http_filter,
                    SseCodecFilter* sse_filter) {
       http_filter_ = http_filter;
       sse_filter_ = sse_filter;
     }
     
-    // HttpServerCodecFilter::RequestCallbacks
+    // HttpCodecFilter::MessageCallbacks
     void onHeaders(const std::map<std::string, std::string>& headers,
                   bool keep_alive) override;
     void onBody(const std::string& data, bool end_stream) override;
@@ -101,7 +101,7 @@ private:
     
   private:
     McpMessageCallbacks& message_callbacks_;
-    HttpServerCodecFilter* http_filter_{nullptr};
+    HttpCodecFilter* http_filter_{nullptr};
     SseCodecFilter* sse_filter_{nullptr};
     
     // Request state

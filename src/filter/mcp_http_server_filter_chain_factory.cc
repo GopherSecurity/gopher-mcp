@@ -8,7 +8,7 @@
  */
 
 #include "mcp/filter/mcp_http_server_filter_chain_factory.h"
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/mcp_connection_manager.h"
@@ -25,15 +25,15 @@ bool McpHttpServerFilterChainFactory::createFilterChain(
   // Note: We need to make bridges_ mutable or change the design
   auto bridge = std::make_unique<McpProtocolBridge>(message_callbacks_);
   
-  // Create HTTP server codec filter
+  // Create HTTP codec filter (server mode)
   // This filter parses HTTP requests and generates HTTP responses
-  auto http_filter = std::make_shared<HttpServerCodecFilter>(
-      *bridge, dispatcher_);
+  auto http_filter = std::make_shared<HttpCodecFilter>(
+      *bridge, dispatcher_, true /* server mode */);
   
   // Create SSE codec filter  
   // This filter handles Server-Sent Events protocol
   auto sse_filter = std::make_shared<SseCodecFilter>(
-      *bridge, true /* server mode */);
+      *bridge, dispatcher_, true /* server mode */);
   
   // Store references in bridge for response handling
   bridge->setFilters(http_filter.get(), sse_filter.get());
