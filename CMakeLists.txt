@@ -245,7 +245,6 @@ set(MCP_SDK_SOURCES
     src/stream_info/stream_info_impl.cc
     src/transport/stdio_transport_socket.cc
     src/transport/stdio_pipe_transport.cc
-    src/transport/http_transport_socket.cc  # Renamed legacy implementation
     src/transport/ssl_context.cc
     src/transport/ssl_state_machine.cc
     src/transport/ssl_transport_socket.cc
@@ -273,6 +272,7 @@ if(LLHTTP_FOUND)
     list(APPEND MCP_HTTP_SOURCES
         src/http/llhttp_parser.cc
         src/transport/http_sse_transport_socket.cc  # New llhttp-based implementation
+        src/transport/http_sse_transport_socket_v2.cc  # V2 with layered architecture
         src/transport/http_sse_state_machine.cc     # HTTP+SSE state machine
     )
 endif()

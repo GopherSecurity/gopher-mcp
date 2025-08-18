@@ -29,6 +29,7 @@
 #include "mcp/network/transport_socket.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/connection.h"
+#include "mcp/network/address.h"
 
 namespace mcp {
 namespace transport {
@@ -104,7 +105,7 @@ public:
   HttpSseTransportSocketV2(
       const HttpSseTransportSocketConfigV2& config,
       event::Dispatcher& dispatcher,
-      std::unique_ptr<network::FilterChain> filter_chain = nullptr);
+      std::unique_ptr<network::FilterManager> filter_manager = nullptr);
   
   ~HttpSseTransportSocketV2() override;
   
@@ -170,15 +171,15 @@ public:
   // ===== Additional Methods =====
   
   /**
-   * Set the filter chain for protocol processing
+   * Set the filter manager for protocol processing
    * Must be called before any I/O operations
    */
-  void setFilterChain(std::unique_ptr<network::FilterChain> filter_chain);
+  void setFilterManager(std::unique_ptr<network::FilterManager> filter_manager);
   
   /**
-   * Get the filter chain
+   * Get the filter manager
    */
-  network::FilterChain* filterChain() { return filter_chain_.get(); }
+  network::FilterManager* filterManager() { return filter_manager_.get(); }
   
   /**
    * Check if transport is connected
@@ -224,10 +225,10 @@ private:
   void initialize();
   
   /**
-   * Process data through filter chain
+   * Process data through filter manager
    */
-  TransportIoResult processFilterChainRead(Buffer& buffer);
-  TransportIoResult processFilterChainWrite(Buffer& buffer, bool end_stream);
+  TransportIoResult processFilterManagerRead(Buffer& buffer);
+  TransportIoResult processFilterManagerWrite(Buffer& buffer, bool end_stream);
   
   /**
    * Handle underlying transport events
@@ -260,8 +261,8 @@ private:
   // Event dispatcher
   event::Dispatcher& dispatcher_;
   
-  // Filter chain for protocol processing
-  std::unique_ptr<network::FilterChain> filter_chain_;
+  // Filter manager for protocol processing
+  std::unique_ptr<network::FilterManager> filter_manager_;
   
   // Underlying transport socket (TCP, SSL, or STDIO)
   std::unique_ptr<network::TransportSocket> underlying_transport_;
@@ -303,12 +304,10 @@ public:
    * 
    * @param config Transport configuration
    * @param dispatcher Event dispatcher
-   * @param filter_factory Factory for creating filter chains
    */
   HttpSseTransportSocketFactoryV2(
       const HttpSseTransportSocketConfigV2& config,
-      event::Dispatcher& dispatcher,
-      std::shared_ptr<network::FilterChainFactory> filter_factory = nullptr);
+      event::Dispatcher& dispatcher);
   
   // ===== TransportSocketFactoryBase Interface =====
   
@@ -334,7 +333,6 @@ public:
 private:
   HttpSseTransportSocketConfigV2 config_;
   event::Dispatcher& dispatcher_;
-  std::shared_ptr<network::FilterChainFactory> filter_factory_;
 };
 
 /**
@@ -356,7 +354,6 @@ public:
   HttpSseTransportBuilder& withIdleTimeout(std::chrono::milliseconds timeout);
   HttpSseTransportBuilder& withHttpFilter(bool is_server);
   HttpSseTransportBuilder& withSseFilter(bool is_server);
-  HttpSseTransportBuilder& withCustomFilter(std::shared_ptr<network::FilterFactory> factory);
   
   /**
    * Build the transport socket with configured filter chain
@@ -371,7 +368,9 @@ public:
 private:
   event::Dispatcher& dispatcher_;
   HttpSseTransportSocketConfigV2 config_;
-  std::vector<std::shared_ptr<network::FilterFactory>> filter_factories_;
+  bool add_http_filter_{false};
+  bool add_sse_filter_{false};
+  bool is_server_{false};
 };
 
 } // namespace transport

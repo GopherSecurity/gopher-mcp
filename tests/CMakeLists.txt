@@ -37,6 +37,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
+add_executable(test_http_sse_transport_socket_v2 transport/test_http_sse_transport_socket_v2_simple.cc)
 # Additional HTTP SSE transport test files have been merged into test_http_sse_transport_socket.cc
 # to reduce duplication and improve maintainability
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
@@ -319,6 +320,15 @@ target_link_libraries(test_stdio_transport_socket
 
 
 target_link_libraries(test_http_sse_transport_socket
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_http_sse_transport_socket_v2
     mcp-sdk
     mcp-event
     gtest
@@ -700,6 +710,7 @@ add_test(NAME StreamInfoImplTest COMMAND test_stream_info_impl)
 # Transport tests
 add_test(NAME StdioTransportSocketTest COMMAND test_stdio_transport_socket)
 add_test(NAME HttpSseTransportSocketTest COMMAND test_http_sse_transport_socket)
+add_test(NAME HttpSseTransportSocketV2Test COMMAND test_http_sse_transport_socket_v2)
 # HttpSseTransportSocketRealIoTest merged into HttpSseTransportSocketTest to reduce duplication
 add_test(NAME StdioPipeBridgeTest COMMAND test_stdio_pipe_bridge)
 
