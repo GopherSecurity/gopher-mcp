@@ -206,9 +206,58 @@ std::future<InitializeResult> McpClient::initialize() {
       } else {
         // Parse InitializeResult from response
         InitializeResult init_result;
-        // TODO: Deserialize from response.result
-        init_result.protocolVersion = config_.protocol_version;
-        init_result.capabilities = ServerCapabilities();
+        
+        // Parse the flattened response from server
+        // The server returns a Metadata object with flattened fields
+        if (holds_alternative<Metadata>(response.result.value())) {
+          auto& metadata = get<Metadata>(response.result.value());
+          
+          // Extract protocol version
+          auto proto_it = metadata.find("protocolVersion");
+          if (proto_it != metadata.end() && holds_alternative<std::string>(proto_it->second)) {
+            init_result.protocolVersion = get<std::string>(proto_it->second);
+          }
+          
+          // Extract server info
+          auto name_it = metadata.find("serverInfo.name");
+          auto version_it = metadata.find("serverInfo.version");
+          if (name_it != metadata.end() && version_it != metadata.end()) {
+            Implementation server_info(
+                holds_alternative<std::string>(name_it->second) ? get<std::string>(name_it->second) : "",
+                holds_alternative<std::string>(version_it->second) ? get<std::string>(version_it->second) : ""
+            );
+            init_result.serverInfo = make_optional(server_info);
+          }
+          
+          // Extract capabilities (simplified)
+          ServerCapabilities caps;
+          
+          auto tools_it = metadata.find("capabilities.tools");
+          if (tools_it != metadata.end() && holds_alternative<bool>(tools_it->second)) {
+            caps.tools = make_optional(get<bool>(tools_it->second));
+          }
+          
+          auto prompts_it = metadata.find("capabilities.prompts");
+          if (prompts_it != metadata.end() && holds_alternative<bool>(prompts_it->second)) {
+            caps.prompts = make_optional(get<bool>(prompts_it->second));
+          }
+          
+          auto resources_it = metadata.find("capabilities.resources");
+          if (resources_it != metadata.end() && holds_alternative<bool>(resources_it->second)) {
+            caps.resources = make_optional(variant<bool, ResourcesCapability>(get<bool>(resources_it->second)));
+          }
+          
+          auto logging_it = metadata.find("capabilities.logging");
+          if (logging_it != metadata.end() && holds_alternative<bool>(logging_it->second)) {
+            caps.logging = make_optional(get<bool>(logging_it->second));
+          }
+          
+          init_result.capabilities = caps;
+        } else {
+          // Fallback if response format is unexpected
+          init_result.protocolVersion = config_.protocol_version;
+          init_result.capabilities = ServerCapabilities();
+        }
         
         // Store server capabilities
         server_capabilities_ = init_result.capabilities;

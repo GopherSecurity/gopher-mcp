@@ -623,14 +623,48 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
     result.instructions = make_optional(config_.instructions);
   }
 
-  // Convert to response
-  // For now, return simplified response without nested objects
-  auto response_metadata = make<Metadata>()
-                               .add("protocolVersion", result.protocolVersion)
-                               .add("serverName", config_.server_name)
-                               .add("serverVersion", config_.server_version)
-                               .build();
-
+  // Convert InitializeResult to Metadata for ResponseResult
+  // Since ResponseResult doesn't directly support InitializeResult,
+  // we need to convert it to a simplified Metadata object
+  // TODO: This is a temporary workaround until proper serialization is implemented
+  auto builder = make<Metadata>()
+                     .add("protocolVersion", result.protocolVersion);
+  
+  // Add server info if present (flattened)
+  if (result.serverInfo.has_value()) {
+    builder.add("serverInfo.name", result.serverInfo->name)
+           .add("serverInfo.version", result.serverInfo->version);
+  }
+  
+  // Add capabilities (flattened)
+  if (result.capabilities.resources.has_value()) {
+    if (holds_alternative<bool>(result.capabilities.resources.value())) {
+      builder.add("capabilities.resources", get<bool>(result.capabilities.resources.value()));
+    } else {
+      // Handle ResourcesCapability struct
+      builder.add("capabilities.resources", true)
+             .add("capabilities.resources.subscribe", true)
+             .add("capabilities.resources.listChanged", true);
+    }
+  }
+  
+  if (result.capabilities.tools.has_value()) {
+    builder.add("capabilities.tools", result.capabilities.tools.value());
+  }
+  if (result.capabilities.prompts.has_value()) {
+    builder.add("capabilities.prompts", result.capabilities.prompts.value());
+  }
+  if (result.capabilities.logging.has_value()) {
+    builder.add("capabilities.logging", result.capabilities.logging.value());
+  }
+  
+  // Add instructions if present
+  if (result.instructions.has_value()) {
+    builder.add("instructions", result.instructions.value());
+  }
+  
+  auto response_metadata = builder.build();
+  
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(response_metadata));
 }
