@@ -79,7 +79,7 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::onHeaders(
       {"access-control-allow-origin", "*"}
     };
     
-    http_filter_->responseEncoder().encodeHeaders(200, response_headers, false);
+    http_filter_->messageEncoder().encodeHeaders("200", response_headers, false);
     
     // Start SSE stream
     sse_filter_->startEventStream();
@@ -236,11 +236,11 @@ void McpHttpServerFilterChainFactory::McpProtocolBridge::sendResponse(
       {"access-control-allow-origin", "*"}
     };
     
-    http_filter_->responseEncoder().encodeHeaders(200, response_headers, false);
+    http_filter_->messageEncoder().encodeHeaders("200", response_headers, false);
     
     OwnedBuffer response_data;
     response_data.add(response.c_str(), response.length());
-    http_filter_->responseEncoder().encodeData(response_data, true);
+    http_filter_->messageEncoder().encodeData(response_data, true);
     
   } else if (mode_ == RequestMode::SSE_STREAM) {
     // Send SSE event

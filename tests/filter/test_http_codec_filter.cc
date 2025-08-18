@@ -12,7 +12,7 @@
 #include <condition_variable>
 #include <mutex>
 
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "../integration/real_io_test_base.h"
 
@@ -22,8 +22,8 @@ namespace {
 
 using namespace std::chrono_literals;
 
-// Real request callbacks implementation for testing
-class TestRequestCallbacks : public HttpServerCodecFilter::RequestCallbacks {
+// Real request callbacks implementation for testing  
+class TestRequestCallbacks : public HttpCodecFilter::MessageCallbacks {
 public:
   void onHeaders(const std::map<std::string, std::string>& headers, bool keep_alive) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -139,8 +139,8 @@ public:
     : dispatcher_(dispatcher) {}
     
   network::Connection& connection() {
-    static auto stub = std::make_shared<network::Connection>();
-    return *stub;
+    static network::Connection* stub = nullptr;
+    return *stub;  // This is a stub - will crash if called
   }
   
   void injectWriteDataToFilterChain(Buffer& data, bool end_stream) {
@@ -206,8 +206,8 @@ public:
     : dispatcher_(dispatcher) {}
     
   network::Connection& connection() { 
-    static auto stub = std::make_shared<network::Connection>();
-    return *stub; 
+    static network::Connection* stub = nullptr;
+    return *stub;  // This is a stub - will crash if called
   }
   void continueReading() {}
   void injectReadDataToFilterChain(Buffer& data, bool end_stream) {}
@@ -215,7 +215,7 @@ public:
   void onFilterInbound() {}
   void requestDecoder() {}
   const network::ConnectionInfo& connectionInfo() const {
-    static auto stub_ptr = reinterpret_cast<const network::ConnectionInfo*>(nullptr);
+    static const network::ConnectionInfo* stub_ptr = nullptr;
     return *stub_ptr;  // This is a stub - will crash if called
   }
   event::Dispatcher& dispatcher() { return dispatcher_; }
@@ -234,7 +234,7 @@ private:
   event::Dispatcher& dispatcher_;
 };
 
-class HttpServerCodecFilterRealIoTest : public test::RealIoTestBase {
+class HttpCodecFilterRealIoTest : public test::RealIoTestBase {
 protected:
   void SetUp() {
     test::RealIoTestBase::SetUp();
@@ -244,7 +244,7 @@ protected:
     
     // Create filter and callbacks in dispatcher context
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<HttpServerCodecFilter>(*request_callbacks_, *dispatcher_);
+      filter_ = std::make_unique<HttpCodecFilter>(*request_callbacks_, *dispatcher_, true);
       
       read_callbacks_ = std::make_unique<StubReadFilterCallbacks>(*dispatcher_);
       write_callbacks_ = std::make_unique<TestWriteFilterCallbacks>(*dispatcher_);
@@ -312,19 +312,19 @@ protected:
   std::unique_ptr<TestRequestCallbacks> request_callbacks_;
   std::unique_ptr<StubReadFilterCallbacks> read_callbacks_;
   std::unique_ptr<TestWriteFilterCallbacks> write_callbacks_;
-  std::unique_ptr<HttpServerCodecFilter> filter_;
+  std::unique_ptr<HttpCodecFilter> filter_;
 };
 
 // ===== Basic Request Processing Tests =====
 
-TEST_F(HttpServerCodecFilterRealIoTest, InitialState) {
+TEST_F(HttpCodecFilterRealIoTest, InitialState) {
   auto status = executeInDispatcher([this]() {
     return filter_->onNewConnection();
   });
   EXPECT_EQ(status, network::FilterStatus::Continue);
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, SimpleGetRequest) {
+TEST_F(HttpCodecFilterRealIoTest, SimpleGetRequest) {
   auto request = createHttpRequest("GET", "/test", {
     {"Host", "example.com"},
     {"User-Agent", "test-client"}
@@ -345,7 +345,7 @@ TEST_F(HttpServerCodecFilterRealIoTest, SimpleGetRequest) {
   EXPECT_EQ(headers["url"], "/test");
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, PostRequestWithBody) {
+TEST_F(HttpCodecFilterRealIoTest, PostRequestWithBody) {
   std::string expected_body = "{\"message\": \"hello world\"}";
   
   auto request = createHttpRequest("POST", "/api/test", {
@@ -371,7 +371,7 @@ TEST_F(HttpServerCodecFilterRealIoTest, PostRequestWithBody) {
   EXPECT_TRUE(request_callbacks_->isEndStream());
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, MalformedRequest) {
+TEST_F(HttpCodecFilterRealIoTest, MalformedRequest) {
   executeInDispatcher([this]() {
     filter_->onNewConnection();
     
@@ -387,7 +387,7 @@ TEST_F(HttpServerCodecFilterRealIoTest, MalformedRequest) {
   EXPECT_FALSE(request_callbacks_->getErrorMessage().empty());
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, KeepAliveConnection) {
+TEST_F(HttpCodecFilterRealIoTest, KeepAliveConnection) {
   // First request
   auto request1 = createHttpRequest("GET", "/first", {
     {"Host", "example.com"},
@@ -422,7 +422,7 @@ TEST_F(HttpServerCodecFilterRealIoTest, KeepAliveConnection) {
   EXPECT_TRUE(request_callbacks_->isKeepAlive());
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, ConnectionClose) {
+TEST_F(HttpCodecFilterRealIoTest, ConnectionClose) {
   auto request = createHttpRequest("GET", "/test", {
     {"Host", "example.com"},
     {"Connection", "close"}
@@ -439,12 +439,12 @@ TEST_F(HttpServerCodecFilterRealIoTest, ConnectionClose) {
 
 // ===== Response Encoding Tests =====
 
-TEST_F(HttpServerCodecFilterRealIoTest, SimpleResponse) {
+TEST_F(HttpCodecFilterRealIoTest, SimpleResponse) {
   executeInDispatcher([this]() {
     filter_->onNewConnection();
     
-    auto& encoder = filter_->responseEncoder();
-    encoder.encodeHeaders(200, {
+    auto& encoder = filter_->messageEncoder();
+    encoder.encodeHeaders("200", {
       {"Content-Type", "application/json"},
       {"Cache-Control", "no-cache"}
     }, true);
@@ -459,14 +459,14 @@ TEST_F(HttpServerCodecFilterRealIoTest, SimpleResponse) {
   EXPECT_TRUE(response.find("\r\n\r\n") != std::string::npos);
 }
 
-TEST_F(HttpServerCodecFilterRealIoTest, ResponseWithBody) {
+TEST_F(HttpCodecFilterRealIoTest, ResponseWithBody) {
   std::string response_body = "{\"status\": \"success\"}";
   
   executeInDispatcher([this, &response_body]() {
     filter_->onNewConnection();
     
-    auto& encoder = filter_->responseEncoder();
-    encoder.encodeHeaders(201, {
+    auto& encoder = filter_->messageEncoder();
+    encoder.encodeHeaders("201", {
       {"Content-Type", "application/json"}
     }, false);
     
@@ -491,7 +491,7 @@ TEST_F(HttpServerCodecFilterRealIoTest, ResponseWithBody) {
 
 // ===== State Machine Integration Tests =====
 
-TEST_F(HttpServerCodecFilterRealIoTest, StateMachineIntegration) {
+TEST_F(HttpCodecFilterRealIoTest, StateMachineIntegration) {
   // This test verifies that the state machine is properly integrated
   auto request = createHttpRequest("GET", "/state-test", {
     {"Host", "example.com"}
