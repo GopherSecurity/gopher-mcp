@@ -1,6 +1,6 @@
 /**
  * @file http_sse_transport_socket_v2.cc
- * @brief HTTP+SSE Transport Socket implementation following Envoy's architecture
+ * @brief HTTP+SSE Transport Socket implementation following layered architecture
  *
  * This implementation provides a clean transport layer that:
  * - Handles raw I/O operations only
