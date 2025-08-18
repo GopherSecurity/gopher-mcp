@@ -960,7 +960,7 @@ bool FilterChainStateMachine::attemptRecovery() {
 
   // Disable failed filters
   for (auto& entry : read_filters_) {
-    // In a real implementation, we'd identify which filter failed
+    // TODO: In a real implementation, we'd identify which filter failed
     // For now, just continue
   }
 

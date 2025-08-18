@@ -825,6 +825,30 @@ add_test(NAME SseCodecFilterTest COMMAND test_sse_codec_filter)
 # )
 # add_test(NAME SseCodecFilterComprehensiveTest COMMAND test_sse_codec_filter_comprehensive)
 
+# MCP JSON-RPC Filter Tests
+add_executable(test_mcp_jsonrpc_filter filter/test_mcp_jsonrpc_filter.cc)
+target_link_libraries(test_mcp_jsonrpc_filter 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpJsonRpcFilterTest COMMAND test_mcp_jsonrpc_filter)
+
+# MCP Stdio Filter Chain Factory Tests
+add_executable(test_mcp_stdio_filter_chain_factory filter/test_mcp_stdio_filter_chain_factory.cc)
+target_link_libraries(test_mcp_stdio_filter_chain_factory 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpStdioFilterChainFactoryTest COMMAND test_mcp_stdio_filter_chain_factory)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
