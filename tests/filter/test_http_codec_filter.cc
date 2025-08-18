@@ -462,31 +462,38 @@ TEST_F(HttpCodecFilterRealIoTest, SimpleResponse) {
 TEST_F(HttpCodecFilterRealIoTest, ResponseWithBody) {
   std::string response_body = "{\"status\": \"success\"}";
   
-  executeInDispatcher([this, &response_body]() {
+  // Send headers first
+  executeInDispatcher([this]() {
     filter_->onNewConnection();
     
     auto& encoder = filter_->messageEncoder();
     encoder.encodeHeaders("201", {
       {"Content-Type", "application/json"}
     }, false);
-    
+  });
+  
+  // Wait for headers write
+  ASSERT_TRUE(write_callbacks_->waitForWrite());
+  
+  std::string headers_write = write_callbacks_->getWriteData();
+  EXPECT_TRUE(headers_write.find("HTTP/1.1 201 Created") != std::string::npos);
+  
+  // Reset callbacks for body write
+  write_callbacks_->reset();
+  
+  // Send body separately
+  executeInDispatcher([this, &response_body]() {
+    auto& encoder = filter_->messageEncoder();
     OwnedBuffer body_buffer;
     body_buffer.add(response_body.c_str(), response_body.length());
     encoder.encodeData(body_buffer, true);
   });
   
-  // Wait for first write (headers)
+  // Wait for body write
   ASSERT_TRUE(write_callbacks_->waitForWrite());
   
-  std::string first_write = write_callbacks_->getWriteData();
-  EXPECT_TRUE(first_write.find("HTTP/1.1 201 Created") != std::string::npos);
-  
-  // Reset and wait for second write (body)
-  write_callbacks_->reset();
-  ASSERT_TRUE(write_callbacks_->waitForWrite());
-  
-  std::string second_write = write_callbacks_->getWriteData();
-  EXPECT_EQ(second_write, response_body);
+  std::string body_write = write_callbacks_->getWriteData();
+  EXPECT_EQ(body_write, response_body);
 }
 
 // ===== State Machine Integration Tests =====
