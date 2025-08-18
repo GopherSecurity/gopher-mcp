@@ -779,8 +779,8 @@ target_link_libraries(test_http_codec_state_machine
 )
 add_test(NAME HttpCodecStateMachineTest COMMAND test_http_codec_state_machine)
 
-add_executable(test_http_server_codec_filter filter/test_http_server_codec_filter_simple.cc)
-target_link_libraries(test_http_server_codec_filter 
+add_executable(test_http_codec_filter_simple filter/test_http_codec_filter_simple.cc)
+target_link_libraries(test_http_codec_filter_simple 
     mcp-sdk
     mcp-event
     gtest 
@@ -788,19 +788,19 @@ target_link_libraries(test_http_server_codec_filter
     gmock
     Threads::Threads
 )
-add_test(NAME HttpServerCodecFilterTest COMMAND test_http_server_codec_filter)
+add_test(NAME HttpCodecFilterSimpleTest COMMAND test_http_codec_filter_simple)
 
-# Comprehensive tests disabled due to compilation issues with abstract classes
-# add_executable(test_http_server_codec_filter_comprehensive filter/test_http_server_codec_filter.cc)
-# target_link_libraries(test_http_server_codec_filter_comprehensive 
-#     mcp-sdk
-#     mcp-event
-#     gtest 
-#     gtest_main 
-#     gmock
-#     Threads::Threads
-# )
-# add_test(NAME HttpServerCodecFilterComprehensiveTest COMMAND test_http_server_codec_filter_comprehensive)
+# Comprehensive test with real I/O
+add_executable(test_http_codec_filter filter/test_http_codec_filter.cc)
+target_link_libraries(test_http_codec_filter 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME HttpCodecFilterTest COMMAND test_http_codec_filter)
 
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine 

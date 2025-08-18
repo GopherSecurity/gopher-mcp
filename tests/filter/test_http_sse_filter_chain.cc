@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "tests/test_utils/real_io_test_base.h"
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/mcp_http_server_filter_chain_factory.h"
 #include "mcp/network/connection_impl.h"
@@ -108,8 +108,8 @@ protected:
       auto bridge = std::make_unique<TestProtocolBridge>(test_);
       
       // Create HTTP codec filter
-      auto http_filter = std::make_shared<HttpServerCodecFilter>(
-          *bridge, dispatcher_);
+      auto http_filter = std::make_shared<HttpCodecFilter>(
+          *bridge, dispatcher_, true);
       connection.addReadFilter(http_filter);
       connection.addWriteFilter(http_filter);
       
@@ -138,12 +138,12 @@ protected:
   };
   
   // Test protocol bridge
-  class TestProtocolBridge : public HttpServerCodecFilter::RequestCallbacks,
+  class TestProtocolBridge : public HttpCodecFilter::MessageCallbacks,
                              public SseCodecFilter::EventCallbacks {
   public:
     TestProtocolBridge(HttpSseFilterChainTest& test) : test_(test) {}
     
-    void setFilters(HttpServerCodecFilter* http, SseCodecFilter* sse) {
+    void setFilters(HttpCodecFilter* http, SseCodecFilter* sse) {
       http_filter_ = http;
       sse_filter_ = sse;
     }
@@ -215,7 +215,7 @@ protected:
     
   private:
     HttpSseFilterChainTest& test_;
-    HttpServerCodecFilter* http_filter_{nullptr};
+    HttpCodecFilter* http_filter_{nullptr};
     SseCodecFilter* sse_filter_{nullptr};
     bool is_sse_{false};
   };

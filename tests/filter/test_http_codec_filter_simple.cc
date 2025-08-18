@@ -8,7 +8,7 @@
 #include <string>
 #include <map>
 
-#include "mcp/filter/http_server_codec_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/buffer.h"
 
@@ -19,7 +19,7 @@ namespace {
 using namespace std::chrono_literals;
 
 // Simple request callbacks implementation
-class TestRequestCallbacks : public HttpServerCodecFilter::RequestCallbacks {
+class TestRequestCallbacks : public HttpCodecFilter::MessageCallbacks {
 public:
   void onHeaders(const std::map<std::string, std::string>& headers, bool keep_alive) override {
     headers_received_ = true;
@@ -54,7 +54,7 @@ public:
   bool end_stream_{false};
 };
 
-class HttpServerCodecFilterIntegrationTest : public ::testing::Test {
+class HttpCodecFilterIntegrationTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Create dispatcher
@@ -62,8 +62,8 @@ protected:
     dispatcher_ = factory->createDispatcher("test");
     dispatcher_->run(event::RunType::NonBlock);
     
-    // Create filter
-    filter_ = std::make_unique<HttpServerCodecFilter>(callbacks_, *dispatcher_);
+    // Create filter (server mode)
+    filter_ = std::make_unique<HttpCodecFilter>(callbacks_, *dispatcher_, true);
   }
 
   void TearDown() override {
@@ -107,18 +107,18 @@ protected:
 
   std::unique_ptr<event::Dispatcher> dispatcher_;
   TestRequestCallbacks callbacks_;
-  std::unique_ptr<HttpServerCodecFilter> filter_;
+  std::unique_ptr<HttpCodecFilter> filter_;
 };
 
 // ===== Basic Integration Tests =====
 
-TEST_F(HttpServerCodecFilterIntegrationTest, FilterCreation) {
+TEST_F(HttpCodecFilterIntegrationTest, FilterCreation) {
   // Test that filter can be created successfully
   EXPECT_NE(filter_, nullptr);
   EXPECT_EQ(filter_->onNewConnection(), network::FilterStatus::Continue);
 }
 
-TEST_F(HttpServerCodecFilterIntegrationTest, SimpleGetRequest) {
+TEST_F(HttpCodecFilterIntegrationTest, SimpleGetRequest) {
   filter_->onNewConnection();
   
   auto request = createGetRequest("/test");
@@ -141,7 +141,7 @@ TEST_F(HttpServerCodecFilterIntegrationTest, SimpleGetRequest) {
   EXPECT_EQ(host_it->second, "example.com");
 }
 
-TEST_F(HttpServerCodecFilterIntegrationTest, PostRequestWithBody) {
+TEST_F(HttpCodecFilterIntegrationTest, PostRequestWithBody) {
   filter_->onNewConnection();
   
   std::string body = R"({"message": "hello world"})";
@@ -167,7 +167,7 @@ TEST_F(HttpServerCodecFilterIntegrationTest, PostRequestWithBody) {
   EXPECT_EQ(content_type_it->second, "application/json");
 }
 
-TEST_F(HttpServerCodecFilterIntegrationTest, KeepAliveConnection) {
+TEST_F(HttpCodecFilterIntegrationTest, KeepAliveConnection) {
   filter_->onNewConnection();
   
   auto request = createGetRequest("/test1");
@@ -193,7 +193,7 @@ TEST_F(HttpServerCodecFilterIntegrationTest, KeepAliveConnection) {
   EXPECT_EQ(url_it->second, "/test2");
 }
 
-TEST_F(HttpServerCodecFilterIntegrationTest, MalformedRequest) {
+TEST_F(HttpCodecFilterIntegrationTest, MalformedRequest) {
   filter_->onNewConnection();
   
   OwnedBuffer malformed;
@@ -210,7 +210,7 @@ TEST_F(HttpServerCodecFilterIntegrationTest, MalformedRequest) {
 
 // ===== State Machine Integration Tests =====
 
-TEST_F(HttpServerCodecFilterIntegrationTest, StateMachineIntegration) {
+TEST_F(HttpCodecFilterIntegrationTest, StateMachineIntegration) {
   filter_->onNewConnection();
   
   // The state machine should be properly integrated and handle the request lifecycle
