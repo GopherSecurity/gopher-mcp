@@ -414,11 +414,13 @@ TEST_F(McpConnectionManagerTest, HttpSseConfig) {
   // Create manager with HTTP/SSE transport
   McpConnectionConfig http_config;
   http_config.transport_type = TransportType::HttpSse;
-  http_config.http_sse_config = transport::HttpSseTransportSocketConfig{
-      .endpoint_url = "http://localhost:8080/mcp",
-      .headers = {{"Authorization", "Bearer token"}},
-      .connect_timeout = std::chrono::milliseconds(10000)
-  };
+  transport::HttpSseTransportSocketConfig http_sse_config;
+  http_sse_config.server_address = "localhost:8080";
+  http_sse_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+  http_sse_config.underlying_transport = transport::HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+  http_sse_config.connect_timeout = std::chrono::milliseconds(10000);
+  // Note: Headers are now handled by the filter chain
+  http_config.http_sse_config = http_sse_config;
   
   auto http_manager = std::make_unique<McpConnectionManager>(
       *dispatcher_, *socket_interface_, http_config);
