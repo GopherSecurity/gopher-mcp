@@ -34,11 +34,10 @@ class FullStackTransportTest : public test::RealListenerTestBase {
     // Call base class setup first
     RealListenerTestBase::SetUp();
 
-    // HTTP+SSE configuration for testing
-    config_.endpoint_url = "http://localhost:8080";
-    config_.use_ssl = false;  // Start with non-SSL for simplicity
-    config_.verify_ssl = false;
-    config_.preferred_version = http::HttpVersion::HTTP_1_1;
+    // HTTP+SSE configuration for testing with new architecture
+    config_.server_address = "localhost:8080";
+    config_.mode = HttpSseTransportSocketConfig::Mode::CLIENT;
+    config_.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
     // Note: These fields are now handled by the filter chain in the new architecture
     // config_.auto_reconnect = true;
     // config_.reconnect_delay = std::chrono::milliseconds(3000);
@@ -63,13 +62,14 @@ class FullStackTransportTest : public test::RealListenerTestBase {
   // Create HTTPS+SSE transport factory
   void createFactory(bool use_ssl = false) {
     executeInDispatcher([this, use_ssl]() {
-      config_.use_ssl = use_ssl;
-
       if (use_ssl) {
-        config_.endpoint_url = "https://localhost:8443";
+        config_.server_address = "localhost:8443";
+        config_.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        config_.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+        config_.ssl_config->verify_peer = false;  // For testing
         // For testing, we'd need to set up test certificates
-        // config_.ca_cert_path = "/path/to/test/ca.crt";
-        // config_.client_cert_path = "/path/to/test/client.crt";
+        // config_.ssl_config->ca_cert_path = "/path/to/test/ca.crt";
+        // config_.ssl_config->client_cert_path = "/path/to/test/client.crt";
         // config_.client_key_path = "/path/to/test/client.key";
       }
 
@@ -195,11 +195,11 @@ TEST_F(FullStackTransportTest, FactoryConfiguration) {
   executeInDispatcher([this]() {
     // Test with different configurations
     HttpSseTransportSocketConfig test_config;
-    test_config.endpoint_url = "https://api.example.com";
-    test_config.use_ssl = true;
-    test_config.verify_ssl = true;
-    test_config.preferred_version = http::HttpVersion::HTTP_2;
-    test_config.auto_reconnect = true;
+    test_config.server_address = "api.example.com:443";
+    test_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    test_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+    test_config.ssl_config->verify_peer = true;
+    // Note: auto_reconnect and HTTP version are now handled by filter chain
 
     auto factory =
         std::make_unique<HttpsSseTransportFactory>(test_config, *dispatcher_);
@@ -213,20 +213,22 @@ TEST_F(FullStackTransportTest, FactoryConfiguration) {
   });
 }
 
-TEST_F(FullStackTransportTest, AutoDetectSSLFromURL) {
+TEST_F(FullStackTransportTest, SSLConfiguration) {
   executeInDispatcher([this]() {
-    // Test HTTPS URL auto-detection
+    // Test SSL configuration
     HttpSseTransportSocketConfig https_config;
-    https_config.endpoint_url = "https://secure.example.com";
-    // Don't explicitly set use_ssl, let it auto-detect
+    https_config.server_address = "secure.example.com:443";
+    https_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    https_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
 
     auto https_factory =
         std::make_unique<HttpsSseTransportFactory>(https_config, *dispatcher_);
     EXPECT_TRUE(https_factory->implementsSecureTransport());
 
-    // Test HTTP URL
+    // Test TCP (non-SSL) configuration
     HttpSseTransportSocketConfig http_config;
-    http_config.endpoint_url = "http://plain.example.com";
+    http_config.server_address = "plain.example.com:80";
+    http_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
     auto http_factory =
         std::make_unique<HttpsSseTransportFactory>(http_config, *dispatcher_);
