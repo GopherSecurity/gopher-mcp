@@ -1,9 +1,11 @@
 #pragma once
 
 #include "mcp/event/event_loop.h"
-#include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
+
+// Need full definition of McpMessageCallbacks
+#include "mcp/mcp_connection_manager.h"
 
 namespace mcp {
 namespace filter {
@@ -26,12 +28,15 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
  public:
   /**
    * Constructor
+   * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling messages
    * @param use_framing Whether to use length-prefixed framing
    */
-  McpStdioFilterChainFactory(McpMessageCallbacks& message_callbacks,
+  McpStdioFilterChainFactory(event::Dispatcher& dispatcher,
+                            McpMessageCallbacks& message_callbacks,
                             bool use_framing = true)
-      : message_callbacks_(message_callbacks),
+      : dispatcher_(dispatcher),
+        message_callbacks_(message_callbacks),
         use_framing_(use_framing) {}
 
   /**
@@ -57,11 +62,13 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
   }
 
  private:
+  event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;
   bool use_framing_;
   
-  // Store filters for lifetime management
+  // Store filters and callbacks for lifetime management
   mutable std::vector<network::FilterSharedPtr> filters_;
+  mutable std::vector<std::shared_ptr<void>> callbacks_;
 };
 
 } // namespace filter
