@@ -22,32 +22,38 @@ bool McpHttpFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Create protocol bridge that connects filters to MCP callbacks
-  // Note: We need to make bridges_ mutable or change the design
   auto bridge = std::make_unique<McpProtocolBridge>(message_callbacks_);
   
-  // Create HTTP codec filter (server mode)
-  // This filter parses HTTP requests and generates HTTP responses
+  // Create HTTP codec filter with appropriate mode
+  // This filter handles HTTP protocol layer:
+  // - Server: parses HTTP requests and generates HTTP responses
+  // - Client: generates HTTP requests and parses HTTP responses
   auto http_filter = std::make_shared<HttpCodecFilter>(
-      *bridge, dispatcher_, true /* server mode */);
+      *bridge, dispatcher_, is_server_);
   
   // Create SSE codec filter  
-  // This filter handles Server-Sent Events protocol
+  // This filter handles Server-Sent Events protocol layer:
+  // - Server: generates SSE events
+  // - Client: parses SSE events
   auto sse_filter = std::make_shared<SseCodecFilter>(
-      *bridge, dispatcher_, true /* server mode */);
+      *bridge, dispatcher_, is_server_);
   
   // Store references in bridge for response handling
   bridge->setFilters(http_filter.get(), sse_filter.get());
   
-  // Add filters to filter manager
-  // Following production pattern: FilterManager manages filters
-  filter_manager.addReadFilter(http_filter);
+  // Add filters to filter manager in correct order
+  // Following production pattern: FilterManager manages filter chain
+  // Order matters: data flows through filters in order
+  filter_manager.addReadFilter(http_filter);   // First: HTTP protocol
   filter_manager.addWriteFilter(http_filter);
-  filter_manager.addReadFilter(sse_filter);
+  filter_manager.addReadFilter(sse_filter);    // Second: SSE protocol
   filter_manager.addWriteFilter(sse_filter);
   
+  // TODO: Add JSON-RPC filter as third layer for complete protocol stack
+  // This would handle JSON-RPC message framing and parsing
+  
   // Store bridge for lifetime management
-  // Cast away const for now - we should redesign this to be cleaner
-  const_cast<McpHttpFilterChainFactory*>(this)->bridges_.push_back(std::move(bridge));
+  bridges_.push_back(std::move(bridge));
   
   return true;
 }
@@ -65,7 +71,10 @@ void McpHttpFilterChainFactory::McpProtocolBridge::onHeaders(
     const std::map<std::string, std::string>& headers,
     bool keep_alive) {
   
-  // Determine request mode based on headers
+  // TODO: Properly distinguish between client and server modes
+  // For now, this handles server mode. Client mode would parse response headers.
+  
+  // Server mode: Determine request type based on headers
   auto accept = headers.find("accept");
   if (accept != headers.end() && 
       accept->second.find("text/event-stream") != std::string::npos) {
@@ -84,19 +93,8 @@ void McpHttpFilterChainFactory::McpProtocolBridge::onHeaders(
     // Start SSE stream
     sse_filter_->startEventStream();
     
-    // Send initial MCP initialize event if this is the first connection
-    // In SSE mode, we typically send the protocol version immediately
-    nlohmann::json init_event = {
-      {"jsonrpc", "2.0"},
-      {"method", "initialize"},
-      {"params", {
-        {"protocolVersion", "2024-11-05"},
-        {"capabilities", nlohmann::json::object()}
-      }}
-    };
-    
-    std::string event_data = init_event.dump();
-    sse_filter_->eventEncoder().encodeEvent("message", event_data, nullopt);
+    // NOTE: Initial protocol handshake should be handled by MCP layer,
+    // not hardcoded in the filter
     
   } else {
     // HTTP RPC mode
@@ -114,21 +112,19 @@ void McpHttpFilterChainFactory::McpProtocolBridge::onBody(
     try {
       auto json = nlohmann::json::parse(current_request_body_);
       
+      // TODO: Properly deserialize JSON-RPC messages and forward to MCP callbacks
+      // This requires integration with the JSON bridge for proper type conversion
+      // For now, the bridge doesn't forward messages, which breaks the protocol flow
+      
       if (json.contains("method")) {
         if (json.contains("id")) {
-          // Request - create simplified request object
-          // Note: We would need proper jsonrpc types here
-          // For now, just parse and forward the JSON
-          
-          // Forward JSON to MCP callbacks
+          // Request - needs proper deserialization
+          // jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
           // message_callbacks_.onRequest(request);
           
         } else {
-          // Notification - create simplified notification object
-          // Note: We would need proper jsonrpc types here
-          // For now, just parse and forward the JSON
-          
-          // Forward JSON to MCP callbacks
+          // Notification - needs proper deserialization
+          // jsonrpc::Notification notification = json::from_json<jsonrpc::Notification>(json_val);
           // message_callbacks_.onNotification(notification);
         }
       }

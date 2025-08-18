@@ -31,10 +31,14 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * Constructor
    * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling requests
+   * @param is_server True for server mode, false for client mode
    */
   McpHttpFilterChainFactory(event::Dispatcher& dispatcher,
-                            McpMessageCallbacks& message_callbacks)
-      : dispatcher_(dispatcher), message_callbacks_(message_callbacks) {}
+                            McpMessageCallbacks& message_callbacks,
+                            bool is_server = true)
+      : dispatcher_(dispatcher), 
+        message_callbacks_(message_callbacks),
+        is_server_(is_server) {}
 
   /**
    * Create filter chain for the connection
@@ -116,9 +120,10 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
 
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;
+  bool is_server_;
 
   // Store bridges for lifetime management
-  std::vector<std::unique_ptr<McpProtocolBridge>> bridges_;
+  mutable std::vector<std::unique_ptr<McpProtocolBridge>> bridges_;
 };
 
 }  // namespace filter
