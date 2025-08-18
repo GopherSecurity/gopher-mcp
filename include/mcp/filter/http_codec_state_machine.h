@@ -64,14 +64,16 @@ enum class HttpCodecState {
  */
 enum class HttpCodecEvent {
   // Request events (server receives, client sends)
-  RequestStart,       // Server: incoming request start, Client: outgoing request start
-  HeadersComplete,    // Server: request headers complete, Client: request headers sent
-  BodyData,          // Server: request body data, Client: request body data sent
-  MessageComplete,   // Server: request complete, Client: request fully sent
+  RequestBegin,           // Server: incoming request start, Client: outgoing request start
+  RequestHeadersComplete, // Server: request headers complete, Client: request headers sent
+  RequestBodyData,        // Server: request body data, Client: request body data sent
+  RequestComplete,        // Server: request complete, Client: request fully sent
   
   // Response events (server sends, client receives)
-  SendResponse,      // Server: start sending response, Client: response received
-  ResponseComplete,  // Server: response fully sent, Client: response fully received
+  ResponseBegin,           // Server: start sending response, Client: response received
+  ResponseHeadersComplete, // Server: response headers sent, Client: response headers received
+  ResponseBodyData,        // Server: response body data sent, Client: response body data received
+  ResponseComplete,        // Server: response fully sent, Client: response fully received
   
   // Error events
   ParseError,

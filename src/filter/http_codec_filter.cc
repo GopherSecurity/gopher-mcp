@@ -124,11 +124,11 @@ void HttpCodecFilter::sendMessageData(Buffer& data) {
 
 // ParserCallbacks implementation
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onMessageBegin() {
-  // Event depends on mode: RequestStart for server, SendResponse for client
+  // Event depends on mode: RequestBegin for server, ResponseBegin for client
   if (parent_.is_server_) {
-    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
   } else {
-    parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
   }
   
   parent_.current_headers_.clear();
@@ -212,8 +212,12 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeadersComplete()
     parent_.state_machine_->setExpectResponseBody(has_body);
   }
   
-  // Trigger headers complete event
-  parent_.state_machine_->handleEvent(HttpCodecEvent::HeadersComplete);
+  // Trigger headers complete event based on mode
+  if (parent_.is_server_) {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestHeadersComplete);
+  } else {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseHeadersComplete);
+  }
   
   // Notify callbacks
   parent_.message_callbacks_.onHeaders(parent_.current_headers_, parent_.keep_alive_);
@@ -224,12 +228,22 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeadersComplete()
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   parent_.current_body_.append(data, length);
-  parent_.state_machine_->handleEvent(HttpCodecEvent::BodyData);
+  // Trigger body data event based on mode
+  if (parent_.is_server_) {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestBodyData);
+  } else {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseBodyData);
+  }
   return http::ParserCallbackResult::Success;
 }
 
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onMessageComplete() {
-  parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
+  // Trigger message complete event based on mode
+  if (parent_.is_server_) {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
+  } else {
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+  }
   
   // Send body to callbacks
   if (!parent_.current_body_.empty()) {
@@ -265,7 +279,7 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   
   if (parent_.is_server_) {
     // Server mode: encode response
-    parent_.state_machine_->handleEvent(HttpCodecEvent::SendResponse);
+    parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
     
     int status_code = std::stoi(status_code_or_method);
     message << "HTTP/1.1 " << status_code << " ";
@@ -283,7 +297,7 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
     message << "\r\n";
   } else {
     // Client mode: encode request
-    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestStart);
+    parent_.state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
     
     message << status_code_or_method << " " << path << " HTTP/1.1\r\n";
   }
@@ -305,7 +319,7 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
     if (parent_.is_server_) {
       parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
     } else {
-      parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
+      parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
     }
   }
 }
@@ -318,7 +332,7 @@ void HttpCodecFilter::MessageEncoderImpl::encodeData(Buffer& data, bool end_stre
     if (parent_.is_server_) {
       parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
     } else {
-      parent_.state_machine_->handleEvent(HttpCodecEvent::MessageComplete);
+      parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
     }
   }
 }

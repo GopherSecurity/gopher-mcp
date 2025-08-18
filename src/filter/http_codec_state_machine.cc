@@ -73,7 +73,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
     // Server mode state transitions
     switch (current) {
       case HttpCodecState::WaitingForRequest:
-        if (event == HttpCodecEvent::RequestStart) {
+        if (event == HttpCodecEvent::RequestBegin) {
           new_state = HttpCodecState::ReceivingRequestHeaders;
           reason = "Request started";
         } else if (event == HttpCodecEvent::Close) {
@@ -83,7 +83,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
         break;
         
       case HttpCodecState::ReceivingRequestHeaders:
-        if (event == HttpCodecEvent::HeadersComplete) {
+        if (event == HttpCodecEvent::RequestHeadersComplete) {
           // Check if there's a body
           if (expect_request_body_) {
             new_state = HttpCodecState::ReceivingRequestBody;
@@ -102,10 +102,10 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
         break;
         
       case HttpCodecState::ReceivingRequestBody:
-        if (event == HttpCodecEvent::MessageComplete) {
+        if (event == HttpCodecEvent::RequestComplete) {
           new_state = HttpCodecState::SendingResponse;
           reason = "Request complete";
-        } else if (event == HttpCodecEvent::BodyData) {
+        } else if (event == HttpCodecEvent::RequestBodyData) {
           // Stay in same state
           reason = "Receiving body data";
         } else if (event == HttpCodecEvent::ParseError) {
@@ -164,7 +164,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
     // Client mode state transitions
     switch (current) {
       case HttpCodecState::Idle:
-        if (event == HttpCodecEvent::RequestStart) {
+        if (event == HttpCodecEvent::RequestBegin) {
           new_state = HttpCodecState::SendingRequest;
           reason = "Starting request";
         } else if (event == HttpCodecEvent::Close) {
@@ -174,7 +174,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
         break;
         
       case HttpCodecState::SendingRequest:
-        if (event == HttpCodecEvent::HeadersComplete) {
+        if (event == HttpCodecEvent::RequestHeadersComplete) {
           // Check if there's a body to send
           if (expect_request_body_) {
             // Stay in same state - will send body data
@@ -183,10 +183,10 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
             new_state = HttpCodecState::WaitingForResponse;
             reason = "Request complete, waiting for response";
           }
-        } else if (event == HttpCodecEvent::MessageComplete) {
+        } else if (event == HttpCodecEvent::RequestComplete) {
           new_state = HttpCodecState::WaitingForResponse;
           reason = "Request complete, waiting for response";
-        } else if (event == HttpCodecEvent::BodyData) {
+        } else if (event == HttpCodecEvent::RequestBodyData) {
           // Stay in same state
           reason = "Sending body data";
         } else if (event == HttpCodecEvent::ParseError) {
@@ -196,7 +196,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
         break;
         
       case HttpCodecState::WaitingForResponse:
-        if (event == HttpCodecEvent::SendResponse) {
+        if (event == HttpCodecEvent::ResponseBegin) {
           new_state = HttpCodecState::ReceivingResponseHeaders;
           reason = "Response started";
         } else if (event == HttpCodecEvent::Timeout) {
@@ -209,7 +209,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
         break;
         
       case HttpCodecState::ReceivingResponseHeaders:
-        if (event == HttpCodecEvent::HeadersComplete) {
+        if (event == HttpCodecEvent::ResponseHeadersComplete) {
           // Check if there's a response body
           if (expect_response_body_) {
             new_state = HttpCodecState::ReceivingResponseBody;
@@ -241,7 +241,7 @@ HttpCodecStateTransitionResult HttpCodecStateMachine::handleEvent(
             new_state = HttpCodecState::Closed;
             reason = "Response complete, closing";
           }
-        } else if (event == HttpCodecEvent::BodyData) {
+        } else if (event == HttpCodecEvent::ResponseBodyData) {
           // Stay in same state
           reason = "Receiving response body data";
         } else if (event == HttpCodecEvent::ParseError) {
@@ -468,11 +468,13 @@ std::string HttpCodecStateMachine::getStateName(HttpCodecState state) {
 
 std::string HttpCodecStateMachine::getEventName(HttpCodecEvent event) {
   switch (event) {
-    case HttpCodecEvent::RequestStart: return "RequestStart";
-    case HttpCodecEvent::HeadersComplete: return "HeadersComplete";
-    case HttpCodecEvent::BodyData: return "BodyData";
-    case HttpCodecEvent::MessageComplete: return "MessageComplete";
-    case HttpCodecEvent::SendResponse: return "SendResponse";
+    case HttpCodecEvent::RequestBegin: return "RequestBegin";
+    case HttpCodecEvent::RequestHeadersComplete: return "RequestHeadersComplete";
+    case HttpCodecEvent::RequestBodyData: return "RequestBodyData";
+    case HttpCodecEvent::RequestComplete: return "RequestComplete";
+    case HttpCodecEvent::ResponseBegin: return "ResponseBegin";
+    case HttpCodecEvent::ResponseHeadersComplete: return "ResponseHeadersComplete";
+    case HttpCodecEvent::ResponseBodyData: return "ResponseBodyData";
     case HttpCodecEvent::ResponseComplete: return "ResponseComplete";
     case HttpCodecEvent::ParseError: return "ParseError";
     case HttpCodecEvent::Timeout: return "Timeout";
