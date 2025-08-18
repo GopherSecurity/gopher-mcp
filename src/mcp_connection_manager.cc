@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "mcp/core/result.h"
+#include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
@@ -65,6 +66,10 @@ void JsonRpcMessageFilter::parseMessages(Buffer& data) {
   // std::cerr << "parseMessages: received '" << buffer_str << "'" << std::endl;
   // std::cerr << "parseMessages: partial_message_ = '" << partial_message_ <<
   // "'" << std::endl;
+
+  // NOTE: For HTTP+SSE transport, HTTP parsing is handled by HttpCodecFilter
+  // and SSE parsing by SseCodecFilter in the filter chain.
+  // This filter only handles JSON-RPC message parsing.
 
   if (use_framing_) {
     // Parse with message framing (length prefix)
@@ -755,16 +760,34 @@ McpConnectionManager::createTransportSocketFactory() {
 
 std::shared_ptr<network::FilterChainFactory>
 McpConnectionManager::createFilterChainFactory() {
-  auto factory = std::make_shared<network::FilterChainFactoryImpl>();
+  // Create appropriate filter chain based on transport type
+  // Following layered architecture: each filter handles one protocol layer
+  
+  if (config_.transport_type == TransportType::HttpSse) {
+    // For HTTP+SSE transport, use the MCP HTTP filter chain factory
+    // This creates the proper protocol stack:
+    // TCP Socket → HTTP Codec Filter → SSE Codec Filter → JSON-RPC Filter
+    // NOTE: This ensures clean separation of concerns - each filter handles
+    // exactly one protocol layer, following best practices for protocol stacks
+    
+    // Pass is_server_ to configure filters for client or server mode
+    return std::make_shared<filter::McpHttpFilterChainFactory>(
+        dispatcher_, *this, is_server_);
+    
+  } else {
+    // For stdio and other transports, use simple JSON-RPC filter
+    // No HTTP/SSE protocol layers needed
+    auto factory = std::make_shared<network::FilterChainFactoryImpl>();
 
-  // Add JSON-RPC message filter
-  factory->addFilterFactory([this]() -> network::FilterSharedPtr {
-    auto filter = std::make_shared<JsonRpcMessageFilter>(*this);
-    filter->setUseFraming(config_.use_message_framing);
-    return filter;
-  });
+    // Add JSON-RPC message filter for direct JSON message handling
+    factory->addFilterFactory([this]() -> network::FilterSharedPtr {
+      auto filter = std::make_shared<JsonRpcMessageFilter>(*this);
+      filter->setUseFraming(config_.use_message_framing);
+      return filter;
+    });
 
-  return factory;
+    return factory;
+  }
 }
 
 VoidResult McpConnectionManager::sendJsonMessage(
@@ -772,8 +795,12 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Convert to string
   std::string json_str = message.toString();
 
-  // Add newline for non-framed mode
-  if (!config_.use_message_framing) {
+  // NOTE: For HTTP+SSE transport, HTTP formatting is handled by HttpCodecFilter
+  // in the filter chain. We only need to send the JSON payload.
+  // The filter chain architecture ensures proper protocol layering.
+  
+  // For stdio and other transports that don't use HTTP, add newline delimiter
+  if (config_.transport_type == TransportType::Stdio && !config_.use_message_framing) {
     json_str += "\n";
   }
 
@@ -781,7 +808,7 @@ VoidResult McpConnectionManager::sendJsonMessage(
   auto buffer = std::make_unique<OwnedBuffer>();
   buffer->add(json_str);
 
-  // Send through connection
+  // Send through connection - filters will handle protocol formatting
   active_connection_->write(*buffer, false);
 
   return makeVoidSuccess();
