@@ -305,7 +305,7 @@ class HttpSseTransportSocketFactory
    * @param dispatcher Event dispatcher
    */
   HttpSseTransportSocketFactory(const HttpSseTransportSocketConfig& config,
-                                  event::Dispatcher& dispatcher);
+                                event::Dispatcher& dispatcher);
 
   // ===== TransportSocketFactoryBase Interface =====
 

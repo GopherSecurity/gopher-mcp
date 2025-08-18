@@ -267,8 +267,8 @@ TEST_F(FullStackTransportTest, VerifyTCPLayerCreation) {
   executeInDispatcher([this]() {
     // Directly test that TCP socket is created by the factory
     HttpSseTransportSocketConfig test_config;
-    test_config.endpoint_url = "http://test.example.com";
-    test_config.use_ssl = false;
+    test_config.server_address = "test.example.com:80";
+    test_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
     HttpsSseTransportFactory factory(test_config, *dispatcher_);
 
