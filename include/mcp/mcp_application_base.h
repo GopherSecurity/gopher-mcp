@@ -29,6 +29,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket_interface_impl.h"
@@ -45,6 +46,79 @@ class ConnectionPool;
 class MetricsCollector;
 class FailureTracker;
 class FilterChainBuilder;
+
+/**
+ * Common adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
+ * 
+ * This adapter bridges the MCP message callback interface to the JSON-RPC
+ * filter callback interface, allowing ApplicationBase-derived classes to
+ * use the unified McpJsonRpcFilter.
+ */
+class McpJsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
+public:
+  explicit McpJsonRpcCallbackAdapter(McpMessageCallbacks& callbacks)
+      : callbacks_(callbacks) {}
+  
+  void onRequest(const jsonrpc::Request& request) override {
+    callbacks_.onRequest(request);
+  }
+  
+  void onNotification(const jsonrpc::Notification& notification) override {
+    callbacks_.onNotification(notification);
+  }
+  
+  void onResponse(const jsonrpc::Response& response) override {
+    callbacks_.onResponse(response);
+  }
+  
+  void onProtocolError(const Error& error) override {
+    callbacks_.onError(error);
+  }
+  
+private:
+  McpMessageCallbacks& callbacks_;
+};
+
+/**
+ * Base class for metrics tracking filters
+ * 
+ * Tracks bytes sent/received and updates application statistics.
+ * Derived classes can extend this for specific metrics tracking.
+ */
+class MetricsTrackingFilter : public network::NetworkFilterBase {
+public:
+  MetricsTrackingFilter(std::atomic<uint64_t>& bytes_received,
+                        std::atomic<uint64_t>& bytes_sent)
+      : bytes_received_(bytes_received), bytes_sent_(bytes_sent) {}
+  
+  network::FilterStatus onData(Buffer& data, bool end_stream) override {
+    bytes_received_ += data.length();
+    return onDataMetrics(data, end_stream);
+  }
+  
+  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    bytes_sent_ += data.length();
+    return onWriteMetrics(data, end_stream);
+  }
+  
+  network::FilterStatus onNewConnection() override {
+    return network::FilterStatus::Continue;
+  }
+  
+protected:
+  // Override these for additional metrics tracking
+  virtual network::FilterStatus onDataMetrics(Buffer& data, bool end_stream) {
+    return network::FilterStatus::Continue;
+  }
+  
+  virtual network::FilterStatus onWriteMetrics(Buffer& data, bool end_stream) {
+    return network::FilterStatus::Continue;
+  }
+  
+private:
+  std::atomic<uint64_t>& bytes_received_;
+  std::atomic<uint64_t>& bytes_sent_;
+};
 
 /**
  * Application statistics for observability
@@ -435,6 +509,29 @@ class ApplicationBase {
       throw std::runtime_error("Main dispatcher not initialized");
     }
     return *main_dispatcher_;
+  }
+  
+  // Helper structure to manage JSON-RPC filter and its adapter lifetime
+  struct JsonRpcFilterBundle {
+    std::shared_ptr<McpJsonRpcCallbackAdapter> adapter;
+    std::shared_ptr<filter::McpJsonRpcFilter> filter;
+  };
+  
+  // Helper to create JSON-RPC filter with proper lifetime management
+  // Returns a bundle that keeps both adapter and filter alive
+  std::shared_ptr<JsonRpcFilterBundle> createJsonRpcFilter(
+      McpMessageCallbacks& callbacks, bool is_server, bool use_framing = true) {
+    auto bundle = std::make_shared<JsonRpcFilterBundle>();
+    
+    // Create adapter
+    bundle->adapter = std::make_shared<McpJsonRpcCallbackAdapter>(callbacks);
+    
+    // Create filter with adapter
+    bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
+        *bundle->adapter, getMainDispatcher(), is_server);
+    bundle->filter->setUseFraming(use_framing);
+    
+    return bundle;
   }
   
   // Create filter chain for connections

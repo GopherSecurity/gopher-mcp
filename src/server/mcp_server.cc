@@ -379,90 +379,27 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   ApplicationBase::setupFilterChain(builder);
 
   // Add MCP-specific filters
-
-  // Add JSON-RPC message filter for protocol handling
-  // Uses the unified McpJsonRpcFilter for consistent message handling
   
-  // Create adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
-  class JsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
-  public:
-    JsonRpcCallbackAdapter(McpMessageCallbacks& mcp_callbacks)
-        : mcp_callbacks_(mcp_callbacks) {}
-    
-    void onRequest(const jsonrpc::Request& request) override {
-      mcp_callbacks_.onRequest(request);
-    }
-    
-    void onNotification(const jsonrpc::Notification& notification) override {
-      mcp_callbacks_.onNotification(notification);
-    }
-    
-    void onResponse(const jsonrpc::Response& response) override {
-      mcp_callbacks_.onResponse(response);
-    }
-    
-    void onProtocolError(const Error& error) override {
-      mcp_callbacks_.onError(error);
-    }
-    
-  private:
-    McpMessageCallbacks& mcp_callbacks_;
-  };
+  // Create JSON-RPC filter using the simplified helper
+  // Servers typically use framing for all transports
+  // TODO: Make framing configurable based on actual transport endpoints
+  bool use_framing = true;
+  auto filter_bundle = createJsonRpcFilter(*this, true, use_framing);
   
-  // Create the adapter and filter (must be kept alive for filter lifetime)
-  struct FilterWithAdapter {
-    std::shared_ptr<JsonRpcCallbackAdapter> adapter;
-    std::shared_ptr<filter::McpJsonRpcFilter> filter;
-  };
-  
-  auto filter_bundle = std::make_shared<FilterWithAdapter>();
-  filter_bundle->adapter = std::make_shared<JsonRpcCallbackAdapter>(*this);
-  filter_bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
-      *filter_bundle->adapter,  // McpJsonRpcFilter::Callbacks interface
-      getMainDispatcher(),      // Event dispatcher
-      true);                    // Server mode
-  
-  // Configure framing based on transport type
-  // For servers, typically always use framing except for pure HTTP deployments
-  bool use_framing = true;  // Default to framing for stdio/websocket
-  // TODO: Make this configurable based on actual transport endpoints
-  filter_bundle->filter->setUseFraming(use_framing);
-  
-  // Add the filter instance directly
+  // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);
   
-  // Store the bundle in a lambda capture to maintain lifetime
+  // Keep the bundle alive through a lambda capture
   builder.addFilter([filter_bundle]() -> network::FilterSharedPtr {
-    // This lambda keeps filter_bundle alive
+    // This lambda keeps filter_bundle alive for the connection lifetime
     return nullptr;
   });
 
-  // Add session tracking filter
+  // Add metrics tracking filter for server statistics
   builder.addFilter([this]() -> network::FilterSharedPtr {
-    class SessionTrackingFilter : public network::NetworkFilterBase {
-     public:
-      SessionTrackingFilter(McpServer& server) : server_(server) {}
-
-      network::FilterStatus onData(Buffer& data, bool end_stream) override {
-        // Update session activity on data received
-        // Session tracking happens at higher level
-        return network::FilterStatus::Continue;
-      }
-
-      network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-        return network::FilterStatus::Continue;
-      }
-
-      network::FilterStatus onNewConnection() override {
-        // New connection - will create session when initialized
-        return network::FilterStatus::Continue;
-      }
-
-     private:
-      McpServer& server_;
-    };
-
-    return std::make_shared<SessionTrackingFilter>(*this);
+    // Use the base MetricsTrackingFilter for byte counting
+    return std::make_shared<application::MetricsTrackingFilter>(
+        server_stats_.bytes_received, server_stats_.bytes_sent);
   });
 
   // Add request validation filter
