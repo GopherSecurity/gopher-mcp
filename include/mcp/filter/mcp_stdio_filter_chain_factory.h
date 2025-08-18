@@ -30,13 +30,16 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
    * Constructor
    * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling messages
+   * @param is_server True for server mode, false for client mode
    * @param use_framing Whether to use length-prefixed framing
    */
   McpStdioFilterChainFactory(event::Dispatcher& dispatcher,
                             McpMessageCallbacks& message_callbacks,
+                            bool is_server,
                             bool use_framing = true)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
+        is_server_(is_server),
         use_framing_(use_framing) {}
 
   /**
@@ -64,11 +67,8 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
  private:
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;
+  bool is_server_;
   bool use_framing_;
-  
-  // Store filters and callbacks for lifetime management
-  mutable std::vector<network::FilterSharedPtr> filters_;
-  mutable std::vector<std::shared_ptr<void>> callbacks_;
 };
 
 } // namespace filter

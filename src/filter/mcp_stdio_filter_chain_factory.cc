@@ -39,28 +39,66 @@ private:
   McpMessageCallbacks& mcp_callbacks_;
 };
 
+/**
+ * Wrapper filter that owns the callbacks adapter
+ * This ensures the callbacks outlive the filter factory
+ */
+class StdioJsonRpcFilterWrapper : public network::NetworkFilterBase {
+public:
+  StdioJsonRpcFilterWrapper(event::Dispatcher& dispatcher,
+                           McpMessageCallbacks& message_callbacks,
+                           bool is_server,
+                           bool use_framing)
+      : callbacks_adapter_(std::make_shared<DirectJsonRpcCallbacks>(message_callbacks)),
+        jsonrpc_filter_(std::make_shared<McpJsonRpcFilter>(
+            *callbacks_adapter_,
+            dispatcher,
+            is_server)) {
+    jsonrpc_filter_->setUseFraming(use_framing);
+  }
+  
+  // Network filter interface
+  network::FilterStatus onData(Buffer& data, bool end_stream) override {
+    return jsonrpc_filter_->onData(data, end_stream);
+  }
+  
+  network::FilterStatus onNewConnection() override {
+    return jsonrpc_filter_->onNewConnection();
+  }
+  
+  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    return jsonrpc_filter_->onWrite(data, end_stream);
+  }
+  
+  // Filter initialization
+  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
+    jsonrpc_filter_->initializeReadFilterCallbacks(callbacks);
+  }
+  
+  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {
+    jsonrpc_filter_->initializeWriteFilterCallbacks(callbacks);
+  }
+  
+private:
+  // Own the callbacks adapter to ensure it outlives the filter
+  std::shared_ptr<DirectJsonRpcCallbacks> callbacks_adapter_;
+  std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
+};
+
 bool McpStdioFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
-  // Create callbacks adapter
-  auto callbacks = std::make_shared<DirectJsonRpcCallbacks>(message_callbacks_);
-  
-  // Create JSON-RPC filter (reuse the same filter used in HTTP+SSE stack)
-  // This ensures consistent JSON-RPC handling across all transports
-  auto jsonrpc_filter = std::make_shared<McpJsonRpcFilter>(
-      *callbacks, 
-      dispatcher_, 
-      false);  // Client mode for stdio (TODO: make configurable)
-  
-  jsonrpc_filter->setUseFraming(use_framing_);
+  // Create wrapper filter that owns its callbacks
+  // This ensures callbacks outlive the filter factory
+  auto wrapper_filter = std::make_shared<StdioJsonRpcFilterWrapper>(
+      dispatcher_,
+      message_callbacks_,
+      is_server_,
+      use_framing_);
   
   // Add as both read and write filter
-  filter_manager.addReadFilter(jsonrpc_filter);
-  filter_manager.addWriteFilter(jsonrpc_filter);
-  
-  // Store for lifetime management
-  filters_.push_back(jsonrpc_filter);
-  callbacks_.push_back(callbacks);
+  filter_manager.addReadFilter(wrapper_filter);
+  filter_manager.addWriteFilter(wrapper_filter);
   
   return true;
 }
