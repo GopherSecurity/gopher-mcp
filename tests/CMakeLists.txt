@@ -37,7 +37,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 # Transport tests
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
-add_executable(test_http_sse_transport_socket_v2 transport/test_http_sse_transport_socket_v2_simple.cc)
+add_executable(test_http_sse_transport_socket_v2 transport/test_http_sse_transport_socket_v2.cc)
 # Additional HTTP SSE transport test files have been merged into test_http_sse_transport_socket.cc
 # to reduce duplication and improve maintainability
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
