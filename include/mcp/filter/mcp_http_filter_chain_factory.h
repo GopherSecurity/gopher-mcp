@@ -2,6 +2,7 @@
 
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
@@ -15,15 +16,28 @@ namespace mcp {
 namespace filter {
 
 /**
- * MCP HTTP Filter Chain Factory
+ * MCP HTTP+SSE Filter Chain Factory
  *
- * Following production FilterChainFactory pattern exactly:
- * - Creates the complete filter chain for a connection
- * - Filters handle ALL protocol processing
- * - Transport socket is pure I/O only
+ * Following production FilterChainFactory pattern:
+ * - Creates complete protocol stack for HTTP+SSE transport
+ * - Each filter handles exactly one protocol layer
+ * - Transport socket handles ONLY raw I/O
  *
- * Based on:
- * source/common/listener_manager/filter_chain_factory_context_callback.h
+ * Filter Chain Architecture:
+ * ```
+ * Client Mode:
+ *   [TCP Socket] → [HTTP Codec] → [SSE Codec] → [JSON-RPC] → [Application]
+ *   - HTTP Codec: Generates HTTP requests, parses HTTP responses
+ *   - SSE Codec: Parses SSE events from response stream
+ *   - JSON-RPC: Handles JSON-RPC protocol messages
+ *
+ * Server Mode:
+ *   [TCP Socket] → [HTTP Codec] → [SSE Codec] → [JSON-RPC] → [Application]
+ *   - HTTP Codec: Parses HTTP requests, generates HTTP responses
+ *   - SSE Codec: Generates SSE events for response stream
+ *   - JSON-RPC: Handles JSON-RPC protocol messages
+ * ```
+ *
  */
 class McpHttpFilterChainFactory : public network::FilterChainFactory {
  public:
@@ -67,63 +81,13 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
   }
 
  private:
-  /**
-   * Bridge implementation that connects HTTP/SSE filters to MCP callbacks
-   * This implements the protocol adaptation layer
-   */
-  class McpProtocolBridge : public HttpCodecFilter::MessageCallbacks,
-                            public SseCodecFilter::EventCallbacks {
-   public:
-    McpProtocolBridge(McpMessageCallbacks& callbacks)
-        : message_callbacks_(callbacks) {}
-
-    void setFilters(HttpCodecFilter* http_filter, SseCodecFilter* sse_filter) {
-      http_filter_ = http_filter;
-      sse_filter_ = sse_filter;
-    }
-
-    // HttpCodecFilter::MessageCallbacks
-    void onHeaders(const std::map<std::string, std::string>& headers,
-                   bool keep_alive) override;
-    void onBody(const std::string& data, bool end_stream) override;
-    void onMessageComplete() override;
-
-    // SseCodecFilter::EventCallbacks
-    void onEvent(const std::string& event,
-                 const std::string& data,
-                 const optional<std::string>& id) override;
-    void onComment(const std::string& comment) override;
-
-    // Shared error handler for both interfaces
-    void onError(const std::string& error) override;
-
-    /**
-     * Send MCP response
-     * Routes to either HTTP response or SSE event based on mode
-     */
-    void sendResponse(const std::string& response);
-
-   private:
-    McpMessageCallbacks& message_callbacks_;
-    HttpCodecFilter* http_filter_{nullptr};
-    SseCodecFilter* sse_filter_{nullptr};
-
-    // Request state
-    enum class RequestMode {
-      UNKNOWN,
-      HTTP_RPC,   // Single HTTP request/response
-      SSE_STREAM  // SSE event stream
-    };
-    RequestMode mode_{RequestMode::UNKNOWN};
-    std::string current_request_body_;
-  };
-
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;
   bool is_server_;
 
-  // Store bridges for lifetime management
-  mutable std::vector<std::unique_ptr<McpProtocolBridge>> bridges_;
+  // Store protocol adapters for lifetime management
+  // These adapters bridge between protocol layers
+  mutable std::vector<std::shared_ptr<void>> bridges_;
 };
 
 }  // namespace filter

@@ -77,9 +77,13 @@ class McpMessageCallbacks {
 };
 
 /**
- * JSON-RPC message filter for MCP
- *
- * Handles JSON-RPC message framing and parsing
+ * Simple JSON-RPC message filter for stdio transport
+ * 
+ * NOTE: For HTTP+SSE transport, the full filter chain is used instead:
+ * HTTP Codec -> SSE Codec -> JSON-RPC Protocol Filter
+ * 
+ * This filter is only used for direct transports (stdio, websocket)
+ * that don't require HTTP/SSE protocol layers.
  */
 class JsonRpcMessageFilter : public network::NetworkFilterBase {
  public:
