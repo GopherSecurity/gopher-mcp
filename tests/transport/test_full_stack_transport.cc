@@ -251,7 +251,7 @@ TEST_F(FullStackTransportTest, FactoryHashKey) {
 
     // Different config should produce different hash
     HttpSseTransportSocketConfig different_config = config_;
-    different_config.endpoint_url = "http://different.example.com";
+    different_config.server_address = "different.example.com:80";
     auto different_factory = std::make_unique<HttpsSseTransportFactory>(
         different_config, *dispatcher_);
 
@@ -288,27 +288,25 @@ TEST_F(FullStackTransportTest, VerifyTCPLayerCreation) {
 
 TEST_F(FullStackTransportTest, ALPNConfiguration) {
   executeInDispatcher([this]() {
-    // Test ALPN configuration for HTTP/2
-    HttpSseTransportSocketConfig h2_config;
-    h2_config.endpoint_url = "https://h2.example.com";
-    h2_config.use_ssl = true;
-    h2_config.preferred_version = http::HttpVersion::HTTP_2;
-    h2_config.alpn_protocols = std::vector<std::string>{"h2", "http/1.1"};
+    // Test ALPN configuration with SSL
+    HttpSseTransportSocketConfig ssl_config;
+    ssl_config.server_address = "h2.example.com:443";
+    ssl_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    ssl_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+    ssl_config.ssl_config->alpn_protocols = std::vector<std::string>{"h2", "http/1.1"};
 
-    auto h2_factory =
-        std::make_unique<HttpsSseTransportFactory>(h2_config, *dispatcher_);
-    EXPECT_TRUE(h2_factory->supportsAlpn());
+    auto ssl_factory =
+        std::make_unique<HttpsSseTransportFactory>(ssl_config, *dispatcher_);
+    EXPECT_TRUE(ssl_factory->supportsAlpn());
 
-    // For HTTP/1.1 only
-    HttpSseTransportSocketConfig h1_config;
-    h1_config.endpoint_url = "https://h1.example.com";
-    h1_config.use_ssl = true;
-    h1_config.preferred_version = http::HttpVersion::HTTP_1_1;
-    h1_config.alpn_protocols = std::vector<std::string>{"http/1.1"};
+    // Test without SSL (no ALPN)
+    HttpSseTransportSocketConfig tcp_config;
+    tcp_config.server_address = "example.com:80";
+    tcp_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
-    auto h1_factory =
-        std::make_unique<HttpsSseTransportFactory>(h1_config, *dispatcher_);
-    EXPECT_TRUE(h1_factory->supportsAlpn());
+    auto tcp_factory =
+        std::make_unique<HttpsSseTransportFactory>(tcp_config, *dispatcher_);
+    EXPECT_FALSE(tcp_factory->supportsAlpn());
   });
 }
 
@@ -318,7 +316,7 @@ TEST_F(FullStackTransportTest, InvalidConfiguration) {
   executeInDispatcher([this]() {
     // Test with invalid URL
     HttpSseTransportSocketConfig invalid_config;
-    invalid_config.endpoint_url = "";  // Empty URL
+    invalid_config.server_address = "";  // Empty address
 
     // Factory should still be created, but might fail when creating sockets
     auto factory = std::make_unique<HttpsSseTransportFactory>(invalid_config,
