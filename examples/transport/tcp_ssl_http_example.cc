@@ -100,15 +100,16 @@ int main(int argc, char* argv[]) {
   // Example 1: Plain HTTP (no SSL)
   if (argc > 1 && std::string(argv[1]) == "--http") {
     std::cout << "Using plain HTTP transport (no SSL)" << std::endl;
-    config.endpoint_url = "http://localhost:8080";
-    config.use_ssl = false;
+    config.server_address = "localhost:8080";
+    config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
   }
   // Example 2: HTTPS with SSL
   else if (argc > 1 && std::string(argv[1]) == "--https") {
     std::cout << "Using HTTPS transport with SSL" << std::endl;
-    config.endpoint_url = "https://localhost:8443";
-    config.use_ssl = true;
-    config.verify_ssl = true;
+    config.server_address = "localhost:8443";
+    config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+    config.ssl_config->verify_peer = true;
 
     // In production, you'd set these to actual certificate paths
     // config.ca_cert_path = "/path/to/ca-cert.pem";
@@ -128,7 +129,8 @@ int main(int argc, char* argv[]) {
     std::cout << "=== SSL Auto-Detection Example ===" << std::endl;
 
     HttpSseTransportSocketConfig http_config;
-    http_config.endpoint_url = "http://api.example.com";
+    http_config.server_address = "api.example.com:80";
+    http_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
     auto http_factory =
         std::make_unique<HttpsSseTransportFactory>(http_config, *dispatcher);
     std::cout << "http://api.example.com → " << http_factory->name()
@@ -136,7 +138,9 @@ int main(int argc, char* argv[]) {
               << std::endl;
 
     HttpSseTransportSocketConfig https_config;
-    https_config.endpoint_url = "https://api.example.com";
+    https_config.server_address = "api.example.com:443";
+    https_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    https_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
     auto https_factory =
         std::make_unique<HttpsSseTransportFactory>(https_config, *dispatcher);
     std::cout << "https://api.example.com → " << https_factory->name()
@@ -147,19 +151,20 @@ int main(int argc, char* argv[]) {
   }
 
   // Configure common settings
-  config.preferred_version = http::HttpVersion::HTTP_1_1;
-  config.auto_reconnect = true;
-  config.reconnect_delay = std::chrono::milliseconds(3000);
-  config.request_timeout = std::chrono::milliseconds(30000);
-  config.keepalive_interval = std::chrono::milliseconds(30000);
+  // Note: These settings are now handled by the filter chain in the new architecture
+  // config.preferred_version = http::HttpVersion::HTTP_1_1;
+  // config.auto_reconnect = true;
+  // config.reconnect_delay = std::chrono::milliseconds(3000);
+  // config.request_timeout = std::chrono::milliseconds(30000);
+  // config.keepalive_interval = std::chrono::milliseconds(30000);
+  config.connect_timeout = std::chrono::milliseconds(30000);
+  config.mode = HttpSseTransportSocketConfig::Mode::CLIENT;
 
-  // SSE endpoints
-  config.sse_endpoint_path = "/events";
-  config.request_endpoint_path = "/rpc";
-
-  // HTTP headers
-  config.headers["User-Agent"] = "MCP-CPP-SDK/1.0";
-  config.headers["Accept"] = "text/event-stream";
+  // SSE endpoints and headers are now configured in the filter chain
+  // config.sse_endpoint_path = "/events";
+  // config.request_endpoint_path = "/rpc";
+  // config.headers["User-Agent"] = "MCP-CPP-SDK/1.0";
+  // config.headers["Accept"] = "text/event-stream";
 
   // 3. Create transport factory
   std::cout << std::endl << "=== Creating Transport Factory ===" << std::endl;
@@ -196,7 +201,7 @@ int main(int argc, char* argv[]) {
     // - HTTP+SSE transport (top layer)
 
     std::cout << std::endl << "=== Transport Stack ===" << std::endl;
-    if (config.use_ssl) {
+    if (config.underlying_transport == HttpSseTransportSocketConfig::UnderlyingTransport::SSL) {
       std::cout << "Layer 3: HTTP+SSE (Application Protocol)" << std::endl;
       std::cout << "Layer 2: SSL/TLS (Encryption)" << std::endl;
       std::cout << "Layer 1: TCP (Network Transport)" << std::endl;

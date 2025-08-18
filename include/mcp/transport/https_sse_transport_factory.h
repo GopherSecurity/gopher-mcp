@@ -197,8 +197,9 @@ class HttpsSseTransportFactory : public network::ClientTransportSocketFactory,
  * ```cpp
  * HttpSseTransportSocketConfig config;
  * config.server_address = "127.0.0.1:8443";
- * config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
- * config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
+ * config.underlying_transport =
+ * HttpSseTransportSocketConfig::UnderlyingTransport::SSL; config.ssl_config =
+ * HttpSseTransportSocketConfig::SslConfig{};
  * config.ssl_config->client_cert_path = "/path/to/client.crt";
  * config.ssl_config->client_key_path = "/path/to/client.key";
  * config.ssl_config->ca_cert_path = "/path/to/ca.crt";
@@ -232,7 +233,8 @@ inline network::TransportSocketPtr createHttpsSseClientTransport(
     bool verify_peer = true) {
   HttpSseTransportSocketConfig config;
   config.server_address = server_address;
-  config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+  config.underlying_transport =
+      HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
   config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
   config.ssl_config->verify_peer = verify_peer;
 
