@@ -36,16 +36,23 @@ namespace mcp {
 namespace filter {
 
 /**
- * HTTP codec states - simplified to essential states only
+ * HTTP codec states - supports both client and server modes
  */
 enum class HttpCodecState {
-  // Request processing
-  WaitingForRequest,  // Idle, waiting for request
-  ReceivingHeaders,   // Parsing request headers
-  ReceivingBody,      // Receiving request body
+  // Common states
+  Idle,               // Initial state, no active request/response
   
-  // Response processing
-  SendingResponse,    // Sending response (headers + body)
+  // Server mode states
+  WaitingForRequest,        // Server: waiting for request
+  ReceivingRequestHeaders,  // Server: parsing request headers
+  ReceivingRequestBody,     // Server: receiving request body
+  SendingResponse,          // Server: sending response (headers + body)
+  
+  // Client mode states
+  SendingRequest,     // Client: sending request (headers + body)
+  WaitingForResponse, // Client: waiting for response
+  ReceivingResponseHeaders, // Client: parsing response headers
+  ReceivingResponseBody,    // Client: receiving response body
   
   // Terminal states
   Closed,             // Connection closed
@@ -53,18 +60,18 @@ enum class HttpCodecState {
 };
 
 /**
- * HTTP codec events - simplified
+ * HTTP codec events - supports both client and server modes
  */
 enum class HttpCodecEvent {
-  // Request events
-  RequestStart,
-  HeadersComplete,
-  BodyData,
-  MessageComplete,
+  // Request events (server receives, client sends)
+  RequestStart,       // Server: incoming request start, Client: outgoing request start
+  HeadersComplete,    // Server: request headers complete, Client: request headers sent
+  BodyData,          // Server: request body data, Client: request body data sent
+  MessageComplete,   // Server: request complete, Client: request fully sent
   
-  // Response events
-  SendResponse,
-  ResponseComplete,
+  // Response events (server sends, client receives)
+  SendResponse,      // Server: start sending response, Client: response received
+  ResponseComplete,  // Server: response fully sent, Client: response fully received
   
   // Error events
   ParseError,
@@ -109,9 +116,12 @@ struct HttpCodecStateTransitionContext {
 };
 
 /**
- * HTTP codec state machine configuration - simplified
+ * HTTP codec state machine configuration - supports client and server modes
  */
 struct HttpCodecStateMachineConfig {
+  // Mode
+  bool is_server{true};                // true for server mode, false for client mode
+  
   // Timeouts
   std::chrono::milliseconds header_timeout{30000};   // 30s for headers
   std::chrono::milliseconds body_timeout{60000};     // 60s for body
@@ -213,14 +223,21 @@ public:
     expect_request_body_ = expect_body;
   }
   
+  /**
+   * Set whether to expect a response body (for client mode)
+   */
+  void setExpectResponseBody(bool expect_body) {
+    expect_response_body_ = expect_body;
+  }
+  
   // ===== State Queries =====
   
   bool canReceiveRequest() const {
     return current_state_ == HttpCodecState::WaitingForRequest;
   }
   
-  bool isReceivingBody() const {
-    return current_state_ == HttpCodecState::ReceivingBody;
+  bool isReceivingRequestBody() const {
+    return current_state_ == HttpCodecState::ReceivingRequestBody;
   }
   
   bool hasError() const {
@@ -430,6 +447,7 @@ private:
   bool transition_in_progress_{false};
   bool keep_alive_enabled_{true};
   bool expect_request_body_{false};  // Whether current request has a body
+  bool expect_response_body_{false}; // Whether current response has a body
   size_t current_header_size_{0};
   size_t current_body_size_{0};
 };
