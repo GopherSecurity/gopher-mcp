@@ -1,0 +1,68 @@
+#pragma once
+
+#include "mcp/event/event_loop.h"
+#include "mcp/mcp_connection_manager.h"
+#include "mcp/network/connection.h"
+#include "mcp/network/filter.h"
+
+namespace mcp {
+namespace filter {
+
+/**
+ * MCP Stdio Filter Chain Factory
+ *
+ * Creates filter chain for direct transports (stdio, websocket)
+ * that don't require HTTP/SSE protocol layers.
+ *
+ * Filter Chain Architecture:
+ * ```
+ * [Transport Socket] → [JSON-RPC Filter] → [Application]
+ * ```
+ *
+ * This is much simpler than HTTP+SSE as there's no protocol stack,
+ * just direct JSON-RPC message handling.
+ */
+class McpStdioFilterChainFactory : public network::FilterChainFactory {
+ public:
+  /**
+   * Constructor
+   * @param message_callbacks MCP message callbacks for handling messages
+   * @param use_framing Whether to use length-prefixed framing
+   */
+  McpStdioFilterChainFactory(McpMessageCallbacks& message_callbacks,
+                            bool use_framing = true)
+      : message_callbacks_(message_callbacks),
+        use_framing_(use_framing) {}
+
+  /**
+   * Create filter chain for the connection
+   * @param filter_manager The filter manager to add filters to
+   * @return true if filter chain was created successfully
+   */
+  bool createFilterChain(network::FilterManager& filter_manager) const override;
+
+  /**
+   * Create network filter chain with additional filters
+   */
+  bool createNetworkFilterChain(
+      network::FilterManager& filter_manager,
+      const std::vector<network::FilterFactoryCb>& filter_factories) const override;
+
+  /**
+   * Create listener filter chain (not used for stdio)
+   */
+  bool createListenerFilterChain(
+      network::FilterManager& filter_manager) const override {
+    return false;
+  }
+
+ private:
+  McpMessageCallbacks& message_callbacks_;
+  bool use_framing_;
+  
+  // Store filters for lifetime management
+  mutable std::vector<network::FilterSharedPtr> filters_;
+};
+
+} // namespace filter
+} // namespace mcp
