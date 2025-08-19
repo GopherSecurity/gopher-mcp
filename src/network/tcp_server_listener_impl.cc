@@ -9,6 +9,7 @@
 
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <iostream>
 
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
@@ -442,12 +443,23 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
       // Get filter manager from connection
       auto* conn_impl = dynamic_cast<ConnectionImpl*>(connection.get());
       if (conn_impl) {
+        std::cerr << "[DEBUG] Creating filter chain for connection" << std::endl;
         // Create filter chain via filter manager
-        config_.filter_chain_factory->createFilterChain(conn_impl->filterManager());
+        bool success = config_.filter_chain_factory->createFilterChain(conn_impl->filterManager());
+        if (success) {
+          std::cerr << "[DEBUG] Filter chain created successfully" << std::endl;
+        } else {
+          std::cerr << "[ERROR] Failed to create filter chain" << std::endl;
+        }
         
         // Initialize read filters after they've been added
         conn_impl->initializeReadFilters();
+        std::cerr << "[DEBUG] Read filters initialized" << std::endl;
+      } else {
+        std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl" << std::endl;
       }
+    } else {
+      std::cerr << "[WARNING] No filter chain factory configured" << std::endl;
     }
 
     // Hand off to parent (usually ListenerManager)

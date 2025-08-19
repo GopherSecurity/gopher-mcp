@@ -555,15 +555,20 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle
   // read/write/close All callbacks are invoked in dispatcher thread context
 
+  std::cerr << "[DEBUG] onFileEvent called with events: " << events << std::endl;
+
   if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
+    std::cerr << "[DEBUG] Write ready event" << std::endl;
     onWriteReady();
   }
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
+    std::cerr << "[DEBUG] Read ready event" << std::endl;
     onReadReady();
   }
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
+    std::cerr << "[DEBUG] Closed event" << std::endl;
     // Remote close detected
     detected_close_type_ = DetectedCloseType::RemoteReset;
     closeSocket(ConnectionEvent::RemoteClose);
@@ -571,6 +576,8 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
+  std::cerr << "[DEBUG] ConnectionImpl::onReadReady() called" << std::endl;
+  
   // Notify state machine of read ready event
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::ReadReady);
@@ -716,12 +723,17 @@ void ConnectionImpl::doRead() {
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
   // Transport::doRead All operations happen in dispatcher thread context
 
+  std::cerr << "[DEBUG] ConnectionImpl::doRead() called" << std::endl;
+  
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
+    std::cerr << "[DEBUG] doRead skipped: read_disable_count=" << read_disable_count_ 
+              << " state=" << static_cast<int>(state_) << std::endl;
     return;
   }
 
   while (true) {
     // Read from socket into buffer
+    std::cerr << "[DEBUG] About to doReadFromSocket()" << std::endl;
     auto result = doReadFromSocket();
 
     // Check for errors
@@ -771,16 +783,51 @@ void ConnectionImpl::doRead() {
 }
 
 TransportIoResult ConnectionImpl::doReadFromSocket() {
-  // Read from transport socket directly
+  // Read from transport socket or directly from socket
 
-  // Read from transport socket
-  if (!transport_socket_) {
+  // If we have a transport socket, use it
+  if (transport_socket_) {
+    std::cerr << "[DEBUG] Calling transport_socket_->doRead()" << std::endl;
+    auto result = transport_socket_->doRead(read_buffer_);
+    std::cerr << "[DEBUG] doRead result: ok=" << result.ok() 
+              << " bytes=" << result.bytes_processed_ 
+              << " action=" << static_cast<int>(result.action_) << std::endl;
+    return result;
+  }
+  
+  // No transport socket - read directly from socket
+  std::cerr << "[DEBUG] Reading directly from socket (no transport layer)" << std::endl;
+  
+  // Read from socket (IoHandle will manage buffer space)
+  auto io_result = socket_->ioHandle().read(read_buffer_);
+  
+  // Convert IoCallResult to TransportIoResult
+  if (!io_result.ok()) {
+    // Socket error
+    std::cerr << "[DEBUG] Socket read error: " << io_result.error_code() << std::endl;
+    
+    // Check if it's just EAGAIN/EWOULDBLOCK
+    if (io_result.wouldBlock()) {
+      // No data available right now, not an error
+      return TransportIoResult::stop();
+    }
+    
     Error err;
-    err.code = -1;
-    err.message = "Transport socket not initialized";
+    err.code = io_result.error_code();
+    err.message = io_result.error_info ? io_result.error_info->message : "Socket read error";
     return TransportIoResult::error(err);
   }
-  return transport_socket_->doRead(read_buffer_);
+  
+  size_t bytes_read = *io_result;
+  std::cerr << "[DEBUG] Direct socket read: bytes=" << bytes_read << std::endl;
+  
+  // Check for EOF
+  if (bytes_read == 0) {
+    // EOF - connection closed
+    return TransportIoResult::close();
+  }
+  
+  return TransportIoResult::success(bytes_read);
 }
 
 void ConnectionImpl::processReadBuffer() {
@@ -798,7 +845,7 @@ void ConnectionImpl::doWrite() {
     return;
   }
 
-  // Let transport socket process the buffer first
+  // Let transport socket process the buffer first if we have one
   // This allows the transport to add any pending data (like HTTP headers)
   // even if write_buffer_ is initially empty
   if (transport_socket_) {
@@ -820,12 +867,34 @@ void ConnectionImpl::doWrite() {
     return;
   }
 
-  // The transport socket now handles the actual socket write
   // Keep writing while buffer has data
   while (write_buffer_.length() > 0) {
-    // Call transport to write - it handles socket I/O and drains buffer
-    auto write_result =
-        transport_socket_->doWrite(write_buffer_, write_half_closed_);
+    TransportIoResult write_result;
+    
+    if (transport_socket_) {
+      // Call transport to write - it handles socket I/O and drains buffer
+      write_result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
+    } else {
+      // No transport socket - write directly to socket
+      auto io_result = socket_->ioHandle().write(write_buffer_);
+      
+      // Convert IoCallResult to TransportIoResult
+      if (!io_result.ok()) {
+        // Socket error
+        if (io_result.wouldBlock()) {
+          // Can't write more right now, not an error
+          write_result = TransportIoResult::stop();
+        } else {
+          Error err;
+          err.code = io_result.error_code();
+          err.message = io_result.error_info ? io_result.error_info->message : "Socket write error";
+          write_result = TransportIoResult::error(err);
+        }
+      } else {
+        size_t bytes_written = *io_result;
+        write_result = TransportIoResult::success(bytes_written);
+      }
+    }
 
     if (!write_result.ok()) {
       closeSocket(ConnectionEvent::LocalClose);
@@ -920,9 +989,14 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
+  std::cerr << "[DEBUG] enableFileEvents: events=" << events 
+            << " current_state=" << file_event_state_ << std::endl;
   file_event_state_ |= events;
   if (file_event_) {
+    std::cerr << "[DEBUG] Setting file event enabled state to: " << file_event_state_ << std::endl;
     file_event_->setEnabled(file_event_state_);
+  } else {
+    std::cerr << "[ERROR] No file_event_ to enable!" << std::endl;
   }
 }
 
