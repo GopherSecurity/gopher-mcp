@@ -190,7 +190,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   // 1. Initialize protocol
   {
     std::cerr << "\n[DEMO] Initializing protocol..." << std::endl;
-    auto init_future = client.initialize();
+    auto init_future = client.initializeProtocol();
     
     try {
       auto init_result = init_future.get();
@@ -487,7 +487,7 @@ int main(int argc, char* argv[]) {
   
   // Observability
   config.enable_metrics = true;
-  config.metrics_interval = std::chrono::seconds(10);
+  // config.metrics_interval = std::chrono::seconds(10);  // Not available in current API
   // config.enable_tracing = options.verbose;  // Not yet available
   
   // Client capabilities
@@ -572,7 +572,7 @@ int main(int argc, char* argv[]) {
     std::lock_guard<std::mutex> lock(g_client_mutex);
     if (g_client) {
       try {
-        auto init_future = g_client->initialize();
+        auto init_future = g_client->initializeProtocol();
         auto init_result = init_future.get();
         std::cerr << "[INFO] Protocol initialized: " << init_result.protocolVersion << std::endl;
         if (init_result.serverInfo.has_value()) {

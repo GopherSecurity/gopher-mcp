@@ -874,7 +874,7 @@ int main(int argc, char* argv[]) {
   
   // Observability
   config.enable_metrics = options.metrics;
-  config.metrics_interval = std::chrono::seconds(10);
+  // config.metrics_interval = std::chrono::seconds(10);  // Not available in current API
   // config.enable_tracing = options.verbose;  // Not yet available
   // config.enable_access_logs = true;  // Not yet available
   

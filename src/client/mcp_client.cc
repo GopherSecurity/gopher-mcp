@@ -180,7 +180,7 @@ void McpClient::disconnect() {
 }
 
 // Initialize protocol
-std::future<InitializeResult> McpClient::initialize() {
+std::future<InitializeResult> McpClient::initializeProtocol() {
   // Build initialize request with client capabilities
   // For now, use simple parameters - full serialization needs JSON conversion
   auto init_params = make_metadata();
@@ -530,7 +530,8 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
   // Create JSON-RPC filter using the simplified helper
   // Configure framing based on transport type (HTTP doesn't use framing)
   bool use_framing = (config_.preferred_transport != TransportType::HttpSse);
-  auto filter_bundle = createJsonRpcFilter(*this, false, use_framing);
+  // Use the dispatcher from the builder
+  auto filter_bundle = createJsonRpcFilter(*this, builder.getDispatcher(), false, use_framing);
   
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);

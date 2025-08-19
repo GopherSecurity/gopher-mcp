@@ -386,8 +386,7 @@ class RetryManager {
  * - Implements circuit breaker for failure isolation
  * - Provides future-based async API for all operations
  */
-class McpClient : public application::ApplicationBase,
-                  public McpMessageCallbacks {
+class McpClient : public application::ApplicationBase {
  public:
   McpClient(const McpClientConfig& config);
   ~McpClient() override;
@@ -398,7 +397,7 @@ class McpClient : public application::ApplicationBase,
   bool isConnected() const { return connected_; }
 
   // Initialize protocol - must be called after connect
-  std::future<InitializeResult> initialize();
+  std::future<InitializeResult> initializeProtocol();
 
   // Request methods with future-based async API
   std::future<jsonrpc::Response> sendRequest(

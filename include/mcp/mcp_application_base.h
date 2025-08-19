@@ -309,7 +309,7 @@ class ConnectionPool {
 
 /**
  * Worker context for each dispatcher thread (legacy API support)
- * Following Envoy's worker model where each worker has its own dispatcher
+ * Following best practices where each worker has its own dispatcher
  */
 class WorkerContext {
  public:
@@ -332,7 +332,7 @@ class WorkerContext {
 
 /**
  * Filter chain builder for constructing processing pipelines
- * Enhanced to support both old and new APIs following Envoy patterns
+ * Enhanced to support both old and new APIs following best practices
  */
 class FilterChainBuilder {
  public:
@@ -341,6 +341,9 @@ class FilterChainBuilder {
   FilterChainBuilder(event::Dispatcher& dispatcher,
                     ApplicationStats& stats)
       : dispatcher_(dispatcher), stats_(stats) {}
+  
+  // Provide access to dispatcher for filter creation
+  event::Dispatcher& getDispatcher() { return dispatcher_; }
 
   // Add rate limiting filter
   FilterChainBuilder& withRateLimiting(const filter::RateLimitConfig& config,
@@ -766,7 +769,7 @@ class ApplicationBase : public McpMessageCallbacks {
 
   /**
    * Initialize the application
-   * Following Envoy pattern: create workers with dispatchers
+   * Following best practice: create workers with dispatchers
    */
   virtual bool initialize() {
     // Initialize socket interface for legacy API
@@ -940,7 +943,7 @@ class ApplicationBase : public McpMessageCallbacks {
   // Legacy API support - override this in derived classes that need old API
   virtual void initializeWorker(WorkerContext& worker) {
     // Default implementation - derived classes override if needed
-    // This follows Envoy pattern where workers are initialized separately
+    // Workers are initialized separately for better isolation
   }
   
   // Legacy API support - setup filter chain using old builder API
@@ -956,15 +959,18 @@ class ApplicationBase : public McpMessageCallbacks {
   };
   
   std::shared_ptr<JsonRpcFilterBundle> createJsonRpcFilter(
-      McpMessageCallbacks& callbacks, bool is_server, bool use_framing = true) {
+      McpMessageCallbacks& callbacks, event::Dispatcher& dispatcher, 
+      bool is_server, bool use_framing = true) {
     auto bundle = std::make_shared<JsonRpcFilterBundle>();
     
     // Create adapter
     bundle->adapter = std::make_shared<McpJsonRpcCallbackAdapter>(callbacks);
     
-    // Create filter
+    // Create filter with dispatcher
     bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
-        *bundle->adapter, is_server, use_framing);
+        *bundle->adapter, dispatcher, is_server);
+    
+    // Note: use_framing is handled at transport layer, not JSON-RPC layer
     
     return bundle;
   }
