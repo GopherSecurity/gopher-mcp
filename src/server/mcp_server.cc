@@ -277,14 +277,11 @@ void McpServer::run() {
     need_perform_listen_ = false;
   }
 
-  // Continue running the event loop
-  while (!shutdown_requested_) {
-    main_dispatcher_->run(event::RunType::NonBlock);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Process any pending work
-    processPendingWork();
-  }
+  // Following production pattern: use blocking dispatch loop
+  // This properly waits for and processes file events
+  std::cerr << "[INFO] Starting blocking dispatch loop" << std::endl;
+  main_dispatcher_->run(event::RunType::Block);
+  std::cerr << "[INFO] Main dispatch loop exited" << std::endl;
 }
 
 // Shutdown server
@@ -317,6 +314,9 @@ void McpServer::shutdown() {
 
       // Clear all sessions
       // Session cleanup will happen automatically
+      
+      // Exit the blocking dispatch loop
+      main_dispatcher_->exit();
     });
   }
 
