@@ -317,7 +317,7 @@ private:
       case RateLimitStrategy::FixedWindow:
         {
           size_t used = (config_.strategy == RateLimitStrategy::SlidingWindow) 
-                        ? request_times_.size() : window_requests_;
+                        ? request_times_.size() : window_requests_.load();
           size_t remaining = config_.max_requests_per_window - used;
           return (remaining * 100) / config_.max_requests_per_window;
         }

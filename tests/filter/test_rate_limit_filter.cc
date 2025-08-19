@@ -65,9 +65,9 @@ TEST_F(RateLimitFilterTest, TokenBucketAllowsBurst) {
   EXPECT_CALL(*callbacks_, onRequestLimited(_)).Times(0);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     for (int i = 0; i < 10; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
   });
 }
@@ -85,13 +85,13 @@ TEST_F(RateLimitFilterTest, TokenBucketBlocksAfterCapacity) {
   EXPECT_CALL(*callbacks_, onRequestLimited(_)).Times(1);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use all tokens
     for (int i = 0; i < 5; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
     // Next request should be limited
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
 }
 
@@ -105,13 +105,13 @@ TEST_F(RateLimitFilterTest, TokenBucketRefills) {
   createFilter(config);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use all tokens
     for (int i = 0; i < 5; ++i) {
-      filter_->onData(data, false);
+      filter_->onData(*data, false);
     }
     // Should be blocked
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
   
   // Wait for refill
@@ -120,12 +120,12 @@ TEST_F(RateLimitFilterTest, TokenBucketRefills) {
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(2);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Should allow 2 more requests
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     // But not a third
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
 }
 
@@ -142,13 +142,13 @@ TEST_F(RateLimitFilterTest, SlidingWindowLimiting) {
   EXPECT_CALL(*callbacks_, onRequestLimited(_)).Times(1);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Allow 5 requests in window
     for (int i = 0; i < 5; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
     // 6th request should be limited
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
 }
 
@@ -156,31 +156,31 @@ TEST_F(RateLimitFilterTest, SlidingWindowLimiting) {
 TEST_F(RateLimitFilterTest, SlidingWindowExpiration) {
   RateLimitConfig config;
   config.strategy = RateLimitStrategy::SlidingWindow;
-  config.window_size = 100ms;  // Short window for testing
+  config.window_size = 1s;  // Short window for testing
   config.max_requests_per_window = 3;
   
   createFilter(config);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use all requests
     for (int i = 0; i < 3; ++i) {
-      filter_->onData(data, false);
+      filter_->onData(*data, false);
     }
     // Should be blocked
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
   
   // Wait for window to expire
-  std::this_thread::sleep_for(150ms);
+  std::this_thread::sleep_for(1100ms);
   
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(3);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Should allow new requests after window expires
     for (int i = 0; i < 3; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
   });
 }
@@ -189,7 +189,7 @@ TEST_F(RateLimitFilterTest, SlidingWindowExpiration) {
 TEST_F(RateLimitFilterTest, FixedWindowLimiting) {
   RateLimitConfig config;
   config.strategy = RateLimitStrategy::FixedWindow;
-  config.window_size = 200ms;  // Short window for testing
+  config.window_size = 1s;  // Short window for testing
   config.max_requests_per_window = 4;
   
   createFilter(config);
@@ -197,25 +197,25 @@ TEST_F(RateLimitFilterTest, FixedWindowLimiting) {
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(4);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use all requests in window
     for (int i = 0; i < 4; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
     // Next should be blocked
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
   
   // Wait for window reset
-  std::this_thread::sleep_for(250ms);
+  std::this_thread::sleep_for(1100ms);
   
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(4);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // New window should allow requests again
     for (int i = 0; i < 4; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
   });
 }
@@ -231,12 +231,12 @@ TEST_F(RateLimitFilterTest, LeakyBucketLimiting) {
   
   // Fill bucket quickly
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     for (int i = 0; i < 5; ++i) {
-      filter_->onData(data, false);
+      filter_->onData(*data, false);
     }
     // Bucket full
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::StopIteration);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::StopIteration);
   });
   
   // Wait for some leaking
@@ -245,9 +245,9 @@ TEST_F(RateLimitFilterTest, LeakyBucketLimiting) {
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(AtLeast(1));
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Should allow at least one request after leaking
-    EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
   });
 }
 
@@ -264,13 +264,13 @@ TEST_F(RateLimitFilterTest, RateLimitWarning) {
   EXPECT_CALL(*callbacks_, onRateLimitWarning(Lt(20))).Times(AtLeast(1));
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use 80% of capacity to trigger warning
     for (int i = 0; i < 8; ++i) {
-      filter_->onData(data, false);
+      filter_->onData(*data, false);
     }
     // Next request should trigger warning (10% remaining)
-    filter_->onData(data, false);
+    filter_->onData(*data, false);
   });
 }
 
@@ -288,11 +288,11 @@ TEST_F(RateLimitFilterTest, RetryAfterCalculation) {
       .WillOnce(SaveArg<0>(&retry_after));
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use the single token
-    filter_->onData(data, false);
+    filter_->onData(*data, false);
     // Next request should be limited with retry-after
-    filter_->onData(data, false);
+    filter_->onData(*data, false);
   });
   
   // Retry after should be approximately 500ms (1000ms / 2 tokens per second)
@@ -315,10 +315,10 @@ TEST_F(RateLimitFilterTest, BurstHandling) {
   EXPECT_CALL(*callbacks_, onRequestAllowed()).Times(10);  // Using base capacity
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use base capacity
     for (int i = 0; i < 10; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
     // Burst handling would require additional implementation
   });
@@ -352,10 +352,10 @@ TEST_F(RateLimitFilterTest, ConnectionResetClearsState) {
   createFilter(config);
   
   executeInDispatcher([this]() {
-    Buffer data;
+    auto data = createBuffer();
     // Use some requests
     for (int i = 0; i < 2; ++i) {
-      filter_->onData(data, false);
+      filter_->onData(*data, false);
     }
     
     // New connection should reset state
@@ -363,7 +363,7 @@ TEST_F(RateLimitFilterTest, ConnectionResetClearsState) {
     
     // Should be able to use full quota again
     for (int i = 0; i < 3; ++i) {
-      EXPECT_EQ(filter_->onData(data, false), network::FilterStatus::Continue);
+      EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
     }
   });
 }
