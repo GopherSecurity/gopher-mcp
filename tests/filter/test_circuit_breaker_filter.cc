@@ -7,7 +7,7 @@
 #include <gmock/gmock.h>
 #include <chrono>
 #include <thread>
-#include "mcp/filter/circuit_breaker_filter.h"
+#include "../../include/mcp/filter/circuit_breaker_filter.h"
 #include "../integration/real_io_test_base.h"
 
 using namespace mcp;
@@ -80,7 +80,7 @@ protected:
     jsonrpc::Response resp;
     resp.jsonrpc = "2.0";
     resp.id = id;
-    resp.error = jsonrpc::ResponseError{error_code, "Test error", nullopt};
+    resp.error = make_optional(Error(error_code, "Test error"));
     return resp;
   }
   

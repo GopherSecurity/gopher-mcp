@@ -25,9 +25,9 @@
 #include <chrono>
 #include <mutex>
 #include <deque>
-#include "mcp/network/filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/mcp_types.h"
+#include "../network/filter.h"
+#include "mcp_jsonrpc_filter.h"
+#include "../types.h"
 
 namespace mcp {
 namespace filter {
@@ -155,11 +155,9 @@ public:
       jsonrpc::Response error_response;
       error_response.jsonrpc = "2.0";
       error_response.id = request.id;
-      error_response.error = jsonrpc::ResponseError{
-        jsonrpc::INTERNAL_ERROR,
-        "Circuit breaker is open",
-        make_optional(make_metadata().add("circuit_state", "open").build())
-      };
+      Error error(jsonrpc::INTERNAL_ERROR, "Circuit breaker is open");
+      error.data = make_optional(ErrorData(std::map<std::string, std::string>{{"circuit_state", "open"}}));
+      error_response.error = make_optional(error);
       
       // Would need write callbacks to send this
       // For now, just block the request
@@ -167,7 +165,7 @@ public:
     }
     
     // Track request start time
-    pending_requests_[request.id] = {
+    pending_requests_[requestIdToString(request.id)] = {
       request.method,
       std::chrono::steady_clock::now()
     };
@@ -182,7 +180,7 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     
     // Find corresponding request
-    auto it = pending_requests_.find(response.id);
+    auto it = pending_requests_.find(requestIdToString(response.id));
     if (it != pending_requests_.end()) {
       auto& req_info = it->second;
       auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -440,8 +438,16 @@ private:
   std::atomic<size_t> half_open_requests_;
   std::atomic<size_t> half_open_successes_;
   
-  // Request tracking
-  std::map<RequestId, RequestInfo> pending_requests_;
+  // Request tracking (using string key to avoid variant comparison issues)
+  std::map<std::string, RequestInfo> pending_requests_;
+  
+  // Helper to convert RequestId to string key
+  std::string requestIdToString(const RequestId& id) const {
+    return visit(make_overload(
+      [](const std::string& s) { return s; },
+      [](int i) { return std::to_string(i); }
+    ), id);
+  }
 };
 
 } // namespace filter
