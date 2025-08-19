@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <chrono>
-#include "mcp/filter/request_validation_filter.h"
+#include "../../include/mcp/filter/request_validation_filter.h"
 #include "../integration/real_io_test_base.h"
 
 using namespace mcp;

@@ -35,9 +35,9 @@
 #include <set>
 #include <string>
 #include <regex>
-#include "mcp/network/filter.h"
-#include "mcp/mcp_types.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "../network/filter.h"
+#include "../types.h"
+#include "mcp_jsonrpc_filter.h"
 
 namespace mcp {
 namespace filter {
