@@ -795,6 +795,7 @@ class McpServer : public application::ApplicationBase,
 
   // Deferred listen address
   std::string listen_address_;
+  bool need_perform_listen_ = false;
 };
 
 /**
