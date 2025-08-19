@@ -583,7 +583,6 @@ class SessionManager {
  * 4. McpServer handles protocol logic
  */
 class McpServer : public application::ApplicationBase,
-                  public McpMessageCallbacks,
                   public network::ListenerCallbacks,
                   public network::ConnectionCallbacks {
  public:
@@ -592,8 +591,8 @@ class McpServer : public application::ApplicationBase,
 
   // Server lifecycle
   VoidResult listen(const std::string& address);
-  void run();  // Run event loop in main thread
-  void shutdown();
+  void run() override;  // Run event loop in main thread
+  void shutdown() override;
   bool isRunning() const { return server_running_; }
 
   // Handler registration

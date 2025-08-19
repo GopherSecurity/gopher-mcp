@@ -384,7 +384,8 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   // Servers typically use framing for all transports
   // TODO: Make framing configurable based on actual transport endpoints
   bool use_framing = true;
-  auto filter_bundle = createJsonRpcFilter(*this, true, use_framing);
+  // Use the dispatcher from the builder
+  auto filter_bundle = createJsonRpcFilter(*this, builder.getDispatcher(), true, use_framing);
   
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);
