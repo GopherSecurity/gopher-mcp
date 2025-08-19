@@ -1,6 +1,19 @@
 /**
  * @file mcp_application_base.h
  * @brief Base application framework following the best architecture patterns
+ * 
+ * @deprecated This file is deprecated. Please use mcp_application_base_refactored.h instead.
+ * The refactored version provides:
+ * - External filter implementations for better modularity
+ * - Proper callback actions instead of just logging
+ * - MCP builders for creating responses
+ * - Better separation of concerns
+ * 
+ * Migration guide:
+ * 1. Replace #include "mcp/mcp_application_base.h" with 
+ *    #include "mcp/mcp_application_base_refactored.h"
+ * 2. Update namespace if needed (still uses mcp::application)
+ * 3. Filter configurations remain compatible
  *
  * This provides a production-ready base for MCP applications with:
  * - Worker thread model with dedicated dispatcher threads
@@ -12,6 +25,12 @@
 
 #ifndef MCP_APPLICATION_BASE_H
 #define MCP_APPLICATION_BASE_H
+
+#ifdef __GNUC__
+#warning "mcp_application_base.h is deprecated. Use mcp_application_base_refactored.h instead."
+#elif defined(_MSC_VER)
+#pragma message("Warning: mcp_application_base.h is deprecated. Use mcp_application_base_refactored.h instead.")
+#endif
 
 #include <atomic>
 #include <chrono>
