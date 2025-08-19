@@ -491,6 +491,11 @@ class SessionManager {
     // Create session
     auto session = std::make_shared<SessionContext>(session_id, connection);
     sessions_[session_id] = session;
+    
+    // Track by connection if available
+    if (connection) {
+      connection_sessions_[connection] = session;
+    }
 
     stats_.sessions_total++;
     stats_.sessions_active++;
@@ -526,9 +531,36 @@ class SessionManager {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = sessions_.find(session_id);
     if (it != sessions_.end()) {
+      // Remove from connection map if tracked
+      if (it->second->getConnection()) {
+        connection_sessions_.erase(it->second->getConnection());
+      }
       sessions_.erase(it);
       stats_.sessions_active--;
     }
+  }
+  
+  // Remove session by connection
+  void removeSessionByConnection(network::Connection* connection) {
+    if (!connection) return;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto conn_it = connection_sessions_.find(connection);
+    if (conn_it != connection_sessions_.end()) {
+      auto session = conn_it->second;
+      connection_sessions_.erase(conn_it);
+      sessions_.erase(session->getId());
+      stats_.sessions_active--;
+    }
+  }
+  
+  // Get session by connection
+  SessionPtr getSessionByConnection(network::Connection* connection) {
+    if (!connection) return nullptr;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = connection_sessions_.find(connection);
+    return (it != connection_sessions_.end()) ? it->second : nullptr;
   }
 
   // Clean up expired sessions
@@ -543,9 +575,16 @@ class SessionManager {
     }
 
     for (const auto& session_id : expired) {
-      sessions_.erase(session_id);
-      stats_.sessions_expired++;
-      stats_.sessions_active--;
+      auto it = sessions_.find(session_id);
+      if (it != sessions_.end()) {
+        // Remove from connection map if tracked
+        if (it->second->getConnection()) {
+          connection_sessions_.erase(it->second->getConnection());
+        }
+        sessions_.erase(it);
+        stats_.sessions_expired++;
+        stats_.sessions_active--;
+      }
     }
   }
 
@@ -558,6 +597,7 @@ class SessionManager {
 
   mutable std::mutex mutex_;
   std::map<std::string, SessionPtr> sessions_;
+  std::unordered_map<network::Connection*, SessionPtr> connection_sessions_;
   McpServerConfig config_;
   McpServerStats& stats_;
 };
@@ -656,6 +696,17 @@ class McpServer : public application::ApplicationBase,
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
+  
+  // Request tracking helpers
+  bool isRequestCancelled(const RequestId& id) const {
+    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+    // Convert RequestId to string key
+    std::string key = holds_alternative<std::string>(id) 
+        ? get<std::string>(id) 
+        : std::to_string(get<int64_t>(id));
+    auto it = pending_requests_.find(key);
+    return (it != pending_requests_.end() && it->second->cancelled.load());
+  }
 
   // ListenerCallbacks overrides (production pattern)
   // Called when listener accepts a new socket
@@ -720,6 +771,21 @@ class McpServer : public application::ApplicationBase,
 
   // Session management
   std::unique_ptr<SessionManager> session_manager_;
+  
+  // Track current connection for request context
+  // This is set during connection callbacks and used to associate requests with sessions
+  thread_local static network::Connection* current_connection_;
+  
+  // Request tracking for cancellation support
+  struct PendingRequest {
+    RequestId id;
+    std::string session_id;
+    std::chrono::steady_clock::time_point start_time;
+    std::atomic<bool> cancelled{false};
+  };
+  // Use string key for map to avoid variant comparison issues
+  std::unordered_map<std::string, std::shared_ptr<PendingRequest>> pending_requests_;
+  mutable std::mutex pending_requests_mutex_;
 
   // Resource, tool, and prompt management
   std::unique_ptr<ResourceManager> resource_manager_;
