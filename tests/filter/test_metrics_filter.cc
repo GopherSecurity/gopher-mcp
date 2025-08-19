@@ -44,8 +44,8 @@ protected:
     next_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
     
     // Default config
-    config_.rate_update_interval = 100ms;  // Short for testing
-    config_.report_interval = 200ms;       // Short for testing
+    config_.rate_update_interval = 1s;  // Changed to seconds
+    config_.report_interval = 1s;       // Changed to seconds
     config_.max_latency_threshold_ms = 1000;
     config_.error_rate_threshold = 5;
     config_.bytes_threshold = 10 * 1024;  // 10KB for testing
@@ -67,10 +67,10 @@ protected:
   }
   
   // Helper to create buffer with specific size
-  BufferImpl createBuffer(size_t size) {
-    BufferImpl buffer;
+  std::unique_ptr<Buffer> createBufferWithSize(size_t size) {
+    auto buffer = createBuffer();
     std::string data(size, 'X');
-    buffer.add(data);
+    buffer->add(data);
     return buffer;
   }
   
@@ -89,7 +89,7 @@ protected:
     resp.jsonrpc = "2.0";
     resp.id = id;
     if (is_error) {
-      resp.error = jsonrpc::ResponseError{500, "Test error", nullopt};
+      resp.error = make_optional(Error(500, "Test error"));
     } else {
       resp.result = jsonrpc::ResponseResult(nullptr);
     }
@@ -109,15 +109,16 @@ TEST_F(MetricsFilterTest, ByteCounting) {
   
   executeInDispatcher([this]() {
     // Track received bytes
-    auto recv_buffer = createBuffer(1024);
-    EXPECT_EQ(filter_->onData(recv_buffer, false), network::FilterStatus::Continue);
+    auto recv_buffer = createBufferWithSize(1024);
+    EXPECT_EQ(filter_->onData(*recv_buffer, false), network::FilterStatus::Continue);
     
     // Track sent bytes
-    auto send_buffer = createBuffer(2048);
-    EXPECT_EQ(filter_->onWrite(send_buffer, false), network::FilterStatus::Continue);
+    auto send_buffer = createBufferWithSize(2048);
+    EXPECT_EQ(filter_->onWrite(*send_buffer, false), network::FilterStatus::Continue);
     
     // Check metrics
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_EQ(metrics.bytes_received, 1024);
     EXPECT_EQ(metrics.bytes_sent, 2048);
     EXPECT_EQ(metrics.messages_received, 1);
@@ -146,7 +147,8 @@ TEST_F(MetricsFilterTest, RequestResponseTracking) {
     filter_->onResponse(resp2);
     
     // Check metrics
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_EQ(metrics.requests_received, 2);
     EXPECT_EQ(metrics.responses_received, 2);
   });
@@ -167,7 +169,8 @@ TEST_F(MetricsFilterTest, NotificationTracking) {
     }
     
     // Check metrics
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_EQ(metrics.notifications_received, 3);
   });
 }
@@ -189,7 +192,8 @@ TEST_F(MetricsFilterTest, ErrorTracking) {
     filter_->onProtocolError(protocol_error);
     
     // Check metrics
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_EQ(metrics.errors_received, 1);
     EXPECT_EQ(metrics.protocol_errors, 1);
   });
@@ -212,7 +216,8 @@ TEST_F(MetricsFilterTest, LatencyTracking) {
     filter_->onResponse(resp);
     
     // Check latency metrics
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_GT(metrics.total_latency_ms, 0);
     EXPECT_GT(metrics.max_latency_ms, 0);
     EXPECT_LT(metrics.min_latency_ms, UINT64_MAX);
@@ -232,7 +237,8 @@ TEST_F(MetricsFilterTest, MethodSpecificTracking) {
     filter_->onRequest(createRequest("method2", 3));
     
     // Check method counts
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_EQ(metrics.method_counts["method1"], 2);
     EXPECT_EQ(metrics.method_counts["method2"], 1);
   });
@@ -248,8 +254,8 @@ TEST_F(MetricsFilterTest, BytesThresholdExceeded) {
   
   executeInDispatcher([this]() {
     // Send data exceeding threshold
-    auto buffer = createBuffer(6 * 1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(6 * 1024);
+    filter_->onData(*buffer, false);
   });
 }
 
@@ -296,25 +302,26 @@ TEST_F(MetricsFilterTest, ErrorRateThreshold) {
 
 // Test rate calculations
 TEST_F(MetricsFilterTest, RateCalculations) {
-  config_.rate_update_interval = 100ms;
+  config_.rate_update_interval = 1s;
   createFilter();
   
   executeInDispatcher([this]() {
     // Send data
-    auto buffer1 = createBuffer(1024);
-    filter_->onData(buffer1, false);
+    auto buffer1 = createBufferWithSize(1024);
+    filter_->onData(*buffer1, false);
   });
   
   // Wait for rate update
-  std::this_thread::sleep_for(150ms);
+  std::this_thread::sleep_for(1500ms);
   
   executeInDispatcher([this]() {
     // Send more data
-    auto buffer2 = createBuffer(2048);
-    filter_->onData(buffer2, false);
+    auto buffer2 = createBufferWithSize(2048);
+    filter_->onData(*buffer2, false);
     
     // Check rates
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_GT(metrics.current_receive_rate_bps, 0);
     EXPECT_GT(metrics.peak_receive_rate_bps, 0);
   });
@@ -322,7 +329,7 @@ TEST_F(MetricsFilterTest, RateCalculations) {
 
 // Test periodic metrics reporting
 TEST_F(MetricsFilterTest, PeriodicMetricsReporting) {
-  config_.report_interval = 100ms;
+  config_.report_interval = 1s;
   createFilter();
   
   // Expect at least 2 updates in 250ms
@@ -331,15 +338,15 @@ TEST_F(MetricsFilterTest, PeriodicMetricsReporting) {
   
   executeInDispatcher([this]() {
     // Generate some activity
-    auto buffer = createBuffer(1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(1024);
+    filter_->onData(*buffer, false);
     
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
   });
   
   // Wait for periodic reports
-  std::this_thread::sleep_for(250ms);
+  std::this_thread::sleep_for(2500ms);
 }
 
 // Test new connection resets metrics
@@ -348,14 +355,15 @@ TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
   
   executeInDispatcher([this]() {
     // Generate some metrics
-    auto buffer = createBuffer(1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(1024);
+    filter_->onData(*buffer, false);
     
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
     
     // Check metrics are recorded
-    auto metrics1 = filter_->getMetrics();
+    ConnectionMetrics metrics1;
+    filter_->getMetrics(metrics1);
     EXPECT_GT(metrics1.bytes_received, 0);
     EXPECT_GT(metrics1.requests_received, 0);
     
@@ -363,7 +371,8 @@ TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
     filter_->onNewConnection();
     
     // Metrics should be reset
-    auto metrics2 = filter_->getMetrics();
+    ConnectionMetrics metrics2;
+    filter_->getMetrics(metrics2);
     EXPECT_EQ(metrics2.bytes_received, 0);
     EXPECT_EQ(metrics2.bytes_sent, 0);
     EXPECT_EQ(metrics2.requests_received, 0);
@@ -387,7 +396,8 @@ TEST_F(MetricsFilterTest, MinMaxLatencyTracking) {
       filter_->onResponse(resp);
     }
     
-    auto metrics = filter_->getMetrics();
+    ConnectionMetrics metrics;
+    filter_->getMetrics(metrics);
     EXPECT_GT(metrics.min_latency_ms, 0);
     EXPECT_LT(metrics.min_latency_ms, metrics.max_latency_ms);
     EXPECT_EQ(metrics.latency_samples, 3);
@@ -409,19 +419,21 @@ TEST_F(MetricsFilterTest, ConnectionTiming) {
     // New connection starts timing
     filter_->onNewConnection();
     
-    auto metrics1 = filter_->getMetrics();
+    ConnectionMetrics metrics1;
+    filter_->getMetrics(metrics1);
     auto start_time = metrics1.connection_start;
     
     // Activity updates last activity time
-    auto buffer = createBuffer(1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(1024);
+    filter_->onData(*buffer, false);
     
     std::this_thread::sleep_for(50ms);
     
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
     
-    auto metrics2 = filter_->getMetrics();
+    ConnectionMetrics metrics2;
+    filter_->getMetrics(metrics2);
     EXPECT_GE(metrics2.last_activity, start_time);
   });
 }
