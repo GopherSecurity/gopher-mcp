@@ -1,5 +1,8 @@
 # Test executables
 # Core tests
+
+# Include filter tests subdirectory
+add_subdirectory(filter)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
