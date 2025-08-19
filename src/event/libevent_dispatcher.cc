@@ -385,12 +385,16 @@ LibeventDispatcher::FileEventImpl::FileEventImpl(LibeventDispatcher& dispatcher,
     libevent_events |= EV_ET;
   }
 
+  std::cerr << "[DEBUG] Creating libevent for fd=" << fd_ 
+            << " with events=" << libevent_events << std::endl;
+  
   event_ = event_new(dispatcher_.base(), fd_, libevent_events,
                      &FileEventImpl::eventCallback, this);
   if (!event_) {
     throw std::runtime_error("Failed to create file event");
   }
 
+  std::cerr << "[DEBUG] Calling setEnabled with events=" << events << std::endl;
   setEnabled(events);
 }
 
@@ -408,6 +412,9 @@ void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
 }
 
 void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
+  std::cerr << "[DEBUG] setEnabled called: current=" << enabled_events_ 
+            << " new=" << events << " fd=" << fd_ << std::endl;
+  
   if (enabled_events_ == events) {
     return;
   }
@@ -423,22 +430,29 @@ void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
         libevent_events |= EV_ET;
       }
 
+      std::cerr << "[DEBUG] Reassigning event with libevent_events=" << libevent_events << std::endl;
       event_assign(event_, dispatcher_.base(), fd_, libevent_events,
                    &FileEventImpl::eventCallback, this);
-      event_add(event_, nullptr);
+      int result = event_add(event_, nullptr);
+      std::cerr << "[DEBUG] event_add result: " << result << std::endl;
     }
   }
 }
 
-void LibeventDispatcher::FileEventImpl::eventCallback(int /*fd*/,
+void LibeventDispatcher::FileEventImpl::eventCallback(int fd,
                                                       short events,
                                                       void* arg) {
   auto* file_event = static_cast<FileEventImpl*>(arg);
+
+  std::cerr << "[DEBUG] FileEvent callback triggered: fd=" << fd 
+            << " events=" << events << std::endl;
 
   // Update approximate time before callback
   file_event->dispatcher_.updateApproximateMonotonicTime();
 
   uint32_t ready_events = fromLibeventEvents(events);
+  std::cerr << "[DEBUG] Converted events: " << ready_events << std::endl;
+  
   if (ready_events != 0) {
     file_event->cb_(ready_events);
   }
