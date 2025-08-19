@@ -849,6 +849,30 @@ target_link_libraries(test_mcp_stdio_filter_chain_factory
 )
 add_test(NAME McpStdioFilterChainFactoryTest COMMAND test_mcp_stdio_filter_chain_factory)
 
+# JSON-RPC Filter Factory Tests
+add_executable(test_json_rpc_filter_factory filter/test_json_rpc_filter_factory.cc)
+target_link_libraries(test_json_rpc_filter_factory 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME JsonRpcFilterFactoryTest COMMAND test_json_rpc_filter_factory)
+
+# MCP HTTP Filter Chain Factory Tests
+add_executable(test_mcp_http_filter_chain_factory filter/test_mcp_http_filter_chain_factory.cc)
+target_link_libraries(test_mcp_http_filter_chain_factory 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpHttpFilterChainFactoryTest COMMAND test_mcp_http_filter_chain_factory)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
