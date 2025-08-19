@@ -38,6 +38,7 @@
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket_interface_impl.h"
+#include "mcp/builders.h"
 
 namespace mcp {
 namespace application {
@@ -271,8 +272,9 @@ class FilterChainBuilder {
       : dispatcher_(dispatcher), stats_(stats) {}
 
   // Add rate limiting filter
-  FilterChainBuilder& withRateLimiting(const filter::RateLimitConfig& config) {
-    auto callbacks = std::make_shared<RateLimitCallbacks>();
+  FilterChainBuilder& withRateLimiting(const filter::RateLimitConfig& config,
+                                       network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RateLimitCallbacks>(stats_, connection);
     auto filter = std::make_shared<filter::RateLimitFilter>(
         *callbacks, config);
     filters_.push_back(filter);
@@ -290,8 +292,9 @@ class FilterChainBuilder {
   }
 
   // Add circuit breaker filter
-  FilterChainBuilder& withCircuitBreaker(const filter::CircuitBreakerConfig& config) {
-    auto callbacks = std::make_shared<CircuitBreakerCallbacks>();
+  FilterChainBuilder& withCircuitBreaker(const filter::CircuitBreakerConfig& config,
+                                         network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<CircuitBreakerCallbacks>(stats_, connection);
     auto filter = std::make_shared<filter::CircuitBreakerFilter>(*callbacks, config);
     filters_.push_back(filter);
     circuit_breaker_callbacks_ = callbacks;
@@ -299,8 +302,9 @@ class FilterChainBuilder {
   }
 
   // Add backpressure filter
-  FilterChainBuilder& withBackpressure(const filter::BackpressureConfig& config) {
-    auto callbacks = std::make_shared<BackpressureCallbacks>();
+  FilterChainBuilder& withBackpressure(const filter::BackpressureConfig& config,
+                                       network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<BackpressureCallbacks>(stats_, connection);
     auto filter = std::make_shared<filter::BackpressureFilter>(*callbacks, config);
     filters_.push_back(filter);
     backpressure_callbacks_ = callbacks;
@@ -308,8 +312,9 @@ class FilterChainBuilder {
   }
 
   // Add request validation filter
-  FilterChainBuilder& withRequestValidation(const filter::RequestValidationConfig& config) {
-    auto callbacks = std::make_shared<RequestValidationCallbacks>();
+  FilterChainBuilder& withRequestValidation(const filter::RequestValidationConfig& config,
+                                           network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RequestValidationCallbacks>(stats_, connection);
     auto filter = std::make_shared<filter::RequestValidationFilter>(*callbacks, config);
     filters_.push_back(filter);
     validation_callbacks_ = callbacks;
@@ -330,73 +335,286 @@ class FilterChainBuilder {
   // Callback implementations
   class RateLimitCallbacks : public filter::RateLimitFilter::Callbacks {
    public:
+    RateLimitCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
     void onRequestAllowed() override {
-      // Request was allowed through
+      // Request was allowed through - update stats
+      stats_.requests_total++;
     }
 
     void onRequestLimited(std::chrono::milliseconds retry_after) override {
-      std::cerr << "[RATE_LIMIT] Request rate limited, retry after: " 
-                << retry_after.count() << "ms" << std::endl;
+      stats_.requests_failed++;
+      
+      // Send rate limit error response to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["retry_after_ms"] = std::to_string(retry_after.count());
+        errorData["error_type"] = "rate_limit";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32429, "Rate limit exceeded")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
     }
 
     void onRateLimitWarning(int remaining) override {
-      std::cerr << "[RATE_LIMIT] Warning: " << remaining 
-                << "% capacity remaining" << std::endl;
+      // Could trigger alerts or adjust behavior when approaching limit
+      if (remaining < 10) {
+        // Critical warning - might want to start queuing or buffering
+        stats_.errors_total++;
+      }
     }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
   };
 
   class CircuitBreakerCallbacks : public filter::CircuitBreakerFilter::Callbacks {
    public:
+    CircuitBreakerCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
     void onStateChange(filter::CircuitState old_state,
                       filter::CircuitState new_state,
                       const std::string& reason) override {
-      std::cerr << "[CIRCUIT_BREAKER] State change: " 
-                << static_cast<int>(old_state) << " -> " 
-                << static_cast<int>(new_state)
-                << " (" << reason << ")" << std::endl;
+      // Handle state transitions
+      if (new_state == filter::CircuitState::OPEN) {
+        // Circuit is open - stop accepting new requests
+        is_circuit_open_ = true;
+        
+        // Could trigger failover to backup service or cache
+        // Could notify load balancer to redirect traffic
+        stats_.errors_total++;
+      } else if (new_state == filter::CircuitState::HALF_OPEN) {
+        // Testing if service recovered - allow limited traffic
+        is_circuit_open_ = false;
+      } else if (new_state == filter::CircuitState::CLOSED) {
+        // Service healthy - resume normal operations
+        is_circuit_open_ = false;
+      }
     }
 
     void onRequestBlocked(const std::string& method) override {
-      std::cerr << "[CIRCUIT_BREAKER] Request blocked: " << method << std::endl;
+      stats_.requests_failed++;
+      
+      // Send service unavailable error to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["error_type"] = "circuit_breaker_open";
+        errorData["retry_after_ms"] = "5000"; // Suggest retry after 5 seconds
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32503, "Service temporarily unavailable")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
     }
 
     void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
-      // Could log or track health metrics
+      // Track health metrics for monitoring/alerting
+      if (success_rate < 0.5) { // Less than 50% success rate
+        // Could trigger alerts or start pre-emptive actions
+        stats_.errors_total++;
+      }
+      
+      // Update latency tracking
+      if (latency_ms > stats_.request_duration_ms_max.load()) {
+        stats_.request_duration_ms_max.store(latency_ms);
+      }
     }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+    
+    bool isCircuitOpen() const { return is_circuit_open_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
+    std::atomic<bool> is_circuit_open_{false};
   };
 
   class BackpressureCallbacks : public filter::BackpressureFilter::Callbacks {
    public:
+    BackpressureCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
     void onBackpressureApplied() override {
-      std::cerr << "[BACKPRESSURE] Backpressure applied" << std::endl;
+      is_backpressure_active_ = true;
+      
+      // Pause reading from connection to prevent buffer overflow
+      if (connection_) {
+        connection_->readDisable(true);
+      }
+      
+      // Could also:
+      // - Start buffering to disk if critical
+      // - Notify upstream to slow down
+      // - Switch to degraded mode with reduced functionality
     }
 
     void onBackpressureReleased() override {
-      std::cerr << "[BACKPRESSURE] Backpressure released" << std::endl;
+      is_backpressure_active_ = false;
+      
+      // Resume reading from connection
+      if (connection_) {
+        connection_->readDisable(false);
+      }
+      
+      // Could also:
+      // - Process any buffered data
+      // - Notify upstream that normal rate can resume
+      // - Switch back to normal mode
     }
 
     void onDataDropped(size_t bytes) override {
-      std::cerr << "[BACKPRESSURE] Data dropped: " << bytes << " bytes" 
-                << std::endl;
+      stats_.errors_total++;
+      dropped_bytes_ += bytes;
+      
+      // Critical situation - data loss occurring
+      if (connection_) {
+        // Send warning to client about data loss
+        Metadata params;
+        params["bytes_dropped"] = static_cast<int64_t>(bytes);
+        params["total_dropped"] = static_cast<int64_t>(dropped_bytes_.load());
+        params["reason"] = std::string("buffer_overflow");
+        
+        auto notification = make<jsonrpc::Notification>("backpressure.data_dropped")
+            .params(params);
+        
+        // TODO: Send notification through connection
+        // This would typically be: connection_->sendNotification(notification);
+      }
+      
+      // Could trigger emergency measures:
+      // - Force disconnect abusive clients
+      // - Enable more aggressive rate limiting
+      // - Alert operations team
     }
+    
+    bool isBackpressureActive() const { return is_backpressure_active_; }
+    size_t getDroppedBytes() const { return dropped_bytes_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    std::atomic<bool> is_backpressure_active_{false};
+    std::atomic<size_t> dropped_bytes_{0};
   };
 
   class RequestValidationCallbacks : public filter::RequestValidationFilter::ValidationCallbacks {
    public:
+    RequestValidationCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
     void onRequestValidated(const std::string& method) override {
-      // Request passed validation
+      // Request passed validation - update success stats
+      stats_.requests_success++;
+      validated_requests_++;
     }
 
     void onRequestRejected(const std::string& method,
                           const std::string& reason) override {
-      std::cerr << "[VALIDATION] Request validation failed for " << method 
-                << ": " << reason << std::endl;
+      stats_.requests_failed++;
+      rejected_requests_++;
+      
+      // Send validation error response to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["reason"] = reason;
+        errorData["error_type"] = "validation_failed";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32602, "Request validation failed")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+        
+        // For security violations, might want to:
+        // - Log the attempt for security audit
+        // - Increment security violation counter
+        // - Block client after repeated violations
+        if (reason.find("security") != std::string::npos ||
+            reason.find("injection") != std::string::npos) {
+          security_violations_++;
+          
+          // Block client after too many security violations
+          if (security_violations_ > 5 && connection_) {
+            connection_->close(network::ConnectionCloseType::NoFlush);
+          }
+        }
+      }
     }
 
     void onRateLimitExceeded(const std::string& method) override {
-      std::cerr << "[VALIDATION] Rate limit exceeded for method: " << method
-                << std::endl;
+      stats_.requests_failed++;
+      rate_limit_violations_++;
+      
+      // Send rate limit error for method-specific limits
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["error_type"] = "method_rate_limit";
+        errorData["retry_after_ms"] = "1000";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32429, "Method rate limit exceeded")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
     }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+    
+    size_t getValidatedRequests() const { return validated_requests_; }
+    size_t getRejectedRequests() const { return rejected_requests_; }
+    size_t getSecurityViolations() const { return security_violations_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
+    std::atomic<size_t> validated_requests_{0};
+    std::atomic<size_t> rejected_requests_{0};
+    std::atomic<size_t> security_violations_{0};
+    std::atomic<size_t> rate_limit_violations_{0};
   };
 
   event::Dispatcher& dispatcher_;
