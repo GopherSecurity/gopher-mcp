@@ -7,12 +7,42 @@ add_executable(test_circuit_breaker_filter
 )
 target_link_libraries(test_circuit_breaker_filter
   PRIVATE
-  mcp_core
-  mcp_test_lib
-  GTest::gtest_main
-  GTest::gmock
+  mcp-sdk
+  mcp-event
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
 )
 add_test(NAME CircuitBreakerFilterTest COMMAND test_circuit_breaker_filter)
+
+# Circuit Breaker Filter Simple Test (basic functionality)
+add_executable(test_circuit_breaker_filter_simple
+  test_circuit_breaker_filter_simple.cc
+)
+target_link_libraries(test_circuit_breaker_filter_simple
+  PRIVATE
+  mcp-sdk
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME CircuitBreakerFilterSimpleTest COMMAND test_circuit_breaker_filter_simple)
+
+# Circuit Breaker Filter Basic Test (no request/response flow)
+add_executable(test_circuit_breaker_basic
+  test_circuit_breaker_basic.cc
+)
+target_link_libraries(test_circuit_breaker_basic
+  PRIVATE
+  mcp-sdk
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME CircuitBreakerBasicTest COMMAND test_circuit_breaker_basic)
 
 # Rate Limiting Filter Test
 add_executable(test_rate_limit_filter
@@ -20,10 +50,12 @@ add_executable(test_rate_limit_filter
 )
 target_link_libraries(test_rate_limit_filter
   PRIVATE
-  mcp_core
-  mcp_test_lib
-  GTest::gtest_main
-  GTest::gmock
+  mcp-sdk
+  mcp-event
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
 )
 add_test(NAME RateLimitFilterTest COMMAND test_rate_limit_filter)
 
@@ -33,10 +65,12 @@ add_executable(test_backpressure_filter
 )
 target_link_libraries(test_backpressure_filter
   PRIVATE
-  mcp_core
-  mcp_test_lib
-  GTest::gtest_main
-  GTest::gmock
+  mcp-sdk
+  mcp-event
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
 )
 add_test(NAME BackpressureFilterTest COMMAND test_backpressure_filter)
 
@@ -46,12 +80,28 @@ add_executable(test_metrics_filter
 )
 target_link_libraries(test_metrics_filter
   PRIVATE
-  mcp_core
-  mcp_test_lib
-  GTest::gtest_main
-  GTest::gmock
+  mcp-sdk
+  mcp-event
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
 )
 add_test(NAME MetricsFilterTest COMMAND test_metrics_filter)
+
+# Metrics Filter Simple Test (basic functionality)
+add_executable(test_metrics_filter_simple
+  test_metrics_filter_simple.cc
+)
+target_link_libraries(test_metrics_filter_simple
+  PRIVATE
+  mcp-sdk
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME MetricsFilterSimpleTest COMMAND test_metrics_filter_simple)
 
 # Request Validation Filter Test
 add_executable(test_request_validation_filter
@@ -59,9 +109,11 @@ add_executable(test_request_validation_filter
 )
 target_link_libraries(test_request_validation_filter
   PRIVATE
-  mcp_core
-  mcp_test_lib
-  GTest::gtest_main
-  GTest::gmock
+  mcp-sdk
+  mcp-event
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
 )
 add_test(NAME RequestValidationFilterTest COMMAND test_request_validation_filter)
