@@ -1,23 +1,10 @@
 /**
  * @file mcp_application_base.h
- * @brief Base application framework following the best architecture patterns
- * 
- * @deprecated This file is deprecated. Please use mcp_application_base_refactored.h instead.
- * The refactored version provides:
- * - External filter implementations for better modularity
- * - Proper callback actions instead of just logging
- * - MCP builders for creating responses
- * - Better separation of concerns
- * 
- * Migration guide:
- * 1. Replace #include "mcp/mcp_application_base.h" with 
- *    #include "mcp/mcp_application_base_refactored.h"
- * 2. Update namespace if needed (still uses mcp::application)
- * 3. Filter configurations remain compatible
+ * @brief Base application framework using external filter implementations
  *
  * This provides a production-ready base for MCP applications with:
  * - Worker thread model with dedicated dispatcher threads
- * - Filter chain architecture for modular processing
+ * - Filter chain architecture using external filter implementations
  * - Enhanced error handling with detailed failure tracking
  * - Flow control with watermark-based backpressure
  * - Built-in observability (metrics, logging, tracing)
@@ -25,12 +12,6 @@
 
 #ifndef MCP_APPLICATION_BASE_H
 #define MCP_APPLICATION_BASE_H
-
-#ifdef __GNUC__
-#warning "mcp_application_base.h is deprecated. Use mcp_application_base_refactored.h instead."
-#elif defined(_MSC_VER)
-#pragma message("Warning: mcp_application_base.h is deprecated. Use mcp_application_base_refactored.h instead.")
-#endif
 
 #include <atomic>
 #include <chrono>
@@ -49,57 +30,32 @@
 #include "mcp/buffer.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/rate_limit_filter.h"
+#include "mcp/filter/metrics_filter.h"
+#include "mcp/filter/backpressure_filter.h"
+#include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/request_validation_filter.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/network/socket_interface.h"
 #include "mcp/network/socket_interface_impl.h"
+#include "mcp/builders.h"
 
 namespace mcp {
 namespace application {
 
 // Forward declarations
-class RateLimitFilter;
-class MetricsFilter;
+class WorkerContext;
+class FilterChainFactory;
+class WorkerFactory;
 
 // Forward declarations
 class ConnectionPool;
-class MetricsCollector;
 class FailureTracker;
 class FilterChainBuilder;
 
 /**
- * Common adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
- *
- * This adapter bridges the MCP message callback interface to the JSON-RPC
- * filter callback interface, allowing ApplicationBase-derived classes to
- * use the unified McpJsonRpcFilter.
- */
-class McpJsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
- public:
-  explicit McpJsonRpcCallbackAdapter(McpMessageCallbacks& callbacks)
-      : callbacks_(callbacks) {}
-
-  void onRequest(const jsonrpc::Request& request) override {
-    callbacks_.onRequest(request);
-  }
-
-  void onNotification(const jsonrpc::Notification& notification) override {
-    callbacks_.onNotification(notification);
-  }
-
-  void onResponse(const jsonrpc::Response& response) override {
-    callbacks_.onResponse(response);
-  }
-
-  void onProtocolError(const Error& error) override {
-    callbacks_.onError(error);
-  }
-
- private:
-  McpMessageCallbacks& callbacks_;
-};
-
-/**
- * Base class for metrics tracking filters
+ * Base class for metrics tracking filters (legacy API compatibility)
  *
  * Tracks bytes sent/received and updates application statistics.
  * Derived classes can extend this for specific metrics tracking.
@@ -140,6 +96,38 @@ class MetricsTrackingFilter : public network::NetworkFilterBase {
 };
 
 /**
+ * Common adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
+ *
+ * This adapter bridges the MCP message callback interface to the JSON-RPC
+ * filter callback interface, allowing ApplicationBase-derived classes to
+ * use the unified McpJsonRpcFilter.
+ */
+class McpJsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
+ public:
+  explicit McpJsonRpcCallbackAdapter(McpMessageCallbacks& callbacks)
+      : callbacks_(callbacks) {}
+
+  void onRequest(const jsonrpc::Request& request) override {
+    callbacks_.onRequest(request);
+  }
+
+  void onNotification(const jsonrpc::Notification& notification) override {
+    callbacks_.onNotification(notification);
+  }
+
+  void onResponse(const jsonrpc::Response& response) override {
+    callbacks_.onResponse(response);
+  }
+
+  void onProtocolError(const Error& error) override {
+    callbacks_.onError(error);
+  }
+
+ private:
+  McpMessageCallbacks& callbacks_;
+};
+
+/**
  * Application statistics for observability
  */
 struct ApplicationStats {
@@ -156,6 +144,41 @@ struct ApplicationStats {
   std::atomic<uint64_t> request_duration_ms_total{0};
   std::atomic<uint64_t> request_duration_ms_max{0};
   std::atomic<uint64_t> request_duration_ms_min{UINT64_MAX};
+};
+
+/**
+ * Metrics callbacks implementation for MetricsFilter
+ */
+class ApplicationMetricsCallbacks : public filter::MetricsFilter::MetricsCallbacks {
+ public:
+  explicit ApplicationMetricsCallbacks(ApplicationStats& stats) 
+      : stats_(stats) {}
+
+  void onMetricsUpdate(const filter::ConnectionMetrics& metrics) override {
+    // Update application stats from metrics using atomic store
+    stats_.bytes_sent.store(metrics.bytes_sent);
+    stats_.bytes_received.store(metrics.bytes_received);
+    stats_.requests_total.store(metrics.requests_sent);
+    
+    // Update latency stats
+    if (metrics.max_latency_ms > stats_.request_duration_ms_max.load()) {
+      stats_.request_duration_ms_max.store(metrics.max_latency_ms);
+    }
+    if (metrics.min_latency_ms < stats_.request_duration_ms_min.load()) {
+      stats_.request_duration_ms_min.store(metrics.min_latency_ms);
+    }
+  }
+
+  void onThresholdExceeded(const std::string& metric_name,
+                          uint64_t value,
+                          uint64_t threshold) override {
+    std::cerr << "[WARNING] Metric threshold exceeded: " << metric_name 
+              << " (value: " << value << ", threshold: " << threshold << ")" 
+              << std::endl;
+  }
+
+ private:
+  ApplicationStats& stats_;
 };
 
 /**
@@ -268,6 +291,7 @@ class ConnectionPool {
 
   size_t getActiveConnections() const { return active_connections_; }
   size_t getTotalConnections() const { return total_connections_; }
+  size_t getIdleConnections() const { return idle_connections_.size(); }
 
  protected:
   virtual ConnectionPtr createNewConnection() = 0;
@@ -275,494 +299,788 @@ class ConnectionPool {
  private:
   size_t max_connections_;
   size_t max_idle_;
-  std::atomic<size_t> total_connections_{0};
-  std::atomic<size_t> active_connections_{0};
+  size_t total_connections_ = 0;
+  size_t active_connections_ = 0;
+
   std::queue<ConnectionPtr> idle_connections_;
   std::mutex mutex_;
   std::condition_variable cv_;
 };
 
 /**
- * Filter chain builder for modular protocol processing
- *
- * Enhanced to support filters that need parameters like dispatcher and
- * callbacks. This allows integration with our standardized filter architecture.
- */
-class FilterChainBuilder {
- public:
-  using FilterFactory = std::function<network::FilterSharedPtr()>;
-
-  // Add a filter factory to the chain
-  void addFilter(FilterFactory factory) {
-    filter_factories_.push_back(factory);
-  }
-
-  // Add a filter directly (for filters already created with parameters)
-  void addFilterInstance(network::FilterSharedPtr filter) {
-    if (filter) {
-      filter_instances_.push_back(filter);
-    }
-  }
-
-  // Build the filter chain for a connection
-  void buildChain(network::FilterManager& manager) {
-    // First add any direct filter instances
-    for (const auto& filter : filter_instances_) {
-      manager.addReadFilter(filter);
-      manager.addWriteFilter(filter);
-    }
-
-    // Then add filters from factories
-    for (const auto& factory : filter_factories_) {
-      auto filter = factory();
-      if (filter) {
-        manager.addReadFilter(filter);
-        manager.addWriteFilter(filter);
-      }
-    }
-    manager.initializeReadFilters();
-  }
-
-  // Clear all filters (useful for resetting)
-  void clear() {
-    filter_factories_.clear();
-    filter_instances_.clear();
-  }
-
- private:
-  std::vector<FilterFactory> filter_factories_;
-  std::vector<network::FilterSharedPtr> filter_instances_;
-};
-
-/**
- * Worker context for each dispatcher thread
+ * Worker context for each dispatcher thread (legacy API support)
+ * Following Envoy's worker model where each worker has its own dispatcher
  */
 class WorkerContext {
  public:
   WorkerContext(const std::string& name,
-                event::DispatcherFactory& factory,
+                event::Dispatcher& dispatcher,
                 network::SocketInterface& socket_interface)
       : name_(name),
-        dispatcher_(factory.createDispatcher(name)),
+        dispatcher_(dispatcher),
         socket_interface_(socket_interface) {}
 
-  void run() {
-    // Logging will be done by ApplicationBase
-    std::cerr << "[INFO] Worker " << name_ << " starting" << std::endl;
-    dispatcher_->run(event::RunType::RunUntilExit);
-    std::cerr << "[INFO] Worker " << name_ << " stopping" << std::endl;
-  }
-
-  void stop() { dispatcher_->exit(); }
-
-  event::Dispatcher& getDispatcher() { return *dispatcher_; }
+  event::Dispatcher& getDispatcher() { return dispatcher_; }
   const std::string& getName() const { return name_; }
+  network::SocketInterface& getSocketInterface() { return socket_interface_; }
 
  private:
   std::string name_;
-  std::unique_ptr<event::Dispatcher> dispatcher_;
+  event::Dispatcher& dispatcher_;
   network::SocketInterface& socket_interface_;
 };
 
 /**
- * Base application class with worker thread model
+ * Filter chain builder for constructing processing pipelines
+ * Enhanced to support both old and new APIs following Envoy patterns
  */
-class ApplicationBase {
+class FilterChainBuilder {
  public:
+  using FilterPtr = std::shared_ptr<network::Filter>;
+
+  FilterChainBuilder(event::Dispatcher& dispatcher,
+                    ApplicationStats& stats)
+      : dispatcher_(dispatcher), stats_(stats) {}
+
+  // Add rate limiting filter
+  FilterChainBuilder& withRateLimiting(const filter::RateLimitConfig& config,
+                                       network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RateLimitCallbacks>(stats_, connection);
+    auto filter = std::make_shared<filter::RateLimitFilter>(
+        *callbacks, config);
+    filters_.push_back(filter);
+    rate_limit_callbacks_ = callbacks;
+    return *this;
+  }
+
+  // Add metrics collection filter  
+  FilterChainBuilder& withMetrics(const filter::MetricsFilter::Config& config) {
+    auto callbacks = std::make_shared<ApplicationMetricsCallbacks>(stats_);
+    auto filter = std::make_shared<filter::MetricsFilter>(*callbacks, config);
+    filters_.push_back(filter);
+    metrics_filter_ = filter;
+    return *this;
+  }
+
+  // Add circuit breaker filter
+  FilterChainBuilder& withCircuitBreaker(const filter::CircuitBreakerConfig& config,
+                                         network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<CircuitBreakerCallbacks>(stats_, connection);
+    auto filter = std::make_shared<filter::CircuitBreakerFilter>(*callbacks, config);
+    filters_.push_back(filter);
+    circuit_breaker_callbacks_ = callbacks;
+    return *this;
+  }
+
+  // Add backpressure filter
+  FilterChainBuilder& withBackpressure(const filter::BackpressureConfig& config,
+                                       network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<BackpressureCallbacks>(stats_, connection);
+    auto filter = std::make_shared<filter::BackpressureFilter>(*callbacks, config);
+    filters_.push_back(filter);
+    backpressure_callbacks_ = callbacks;
+    return *this;
+  }
+
+  // Add request validation filter
+  FilterChainBuilder& withRequestValidation(const filter::RequestValidationConfig& config,
+                                           network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RequestValidationCallbacks>(stats_, connection);
+    auto filter = std::make_shared<filter::RequestValidationFilter>(*callbacks, config);
+    filters_.push_back(filter);
+    validation_callbacks_ = callbacks;
+    return *this;
+  }
+
+  // Build the filter chain
+  std::vector<FilterPtr> build() {
+    return filters_;
+  }
+  
+  // Legacy API support - add filter with factory function
+  FilterChainBuilder& addFilter(std::function<network::FilterSharedPtr()> factory) {
+    auto filter = factory();
+    filters_.push_back(filter);
+    return *this;
+  }
+  
+  // Legacy API support - add filter instance directly
+  FilterChainBuilder& addFilterInstance(network::FilterSharedPtr filter) {
+    filters_.push_back(filter);
+    return *this;
+  }
+
+  // Get metrics filter for external access
+  std::shared_ptr<filter::MetricsFilter> getMetricsFilter() const {
+    return metrics_filter_;
+  }
+
+ private:
+  // Callback implementations
+  class RateLimitCallbacks : public filter::RateLimitFilter::Callbacks {
+   public:
+    RateLimitCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
+    void onRequestAllowed() override {
+      // Request was allowed through - update stats
+      stats_.requests_total++;
+    }
+
+    void onRequestLimited(std::chrono::milliseconds retry_after) override {
+      stats_.requests_failed++;
+      
+      // Send rate limit error response to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["retry_after_ms"] = std::to_string(retry_after.count());
+        errorData["error_type"] = "rate_limit";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32429, "Rate limit exceeded")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
+    }
+
+    void onRateLimitWarning(int remaining) override {
+      // Could trigger alerts or adjust behavior when approaching limit
+      if (remaining < 10) {
+        // Critical warning - might want to start queuing or buffering
+        stats_.errors_total++;
+      }
+    }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
+  };
+
+  class CircuitBreakerCallbacks : public filter::CircuitBreakerFilter::Callbacks {
+   public:
+    CircuitBreakerCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
+    void onStateChange(filter::CircuitState old_state,
+                      filter::CircuitState new_state,
+                      const std::string& reason) override {
+      // Handle state transitions
+      if (new_state == filter::CircuitState::OPEN) {
+        // Circuit is open - stop accepting new requests
+        is_circuit_open_ = true;
+        
+        // Could trigger failover to backup service or cache
+        // Could notify load balancer to redirect traffic
+        stats_.errors_total++;
+      } else if (new_state == filter::CircuitState::HALF_OPEN) {
+        // Testing if service recovered - allow limited traffic
+        is_circuit_open_ = false;
+      } else if (new_state == filter::CircuitState::CLOSED) {
+        // Service healthy - resume normal operations
+        is_circuit_open_ = false;
+      }
+    }
+
+    void onRequestBlocked(const std::string& method) override {
+      stats_.requests_failed++;
+      
+      // Send service unavailable error to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["error_type"] = "circuit_breaker_open";
+        errorData["retry_after_ms"] = "5000"; // Suggest retry after 5 seconds
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32503, "Service temporarily unavailable")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
+    }
+
+    void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
+      // Track health metrics for monitoring/alerting
+      if (success_rate < 0.5) { // Less than 50% success rate
+        // Could trigger alerts or start pre-emptive actions
+        stats_.errors_total++;
+      }
+      
+      // Update latency tracking
+      if (latency_ms > stats_.request_duration_ms_max.load()) {
+        stats_.request_duration_ms_max.store(latency_ms);
+      }
+    }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+    
+    bool isCircuitOpen() const { return is_circuit_open_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
+    std::atomic<bool> is_circuit_open_{false};
+  };
+
+  class BackpressureCallbacks : public filter::BackpressureFilter::Callbacks {
+   public:
+    BackpressureCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
+    void onBackpressureApplied() override {
+      is_backpressure_active_ = true;
+      
+      // Pause reading from connection to prevent buffer overflow
+      if (connection_) {
+        connection_->readDisable(true);
+      }
+      
+      // Could also:
+      // - Start buffering to disk if critical
+      // - Notify upstream to slow down
+      // - Switch to degraded mode with reduced functionality
+    }
+
+    void onBackpressureReleased() override {
+      is_backpressure_active_ = false;
+      
+      // Resume reading from connection
+      if (connection_) {
+        connection_->readDisable(false);
+      }
+      
+      // Could also:
+      // - Process any buffered data
+      // - Notify upstream that normal rate can resume
+      // - Switch back to normal mode
+    }
+
+    void onDataDropped(size_t bytes) override {
+      stats_.errors_total++;
+      dropped_bytes_ += bytes;
+      
+      // Critical situation - data loss occurring
+      if (connection_) {
+        // Send warning to client about data loss
+        Metadata params;
+        params["bytes_dropped"] = static_cast<int64_t>(bytes);
+        params["total_dropped"] = static_cast<int64_t>(dropped_bytes_.load());
+        params["reason"] = std::string("buffer_overflow");
+        
+        auto notification = make<jsonrpc::Notification>("backpressure.data_dropped")
+            .params(params);
+        
+        // TODO: Send notification through connection
+        // This would typically be: connection_->sendNotification(notification);
+      }
+      
+      // Could trigger emergency measures:
+      // - Force disconnect abusive clients
+      // - Enable more aggressive rate limiting
+      // - Alert operations team
+    }
+    
+    bool isBackpressureActive() const { return is_backpressure_active_; }
+    size_t getDroppedBytes() const { return dropped_bytes_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    std::atomic<bool> is_backpressure_active_{false};
+    std::atomic<size_t> dropped_bytes_{0};
+  };
+
+  class RequestValidationCallbacks : public filter::RequestValidationFilter::ValidationCallbacks {
+   public:
+    RequestValidationCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr)
+        : stats_(stats), connection_(connection) {}
+
+    void onRequestValidated(const std::string& method) override {
+      // Request passed validation - update success stats
+      stats_.requests_success++;
+      validated_requests_++;
+    }
+
+    void onRequestRejected(const std::string& method,
+                          const std::string& reason) override {
+      stats_.requests_failed++;
+      rejected_requests_++;
+      
+      // Send validation error response to client
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["reason"] = reason;
+        errorData["error_type"] = "validation_failed";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32602, "Request validation failed")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+        
+        // For security violations, might want to:
+        // - Log the attempt for security audit
+        // - Increment security violation counter
+        // - Block client after repeated violations
+        if (reason.find("security") != std::string::npos ||
+            reason.find("injection") != std::string::npos) {
+          security_violations_++;
+          
+          // Block client after too many security violations
+          if (security_violations_ > 5 && connection_) {
+            connection_->close(network::ConnectionCloseType::NoFlush);
+          }
+        }
+      }
+    }
+
+    void onRateLimitExceeded(const std::string& method) override {
+      stats_.requests_failed++;
+      rate_limit_violations_++;
+      
+      // Send rate limit error for method-specific limits
+      if (connection_) {
+        // Create error data as map<string, string> for ErrorData
+        std::map<std::string, std::string> errorData;
+        errorData["method"] = method;
+        errorData["error_type"] = "method_rate_limit";
+        errorData["retry_after_ms"] = "1000";
+        
+        // Use builders to create error response
+        auto error = make<Error>(-32429, "Method rate limit exceeded")
+            .data(errorData);
+        
+        auto response = make<jsonrpc::Response>(last_request_id_)
+            .error(error);
+        
+        // TODO: Send error response through connection
+        // This would typically be: connection_->sendResponse(response.build());
+      }
+    }
+    
+    void setLastRequestId(const RequestId& id) {
+      last_request_id_ = id;
+    }
+    
+    size_t getValidatedRequests() const { return validated_requests_; }
+    size_t getRejectedRequests() const { return rejected_requests_; }
+    size_t getSecurityViolations() const { return security_violations_; }
+
+   private:
+    ApplicationStats& stats_;
+    network::Connection* connection_;
+    RequestId last_request_id_;
+    std::atomic<size_t> validated_requests_{0};
+    std::atomic<size_t> rejected_requests_{0};
+    std::atomic<size_t> security_violations_{0};
+    std::atomic<size_t> rate_limit_violations_{0};
+  };
+
+  event::Dispatcher& dispatcher_;
+  ApplicationStats& stats_;
+  std::vector<FilterPtr> filters_;
+  
+  // Store specific filter references
+  std::shared_ptr<filter::MetricsFilter> metrics_filter_;
+  std::shared_ptr<RateLimitCallbacks> rate_limit_callbacks_;
+  std::shared_ptr<CircuitBreakerCallbacks> circuit_breaker_callbacks_;
+  std::shared_ptr<BackpressureCallbacks> backpressure_callbacks_;
+  std::shared_ptr<RequestValidationCallbacks> validation_callbacks_;
+};
+
+/**
+ * Base class for MCP applications following production architecture
+ *
+ * Provides:
+ * - Worker thread management
+ * - Filter chain architecture using external filters
+ * - Connection pooling
+ * - Metrics and observability
+ * - Graceful shutdown
+ */
+class ApplicationBase : public McpMessageCallbacks {
+ public:
+  /**
+   * Application configuration
+   */
   struct Config {
-    // Worker thread configuration
-    size_t num_workers = 4;
-    bool pin_worker_threads = false;
-
-    // Connection limits
-    size_t max_connections_per_worker = 1000;
-    size_t connection_timeout_ms = 30000;
-
-    // Buffer limits for flow control
-    uint32_t buffer_high_watermark = 1024 * 1024;  // 1MB
-    uint32_t buffer_low_watermark = 256 * 1024;    // 256KB
-
-    // Observability
+    // Legacy config compatibility
+    size_t num_workers = 4;  // For old API compatibility
+    uint32_t buffer_high_watermark = 1024 * 1024;  // 1MB - legacy API
+    uint32_t buffer_low_watermark = 256 * 1024;    // 256KB - legacy API
+    std::string name = "MCPApplication";
+    size_t worker_threads = 4;
+    size_t connection_pool_size = 10;
+    size_t max_idle_connections = 5;
     bool enable_metrics = true;
-    bool enable_tracing = false;
-    std::chrono::milliseconds metrics_interval{5000};
+    bool enable_rate_limiting = true;
+    bool enable_circuit_breaker = true;
+    bool enable_backpressure = true;
+    bool enable_request_validation = false;
+    std::chrono::seconds shutdown_timeout{30};
+    
+    // Filter configurations
+    filter::RateLimitConfig rate_limit_config;
+    filter::MetricsFilter::Config metrics_config;
+    filter::CircuitBreakerConfig circuit_breaker_config;
+    filter::BackpressureConfig backpressure_config;
+    filter::RequestValidationConfig validation_config;
   };
 
   ApplicationBase(const Config& config)
       : config_(config),
-        dispatcher_factory_(event::createLibeventDispatcherFactory()),
-        socket_interface_(std::make_unique<network::SocketInterfaceImpl>()),
-        running_(false) {
-    // Initialize metrics collector if enabled
-    if (config_.enable_metrics) {
-      startMetricsCollection();
-    }
+        shutdown_requested_(false),
+        workers_started_(false) {
+    std::cerr << "[INFO] Initializing application: " << config_.name 
+              << std::endl;
   }
 
-  virtual ~ApplicationBase() { stop(); }
+  virtual ~ApplicationBase() {
+    shutdown();
+  }
 
-  // Initialize the application (create dispatchers and workers),
-  // separate initialization from running
-  void initialize() {
-    if (initialized_.exchange(true)) {
-      return;  // Already initialized
+  /**
+   * Initialize the application
+   * Following Envoy pattern: create workers with dispatchers
+   */
+  virtual bool initialize() {
+    // Initialize socket interface for legacy API
+    if (!socket_interface_) {
+      socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
     }
+    std::cerr << "[INFO] Initializing application with " 
+              << config_.worker_threads << " workers" << std::endl;
 
-    LOG_INFO("Initializing application with {} workers", config_.num_workers);
-
-    // Create main dispatcher for control plane
-    main_dispatcher_ = dispatcher_factory_->createDispatcher("main");
-
-    // Create worker threads for data plane
-    for (size_t i = 0; i < config_.num_workers; ++i) {
-      auto worker = std::make_unique<WorkerContext>(
-          "worker_" + std::to_string(i), *dispatcher_factory_,
-          *socket_interface_);
-
-      // Initialize worker-specific resources
-      initializeWorker(*worker);
-
-      // Start worker thread
-      worker_threads_.emplace_back([this, worker_ptr = worker.get()]() {
-        if (config_.pin_worker_threads) {
-          pinThreadToCpu(std::this_thread::get_id());
-        }
-        worker_ptr->run();
-      });
-
+    // Create worker threads
+    for (size_t i = 0; i < config_.worker_threads; ++i) {
+      auto worker = std::make_unique<WorkerThread>("worker_" + std::to_string(i));
       workers_.push_back(std::move(worker));
+      
+      // Create WorkerContext for legacy API support
+      // Note: We'll initialize these properly when workers start
+      worker_contexts_.push_back(nullptr);
     }
 
-    running_ = true;
+    // Initialize connection pool
+    connection_pool_ = createConnectionPool();
+
+    return true;
   }
 
-  // Run the main dispatcher event loop (blocks until exit)
-  // This should be called from main thread.
-  void runEventLoop() {
-    if (!initialized_) {
-      initialize();
+  /**
+   * Start the application
+   */
+  virtual bool start() {
+    if (workers_started_) {
+      return true;
     }
 
-    if (main_dispatcher_) {
-      LOG_INFO("Running main event loop");
-      main_dispatcher_->run(event::RunType::RunUntilExit);
+    std::cerr << "[INFO] Starting application workers" << std::endl;
+
+    // Start worker threads
+    for (size_t i = 0; i < workers_.size(); ++i) {
+      workers_[i]->start();
+      
+      // Create WorkerContext for legacy API after worker starts
+      if (workers_[i]->getDispatcher()) {
+        worker_contexts_[i] = std::make_unique<WorkerContext>(
+            "worker_" + std::to_string(i),
+            *workers_[i]->getDispatcher(),
+            *socket_interface_);
+        
+        // Initialize worker using legacy API if derived class overrides it
+        initializeWorker(*worker_contexts_[i]);
+      }
+    }
+
+    workers_started_ = true;
+    running_ = true;  // Legacy API compatibility
+    initialized_ = true;  // Legacy API compatibility
+
+    // Application-specific startup
+    return onStart();
+  }
+
+  /**
+   * Run the main event loop
+   */
+  virtual void run() {
+    std::cerr << "[INFO] Running main event loop" << std::endl;
+
+    // Create main dispatcher
+    auto dispatcher = std::make_unique<event::LibeventDispatcher>("main");
+    main_dispatcher_ = dispatcher.get();
+
+    // Run until shutdown requested
+    while (!shutdown_requested_) {
+      dispatcher->run(event::RunType::NonBlock);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+      // Process any pending work
+      processPendingWork();
     }
   }
 
-  // Start the application with worker threads (legacy method)
-  void start() {
-    initialize();
-    runEventLoop();
-  }
-
-  // Stop the application gracefully
-  void stop() {
-    if (!running_.exchange(false)) {
-      return;  // Already stopped
+  /**
+   * Shutdown the application
+   */
+  virtual void shutdown() {
+    if (shutdown_requested_) {
+      return;
     }
 
-    LOG_INFO("Stopping application");
+    std::cerr << "[INFO] Shutting down application" << std::endl;
+    shutdown_requested_ = true;
+    running_ = false;  // Legacy API compatibility
+    initialized_ = false;  // Legacy API compatibility
 
-    // Stop main dispatcher first to unblock start()
-    if (main_dispatcher_) {
-      main_dispatcher_->exit();
-    }
+    // Application-specific shutdown
+    onShutdown();
 
-    // Stop workers
+    // Stop worker threads
     for (auto& worker : workers_) {
       worker->stop();
     }
 
-    // Wait for worker threads
-    for (auto& thread : worker_threads_) {
-      if (thread.joinable()) {
-        thread.join();
+    // Wait for workers with timeout
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < config_.shutdown_timeout) {
+      bool all_stopped = true;
+      for (const auto& worker : workers_) {
+        if (!worker->isStopped()) {
+          all_stopped = false;
+          break;
+        }
       }
+
+      if (all_stopped) {
+        break;
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    // Stop metrics thread
-    if (metrics_thread_.joinable()) {
-      metrics_thread_.join();
-    }
-
-    // Final metrics report
-    if (config_.enable_metrics) {
-      reportFinalMetrics();
-    }
+    std::cerr << "[INFO] Application shutdown complete" << std::endl;
   }
 
-  // Get application statistics
+  /**
+   * Get application statistics
+   */
   const ApplicationStats& getStats() const { return stats_; }
 
-  // Track a failure
-  void trackFailure(const FailureReason& reason) {
-    std::lock_guard<std::mutex> lock(failure_mutex_);
-    failure_history_.push_back(reason);
+  /**
+   * Create filter chain for connection
+   * Enhanced to support legacy setupFilterChain API
+   */
+  std::vector<std::shared_ptr<network::Filter>> createFilterChain(
+      event::Dispatcher& dispatcher) {
+    FilterChainBuilder builder(dispatcher, stats_);
 
-    // Keep only recent failures (last 1000)
-    if (failure_history_.size() > 1000) {
-      failure_history_.erase(failure_history_.begin());
+    // Add filters based on configuration
+    if (config_.enable_circuit_breaker) {
+      builder.withCircuitBreaker(config_.circuit_breaker_config);
     }
 
-    stats_.errors_total++;
+    if (config_.enable_rate_limiting) {
+      builder.withRateLimiting(config_.rate_limit_config);
+    }
 
-    LOG_ERROR("Failure: {} - {}", static_cast<int>(reason.getType()),
-              reason.getDescription());
+    if (config_.enable_metrics) {
+      builder.withMetrics(config_.metrics_config);
+    }
+
+    if (config_.enable_request_validation) {
+      builder.withRequestValidation(config_.validation_config);
+    }
+
+    if (config_.enable_backpressure) {
+      builder.withBackpressure(config_.backpressure_config);
+    }
+    
+    // Call legacy setupFilterChain for derived classes
+    setupFilterChain(builder);
+
+    return builder.build();
   }
 
  protected:
-  // Initialize a worker with application-specific resources
-  virtual void initializeWorker(WorkerContext& worker) = 0;
-
-  // Get the next worker for load balancing
-  WorkerContext& getNextWorker() {
-    static std::atomic<size_t> counter{0};
-    size_t index = counter++ % workers_.size();
-    return *workers_[index];
+  // Override these in derived classes
+  virtual bool onStart() { return true; }
+  virtual void onShutdown() {}
+  virtual void processPendingWork() {}
+  virtual std::unique_ptr<ConnectionPool> createConnectionPool() {
+    return nullptr;
   }
-
-  // Get the main dispatcher for filter creation
-  // Protected so derived classes can access it for filter setup
-  event::Dispatcher& getMainDispatcher() {
-    if (!main_dispatcher_) {
-      throw std::runtime_error("Main dispatcher not initialized");
-    }
-    return *main_dispatcher_;
+  
+  // Legacy API support - override this in derived classes that need old API
+  virtual void initializeWorker(WorkerContext& worker) {
+    // Default implementation - derived classes override if needed
+    // This follows Envoy pattern where workers are initialized separately
   }
-
-  // Helper structure to manage JSON-RPC filter and its adapter lifetime
+  
+  // Legacy API support - setup filter chain using old builder API
+  virtual void setupFilterChain(FilterChainBuilder& builder) {
+    // Default implementation adds standard filters
+    // Derived classes can override to customize
+  }
+  
+  // Helper to create JSON-RPC filter (legacy API support)
   struct JsonRpcFilterBundle {
     std::shared_ptr<McpJsonRpcCallbackAdapter> adapter;
-    std::shared_ptr<filter::McpJsonRpcFilter> filter;
+    network::FilterSharedPtr filter;
   };
-
-  // Helper to create JSON-RPC filter with proper lifetime management
-  // Returns a bundle that keeps both adapter and filter alive
+  
   std::shared_ptr<JsonRpcFilterBundle> createJsonRpcFilter(
       McpMessageCallbacks& callbacks, bool is_server, bool use_framing = true) {
     auto bundle = std::make_shared<JsonRpcFilterBundle>();
-
+    
     // Create adapter
     bundle->adapter = std::make_shared<McpJsonRpcCallbackAdapter>(callbacks);
-
-    // Create filter with adapter
+    
+    // Create filter
     bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
-        *bundle->adapter, getMainDispatcher(), is_server);
-    bundle->filter->setUseFraming(use_framing);
-
+        *bundle->adapter, is_server, use_framing);
+    
     return bundle;
   }
-
-  // Create filter chain for connections
-  virtual void setupFilterChain(FilterChainBuilder& builder) {
-    // Base filters - derived classes add more
-
-    // Add rate limiting filter
-    builder.addFilter([]() -> network::FilterSharedPtr {
-      return std::static_pointer_cast<network::Filter>(
-          std::make_shared<RateLimitFilter>());
-    });
-
-    // Add metrics collection filter
-    builder.addFilter([this]() -> network::FilterSharedPtr {
-      return std::static_pointer_cast<network::Filter>(
-          std::make_shared<MetricsFilter>(stats_));
-    });
+  
+  // Get next worker for load balancing (legacy API)
+  WorkerContext* getNextWorker() {
+    if (worker_contexts_.empty()) return nullptr;
+    static std::atomic<size_t> counter{0};
+    size_t index = counter++ % worker_contexts_.size();
+    return worker_contexts_[index].get();
   }
 
- private:
-  void startMetricsCollection() {
-    metrics_thread_ = std::thread([this]() {
+  // McpMessageCallbacks - override in derived classes
+  void onRequest(const jsonrpc::Request& request) override {}
+  void onNotification(const jsonrpc::Notification& notification) override {}
+  void onResponse(const jsonrpc::Response& response) override {}
+  void onError(const Error& error) override {
+    stats_.errors_total++;
+  }
+
+  /**
+   * Worker thread for processing
+   */
+  class WorkerThread {
+   public:
+    WorkerThread(const std::string& name)
+        : name_(name), running_(false), stopped_(true) {}
+
+    ~WorkerThread() {
+      stop();
+    }
+
+    void start() {
+      if (running_) {
+        return;
+      }
+
+      running_ = true;
+      stopped_ = false;
+      thread_ = std::thread([this] { run(); });
+    }
+
+    void stop() {
+      if (!running_) {
+        return;
+      }
+
+      running_ = false;
+
+      if (thread_.joinable()) {
+        thread_.join();
+      }
+
+      stopped_ = true;
+    }
+
+    bool isStopped() const { return stopped_; }
+
+    event::Dispatcher* getDispatcher() { return dispatcher_.get(); }
+
+   private:
+    void run() {
+      std::cerr << "[INFO] Worker " << name_ << " starting" << std::endl;
+
+      // Create dispatcher for this thread
+      dispatcher_ = std::make_unique<event::LibeventDispatcher>(name_);
+
+      // Run event loop
       while (running_) {
-        // Sleep in small increments to allow quick shutdown
-        auto remaining = config_.metrics_interval;
-        while (running_ && remaining > std::chrono::milliseconds(100)) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
-          remaining -= std::chrono::milliseconds(100);
-        }
-        if (running_ && remaining > std::chrono::milliseconds(0)) {
-          std::this_thread::sleep_for(remaining);
-        }
-        if (running_) {
-          reportMetrics();
-        }
-      }
-    });
-  }
-
-  void reportMetrics() {
-    LOG_INFO(
-        "Metrics: connections={}/{}, requests={}, success={}, failed={}, "
-        "bytes_sent={}, bytes_received={}",
-        stats_.connections_active.load(), stats_.connections_total.load(),
-        stats_.requests_total.load(), stats_.requests_success.load(),
-        stats_.requests_failed.load(), stats_.bytes_sent.load(),
-        stats_.bytes_received.load());
-
-    if (stats_.requests_total > 0) {
-      uint64_t avg_duration =
-          stats_.request_duration_ms_total / stats_.requests_total;
-      LOG_INFO("Request latency: avg={}ms, min={}ms, max={}ms", avg_duration,
-               stats_.request_duration_ms_min.load(),
-               stats_.request_duration_ms_max.load());
-    }
-  }
-
-  void reportFinalMetrics() {
-    LOG_INFO("Final metrics report:");
-    reportMetrics();
-
-    // Report failure summary
-    std::lock_guard<std::mutex> lock(failure_mutex_);
-    if (!failure_history_.empty()) {
-      std::map<FailureReason::Type, size_t> failure_counts;
-      for (const auto& failure : failure_history_) {
-        failure_counts[failure.getType()]++;
+        dispatcher_->run(event::RunType::NonBlock);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
 
-      LOG_INFO("Failure summary:");
-      for (const auto& pair : failure_counts) {
-        LOG_INFO("  Type {}: {} occurrences", static_cast<int>(pair.first),
-                 pair.second);
-      }
+      std::cerr << "[INFO] Worker " << name_ << " stopped" << std::endl;
     }
-  }
 
-  void pinThreadToCpu(std::thread::id thread_id) {
-    // Platform-specific CPU pinning
-    // Implementation depends on OS (sched_setaffinity on Linux, etc.)
-  }
+    std::string name_;
+    std::atomic<bool> running_;
+    std::atomic<bool> stopped_;
+    std::thread thread_;
+    std::unique_ptr<event::Dispatcher> dispatcher_;
+  };
 
-  // Simple logging helpers (should use proper logging library)
-  // Helper function to format string with arguments
-  template <typename T>
-  void format_helper(std::stringstream& ss,
-                     const std::string& fmt,
-                     size_t& pos,
-                     const T& value) {
-    size_t next = fmt.find("{}", pos);
-    if (next != std::string::npos) {
-      ss << fmt.substr(pos, next - pos) << value;
-      pos = next + 2;
-    }
-  }
-
-  template <typename T, typename... Args>
-  void format_helper(std::stringstream& ss,
-                     const std::string& fmt,
-                     size_t& pos,
-                     const T& value,
-                     const Args&... args) {
-    format_helper(ss, fmt, pos, value);
-    format_helper(ss, fmt, pos, args...);
-  }
-
-  template <typename... Args>
-  std::string format_string(const std::string& fmt, const Args&... args) {
-    std::stringstream ss;
-    size_t pos = 0;
-    format_helper(ss, fmt, pos, args...);
-    // Append any remaining part of the format string
-    if (pos < fmt.length()) {
-      ss << fmt.substr(pos);
-    }
-    return ss.str();
-  }
-
-  void LOG_INFO(const std::string& msg) {
-    std::cerr << "[INFO] " << msg << std::endl;
-  }
-
-  template <typename... Args>
-  void LOG_INFO(const std::string& fmt, const Args&... args) {
-    std::cerr << "[INFO] " << format_string(fmt, args...) << std::endl;
-  }
-
-  void LOG_ERROR(const std::string& msg) {
-    std::cerr << "[ERROR] " << msg << std::endl;
-  }
-
-  template <typename... Args>
-  void LOG_ERROR(const std::string& fmt, const Args&... args) {
-    std::cerr << "[ERROR] " << format_string(fmt, args...) << std::endl;
-  }
-
- protected:
+  // Configuration
   Config config_;
+
+  // Application state
+  std::atomic<bool> shutdown_requested_;
+  std::atomic<bool> workers_started_;
+
+  // Worker threads
+  std::vector<std::unique_ptr<WorkerThread>> workers_;
+  event::Dispatcher* main_dispatcher_ = nullptr;
+
+  // Connection pool
+  std::unique_ptr<ConnectionPool> connection_pool_;
+
+  // Statistics
   ApplicationStats stats_;
-  std::unique_ptr<event::DispatcherFactory> dispatcher_factory_;
+  
+  // Legacy API support members
+  std::vector<std::unique_ptr<WorkerContext>> worker_contexts_;
   std::unique_ptr<network::SocketInterface> socket_interface_;
-  std::unique_ptr<event::Dispatcher> main_dispatcher_;
-
-  std::vector<std::unique_ptr<WorkerContext>> workers_;
-  std::vector<std::thread> worker_threads_;
-
+  
+  // Legacy compatibility flags
   std::atomic<bool> initialized_{false};
-  std::atomic<bool> running_;
-  std::thread metrics_thread_;
-
-  std::vector<FailureReason> failure_history_;
-  mutable std::mutex failure_mutex_;
-
-  FilterChainBuilder filter_chain_builder_;
-};
-
-// Helper filters for common functionality
-
-/**
- * Rate limiting filter
- */
-class RateLimitFilter : public network::Filter {
- public:
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    // Simple rate limiting logic
-    return network::FilterStatus::Continue;
+  std::atomic<bool> running_{false};
+  
+  // Support old API methods
+  void stop() { shutdown(); }
+  void runEventLoop() { run(); }
+  
+  // Track failures for legacy API
+  void trackFailure(const FailureReason& reason) {
+    stats_.errors_total++;
   }
-
-  network::FilterStatus onNewConnection() override {
-    return network::FilterStatus::Continue;
-  }
-
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    return network::FilterStatus::Continue;
-  }
-
-  void initializeReadFilterCallbacks(
-      network::ReadFilterCallbacks& callbacks) override {}
-  void initializeWriteFilterCallbacks(
-      network::WriteFilterCallbacks& callbacks) override {}
-};
-
-/**
- * Metrics collection filter
- */
-class MetricsFilter : public network::Filter {
- public:
-  MetricsFilter(ApplicationStats& stats) : stats_(stats) {}
-
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    stats_.bytes_received += data.length();
-    return network::FilterStatus::Continue;
-  }
-
-  network::FilterStatus onNewConnection() override {
-    stats_.connections_active++;
-    stats_.connections_total++;
-    return network::FilterStatus::Continue;
-  }
-
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    stats_.bytes_sent += data.length();
-    return network::FilterStatus::Continue;
-  }
-
-  void initializeReadFilterCallbacks(
-      network::ReadFilterCallbacks& callbacks) override {}
-  void initializeWriteFilterCallbacks(
-      network::WriteFilterCallbacks& callbacks) override {}
-
- private:
-  ApplicationStats& stats_;
 };
 
 }  // namespace application

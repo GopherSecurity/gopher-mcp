@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
-#include "mcp/mcp_application_base_refactored.h"
+#include "mcp/mcp_application_base.h"
 #include "mcp/event/libevent_dispatcher.h"
 
 using namespace mcp;
