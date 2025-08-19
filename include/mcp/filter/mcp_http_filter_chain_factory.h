@@ -50,7 +50,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
   McpHttpFilterChainFactory(event::Dispatcher& dispatcher,
                             McpMessageCallbacks& message_callbacks,
                             bool is_server = true)
-      : dispatcher_(dispatcher), 
+      : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
         is_server_(is_server) {}
 

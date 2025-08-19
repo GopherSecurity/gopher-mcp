@@ -3,8 +3,9 @@
  * @brief Simple unit tests for Backpressure Filter (no real I/O)
  */
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "../../include/mcp/filter/backpressure_filter.h"
 
 using namespace mcp;
@@ -15,23 +16,23 @@ namespace {
 
 // Mock callbacks
 class MockBackpressureCallbacks : public BackpressureFilter::Callbacks {
-public:
+ public:
   MOCK_METHOD(void, onBackpressureApplied, (), (override));
   MOCK_METHOD(void, onBackpressureReleased, (), (override));
   MOCK_METHOD(void, onDataDropped, (size_t bytes), (override));
 };
 
 class BackpressureFilterSimpleTest : public ::testing::Test {
-protected:
+ protected:
   void SetUp() override {
     callbacks_ = std::make_unique<NiceMock<MockBackpressureCallbacks>>();
   }
-  
+
   void createFilter(const BackpressureConfig& config) {
     filter_ = std::make_unique<BackpressureFilter>(*callbacks_, config);
   }
-  
-protected:
+
+ protected:
   std::unique_ptr<BackpressureFilter> filter_;
   std::unique_ptr<MockBackpressureCallbacks> callbacks_;
 };
@@ -42,7 +43,7 @@ TEST_F(BackpressureFilterSimpleTest, ConfigurationAccepted) {
   config.high_watermark = 10 * 1024;
   config.low_watermark = 2 * 1024;
   config.max_bytes_per_second = 100 * 1024;
-  
+
   createFilter(config);
   EXPECT_TRUE(filter_ != nullptr);
 }
@@ -53,9 +54,9 @@ TEST_F(BackpressureFilterSimpleTest, WatermarkConfiguration) {
   config.high_watermark = 10 * 1024;
   config.low_watermark = 2 * 1024;
   config.pause_duration = std::chrono::milliseconds(100);
-  
+
   createFilter(config);
-  
+
   // Verify watermarks are properly set
   EXPECT_TRUE(config.low_watermark < config.high_watermark);
   EXPECT_EQ(config.pause_duration.count(), 100);
@@ -67,7 +68,7 @@ TEST_F(BackpressureFilterSimpleTest, NetworkFilterInterface) {
   config.high_watermark = 10 * 1024;
   config.low_watermark = 2 * 1024;
   createFilter(config);
-  
+
   // Test filter implements required methods
   auto buffer = createBuffer();
   EXPECT_EQ(filter_->onData(*buffer, false), network::FilterStatus::Continue);
@@ -81,7 +82,7 @@ TEST_F(BackpressureFilterSimpleTest, InitialState) {
   config.high_watermark = 10 * 1024;
   config.low_watermark = 2 * 1024;
   createFilter(config);
-  
+
   // Just verify filter is created
   EXPECT_TRUE(filter_ != nullptr);
 }
@@ -93,7 +94,7 @@ TEST_F(BackpressureFilterSimpleTest, RateLimitingConfig) {
   createFilter(config);
   EXPECT_TRUE(filter_ != nullptr);
   EXPECT_EQ(config.max_bytes_per_second, 1024 * 1024);
-  
+
   // Test unlimited rate (0 = unlimited)
   config.max_bytes_per_second = 0;
   createFilter(config);
@@ -101,4 +102,4 @@ TEST_F(BackpressureFilterSimpleTest, RateLimitingConfig) {
   EXPECT_EQ(config.max_bytes_per_second, 0);
 }
 
-} // namespace
+}  // namespace

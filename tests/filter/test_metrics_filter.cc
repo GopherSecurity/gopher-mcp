@@ -3,10 +3,12 @@
  * @brief Unit tests for Metrics Filter
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <chrono>
 #include <thread>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "../../include/mcp/filter/metrics_filter.h"
 #include "../integration/real_io_test_base.h"
 
@@ -19,30 +21,42 @@ namespace {
 
 // Mock callbacks for metrics events
 class MockMetricsCallbacks : public MetricsFilter::MetricsCallbacks {
-public:
-  MOCK_METHOD(void, onMetricsUpdate, (const ConnectionMetrics& metrics), (override));
-  MOCK_METHOD(void, onThresholdExceeded, 
-              (const std::string& metric_name, uint64_t value, uint64_t threshold), 
+ public:
+  MOCK_METHOD(void,
+              onMetricsUpdate,
+              (const ConnectionMetrics& metrics),
+              (override));
+  MOCK_METHOD(void,
+              onThresholdExceeded,
+              (const std::string& metric_name,
+               uint64_t value,
+               uint64_t threshold),
               (override));
 };
 
 // Mock JSON-RPC callbacks
 class MockJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
-public:
+ public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request& request), (override));
-  MOCK_METHOD(void, onResponse, (const jsonrpc::Response& response), (override));
-  MOCK_METHOD(void, onNotification, (const jsonrpc::Notification& notification), (override));
+  MOCK_METHOD(void,
+              onResponse,
+              (const jsonrpc::Response& response),
+              (override));
+  MOCK_METHOD(void,
+              onNotification,
+              (const jsonrpc::Notification& notification),
+              (override));
   MOCK_METHOD(void, onProtocolError, (const Error& error), (override));
 };
 
 class MetricsFilterTest : public test::RealIoTestBase {
-protected:
+ protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
-    
+
     callbacks_ = std::make_unique<NiceMock<MockMetricsCallbacks>>();
     next_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
-    
+
     // Default config
     config_.rate_update_interval = 1s;  // Changed to seconds
     config_.report_interval = 1s;       // Changed to seconds
@@ -51,21 +65,19 @@ protected:
     config_.bytes_threshold = 10 * 1024;  // 10KB for testing
     config_.track_methods = true;
   }
-  
+
   void TearDown() override {
-    executeInDispatcher([this]() {
-      filter_.reset();
-    });
+    executeInDispatcher([this]() { filter_.reset(); });
     RealIoTestBase::TearDown();
   }
-  
+
   void createFilter() {
     executeInDispatcher([this]() {
       filter_ = std::make_unique<MetricsFilter>(*callbacks_, config_);
       filter_->setNextCallbacks(next_callbacks_.get());
     });
   }
-  
+
   // Helper to create buffer with specific size
   std::unique_ptr<Buffer> createBufferWithSize(size_t size) {
     auto buffer = createBuffer();
@@ -73,7 +85,7 @@ protected:
     buffer->add(data);
     return buffer;
   }
-  
+
   // Helper to create test request
   jsonrpc::Request createRequest(const std::string& method, int id = 1) {
     jsonrpc::Request req;
@@ -82,7 +94,7 @@ protected:
     req.id = id;
     return req;
   }
-  
+
   // Helper to create test response
   jsonrpc::Response createResponse(int id, bool is_error = false) {
     jsonrpc::Response resp;
@@ -95,8 +107,8 @@ protected:
     }
     return resp;
   }
-  
-protected:
+
+ protected:
   std::unique_ptr<MetricsFilter> filter_;
   std::unique_ptr<MockMetricsCallbacks> callbacks_;
   std::unique_ptr<MockJsonRpcCallbacks> next_callbacks_;
@@ -106,16 +118,18 @@ protected:
 // Test basic byte counting
 TEST_F(MetricsFilterTest, ByteCounting) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Track received bytes
     auto recv_buffer = createBufferWithSize(1024);
-    EXPECT_EQ(filter_->onData(*recv_buffer, false), network::FilterStatus::Continue);
-    
+    EXPECT_EQ(filter_->onData(*recv_buffer, false),
+              network::FilterStatus::Continue);
+
     // Track sent bytes
     auto send_buffer = createBufferWithSize(2048);
-    EXPECT_EQ(filter_->onWrite(*send_buffer, false), network::FilterStatus::Continue);
-    
+    EXPECT_EQ(filter_->onWrite(*send_buffer, false),
+              network::FilterStatus::Continue);
+
     // Check metrics
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -129,23 +143,23 @@ TEST_F(MetricsFilterTest, ByteCounting) {
 // Test request/response tracking
 TEST_F(MetricsFilterTest, RequestResponseTracking) {
   createFilter();
-  
+
   EXPECT_CALL(*next_callbacks_, onRequest(_)).Times(2);
   EXPECT_CALL(*next_callbacks_, onResponse(_)).Times(2);
-  
+
   executeInDispatcher([this]() {
     // Send requests
     auto req1 = createRequest("method1", 1);
     auto req2 = createRequest("method2", 2);
     filter_->onRequest(req1);
     filter_->onRequest(req2);
-    
+
     // Receive responses
     auto resp1 = createResponse(1);
     auto resp2 = createResponse(2);
     filter_->onResponse(resp1);
     filter_->onResponse(resp2);
-    
+
     // Check metrics
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -157,9 +171,9 @@ TEST_F(MetricsFilterTest, RequestResponseTracking) {
 // Test notification tracking
 TEST_F(MetricsFilterTest, NotificationTracking) {
   createFilter();
-  
+
   EXPECT_CALL(*next_callbacks_, onNotification(_)).Times(3);
-  
+
   executeInDispatcher([this]() {
     // Send notifications
     for (int i = 0; i < 3; ++i) {
@@ -167,7 +181,7 @@ TEST_F(MetricsFilterTest, NotificationTracking) {
       notif.method = "test.notification";
       filter_->onNotification(notif);
     }
-    
+
     // Check metrics
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -178,19 +192,19 @@ TEST_F(MetricsFilterTest, NotificationTracking) {
 // Test error tracking
 TEST_F(MetricsFilterTest, ErrorTracking) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Send error responses
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
-    
+
     auto error_resp = createResponse(1, true);
     filter_->onResponse(error_resp);
-    
+
     // Protocol error
     Error protocol_error(jsonrpc::INTERNAL_ERROR, "Test error");
     filter_->onProtocolError(protocol_error);
-    
+
     // Check metrics
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -202,19 +216,19 @@ TEST_F(MetricsFilterTest, ErrorTracking) {
 // Test latency tracking
 TEST_F(MetricsFilterTest, LatencyTracking) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Send request
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
-    
+
     // Simulate some latency
     std::this_thread::sleep_for(50ms);
-    
+
     // Send response
     auto resp = createResponse(1);
     filter_->onResponse(resp);
-    
+
     // Check latency metrics
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -229,13 +243,13 @@ TEST_F(MetricsFilterTest, LatencyTracking) {
 TEST_F(MetricsFilterTest, MethodSpecificTracking) {
   config_.track_methods = true;
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Send requests for different methods
     filter_->onRequest(createRequest("method1", 1));
     filter_->onRequest(createRequest("method1", 2));
     filter_->onRequest(createRequest("method2", 3));
-    
+
     // Check method counts
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -248,10 +262,10 @@ TEST_F(MetricsFilterTest, MethodSpecificTracking) {
 TEST_F(MetricsFilterTest, BytesThresholdExceeded) {
   config_.bytes_threshold = 5 * 1024;  // 5KB
   createFilter();
-  
+
   EXPECT_CALL(*callbacks_, onThresholdExceeded("bytes_received", _, 5 * 1024))
       .Times(1);
-  
+
   executeInDispatcher([this]() {
     // Send data exceeding threshold
     auto buffer = createBufferWithSize(6 * 1024);
@@ -263,18 +277,17 @@ TEST_F(MetricsFilterTest, BytesThresholdExceeded) {
 TEST_F(MetricsFilterTest, LatencyThresholdExceeded) {
   config_.max_latency_threshold_ms = 100;
   createFilter();
-  
-  EXPECT_CALL(*callbacks_, onThresholdExceeded("latency_ms", _, 100))
-      .Times(1);
-  
+
+  EXPECT_CALL(*callbacks_, onThresholdExceeded("latency_ms", _, 100)).Times(1);
+
   executeInDispatcher([this]() {
     // Send request
     auto req = createRequest("slow.method", 1);
     filter_->onRequest(req);
-    
+
     // Simulate high latency
     std::this_thread::sleep_for(150ms);
-    
+
     // Send response
     auto resp = createResponse(1);
     filter_->onResponse(resp);
@@ -285,10 +298,10 @@ TEST_F(MetricsFilterTest, LatencyThresholdExceeded) {
 TEST_F(MetricsFilterTest, ErrorRateThreshold) {
   config_.error_rate_threshold = 2;  // 2 errors per minute
   createFilter();
-  
+
   EXPECT_CALL(*callbacks_, onThresholdExceeded("error_rate", _, 2))
       .Times(AtLeast(1));
-  
+
   executeInDispatcher([this]() {
     // Generate errors quickly
     for (int i = 1; i <= 3; ++i) {
@@ -304,21 +317,21 @@ TEST_F(MetricsFilterTest, ErrorRateThreshold) {
 TEST_F(MetricsFilterTest, RateCalculations) {
   config_.rate_update_interval = 1s;
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Send data
     auto buffer1 = createBufferWithSize(1024);
     filter_->onData(*buffer1, false);
   });
-  
+
   // Wait for rate update
   std::this_thread::sleep_for(1500ms);
-  
+
   executeInDispatcher([this]() {
     // Send more data
     auto buffer2 = createBufferWithSize(2048);
     filter_->onData(*buffer2, false);
-    
+
     // Check rates
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
@@ -331,20 +344,19 @@ TEST_F(MetricsFilterTest, RateCalculations) {
 TEST_F(MetricsFilterTest, PeriodicMetricsReporting) {
   config_.report_interval = 1s;
   createFilter();
-  
+
   // Expect at least 2 updates in 250ms
-  EXPECT_CALL(*callbacks_, onMetricsUpdate(_))
-      .Times(AtLeast(2));
-  
+  EXPECT_CALL(*callbacks_, onMetricsUpdate(_)).Times(AtLeast(2));
+
   executeInDispatcher([this]() {
     // Generate some activity
     auto buffer = createBufferWithSize(1024);
     filter_->onData(*buffer, false);
-    
+
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
   });
-  
+
   // Wait for periodic reports
   std::this_thread::sleep_for(2500ms);
 }
@@ -352,24 +364,24 @@ TEST_F(MetricsFilterTest, PeriodicMetricsReporting) {
 // Test new connection resets metrics
 TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Generate some metrics
     auto buffer = createBufferWithSize(1024);
     filter_->onData(*buffer, false);
-    
+
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
-    
+
     // Check metrics are recorded
     ConnectionMetrics metrics1;
     filter_->getMetrics(metrics1);
     EXPECT_GT(metrics1.bytes_received, 0);
     EXPECT_GT(metrics1.requests_received, 0);
-    
+
     // New connection
     filter_->onNewConnection();
-    
+
     // Metrics should be reset
     ConnectionMetrics metrics2;
     filter_->getMetrics(metrics2);
@@ -382,26 +394,26 @@ TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
 // Test min/max latency tracking
 TEST_F(MetricsFilterTest, MinMaxLatencyTracking) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // Send multiple requests with different latencies
     for (int i = 1; i <= 3; ++i) {
       auto req = createRequest("test.method", i);
       filter_->onRequest(req);
-      
+
       // Vary latency
       std::this_thread::sleep_for(std::chrono::milliseconds(i * 20));
-      
+
       auto resp = createResponse(i);
       filter_->onResponse(resp);
     }
-    
+
     ConnectionMetrics metrics;
     filter_->getMetrics(metrics);
     EXPECT_GT(metrics.min_latency_ms, 0);
     EXPECT_LT(metrics.min_latency_ms, metrics.max_latency_ms);
     EXPECT_EQ(metrics.latency_samples, 3);
-    
+
     // Average should be reasonable
     if (metrics.latency_samples > 0) {
       uint64_t avg = metrics.total_latency_ms / metrics.latency_samples;
@@ -414,28 +426,28 @@ TEST_F(MetricsFilterTest, MinMaxLatencyTracking) {
 // Test connection timing
 TEST_F(MetricsFilterTest, ConnectionTiming) {
   createFilter();
-  
+
   executeInDispatcher([this]() {
     // New connection starts timing
     filter_->onNewConnection();
-    
+
     ConnectionMetrics metrics1;
     filter_->getMetrics(metrics1);
     auto start_time = metrics1.connection_start;
-    
+
     // Activity updates last activity time
     auto buffer = createBufferWithSize(1024);
     filter_->onData(*buffer, false);
-    
+
     std::this_thread::sleep_for(50ms);
-    
+
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
-    
+
     ConnectionMetrics metrics2;
     filter_->getMetrics(metrics2);
     EXPECT_GE(metrics2.last_activity, start_time);
   });
 }
 
-} // namespace
+}  // namespace

@@ -1,38 +1,41 @@
 /**
  * Unit tests for MCP Stdio Filter Chain Factory
- * 
+ *
  * Tests the filter chain factory for direct transports (stdio, websocket)
  * that don't require HTTP/SSE protocol layers.
  * Uses real I/O for integration testing.
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-#include <thread>
 #include <chrono>
+#include <thread>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <sys/socket.h>
-#include "../integration/real_io_test_base.h"
-#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
+
 #include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/network/filter.h"
-#include "mcp/network/connection_impl.h"
-#include "mcp/network/socket_impl.h"
-#include "mcp/mcp_connection_manager.h"
+#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/mcp_connection_manager.h"
+#include "mcp/network/connection_impl.h"
+#include "mcp/network/filter.h"
+#include "mcp/network/socket_impl.h"
+
+#include "../integration/real_io_test_base.h"
 
 namespace mcp {
 namespace filter {
 namespace {
 
 using ::testing::_;
-using ::testing::Return;
 using ::testing::NiceMock;
+using ::testing::Return;
 
 /**
  * Mock MCP message callbacks for testing
  */
 class MockMcpMessageCallbacks : public McpMessageCallbacks {
-public:
+ public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));
   MOCK_METHOD(void, onResponse, (const jsonrpc::Response&), (override));
@@ -44,65 +47,60 @@ public:
  * Test fixture for McpStdioFilterChainFactory using real I/O
  */
 class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
-protected:
+ protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
     message_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
   }
-  
+
   void TearDown() override {
     message_callbacks_.reset();
     RealIoTestBase::TearDown();
   }
-  
+
   // Helper to create factory and test filter chain
   void testFilterChain(bool is_server, bool use_framing) {
     executeInDispatcher([this, is_server, use_framing]() {
       // Create factory
       auto factory = std::make_shared<McpStdioFilterChainFactory>(
-          *dispatcher_, 
-          *message_callbacks_,
-          is_server,
-          use_framing);
-      
+          *dispatcher_, *message_callbacks_, is_server, use_framing);
+
       // Create mock connection for filter manager
       // Create a test file descriptor
       int test_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
       if (test_fd < 0) {
         throw std::runtime_error("Failed to create test socket");
       }
-      
+
       auto& socket_interface = network::socketInterface();
       auto io_handle = socket_interface.ioHandleForFd(test_fd, true);
-      
+
       auto socket = std::make_unique<network::ConnectionSocketImpl>(
-          std::move(io_handle),
-          network::Address::pipeAddress("test"),
+          std::move(io_handle), network::Address::pipeAddress("test"),
           network::Address::pipeAddress("test"));
-      
+
       auto connection = std::make_unique<network::ConnectionImpl>(
-          *dispatcher_,
-          std::move(socket),
-          network::TransportSocketPtr(nullptr),
+          *dispatcher_, std::move(socket), network::TransportSocketPtr(nullptr),
           true);
-      
+
       // Apply filter chain
       EXPECT_TRUE(factory->createFilterChain(connection->filterManager()));
-      
+
       // Initialize filters
       connection->filterManager().initializeReadFilters();
-      
+
       // Test that filters were added
       // Send some test data through the connection
-      std::string test_data = R"({"jsonrpc":"2.0","id":1,"method":"test"})" "\n";
+      std::string test_data = R"({"jsonrpc":"2.0","id":1,"method":"test"})"
+                              "\n";
       OwnedBuffer buffer;
       buffer.add(test_data);
-      
+
       // This should trigger the filter chain
       connection->filterManager().onRead();
     });
   }
-  
+
   std::unique_ptr<MockMcpMessageCallbacks> message_callbacks_;
   std::unique_ptr<network::ConnectionImpl> captured_connection_;
 };
@@ -111,14 +109,14 @@ protected:
  * Test filter chain creation for client mode
  */
 TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainClientMode) {
-  testFilterChain(false, true); // client mode, with framing
+  testFilterChain(false, true);  // client mode, with framing
 }
 
 /**
  * Test filter chain creation for server mode
  */
 TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainServerMode) {
-  testFilterChain(true, false); // server mode, without framing
+  testFilterChain(true, false);  // server mode, without framing
 }
 
 /**
@@ -128,54 +126,50 @@ TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainServerMode) {
 TEST_F(McpStdioFilterChainFactoryTest, FilterLifetimeManagement) {
   executeInDispatcher([this]() {
     network::FilterSharedPtr captured_filter;
-    
+
     {
       // Create factory in a scope
-      McpStdioFilterChainFactory factory(
-          *dispatcher_, 
-          *message_callbacks_,
-          false,  // client mode
-          true);  // use framing
-      
+      McpStdioFilterChainFactory factory(*dispatcher_, *message_callbacks_,
+                                         false,  // client mode
+                                         true);  // use framing
+
       // Create connection
       // Create a test file descriptor
       int test_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
       if (test_fd < 0) {
         throw std::runtime_error("Failed to create test socket");
       }
-      
+
       auto& socket_interface = network::socketInterface();
       auto io_handle = socket_interface.ioHandleForFd(test_fd, true);
-      
+
       auto socket = std::make_unique<network::ConnectionSocketImpl>(
-          std::move(io_handle),
-          network::Address::pipeAddress("test"),
+          std::move(io_handle), network::Address::pipeAddress("test"),
           network::Address::pipeAddress("test"));
-      
+
       auto connection = std::make_unique<network::ConnectionImpl>(
-          *dispatcher_,
-          std::move(socket),
-          network::TransportSocketPtr(nullptr),
+          *dispatcher_, std::move(socket), network::TransportSocketPtr(nullptr),
           true);
-      
+
       // Create filter chain
       EXPECT_TRUE(factory.createFilterChain(connection->filterManager()));
-      
+
       // Capture the filter by getting it from filter manager
       // Note: We can't directly access the filters, but we can test that
       // the filter chain works after factory is destroyed
       connection->filterManager().initializeReadFilters();
-      
+
       // Store connection for later use
       captured_connection_ = std::move(connection);
     }
     // Factory is now destroyed
-    
+
     // Filter should still be valid - test by sending data
-    std::string test_data = R"({"jsonrpc":"2.0","id":1,"method":"test"})" "\n";
+    std::string test_data = R"({"jsonrpc":"2.0","id":1,"method":"test"})"
+                            "\n";
     OwnedBuffer buffer;
     buffer.add(test_data);
-    
+
     // This should not crash (callbacks are still valid)
     if (captured_connection_) {
       captured_connection_->filterManager().onRead();
@@ -480,8 +474,8 @@ TEST_F(McpStdioFilterChainIntegrationTest, WithFraming) {
     return true;
   }, std::chrono::seconds(1));
 }
-#endif // Disabled integration test
+#endif  // Disabled integration test
 
-} // namespace
-} // namespace filter
-} // namespace mcp
+}  // namespace
+}  // namespace filter
+}  // namespace mcp
