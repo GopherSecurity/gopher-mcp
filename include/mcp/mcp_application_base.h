@@ -817,6 +817,14 @@ class ApplicationBase : public McpMessageCallbacks {
     if (!socket_interface_) {
       socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
     }
+    
+    // Create main dispatcher early (before workers)
+    if (!main_dispatcher_) {
+      main_dispatcher_owned_ = std::make_unique<event::LibeventDispatcher>("main");
+      main_dispatcher_ = main_dispatcher_owned_.get();
+      std::cerr << "[INFO] Created main dispatcher" << std::endl;
+    }
+    
     std::cerr << "[INFO] Initializing application with " 
               << config_.worker_threads << " workers" << std::endl;
 
@@ -832,6 +840,9 @@ class ApplicationBase : public McpMessageCallbacks {
 
     // Initialize connection pool
     connection_pool_ = createConnectionPool();
+    
+    // Mark as initialized for legacy API compatibility
+    initialized_ = true;
 
     return true;
   }
@@ -876,13 +887,15 @@ class ApplicationBase : public McpMessageCallbacks {
   virtual void run() {
     std::cerr << "[INFO] Running main event loop" << std::endl;
 
-    // Create main dispatcher
-    auto dispatcher = std::make_unique<event::LibeventDispatcher>("main");
-    main_dispatcher_ = dispatcher.get();
+    // Main dispatcher should already be created in initialize()
+    if (!main_dispatcher_) {
+      std::cerr << "[ERROR] Main dispatcher not initialized. Call initialize() first." << std::endl;
+      return;
+    }
 
     // Run until shutdown requested
     while (!shutdown_requested_) {
-      dispatcher->run(event::RunType::NonBlock);
+      main_dispatcher_->run(event::RunType::NonBlock);
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
       // Process any pending work
@@ -927,6 +940,12 @@ class ApplicationBase : public McpMessageCallbacks {
       }
 
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    // Clean up owned dispatcher
+    if (main_dispatcher_owned_) {
+      main_dispatcher_ = nullptr;
+      main_dispatcher_owned_.reset();
     }
 
     std::cerr << "[INFO] Application shutdown complete" << std::endl;
@@ -1105,6 +1124,7 @@ class ApplicationBase : public McpMessageCallbacks {
   // Worker threads
   std::vector<std::unique_ptr<WorkerThread>> workers_;
   event::Dispatcher* main_dispatcher_ = nullptr;
+  std::unique_ptr<event::Dispatcher> main_dispatcher_owned_;  // Owned dispatcher
 
   // Connection pool
   std::unique_ptr<ConnectionPool> connection_pool_;

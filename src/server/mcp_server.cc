@@ -60,19 +60,14 @@ VoidResult McpServer::listen(const std::string& address) {
 
   // Initialize the application if not already done
   if (!initialized_) {
-    initialize();  // Create dispatchers and workers
-
-    // Wait for main dispatcher to be ready
-    int wait_count = 0;
-    while (!main_dispatcher_) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      if (++wait_count > 500) {  // 5 seconds timeout
-        std::cerr << "[ERROR] Timeout waiting for dispatcher" << std::endl;
-        return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
-                                   "Dispatcher initialization timeout"));
-      }
+    initialize();  // Create dispatchers and workers (including main dispatcher)
+    
+    // Verify main dispatcher was created
+    if (!main_dispatcher_) {
+      std::cerr << "[ERROR] Failed to create main dispatcher" << std::endl;
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
+                                 "Dispatcher initialization failed"));
     }
-    std::cerr << "[DEBUG] Main dispatcher ready" << std::endl;
   }
 
   // Just return success - actual listening will happen in run()
