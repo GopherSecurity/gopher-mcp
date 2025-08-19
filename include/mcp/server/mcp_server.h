@@ -34,7 +34,7 @@
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
 #include "mcp/event/event_loop.h"
-#include "mcp/mcp_application_base.h"
+#include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
