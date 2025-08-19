@@ -7,8 +7,7 @@
 #include <gmock/gmock.h>
 #include <chrono>
 #include <thread>
-#include "mcp/filter/backpressure_filter.h"
-#include "mcp/buffer_impl.h"
+#include "../../include/mcp/filter/backpressure_filter.h"
 #include "../integration/real_io_test_base.h"
 
 using namespace mcp;
@@ -48,10 +47,10 @@ protected:
   }
   
   // Helper to create buffer with specific size
-  BufferImpl createBuffer(size_t size) {
-    BufferImpl buffer;
+  std::unique_ptr<Buffer> createBufferWithSize(size_t size) {
+    auto buffer = createBuffer();
     std::string data(size, 'X');
-    buffer.add(data);
+    buffer->add(data);
     return buffer;
   }
   
@@ -74,8 +73,8 @@ TEST_F(BackpressureFilterTest, NormalOperationBelowWatermarks) {
   
   executeInDispatcher([this]() {
     // Send data below high watermark
-    auto buffer = createBuffer(100 * 1024);  // 100KB
-    EXPECT_EQ(filter_->onData(buffer, false), network::FilterStatus::Continue);
+    auto buffer = createBufferWithSize(100 * 1024);  // 100KB
+    EXPECT_EQ(filter_->onData(*buffer, false), network::FilterStatus::Continue);
     
     // Buffer size should be tracked
     EXPECT_EQ(filter_->getCurrentBufferSize(), 100 * 1024);
@@ -95,11 +94,11 @@ TEST_F(BackpressureFilterTest, BackpressureAppliedAtHighWatermark) {
   
   executeInDispatcher([this]() {
     // Send data to exceed high watermark
-    auto buffer1 = createBuffer(60 * 1024);  // 60KB
-    EXPECT_EQ(filter_->onData(buffer1, false), network::FilterStatus::Continue);
+    auto buffer1 = createBufferWithSize(60 * 1024);  // 60KB
+    EXPECT_EQ(filter_->onData(*buffer1, false), network::FilterStatus::Continue);
     
-    auto buffer2 = createBuffer(50 * 1024);  // 50KB more = 110KB total
-    EXPECT_EQ(filter_->onData(buffer2, false), network::FilterStatus::StopIteration);
+    auto buffer2 = createBufferWithSize(50 * 1024);  // 50KB more = 110KB total
+    EXPECT_EQ(filter_->onData(*buffer2, false), network::FilterStatus::StopIteration);
     
     EXPECT_TRUE(filter_->isPaused());
     EXPECT_EQ(filter_->getCurrentBufferSize(), 110 * 1024);
@@ -116,8 +115,8 @@ TEST_F(BackpressureFilterTest, BackpressureReleasedAtLowWatermark) {
   
   // First apply backpressure
   executeInDispatcher([this]() {
-    auto buffer = createBuffer(110 * 1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(110 * 1024);
+    filter_->onData(*buffer, false);
   });
   
   EXPECT_TRUE(filter_->isPaused());
@@ -126,8 +125,8 @@ TEST_F(BackpressureFilterTest, BackpressureReleasedAtLowWatermark) {
   
   executeInDispatcher([this]() {
     // Simulate writing data to reduce buffer
-    auto write_buffer = createBuffer(70 * 1024);
-    filter_->onWrite(write_buffer, false);
+    auto write_buffer = createBufferWithSize(70 * 1024);
+    filter_->onWrite(*write_buffer, false);
     
     // Buffer should be at 40KB now (110 - 70), below low watermark
     EXPECT_FALSE(filter_->isPaused());
@@ -145,19 +144,19 @@ TEST_F(BackpressureFilterTest, DataDroppedWhenBufferTooFull) {
   
   // Fill buffer beyond 2x high watermark
   executeInDispatcher([this]() {
-    auto buffer1 = createBuffer(210 * 1024);  // More than 2x high watermark
-    filter_->onData(buffer1, false);
+    auto buffer1 = createBufferWithSize(210 * 1024);  // More than 2x high watermark
+    filter_->onData(*buffer1, false);
   });
   
   EXPECT_CALL(*callbacks_, onDataDropped(10 * 1024)).Times(1);
   
   executeInDispatcher([this]() {
     // This data should be dropped
-    auto buffer2 = createBuffer(10 * 1024);
-    EXPECT_EQ(filter_->onData(buffer2, false), network::FilterStatus::StopIteration);
+    auto buffer2 = createBufferWithSize(10 * 1024);
+    EXPECT_EQ(filter_->onData(*buffer2, false), network::FilterStatus::StopIteration);
     
     // Buffer should have been drained in the dropped data
-    EXPECT_EQ(buffer2.length(), 0);
+    EXPECT_EQ(buffer2->length(), 0);
   });
 }
 
@@ -174,8 +173,8 @@ TEST_F(BackpressureFilterTest, RateLimitingEnforced) {
   
   executeInDispatcher([this]() {
     // Send data at rate exceeding limit
-    auto buffer = createBuffer(110 * 1024);  // 110KB exceeds 100KB/s limit
-    EXPECT_EQ(filter_->onData(buffer, false), network::FilterStatus::StopIteration);
+    auto buffer = createBufferWithSize(110 * 1024);  // 110KB exceeds 100KB/s limit
+    EXPECT_EQ(filter_->onData(*buffer, false), network::FilterStatus::StopIteration);
     
     EXPECT_TRUE(filter_->isPaused());
   });
@@ -192,12 +191,12 @@ TEST_F(BackpressureFilterTest, RateLimitResetsPerSecond) {
   
   executeInDispatcher([this]() {
     // Use up rate limit
-    auto buffer1 = createBuffer(50 * 1024);
-    EXPECT_EQ(filter_->onData(buffer1, false), network::FilterStatus::Continue);
+    auto buffer1 = createBufferWithSize(50 * 1024);
+    EXPECT_EQ(filter_->onData(*buffer1, false), network::FilterStatus::Continue);
     
     // Should be rate limited now
-    auto buffer2 = createBuffer(10 * 1024);
-    EXPECT_EQ(filter_->onData(buffer2, false), network::FilterStatus::StopIteration);
+    auto buffer2 = createBufferWithSize(10 * 1024);
+    EXPECT_EQ(filter_->onData(*buffer2, false), network::FilterStatus::StopIteration);
   });
   
   // Wait for rate limit reset
@@ -207,8 +206,8 @@ TEST_F(BackpressureFilterTest, RateLimitResetsPerSecond) {
   
   executeInDispatcher([this]() {
     // Should allow data again after reset
-    auto buffer3 = createBuffer(40 * 1024);
-    EXPECT_EQ(filter_->onData(buffer3, false), network::FilterStatus::Continue);
+    auto buffer3 = createBufferWithSize(40 * 1024);
+    EXPECT_EQ(filter_->onData(*buffer3, false), network::FilterStatus::Continue);
     
     EXPECT_FALSE(filter_->isPaused());
   });
@@ -224,13 +223,13 @@ TEST_F(BackpressureFilterTest, WriteReducesBufferSize) {
   
   executeInDispatcher([this]() {
     // Add data to buffer
-    auto read_buffer = createBuffer(80 * 1024);
-    filter_->onData(read_buffer, false);
+    auto read_buffer = createBufferWithSize(80 * 1024);
+    filter_->onData(*read_buffer, false);
     EXPECT_EQ(filter_->getCurrentBufferSize(), 80 * 1024);
     
     // Write some data
-    auto write_buffer = createBuffer(30 * 1024);
-    filter_->onWrite(write_buffer, false);
+    auto write_buffer = createBufferWithSize(30 * 1024);
+    filter_->onWrite(*write_buffer, false);
     
     // Buffer should be reduced
     EXPECT_EQ(filter_->getCurrentBufferSize(), 50 * 1024);
@@ -248,8 +247,8 @@ TEST_F(BackpressureFilterTest, NewConnectionResetsState) {
   
   executeInDispatcher([this]() {
     // Fill buffer and use rate limit
-    auto buffer = createBuffer(80 * 1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(80 * 1024);
+    filter_->onData(*buffer, false);
     
     EXPECT_EQ(filter_->getCurrentBufferSize(), 80 * 1024);
     EXPECT_EQ(filter_->getBytesThisSecond(), 80 * 1024);
@@ -276,18 +275,18 @@ TEST_F(BackpressureFilterTest, WatermarkHysteresis) {
   
   executeInDispatcher([this]() {
     // Add data up to high watermark
-    auto buffer1 = createBuffer(110 * 1024);
-    filter_->onData(buffer1, false);
+    auto buffer1 = createBufferWithSize(110 * 1024);
+    filter_->onData(*buffer1, false);
     EXPECT_TRUE(filter_->isPaused());
     
     // Write just below high watermark but above low - should stay paused
-    auto write1 = createBuffer(30 * 1024);
-    filter_->onWrite(write1, false);
+    auto write1 = createBufferWithSize(30 * 1024);
+    filter_->onWrite(*write1, false);
     EXPECT_TRUE(filter_->isPaused());  // Still paused at 80KB
     
     // Write below low watermark - should release
-    auto write2 = createBuffer(35 * 1024);
-    filter_->onWrite(write2, false);
+    auto write2 = createBufferWithSize(35 * 1024);
+    filter_->onWrite(*write2, false);
     EXPECT_FALSE(filter_->isPaused());  // Released at 45KB
   });
 }
@@ -303,8 +302,8 @@ TEST_F(BackpressureFilterTest, PauseDurationConfiguration) {
   
   // Test that configuration is accepted
   executeInDispatcher([this]() {
-    auto buffer = createBuffer(110 * 1024);
-    filter_->onData(buffer, false);
+    auto buffer = createBufferWithSize(110 * 1024);
+    filter_->onData(*buffer, false);
     EXPECT_TRUE(filter_->isPaused());
     
     // Pause duration would affect retry timing in real implementation
@@ -323,8 +322,8 @@ TEST_F(BackpressureFilterTest, ExtremeBufferSizes) {
   
   executeInDispatcher([this]() {
     // Even small data should trigger backpressure
-    auto buffer = createBuffer(1100);  // 1.1KB
-    EXPECT_EQ(filter_->onData(buffer, false), network::FilterStatus::StopIteration);
+    auto buffer = createBufferWithSize(1100);  // 1.1KB
+    EXPECT_EQ(filter_->onData(*buffer, false), network::FilterStatus::StopIteration);
     EXPECT_TRUE(filter_->isPaused());
   });
 }
