@@ -8,6 +8,8 @@
  * - Clean separation between protocol layers
  */
 
+#include <iostream>
+
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/mcp_jsonrpc_filter.h"
@@ -255,18 +257,26 @@ private:
 bool McpHttpFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
+  std::cerr << "[DEBUG] McpHttpFilterChainFactory::createFilterChain called" << std::endl;
+  
   // Following production pattern: create a single combined filter
   // that implements all the callback interfaces
   auto combined_filter = std::make_shared<McpHttpSseJsonRpcFilter>(
       dispatcher_, message_callbacks_, is_server_);
   
+  std::cerr << "[DEBUG] Created McpHttpSseJsonRpcFilter" << std::endl;
+  
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);
+  std::cerr << "[DEBUG] Added as read filter" << std::endl;
+  
   filter_manager.addWriteFilter(combined_filter);
+  std::cerr << "[DEBUG] Added as write filter" << std::endl;
   
   // Store for lifetime management
   filters_.push_back(combined_filter);
   
+  std::cerr << "[DEBUG] Filter chain creation complete" << std::endl;
   return true;
 }
 
