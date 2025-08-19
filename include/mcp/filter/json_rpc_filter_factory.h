@@ -1,9 +1,9 @@
 #pragma once
 
+#include "mcp/event/event_loop.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/event/event_loop.h"
 
 namespace mcp {
 namespace filter {
@@ -13,27 +13,27 @@ namespace filter {
  * Simply forwards JSON-RPC messages to MCP callbacks
  */
 class DirectJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
-public:
+ public:
   DirectJsonRpcCallbacks(McpMessageCallbacks& mcp_callbacks)
       : mcp_callbacks_(mcp_callbacks) {}
-  
+
   void onRequest(const jsonrpc::Request& request) override {
     mcp_callbacks_.onRequest(request);
   }
-  
+
   void onNotification(const jsonrpc::Notification& notification) override {
     mcp_callbacks_.onNotification(notification);
   }
-  
+
   void onResponse(const jsonrpc::Response& response) override {
     mcp_callbacks_.onResponse(response);
   }
-  
+
   void onProtocolError(const Error& error) override {
     mcp_callbacks_.onError(error);
   }
-  
-private:
+
+ private:
   McpMessageCallbacks& mcp_callbacks_;
 };
 
@@ -58,7 +58,9 @@ class JsonRpcFilterChainFactory : public network::FilterChainFactory {
   JsonRpcFilterChainFactory(event::Dispatcher& dispatcher,
                             McpMessageCallbacks& callbacks,
                             bool use_framing = true)
-      : dispatcher_(dispatcher), callbacks_(callbacks), use_framing_(use_framing) {}
+      : dispatcher_(dispatcher),
+        callbacks_(callbacks),
+        use_framing_(use_framing) {}
 
   /**
    * Create the filter chain
@@ -67,7 +69,7 @@ class JsonRpcFilterChainFactory : public network::FilterChainFactory {
   bool createFilterChain(network::FilterManager& manager) const override {
     // Create callbacks adapter
     json_callbacks_ = std::make_shared<DirectJsonRpcCallbacks>(callbacks_);
-    
+
     // Create the JSON-RPC message filter
     // This filter parses incoming JSON-RPC and frames outgoing messages
     filter_ = std::make_shared<McpJsonRpcFilter>(
@@ -106,7 +108,7 @@ class JsonRpcFilterChainFactory : public network::FilterChainFactory {
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& callbacks_;
   bool use_framing_;
-  
+
   // Store for lifetime management
   mutable std::shared_ptr<DirectJsonRpcCallbacks> json_callbacks_;
   mutable std::shared_ptr<McpJsonRpcFilter> filter_;

@@ -1,35 +1,38 @@
 /**
  * Unit tests for MCP JSON-RPC Protocol Filter
- * 
+ *
  * Tests the JSON-RPC message parsing, encoding, and protocol handling
  * using real I/O for more realistic testing
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-#include <thread>
 #include <chrono>
-#include "../integration/real_io_test_base.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include <thread>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "mcp/buffer.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
+
+#include "../integration/real_io_test_base.h"
 
 namespace mcp {
 namespace filter {
 namespace {
 
 using ::testing::_;
-using ::testing::Return;
-using ::testing::NiceMock;
 using ::testing::InSequence;
+using ::testing::NiceMock;
+using ::testing::Return;
 
 /**
  * Mock callbacks for JSON-RPC filter
  */
 class MockJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
-public:
+ public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));
   MOCK_METHOD(void, onResponse, (const jsonrpc::Response&), (override));
@@ -40,46 +43,42 @@ public:
  * Test fixture for McpJsonRpcFilter using real I/O
  */
 class McpJsonRpcFilterTest : public test::RealIoTestBase {
-protected:
+ protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
-    
+
     callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
-    
+
     // Create filter in dispatcher thread
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<McpJsonRpcFilter>(
-          *callbacks_, 
-          *dispatcher_, 
-          false); // client mode by default
+      filter_ =
+          std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+                                             false);  // client mode by default
     });
   }
-  
+
   void TearDown() override {
-    executeInDispatcher([this]() {
-      filter_.reset();
-    });
+    executeInDispatcher([this]() { filter_.reset(); });
     callbacks_.reset();
-    
+
     RealIoTestBase::TearDown();
   }
-  
+
   // Helper to process data through filter
-  network::FilterStatus processData(const std::string& data, bool end_stream = false) {
+  network::FilterStatus processData(const std::string& data,
+                                    bool end_stream = false) {
     return executeInDispatcher([this, data, end_stream]() {
       OwnedBuffer buffer;
       buffer.add(data);
       return filter_->onData(buffer, end_stream);
     });
   }
-  
+
   // Helper to test encoder
   void testEncoder(std::function<void(McpJsonRpcFilter::Encoder&)> test_func) {
-    executeInDispatcher([this, test_func]() {
-      test_func(filter_->encoder());
-    });
+    executeInDispatcher([this, test_func]() { test_func(filter_->encoder()); });
   }
-  
+
   std::unique_ptr<MockJsonRpcCallbacks> callbacks_;
   std::unique_ptr<McpJsonRpcFilter> filter_;
 };
@@ -95,11 +94,12 @@ TEST_F(McpJsonRpcFilterTest, ParseRequest) {
         EXPECT_TRUE(holds_alternative<int>(req.id));
         EXPECT_EQ(1, get<int>(req.id));
       });
-  
+
   // Create JSON-RPC request
-  std::string json_str = R"({"jsonrpc":"2.0","id":1,"method":"test.method","params":{"key":"value"}})";
-  json_str += "\n"; // Add delimiter for non-framed mode
-  
+  std::string json_str =
+      R"({"jsonrpc":"2.0","id":1,"method":"test.method","params":{"key":"value"}})";
+  json_str += "\n";  // Add delimiter for non-framed mode
+
   auto status = processData(json_str);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -110,22 +110,21 @@ TEST_F(McpJsonRpcFilterTest, ParseRequest) {
 TEST_F(McpJsonRpcFilterTest, ParseNotification) {
   // Create filter in server mode
   executeInDispatcher([this]() {
-    filter_ = std::make_unique<McpJsonRpcFilter>(
-        *callbacks_, 
-        *dispatcher_, 
-        true); // server mode
+    filter_ = std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+                                                 true);  // server mode
   });
-  
+
   // Expect onNotification to be called
   EXPECT_CALL(*callbacks_, onNotification(_))
       .WillOnce([](const jsonrpc::Notification& notif) {
         EXPECT_EQ("notify.method", notif.method);
         EXPECT_TRUE(notif.params.has_value());
       });
-  
-  std::string json_str = R"({"jsonrpc":"2.0","method":"notify.method","params":{"data":"test"}})";
+
+  std::string json_str =
+      R"({"jsonrpc":"2.0","method":"notify.method","params":{"data":"test"}})";
   json_str += "\n";
-  
+
   auto status = processData(json_str);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -141,10 +140,11 @@ TEST_F(McpJsonRpcFilterTest, ParseResponse) {
         EXPECT_EQ(42, get<int>(resp.id));
         EXPECT_TRUE(resp.result.has_value());
       });
-  
-  std::string json_str = R"({"jsonrpc":"2.0","id":42,"result":{"success":true}})";
+
+  std::string json_str =
+      R"({"jsonrpc":"2.0","id":42,"result":{"success":true}})";
   json_str += "\n";
-  
+
   auto status = processData(json_str);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -160,10 +160,11 @@ TEST_F(McpJsonRpcFilterTest, ParseErrorResponse) {
         EXPECT_EQ(-32600, resp.error->code);
         EXPECT_EQ("Invalid Request", resp.error->message);
       });
-  
-  std::string json_str = R"({"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request"}})";
+
+  std::string json_str =
+      R"({"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request"}})";
   json_str += "\n";
-  
+
   auto status = processData(json_str);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -173,14 +174,13 @@ TEST_F(McpJsonRpcFilterTest, ParseErrorResponse) {
  */
 TEST_F(McpJsonRpcFilterTest, InvalidJson) {
   // Expect protocol error to be called
-  EXPECT_CALL(*callbacks_, onProtocolError(_))
-      .WillOnce([](const Error& error) {
-        EXPECT_EQ(jsonrpc::PARSE_ERROR, error.code);
-      });
-  
+  EXPECT_CALL(*callbacks_, onProtocolError(_)).WillOnce([](const Error& error) {
+    EXPECT_EQ(jsonrpc::PARSE_ERROR, error.code);
+  });
+
   std::string json_str = "{ invalid json }";
   json_str += "\n";
-  
+
   auto status = processData(json_str);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -190,20 +190,20 @@ TEST_F(McpJsonRpcFilterTest, InvalidJson) {
  */
 TEST_F(McpJsonRpcFilterTest, MessageFraming) {
   executeInDispatcher([this]() {
-    filter_->setUseFraming(true); // Enable framing
+    filter_->setUseFraming(true);  // Enable framing
   });
-  
+
   // Expect request to be parsed
   EXPECT_CALL(*callbacks_, onRequest(_)).Times(1);
-  
+
   // Create framed message (4-byte length prefix in big-endian)
   std::string json_str = R"({"jsonrpc":"2.0","id":1,"method":"test"})";
-  uint32_t length = htonl(json_str.length()); // Convert to big-endian
-  
+  uint32_t length = htonl(json_str.length());  // Convert to big-endian
+
   std::string framed_data;
   framed_data.append(reinterpret_cast<char*>(&length), 4);
   framed_data.append(json_str);
-  
+
   auto status = processData(framed_data);
   EXPECT_EQ(network::FilterStatus::Continue, status);
 }
@@ -214,13 +214,14 @@ TEST_F(McpJsonRpcFilterTest, MessageFraming) {
 TEST_F(McpJsonRpcFilterTest, PartialMessage) {
   // Expect one complete request
   EXPECT_CALL(*callbacks_, onRequest(_)).Times(1);
-  
-  std::string json_str = R"({"jsonrpc":"2.0","id":1,"method":"test","params":{}})";
-  
+
+  std::string json_str =
+      R"({"jsonrpc":"2.0","id":1,"method":"test","params":{}})";
+
   // Send first half
   auto status1 = processData(json_str.substr(0, json_str.length() / 2));
   EXPECT_EQ(network::FilterStatus::Continue, status1);
-  
+
   // Send second half with delimiter
   std::string second_half = json_str.substr(json_str.length() / 2);
   second_half += "\n";
@@ -234,12 +235,10 @@ TEST_F(McpJsonRpcFilterTest, PartialMessage) {
 TEST_F(McpJsonRpcFilterTest, MultipleMessages) {
   // Create filter in server mode
   executeInDispatcher([this]() {
-    filter_ = std::make_unique<McpJsonRpcFilter>(
-        *callbacks_, 
-        *dispatcher_, 
-        true); // server mode
+    filter_ = std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+                                                 true);  // server mode
   });
-  
+
   // Expect two requests
   InSequence seq;
   EXPECT_CALL(*callbacks_, onRequest(_))
@@ -250,10 +249,10 @@ TEST_F(McpJsonRpcFilterTest, MultipleMessages) {
       .WillOnce([](const jsonrpc::Request& req) {
         EXPECT_EQ("method2", req.method);
       });
-  
+
   std::string json1 = R"({"jsonrpc":"2.0","id":1,"method":"method1"})";
   std::string json2 = R"({"jsonrpc":"2.0","id":2,"method":"method2"})";
-  
+
   std::string combined = json1 + "\n" + json2 + "\n";
   auto status = processData(combined);
   EXPECT_EQ(network::FilterStatus::Continue, status);
@@ -265,17 +264,17 @@ TEST_F(McpJsonRpcFilterTest, MultipleMessages) {
 TEST_F(McpJsonRpcFilterTest, NewConnectionResetsState) {
   // Send partial message
   processData(R"({"jsonrpc":"2.0","id":1,)");
-  
+
   // New connection should reset state
-  auto status = executeInDispatcher([this]() {
-    return filter_->onNewConnection();
-  });
+  auto status =
+      executeInDispatcher([this]() { return filter_->onNewConnection(); });
   EXPECT_EQ(network::FilterStatus::Continue, status);
-  
+
   // Now a complete different message should work
   EXPECT_CALL(*callbacks_, onRequest(_)).Times(1);
-  
-  processData(R"({"jsonrpc":"2.0","id":2,"method":"test"})" "\n");
+
+  processData(R"({"jsonrpc":"2.0","id":2,"method":"test"})"
+              "\n");
 }
 
 /**
@@ -283,25 +282,25 @@ TEST_F(McpJsonRpcFilterTest, NewConnectionResetsState) {
  */
 TEST_F(McpJsonRpcFilterTest, WriteFilterAddsFraming) {
   executeInDispatcher([this]() {
-    filter_->setUseFraming(true); // Enable framing
+    filter_->setUseFraming(true);  // Enable framing
   });
-  
+
   executeInDispatcher([this]() {
     OwnedBuffer buffer;
     std::string data = "test message";
     buffer.add(data);
-    
+
     // Process write - should add framing
     auto status = filter_->onWrite(buffer, false);
     EXPECT_EQ(network::FilterStatus::Continue, status);
-    
+
     // Buffer should now have length prefix
     EXPECT_GT(buffer.length(), data.length());
-    
+
     // Check that first 4 bytes are the length
     uint32_t length;
     buffer.copyOut(0, 4, &length);
-    length = ntohl(length); // Convert from big-endian
+    length = ntohl(length);  // Convert from big-endian
     EXPECT_EQ(data.length(), length);
   });
 }
@@ -432,8 +431,8 @@ TEST_F(McpJsonRpcFilterIntegrationTest, EndToEndMessageFlow) {
     return true;
   }, std::chrono::seconds(2));
 }
-#endif // Disabled integration test
+#endif  // Disabled integration test
 
-} // namespace
-} // namespace filter
-} // namespace mcp
+}  // namespace
+}  // namespace filter
+}  // namespace mcp

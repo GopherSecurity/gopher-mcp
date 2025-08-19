@@ -34,9 +34,9 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
    * @param use_framing Whether to use length-prefixed framing
    */
   McpStdioFilterChainFactory(event::Dispatcher& dispatcher,
-                            McpMessageCallbacks& message_callbacks,
-                            bool is_server,
-                            bool use_framing = true)
+                             McpMessageCallbacks& message_callbacks,
+                             bool is_server,
+                             bool use_framing = true)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
         is_server_(is_server),
@@ -52,9 +52,9 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
   /**
    * Create network filter chain with additional filters
    */
-  bool createNetworkFilterChain(
-      network::FilterManager& filter_manager,
-      const std::vector<network::FilterFactoryCb>& filter_factories) const override;
+  bool createNetworkFilterChain(network::FilterManager& filter_manager,
+                                const std::vector<network::FilterFactoryCb>&
+                                    filter_factories) const override;
 
   /**
    * Create listener filter chain (not used for stdio)
@@ -71,5 +71,5 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
   bool use_framing_;
 };
 
-} // namespace filter
-} // namespace mcp
+}  // namespace filter
+}  // namespace mcp
