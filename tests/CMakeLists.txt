@@ -56,6 +56,9 @@ add_executable(test_tcp_transport_socket transport/test_tcp_transport_socket.cc)
 # Full stack transport tests
 add_executable(test_full_stack_transport transport/test_full_stack_transport.cc)
 
+# Application base refactored test
+add_executable(test_application_base_refactored test_application_base_refactored.cc)
+
 # Transport socket state machine test
 add_executable(test_transport_socket_state_machine transport/test_transport_socket_state_machine.cc)
 
@@ -418,6 +421,15 @@ target_link_libraries(test_full_stack_transport
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto
+)
+
+target_link_libraries(test_application_base_refactored
+    mcp-sdk
+    mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
 )
 
 # Transport socket state machine test libraries
