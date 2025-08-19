@@ -24,6 +24,9 @@
 namespace mcp {
 namespace server {
 
+// Thread-local storage for current connection context
+thread_local network::Connection* McpServer::current_connection_ = nullptr;
+
 // Constructor
 McpServer::McpServer(const McpServerConfig& config)
     : ApplicationBase(config), config_(config), server_stats_() {
@@ -438,10 +441,32 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
 
+  // Track this request for potential cancellation
+  auto pending_req = std::make_shared<PendingRequest>();
+  pending_req->id = request.id;
+  pending_req->start_time = std::chrono::steady_clock::now();
+  
+  {
+    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+    // Convert RequestId to string key
+    std::string key = holds_alternative<std::string>(request.id) 
+        ? get<std::string>(request.id) 
+        : std::to_string(get<int64_t>(request.id));
+    pending_requests_[key] = pending_req;
+  }
+
   // Get or create session for this connection
-  // For now, use a simplified session lookup
-  auto session =
-      session_manager_->createSession(nullptr);  // TODO: Get actual connection
+  // Try to get existing session first
+  auto session = session_manager_->getSessionByConnection(current_connection_);
+  if (!session) {
+    // Create new session for this connection
+    session = session_manager_->createSession(current_connection_);
+  }
+  
+  if (session) {
+    pending_req->session_id = session->getId();
+  }
+  
   if (!session) {
     // Max sessions reached
     server_stats_.requests_failed++;
@@ -515,6 +540,16 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
       break;
     }
   }
+  
+  // Remove request from pending list
+  {
+    std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+    // Convert RequestId to string key
+    std::string key = holds_alternative<std::string>(request.id) 
+        ? get<std::string>(request.id) 
+        : std::to_string(get<int64_t>(request.id));
+    pending_requests_.erase(key);
+  }
 }
 
 void McpServer::onNotification(const jsonrpc::Notification& notification) {
@@ -522,8 +557,11 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
   server_stats_.notifications_total++;
 
   // Get session for this connection
-  auto session =
-      session_manager_->createSession(nullptr);  // TODO: Get actual connection
+  auto session = session_manager_->getSessionByConnection(current_connection_);
+  if (!session) {
+    // Create new session for notifications if needed
+    session = session_manager_->createSession(current_connection_);
+  }
   if (!session) {
     return;  // Can't process notification without session
   }
@@ -550,7 +588,35 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
     // Mark session as initialized
   } else if (notification.method == "notifications/cancelled") {
     // Client cancelled a request
-    // TODO: Cancel pending request if still processing
+    // Extract the request ID that was cancelled
+    if (notification.params.has_value()) {
+      auto params = notification.params.value();
+      auto req_id_it = params.find("requestId");
+      if (req_id_it != params.end()) {
+        // Mark the request as cancelled
+        // The value in params is a MetadataValue which could be string or int64_t
+        std::string key_to_cancel;
+        if (holds_alternative<std::string>(req_id_it->second)) {
+          key_to_cancel = get<std::string>(req_id_it->second);
+        } else if (holds_alternative<int64_t>(req_id_it->second)) {
+          key_to_cancel = std::to_string(get<int64_t>(req_id_it->second));
+        } else {
+          // Not a valid request ID type
+          return;
+        }
+        
+        // Find and mark the request as cancelled
+        {
+          std::lock_guard<std::mutex> lock(pending_requests_mutex_);
+          auto it = pending_requests_.find(key_to_cancel);
+          if (it != pending_requests_.end()) {
+            it->second->cancelled = true;
+            std::cerr << "[INFO] Request marked as cancelled: " 
+                      << key_to_cancel << std::endl;
+          }
+        }
+      }
+    }
   }
 }
 
@@ -572,7 +638,13 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
       server_stats_.connections_active--;
 
       // Clean up session for this connection
-      // TODO: Find and remove session for closed connection
+      if (session_manager_ && current_connection_) {
+        // Remove session associated with the closed connection
+        session_manager_->removeSessionByConnection(current_connection_);
+        
+        // Clear the current connection for this thread
+        current_connection_ = nullptr;
+      }
       break;
   }
 }
@@ -1002,6 +1074,10 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Add ourselves as connection callbacks to track lifecycle
   // This allows us to clean up session when connection closes
   connection->addConnectionCallbacks(*this);
+  
+  // Store connection pointer for this thread's context
+  // This will be used when processing requests from this connection
+  current_connection_ = conn_ptr;
 
   // The connection is now ready for message processing
   // Messages will flow through filter chain to our onRequest/onNotification
