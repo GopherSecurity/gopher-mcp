@@ -255,12 +255,36 @@ void McpServer::run() {
     return;
   }
 
-  // Post the actual listen operation to be executed once event loop starts
-  main_dispatcher_->post([this]() { performListen(); });
+  // Set flag to perform listen on first run iteration
+  need_perform_listen_ = true;
 
-  // Run the main dispatcher event loop in the current thread
-  // This blocks until shutdown() is called
-  runEventLoop();
+  // Override the base class run to handle listening in dispatcher thread
+  std::cerr << "[INFO] Running main event loop" << std::endl;
+
+  // Main dispatcher should already be created in initialize()
+  if (!main_dispatcher_) {
+    std::cerr << "[ERROR] Main dispatcher not initialized." << std::endl;
+    return;
+  }
+
+  // Run one iteration to establish thread ID
+  main_dispatcher_->run(event::RunType::NonBlock);
+  
+  // Now we can safely perform listen in the dispatcher thread
+  if (need_perform_listen_) {
+    // Directly call performListen since we're now in the dispatcher thread
+    performListen();
+    need_perform_listen_ = false;
+  }
+
+  // Continue running the event loop
+  while (!shutdown_requested_) {
+    main_dispatcher_->run(event::RunType::NonBlock);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Process any pending work
+    processPendingWork();
+  }
 }
 
 // Shutdown server
