@@ -252,29 +252,7 @@ public:
    */
   void getHealthMetrics(double& success_rate, uint64_t& avg_latency_ms) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (request_outcomes_.empty()) {
-      success_rate = 1.0;
-      avg_latency_ms = 0;
-      return;
-    }
-    
-    size_t successes = 0;
-    uint64_t total_latency = 0;
-    size_t latency_count = 0;
-    
-    for (const auto& outcome : request_outcomes_) {
-      if (outcome.success) {
-        successes++;
-        if (outcome.latency_ms > 0) {
-          total_latency += outcome.latency_ms;
-          latency_count++;
-        }
-      }
-    }
-    
-    success_rate = static_cast<double>(successes) / request_outcomes_.size();
-    avg_latency_ms = latency_count > 0 ? total_latency / latency_count : 0;
+    getHealthMetricsNoLock(success_rate, avg_latency_ms);
   }
   
 private:
@@ -417,8 +395,36 @@ private:
   void updateHealthMetrics() {
     double success_rate;
     uint64_t avg_latency;
-    getHealthMetrics(success_rate, avg_latency);
+    // Use non-locking version since we're already holding the mutex
+    getHealthMetricsNoLock(success_rate, avg_latency);
     callbacks_.onHealthUpdate(success_rate, avg_latency);
+  }
+  
+  // Internal version of getHealthMetrics that doesn't acquire the lock
+  // Must be called with mutex_ already held
+  void getHealthMetricsNoLock(double& success_rate, uint64_t& avg_latency_ms) const {
+    if (request_outcomes_.empty()) {
+      success_rate = 1.0;
+      avg_latency_ms = 0;
+      return;
+    }
+    
+    size_t successes = 0;
+    uint64_t total_latency = 0;
+    size_t latency_count = 0;
+    
+    for (const auto& outcome : request_outcomes_) {
+      if (outcome.success) {
+        successes++;
+        if (outcome.latency_ms > 0) {
+          total_latency += outcome.latency_ms;
+          latency_count++;
+        }
+      }
+    }
+    
+    success_rate = static_cast<double>(successes) / request_outcomes_.size();
+    avg_latency_ms = latency_count > 0 ? total_latency / latency_count : 0;
   }
   
   Callbacks& callbacks_;
