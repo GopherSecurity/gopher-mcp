@@ -545,25 +545,21 @@ void McpConnectionManager::onNewConnection(
   if (active_connection_) {
     active_connection_->addConnectionCallbacks(*this);
 
-    // Apply filter chain to process JSON-RPC messages
-    // The filter chain handles message framing and parsing
-    auto filter_factory = createFilterChainFactory();
-    if (filter_factory) {
-      auto* conn_base =
-          dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
-      if (conn_base) {
-        filter_factory->createFilterChain(conn_base->filterManager());
-        conn_base->filterManager().initializeReadFilters();
-      }
-    }
+    // Filter chain is already created by the listener
+    // We don't need to create it again here
+    std::cerr << "[DEBUG] Connection manager received new connection" << std::endl;
 
     // Mark connection as established
     connected_ = true;
 
-    // Notify transport socket that connection is ready
-    // For HTTP+SSE server, this triggers waiting for HTTP request
-    auto& transport = active_connection_->transportSocket();
-    transport.onConnected();
+    // For connections with transport sockets, notify that connection is ready
+    if (active_connection_->transportSocket().protocol() != "") {
+      active_connection_->transportSocket().onConnected();
+    }
+    
+    // Connection should now be ready to receive data
+    // The file events are already registered and should fire when data arrives
+    std::cerr << "[DEBUG] Connection ready to receive data" << std::endl;
   }
 }
 

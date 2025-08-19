@@ -220,12 +220,61 @@ std::unique_ptr<ClientConnection> ConnectionImpl::createClientConnection(
   return std::unique_ptr<ClientConnection>(std::move(connection));
 }
 
+// Null transport socket for raw TCP connections
+class RawTransportSocket : public TransportSocket {
+public:
+  void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override {
+    callbacks_ = &callbacks;
+  }
+  std::string protocol() const override { return "raw"; }
+  std::string failureReason() const override { return ""; }
+  bool canFlushClose() override { return true; }
+  void closeSocket(ConnectionEvent) override {}
+  TransportIoResult doRead(Buffer& buffer) override {
+    // For raw socket, read directly from the connection's socket
+    if (!callbacks_) {
+      return TransportIoResult::error(Error{-1, "No callbacks"});
+    }
+    auto result = callbacks_->ioHandle().read(buffer);
+    if (!result.ok()) {
+      if (result.wouldBlock()) {
+        return TransportIoResult::stop();
+      }
+      return TransportIoResult::error(Error{result.error_code(), "Read error"});
+    }
+    size_t bytes = *result;
+    return bytes == 0 ? TransportIoResult::close() : TransportIoResult::success(bytes);
+  }
+  TransportIoResult doWrite(Buffer& buffer, bool) override {
+    if (!callbacks_) {
+      return TransportIoResult::error(Error{-1, "No callbacks"});
+    }
+    auto result = callbacks_->ioHandle().write(buffer);
+    if (!result.ok()) {
+      if (result.wouldBlock()) {
+        return TransportIoResult::stop();
+      }
+      return TransportIoResult::error(Error{result.error_code(), "Write error"});
+    }
+    return TransportIoResult::success(*result);
+  }
+  void onConnected() override {}
+  VoidResult connect(Socket&) override { return makeVoidSuccess(); }
+  SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
+  bool startSecureTransport() override { return false; }
+  
+private:
+  TransportSocketCallbacks* callbacks_{nullptr};
+};
+
 ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
                                SocketPtr&& socket,
                                TransportSocketPtr&& transport_socket,
                                bool connected)
     : ConnectionImplBase(
-          dispatcher, std::move(socket), std::move(transport_socket)) {
+          dispatcher, std::move(socket), 
+          transport_socket ? std::move(transport_socket) 
+                          : std::make_unique<RawTransportSocket>()) {
   // Set initial state
   connecting_ = !connected;
   state_ = connected ? ConnectionState::Open : ConnectionState::Open;
@@ -262,26 +311,34 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-        // For pipe sockets, use level-triggered events to ensure we don't miss
-        // data that's already in the buffer when we set up the event
-        auto trigger_type =
-            (socket_->addressType() == network::Address::Type::Pipe)
-                ? event::FileTriggerType::Level
-                : event::FileTriggerType::Edge;
+        // Use level-triggered events for all sockets to ensure we don't miss
+        // data that arrives before event registration completes
+        // TODO: Optimize to edge-triggered once event registration timing is fixed
+        auto trigger_type = event::FileTriggerType::Level;
 
+        // Following production pattern: create file event with Read and Write events
+        // enabled from the start. The connection will manage flow control as needed.
+        std::cerr << "[DEBUG] Creating file event for fd: " << socket_->ioHandle().fd() 
+                  << " trigger_type: " << (trigger_type == event::FileTriggerType::Level ? "Level" : "Edge") << std::endl;
+        
+        uint32_t initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
+                                 static_cast<uint32_t>(event::FileReadyType::Write);
+        
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
             [this](uint32_t events) { onFileEvent(events); }, trigger_type,
-            static_cast<uint32_t>(event::FileReadyType::Closed));
-
-        // Enable appropriate events based on connection state
-        if (connected) {
-          // Already connected (server connection) - enable read events
-          // This allows server to receive incoming HTTP requests
-          enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-        } else if (connecting_) {
-          // Client connection in progress - will be enabled by doConnect()
-          // Don't enable anything here, let doConnect() handle it
+            initial_events);
+        
+        std::cerr << "[DEBUG] File event created: " << (file_event_ ? "YES" : "NO") 
+                  << " with initial events: " << initial_events << std::endl;
+        
+        // Track which events are enabled
+        file_event_state_ = initial_events;
+        
+        // For client connections that are connecting, we might need to adjust events
+        if (!connected && connecting_) {
+          // Client connection in progress - will be handled by doConnect()
+          std::cerr << "[DEBUG] Client connection in progress, events will be managed by doConnect" << std::endl;
         }
       }
     } catch (...) {
