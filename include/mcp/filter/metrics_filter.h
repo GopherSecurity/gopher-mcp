@@ -34,9 +34,9 @@
 #include <chrono>
 #include <map>
 #include <mutex>
-#include "mcp/network/filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/mcp_types.h"
+#include "../network/filter.h"
+#include "mcp_jsonrpc_filter.h"
+#include "../types.h"
 
 namespace mcp {
 namespace filter {
@@ -151,7 +151,7 @@ public:
    * @param config Metrics configuration
    */
   MetricsFilter(MetricsCallbacks& callbacks,
-               const Config& config = Config())
+               const Config& config)
       : callbacks_(callbacks),
         config_(config) {
     metrics_.connection_start = std::chrono::steady_clock::now();
@@ -197,7 +197,23 @@ public:
   
   network::FilterStatus onNewConnection() override {
     // Reset metrics for new connection
-    metrics_ = ConnectionMetrics();
+    metrics_.bytes_received = 0;
+    metrics_.bytes_sent = 0;
+    metrics_.messages_received = 0;
+    metrics_.messages_sent = 0;
+    metrics_.requests_sent = 0;
+    metrics_.requests_received = 0;
+    metrics_.responses_sent = 0;
+    metrics_.responses_received = 0;
+    metrics_.notifications_sent = 0;
+    metrics_.notifications_received = 0;
+    metrics_.errors_sent = 0;
+    metrics_.errors_received = 0;
+    metrics_.protocol_errors = 0;
+    metrics_.total_latency_ms = 0;
+    metrics_.min_latency_ms = UINT64_MAX;
+    metrics_.max_latency_ms = 0;
+    metrics_.latency_samples = 0;
     metrics_.connection_start = std::chrono::steady_clock::now();
     metrics_.last_activity = metrics_.connection_start;
     
@@ -221,7 +237,7 @@ public:
     if (holds_alternative<int>(request.id) || 
         holds_alternative<std::string>(request.id)) {
       std::lock_guard<std::mutex> lock(request_mutex_);
-      pending_requests_[request.id] = std::chrono::steady_clock::now();
+      pending_requests_[requestIdToString(request.id)] = std::chrono::steady_clock::now();
     }
     
     // Forward to next handler
@@ -248,7 +264,7 @@ public:
     
     // Calculate latency if we have the original request
     std::lock_guard<std::mutex> lock(request_mutex_);
-    auto it = pending_requests_.find(response.id);
+    auto it = pending_requests_.find(requestIdToString(response.id));
     if (it != pending_requests_.end()) {
       auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - it->second).count();
@@ -285,11 +301,31 @@ public:
   }
   
   /**
-   * Get current metrics snapshot
+   * Get current metrics snapshot  
    */
-  ConnectionMetrics getMetrics() const {
+  void getMetrics(ConnectionMetrics& snapshot) const {
     std::lock_guard<std::mutex> lock(method_mutex_);
-    return metrics_;
+    snapshot.bytes_received = metrics_.bytes_received.load();
+    snapshot.bytes_sent = metrics_.bytes_sent.load();
+    snapshot.messages_received = metrics_.messages_received.load();
+    snapshot.messages_sent = metrics_.messages_sent.load();
+    snapshot.requests_sent = metrics_.requests_sent.load();
+    snapshot.requests_received = metrics_.requests_received.load();
+    snapshot.responses_sent = metrics_.responses_sent.load();
+    snapshot.responses_received = metrics_.responses_received.load();
+    snapshot.notifications_sent = metrics_.notifications_sent.load();
+    snapshot.notifications_received = metrics_.notifications_received.load();
+    snapshot.errors_sent = metrics_.errors_sent.load();
+    snapshot.errors_received = metrics_.errors_received.load();
+    snapshot.protocol_errors = metrics_.protocol_errors.load();
+    snapshot.total_latency_ms = metrics_.total_latency_ms.load();
+    snapshot.min_latency_ms = metrics_.min_latency_ms.load();
+    snapshot.max_latency_ms = metrics_.max_latency_ms.load();
+    snapshot.latency_samples = metrics_.latency_samples.load();
+    snapshot.connection_start = metrics_.connection_start;
+    snapshot.last_activity = metrics_.last_activity;
+    snapshot.method_latencies_ms = metrics_.method_latencies_ms;
+    snapshot.method_counts = metrics_.method_counts;
   }
   
 private:
@@ -370,8 +406,16 @@ private:
   std::chrono::steady_clock::time_point last_rate_update_;
   std::atomic<size_t> bytes_since_last_update_{0};
   
-  // Request tracking for latency
-  std::map<RequestId, std::chrono::steady_clock::time_point> pending_requests_;
+  // Request tracking for latency (using string key to avoid variant comparison issues)
+  std::map<std::string, std::chrono::steady_clock::time_point> pending_requests_;
+  
+  // Helper to convert RequestId to string key
+  std::string requestIdToString(const RequestId& id) const {
+    return visit(make_overload(
+      [](const std::string& s) { return s; },
+      [](int i) { return std::to_string(i); }
+    ), id);
+  }
   mutable std::mutex request_mutex_;
   
   // Method metrics mutex

@@ -7,8 +7,7 @@
 #include <gmock/gmock.h>
 #include <chrono>
 #include <thread>
-#include "mcp/filter/metrics_filter.h"
-#include "mcp/buffer_impl.h"
+#include "../../include/mcp/filter/metrics_filter.h"
 #include "../integration/real_io_test_base.h"
 
 using namespace mcp;
