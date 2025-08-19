@@ -514,18 +514,6 @@ class SessionManager {
     return nullptr;
   }
 
-  // Get session by connection
-  SessionPtr getSessionByConnection(network::Connection* connection) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& pair : sessions_) {
-      if (pair.second->getConnection() == connection) {
-        pair.second->updateActivity();
-        return pair.second;
-      }
-    }
-    return nullptr;
-  }
-
   // Remove session
   void removeSession(const std::string& session_id) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -703,7 +691,7 @@ class McpServer : public application::ApplicationBase,
     // Convert RequestId to string key
     std::string key = holds_alternative<std::string>(id) 
         ? get<std::string>(id) 
-        : std::to_string(get<int64_t>(id));
+        : std::to_string(get<int>(id));
     auto it = pending_requests_.find(key);
     return (it != pending_requests_.end() && it->second->cancelled.load());
   }

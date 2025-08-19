@@ -451,7 +451,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Convert RequestId to string key
     std::string key = holds_alternative<std::string>(request.id) 
         ? get<std::string>(request.id) 
-        : std::to_string(get<int64_t>(request.id));
+        : std::to_string(get<int>(request.id));
     pending_requests_[key] = pending_req;
   }
 
@@ -547,7 +547,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Convert RequestId to string key
     std::string key = holds_alternative<std::string>(request.id) 
         ? get<std::string>(request.id) 
-        : std::to_string(get<int64_t>(request.id));
+        : std::to_string(get<int>(request.id));
     pending_requests_.erase(key);
   }
 }
