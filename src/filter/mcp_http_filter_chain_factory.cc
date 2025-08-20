@@ -12,7 +12,11 @@
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
+#include "mcp/filter/http_routing_filter.h"
+#include "mcp/filter/metrics_filter.h"
 #include "mcp/mcp_connection_manager.h"
+#include <sstream>
+#include <ctime>
 
 namespace mcp {
 namespace filter {
@@ -255,8 +259,47 @@ private:
 bool McpHttpFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
-  // Following production pattern: create a single combined filter
-  // that implements all the callback interfaces
+  // Following production pattern: create filters in order
+  // 1. HTTP Routing Filter (handles arbitrary HTTP endpoints)
+  // 2. Combined Protocol Filter (HTTP/SSE/JSON-RPC)
+  // 3. Metrics Filter (collects statistics)
+  
+  // Create metrics filter if enabled
+  std::shared_ptr<filter::MetricsFilter> metrics_filter;
+  if (enable_metrics_) {
+    // Create simple metrics callbacks
+    class SimpleMetricsCallbacks : public filter::MetricsFilter::MetricsCallbacks {
+    public:
+      void onMetricsUpdate(const filter::ConnectionMetrics& metrics) override {
+        // Could log or expose metrics here
+      }
+      void onThresholdExceeded(const std::string& metric_name,
+                               uint64_t value,
+                               uint64_t threshold) override {
+        // Could alert on threshold violations
+      }
+    };
+    
+    static SimpleMetricsCallbacks metrics_callbacks;
+    filter::MetricsFilter::Config metrics_config;
+    metrics_config.track_methods = true;
+    
+    metrics_filter = std::make_shared<filter::MetricsFilter>(
+        metrics_callbacks, metrics_config);
+    filter_manager.addReadFilter(metrics_filter);
+    filter_manager.addWriteFilter(metrics_filter);
+    filters_.push_back(metrics_filter);
+  }
+  
+  // Create HTTP routing filter for arbitrary endpoints
+  auto routing_filter = createHttpRoutingFilter(metrics_filter);
+  if (routing_filter) {
+    filter_manager.addReadFilter(routing_filter);
+    filter_manager.addWriteFilter(routing_filter);
+    filters_.push_back(routing_filter);
+  }
+  
+  // Create the combined protocol filter
   auto combined_filter = std::make_shared<McpHttpSseJsonRpcFilter>(
       dispatcher_, message_callbacks_, is_server_);
   
@@ -268,6 +311,137 @@ bool McpHttpFilterChainFactory::createFilterChain(
   filters_.push_back(combined_filter);
   
   return true;
+}
+
+std::shared_ptr<filter::HttpRoutingFilter> McpHttpFilterChainFactory::createHttpRoutingFilter(
+    std::shared_ptr<filter::MetricsFilter> metrics_filter) const {
+  
+  auto routing_filter = std::make_shared<filter::HttpRoutingFilter>();
+  
+  // Register health endpoint
+  routing_filter->registerHandler("GET", "/health", 
+      [](const filter::HttpRoutingFilter::RequestContext& req) {
+    filter::HttpRoutingFilter::Response resp;
+    resp.status_code = 200;
+    resp.headers["content-type"] = "application/json";
+    resp.headers["cache-control"] = "no-cache";
+    
+    resp.body = R"({
+      "status": "healthy",
+      "service": "mcp-server",
+      "timestamp": )" + std::to_string(std::time(nullptr)) + R"(
+    })";
+    
+    resp.headers["content-length"] = std::to_string(resp.body.length());
+    return resp;
+  });
+  
+  // Register metrics endpoint that queries the metrics filter
+  if (metrics_filter) {
+    routing_filter->registerHandler("GET", "/metrics",
+        [metrics_filter](const filter::HttpRoutingFilter::RequestContext& req) {
+      filter::HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "text/plain";
+      
+      // Get metrics from the metrics filter
+      filter::ConnectionMetrics metrics;
+      metrics_filter->getMetrics(metrics);
+      
+      // Format as Prometheus-style metrics
+      std::stringstream ss;
+      ss << "# HELP mcp_bytes_received_total Total bytes received\n";
+      ss << "# TYPE mcp_bytes_received_total counter\n";
+      ss << "mcp_bytes_received_total " << metrics.bytes_received << "\n\n";
+      
+      ss << "# HELP mcp_bytes_sent_total Total bytes sent\n";
+      ss << "# TYPE mcp_bytes_sent_total counter\n";
+      ss << "mcp_bytes_sent_total " << metrics.bytes_sent << "\n\n";
+      
+      ss << "# HELP mcp_messages_received_total Total messages received\n";
+      ss << "# TYPE mcp_messages_received_total counter\n";
+      ss << "mcp_messages_received_total " << metrics.messages_received << "\n\n";
+      
+      ss << "# HELP mcp_messages_sent_total Total messages sent\n";
+      ss << "# TYPE mcp_messages_sent_total counter\n";
+      ss << "mcp_messages_sent_total " << metrics.messages_sent << "\n\n";
+      
+      ss << "# HELP mcp_requests_received_total Total requests received\n";
+      ss << "# TYPE mcp_requests_received_total counter\n";
+      ss << "mcp_requests_received_total " << metrics.requests_received << "\n\n";
+      
+      ss << "# HELP mcp_responses_received_total Total responses received\n";
+      ss << "# TYPE mcp_responses_received_total counter\n";
+      ss << "mcp_responses_received_total " << metrics.responses_received << "\n\n";
+      
+      ss << "# HELP mcp_errors_total Total errors\n";
+      ss << "# TYPE mcp_errors_total counter\n";
+      ss << "mcp_errors_total " << (metrics.errors_received + metrics.protocol_errors) << "\n\n";
+      
+      // Latency metrics
+      if (metrics.latency_samples > 0) {
+        uint64_t avg_latency = metrics.total_latency_ms / metrics.latency_samples;
+        ss << "# HELP mcp_latency_ms Request latency in milliseconds\n";
+        ss << "# TYPE mcp_latency_ms summary\n";
+        ss << "mcp_latency_ms{quantile=\"0\"} " << metrics.min_latency_ms << "\n";
+        ss << "mcp_latency_ms{quantile=\"0.5\"} " << avg_latency << "\n";
+        ss << "mcp_latency_ms{quantile=\"1\"} " << metrics.max_latency_ms << "\n";
+        ss << "mcp_latency_ms_sum " << metrics.total_latency_ms << "\n";
+        ss << "mcp_latency_ms_count " << metrics.latency_samples << "\n\n";
+      }
+      
+      // Method-specific metrics
+      if (!metrics.method_counts.empty()) {
+        ss << "# HELP mcp_method_calls_total Total calls per method\n";
+        ss << "# TYPE mcp_method_calls_total counter\n";
+        for (const auto& pair : metrics.method_counts) {
+          ss << "mcp_method_calls_total{method=\"" << pair.first << "\"} " << pair.second << "\n";
+        }
+        ss << "\n";
+      }
+      
+      resp.body = ss.str();
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
+  }
+  
+  // Register info endpoint
+  routing_filter->registerHandler("GET", "/info",
+      [](const filter::HttpRoutingFilter::RequestContext& req) {
+    filter::HttpRoutingFilter::Response resp;
+    resp.status_code = 200;
+    resp.headers["content-type"] = "application/json";
+    
+    resp.body = R"({
+      "server": "MCP Server",
+      "protocols": ["http", "sse", "json-rpc"],
+      "endpoints": {
+        "health": "/health",
+        "metrics": "/metrics",
+        "info": "/info",
+        "json_rpc": "/rpc",
+        "sse_events": "/events"
+      },
+      "version": "1.0.0"
+    })";
+    
+    resp.headers["content-length"] = std::to_string(resp.body.length());
+    return resp;
+  });
+  
+  // Register ready endpoint
+  routing_filter->registerHandler("GET", "/ready",
+      [](const filter::HttpRoutingFilter::RequestContext& req) {
+    filter::HttpRoutingFilter::Response resp;
+    resp.status_code = 200;
+    resp.headers["content-type"] = "application/json";
+    resp.body = "{\"ready\":true}";
+    resp.headers["content-length"] = std::to_string(resp.body.length());
+    return resp;
+  });
+  
+  return routing_filter;
 }
 
 bool McpHttpFilterChainFactory::createNetworkFilterChain(

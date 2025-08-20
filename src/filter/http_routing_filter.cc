@@ -37,12 +37,95 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 }
 
 network::FilterStatus HttpRoutingFilter::onData(Buffer& data, bool end_stream) {
-  // This filter processes complete HTTP requests after the HTTP codec
-  // has parsed them. It expects to receive parsed headers through callbacks
-  // from the HTTP codec filter that should be before this in the chain.
+  // Check if this looks like an HTTP request
+  // We need to peek at the data to see if it's an HTTP request for our endpoints
   
-  // For now, pass through to next filter
-  // The actual routing happens in the callbacks from HTTP codec
+  // Quick check: Does it start with a known HTTP method?
+  if (data.length() > 10) {
+    // Peek at the first bytes without consuming
+    std::string peek(static_cast<const char*>(data.linearize(100)), 
+                     std::min(size_t(100), data.length()));
+    
+    // Check if it's an HTTP request for one of our registered endpoints
+    bool is_registered_endpoint = false;
+    std::string method;
+    std::string path;
+    
+    // Simple HTTP request line parsing
+    if (peek.find("GET ") == 0 || peek.find("POST ") == 0 || 
+        peek.find("PUT ") == 0 || peek.find("DELETE ") == 0) {
+      
+      size_t method_end = peek.find(' ');
+      size_t path_start = method_end + 1;
+      size_t path_end = peek.find(' ', path_start);
+      
+      if (method_end != std::string::npos && path_end != std::string::npos) {
+        method = peek.substr(0, method_end);
+        path = peek.substr(path_start, path_end - path_start);
+        
+        // Check if we have a handler for this endpoint
+        std::string key = buildRouteKey(method, path);
+        is_registered_endpoint = (handlers_.find(key) != handlers_.end());
+      }
+    }
+    
+    // If it's one of our registered endpoints, handle it
+    if (is_registered_endpoint) {
+      // Parse the full HTTP request
+      std::string request_data(static_cast<const char*>(data.linearize(data.length())), 
+                               data.length());
+      
+      RequestContext req;
+      req.method = method;
+      req.path = path;
+      
+      // Simple header parsing (find \r\n\r\n)
+      size_t headers_end = request_data.find("\r\n\r\n");
+      if (headers_end != std::string::npos) {
+        // Parse headers
+        size_t pos = request_data.find("\r\n");
+        while (pos < headers_end) {
+          size_t next_pos = request_data.find("\r\n", pos + 2);
+          if (next_pos > headers_end) break;
+          
+          std::string header_line = request_data.substr(pos + 2, next_pos - pos - 2);
+          size_t colon = header_line.find(':');
+          if (colon != std::string::npos) {
+            std::string name = header_line.substr(0, colon);
+            std::string value = header_line.substr(colon + 1);
+            // Trim leading whitespace from value
+            size_t value_start = value.find_first_not_of(" \t");
+            if (value_start != std::string::npos) {
+              value = value.substr(value_start);
+            }
+            req.headers[name] = value;
+          }
+          pos = next_pos;
+        }
+        
+        // Get body if present
+        if (headers_end + 4 < request_data.length()) {
+          req.body = request_data.substr(headers_end + 4);
+        }
+      }
+      
+      // Check keep-alive
+      auto conn_header = req.headers.find("Connection");
+      req.keep_alive = (conn_header == req.headers.end() || 
+                       conn_header->second != "close");
+      
+      // Process the request and send response
+      processRequest(req);
+      
+      // Consume the data since we handled it
+      data.drain(data.length());
+      
+      // Stop iteration - we handled this request
+      return network::FilterStatus::StopIteration;
+    }
+  }
+  
+  // Not one of our endpoints - pass through to next filter (MCP protocol)
   return network::FilterStatus::Continue;
 }
 
