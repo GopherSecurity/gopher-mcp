@@ -189,6 +189,9 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeadersComplete()
     parent_.current_headers_[lower_field] = current_header_value_;
   }
   
+  // Store HTTP version from the request for use in response
+  parent_.current_version_ = parent_.parser_->httpVersion();
+  
   // Add HTTP method to headers for routing filter
   if (parent_.is_server_) {
     http::HttpMethod method = parent_.parser_->httpMethod();
@@ -297,11 +300,14 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   std::ostringstream message;
   
   if (parent_.is_server_) {
-    // Server mode: encode response
+    // Server mode: encode response using the same HTTP version as the request
     parent_.state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
     
     int status_code = std::stoi(status_code_or_method);
-    message << "HTTP/1.1 " << status_code << " ";
+    
+    // Use the HTTP version from the request for transparent protocol handling
+    std::string version_str = http::httpVersionToString(parent_.current_version_);
+    message << version_str << " " << status_code << " ";
     
     // Add status text
     switch (status_code) {
@@ -315,10 +321,12 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
     }
     message << "\r\n";
   } else {
-    // Client mode: encode request
+    // Client mode: encode request using configured version
     parent_.state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
     
-    message << status_code_or_method << " " << path << " HTTP/1.1\r\n";
+    // Use the configured HTTP version for requests
+    std::string version_str = http::httpVersionToString(parent_.current_version_);
+    message << status_code_or_method << " " << path << " " << version_str << "\r\n";
   }
   
   // Add headers

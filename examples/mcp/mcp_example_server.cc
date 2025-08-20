@@ -89,6 +89,7 @@
 
 #include "mcp/server/mcp_server.h"
 #include "mcp/transport/http_sse_transport_socket.h"
+#include "mcp/json/json_bridge.h"
 #include <iostream>
 #include <signal.h>
 #include <ctime>
@@ -498,27 +499,41 @@ void setupServer(McpServer& server, bool verbose) {
         "Simple calculator for basic arithmetic operations"));
     
     // Define input schema for calculator
+    // Tool schema needs to be a json::JsonValue object
     json::JsonValue schema;
     schema["type"] = "object";
-    schema["properties"]["operation"]["type"] = "string";
     
-    // Create enum array for operation values
-    auto enum_array = json::JsonValue::array();
+    // Define properties
+    json::JsonValue properties;
+    
+    // Operation property
+    json::JsonValue operation_prop;
+    operation_prop["type"] = "string";
+    json::JsonValue enum_array = json::JsonValue::array();
     enum_array.push_back("add");
     enum_array.push_back("subtract");
     enum_array.push_back("multiply");
     enum_array.push_back("divide");
-    schema["properties"]["operation"]["enum"] = enum_array;
+    operation_prop["enum"] = enum_array;
+    properties["operation"] = operation_prop;
     
-    schema["properties"]["a"]["type"] = "number";
-    schema["properties"]["b"]["type"] = "number";
+    // Number properties
+    json::JsonValue a_prop;
+    a_prop["type"] = "number";
+    properties["a"] = a_prop;
     
-    // Create required array
-    auto required_array = json::JsonValue::array();
-    required_array.push_back("operation");
-    required_array.push_back("a");
-    required_array.push_back("b");
-    schema["required"] = required_array;
+    json::JsonValue b_prop;
+    b_prop["type"] = "number";
+    properties["b"] = b_prop;
+    
+    schema["properties"] = properties;
+    
+    // Required fields
+    json::JsonValue required = json::JsonValue::array();
+    required.push_back("operation");
+    required.push_back("a");
+    required.push_back("b");
+    schema["required"] = required;
     
     calc_tool.inputSchema = make_optional(schema);
     
@@ -540,13 +555,18 @@ void setupServer(McpServer& server, bool verbose) {
     db_tool.description = make_optional(std::string(
         "Execute database queries"));
     
+    // Define schema as json::JsonValue
     json::JsonValue db_schema;
     db_schema["type"] = "object";
-    db_schema["properties"]["query"]["type"] = "string";
-    db_schema["properties"]["query"]["description"] = "SQL query to execute";
     
-    // Create required array
-    auto db_required = json::JsonValue::array();
+    json::JsonValue db_properties;
+    json::JsonValue query_prop;
+    query_prop["type"] = "string";
+    query_prop["description"] = "SQL query to execute";
+    db_properties["query"] = query_prop;
+    db_schema["properties"] = db_properties;
+    
+    json::JsonValue db_required = json::JsonValue::array();
     db_required.push_back("query");
     db_schema["required"] = db_required;
     

@@ -25,6 +25,8 @@ namespace filter {
  * Combined filter that implements all protocol layers
  * Following production pattern: one filter class can handle multiple protocols
  * by implementing the appropriate callback interfaces
+ * 
+ * Now includes HTTP routing capability without double parsing
  */
 class McpHttpSseJsonRpcFilter : public network::Filter,
                                  public HttpCodecFilter::MessageCallbacks,
@@ -37,9 +39,23 @@ public:
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server) {
+    // Create routing filter first (it will receive HTTP callbacks)
+    routing_filter_ = std::make_unique<HttpRoutingFilter>(
+        this,  // We are the next callbacks layer after routing
+        nullptr,  // Will be set after HTTP filter is created
+        is_server_);
+    
     // Create the protocol filters
-    // Each filter handles one protocol layer
-    http_filter_ = std::make_shared<HttpCodecFilter>(*this, dispatcher_, is_server_);
+    // Single HTTP codec that sends callbacks to routing filter first
+    http_filter_ = std::make_shared<HttpCodecFilter>(*routing_filter_, dispatcher_, is_server_);
+    
+    // Now set the encoder in routing filter
+    routing_filter_->setEncoder(&http_filter_->messageEncoder());
+    
+    // Configure routing filter with health endpoint
+    setupRoutingHandlers();
+    
+    // SSE and JSON-RPC filters for protocol-specific handling
     sse_filter_ = std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
     jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
   }
@@ -236,6 +252,55 @@ public:
   }
   
 private:
+  void setupRoutingHandlers() {
+    // Register health endpoint
+    routing_filter_->registerHandler("GET", "/health", 
+        [](const HttpRoutingFilter::RequestContext& req) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "application/json";
+      resp.headers["cache-control"] = "no-cache";
+      
+      resp.body = R"({"status":"healthy","timestamp":)" + 
+                  std::to_string(std::time(nullptr)) + "}";
+      
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
+    
+    // Register info endpoint
+    routing_filter_->registerHandler("GET", "/info",
+        [](const HttpRoutingFilter::RequestContext& req) {
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "application/json";
+      
+      resp.body = R"({
+        "server": "MCP Server",
+        "protocols": ["http", "sse", "json-rpc"],
+        "endpoints": {
+          "health": "/health",
+          "info": "/info",
+          "json_rpc": "/rpc",
+          "sse_events": "/events"
+        },
+        "version": "1.0.0"
+      })";
+      
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
+    
+    // Default handler passes through to MCP protocol handling
+    routing_filter_->registerDefaultHandler(
+        [](const HttpRoutingFilter::RequestContext& req) {
+      // Return status 0 to indicate pass-through for MCP endpoints
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 0;
+      return resp;
+    });
+  }
+  
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& mcp_callbacks_;
   bool is_server_;
@@ -243,6 +308,7 @@ private:
   
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
+  std::unique_ptr<HttpRoutingFilter> routing_filter_;  // Routing filter
   std::shared_ptr<SseCodecFilter> sse_filter_;
   std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
   
@@ -291,13 +357,8 @@ bool McpHttpFilterChainFactory::createFilterChain(
     filters_.push_back(metrics_filter);
   }
   
-  // Create HTTP routing filter for arbitrary endpoints
-  auto routing_filter = createHttpRoutingFilter(metrics_filter);
-  if (routing_filter) {
-    filter_manager.addReadFilter(routing_filter);
-    filter_manager.addWriteFilter(routing_filter);
-    filters_.push_back(routing_filter);
-  }
+  // Routing is now integrated into the combined filter
+  // No separate routing filter needed
   
   // Create the combined protocol filter
   auto combined_filter = std::make_shared<McpHttpSseJsonRpcFilter>(
@@ -313,160 +374,7 @@ bool McpHttpFilterChainFactory::createFilterChain(
   return true;
 }
 
-std::shared_ptr<filter::HttpRoutingFilter> McpHttpFilterChainFactory::createHttpRoutingFilter(
-    std::shared_ptr<filter::MetricsFilter> metrics_filter) const {
-  
-  auto routing_filter = std::make_shared<filter::HttpRoutingFilter>(dispatcher_, is_server_);
-  
-  // Register default handler that passes through unhandled requests
-  // This allows JSON-RPC requests to /rpc and SSE connections to /events
-  // to pass through to the appropriate protocol filters
-  routing_filter->registerDefaultHandler(
-      [](const filter::HttpRoutingFilter::RequestContext& req) {
-    // For unhandled paths, return Continue to let the request
-    // pass through the filter chain
-    filter::HttpRoutingFilter::Response resp;
-    
-    // Special handling for JSON-RPC and SSE endpoints
-    if (req.path == "/rpc" || req.path == "/events") {
-      // Don't send a response - let it pass through to next filter
-      resp.status_code = 0;  // Signal to continue processing
-      return resp;
-    }
-    
-    // For other paths, return 404
-    resp.status_code = 404;
-    resp.headers["content-type"] = "application/json";
-    resp.body = "{\"error\":\"Not Found\",\"path\":\"" + req.path + "\"}";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
-  });
-  
-  // Register health endpoint
-  routing_filter->registerHandler("GET", "/health", 
-      [](const filter::HttpRoutingFilter::RequestContext& req) {
-    filter::HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.headers["content-type"] = "application/json";
-    resp.headers["cache-control"] = "no-cache";
-    
-    resp.body = R"({
-      "status": "healthy",
-      "service": "mcp-server",
-      "timestamp": )" + std::to_string(std::time(nullptr)) + R"(
-    })";
-    
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
-  });
-  
-  // Register metrics endpoint that queries the metrics filter
-  if (metrics_filter) {
-    routing_filter->registerHandler("GET", "/metrics",
-        [metrics_filter](const filter::HttpRoutingFilter::RequestContext& req) {
-      filter::HttpRoutingFilter::Response resp;
-      resp.status_code = 200;
-      resp.headers["content-type"] = "text/plain";
-      
-      // Get metrics from the metrics filter
-      filter::ConnectionMetrics metrics;
-      metrics_filter->getMetrics(metrics);
-      
-      // Format as Prometheus-style metrics
-      std::stringstream ss;
-      ss << "# HELP mcp_bytes_received_total Total bytes received\n";
-      ss << "# TYPE mcp_bytes_received_total counter\n";
-      ss << "mcp_bytes_received_total " << metrics.bytes_received << "\n\n";
-      
-      ss << "# HELP mcp_bytes_sent_total Total bytes sent\n";
-      ss << "# TYPE mcp_bytes_sent_total counter\n";
-      ss << "mcp_bytes_sent_total " << metrics.bytes_sent << "\n\n";
-      
-      ss << "# HELP mcp_messages_received_total Total messages received\n";
-      ss << "# TYPE mcp_messages_received_total counter\n";
-      ss << "mcp_messages_received_total " << metrics.messages_received << "\n\n";
-      
-      ss << "# HELP mcp_messages_sent_total Total messages sent\n";
-      ss << "# TYPE mcp_messages_sent_total counter\n";
-      ss << "mcp_messages_sent_total " << metrics.messages_sent << "\n\n";
-      
-      ss << "# HELP mcp_requests_received_total Total requests received\n";
-      ss << "# TYPE mcp_requests_received_total counter\n";
-      ss << "mcp_requests_received_total " << metrics.requests_received << "\n\n";
-      
-      ss << "# HELP mcp_responses_received_total Total responses received\n";
-      ss << "# TYPE mcp_responses_received_total counter\n";
-      ss << "mcp_responses_received_total " << metrics.responses_received << "\n\n";
-      
-      ss << "# HELP mcp_errors_total Total errors\n";
-      ss << "# TYPE mcp_errors_total counter\n";
-      ss << "mcp_errors_total " << (metrics.errors_received + metrics.protocol_errors) << "\n\n";
-      
-      // Latency metrics
-      if (metrics.latency_samples > 0) {
-        uint64_t avg_latency = metrics.total_latency_ms / metrics.latency_samples;
-        ss << "# HELP mcp_latency_ms Request latency in milliseconds\n";
-        ss << "# TYPE mcp_latency_ms summary\n";
-        ss << "mcp_latency_ms{quantile=\"0\"} " << metrics.min_latency_ms << "\n";
-        ss << "mcp_latency_ms{quantile=\"0.5\"} " << avg_latency << "\n";
-        ss << "mcp_latency_ms{quantile=\"1\"} " << metrics.max_latency_ms << "\n";
-        ss << "mcp_latency_ms_sum " << metrics.total_latency_ms << "\n";
-        ss << "mcp_latency_ms_count " << metrics.latency_samples << "\n\n";
-      }
-      
-      // Method-specific metrics
-      if (!metrics.method_counts.empty()) {
-        ss << "# HELP mcp_method_calls_total Total calls per method\n";
-        ss << "# TYPE mcp_method_calls_total counter\n";
-        for (const auto& pair : metrics.method_counts) {
-          ss << "mcp_method_calls_total{method=\"" << pair.first << "\"} " << pair.second << "\n";
-        }
-        ss << "\n";
-      }
-      
-      resp.body = ss.str();
-      resp.headers["content-length"] = std::to_string(resp.body.length());
-      return resp;
-    });
-  }
-  
-  // Register info endpoint
-  routing_filter->registerHandler("GET", "/info",
-      [](const filter::HttpRoutingFilter::RequestContext& req) {
-    filter::HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.headers["content-type"] = "application/json";
-    
-    resp.body = R"({
-      "server": "MCP Server",
-      "protocols": ["http", "sse", "json-rpc"],
-      "endpoints": {
-        "health": "/health",
-        "metrics": "/metrics",
-        "info": "/info",
-        "json_rpc": "/rpc",
-        "sse_events": "/events"
-      },
-      "version": "1.0.0"
-    })";
-    
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
-  });
-  
-  // Register ready endpoint
-  routing_filter->registerHandler("GET", "/ready",
-      [](const filter::HttpRoutingFilter::RequestContext& req) {
-    filter::HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.headers["content-type"] = "application/json";
-    resp.body = "{\"ready\":true}";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
-  });
-  
-  return routing_filter;
-}
+// Removed createHttpRoutingFilter - routing is now integrated in the combined filter
 
 bool McpHttpFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
