@@ -1,6 +1,7 @@
 #include "mcp/network/socket_impl.h"
 
 #include <algorithm>
+#include <iostream>
 
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/socket_interface.h"
@@ -649,8 +650,12 @@ ListenSocketPtr createListenSocket(
     const SocketCreationOptions& options,
     bool bind_to_port) {
   
+  std::cerr << "[DEBUG] createListenSocket called: address=" 
+            << (address ? address->asString() : "null") 
+            << " bind_to_port=" << bind_to_port << std::endl;
   
   if (!address) {
+    std::cerr << "[ERROR] createListenSocket: address is null" << std::endl;
     return nullptr;
   }
   
@@ -662,11 +667,15 @@ ListenSocketPtr createListenSocket(
     ip_version = address->ip()->version();
   }
   
+  std::cerr << "[DEBUG] Creating socket: type=" << static_cast<int>(addr_type) 
+            << " ip_version=" << (ip_version.has_value() ? std::to_string(static_cast<int>(*ip_version)) : "none") << std::endl;
+  
   // Create socket
   auto socket_result = socketInterface().socket(
       SocketType::Stream, addr_type, ip_version, options.v6_only);
   
   if (!socket_result.ok()) {
+    std::cerr << "[ERROR] Failed to create socket: error=" << socket_result.error_code() << std::endl;
     return nullptr;
   }
   
@@ -677,12 +686,17 @@ ListenSocketPtr createListenSocket(
           ? optional<int>(ip_version == Address::IpVersion::v4 ? AF_INET : AF_INET6)
           : nullopt);
   
+  std::cerr << "[DEBUG] Socket created, fd=" << *socket_result << std::endl;
+  
   // Create socket object
   auto socket = std::make_unique<ListenSocketImpl>(
       std::move(io_handle), address);
   
+  std::cerr << "[DEBUG] ListenSocketImpl created" << std::endl;
+  
   // Set socket options
   socket->setListenSocketOptions(options);
+  std::cerr << "[DEBUG] Socket options set" << std::endl;
   
   // Apply pre-bind options
   for (const auto& option : *socket->options()) {
@@ -691,10 +705,14 @@ ListenSocketPtr createListenSocket(
   
   // Bind if requested
   if (bind_to_port) {
+    std::cerr << "[DEBUG] Binding socket to " << address->asString() << std::endl;
     auto bind_result = socket->bind(address);
     if (!bind_result.ok()) {
+      std::cerr << "[ERROR] Failed to bind socket: error=" << bind_result.error_code() 
+                << " message=" << (bind_result.error_info ? bind_result.error_info->message : "unknown") << std::endl;
       return nullptr;
     }
+    std::cerr << "[DEBUG] Socket bound successfully" << std::endl;
     
     // If bound to port 0, update the address with the actual assigned port
     if (address->ip() && address->ip()->port() == 0) {

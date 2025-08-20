@@ -64,12 +64,23 @@ TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
       overload_state_(overload_state) {
   // Create file event for accept but don't enable yet
   // Only if we're actually bound to a port
+  std::cerr << "[DEBUG] TcpListenerImpl constructor: bind_to_port=" << bind_to_port_ 
+            << " socket=" << (socket_ ? "YES" : "NO") << std::endl;
+  
   if (bind_to_port_ && socket_) {
+    int fd = socket_->ioHandle().fd();
+    std::cerr << "[DEBUG] Creating file event for listener fd: " << fd << std::endl;
+    
     file_event_ = dispatcher_.createFileEvent(
-        socket_->ioHandle().fd(),
+        fd,
         [this](uint32_t events) { onSocketEvent(events); },
         event::FileTriggerType::Edge,  // Edge-triggered for efficiency
         static_cast<uint32_t>(event::FileReadyType::Read));
+    
+    std::cerr << "[DEBUG] Listener file event created: " 
+              << (file_event_ ? "SUCCESS" : "FAILED") << std::endl;
+  } else {
+    std::cerr << "[DEBUG] Skipping file event creation for listener" << std::endl;
   }
 }
 
@@ -94,13 +105,20 @@ void TcpListenerImpl::disable() {
 }
 
 void TcpListenerImpl::enable() {
+  std::cerr << "[DEBUG] TcpListenerImpl::enable() called, already enabled: " 
+            << enabled_ << std::endl;
+  
   if (enabled_) {
     return;
   }
 
   enabled_ = true;
   if (file_event_) {
+    std::cerr << "[DEBUG] Enabling file event for listener fd: " 
+              << socket_->ioHandle().fd() << std::endl;
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
+  } else {
+    std::cerr << "[ERROR] No file event to enable for listener!" << std::endl;
   }
 
   cb_.onListenerEnabled();
@@ -286,28 +304,41 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
       parent_cb_(parent_cb),
       random_(std::random_device{}()),
       listener_tag_(next_listener_tag_++) {
+  std::cerr << "[DEBUG] TcpActiveListener constructor: address=" 
+            << (config_.address ? config_.address->asString() : "null")
+            << " socket=" << (config_.socket ? "PROVIDED" : "NULL") << std::endl;
+  
   // Create socket if not provided
   if (!config_.socket && config_.address) {
+    std::cerr << "[DEBUG] Creating listen socket for " << config_.address->asString() << std::endl;
+    std::cerr << "[DEBUG] About to call createListenSocket..." << std::endl;
     // Create and bind socket
     auto socket_result = createListenSocket(
         config_.address,
         SocketCreationOptions{
             .non_blocking = true, .close_on_exec = true, .reuse_address = true},
         config_.bind_to_port);
+    std::cerr << "[DEBUG] createListenSocket returned: " << (socket_result ? "SUCCESS" : "NULL") << std::endl;
 
     if (socket_result) {
       config_.socket = std::move(socket_result);
+      std::cerr << "[DEBUG] Socket created successfully, fd=" 
+                << config_.socket->ioHandle().fd() << std::endl;
 
       // Listen on the socket
       if (config_.bind_to_port) {
         static_cast<ListenSocketImpl*>(config_.socket.get())
             ->listen(config_.backlog);
+        std::cerr << "[DEBUG] Socket listening with backlog=" << config_.backlog << std::endl;
       }
+    } else {
+      std::cerr << "[ERROR] Failed to create listen socket!" << std::endl;
     }
   }
 
   // Create the actual TCP listener
   if (config_.socket) {
+    std::cerr << "[DEBUG] Creating TcpListenerImpl..." << std::endl;
     listener_ = std::make_unique<TcpListenerImpl>(
         dispatcher_, random_, config_.socket,
         *this,  // We are the callbacks
@@ -318,6 +349,9 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
 
     // Set initial reject fraction
     listener_->setRejectFraction(UnitFloat(config_.initial_reject_fraction));
+    std::cerr << "[DEBUG] TcpListenerImpl created successfully" << std::endl;
+  } else {
+    std::cerr << "[ERROR] No socket available, listener not created!" << std::endl;
   }
 }
 
