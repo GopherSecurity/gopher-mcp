@@ -91,17 +91,6 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    */
   void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
 
- protected:
-  /**
-   * Create HTTP routing filter with default endpoints
-   * This method queries other filters (like metrics) to provide data
-   * 
-   * @param metrics_filter Optional metrics filter to query for /metrics endpoint
-   * @return Configured HTTP routing filter
-   */
-  std::shared_ptr<filter::HttpRoutingFilter> createHttpRoutingFilter(
-      std::shared_ptr<filter::MetricsFilter> metrics_filter = nullptr) const;
-
  private:
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;

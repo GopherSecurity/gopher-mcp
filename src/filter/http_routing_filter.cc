@@ -11,19 +11,16 @@
 namespace mcp {
 namespace filter {
 
-HttpRoutingFilter::HttpRoutingFilter(event::Dispatcher& dispatcher, bool is_server)
-    : dispatcher_(dispatcher), is_server_(is_server) {
+HttpRoutingFilter::HttpRoutingFilter(HttpCodecFilter::MessageCallbacks* next_callbacks,
+                                   HttpCodecFilter::MessageEncoder* encoder,
+                                   bool is_server)
+    : next_callbacks_(next_callbacks), encoder_(encoder), is_server_(is_server) {
   
-  // Create HTTP codec filter that will parse HTTP for us
-  http_codec_ = std::make_unique<HttpCodecFilter>(*this, dispatcher_, is_server_);
-  
-  // Set up default 404 handler
-  default_handler_ = [](const RequestContext& req) {
+  // Set up default handler that passes through to next layer
+  default_handler_ = [this](const RequestContext& req) {
+    // Return special status code 0 to indicate pass-through
     Response resp;
-    resp.status_code = 404;
-    resp.headers["content-type"] = "application/json";
-    resp.body = "{\"error\":\"Not Found\",\"path\":\"" + req.path + "\"}";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
+    resp.status_code = 0;  // Signal to pass through
     return resp;
   };
 }
@@ -39,75 +36,78 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
   default_handler_ = handler;
 }
 
-network::FilterStatus HttpRoutingFilter::onData(Buffer& data, bool end_stream) {
-  // Forward data to HTTP codec for parsing
-  // The codec will call our MessageCallbacks methods when it parses the HTTP
-  return http_codec_->onData(data, end_stream);
-}
-
-network::FilterStatus HttpRoutingFilter::onNewConnection() {
-  // Reset state for new connection
-  current_request_ = RequestContext();
-  request_complete_ = false;
-  response_buffer_.drain(response_buffer_.length());
-  
-  // Initialize HTTP codec for new connection
-  return http_codec_->onNewConnection();
-}
-
-network::FilterStatus HttpRoutingFilter::onWrite(Buffer& data, bool end_stream) {
-  // For outgoing data, pass through the HTTP codec
-  return http_codec_->onWrite(data, end_stream);
-}
-
-void HttpRoutingFilter::initializeReadFilterCallbacks(
-    network::ReadFilterCallbacks& callbacks) {
-  read_callbacks_ = &callbacks;
-  // Also initialize the HTTP codec's callbacks
-  http_codec_->initializeReadFilterCallbacks(callbacks);
-}
-
-void HttpRoutingFilter::initializeWriteFilterCallbacks(
-    network::WriteFilterCallbacks& callbacks) {
-  write_callbacks_ = &callbacks;
-  // Also initialize the HTTP codec's callbacks
-  http_codec_->initializeWriteFilterCallbacks(callbacks);
-}
+// Removed onData, onNewConnection, onWrite, and initialize callbacks methods
+// as this filter no longer implements network::Filter interface
 
 // HttpCodecFilter::MessageCallbacks implementation
 void HttpRoutingFilter::onHeaders(const std::map<std::string, std::string>& headers,
                                   bool keep_alive) {
+  // Reset state for new request
+  current_request_ = RequestContext();
+  request_complete_ = false;
+  request_handled_ = false;
+  
   // Extract method and path from headers
   current_request_.method = extractMethod(headers);
   current_request_.path = extractPath(headers);
   current_request_.headers = headers;
   current_request_.keep_alive = keep_alive;
+  
+  // Check if we should handle this request
+  std::string key = buildRouteKey(current_request_.method, current_request_.path);
+  if (handlers_.find(key) != handlers_.end()) {
+    // We will handle this request
+    request_handled_ = true;
+  } else {
+    // Check default handler - if it returns status 0, we pass through
+    Response test_resp = default_handler_(current_request_);
+    request_handled_ = (test_resp.status_code != 0);
+  }
+  
+  // If we're not handling it, forward to next layer immediately
+  if (!request_handled_ && next_callbacks_) {
+    next_callbacks_->onHeaders(headers, keep_alive);
+  }
 }
 
 void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
-  // Accumulate body data
-  current_request_.body += data;
-  
-  if (end_stream) {
-    request_complete_ = true;
+  if (request_handled_) {
+    // Accumulate body data for our handler
+    current_request_.body += data;
+    
+    if (end_stream) {
+      request_complete_ = true;
+    }
+  } else if (next_callbacks_) {
+    // Forward to next layer
+    next_callbacks_->onBody(data, end_stream);
   }
 }
 
 void HttpRoutingFilter::onMessageComplete() {
-  // Request is complete, process it
-  request_complete_ = true;
-  processRequest();
+  if (request_handled_) {
+    // Request is complete, process it
+    request_complete_ = true;
+    processRequest();
+  } else if (next_callbacks_) {
+    // Forward to next layer
+    next_callbacks_->onMessageComplete();
+  }
 }
 
 void HttpRoutingFilter::onError(const std::string& error) {
-  // Handle HTTP parsing error
-  // Send a 400 Bad Request response
-  Response resp;
-  resp.status_code = 400;
-  resp.headers["content-type"] = "application/json";
-  resp.body = "{\"error\":\"Bad Request\",\"message\":\"" + error + "\"}";
-  resp.headers["content-length"] = std::to_string(resp.body.length());
-  sendResponse(resp);
+  if (request_handled_) {
+    // Handle HTTP parsing error with our response
+    Response resp;
+    resp.status_code = 400;
+    resp.headers["content-type"] = "application/json";
+    resp.body = "{\"error\":\"Bad Request\",\"message\":\"" + error + "\"}";
+    resp.headers["content-length"] = std::to_string(resp.body.length());
+    sendResponse(resp);
+  } else if (next_callbacks_) {
+    // Forward error to next layer
+    next_callbacks_->onError(error);
+  }
 }
 
 void HttpRoutingFilter::processRequest() {
@@ -123,27 +123,24 @@ void HttpRoutingFilter::processRequest() {
   // Call handler and get response
   Response response = handler(current_request_);
   
-  // Check if we should continue processing (status_code = 0)
-  // This allows certain requests to pass through to next filter
-  if (response.status_code == 0) {
-    // Don't send a response, let the request pass through
-    // The next filter in the chain will handle it
-    return;
+  // Only send response if status code is not 0 (0 means pass-through)
+  if (response.status_code != 0) {
+    sendResponse(response);
   }
-  
-  // Send response
-  sendResponse(response);
   
   // Reset for next request if keep-alive
   if (current_request_.keep_alive) {
     current_request_ = RequestContext();
     request_complete_ = false;
+    request_handled_ = false;
   }
 }
 
 void HttpRoutingFilter::sendResponse(const Response& response) {
-  // Use HTTP codec's encoder to properly format the response
-  auto& encoder = http_codec_->messageEncoder();
+  // Use the provided encoder to properly format the response
+  if (!encoder_) {
+    return;  // No encoder available
+  }
   
   // Prepare headers with proper status line
   std::string status = std::to_string(response.status_code);
@@ -161,14 +158,14 @@ void HttpRoutingFilter::sendResponse(const Response& response) {
   
   // Encode headers
   bool has_body = !response.body.empty();
-  encoder.encodeHeaders(status, response.headers, !has_body);
+  encoder_->encodeHeaders(status, response.headers, !has_body);
   
   // Encode body if present
   if (has_body) {
     // Create a buffer with the response body
     OwnedBuffer body_buffer;
     body_buffer.add(response.body);
-    encoder.encodeData(body_buffer, true);
+    encoder_->encodeData(body_buffer, true);
   }
 }
 

@@ -18,19 +18,18 @@ namespace filter {
  * HTTP Routing Filter
  * 
  * This filter provides HTTP endpoint routing capabilities.
- * It composes with HttpCodecFilter for proper HTTP parsing,
- * routing requests to registered handlers based on path and method.
+ * It does NOT do HTTP parsing - it receives already-parsed HTTP messages
+ * via the MessageCallbacks interface and routes them to registered handlers.
  * 
  * Architecture:
- * - Composes HttpCodecFilter for HTTP protocol parsing
+ * - Receives parsed HTTP messages via callbacks
+ * - Routes requests to registered handlers based on path and method
+ * - Can pass through unhandled requests for further processing
  * - Uses MCP Buffer abstraction for all data handling
- * - Routes parsed requests to registered handlers
- * - Application registers handlers for specific paths
  * 
- * Filter chain: [Network] → [HttpCodecFilter] → [HttpRoutingFilter] → [App]
+ * Filter chain: [Network] → [HttpCodecFilter] → [HttpRoutingFilter] → [MCP Protocol]
  */
-class HttpRoutingFilter : public network::Filter,
-                         public HttpCodecFilter::MessageCallbacks {
+class HttpRoutingFilter : public HttpCodecFilter::MessageCallbacks {
 public:
   // HTTP request context passed to handlers
   struct RequestContext {
@@ -53,10 +52,13 @@ public:
   
   /**
    * Constructor
-   * @param dispatcher Event dispatcher for async operations
+   * @param next_callbacks The next layer of callbacks to forward unhandled requests to
+   * @param encoder HTTP encoder for sending responses
    * @param is_server True for server mode (default), false for client mode
    */
-  explicit HttpRoutingFilter(event::Dispatcher& dispatcher, bool is_server = true);
+  explicit HttpRoutingFilter(HttpCodecFilter::MessageCallbacks* next_callbacks,
+                            HttpCodecFilter::MessageEncoder* encoder,
+                            bool is_server = true);
   
   /**
    * Register a handler for a specific path and method
@@ -74,13 +76,11 @@ public:
    */
   void registerDefaultHandler(HandlerFunc handler);
   
-  // network::Filter interface
-  network::FilterStatus onData(Buffer& data, bool end_stream) override;
-  network::FilterStatus onNewConnection() override;
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
-  
-  void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override;
-  void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override;
+  /**
+   * Set the HTTP encoder (called after HTTP codec is created)
+   * @param encoder The HTTP encoder to use for responses
+   */
+  void setEncoder(HttpCodecFilter::MessageEncoder* encoder) { encoder_ = encoder; }
   
   // HttpCodecFilter::MessageCallbacks interface
   void onHeaders(const std::map<std::string, std::string>& headers,
@@ -106,8 +106,8 @@ private:
   std::string extractPath(const std::map<std::string, std::string>& headers);
   
   // Components
-  event::Dispatcher& dispatcher_;
-  std::unique_ptr<HttpCodecFilter> http_codec_;
+  HttpCodecFilter::MessageCallbacks* next_callbacks_;  // Next layer to forward to
+  HttpCodecFilter::MessageEncoder* encoder_;           // HTTP encoder for responses
   bool is_server_;
   
   // Registered handlers
@@ -119,13 +119,7 @@ private:
   // Current request being processed
   RequestContext current_request_;
   bool request_complete_{false};
-  
-  // Callbacks
-  network::ReadFilterCallbacks* read_callbacks_{nullptr};
-  network::WriteFilterCallbacks* write_callbacks_{nullptr};
-  
-  // Buffer for accumulating response data
-  OwnedBuffer response_buffer_;
+  bool request_handled_{false};  // True if we handled this request locally
 };
 
 /**

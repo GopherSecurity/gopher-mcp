@@ -228,6 +228,7 @@ class HttpCodecFilter : public network::Filter {
   std::string current_url_;     // For client mode request parsing
   std::string current_status_;  // For client mode response parsing
   bool keep_alive_{true};
+  http::HttpVersion current_version_{http::HttpVersion::HTTP_1_1};  // Store HTTP version from request
 
   // Message buffering
   OwnedBuffer message_buffer_;
