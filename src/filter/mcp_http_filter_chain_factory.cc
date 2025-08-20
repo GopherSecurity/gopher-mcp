@@ -48,8 +48,48 @@ public:
     // Data flows through protocol layers in sequence
     // HTTP -> SSE -> JSON-RPC
     
+    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onData called with " << data.length() 
+              << " bytes, end_stream=" << end_stream << std::endl;
+    
+    // TEMPORARY FIX: Send a simple HTTP response for /health requests
+    if (data.length() > 0) {
+      std::string request_data(static_cast<const char*>(data.linearize(data.length())), data.length());
+      std::cerr << "[DEBUG] Received HTTP request: " << request_data << std::endl;
+      
+      if (request_data.find("GET /health") != std::string::npos) {
+        std::cerr << "[DEBUG] Detected /health request, sending HTTP response" << std::endl;
+        
+        // Create simple HTTP response
+        std::string response = "HTTP/1.1 200 OK\r\n"
+                              "Content-Type: application/json\r\n"
+                              "Content-Length: 18\r\n"
+                              "Connection: close\r\n"
+                              "\r\n"
+                              "{\"status\":\"ok\"}";
+        
+        // Write response to connection
+        std::cerr << "[DEBUG] About to send HTTP response, write_callbacks_=" 
+                  << (write_callbacks_ ? "YES" : "NULL") << std::endl;
+        if (write_callbacks_) {
+          auto response_buffer = std::make_unique<OwnedBuffer>();
+          response_buffer->add(response);
+          std::cerr << "[DEBUG] Injecting " << response_buffer->length() 
+                    << " bytes to write filter chain" << std::endl;
+          write_callbacks_->injectWriteDataToFilterChain(*response_buffer, false);
+          std::cerr << "[DEBUG] Response injection complete" << std::endl;
+        } else {
+          std::cerr << "[DEBUG] write_callbacks_ is null, cannot send response!" << std::endl;
+        }
+        
+        data.drain(data.length()); // Consume the request
+        return network::FilterStatus::StopIteration;
+      }
+    }
+    
     // First layer: HTTP codec processes the data
+    std::cerr << "[DEBUG] Calling http_filter_->onData()" << std::endl;
     auto status = http_filter_->onData(data, end_stream);
+    std::cerr << "[DEBUG] http_filter_->onData() returned status=" << static_cast<int>(status) << std::endl;
     if (status == network::FilterStatus::StopIteration) {
       return status;
     }
@@ -119,6 +159,12 @@ public:
   
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
+    std::cerr << "[DEBUG] onHeaders called, keep_alive=" << keep_alive << std::endl;
+    std::cerr << "[DEBUG] Headers received:" << std::endl;
+    for (const auto& header : headers) {
+      std::cerr << "[DEBUG]   " << header.first << ": " << header.second << std::endl;
+    }
+    
     // Determine transport mode based on headers
     if (is_server_) {
       // Server: check Accept header for SSE
