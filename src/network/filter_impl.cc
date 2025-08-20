@@ -1,6 +1,7 @@
 #include "mcp/network/filter.h"
 #include "mcp/network/filter_chain_state_machine.h"
 #include "mcp/network/connection.h"
+#include "mcp/network/connection_impl.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/buffer.h"
 #include <algorithm>
@@ -182,7 +183,9 @@ void FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
   if (buffered_write_data_) {
     std::cerr << "[DEBUG] Moving " << buffered_write_data_->length() 
               << " bytes from buffered_write_data_ to write buffer" << std::endl;
-    buffer.move(*buffered_write_data_);
+    // CRITICAL: move() moves FROM source TO destination
+    // We need to move FROM buffered_write_data_ TO buffer
+    buffered_write_data_->move(buffer);
     buffered_write_data_.reset();
     std::cerr << "[DEBUG] Write buffer now has " << buffer.length() << " bytes" << std::endl;
   }
@@ -257,6 +260,16 @@ void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data, bool end_stre
   std::cerr << "[DEBUG] Buffered write data, now calling onWrite() to process" << std::endl;
   // Trigger write processing to move buffered data to write buffer
   onWrite();
+  
+  // After processing through filters, trigger actual write to socket
+  // This is critical - the filter chain processes data but doesn't actually write it
+  if (connection_.writeBuffer().length() > 0) {
+    std::cerr << "[DEBUG] Triggering connection write with " 
+              << connection_.writeBuffer().length() << " bytes" << std::endl;
+    // Cast to ConnectionImpl to access write method
+    auto& conn = dynamic_cast<ConnectionImpl&>(connection_);
+    conn.write(connection_.writeBuffer(), end_stream);
+  }
 }
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {
