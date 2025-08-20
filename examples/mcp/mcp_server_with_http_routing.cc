@@ -123,7 +123,8 @@ class HttpRoutingFilterChainFactory : public McpHttpFilterChainFactory {
 public:
   HttpRoutingFilterChainFactory(mcp::event::Dispatcher& dispatcher,
                                McpMessageCallbacks& callbacks)
-      : McpHttpFilterChainFactory(dispatcher, callbacks, true) {}
+      : McpHttpFilterChainFactory(dispatcher, callbacks, true),
+        dispatcher_(dispatcher) {}
   
   bool createFilterChain(network::FilterManager& filter_manager) const override {
     // First create the standard MCP filter chain
@@ -141,7 +142,7 @@ public:
   
 private:
   std::shared_ptr<HttpRoutingFilter> createRoutingFilter() const {
-    auto filter = std::make_shared<HttpRoutingFilter>();
+    auto filter = std::make_shared<HttpRoutingFilter>(dispatcher_, true);
     
     // Register health endpoint
     filter->registerHandler("GET", "/health", 
@@ -206,6 +207,8 @@ mcp_server_requests_total 1337
     
     return filter;
   }
+  
+  mcp::event::Dispatcher& dispatcher_;
 };
 
 } // namespace example
