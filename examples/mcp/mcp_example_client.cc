@@ -97,6 +97,7 @@ struct ClientOptions {
   bool demo = false;
   bool metrics = false;
   bool verbose = false;
+  bool quiet = false;  // Reduce output for automated usage
   
   // Advanced options
   int pool_size = 5;
@@ -133,6 +134,7 @@ void printUsage(const char* program) {
   std::cerr << "  --pool-size <n>      Connection pool size (default: 5)\n";
   std::cerr << "  --max-retries <n>    Maximum retry attempts (default: 3)\n";
   std::cerr << "  --workers <n>        Number of worker threads (default: 2)\n";
+  std::cerr << "  --quiet              Reduce output (only show errors)\n";
   std::cerr << "  --help               Show this help message\n";
 }
 
@@ -172,6 +174,9 @@ ClientOptions parseArguments(int argc, char* argv[]) {
     }
     else if (arg == "--workers" && i + 1 < argc) {
       options.num_workers = std::atoi(argv[++i]);
+    }
+    else if (arg == "--quiet") {
+      options.quiet = true;
     }
     else {
       std::cerr << "[ERROR] Unknown option: " << arg << std::endl;
@@ -598,7 +603,9 @@ int main(int argc, char* argv[]) {
   
   // Main loop - send periodic pings
   std::cerr << "\n[INFO] Entering main loop (Ctrl+C to exit)..." << std::endl;
-  std::cerr << "[INFO] Sending ping every 5 seconds..." << std::endl;
+  if (!options.quiet) {
+    std::cerr << "[INFO] Sending ping every 5 seconds..." << std::endl;
+  }
   
   int ping_count = 0;
   int consecutive_failures = 0;
@@ -620,7 +627,8 @@ int main(int argc, char* argv[]) {
       if (!response.error.has_value()) {
         ping_count++;
         consecutive_failures = 0;
-        if (ping_count % 10 == 0 || options.verbose) {
+        // Only show ping messages in verbose mode or if quiet is not enabled
+        if (!options.quiet && (ping_count % 100 == 0 || options.verbose)) {
           std::cerr << "[INFO] Ping #" << ping_count << " successful" << std::endl;
         }
       } else {
@@ -638,8 +646,9 @@ int main(int argc, char* argv[]) {
       break;
     }
     
-    // Show periodic metrics if requested
-    if (options.metrics && ping_count > 0 && ping_count % 20 == 0) {
+    // Show periodic metrics if requested (less frequently in quiet mode)
+    int metrics_interval = options.quiet ? 200 : 20;
+    if (options.metrics && ping_count > 0 && ping_count % metrics_interval == 0) {
       std::lock_guard<std::mutex> lock(g_client_mutex);
       if (g_client) {
         try {
