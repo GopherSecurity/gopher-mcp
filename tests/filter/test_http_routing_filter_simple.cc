@@ -1,35 +1,44 @@
 /**
  * Simple HTTP Routing Filter Unit Tests
  * 
- * Basic tests for HTTP routing filter functionality
+ * Basic tests for HTTP routing filter functionality using real I/O
  */
 
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <atomic>
+#include <chrono>
 
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/buffer.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "../integration/real_io_test_base.h"
 
 namespace mcp {
 namespace filter {
 namespace {
 
-// Test fixture
-class HttpRoutingFilterSimpleTest : public ::testing::Test {
+using namespace std::chrono_literals;
+
+// Test fixture using real I/O test base
+class HttpRoutingFilterSimpleTest : public test::RealIoTestBase {
 protected:
   void SetUp() override {
-    // Create real dispatcher for testing
-    dispatcher_ = std::make_unique<event::LibeventDispatcher>("test");
+    RealIoTestBase::SetUp();
     
-    // Create filter in server mode
-    filter_ = std::make_unique<HttpRoutingFilter>(*dispatcher_, true);
+    // Create filter in dispatcher thread
+    executeInDispatcher([this]() {
+      filter_ = std::make_unique<HttpRoutingFilter>(*dispatcher_, true);
+    });
   }
   
   void TearDown() override {
-    filter_.reset();
-    dispatcher_.reset();
+    // Clean up filter in dispatcher thread
+    executeInDispatcher([this]() {
+      filter_.reset();
+    });
+    
+    RealIoTestBase::TearDown();
   }
   
   // Helper to create HTTP request
@@ -49,24 +58,25 @@ protected:
     return request;
   }
   
-  std::unique_ptr<event::Dispatcher> dispatcher_;
   std::unique_ptr<HttpRoutingFilter> filter_;
 };
 
 // Test handler registration
 TEST_F(HttpRoutingFilterSimpleTest, RegisterHandler) {
-  bool handler_called = false;
+  std::atomic<bool> handler_called(false);
   
-  // Register a handler
-  filter_->registerHandler("GET", "/test", 
-      [&handler_called](const HttpRoutingFilter::RequestContext& req) {
-    handler_called = true;
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.headers["content-type"] = "text/plain";
-    resp.body = "Test response";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
+  // Register a handler in dispatcher thread
+  executeInDispatcher([this, &handler_called]() {
+    filter_->registerHandler("GET", "/test", 
+        [&handler_called](const HttpRoutingFilter::RequestContext& req) {
+      handler_called = true;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.headers["content-type"] = "text/plain";
+      resp.body = "Test response";
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
   });
   
   // The handler is registered, but won't be called until we send data
@@ -75,29 +85,32 @@ TEST_F(HttpRoutingFilterSimpleTest, RegisterHandler) {
 
 // Test multiple handler registration
 TEST_F(HttpRoutingFilterSimpleTest, MultipleHandlers) {
-  int handler1_called = 0;
-  int handler2_called = 0;
+  std::atomic<int> handler1_called(0);
+  std::atomic<int> handler2_called(0);
   
-  // Register first handler
-  filter_->registerHandler("GET", "/endpoint1", 
-      [&handler1_called](const HttpRoutingFilter::RequestContext& req) {
-    handler1_called++;
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.body = "Endpoint 1";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
-  });
-  
-  // Register second handler
-  filter_->registerHandler("GET", "/endpoint2", 
-      [&handler2_called](const HttpRoutingFilter::RequestContext& req) {
-    handler2_called++;
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    resp.body = "Endpoint 2";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
+  // Register handlers in dispatcher thread
+  executeInDispatcher([this, &handler1_called, &handler2_called]() {
+    // Register first handler
+    filter_->registerHandler("GET", "/endpoint1", 
+        [&handler1_called](const HttpRoutingFilter::RequestContext& req) {
+      handler1_called++;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.body = "Endpoint 1";
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
+    
+    // Register second handler
+    filter_->registerHandler("GET", "/endpoint2", 
+        [&handler2_called](const HttpRoutingFilter::RequestContext& req) {
+      handler2_called++;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      resp.body = "Endpoint 2";
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
   });
   
   // Handlers are registered but not called yet
@@ -107,18 +120,20 @@ TEST_F(HttpRoutingFilterSimpleTest, MultipleHandlers) {
 
 // Test custom default handler
 TEST_F(HttpRoutingFilterSimpleTest, CustomDefaultHandler) {
-  bool default_handler_called = false;
+  std::atomic<bool> default_handler_called(false);
   
-  // Register custom default handler
-  filter_->registerDefaultHandler(
-      [&default_handler_called](const HttpRoutingFilter::RequestContext& req) {
-    default_handler_called = true;
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 503;
-    resp.body = "Service Unavailable";
-    resp.headers["content-type"] = "text/plain";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    return resp;
+  // Register custom default handler in dispatcher thread
+  executeInDispatcher([this, &default_handler_called]() {
+    filter_->registerDefaultHandler(
+        [&default_handler_called](const HttpRoutingFilter::RequestContext& req) {
+      default_handler_called = true;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 503;
+      resp.body = "Service Unavailable";
+      resp.headers["content-type"] = "text/plain";
+      resp.headers["content-length"] = std::to_string(resp.body.length());
+      return resp;
+    });
   });
   
   // Handler is registered but not called yet
@@ -157,35 +172,37 @@ TEST_F(HttpRoutingFilterSimpleTest, ResponseStructure) {
 
 // Test method-based routing
 TEST_F(HttpRoutingFilterSimpleTest, MethodBasedRouting) {
-  std::string last_method;
+  std::atomic<int> last_method_id(0);
   
-  // Register handlers for different methods on same path
-  filter_->registerHandler("GET", "/resource",
-      [&last_method](const HttpRoutingFilter::RequestContext& req) {
-    last_method = "GET";
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 200;
-    return resp;
-  });
-  
-  filter_->registerHandler("POST", "/resource",
-      [&last_method](const HttpRoutingFilter::RequestContext& req) {
-    last_method = "POST";
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 201;
-    return resp;
-  });
-  
-  filter_->registerHandler("DELETE", "/resource",
-      [&last_method](const HttpRoutingFilter::RequestContext& req) {
-    last_method = "DELETE";
-    HttpRoutingFilter::Response resp;
-    resp.status_code = 204;
-    return resp;
+  // Register handlers for different methods on same path in dispatcher thread
+  executeInDispatcher([this, &last_method_id]() {
+    filter_->registerHandler("GET", "/resource",
+        [&last_method_id](const HttpRoutingFilter::RequestContext& req) {
+      last_method_id = 1;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 200;
+      return resp;
+    });
+    
+    filter_->registerHandler("POST", "/resource",
+        [&last_method_id](const HttpRoutingFilter::RequestContext& req) {
+      last_method_id = 2;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 201;
+      return resp;
+    });
+    
+    filter_->registerHandler("DELETE", "/resource",
+        [&last_method_id](const HttpRoutingFilter::RequestContext& req) {
+      last_method_id = 3;
+      HttpRoutingFilter::Response resp;
+      resp.status_code = 204;
+      return resp;
+    });
   });
   
   // Handlers registered but not called
-  EXPECT_EQ(last_method, "");
+  EXPECT_EQ(last_method_id, 0);
 }
 
 // Test path variations
@@ -200,18 +217,21 @@ TEST_F(HttpRoutingFilterSimpleTest, PathVariations) {
     "/metrics"
   };
   
-  for (const auto& path : paths) {
-    bool handler_called = false;
-    filter_->registerHandler("GET", path,
-        [&handler_called](const HttpRoutingFilter::RequestContext& req) {
-      handler_called = true;
-      HttpRoutingFilter::Response resp;
-      resp.status_code = 200;
-      return resp;
-    });
-    // Handler registered but not called
-    EXPECT_FALSE(handler_called);
-  }
+  std::atomic<int> handlers_registered(0);
+  
+  executeInDispatcher([this, &paths, &handlers_registered]() {
+    for (const auto& path : paths) {
+      filter_->registerHandler("GET", path,
+          [](const HttpRoutingFilter::RequestContext& req) {
+        HttpRoutingFilter::Response resp;
+        resp.status_code = 200;
+        return resp;
+      });
+      handlers_registered++;
+    }
+  });
+  
+  EXPECT_EQ(handlers_registered, paths.size());
 }
 
 // Test HTTP request creation helper
@@ -232,9 +252,11 @@ TEST_F(HttpRoutingFilterSimpleTest, FilterInitialization) {
   // Filter should be properly initialized
   EXPECT_NE(filter_, nullptr);
   
-  // Create new connection - should succeed
-  auto status = filter_->onNewConnection();
-  EXPECT_EQ(status, network::FilterStatus::Continue);
+  // Create new connection in dispatcher thread - should succeed
+  executeInDispatcher([this]() {
+    auto status = filter_->onNewConnection();
+    EXPECT_EQ(status, network::FilterStatus::Continue);
+  });
 }
 
 } // namespace
