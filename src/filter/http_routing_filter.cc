@@ -123,6 +123,14 @@ void HttpRoutingFilter::processRequest() {
   // Call handler and get response
   Response response = handler(current_request_);
   
+  // Check if we should continue processing (status_code = 0)
+  // This allows certain requests to pass through to next filter
+  if (response.status_code == 0) {
+    // Don't send a response, let the request pass through
+    // The next filter in the chain will handle it
+    return;
+  }
+  
   // Send response
   sendResponse(response);
   
