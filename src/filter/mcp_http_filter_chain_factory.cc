@@ -318,6 +318,30 @@ std::shared_ptr<filter::HttpRoutingFilter> McpHttpFilterChainFactory::createHttp
   
   auto routing_filter = std::make_shared<filter::HttpRoutingFilter>(dispatcher_, is_server_);
   
+  // Register default handler that passes through unhandled requests
+  // This allows JSON-RPC requests to /rpc and SSE connections to /events
+  // to pass through to the appropriate protocol filters
+  routing_filter->registerDefaultHandler(
+      [](const filter::HttpRoutingFilter::RequestContext& req) {
+    // For unhandled paths, return Continue to let the request
+    // pass through the filter chain
+    filter::HttpRoutingFilter::Response resp;
+    
+    // Special handling for JSON-RPC and SSE endpoints
+    if (req.path == "/rpc" || req.path == "/events") {
+      // Don't send a response - let it pass through to next filter
+      resp.status_code = 0;  // Signal to continue processing
+      return resp;
+    }
+    
+    // For other paths, return 404
+    resp.status_code = 404;
+    resp.headers["content-type"] = "application/json";
+    resp.body = "{\"error\":\"Not Found\",\"path\":\"" + req.path + "\"}";
+    resp.headers["content-length"] = std::to_string(resp.body.length());
+    return resp;
+  });
+  
   // Register health endpoint
   routing_filter->registerHandler("GET", "/health", 
       [](const filter::HttpRoutingFilter::RequestContext& req) {
