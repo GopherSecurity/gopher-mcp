@@ -10,6 +10,11 @@
 // Forward declarations
 namespace mcp {
 class McpMessageCallbacks;
+
+namespace filter {
+class HttpRoutingFilter;
+class MetricsFilter;
+}  // namespace filter
 }
 
 namespace mcp {
@@ -80,10 +85,28 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
     return false;
   }
 
+  /**
+   * Enable metrics collection
+   * When true, adds MetricsFilter to the chain
+   */
+  void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
+
+ protected:
+  /**
+   * Create HTTP routing filter with default endpoints
+   * This method queries other filters (like metrics) to provide data
+   * 
+   * @param metrics_filter Optional metrics filter to query for /metrics endpoint
+   * @return Configured HTTP routing filter
+   */
+  std::shared_ptr<filter::HttpRoutingFilter> createHttpRoutingFilter(
+      std::shared_ptr<filter::MetricsFilter> metrics_filter = nullptr) const;
+
  private:
   event::Dispatcher& dispatcher_;
   McpMessageCallbacks& message_callbacks_;
   bool is_server_;
+  mutable bool enable_metrics_ = true;  // Enable metrics by default
 
   // Store filters for lifetime management
   mutable std::vector<network::FilterSharedPtr> filters_;
