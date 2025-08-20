@@ -4,9 +4,12 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <memory>
 
 #include "mcp/network/filter.h"
 #include "mcp/buffer.h"
+#include "mcp/filter/http_codec_filter.h"
+#include "mcp/event/event_loop.h"
 
 namespace mcp {
 namespace filter {
@@ -15,16 +18,19 @@ namespace filter {
  * HTTP Routing Filter
  * 
  * This filter provides HTTP endpoint routing capabilities.
- * It sits between the HTTP codec and the application layer,
+ * It composes with HttpCodecFilter for proper HTTP parsing,
  * routing requests to registered handlers based on path and method.
  * 
  * Architecture:
- * - Maintains separation of concerns
- * - Filter chain handles protocol translation
- * - This filter handles endpoint routing
+ * - Composes HttpCodecFilter for HTTP protocol parsing
+ * - Uses MCP Buffer abstraction for all data handling
+ * - Routes parsed requests to registered handlers
  * - Application registers handlers for specific paths
+ * 
+ * Filter chain: [Network] → [HttpCodecFilter] → [HttpRoutingFilter] → [App]
  */
-class HttpRoutingFilter : public network::Filter {
+class HttpRoutingFilter : public network::Filter,
+                         public HttpCodecFilter::MessageCallbacks {
 public:
   // HTTP request context passed to handlers
   struct RequestContext {
@@ -47,9 +53,10 @@ public:
   
   /**
    * Constructor
-   * @param write_callbacks Write callbacks for sending responses
+   * @param dispatcher Event dispatcher for async operations
+   * @param is_server True for server mode (default), false for client mode
    */
-  explicit HttpRoutingFilter(network::WriteFilterCallbacks* write_callbacks = nullptr);
+  explicit HttpRoutingFilter(event::Dispatcher& dispatcher, bool is_server = true);
   
   /**
    * Register a handler for a specific path and method
@@ -67,7 +74,7 @@ public:
    */
   void registerDefaultHandler(HandlerFunc handler);
   
-  // Filter interface
+  // network::Filter interface
   network::FilterStatus onData(Buffer& data, bool end_stream) override;
   network::FilterStatus onNewConnection() override;
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
@@ -75,18 +82,33 @@ public:
   void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override;
   void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override;
   
+  // HttpCodecFilter::MessageCallbacks interface
+  void onHeaders(const std::map<std::string, std::string>& headers,
+                 bool keep_alive) override;
+  void onBody(const std::string& data, bool end_stream) override;
+  void onMessageComplete() override;
+  void onError(const std::string& error) override;
+  
 private:
   // Process HTTP request and route to appropriate handler
-  void processRequest(const RequestContext& request);
+  void processRequest();
   
-  // Send HTTP response
+  // Send HTTP response using HTTP codec
   void sendResponse(const Response& response);
-  
-  // Build response buffer
-  std::unique_ptr<Buffer> buildResponseBuffer(const Response& response);
   
   // Route key is "METHOD /path"
   std::string buildRouteKey(const std::string& method, const std::string& path) const;
+  
+  // Extract method from request line or headers
+  std::string extractMethod(const std::map<std::string, std::string>& headers);
+  
+  // Extract path from request line or headers
+  std::string extractPath(const std::map<std::string, std::string>& headers);
+  
+  // Components
+  event::Dispatcher& dispatcher_;
+  std::unique_ptr<HttpCodecFilter> http_codec_;
+  bool is_server_;
   
   // Registered handlers
   std::map<std::string, HandlerFunc> handlers_;
@@ -96,14 +118,14 @@ private:
   
   // Current request being processed
   RequestContext current_request_;
+  bool request_complete_{false};
   
   // Callbacks
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
   
-  // State
-  bool headers_complete_{false};
-  bool processing_request_{false};
+  // Buffer for accumulating response data
+  OwnedBuffer response_buffer_;
 };
 
 /**
