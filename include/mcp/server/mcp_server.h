@@ -751,6 +751,10 @@ class McpServer : public application::ApplicationBase,
   // IMPROVEMENT: Using TcpActiveListener for robust listener management
   // Following production architecture for better connection lifecycle handling
   std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
+  
+  // Store active connections to manage their lifetime
+  // Following production pattern: server owns connections until they close
+  std::vector<network::ConnectionPtr> active_connections_;
 
   // Legacy connection managers (for stdio transport)
   // TODO: Migrate stdio to use listener pattern

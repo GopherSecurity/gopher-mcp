@@ -661,6 +661,14 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
         // Remove session associated with the closed connection
         session_manager_->removeSessionByConnection(current_connection_);
         
+        // Remove the connection from active connections list
+        // This will destroy the connection object when it's no longer referenced
+        auto it = std::remove_if(active_connections_.begin(), active_connections_.end(),
+            [this](const network::ConnectionPtr& conn) {
+              return conn.get() == current_connection_;
+            });
+        active_connections_.erase(it, active_connections_.end());
+        
         // Clear the current connection for this thread
         current_connection_ = nullptr;
       }
@@ -1079,9 +1087,12 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // filters Following production pattern: connection is ready for protocol
   // processing
 
-  // Create session for this connection
-  // IMPORTANT: Store raw pointer, ownership remains with TcpActiveListener
+  // CRITICAL FIX: Take ownership of the connection
+  // The connection is passed by rvalue reference, meaning we must take ownership
+  // or it will be destroyed when this function returns, closing the connection!
   network::Connection* conn_ptr = connection.get();
+  
+  // Create session for this connection
   auto session = session_manager_->createSession(conn_ptr);
 
   if (!session) {
@@ -1097,6 +1108,10 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Store connection pointer for this thread's context
   // This will be used when processing requests from this connection
   current_connection_ = conn_ptr;
+  
+  // CRITICAL: Store the connection to keep it alive
+  // Following production pattern: server manages connection lifetime
+  active_connections_.push_back(std::move(connection));
 
   // The connection is now ready for message processing
   // Messages will flow through filter chain to our onRequest/onNotification
