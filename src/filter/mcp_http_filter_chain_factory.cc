@@ -316,7 +316,7 @@ bool McpHttpFilterChainFactory::createFilterChain(
 std::shared_ptr<filter::HttpRoutingFilter> McpHttpFilterChainFactory::createHttpRoutingFilter(
     std::shared_ptr<filter::MetricsFilter> metrics_filter) const {
   
-  auto routing_filter = std::make_shared<filter::HttpRoutingFilter>();
+  auto routing_filter = std::make_shared<filter::HttpRoutingFilter>(dispatcher_, is_server_);
   
   // Register health endpoint
   routing_filter->registerHandler("GET", "/health", 

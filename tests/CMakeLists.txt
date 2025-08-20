@@ -806,6 +806,18 @@ target_link_libraries(test_http_codec_filter
 )
 add_test(NAME HttpCodecFilterTest COMMAND test_http_codec_filter)
 
+# HTTP Routing Filter Test - Simple version
+add_executable(test_http_routing_filter_simple filter/test_http_routing_filter_simple.cc)
+target_link_libraries(test_http_routing_filter_simple 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME HttpRoutingFilterSimpleTest COMMAND test_http_routing_filter_simple)
+
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine 
     mcp-sdk

@@ -189,6 +189,25 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onHeadersComplete()
     parent_.current_headers_[lower_field] = current_header_value_;
   }
   
+  // Add HTTP method to headers for routing filter
+  if (parent_.is_server_) {
+    http::HttpMethod method = parent_.parser_->httpMethod();
+    std::string method_str;
+    switch (method) {
+      case http::HttpMethod::GET: method_str = "GET"; break;
+      case http::HttpMethod::POST: method_str = "POST"; break;
+      case http::HttpMethod::PUT: method_str = "PUT"; break;
+      case http::HttpMethod::DELETE: method_str = "DELETE"; break;
+      case http::HttpMethod::HEAD: method_str = "HEAD"; break;
+      case http::HttpMethod::OPTIONS: method_str = "OPTIONS"; break;
+      case http::HttpMethod::PATCH: method_str = "PATCH"; break;
+      case http::HttpMethod::CONNECT: method_str = "CONNECT"; break;
+      case http::HttpMethod::TRACE: method_str = "TRACE"; break;
+      default: method_str = "UNKNOWN"; break;
+    }
+    parent_.current_headers_[":method"] = method_str;
+  }
+  
   // Check keep-alive
   parent_.keep_alive_ = parent_.parser_->shouldKeepAlive();
   
