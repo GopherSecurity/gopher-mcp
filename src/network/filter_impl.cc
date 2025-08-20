@@ -5,6 +5,7 @@
 #include "mcp/buffer.h"
 #include <algorithm>
 #include <list>
+#include <iostream>
 
 namespace mcp {
 namespace network {
@@ -45,7 +46,9 @@ void FilterManagerImpl::removeReadFilter(ReadFilterSharedPtr filter) {
 }
 
 bool FilterManagerImpl::initializeReadFilters() {
+  std::cerr << "[DEBUG] FilterManagerImpl::initializeReadFilters() called, initialized_=" << initialized_ << std::endl;
   if (initialized_) {
+    std::cerr << "[DEBUG] Already initialized, returning true" << std::endl;
     return true;
   }
 
@@ -84,6 +87,7 @@ bool FilterManagerImpl::initializeReadFilters() {
   }
 
   initialized_ = true;
+  std::cerr << "[DEBUG] FilterManager initialized successfully, filter count: " << read_filters_.size() << std::endl;
   
   // Start the filter chain - transitions to Active state
   if (state_machine_) {
@@ -93,7 +97,9 @@ bool FilterManagerImpl::initializeReadFilters() {
 }
 
 void FilterManagerImpl::onRead() {
+  std::cerr << "[DEBUG] FilterManagerImpl::onRead() called, initialized_=" << initialized_ << std::endl;
   if (!initialized_) {
+    std::cerr << "[DEBUG] FilterManager not initialized, returning" << std::endl;
     return;
   }
 
@@ -104,6 +110,10 @@ void FilterManagerImpl::onRead() {
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
+  
+  std::cerr << "[DEBUG] FilterManager buffer length: " << buffer.length() 
+            << " end_stream: " << end_stream 
+            << " read_filters count: " << read_filters_.size() << std::endl;
   
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);
@@ -145,23 +155,36 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_strea
 }
 
 void FilterManagerImpl::onWrite() {
+  std::cerr << "[DEBUG] FilterManagerImpl::onWrite() called, initialized_=" << initialized_ << std::endl;
   if (!initialized_) {
+    std::cerr << "[DEBUG] FilterManager not initialized for writing, returning" << std::endl;
     return;
   }
 
   Buffer& buffer = connection_.writeBuffer();
+  std::cerr << "[DEBUG] Write buffer length before processing: " << buffer.length() << std::endl;
+  std::cerr << "[DEBUG] Buffered write data length: " 
+            << (buffered_write_data_ ? buffered_write_data_->length() : 0) << std::endl;
+  
   current_write_filter_ = write_filters_.begin();
   onContinueWriting(buffer, false);
+  
+  std::cerr << "[DEBUG] Write buffer length after processing: " << buffer.length() << std::endl;
 }
 
 void FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
+  std::cerr << "[DEBUG] FilterManagerImpl::onContinueWriting called" << std::endl;
   if (current_write_filter_ == write_filters_.end()) {
+    std::cerr << "[DEBUG] No write filters to process, returning" << std::endl;
     return;
   }
 
   if (buffered_write_data_) {
+    std::cerr << "[DEBUG] Moving " << buffered_write_data_->length() 
+              << " bytes from buffered_write_data_ to write buffer" << std::endl;
     buffer.move(*buffered_write_data_);
     buffered_write_data_.reset();
+    std::cerr << "[DEBUG] Write buffer now has " << buffer.length() << " bytes" << std::endl;
   }
 
   std::vector<WriteFilterSharedPtr>::iterator entry = current_write_filter_;
@@ -215,11 +238,25 @@ bool FilterManagerImpl::shouldContinueFilterChain() {
 }
 
 void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data, bool end_stream) {
+  std::cerr << "[DEBUG] FilterManagerImpl::injectWriteDataToFilterChain called with " 
+            << data.length() << " bytes" << std::endl;
+  
   if (!buffered_write_data_) {
     buffered_write_data_ = std::make_unique<OwnedBuffer>();
   }
-  buffered_write_data_->move(data);
+  
+  std::cerr << "[DEBUG] About to copy " << data.length() << " bytes to buffered_write_data_" << std::endl;
+  // Use add() instead of move() to avoid buffer move issues
+  if (data.length() > 0) {
+    auto linear_data = data.linearize(data.length());
+    buffered_write_data_->add(linear_data, data.length());
+  }
+  std::cerr << "[DEBUG] After copy: buffered_write_data_ has " << buffered_write_data_->length() << " bytes" << std::endl;
   buffered_write_end_stream_ = end_stream;
+  
+  std::cerr << "[DEBUG] Buffered write data, now calling onWrite() to process" << std::endl;
+  // Trigger write processing to move buffered data to write buffer
+  onWrite();
 }
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {

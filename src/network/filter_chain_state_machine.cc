@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <sstream>
+#include <iostream>
 
 namespace mcp {
 namespace network {
@@ -716,7 +717,9 @@ FilterStatus FilterChainStateMachine::iterateReadFilters(Buffer& data,
 
       // Store the original data length before filter processing
       size_t data_len = data.length();
+      std::cerr << "[DEBUG] Calling read_filter->onData() with " << data_len << " bytes" << std::endl;
       status = read_filter->onData(data, end_stream);
+      std::cerr << "[DEBUG] read_filter->onData() returned status=" << static_cast<int>(status) << std::endl;
       entry.bytes_processed += data_len;
 
       if (status == FilterStatus::StopIteration) {

@@ -808,10 +808,12 @@ void ConnectionImpl::doRead() {
     }
 
     // Check if we got any data
+    std::cerr << "[DEBUG] Checking bytes_processed: " << result.bytes_processed_ << std::endl;
     if (result.bytes_processed_ == 0) {
       // No data available right now (EAGAIN case handled by transport returning
       // stop()) or EOF (handled by transport returning endStream with
       // end_stream_read_ = true)
+      std::cerr << "[DEBUG] No bytes processed, checking end_stream_read: " << result.end_stream_read_ << std::endl;
 
       if (result.end_stream_read_) {
         // This is a real EOF - the other end closed the connection
@@ -823,14 +825,22 @@ void ConnectionImpl::doRead() {
 
       // No data available, but not EOF - just stop reading for now
       // The event loop will trigger another read when data is available
+      std::cerr << "[DEBUG] Breaking from doRead loop - no more data" << std::endl;
       break;
     }
+    
+    std::cerr << "[DEBUG] Processing " << result.bytes_processed_ << " bytes" << std::endl;
 
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
+    
+    std::cerr << "[DEBUG] Before processReadBuffer: buffer_length=" << read_buffer_.length() 
+              << " bytes_processed=" << result.bytes_processed_ << std::endl;
 
     // Process through filter chain
     processReadBuffer();
+    
+    std::cerr << "[DEBUG] After processReadBuffer: buffer_length=" << read_buffer_.length() << std::endl;
 
     if (read_disable_count_ > 0) {
       // Reading was disabled during processing
@@ -888,8 +898,12 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
 }
 
 void ConnectionImpl::processReadBuffer() {
+  std::cerr << "[DEBUG] processReadBuffer called, buffer length: " << read_buffer_.length() << std::endl;
   if (read_buffer_.length() > 0) {
+    std::cerr << "[DEBUG] Calling filter_manager_.onRead()" << std::endl;
     filter_manager_.onRead();
+  } else {
+    std::cerr << "[DEBUG] No data in read buffer, skipping filter processing" << std::endl;
   }
 }
 
