@@ -500,6 +500,13 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     }
   }
 
+  // Enable write events since we now have data to write
+  // This follows the event-driven pattern where write events are only
+  // enabled when there's actual data to send
+  if (write_buffer_.length() > 0) {
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+  }
+  
   // Schedule write
   if (!write_scheduled_) {
     write_scheduled_ = true;
@@ -665,8 +672,15 @@ void ConnectionImpl::onWriteReady() {
 
     // Enable read events
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+    // Disable write events until we have data to write
+    // This prevents busy loops when the socket is write-ready but we have no data
+    disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     doWrite();
+    // If there's no data left to write, disable write events to prevent busy loops
+    if (write_buffer_.length() == 0) {
+      disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+    }
   }
 }
 
@@ -1081,7 +1095,10 @@ void ConnectionImpl::disableFileEvents(uint32_t events) {
 uint32_t ConnectionImpl::getReadyEvents() {
   uint32_t events = 0;
 
-  if (write_ready_ || write_buffer_.length() > 0) {
+  // Only report write readiness when we have data to write
+  // This follows the level-triggered event model where we only
+  // signal when action is needed, preventing busy loops
+  if (write_buffer_.length() > 0) {
     events |= static_cast<uint32_t>(event::FileReadyType::Write);
   }
 
