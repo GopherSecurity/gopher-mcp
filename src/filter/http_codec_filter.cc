@@ -90,8 +90,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
   std::cerr << "[DEBUG] HttpCodecFilter::onWrite called with " << data.length() 
             << " bytes, is_server=" << is_server_ << std::endl;
   
-  // Following production pattern: use encoder for protocol-specific formatting
-  if (is_server_ && data.length() > 0 && message_encoder_) {
+  // Following production pattern: format HTTP response in-place
+  if (is_server_ && data.length() > 0) {
     // For server mode, this is a response that needs HTTP framing
     // Check if we're in a state where we can send a response
     auto current_state = state_machine_->currentState();
@@ -101,26 +101,35 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     if (current_state != HttpCodecState::Closed &&
         current_state != HttpCodecState::Error) {
       
-      // Prepare response headers
-      std::map<std::string, std::string> headers;
-      headers["content-type"] = "application/json";
-      headers["content-length"] = std::to_string(data.length());
-      headers["cache-control"] = "no-cache";
+      // Save the original response body
+      size_t body_length = data.length();
+      std::string body_data(static_cast<const char*>(data.linearize(body_length)), body_length);
       
-      // Use encoder to send headers with proper HTTP version
-      message_encoder_->encodeHeaders("200", headers, false);
+      // Clear the buffer to build formatted HTTP response
+      data.drain(body_length);
       
-      // Now send the body
-      message_encoder_->encodeData(data, end_stream);
+      // Build HTTP response with headers
+      std::ostringstream response;
+      
+      // Use the HTTP version from the request for transparent protocol handling
+      std::string version_str = http::httpVersionToString(current_version_);
+      response << version_str << " 200 OK\r\n";
+      response << "Content-Type: application/json\r\n";
+      response << "Content-Length: " << body_length << "\r\n";
+      response << "Cache-Control: no-cache\r\n";
+      response << "Connection: " << (keep_alive_ ? "keep-alive" : "close") << "\r\n";
+      response << "\r\n";
+      response << body_data;
+      
+      // Add formatted response to buffer
+      std::string response_str = response.str();
+      data.add(response_str.c_str(), response_str.length());
       
       // Update state machine
       state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
       if (end_stream) {
         state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
       }
-      
-      // Data has been encoded, clear the buffer
-      data.drain(data.length());
     }
   }
   
@@ -375,10 +384,10 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   // End headers
   message << "\r\n";
   
-  // Send message headers
+  // Store headers in message buffer for later use
+  // DON'T call sendMessageData here - that would cause infinite loop
   std::string message_str = message.str();
   parent_.message_buffer_.add(message_str.c_str(), message_str.length());
-  parent_.sendMessageData(parent_.message_buffer_);
   
   if (end_stream) {
     if (parent_.is_server_) {
@@ -390,8 +399,9 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
 }
 
 void HttpCodecFilter::MessageEncoderImpl::encodeData(Buffer& data, bool end_stream) {
-  // Send message body
-  parent_.sendMessageData(data);
+  // DON'T call sendMessageData here - we're already in onWrite context
+  // The data is already in the buffer being processed by onWrite
+  // Just update state machine
   
   if (end_stream) {
     if (parent_.is_server_) {
