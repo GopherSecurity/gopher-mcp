@@ -89,6 +89,8 @@ class ConnectionImpl : public ConnectionImplBase,
   // FilterManagerConnection interface
   Buffer& readBuffer() override { return read_buffer_; }
   Buffer& writeBuffer() override { return write_buffer_; }
+  Buffer* currentWriteBuffer() override { return current_write_buffer_; }
+  bool currentWriteEndStream() const override { return current_write_end_stream_; }
   bool readHalfClosed() const override { return read_half_closed_; }
   bool isClosed() const override { return state_ == ConnectionState::Closed; }
   void readDisable(bool disable) override {
@@ -208,6 +210,12 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Watermark callbacks
   std::list<WatermarkCallbacks*> watermark_callbacks_;
+
+  // Current write context for filter chain processing
+  // These are temporary storage used only during write() call in dispatcher thread
+  // Following production pattern: all operations happen in dispatcher thread
+  Buffer* current_write_buffer_{nullptr};
+  bool current_write_end_stream_{false};
 
   // Connection callbacks are stored in base class callbacks_ member
   // No need for duplicate connection_callbacks_ here

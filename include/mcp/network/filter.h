@@ -229,6 +229,17 @@ class FilterManagerConnection {
   virtual Buffer& writeBuffer() = 0;
 
   /**
+   * Get the current write buffer being processed
+   * Returns nullptr if not currently processing a write
+   */
+  virtual Buffer* currentWriteBuffer() = 0;
+
+  /**
+   * Check if the current write is end_stream
+   */
+  virtual bool currentWriteEndStream() const = 0;
+
+  /**
    * Close the connection
    */
   virtual void close(ConnectionCloseType type) = 0;
@@ -309,7 +320,7 @@ class FilterManager {
   /**
    * Called when the socket is ready for writing
    */
-  virtual void onWrite() = 0;
+  virtual FilterStatus onWrite() = 0;
 
   /**
    * Called on connection event
@@ -337,7 +348,7 @@ class FilterManagerImpl : public FilterManager,
   void removeReadFilter(ReadFilterSharedPtr filter) override;
   bool initializeReadFilters() override;
   void onRead() override;
-  void onWrite() override;
+  FilterStatus onWrite() override;
   void onConnectionEvent(ConnectionEvent event) override;
 
   // ReadFilterCallbacks interface
@@ -356,7 +367,7 @@ class FilterManagerImpl : public FilterManager,
  private:
   // Helper methods
   FilterStatus onContinueReading(Buffer& buffer, bool end_stream);
-  void onContinueWriting(Buffer& buffer, bool end_stream);
+  FilterStatus onContinueWriting(Buffer& buffer, bool end_stream);
   void callOnConnectionEvent(ConnectionEvent event);
 
   // State machine integration
