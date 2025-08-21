@@ -32,11 +32,14 @@ class McpHttpSseJsonRpcFilter;
  * Following production pattern: one filter class can handle multiple protocols
  * by implementing the appropriate callback interfaces
  * 
+ * Threading model (following production pattern):
+ * - Each connection is bound to a single dispatcher thread
+ * - All operations for a connection happen in that thread
+ * - No locks needed for stream management (single-threaded access)
+ * - Responses are posted to dispatcher to ensure thread safety
+ * 
  * Now includes HTTP routing capability without double parsing
  */
-
-// Forward declaration
-class McpHttpSseJsonRpcFilter;
 
 // Thread-local storage for connection to filter mapping
 // Following production pattern: lock-free access to active filters
@@ -86,6 +89,8 @@ public:
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server) {
+    // Following production pattern: all operations for this filter
+    // happen in the single dispatcher thread
     // Create routing filter first (it will receive HTTP callbacks)
     routing_filter_ = std::make_shared<HttpRoutingFilter>(
         this,  // We are the next callbacks layer after routing
@@ -144,6 +149,7 @@ public:
   }
   
   network::FilterStatus onNewConnection() override {
+    // Following production pattern: connection is bound to this thread
     // Store connection reference for response routing
     if (read_callbacks_) {
       connection_ = &read_callbacks_->connection();
@@ -301,6 +307,7 @@ public:
   void onRequest(const jsonrpc::Request& request) override {
     // Following production pattern: create a new stream for each request
     // This supports HTTP pipelining with multiple concurrent requests
+    // Executed in dispatcher thread - no synchronization needed
     auto stream = std::make_unique<RequestStream>(request.id, this);
     std::string id_key = requestIdToString(request.id);
     active_streams_[id_key] = std::move(stream);
@@ -339,11 +346,12 @@ public:
   
   // Method to send response through this filter instance
   // Send response for a specific stream
+  // Following production pattern: called only in dispatcher thread context
   void sendResponseForStream(const jsonrpc::Response& response, RequestId stream_id) {
     std::string id_key = requestIdToString(stream_id);
     std::cerr << "[DEBUG] Sending response for stream " << id_key << std::endl;
     
-    // Remove the stream after sending response
+    // No locks needed - single threaded per connection
     auto it = active_streams_.find(id_key);
     if (it != active_streams_.end()) {
       sendResponseThroughFilter(response);
@@ -464,6 +472,7 @@ private:
   // Stream management - following production pattern
   // Multiple concurrent requests per connection (HTTP pipelining support)
   // Using string key since RequestId is a variant without comparison operators
+  // All access happens in the single dispatcher thread - no locks needed
   std::map<std::string, std::unique_ptr<RequestStream>> active_streams_;
   
   // Connection reference for response routing
@@ -482,6 +491,7 @@ void RequestStream::sendResponse(const jsonrpc::Response& response) {
 }
 
 // Static method to send response through the connection's filter chain
+// Following production pattern: ensure execution in the connection's dispatcher thread
 void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
                                                 network::Connection& connection) {
   std::cerr << "[DEBUG] McpHttpFilterChainFactory::sendHttpResponse called" << std::endl;
@@ -490,19 +500,28 @@ void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& respon
   auto it = tls_connection_filters.find(&connection);
   if (it != tls_connection_filters.end() && it->second) {
     auto* filter = it->second;
-    std::cerr << "[DEBUG] Found filter for connection, checking for stream" << std::endl;
     
-    // Find the stream that matches this response
-    std::string resp_id_key = requestIdToString(response.id);
-    auto stream_it = filter->active_streams_.find(resp_id_key);
-    if (stream_it != filter->active_streams_.end()) {
-      std::cerr << "[DEBUG] Found stream for response ID " << resp_id_key << std::endl;
-      stream_it->second->sendResponse(response);
-    } else {
-      std::cerr << "[ERROR] No stream found for response ID " << resp_id_key << std::endl;
-      // Fallback: send response anyway
-      filter->sendResponseThroughFilter(response);
-    }
+    // Following production pattern: ensure we're in the dispatcher thread
+    // If already in dispatcher thread, execute directly. Otherwise post to dispatcher.
+    auto send_response_impl = [filter, response]() {
+      std::cerr << "[DEBUG] Sending response in dispatcher thread" << std::endl;
+      
+      // Find the stream that matches this response
+      std::string resp_id_key = requestIdToString(response.id);
+      auto stream_it = filter->active_streams_.find(resp_id_key);
+      if (stream_it != filter->active_streams_.end()) {
+        std::cerr << "[DEBUG] Found stream for response ID " << resp_id_key << std::endl;
+        stream_it->second->sendResponse(response);
+      } else {
+        std::cerr << "[ERROR] No stream found for response ID " << resp_id_key << std::endl;
+        // Fallback: send response anyway
+        filter->sendResponseThroughFilter(response);
+      }
+    };
+    
+    // Post to dispatcher to ensure thread safety
+    // Production pattern: all stream operations happen in the dispatcher thread
+    filter->dispatcher_.post(send_response_impl);
   } else {
     std::cerr << "[ERROR] No filter found for connection!" << std::endl;
     // Fallback: write JSON directly (won't have HTTP headers)
