@@ -477,8 +477,6 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     write_half_closed_ = true;
   }
 
-  std::cerr << "[DEBUG] ConnectionImpl::write called with " << data.length() 
-            << " bytes, end_stream=" << end_stream << std::endl;
 
   // Set current write context for filter chain processing
   // This is safe because we're in the dispatcher thread
@@ -493,7 +491,6 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   current_write_end_stream_ = false;
   
   if (status == FilterStatus::StopIteration) {
-    std::cerr << "[DEBUG] Write filter returned StopIteration" << std::endl;
     return;
   }
 

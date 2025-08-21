@@ -93,15 +93,12 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
 
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  std::cerr << "[DEBUG] HttpCodecFilter::onWrite called with " << data.length() 
-            << " bytes, is_server=" << is_server_ << std::endl;
   
   // Following production pattern: format HTTP response in-place
   if (is_server_ && data.length() > 0) {
     // For server mode, this is a response that needs HTTP framing
     // Check if we're in a state where we can send a response
     auto current_state = state_machine_->currentState();
-    std::cerr << "[DEBUG] HttpCodecFilter current state: " << static_cast<int>(current_state) << std::endl;
     
     // Allow sending response in most server states
     if (current_state != HttpCodecState::Closed &&
