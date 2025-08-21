@@ -461,12 +461,37 @@ class McpClient : public application::ApplicationBase {
   void initializeWorker(application::WorkerContext& worker) override;
   void setupFilterChain(application::FilterChainBuilder& builder) override;
 
-  // McpMessageCallbacks overrides
-  void onRequest(const jsonrpc::Request& request) override;
-  void onNotification(const jsonrpc::Notification& notification) override;
-  void onResponse(const jsonrpc::Response& response) override;
-  void onConnectionEvent(network::ConnectionEvent event) override;
-  void onError(const Error& error) override;
+  // Message callbacks handler (internal)
+  class MessageCallbacksImpl : public mcp::McpMessageCallbacks {
+  public:
+    MessageCallbacksImpl(McpClient& client) : client_(client) {}
+    
+    void onRequest(const jsonrpc::Request& request) override {
+      client_.handleRequest(request);
+    }
+    void onNotification(const jsonrpc::Notification& notification) override {
+      client_.handleNotification(notification);
+    }
+    void onResponse(const jsonrpc::Response& response) override {
+      client_.handleResponse(response);
+    }
+    void onConnectionEvent(network::ConnectionEvent event) override {
+      client_.handleConnectionEvent(event);
+    }
+    void onError(const Error& error) override {
+      client_.handleError(error);
+    }
+    
+  private:
+    McpClient& client_;
+  };
+  
+  // Internal message handlers
+  void handleRequest(const jsonrpc::Request& request);
+  void handleNotification(const jsonrpc::Notification& notification);
+  void handleResponse(const jsonrpc::Response& response);
+  void handleConnectionEvent(network::ConnectionEvent event);
+  void handleError(const Error& error);
 
  private:
   // Internal request handling
@@ -510,7 +535,8 @@ class McpClient : public application::ApplicationBase {
   std::atomic<bool> shutting_down_{false};
 
   // Connection management
-  std::unique_ptr<McpConnectionManager> connection_manager_;
+  std::unique_ptr<mcp::McpConnectionManager> connection_manager_;
+  std::unique_ptr<MessageCallbacksImpl> message_callbacks_;
   std::unique_ptr<ConnectionPoolImpl> connection_pool_;
   std::atomic<bool> connected_{false};
   std::string current_uri_;

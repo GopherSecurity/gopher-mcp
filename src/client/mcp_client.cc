@@ -21,6 +21,9 @@ McpClient::McpClient(const McpClientConfig& config)
       config_(config),
       client_stats_() {
   
+  // Initialize message callbacks
+  message_callbacks_ = std::make_unique<MessageCallbacksImpl>(*this);
+  
   // Initialize request tracker with configured timeout
   request_tracker_ = std::make_unique<RequestTracker>(config_.request_timeout);
   
@@ -68,11 +71,26 @@ McpClient::~McpClient() {
 
 // Connect to MCP server
 VoidResult McpClient::connect(const std::string& uri) {
-  // Start the application if not already running
+  // Initialize and start the application if not already running
   if (!running_) {
-    // Start in non-blocking mode - workers and dispatchers start
+    // Initialize the application first (creates dispatchers and workers)
+    if (!initialized_) {
+      if (!initialize()) {
+        return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                                  "Failed to initialize application"));
+      }
+    }
+    
+    // Start workers
+    if (!start()) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                                "Failed to start application"));
+    }
+    
+    // Start the main event loop in a separate thread
+    // This runs the main dispatcher that processes our connect request
     std::thread([this]() {
-      start();  // This will block until stop() is called
+      run();  // This will block until shutdown_requested_ is set
     }).detach();
     
     // Wait for main dispatcher to be ready with timeout
@@ -120,8 +138,8 @@ VoidResult McpClient::connect(const std::string& uri) {
           *socket_interface_,
           conn_config);
       
-      // Set ourselves as message callback handler
-      connection_manager_->setMessageCallbacks(*this);
+      // Set message callback handler
+      connection_manager_->setMessageCallbacks(*message_callbacks_);
       
       // Initiate connection based on transport type
       // All transports use the same connect() method
@@ -616,7 +634,7 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
   // Configure framing based on transport type (HTTP doesn't use framing)
   bool use_framing = (config_.preferred_transport != TransportType::HttpSse);
   // Use the dispatcher from the builder
-  auto filter_bundle = createJsonRpcFilter(*this, builder.getDispatcher(), false, use_framing);
+  auto filter_bundle = createJsonRpcFilter(*message_callbacks_, builder.getDispatcher(), false, use_framing);
   
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);
@@ -667,7 +685,7 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
 }
 
 // McpMessageCallbacks overrides
-void McpClient::onRequest(const jsonrpc::Request& request) {
+void McpClient::handleRequest(const jsonrpc::Request& request) {
   // Client typically doesn't receive requests, but handle if needed
   // Could be server-initiated requests like elicitation
   client_stats_.requests_total++;
@@ -683,7 +701,7 @@ void McpClient::onRequest(const jsonrpc::Request& request) {
   });
 }
 
-void McpClient::onNotification(const jsonrpc::Notification& notification) {
+void McpClient::handleNotification(const jsonrpc::Notification& notification) {
   // Handle server notifications in dispatcher context
   
   // Progress notification
@@ -714,7 +732,7 @@ void McpClient::onNotification(const jsonrpc::Notification& notification) {
   }
 }
 
-void McpClient::onResponse(const jsonrpc::Response& response) {
+void McpClient::handleResponse(const jsonrpc::Response& response) {
   // Process response in dispatcher context - already in dispatcher
   
   // Find the pending request
@@ -769,7 +787,7 @@ void McpClient::onResponse(const jsonrpc::Response& response) {
   }
 }
 
-void McpClient::onConnectionEvent(network::ConnectionEvent event) {
+void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events in dispatcher context
   switch (event) {
     case network::ConnectionEvent::Connected:
@@ -793,7 +811,7 @@ void McpClient::onConnectionEvent(network::ConnectionEvent event) {
   }
 }
 
-void McpClient::onError(const Error& error) {
+void McpClient::handleError(const Error& error) {
   client_stats_.errors_total++;
   
   // Track failure for circuit breaker
