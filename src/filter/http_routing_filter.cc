@@ -6,7 +6,9 @@
  */
 
 #include "mcp/filter/http_routing_filter.h"
+#include "mcp/network/connection.h"
 #include <sstream>
+#include <iostream>
 
 namespace mcp {
 namespace filter {
@@ -42,130 +44,113 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 // HttpCodecFilter::MessageCallbacks implementation
 void HttpRoutingFilter::onHeaders(const std::map<std::string, std::string>& headers,
                                   bool keep_alive) {
-  // Reset state for new request
-  current_request_ = RequestContext();
-  request_complete_ = false;
-  request_handled_ = false;
+  std::cerr << "[DEBUG] HttpRoutingFilter::onHeaders called with " << headers.size() 
+            << " headers" << std::endl;
   
-  // Extract method and path from headers
-  current_request_.method = extractMethod(headers);
-  current_request_.path = extractPath(headers);
-  current_request_.headers = headers;
-  current_request_.keep_alive = keep_alive;
+  // Stateless processing - make routing decision immediately
+  std::string method = extractMethod(headers);
+  std::string path = extractPath(headers);
   
-  // Check if we should handle this request
-  std::string key = buildRouteKey(current_request_.method, current_request_.path);
-  if (handlers_.find(key) != handlers_.end()) {
-    // We will handle this request
-    request_handled_ = true;
-  } else {
-    // Check default handler - if it returns status 0, we pass through
-    Response test_resp = default_handler_(current_request_);
-    request_handled_ = (test_resp.status_code != 0);
+  std::cerr << "[DEBUG] HttpRoutingFilter: method=" << method 
+            << " path=" << path << std::endl;
+  
+  // Check if we have a handler for this endpoint
+  std::string key = buildRouteKey(method, path);
+  auto handler_it = handlers_.find(key);
+  
+  if (handler_it != handlers_.end()) {
+    // We have a handler - execute it immediately with available info
+    RequestContext ctx;
+    ctx.method = method;
+    ctx.path = path;
+    ctx.headers = headers;
+    ctx.keep_alive = keep_alive;
+    // Note: body not available yet in onHeaders
+    
+    Response resp = handler_it->second(ctx);
+    if (resp.status_code != 0) {
+      // Handler wants to handle this - send response immediately
+      // This is appropriate for endpoints that don't need the body
+      sendResponse(resp);
+      return;  // Don't forward to next layer
+    }
   }
   
-  // If we're not handling it, forward to next layer immediately
-  if (!request_handled_ && next_callbacks_) {
+  // No handler or handler returned 0 - pass through
+  if (next_callbacks_) {
     next_callbacks_->onHeaders(headers, keep_alive);
   }
 }
 
 void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
-  if (request_handled_) {
-    // Accumulate body data for our handler
-    current_request_.body += data;
-    
-    if (end_stream) {
-      request_complete_ = true;
-    }
-  } else if (next_callbacks_) {
-    // Forward to next layer
+  // Stateless - always pass through
+  // If we handled the request in onHeaders, this won't be called
+  if (next_callbacks_) {
     next_callbacks_->onBody(data, end_stream);
   }
 }
 
 void HttpRoutingFilter::onMessageComplete() {
-  if (request_handled_) {
-    // Request is complete, process it
-    request_complete_ = true;
-    processRequest();
-  } else if (next_callbacks_) {
-    // Forward to next layer
+  std::cerr << "[DEBUG] HttpRoutingFilter::onMessageComplete called" << std::endl;
+  
+  // Stateless - always pass through
+  // If we handled the request in onHeaders, this won't be called
+  if (next_callbacks_) {
     next_callbacks_->onMessageComplete();
   }
 }
 
 void HttpRoutingFilter::onError(const std::string& error) {
-  if (request_handled_) {
-    // Handle HTTP parsing error with our response
-    Response resp;
-    resp.status_code = 400;
-    resp.headers["content-type"] = "application/json";
-    resp.body = "{\"error\":\"Bad Request\",\"message\":\"" + error + "\"}";
-    resp.headers["content-length"] = std::to_string(resp.body.length());
-    sendResponse(resp);
-  } else if (next_callbacks_) {
-    // Forward error to next layer
+  // Stateless - always pass through errors
+  if (next_callbacks_) {
     next_callbacks_->onError(error);
   }
 }
 
-void HttpRoutingFilter::processRequest() {
-  // Build route key and find handler
-  std::string key = buildRouteKey(current_request_.method, current_request_.path);
-  
-  HandlerFunc handler = default_handler_;
-  auto it = handlers_.find(key);
-  if (it != handlers_.end()) {
-    handler = it->second;
-  }
-  
-  // Call handler and get response
-  Response response = handler(current_request_);
-  
-  // Only send response if status code is not 0 (0 means pass-through)
-  if (response.status_code != 0) {
-    sendResponse(response);
-  }
-  
-  // Reset for next request if keep-alive
-  if (current_request_.keep_alive) {
-    current_request_ = RequestContext();
-    request_complete_ = false;
-    request_handled_ = false;
-  }
-}
-
 void HttpRoutingFilter::sendResponse(const Response& response) {
-  // Use the provided encoder to properly format the response
-  if (!encoder_) {
-    return;  // No encoder available
-  }
+  std::cerr << "[DEBUG] HttpRoutingFilter::sendResponse called with status " 
+            << response.status_code << std::endl;
   
-  // Prepare headers with proper status line
-  std::string status = std::to_string(response.status_code);
+  // Build complete HTTP response
+  std::ostringstream http_response;
+  
+  // Status line (use HTTP/1.1 for now)
+  http_response << "HTTP/1.1 " << response.status_code << " ";
   
   // Add status text based on code
   switch (response.status_code) {
-    case 200: status += " OK"; break;
-    case 201: status += " Created"; break;
-    case 204: status += " No Content"; break;
-    case 400: status += " Bad Request"; break;
-    case 404: status += " Not Found"; break;
-    case 500: status += " Internal Server Error"; break;
-    default: status += " Unknown"; break;
+    case 200: http_response << "OK"; break;
+    case 201: http_response << "Created"; break;
+    case 204: http_response << "No Content"; break;
+    case 400: http_response << "Bad Request"; break;
+    case 404: http_response << "Not Found"; break;
+    case 500: http_response << "Internal Server Error"; break;
+    default: http_response << "Unknown"; break;
+  }
+  http_response << "\r\n";
+  
+  // Add headers
+  for (const auto& header : response.headers) {
+    http_response << header.first << ": " << header.second << "\r\n";
   }
   
-  // Encode headers
-  bool has_body = !response.body.empty();
-  encoder_->encodeHeaders(status, response.headers, !has_body);
+  // End headers
+  http_response << "\r\n";
   
-  // Encode body if present
-  if (has_body) {
-    // Create a buffer with the response body
-    OwnedBuffer body_buffer;
-    body_buffer.add(response.body);
-    encoder_->encodeData(body_buffer, true);
+  // Add body if present
+  if (!response.body.empty()) {
+    http_response << response.body;
+  }
+  
+  // Send the complete response directly through write callbacks
+  if (write_callbacks_) {
+    std::string response_str = http_response.str();
+    OwnedBuffer response_buffer;
+    response_buffer.add(response_str);
+    write_callbacks_->connection().write(response_buffer, false);
+    
+    std::cerr << "[DEBUG] HttpRoutingFilter sent response: " << response_str.length() 
+              << " bytes" << std::endl;
   }
 }
 

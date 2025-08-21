@@ -191,6 +191,7 @@ public:
   void initializeWriteFilterCallbacks(network::WriteFilterCallbacks& callbacks) override {
     write_callbacks_ = &callbacks;
     http_filter_->initializeWriteFilterCallbacks(callbacks);
+    routing_filter_->setWriteCallbacks(&callbacks);  // Set callbacks for routing filter
     sse_filter_->initializeWriteFilterCallbacks(callbacks);
     jsonrpc_filter_->initializeWriteFilterCallbacks(callbacks);
   }
@@ -367,21 +368,26 @@ public:
       return;
     }
     
-    // Send response - HttpCodecFilter will add HTTP framing
+    // Send response through proper channel
     if (is_server_ && !is_sse_mode_) {
-      // Convert response to JSON string
+      // For JSON-RPC over HTTP, use routing filter to send HTTP response
+      // This maintains proper separation of concerns
       auto json_val = json::to_json(response);
       std::string json_str = json_val.toString();
       
-      // Send just the JSON body - HttpCodecFilter.onWrite will add HTTP headers
-      OwnedBuffer response_buffer;
-      response_buffer.add(json_str);
+      std::cerr << "[DEBUG] Sending JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
       
-      std::cerr << "[DEBUG] Sending JSON response body: " << response_buffer.length() << " bytes" << std::endl;
-      
-      // Write through the connection - this goes through write filters
-      if (write_callbacks_) {
-        write_callbacks_->connection().write(response_buffer, false);
+      // Create HTTP response and send through routing filter
+      if (routing_filter_) {
+        HttpRoutingFilter::Response http_resp;
+        http_resp.status_code = 200;
+        http_resp.headers["content-type"] = "application/json";
+        http_resp.headers["content-length"] = std::to_string(json_str.length());
+        http_resp.headers["cache-control"] = "no-cache";
+        http_resp.body = json_str;
+        
+        // Send through routing filter which will handle HTTP formatting
+        routing_filter_->sendResponse(http_resp);
       }
     } else {
       // For SSE or other modes, just encode the JSON-RPC response
@@ -405,6 +411,9 @@ private:
       resp.headers["content-length"] = std::to_string(resp.body.length());
       return resp;
     });
+    
+    // Don't register /rpc endpoint - it will pass through to this filter
+    // Only register endpoints that should be handled by routing filter
     
     // Register info endpoint
     routing_filter_->registerHandler("GET", "/info",

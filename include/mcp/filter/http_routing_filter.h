@@ -82,6 +82,14 @@ public:
    */
   void setEncoder(HttpCodecFilter::MessageEncoder* encoder) { encoder_ = encoder; }
   
+  /**
+   * Set write callbacks for sending responses
+   * @param callbacks The write callbacks to use
+   */
+  void setWriteCallbacks(network::WriteFilterCallbacks* callbacks) { 
+    write_callbacks_ = callbacks; 
+  }
+  
   // HttpCodecFilter::MessageCallbacks interface
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override;
@@ -89,12 +97,15 @@ public:
   void onMessageComplete() override;
   void onError(const std::string& error) override;
   
+  /**
+   * Send HTTP response (made public for filter chain use)
+   * @param response The response to send
+   */
+  void sendResponse(const Response& response);
+  
 private:
   // Process HTTP request and route to appropriate handler
   void processRequest();
-  
-  // Send HTTP response using HTTP codec
-  void sendResponse(const Response& response);
   
   // Route key is "METHOD /path"
   std::string buildRouteKey(const std::string& method, const std::string& path) const;
@@ -108,6 +119,7 @@ private:
   // Components
   HttpCodecFilter::MessageCallbacks* next_callbacks_;  // Next layer to forward to
   HttpCodecFilter::MessageEncoder* encoder_;           // HTTP encoder for responses
+  network::WriteFilterCallbacks* write_callbacks_ = nullptr;  // For sending responses
   bool is_server_;
   
   // Registered handlers
@@ -116,10 +128,8 @@ private:
   // Default handler for unmatched requests
   HandlerFunc default_handler_;
   
-  // Current request being processed
-  RequestContext current_request_;
-  bool request_complete_{false};
-  bool request_handled_{false};  // True if we handled this request locally
+  // Following production pattern - completely stateless filter
+  // No request state stored - all decisions made immediately
 };
 
 /**
