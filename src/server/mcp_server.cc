@@ -585,8 +585,10 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     OwnedBuffer response_buffer;
     response_buffer.add(json_str);
     
+    
     // Write JSON-RPC response - HTTP filter will wrap it
     current_connection_->write(response_buffer, false);
+    
   }
   
   // Also try connection managers (for stdio transport)

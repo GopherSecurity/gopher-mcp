@@ -156,9 +156,7 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_strea
 }
 
 FilterStatus FilterManagerImpl::onWrite() {
-  std::cerr << "[DEBUG] FilterManagerImpl::onWrite() called, initialized_=" << initialized_ << std::endl;
   if (!initialized_) {
-    std::cerr << "[DEBUG] FilterManager not initialized for writing, returning" << std::endl;
     return FilterStatus::Continue;
   }
 
@@ -169,27 +167,20 @@ FilterStatus FilterManagerImpl::onWrite() {
   bool end_stream = connection_.currentWriteEndStream();
   
   if (!current_buffer) {
-    std::cerr << "[DEBUG] No current write buffer, returning" << std::endl;
     return FilterStatus::Continue;
   }
   
-  std::cerr << "[DEBUG] Processing write with " << current_buffer->length() 
-            << " bytes, end_stream=" << end_stream << std::endl;
   
   // Process through write filters
   current_write_filter_ = write_filters_.begin();
   FilterStatus status = onContinueWriting(*current_buffer, end_stream);
   
-  std::cerr << "[DEBUG] Write processing complete, buffer has " << current_buffer->length() 
-            << " bytes, status=" << static_cast<int>(status) << std::endl;
   
   return status;
 }
 
 FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
-  std::cerr << "[DEBUG] FilterManagerImpl::onContinueWriting called" << std::endl;
   if (current_write_filter_ == write_filters_.end()) {
-    std::cerr << "[DEBUG] No write filters to process, returning" << std::endl;
     return FilterStatus::Continue;
   }
 
@@ -200,7 +191,6 @@ FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_strea
 
   FilterStatus result = FilterStatus::Continue;
   for (; entry != write_filters_.end(); entry++) {
-    std::cerr << "[DEBUG] Calling write filter with " << buffer.length() << " bytes" << std::endl;
     FilterStatus status = (*entry)->onWrite(buffer, end_stream);
     if (status == FilterStatus::StopIteration) {
       result = FilterStatus::StopIteration;

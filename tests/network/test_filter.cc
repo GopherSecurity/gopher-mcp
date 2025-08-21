@@ -86,7 +86,8 @@ TEST(FilterChainFactoryTest, CreateFilterChain) {
     void addFilter(FilterSharedPtr) override {}
     bool initializeReadFilters() override { return true; }
     void onRead() override {}
-    void onWrite() override {}
+    FilterStatus onWrite() override {
+    return FilterStatus::Continue;}
     void onConnectionEvent(ConnectionEvent) override {}
     void removeReadFilter(ReadFilterSharedPtr) override {}
   };
@@ -109,7 +110,8 @@ TEST(FilterChainFactoryTest, CreateNetworkFilterChain) {
     void addFilter(FilterSharedPtr) override {}
     bool initializeReadFilters() override { return true; }
     void onRead() override {}
-    void onWrite() override {}
+    FilterStatus onWrite() override {
+    return FilterStatus::Continue;}
     void onConnectionEvent(ConnectionEvent) override {}
     void removeReadFilter(ReadFilterSharedPtr) override {}
   };
@@ -131,7 +133,8 @@ TEST(FilterChainFactoryTest, FailedFilterCreation) {
     void addFilter(FilterSharedPtr) override {}
     bool initializeReadFilters() override { return true; }
     void onRead() override {}
-    void onWrite() override {}
+    FilterStatus onWrite() override {
+    return FilterStatus::Continue;}
     void onConnectionEvent(ConnectionEvent) override {}
     void removeReadFilter(ReadFilterSharedPtr) override {}
   };
