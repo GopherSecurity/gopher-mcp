@@ -707,8 +707,13 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
           connection_sessions_.erase(current_connection_);
         }
         
+        // Remove connection from active list
+        // Following production pattern: all in dispatcher thread, no mutex needed
+        active_connections_.remove_if([this](const network::ConnectionPtr& conn) {
+          return conn.get() == current_connection_;
+        });
+        
         // Clear the current connection
-        // Following production pattern: listener owns connection lifetime
         current_connection_ = nullptr;
         
         // Decrement connection count
@@ -1160,10 +1165,11 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Update connection count
   ++num_connections_;
   
-  // CRITICAL: Following production pattern - listener owns the connection
-  // We don't store it, just let the listener manage its lifetime
-  // The connection stays alive as long as the listener keeps it
-  (void)connection.release();  // Release ownership to the listener
+  // Store the connection to keep it alive
+  // Following production pattern: server owns connections in dispatcher thread
+  // No mutex needed - all operations happen in dispatcher thread
+  // Connection will be removed from list when it closes via callbacks
+  active_connections_.push_back(std::move(connection));
 
   // The connection is now ready for message processing
   // Messages will flow through filter chain to our onRequest/onNotification

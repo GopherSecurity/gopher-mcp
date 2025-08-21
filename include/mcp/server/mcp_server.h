@@ -806,6 +806,11 @@ class McpServer : public application::ApplicationBase,
   // This is set temporarily during request processing in dispatcher thread
   network::Connection* current_connection_{nullptr};
   
+  // Active connections owned by server
+  // Following production pattern: all operations in dispatcher thread, no mutex needed
+  // Connections removed when they close via callbacks
+  std::list<network::ConnectionPtr> active_connections_;
+  
   // Connection to session mapping
   // Following production pattern: managed by session manager, not thread-local
   std::map<network::Connection*, SessionManager::SessionPtr> connection_sessions_;
