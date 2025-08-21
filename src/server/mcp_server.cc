@@ -24,10 +24,6 @@
 namespace mcp {
 namespace server {
 
-// Thread-local storage definition
-thread_local McpServer::ThreadLocalConnectionData McpServer::tls_connection_data_;
-
-
 // Constructor
 McpServer::McpServer(const McpServerConfig& config)
     : ApplicationBase(config), config_(config), server_stats_() {
@@ -483,10 +479,10 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
 
   // Get or create session for this connection
   // Try to get existing session first
-  auto session = session_manager_->getSessionByConnection(tls_connection_data_.current_connection);
+  auto session = session_manager_->getSessionByConnection(current_connection_);
   if (!session) {
     // Create new session for this connection
-    session = session_manager_->createSession(tls_connection_data_.current_connection);
+    session = session_manager_->createSession(current_connection_);
   }
   
   if (session) {
@@ -505,9 +501,9 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     
     // Send response through the current connection (for TCP/HTTP connections)
     // Following production pattern: thread-local connection context
-    if (tls_connection_data_.current_connection) {
+    if (current_connection_) {
       filter::McpHttpFilterChainFactory::sendHttpResponse(response, 
-                                                          *tls_connection_data_.current_connection);
+                                                          *current_connection_);
     }
     
     // Also try connection managers (for stdio connections)
@@ -580,7 +576,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   
   // Send response through the current connection (for TCP/HTTP connections)
   // Following production pattern: server sends JSON-RPC, filter handles HTTP
-  if (tls_connection_data_.current_connection) {
+  if (current_connection_) {
     // Convert response to JSON and send through connection
     // The filter chain will handle HTTP protocol wrapping
     auto json_val = json::to_json(response);
@@ -590,7 +586,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     response_buffer.add(json_str);
     
     // Write JSON-RPC response - HTTP filter will wrap it
-    tls_connection_data_.current_connection->write(response_buffer, false);
+    current_connection_->write(response_buffer, false);
   }
   
   // Also try connection managers (for stdio transport)
@@ -618,10 +614,10 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
   server_stats_.notifications_total++;
 
   // Get session for this connection
-  auto session = session_manager_->getSessionByConnection(tls_connection_data_.current_connection);
+  auto session = session_manager_->getSessionByConnection(current_connection_);
   if (!session) {
     // Create new session for notifications if needed
-    session = session_manager_->createSession(tls_connection_data_.current_connection);
+    session = session_manager_->createSession(current_connection_);
   }
   if (!session) {
     return;  // Can't process notification without session
@@ -699,27 +695,24 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
       server_stats_.connections_active--;
 
       // Clean up session for this connection
-      if (session_manager_ && tls_connection_data_.current_connection) {
+      if (session_manager_ && current_connection_) {
         // Remove session associated with the closed connection
-        session_manager_->removeSessionByConnection(tls_connection_data_.current_connection);
-        
-        // Remove the connection from thread-local owned connections
-        // This will destroy the connection object when it's no longer referenced
-        auto it = std::remove_if(
-            tls_connection_data_.owned_connections.begin(),
-            tls_connection_data_.owned_connections.end(),
-            [this](const network::ConnectionPtr& conn) {
-              return conn.get() == tls_connection_data_.current_connection;
-            });
-        tls_connection_data_.owned_connections.erase(
-            it, tls_connection_data_.owned_connections.end());
+        session_manager_->removeSessionByConnection(current_connection_);
         
         // Remove from connection-session mapping
-        tls_connection_data_.connection_sessions.erase(
-            tls_connection_data_.current_connection);
+        // Following production pattern: use lock since this map may be accessed
+        // from multiple dispatcher threads
+        {
+          std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
+          connection_sessions_.erase(current_connection_);
+        }
         
-        // Clear the current connection for this thread
-        tls_connection_data_.current_connection = nullptr;
+        // Clear the current connection
+        // Following production pattern: listener owns connection lifetime
+        current_connection_ = nullptr;
+        
+        // Decrement connection count
+        num_connections_--;
       }
       break;
   }
@@ -1154,15 +1147,23 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // This allows us to clean up session when connection closes
   connection->addConnectionCallbacks(*this);
   
-  // Store connection-to-session mapping in thread-local storage
-  // Following production pattern: lock-free thread-local storage
-  // This connection is now owned by this thread
-  tls_connection_data_.connection_sessions[conn_ptr] = session;
-  tls_connection_data_.current_connection = conn_ptr;
+  // Store connection-to-session mapping
+  // Following production pattern: listener owns connections
+  {
+    std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
+    connection_sessions_[conn_ptr] = session;
+  }
   
-  // CRITICAL: Store the connection to keep it alive
-  // Following production pattern: thread owns connection lifetime
-  tls_connection_data_.owned_connections.push_back(std::move(connection));
+  // Set current connection for request processing context
+  current_connection_ = conn_ptr;
+  
+  // Update connection count
+  ++num_connections_;
+  
+  // CRITICAL: Following production pattern - listener owns the connection
+  // We don't store it, just let the listener manage its lifetime
+  // The connection stays alive as long as the listener keeps it
+  (void)connection.release();  // Release ownership to the listener
 
   // The connection is now ready for message processing
   // Messages will flow through filter chain to our onRequest/onNotification
