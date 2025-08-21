@@ -42,6 +42,10 @@ McpServer::McpServer(const McpServerConfig& config)
   // Initialize prompt registry for prompt templates
   prompt_registry_ = std::make_unique<PromptRegistry>(server_stats_);
 
+  // Create internal message callbacks instance
+  // Following production pattern: separate callback interface from main class
+  message_callbacks_ = std::make_unique<ServerMessageCallbacks>(*this);
+
   // Register built-in request handlers
   registerBuiltinHandlers();
 }
@@ -120,7 +124,7 @@ void McpServer::performListen() {
       auto conn_manager = std::make_unique<McpConnectionManager>(
           *main_dispatcher_, *socket_interface_, conn_config);
 
-      conn_manager->setMessageCallbacks(*this);
+      conn_manager->setMessageCallbacks(*message_callbacks_);
 
       auto result = conn_manager->connect();
       if (holds_alternative<std::nullptr_t>(result)) {
@@ -180,7 +184,7 @@ void McpServer::performListen() {
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
       tcp_config.filter_chain_factory = 
           std::make_shared<filter::McpHttpFilterChainFactory>(
-              *main_dispatcher_, *this);
+              *main_dispatcher_, *message_callbacks_);
       
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
@@ -407,7 +411,7 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   // TODO: Make framing configurable based on actual transport endpoints
   bool use_framing = true;
   // Use the dispatcher from the builder
-  auto filter_bundle = createJsonRpcFilter(*this, builder.getDispatcher(), true, use_framing);
+  auto filter_bundle = createJsonRpcFilter(*message_callbacks_, builder.getDispatcher(), true, use_framing);
   
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);
