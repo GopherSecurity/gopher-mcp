@@ -6,6 +6,7 @@
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
+#include <memory>
 
 // Forward declarations
 namespace mcp {
@@ -92,11 +93,13 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
   void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
   
   /**
-   * Send a response through the current request's filter chain
-   * Following production pattern: maintain request-response context
-   * This is used by the server to send responses for HTTP requests
+   * Send a response through the connection's filter chain
+   * Following production pattern: connection context flows through
+   * @param response The JSON-RPC response to send
+   * @param connection The connection to send the response on
    */
-  static void sendHttpResponse(const jsonrpc::Response& response);
+  static void sendHttpResponse(const jsonrpc::Response& response,
+                              network::Connection& connection);
 
  private:
   event::Dispatcher& dispatcher_;
