@@ -466,6 +466,9 @@ std::string ConnectionImpl::requestedServerName() const {
 }
 
 void ConnectionImpl::write(Buffer& data, bool end_stream) {
+  // Thread safety: all writes must happen in dispatcher thread
+  assert(dispatcher_.isThreadSafe() && "write() must be called from dispatcher thread");
+  
   if (state_ != ConnectionState::Open || write_half_closed_) {
     return;
   }
@@ -474,14 +477,28 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     write_half_closed_ = true;
   }
 
-  // Filter chain processes the write
-  filter_manager_.onWrite();
+  std::cerr << "[DEBUG] ConnectionImpl::write called with " << data.length() 
+            << " bytes, end_stream=" << end_stream << std::endl;
 
-  // Move data to write buffer
-  // CRITICAL: The move() function moves data FROM the source TO the destination
-  // We need to move FROM data TO write_buffer_, so data should be the source
-  // The correct call is: data.move(write_buffer_) not write_buffer_.move(data)
-  data.move(write_buffer_);  // Move FROM data TO write_buffer_
+  // Set current write context for filter chain processing
+  // This is safe because we're in the dispatcher thread
+  current_write_buffer_ = &data;
+  current_write_end_stream_ = end_stream;
+  
+  // Process through write filters - they modify data in-place
+  FilterStatus status = filter_manager_.onWrite();
+  
+  // Clear current write context
+  current_write_buffer_ = nullptr;
+  current_write_end_stream_ = false;
+  
+  if (status == FilterStatus::StopIteration) {
+    std::cerr << "[DEBUG] Write filter returned StopIteration" << std::endl;
+    return;
+  }
+
+  // Move processed data to write buffer
+  data.move(write_buffer_);
 
   // Update stats
   updateWriteBufferStats(data.length(), write_buffer_.length());
@@ -495,8 +512,6 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   }
 
   // Enable write events since we now have data to write
-  // This follows the event-driven pattern where write events are only
-  // enabled when there's actual data to send
   if (write_buffer_.length() > 0) {
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   }

@@ -155,52 +155,61 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_strea
   return status;
 }
 
-void FilterManagerImpl::onWrite() {
+FilterStatus FilterManagerImpl::onWrite() {
   std::cerr << "[DEBUG] FilterManagerImpl::onWrite() called, initialized_=" << initialized_ << std::endl;
   if (!initialized_) {
     std::cerr << "[DEBUG] FilterManager not initialized for writing, returning" << std::endl;
-    return;
+    return FilterStatus::Continue;
   }
 
-  Buffer& buffer = connection_.writeBuffer();
-  std::cerr << "[DEBUG] Write buffer length before processing: " << buffer.length() << std::endl;
-  std::cerr << "[DEBUG] Buffered write data length: " 
-            << (buffered_write_data_ ? buffered_write_data_->length() : 0) << std::endl;
+  // Get the current write buffer from connection
+  // This follows the production pattern where connection temporarily stores
+  // the buffer being processed during write() call
+  Buffer* current_buffer = connection_.currentWriteBuffer();
+  bool end_stream = connection_.currentWriteEndStream();
   
+  if (!current_buffer) {
+    std::cerr << "[DEBUG] No current write buffer, returning" << std::endl;
+    return FilterStatus::Continue;
+  }
+  
+  std::cerr << "[DEBUG] Processing write with " << current_buffer->length() 
+            << " bytes, end_stream=" << end_stream << std::endl;
+  
+  // Process through write filters
   current_write_filter_ = write_filters_.begin();
-  onContinueWriting(buffer, false);
+  FilterStatus status = onContinueWriting(*current_buffer, end_stream);
   
-  std::cerr << "[DEBUG] Write buffer length after processing: " << buffer.length() << std::endl;
+  std::cerr << "[DEBUG] Write processing complete, buffer has " << current_buffer->length() 
+            << " bytes, status=" << static_cast<int>(status) << std::endl;
+  
+  return status;
 }
 
-void FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
+FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
   std::cerr << "[DEBUG] FilterManagerImpl::onContinueWriting called" << std::endl;
   if (current_write_filter_ == write_filters_.end()) {
     std::cerr << "[DEBUG] No write filters to process, returning" << std::endl;
-    return;
+    return FilterStatus::Continue;
   }
 
-  if (buffered_write_data_) {
-    std::cerr << "[DEBUG] Moving " << buffered_write_data_->length() 
-              << " bytes from buffered_write_data_ to write buffer" << std::endl;
-    // CRITICAL: move() moves FROM source TO destination
-    // We need to move FROM buffered_write_data_ TO buffer
-    buffered_write_data_->move(buffer);
-    buffered_write_data_.reset();
-    std::cerr << "[DEBUG] Write buffer now has " << buffer.length() << " bytes" << std::endl;
-  }
-
+  // No buffered data needed - we're processing the current write buffer directly
+  
   std::vector<WriteFilterSharedPtr>::iterator entry = current_write_filter_;
   current_write_filter_ = write_filters_.end();
 
+  FilterStatus result = FilterStatus::Continue;
   for (; entry != write_filters_.end(); entry++) {
-    FilterStatus status = (*entry)->onWrite(buffer, end_stream || buffered_write_end_stream_);
+    std::cerr << "[DEBUG] Calling write filter with " << buffer.length() << " bytes" << std::endl;
+    FilterStatus status = (*entry)->onWrite(buffer, end_stream);
     if (status == FilterStatus::StopIteration) {
+      result = FilterStatus::StopIteration;
       break;
     }
   }
 
   current_write_filter_ = entry;
+  return result;
 }
 
 void FilterManagerImpl::onConnectionEvent(ConnectionEvent event) {
@@ -241,35 +250,10 @@ bool FilterManagerImpl::shouldContinueFilterChain() {
 }
 
 void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data, bool end_stream) {
-  std::cerr << "[DEBUG] FilterManagerImpl::injectWriteDataToFilterChain called with " 
-            << data.length() << " bytes" << std::endl;
-  
-  if (!buffered_write_data_) {
-    buffered_write_data_ = std::make_unique<OwnedBuffer>();
-  }
-  
-  std::cerr << "[DEBUG] About to copy " << data.length() << " bytes to buffered_write_data_" << std::endl;
-  // Use add() instead of move() to avoid buffer move issues
-  if (data.length() > 0) {
-    auto linear_data = data.linearize(data.length());
-    buffered_write_data_->add(linear_data, data.length());
-  }
-  std::cerr << "[DEBUG] After copy: buffered_write_data_ has " << buffered_write_data_->length() << " bytes" << std::endl;
-  buffered_write_end_stream_ = end_stream;
-  
-  std::cerr << "[DEBUG] Buffered write data, now calling onWrite() to process" << std::endl;
-  // Trigger write processing to move buffered data to write buffer
-  onWrite();
-  
-  // After processing through filters, trigger actual write to socket
-  // This is critical - the filter chain processes data but doesn't actually write it
-  if (connection_.writeBuffer().length() > 0) {
-    std::cerr << "[DEBUG] Triggering connection write with " 
-              << connection_.writeBuffer().length() << " bytes" << std::endl;
-    // Cast to ConnectionImpl to access write method
-    auto& conn = dynamic_cast<ConnectionImpl&>(connection_);
-    conn.write(connection_.writeBuffer(), end_stream);
-  }
+  // This method is deprecated in favor of the production pattern
+  // where connection sets current_write_buffer_ and calls onWrite()
+  // Keeping stub for interface compatibility
+  std::cerr << "[DEBUG] injectWriteDataToFilterChain called (deprecated)" << std::endl;
 }
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {
