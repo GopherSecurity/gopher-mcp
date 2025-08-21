@@ -16,6 +16,7 @@
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/stream_info/stream_info.h"
 #include <iostream>
 #include <sstream>
 #include <ctime>
@@ -33,6 +34,7 @@ class McpHttpSseJsonRpcFilter;
  * 
  * Now includes HTTP routing capability without double parsing
  */
+
 class McpHttpSseJsonRpcFilter : public network::Filter,
                                  public HttpCodecFilter::MessageCallbacks,
                                  public SseCodecFilter::EventCallbacks,
@@ -240,9 +242,6 @@ public:
   // ===== McpJsonRpcFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
-    // Store the current filter context for response routing
-    // Following production pattern: maintain request-response context
-    current_request_filter_ = this;
     mcp_callbacks_.onRequest(request);
   }
   
@@ -272,9 +271,15 @@ public:
     return jsonrpc_filter_->encoder();
   }
   
-  // Method to send response through the current request's filter
+  // Method to send response through this filter instance
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
     std::cerr << "[DEBUG] Sending response through filter chain" << std::endl;
+    
+    // Check if we have write callbacks to send data
+    if (!write_callbacks_) {
+      std::cerr << "[ERROR] No write callbacks available in filter!" << std::endl;
+      return;
+    }
     
     // For HTTP, we need to send headers first, then body
     if (is_server_ && !is_sse_mode_) {
@@ -288,13 +293,21 @@ public:
       headers["cache-control"] = "no-cache";
       headers["content-length"] = std::to_string(json_str.length());
       
-      // Send HTTP headers (end_stream=false because body follows)
-      http_filter_->messageEncoder().encodeHeaders("200 OK", headers, false);
+      // Create the full HTTP response
+      std::ostringstream http_response;
+      http_response << "HTTP/1.1 200 OK\r\n";
+      for (const auto& header : headers) {
+        http_response << header.first << ": " << header.second << "\r\n";
+      }
+      http_response << "\r\n";
+      http_response << json_str;
       
-      // Send JSON-RPC response as HTTP body
-      OwnedBuffer body_buffer;
-      body_buffer.add(json_str);
-      http_filter_->messageEncoder().encodeData(body_buffer, true);
+      // Send the complete response through write callbacks
+      OwnedBuffer response_buffer;
+      response_buffer.add(http_response.str());
+      
+      std::cerr << "[DEBUG] Sending HTTP response: " << response_buffer.length() << " bytes" << std::endl;
+      write_callbacks_->injectWriteDataToFilterChain(response_buffer, false);
     } else {
       // For SSE or other modes, just encode the JSON-RPC response
       jsonrpcEncoder().encodeResponse(response);
@@ -368,22 +381,33 @@ private:
   
   // Buffered data
   OwnedBuffer pending_json_data_;
-  
-  // Thread-local storage for current request filter
-  // Following production pattern: maintain request context for response routing
-  static thread_local McpHttpSseJsonRpcFilter* current_request_filter_;
 };
 
-// Define thread-local storage for request context
-thread_local McpHttpSseJsonRpcFilter* McpHttpSseJsonRpcFilter::current_request_filter_ = nullptr;
-
-// Static method to send response through the current request's filter chain
-void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response) {
-  if (McpHttpSseJsonRpcFilter::current_request_filter_) {
-    McpHttpSseJsonRpcFilter::current_request_filter_->sendResponseThroughFilter(response);
-  } else {
-    std::cerr << "[ERROR] No current request filter to send response!" << std::endl;
-  }
+// Static method to send response through the connection's filter chain
+void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
+                                                network::Connection& connection) {
+  std::cerr << "[DEBUG] McpHttpFilterChainFactory::sendHttpResponse called" << std::endl;
+  
+  // Following production pattern: response is sent through the connection's write path
+  // Convert response to JSON
+  auto json_val = json::to_json(response);
+  std::string json_str = json_val.toString();
+  
+  // Create HTTP response with proper headers
+  std::ostringstream http_response;
+  http_response << "HTTP/1.1 200 OK\r\n";
+  http_response << "Content-Type: application/json\r\n";
+  http_response << "Content-Length: " << json_str.length() << "\r\n";
+  http_response << "Cache-Control: no-cache\r\n";
+  http_response << "\r\n";
+  http_response << json_str;
+  
+  // Send through connection
+  OwnedBuffer response_buffer;
+  response_buffer.add(http_response.str());
+  std::cerr << "[DEBUG] Sending HTTP response: " << response_buffer.length() << " bytes" << std::endl;
+  std::cerr << "[DEBUG] Response content: " << http_response.str().substr(0, 100) << "..." << std::endl;
+  connection.write(response_buffer, false);
 }
 
 // ===== Factory Implementation =====
