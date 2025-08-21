@@ -108,18 +108,10 @@ struct ClientOptions {
 };
 
 void signal_handler(int signal) {
+  // Signal handlers should do minimal work to avoid deadlocks
   std::cerr << "\n[INFO] Received signal " << signal << ", shutting down..." << std::endl;
   g_shutdown = true;
-  
-  // Use mutex to safely access g_client
-  std::lock_guard<std::mutex> lock(g_client_mutex);
-  if (g_client) {
-    try {
-      g_client->disconnect();
-    } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Exception during disconnect: " << e.what() << std::endl;
-    }
-  }
+  // Don't try to disconnect here - let the main loop handle it cleanly
 }
 
 void printUsage(const char* program) {
@@ -546,7 +538,7 @@ int main(int argc, char* argv[]) {
     
     int wait_count = 0;
     bool connected = false;
-    while (!connected && wait_count < 100) {  // 10 seconds timeout
+    while (!connected && wait_count < 100 && !g_shutdown) {  // 10 seconds timeout
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       wait_count++;
       if (wait_count % 10 == 0) {
@@ -563,10 +555,19 @@ int main(int argc, char* argv[]) {
     }
     
     if (!connected) {
+      if (g_shutdown) {
+        std::cerr << "[INFO] Shutdown requested during connection" << std::endl;
+        return 0;
+      }
       std::cerr << "[ERROR] Connection timeout - failed to establish connection" << std::endl;
       std::cerr << "[HINT] Make sure the server is running on " << options.host << ":" << options.port << std::endl;
       return 1;
     }
+  }
+  
+  if (g_shutdown) {
+    std::cerr << "[INFO] Shutdown requested, exiting..." << std::endl;
+    return 0;
   }
   
   std::cerr << "[INFO] Connected successfully!" << std::endl;
@@ -578,14 +579,21 @@ int main(int argc, char* argv[]) {
     if (g_client) {
       try {
         auto init_future = g_client->initializeProtocol();
-        auto init_result = init_future.get();
-        std::cerr << "[INFO] Protocol initialized: " << init_result.protocolVersion << std::endl;
-        if (init_result.serverInfo.has_value()) {
-          std::cerr << "[INFO] Server: " << init_result.serverInfo->name 
-                    << " v" << init_result.serverInfo->version << std::endl;
+        // Use wait_for to allow checking for shutdown
+        auto status = init_future.wait_for(std::chrono::seconds(10));
+        if (status == std::future_status::timeout) {
+          std::cerr << "[ERROR] Protocol initialization timeout" << std::endl;
+          return 1;
+        } else if (status == std::future_status::ready) {
+          auto init_result = init_future.get();
+          std::cerr << "[INFO] Protocol initialized: " << init_result.protocolVersion << std::endl;
+          if (init_result.serverInfo.has_value()) {
+            std::cerr << "[INFO] Server: " << init_result.serverInfo->name 
+                      << " v" << init_result.serverInfo->version << std::endl;
+          }
+          // Store server capabilities
+          g_client->setServerCapabilities(init_result.capabilities);
         }
-        // Store server capabilities
-        g_client->setServerCapabilities(init_result.capabilities);
       } catch (const std::exception& e) {
         std::cerr << "[ERROR] Failed to initialize protocol: " << e.what() << std::endl;
         return 1;
@@ -599,6 +607,12 @@ int main(int argc, char* argv[]) {
     if (g_client) {
       demonstrateFeatures(*g_client, options.verbose);
     }
+  }
+  
+  // Check for shutdown before entering main loop
+  if (g_shutdown) {
+    std::cerr << "[INFO] Shutdown requested, exiting..." << std::endl;
+    return 0;
   }
   
   // Main loop - send periodic pings
@@ -623,17 +637,24 @@ int main(int argc, char* argv[]) {
         ping_future = g_client->sendRequest("ping");
       }
       
-      auto response = ping_future.get();
-      if (!response.error.has_value()) {
-        ping_count++;
-        consecutive_failures = 0;
-        // Only show ping messages in verbose mode or if quiet is not enabled
-        if (!options.quiet && (ping_count % 100 == 0 || options.verbose)) {
-          std::cerr << "[INFO] Ping #" << ping_count << " successful" << std::endl;
-        }
-      } else {
+      // Use wait_for with timeout to allow checking for shutdown
+      auto status = ping_future.wait_for(std::chrono::seconds(5));
+      if (status == std::future_status::timeout) {
+        std::cerr << "[WARN] Ping timeout" << std::endl;
         consecutive_failures++;
-        std::cerr << "[WARN] Ping failed: " << response.error->message << std::endl;
+      } else if (status == std::future_status::ready) {
+        auto response = ping_future.get();
+        if (!response.error.has_value()) {
+          ping_count++;
+          consecutive_failures = 0;
+          // Only show ping messages in verbose mode or if quiet is not enabled
+          if (!options.quiet && (ping_count % 100 == 0 || options.verbose)) {
+            std::cerr << "[INFO] Ping #" << ping_count << " successful" << std::endl;
+          }
+        } else {
+          consecutive_failures++;
+          std::cerr << "[WARN] Ping failed: " << response.error->message << std::endl;
+        }
       }
     } catch (const std::exception& e) {
       consecutive_failures++;

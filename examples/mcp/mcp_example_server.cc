@@ -94,6 +94,7 @@
 #include <signal.h>
 #include <ctime>
 #include <sstream>
+#include <condition_variable>
 #include <thread>
 #include <chrono>
 #include <mutex>
@@ -105,6 +106,7 @@ using namespace mcp::server;
 std::shared_ptr<McpServer> g_server;
 std::atomic<bool> g_shutdown(false);
 std::mutex g_server_mutex;
+std::condition_variable g_shutdown_cv;
 
 // Command-line options
 struct ServerOptions {
@@ -128,26 +130,11 @@ struct ServerOptions {
 };
 
 void signal_handler(int signal) {
+  // Signal handlers should do minimal work
+  // Just set the flag and notify - actual shutdown happens in main thread
   std::cerr << "\n[INFO] Received signal " << signal << ", initiating graceful shutdown..." << std::endl;
   g_shutdown = true;
-  
-  // Use mutex to safely access g_server
-  std::lock_guard<std::mutex> lock(g_server_mutex);
-  if (g_server && g_server->isRunning()) {
-    try {
-      // Send shutdown notification to all clients
-      auto shutdown_notif = jsonrpc::make_notification("server/shutdown");
-      g_server->broadcastNotification(shutdown_notif);
-      
-      // Give clients time to disconnect
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      
-      // Shutdown server
-      g_server->shutdown();
-    } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Exception during shutdown: " << e.what() << std::endl;
-    }
-  }
+  g_shutdown_cv.notify_all();
 }
 
 void printUsage(const char* program) {
@@ -967,10 +954,38 @@ int main(int argc, char* argv[]) {
     std::cerr << "[DEBUG] About to run server event loop..." << std::endl;
   }
   
+  // Start a shutdown monitor thread
+  std::thread shutdown_monitor([&]() {
+    std::unique_lock<std::mutex> lock(g_server_mutex);
+    g_shutdown_cv.wait(lock, []() { return g_shutdown.load(); });
+    
+    // Shutdown was requested
+    if (g_server) {
+      try {
+        // Send shutdown notification to all clients
+        auto shutdown_notif = jsonrpc::make_notification("server/shutdown");
+        g_server->broadcastNotification(shutdown_notif);
+        
+        // Give clients time to disconnect
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Shutdown server - this will cause run() to return
+        g_server->shutdown();
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Exception during shutdown: " << e.what() << std::endl;
+      }
+    }
+  });
+  
   // Run the server's event loop in main thread
   // Following good design pattern: main thread runs the event loop
   // This blocks until shutdown() is called
   g_server->run();
+  
+  // Wait for shutdown monitor to complete
+  if (shutdown_monitor.joinable()) {
+    shutdown_monitor.join();
+  }
   
   // Old monitoring loop - no longer needed since event loop handles everything
   /*
