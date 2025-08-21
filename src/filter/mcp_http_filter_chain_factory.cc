@@ -35,11 +35,51 @@ class McpHttpSseJsonRpcFilter;
  * Now includes HTTP routing capability without double parsing
  */
 
+// Forward declaration
+class McpHttpSseJsonRpcFilter;
+
+// Thread-local storage for connection to filter mapping
+// Following production pattern: lock-free access to active filters
+static thread_local std::map<network::Connection*, McpHttpSseJsonRpcFilter*> tls_connection_filters;
+
+// Utility function to convert RequestId to string for logging
+static std::string requestIdToString(const RequestId& id) {
+  if (id.holds_alternative<std::string>()) {
+    return id.get<std::string>();
+  } else if (id.holds_alternative<int>()) {
+    return std::to_string(id.get<int>());
+  }
+  return "<unknown>";
+}
+
+// Following production architecture: Stream class for request/response pairs
+// Each incoming request creates a new stream that tracks its own state
+class RequestStream {
+public:
+  RequestStream(RequestId id, McpHttpSseJsonRpcFilter* filter)
+      : id_(id), filter_(filter), creation_time_(std::chrono::steady_clock::now()) {}
+  
+  RequestId id() const { return id_; }
+  
+  // Note: sendResponse implementation moved after McpHttpSseJsonRpcFilter definition
+  void sendResponse(const jsonrpc::Response& response);
+  
+  std::chrono::steady_clock::time_point creationTime() const { return creation_time_; }
+  
+private:
+  RequestId id_;
+  McpHttpSseJsonRpcFilter* filter_;
+  std::chrono::steady_clock::time_point creation_time_;
+};
+
 class McpHttpSseJsonRpcFilter : public network::Filter,
                                  public HttpCodecFilter::MessageCallbacks,
                                  public SseCodecFilter::EventCallbacks,
                                  public McpJsonRpcFilter::Callbacks {
 public:
+  // Make active_streams_ accessible for response routing
+  friend void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response&, network::Connection&);
+  
   McpHttpSseJsonRpcFilter(event::Dispatcher& dispatcher,
                           McpMessageCallbacks& mcp_callbacks,
                           bool is_server)
@@ -65,6 +105,13 @@ public:
     // SSE and JSON-RPC filters for protocol-specific handling
     sse_filter_ = std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
     jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
+  }
+  
+  ~McpHttpSseJsonRpcFilter() {
+    // Remove from thread-local map on destruction
+    if (connection_) {
+      tls_connection_filters.erase(connection_);
+    }
   }
   
   // ===== Network Filter Interface =====
@@ -97,6 +144,11 @@ public:
   }
   
   network::FilterStatus onNewConnection() override {
+    // Store connection reference for response routing
+    if (read_callbacks_) {
+      connection_ = &read_callbacks_->connection();
+    }
+    
     // Initialize all protocol filters
     http_filter_->onNewConnection();
     sse_filter_->onNewConnection();
@@ -128,6 +180,11 @@ public:
   
   void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
     read_callbacks_ = &callbacks;
+    connection_ = &callbacks.connection();
+    
+    // Register this filter for the connection in thread-local storage
+    tls_connection_filters[connection_] = this;
+    
     http_filter_->initializeReadFilterCallbacks(callbacks);
     sse_filter_->initializeReadFilterCallbacks(callbacks);
     jsonrpc_filter_->initializeReadFilterCallbacks(callbacks);
@@ -242,6 +299,14 @@ public:
   // ===== McpJsonRpcFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
+    // Following production pattern: create a new stream for each request
+    // This supports HTTP pipelining with multiple concurrent requests
+    auto stream = std::make_unique<RequestStream>(request.id, this);
+    active_streams_[request.id] = std::move(stream);
+    
+    std::cerr << "[DEBUG] Created stream for request " << requestIdToString(request.id) 
+              << ", active streams: " << active_streams_.size() << std::endl;
+    
     mcp_callbacks_.onRequest(request);
   }
   
@@ -272,6 +337,21 @@ public:
   }
   
   // Method to send response through this filter instance
+  // Send response for a specific stream
+  void sendResponseForStream(const jsonrpc::Response& response, RequestId stream_id) {
+    std::cerr << "[DEBUG] Sending response for stream " << requestIdToString(stream_id) << std::endl;
+    
+    // Remove the stream after sending response
+    auto it = active_streams_.find(stream_id);
+    if (it != active_streams_.end()) {
+      sendResponseThroughFilter(response);
+      active_streams_.erase(it);
+      std::cerr << "[DEBUG] Removed stream, remaining: " << active_streams_.size() << std::endl;
+    } else {
+      std::cerr << "[ERROR] Stream not found for response!" << std::endl;
+    }
+  }
+  
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
     std::cerr << "[DEBUG] Sending response through filter chain" << std::endl;
     
@@ -379,35 +459,55 @@ private:
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
   
+  // Stream management - following production pattern
+  // Multiple concurrent requests per connection (HTTP pipelining support)
+  std::map<RequestId, std::unique_ptr<RequestStream>> active_streams_;
+  
+  // Connection reference for response routing
+  network::Connection* connection_{nullptr};
+  
   // Buffered data
   OwnedBuffer pending_json_data_;
 };
+
+// RequestStream method implementation (after McpHttpSseJsonRpcFilter definition)
+void RequestStream::sendResponse(const jsonrpc::Response& response) {
+  // Each stream knows how to send its own response
+  if (filter_) {
+    filter_->sendResponseForStream(response, id_);
+  }
+}
 
 // Static method to send response through the connection's filter chain
 void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
                                                 network::Connection& connection) {
   std::cerr << "[DEBUG] McpHttpFilterChainFactory::sendHttpResponse called" << std::endl;
   
-  // Following production pattern: response is sent through the connection's write path
-  // Convert response to JSON
-  auto json_val = json::to_json(response);
-  std::string json_str = json_val.toString();
-  
-  // Create HTTP response with proper headers
-  std::ostringstream http_response;
-  http_response << "HTTP/1.1 200 OK\r\n";
-  http_response << "Content-Type: application/json\r\n";
-  http_response << "Content-Length: " << json_str.length() << "\r\n";
-  http_response << "Cache-Control: no-cache\r\n";
-  http_response << "\r\n";
-  http_response << json_str;
-  
-  // Send through connection
-  OwnedBuffer response_buffer;
-  response_buffer.add(http_response.str());
-  std::cerr << "[DEBUG] Sending HTTP response: " << response_buffer.length() << " bytes" << std::endl;
-  std::cerr << "[DEBUG] Response content: " << http_response.str().substr(0, 100) << "..." << std::endl;
-  connection.write(response_buffer, false);
+  // Following production pattern: find the filter for this connection
+  auto it = tls_connection_filters.find(&connection);
+  if (it != tls_connection_filters.end() && it->second) {
+    auto* filter = it->second;
+    std::cerr << "[DEBUG] Found filter for connection, checking for stream" << std::endl;
+    
+    // Find the stream that matches this response
+    auto stream_it = filter->active_streams_.find(response.id);
+    if (stream_it != filter->active_streams_.end()) {
+      std::cerr << "[DEBUG] Found stream for response ID " << requestIdToString(response.id) << std::endl;
+      stream_it->second->sendResponse(response);
+    } else {
+      std::cerr << "[ERROR] No stream found for response ID " << requestIdToString(response.id) << std::endl;
+      // Fallback: send response anyway
+      filter->sendResponseThroughFilter(response);
+    }
+  } else {
+    std::cerr << "[ERROR] No filter found for connection!" << std::endl;
+    // Fallback: write JSON directly (won't have HTTP headers)
+    auto json_val = json::to_json(response);
+    std::string json_str = json_val.toString();
+    OwnedBuffer response_buffer;
+    response_buffer.add(json_str);
+    connection.write(response_buffer, false);
+  }
 }
 
 // ===== Factory Implementation =====

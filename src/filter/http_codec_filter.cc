@@ -14,6 +14,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <map>
+#include <iostream>
 
 namespace mcp {
 namespace filter {
@@ -85,7 +87,43 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
 
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  // Pass through message data
+  std::cerr << "[DEBUG] HttpCodecFilter::onWrite called with " << data.length() 
+            << " bytes, is_server=" << is_server_ << std::endl;
+  
+  // Following production pattern: use encoder for protocol-specific formatting
+  if (is_server_ && data.length() > 0 && message_encoder_) {
+    // For server mode, this is a response that needs HTTP framing
+    // Check if we're in a state where we can send a response
+    auto current_state = state_machine_->currentState();
+    std::cerr << "[DEBUG] HttpCodecFilter current state: " << static_cast<int>(current_state) << std::endl;
+    
+    // Allow sending response in most server states
+    if (current_state != HttpCodecState::Closed &&
+        current_state != HttpCodecState::Error) {
+      
+      // Prepare response headers
+      std::map<std::string, std::string> headers;
+      headers["content-type"] = "application/json";
+      headers["content-length"] = std::to_string(data.length());
+      headers["cache-control"] = "no-cache";
+      
+      // Use encoder to send headers with proper HTTP version
+      message_encoder_->encodeHeaders("200", headers, false);
+      
+      // Now send the body
+      message_encoder_->encodeData(data, end_stream);
+      
+      // Update state machine
+      state_machine_->handleEvent(HttpCodecEvent::ResponseBegin);
+      if (end_stream) {
+        state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
+      }
+      
+      // Data has been encoded, clear the buffer
+      data.drain(data.length());
+    }
+  }
+  
   return network::FilterStatus::Continue;
 }
 

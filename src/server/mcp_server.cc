@@ -579,10 +579,18 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
                 std::to_string(get<int>(request.id))) << std::endl;
   
   // Send response through the current connection (for TCP/HTTP connections)
-  // Following production pattern: thread-local connection context
+  // Following production pattern: server sends JSON-RPC, filter handles HTTP
   if (tls_connection_data_.current_connection) {
-    filter::McpHttpFilterChainFactory::sendHttpResponse(response,
-                                                        *tls_connection_data_.current_connection);
+    // Convert response to JSON and send through connection
+    // The filter chain will handle HTTP protocol wrapping
+    auto json_val = json::to_json(response);
+    std::string json_str = json_val.toString();
+    
+    OwnedBuffer response_buffer;
+    response_buffer.add(json_str);
+    
+    // Write JSON-RPC response - HTTP filter will wrap it
+    tls_connection_data_.current_connection->write(response_buffer, false);
   }
   
   // Also try connection managers (for stdio transport)
