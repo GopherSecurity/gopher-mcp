@@ -17,7 +17,7 @@ HttpRoutingFilter::HttpRoutingFilter(HttpCodecFilter::MessageCallbacks* next_cal
     : next_callbacks_(next_callbacks), encoder_(encoder), is_server_(is_server) {
   
   // Set up default handler that passes through to next layer
-  default_handler_ = [this](const RequestContext& req) {
+  default_handler_ = [](const RequestContext&) {
     // Return special status code 0 to indicate pass-through
     Response resp;
     resp.status_code = 0;  // Signal to pass through

@@ -40,7 +40,7 @@ public:
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server) {
     // Create routing filter first (it will receive HTTP callbacks)
-    routing_filter_ = std::make_unique<HttpRoutingFilter>(
+    routing_filter_ = std::make_shared<HttpRoutingFilter>(
         this,  // We are the next callbacks layer after routing
         nullptr,  // Will be set after HTTP filter is created
         is_server_);
@@ -308,7 +308,7 @@ private:
   
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
-  std::unique_ptr<HttpRoutingFilter> routing_filter_;  // Routing filter
+  std::shared_ptr<HttpRoutingFilter> routing_filter_;  // Routing filter (shared for lifetime management)
   std::shared_ptr<SseCodecFilter> sse_filter_;
   std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
   
