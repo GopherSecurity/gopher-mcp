@@ -41,9 +41,9 @@ class McpHttpSseJsonRpcFilter;
  * Now includes HTTP routing capability without double parsing
  */
 
-// Thread-local storage for connection to filter mapping
-// Following production pattern: lock-free access to active filters
-static thread_local std::map<network::Connection*, McpHttpSseJsonRpcFilter*> tls_connection_filters;
+// Note: Following production pattern, connections and filters are managed by the connection manager.
+// The server/client should maintain the connection-to-filter mapping if direct access is needed.
+// For now, we rely on the connection's filter chain for response routing.
 
 // Utility function to convert RequestId to string for logging
 static std::string requestIdToString(const RequestId& id) {
@@ -112,12 +112,7 @@ public:
     jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
   }
   
-  ~McpHttpSseJsonRpcFilter() {
-    // Remove from thread-local map on destruction
-    if (connection_) {
-      tls_connection_filters.erase(connection_);
-    }
-  }
+  ~McpHttpSseJsonRpcFilter() = default;
   
   // ===== Network Filter Interface =====
   
@@ -187,9 +182,6 @@ public:
   void initializeReadFilterCallbacks(network::ReadFilterCallbacks& callbacks) override {
     read_callbacks_ = &callbacks;
     connection_ = &callbacks.connection();
-    
-    // Register this filter for the connection in thread-local storage
-    tls_connection_filters[connection_] = this;
     
     http_filter_->initializeReadFilterCallbacks(callbacks);
     sse_filter_->initializeReadFilterCallbacks(callbacks);
@@ -358,7 +350,11 @@ public:
       active_streams_.erase(it);
       std::cerr << "[DEBUG] Removed stream, remaining: " << active_streams_.size() << std::endl;
     } else {
-      std::cerr << "[ERROR] Stream not found for response!" << std::endl;
+      // Following production pattern: no stream means request was already completed or never existed
+      // Drop the response - do NOT send it (would violate HTTP protocol)
+      std::cerr << "[ERROR] No stream found for response ID " << id_key 
+                << " - dropping response (possible duplicate or late response)" << std::endl;
+      // NO FALLBACK - just return
     }
   }
   
@@ -494,43 +490,13 @@ void RequestStream::sendResponse(const jsonrpc::Response& response) {
 // Following production pattern: ensure execution in the connection's dispatcher thread
 void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
                                                 network::Connection& connection) {
-  std::cerr << "[DEBUG] McpHttpFilterChainFactory::sendHttpResponse called" << std::endl;
+  std::cerr << "[WARNING] McpHttpFilterChainFactory::sendHttpResponse called but filter access not available" << std::endl;
+  std::cerr << "[WARNING] Response ID " << requestIdToString(response.id) << " dropped - no direct filter access" << std::endl;
   
-  // Following production pattern: find the filter for this connection
-  auto it = tls_connection_filters.find(&connection);
-  if (it != tls_connection_filters.end() && it->second) {
-    auto* filter = it->second;
-    
-    // Following production pattern: ensure we're in the dispatcher thread
-    // If already in dispatcher thread, execute directly. Otherwise post to dispatcher.
-    auto send_response_impl = [filter, response]() {
-      std::cerr << "[DEBUG] Sending response in dispatcher thread" << std::endl;
-      
-      // Find the stream that matches this response
-      std::string resp_id_key = requestIdToString(response.id);
-      auto stream_it = filter->active_streams_.find(resp_id_key);
-      if (stream_it != filter->active_streams_.end()) {
-        std::cerr << "[DEBUG] Found stream for response ID " << resp_id_key << std::endl;
-        stream_it->second->sendResponse(response);
-      } else {
-        std::cerr << "[ERROR] No stream found for response ID " << resp_id_key << std::endl;
-        // Fallback: send response anyway
-        filter->sendResponseThroughFilter(response);
-      }
-    };
-    
-    // Post to dispatcher to ensure thread safety
-    // Production pattern: all stream operations happen in the dispatcher thread
-    filter->dispatcher_.post(send_response_impl);
-  } else {
-    std::cerr << "[ERROR] No filter found for connection!" << std::endl;
-    // Fallback: write JSON directly (won't have HTTP headers)
-    auto json_val = json::to_json(response);
-    std::string json_str = json_val.toString();
-    OwnedBuffer response_buffer;
-    response_buffer.add(json_str);
-    connection.write(response_buffer, false);
-  }
+  // Following production pattern: without direct filter access, we cannot route responses
+  // The proper solution is for the connection manager to maintain filter references
+  // and provide a proper API for response routing.
+  // For now, responses must be sent through the connection manager's own mechanisms.
 }
 
 // ===== Factory Implementation =====
