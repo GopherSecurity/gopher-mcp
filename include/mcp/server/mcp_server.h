@@ -678,12 +678,12 @@ class McpServer : public application::ApplicationBase,
   void initializeWorker(application::WorkerContext& worker) override;
   void setupFilterChain(application::FilterChainBuilder& builder) override;
 
-  // McpMessageCallbacks overrides
-  void onRequest(const jsonrpc::Request& request) override;
-  void onNotification(const jsonrpc::Notification& notification) override;
-  void onResponse(const jsonrpc::Response& response) override;
-  void onConnectionEvent(network::ConnectionEvent event) override;
-  void onError(const Error& error) override;
+  // Message handling methods (called through internal callbacks)
+  void onRequest(const jsonrpc::Request& request);
+  void onNotification(const jsonrpc::Notification& notification);
+  void onResponse(const jsonrpc::Response& response);
+  void onConnectionEvent(network::ConnectionEvent event);
+  void onError(const Error& error);
   
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
@@ -744,8 +744,39 @@ class McpServer : public application::ApplicationBase,
   void stopBackgroundTasks();
 
  private:
+  // Internal callbacks class to bridge McpMessageCallbacks to McpServer
+  // Following production pattern: separate callback interface from main class
+  class ServerMessageCallbacks : public McpMessageCallbacks {
+   public:
+    explicit ServerMessageCallbacks(McpServer& server) : server_(server) {}
+    
+    void onRequest(const jsonrpc::Request& request) override {
+      server_.onRequest(request);
+    }
+    
+    void onNotification(const jsonrpc::Notification& notification) override {
+      server_.onNotification(notification);
+    }
+    
+    void onResponse(const jsonrpc::Response& response) override {
+      server_.onResponse(response);
+    }
+    
+    void onConnectionEvent(network::ConnectionEvent event) override {
+      server_.onConnectionEvent(event);
+    }
+    
+    void onError(const Error& error) override {
+      server_.onError(error);
+    }
+    
+   private:
+    McpServer& server_;
+  };
+  
   McpServerConfig config_;
   McpServerStats server_stats_;
+  std::unique_ptr<ServerMessageCallbacks> message_callbacks_;
 
   // Connection management (production pattern)
   // IMPROVEMENT: Using TcpActiveListener for robust listener management
