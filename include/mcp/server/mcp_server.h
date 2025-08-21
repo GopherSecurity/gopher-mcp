@@ -785,7 +785,6 @@ class McpServer : public application::ApplicationBase,
   
   // Store active connections to manage their lifetime
   // Following production pattern: server owns connections until they close
-  std::vector<network::ConnectionPtr> active_connections_;
 
   // Legacy connection managers (for stdio transport)
   // TODO: Migrate stdio to use listener pattern
@@ -796,8 +795,21 @@ class McpServer : public application::ApplicationBase,
   std::unique_ptr<SessionManager> session_manager_;
   
   // Track current connection for request context
-  // This is set during connection callbacks and used to associate requests with sessions
-  thread_local static network::Connection* current_connection_;
+  // Connection tracking
+  // Following production pattern: thread-local storage to avoid locks
+  // Each worker thread manages its own connections
+  struct ThreadLocalConnectionData {
+    // Connections owned by this thread
+    std::vector<network::ConnectionPtr> owned_connections;
+    // Connection to session mapping for this thread
+    std::map<network::Connection*, SessionManager::SessionPtr> connection_sessions;
+    // Current connection being processed (for request context)
+    network::Connection* current_connection{nullptr};
+  };
+  
+  // Thread-local storage for connection data
+  // Each worker thread has its own instance, no locks needed
+  static thread_local ThreadLocalConnectionData tls_connection_data_;
   
   // Request tracking for cancellation support
   struct PendingRequest {
