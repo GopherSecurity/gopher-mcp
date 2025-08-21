@@ -397,7 +397,7 @@ class McpClient : public application::ApplicationBase {
   bool isConnected() const { return connected_; }
   
   // Shutdown the client (stops workers and event loop)
-  void shutdown();
+  void shutdown() override;
   
   // Check if shutting down
   bool isShuttingDown() const { return shutting_down_; }
@@ -506,9 +506,11 @@ class McpClient : public application::ApplicationBase {
   class ConnectionPoolImpl : public application::ConnectionPool {
    public:
     ConnectionPoolImpl(McpClient& client,
+                       event::Dispatcher& dispatcher,
                        size_t max_connections,
-                       size_t max_idle)
-        : ConnectionPool(max_connections, max_idle), client_(client) {}
+                       uint32_t streams_per_connection)
+        : ConnectionPool(dispatcher, max_connections, streams_per_connection), 
+          client_(client) {}
 
    protected:
     ConnectionPtr createNewConnection() override;

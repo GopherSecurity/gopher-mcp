@@ -42,6 +42,17 @@
 #include "mcp/builders.h"
 #include "mcp/json/json_serialization.h"
 
+// Production-style assertion macro
+#ifndef ASSERT
+#ifdef NDEBUG
+#define ASSERT(x) ((void)0)
+#else
+#define ASSERT(x) do { if (!(x)) { std::cerr << "Assertion failed: " #x \
+                       << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+                       std::abort(); } } while(0)
+#endif
+#endif
+
 namespace mcp {
 namespace application {
 
@@ -224,88 +235,293 @@ class FailureReason {
 };
 
 /**
- * Connection pool for efficient connection reuse
+ * LinkedObject provides O(1) insertion/removal for doubly-linked lists
+ * Following production pattern for efficient connection management
+ */
+template <typename T>
+class LinkedObject {
+ public:
+  LinkedObject() = default;
+  virtual ~LinkedObject() {
+    // Ensure removed from any list before destruction
+    ASSERT(!list_entry_.next_);
+    ASSERT(!list_entry_.prev_);
+  }
+
+  // Move between lists in O(1)
+  void moveBetweenLists(std::list<std::unique_ptr<T>>& from,
+                        std::list<std::unique_ptr<T>>& to) {
+    // Extract the element at our stored position
+    auto node = std::move(*entry_);
+    from.erase(entry_);
+    to.push_back(std::move(node));
+    entry_ = std::prev(to.end());
+  }
+  
+  // Remove from list in O(1)
+  void removeFromList(std::list<std::unique_ptr<T>>& list) {
+    list.erase(entry_);
+    entry_ = {};
+  }
+  
+  // LinkedList helper for moving into lists
+  struct LinkedList {
+    static void moveIntoList(std::unique_ptr<T>&& item,
+                             std::list<std::unique_ptr<T>>& list) {
+      auto* raw = item.get();
+      list.push_back(std::move(item));
+      static_cast<LinkedObject<T>*>(raw)->entry_ = std::prev(list.end());
+    }
+  };
+
+ private:
+  friend struct LinkedList;
+  
+  // Store iterator for O(1) removal
+  typename std::list<std::unique_ptr<T>>::iterator entry_;
+  
+  // For debug assertions
+  struct ListEntry {
+    void* next_{nullptr};
+    void* prev_{nullptr};
+  } list_entry_;
+};
+
+/**
+ * Base class for connection pool clients
+ * Following production pattern - no locks, single dispatcher thread
+ */
+class PooledConnection : public LinkedObject<PooledConnection> {
+ public:
+  using ConnectionPtr = std::shared_ptr<network::Connection>;
+  
+  enum class State {
+    Connecting,  // Connection being established
+    Ready,       // Available for streams
+    Busy,        // At stream limit
+    Draining,    // No new streams, will close when idle
+    Closed       // Connection closed
+  };
+  
+  PooledConnection(ConnectionPtr conn, uint32_t stream_limit)
+      : connection_(conn),
+        remaining_streams_(stream_limit),
+        concurrent_stream_limit_(stream_limit) {}
+  
+  virtual ~PooledConnection() = default;
+  
+  State state() const { return state_; }
+  void setState(State state) { state_ = state; }
+  
+  bool readyForStream() const {
+    return state_ == State::Ready && currentUnusedCapacity() > 0;
+  }
+  
+  int64_t currentUnusedCapacity() const {
+    return std::min<int64_t>(remaining_streams_,
+                             concurrent_stream_limit_ - active_streams_);
+  }
+  
+  void onStreamCreated() {
+    active_streams_++;
+    remaining_streams_--;
+    if (currentUnusedCapacity() == 0) {
+      state_ = State::Busy;
+    }
+  }
+  
+  void onStreamClosed() {
+    active_streams_--;
+    if (state_ == State::Busy && currentUnusedCapacity() > 0) {
+      state_ = State::Ready;
+    }
+  }
+  
+  ConnectionPtr connection_;
+  uint32_t remaining_streams_;
+  uint32_t concurrent_stream_limit_;
+  uint32_t active_streams_{0};
+  
+ private:
+  State state_{State::Connecting};
+};
+
+/**
+ * Lock-free connection pool for efficient connection reuse
+ * All operations must be called from the dispatcher thread
  */
 class ConnectionPool {
  public:
   using ConnectionPtr = std::shared_ptr<network::Connection>;
+  using PooledConnectionPtr = std::unique_ptr<PooledConnection>;
 
-  virtual ~ConnectionPool() = default;
+  virtual ~ConnectionPool() {
+    // Destroy all connections
+    ready_connections_.clear();
+    busy_connections_.clear();
+    connecting_connections_.clear();
+  }
 
-  ConnectionPool(size_t max_connections, size_t max_idle)
-      : max_connections_(max_connections), max_idle_(max_idle) {}
+  ConnectionPool(event::Dispatcher& dispatcher,
+                 size_t max_connections,
+                 uint32_t streams_per_connection)
+      : dispatcher_(dispatcher),
+        max_connections_(max_connections),
+        streams_per_connection_(streams_per_connection) {}
 
-  // Acquire a connection from the pool
+  // Request a connection for a new stream (called from dispatcher thread)
   ConnectionPtr acquireConnection() {
-    std::unique_lock<std::mutex> lock(mutex_);
-
-    // Try to get an idle connection
-    while (!idle_connections_.empty()) {
-      auto conn = idle_connections_.front();
-      idle_connections_.pop();
-
-      if (conn && conn->state() == network::ConnectionState::Open) {
-        active_connections_++;
-        return conn;
+    ASSERT(dispatcher_.isThreadSafe());
+    
+    // First try ready connections
+    if (!ready_connections_.empty()) {
+      auto& pooled = *ready_connections_.front();
+      if (pooled.readyForStream()) {
+        pooled.onStreamCreated();
+        if (!pooled.readyForStream()) {
+          // Move to busy list
+          transitionConnectionState(pooled, PooledConnection::State::Busy);
+        }
+        return pooled.connection_;
       }
     }
-
+    
     // Create new connection if under limit
     if (total_connections_ < max_connections_) {
-      auto conn = createNewConnection();
-      if (conn) {
-        total_connections_++;
-        active_connections_++;
-        return conn;
-      }
+      return createNewConnectionForStream();
     }
-
-    // Wait for a connection to become available
-    cv_.wait(lock, [this] {
-      return !idle_connections_.empty() ||
-             total_connections_ < max_connections_;
-    });
-
-    return acquireConnection();  // Recursive call after wait
+    
+    // No available connection
+    return nullptr;
   }
 
-  // Return a connection to the pool
-  void releaseConnection(ConnectionPtr conn) {
-    std::unique_lock<std::mutex> lock(mutex_);
-
-    active_connections_--;
-
-    if (!conn || conn->state() != network::ConnectionState::Open) {
-      // Connection is closed, reduce total count
-      total_connections_--;
-    } else if (idle_connections_.size() < max_idle_) {
-      // Add to idle pool
-      idle_connections_.push(conn);
-    } else {
-      // Pool is full, close connection
-      conn->close(network::ConnectionCloseType::NoFlush);
-      total_connections_--;
+  // Release a stream on a connection (called from dispatcher thread)
+  void releaseStream(ConnectionPtr conn) {
+    ASSERT(dispatcher_.isThreadSafe());
+    
+    // Find the pooled connection
+    PooledConnection* pooled = findPooledConnection(conn.get());
+    if (!pooled) {
+      return;
     }
-
-    cv_.notify_one();
+    
+    pooled->onStreamClosed();
+    
+    // Move from busy to ready if it has capacity
+    if (pooled->state() == PooledConnection::State::Busy &&
+        pooled->readyForStream()) {
+      transitionConnectionState(*pooled, PooledConnection::State::Ready);
+    }
+  }
+  
+  // Called when connection is established
+  void onConnectionConnected(network::Connection* conn) {
+    ASSERT(dispatcher_.isThreadSafe());
+    
+    PooledConnection* pooled = findPooledConnection(conn);
+    if (pooled && pooled->state() == PooledConnection::State::Connecting) {
+      transitionConnectionState(*pooled, PooledConnection::State::Ready);
+    }
+  }
+  
+  // Called when connection fails or closes
+  void onConnectionClosed(network::Connection* conn) {
+    ASSERT(dispatcher_.isThreadSafe());
+    
+    PooledConnection* pooled = findPooledConnection(conn);
+    if (pooled) {
+      removeConnection(*pooled);
+    }
   }
 
-  size_t getActiveConnections() const { return active_connections_; }
+  size_t getActiveConnections() const {
+    return busy_connections_.size() + ready_connections_.size();
+  }
+  
   size_t getTotalConnections() const { return total_connections_; }
-  size_t getIdleConnections() const { return idle_connections_.size(); }
 
  protected:
   virtual ConnectionPtr createNewConnection() = 0;
-
+  
  private:
-  size_t max_connections_;
-  size_t max_idle_;
-  size_t total_connections_ = 0;
-  size_t active_connections_ = 0;
+  ConnectionPtr createNewConnectionForStream() {
+    auto conn = createNewConnection();
+    if (conn) {
+      auto pooled = std::make_unique<PooledConnection>(conn, streams_per_connection_);
+      pooled->setState(PooledConnection::State::Connecting);
+      pooled->onStreamCreated();  // Reserve for current stream
+      
+      // Add to connecting list
+      LinkedObject<PooledConnection>::LinkedList::moveIntoList(std::move(pooled), connecting_connections_);
+      total_connections_++;
+      
+      return conn;
+    }
+    return nullptr;
+  }
+  
+  void transitionConnectionState(PooledConnection& pooled,
+                                 PooledConnection::State new_state) {
+    auto& current_list = owningList(pooled.state());
+    auto& target_list = owningList(new_state);
+    
+    if (&current_list != &target_list) {
+      pooled.setState(new_state);
+      pooled.moveBetweenLists(current_list, target_list);
+    } else {
+      pooled.setState(new_state);
+    }
+  }
+  
+  std::list<PooledConnectionPtr>& owningList(PooledConnection::State state) {
+    switch (state) {
+      case PooledConnection::State::Connecting:
+        return connecting_connections_;
+      case PooledConnection::State::Ready:
+        return ready_connections_;
+      case PooledConnection::State::Busy:
+      case PooledConnection::State::Draining:
+        return busy_connections_;
+      default:
+        ASSERT(false);
+        return busy_connections_;
+    }
+  }
+  
+  PooledConnection* findPooledConnection(network::Connection* raw_conn) {
+    for (auto& pooled : ready_connections_) {
+      if (pooled->connection_.get() == raw_conn) {
+        return pooled.get();
+      }
+    }
+    for (auto& pooled : busy_connections_) {
+      if (pooled->connection_.get() == raw_conn) {
+        return pooled.get();
+      }
+    }
+    for (auto& pooled : connecting_connections_) {
+      if (pooled->connection_.get() == raw_conn) {
+        return pooled.get();
+      }
+    }
+    return nullptr;
+  }
+  
+  void removeConnection(PooledConnection& pooled) {
+    auto& current_list = owningList(pooled.state());
+    pooled.removeFromList(current_list);
+    total_connections_--;
+  }
 
-  std::queue<ConnectionPtr> idle_connections_;
-  std::mutex mutex_;
-  std::condition_variable cv_;
+  event::Dispatcher& dispatcher_;
+  size_t max_connections_;
+  uint32_t streams_per_connection_;
+  size_t total_connections_{0};
+
+  // Connection lists - no locks needed, dispatcher thread only
+  std::list<PooledConnectionPtr> ready_connections_;
+  std::list<PooledConnectionPtr> busy_connections_;
+  std::list<PooledConnectionPtr> connecting_connections_;
 };
 
 /**

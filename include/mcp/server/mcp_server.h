@@ -21,6 +21,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -679,11 +680,11 @@ class McpServer : public application::ApplicationBase,
   void setupFilterChain(application::FilterChainBuilder& builder) override;
 
   // Message handling methods (called through internal callbacks)
-  void onRequest(const jsonrpc::Request& request);
-  void onNotification(const jsonrpc::Notification& notification);
-  void onResponse(const jsonrpc::Response& response);
+  void onRequest(const jsonrpc::Request& request) override;
+  void onNotification(const jsonrpc::Notification& notification) override;
+  void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event);
-  void onError(const Error& error);
+  void onError(const Error& error) override;
   
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
@@ -794,22 +795,21 @@ class McpServer : public application::ApplicationBase,
   // Session management
   std::unique_ptr<SessionManager> session_manager_;
   
-  // Track current connection for request context
-  // Connection tracking
-  // Following production pattern: thread-local storage to avoid locks
-  // Each worker thread manages its own connections
-  struct ThreadLocalConnectionData {
-    // Connections owned by this thread
-    std::vector<network::ConnectionPtr> owned_connections;
-    // Connection to session mapping for this thread
-    std::map<network::Connection*, SessionManager::SessionPtr> connection_sessions;
-    // Current connection being processed (for request context)
-    network::Connection* current_connection{nullptr};
-  };
+  // Connection management
+  // Following production pattern: listener owns connections, not threads
+  // Connections tracked by count only, ownership managed by listener
   
-  // Thread-local storage for connection data
-  // Each worker thread has its own instance, no locks needed
-  static thread_local ThreadLocalConnectionData tls_connection_data_;
+  // Track connection count for statistics
+  std::atomic<uint64_t> num_connections_{0};
+  
+  // Current connection being processed (for request context)
+  // This is set temporarily during request processing in dispatcher thread
+  network::Connection* current_connection_{nullptr};
+  
+  // Connection to session mapping
+  // Following production pattern: managed by session manager, not thread-local
+  std::map<network::Connection*, SessionManager::SessionPtr> connection_sessions_;
+  std::mutex connection_sessions_mutex_;
   
   // Request tracking for cancellation support
   struct PendingRequest {

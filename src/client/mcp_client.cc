@@ -41,10 +41,13 @@ McpClient::McpClient(const McpClientConfig& config)
       config_.max_retry_delay);
   
   // Initialize connection pool for efficient connection reuse
+  // Following production pattern: pass dispatcher and streams per connection
+  // Use 100 streams per connection as a reasonable default for HTTP/2
   connection_pool_ = std::make_unique<ConnectionPoolImpl>(
       *this,
+      *main_dispatcher_,  // Use main dispatcher for connection management
       config_.connection_pool_size,
-      config_.max_idle_connections);
+      100);  // streams_per_connection - reasonable for HTTP/2
 }
 
 // Destructor
