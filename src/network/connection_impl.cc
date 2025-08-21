@@ -689,12 +689,13 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
     return;
   }
 
+  // Set state to Closed immediately to prevent re-entrancy
+  state_ = ConnectionState::Closed;
+
   // Transition state machine to Closed
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::SocketClosed);
   }
-
-  state_ = ConnectionState::Closed;
 
   // Disable all file events
   file_event_.reset();
@@ -833,6 +834,7 @@ void ConnectionImpl::doRead() {
         // This is a real EOF - the other end closed the connection
         read_half_closed_ = true;
         detected_close_type_ = DetectedCloseType::RemoteReset;
+        // Close immediately but safely
         closeSocket(ConnectionEvent::RemoteClose);
         return;
       }
