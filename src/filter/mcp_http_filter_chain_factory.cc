@@ -367,33 +367,22 @@ public:
       return;
     }
     
-    // For HTTP, we need to send headers first, then body
+    // Send response - HttpCodecFilter will add HTTP framing
     if (is_server_ && !is_sse_mode_) {
-      // Convert response to JSON string first
+      // Convert response to JSON string
       auto json_val = json::to_json(response);
       std::string json_str = json_val.toString();
       
-      // Prepare HTTP headers with content length
-      std::map<std::string, std::string> headers;
-      headers["content-type"] = "application/json";
-      headers["cache-control"] = "no-cache";
-      headers["content-length"] = std::to_string(json_str.length());
-      
-      // Create the full HTTP response
-      std::ostringstream http_response;
-      http_response << "HTTP/1.1 200 OK\r\n";
-      for (const auto& header : headers) {
-        http_response << header.first << ": " << header.second << "\r\n";
-      }
-      http_response << "\r\n";
-      http_response << json_str;
-      
-      // Send the complete response through write callbacks
+      // Send just the JSON body - HttpCodecFilter.onWrite will add HTTP headers
       OwnedBuffer response_buffer;
-      response_buffer.add(http_response.str());
+      response_buffer.add(json_str);
       
-      std::cerr << "[DEBUG] Sending HTTP response: " << response_buffer.length() << " bytes" << std::endl;
-      write_callbacks_->injectWriteDataToFilterChain(response_buffer, false);
+      std::cerr << "[DEBUG] Sending JSON response body: " << response_buffer.length() << " bytes" << std::endl;
+      
+      // Write through the connection - this goes through write filters
+      if (write_callbacks_) {
+        write_callbacks_->connection().write(response_buffer, false);
+      }
     } else {
       // For SSE or other modes, just encode the JSON-RPC response
       jsonrpcEncoder().encodeResponse(response);
