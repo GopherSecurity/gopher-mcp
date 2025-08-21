@@ -575,38 +575,12 @@ McpConnectionManager::createTransportSocketFactory() {
       }
 
     case TransportType::HttpSse:
-      // For HTTP+SSE, we don't need a special transport socket
+      // For HTTP+SSE, use RawBufferTransportSocketFactory
       // The filter chain handles the HTTP and SSE protocols
-      // Just use raw TCP socket (return nullptr transport socket)
-      class RawTcpTransportSocketFactory : public network::ClientTransportSocketFactory,
-                                           public network::ServerTransportSocketFactory {
-      public:
-        // For server connections
-        network::TransportSocketPtr createTransportSocket() const override {
-          // Return nullptr to use raw socket without additional transport layer
-          return nullptr;
-        }
-        
-        // For client connections
-        network::TransportSocketPtr createTransportSocket(
-            network::TransportSocketOptionsSharedPtr options) const override {
-          (void)options;
-          // Return nullptr to use raw socket without additional transport layer
-          return nullptr;
-        }
-        
-        // TransportSocketFactoryBase interface
-        bool implementsSecureTransport() const override { return false; }
-        std::string name() const override { return "raw_tcp"; }
-        void hashKey(std::vector<uint8_t>& key,
-                    network::TransportSocketOptionsSharedPtr options) const override {
-          (void)key;
-          (void)options;
-          // Raw TCP has no additional state to hash
-        }
-      };
-      
-      return std::make_unique<RawTcpTransportSocketFactory>();
+      // The transport socket only handles raw buffer I/O
+      // Following production pattern: transport sockets handle only I/O,
+      // filters handle all protocol logic
+      return std::make_unique<network::RawBufferTransportSocketFactory>();
 
     default:
       break;
