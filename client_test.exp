@@ -1,0 +1,105 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ./build/examples/mcp/mcp_example_client --port 3333 --verbose
+
+# Wait for connection
+expect {
+    "Connected successfully!" { 
+        send_user "\n   Client connected: PASS\n" 
+    }
+    timeout { 
+        send_user "\n   Client connection: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Wait for protocol initialization
+expect {
+    "Protocol initialized:" { 
+        send_user "   Protocol initialized: PASS\n" 
+    }
+    timeout { 
+        send_user "   Protocol initialization: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Wait for feature demonstration (which tests various RPC methods)
+expect {
+    "Demonstrating MCP features..." { 
+        send_user "   Feature demonstration started: PASS\n" 
+    }
+    timeout { 
+        send_user "   Feature demonstration: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Check for tool listing
+expect {
+    "Available tools:" { 
+        send_user "   Tool listing: PASS\n" 
+    }
+    timeout { 
+        send_user "   Tool listing: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Check for calculator tool
+expect {
+    "calculator" { 
+        send_user "   Calculator tool found: PASS\n" 
+    }
+    timeout { 
+        send_user "   Calculator tool: NOT FOUND\n"
+        exit 1
+    }
+}
+
+# Check for resource listing
+expect {
+    "Available resources:" { 
+        send_user "   Resource listing: PASS\n" 
+    }
+    timeout { 
+        send_user "   Resource listing: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Check for prompt listing
+expect {
+    "Available prompts:" { 
+        send_user "   Prompt listing: PASS\n" 
+    }
+    timeout { 
+        send_user "   Prompt listing: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Let it run for a few ping cycles
+expect {
+    "Ping #1 successful" { 
+        send_user "   First ping successful: PASS\n" 
+    }
+    timeout { 
+        send_user "   First ping: TIMEOUT\n"
+        exit 1
+    }
+}
+
+# Send interrupt to exit cleanly
+send "\003"
+expect {
+    "Client shutdown complete" { 
+        send_user "   Clean shutdown: PASS\n" 
+    }
+    timeout { 
+        send_user "   Clean shutdown: TIMEOUT\n"
+        exit 1
+    }
+}
+
+send_user "\n"

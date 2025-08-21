@@ -15,11 +15,16 @@
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/json/json_serialization.h"
+#include <iostream>
 #include <sstream>
 #include <ctime>
 
 namespace mcp {
 namespace filter {
+
+// Forward declaration
+class McpHttpSseJsonRpcFilter;
 
 /**
  * Combined filter that implements all protocol layers
@@ -137,6 +142,12 @@ public:
   
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
+    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onHeaders called, is_server=" 
+              << is_server_ << std::endl;
+    for (const auto& h : headers) {
+      std::cerr << "[DEBUG]   " << h.first << ": " << h.second << std::endl;
+    }
+    
     // Determine transport mode based on headers
     if (is_server_) {
       // Server: check Accept header for SSE
@@ -167,6 +178,10 @@ public:
   }
   
   void onBody(const std::string& data, bool end_stream) override {
+    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onBody called with " 
+              << data.length() << " bytes, end_stream=" << end_stream 
+              << ", is_sse_mode=" << is_sse_mode_ << std::endl;
+    
     if (is_sse_mode_) {
       // In SSE mode, body contains event stream
       // Forward to SSE filter for parsing
@@ -177,7 +192,10 @@ public:
       // In RPC mode, body contains JSON-RPC
       // Accumulate and forward to JSON-RPC filter
       pending_json_data_.add(data);
+      std::cerr << "[DEBUG] Accumulated " << pending_json_data_.length() 
+                << " bytes of JSON-RPC data" << std::endl;
       if (end_stream) {
+        std::cerr << "[DEBUG] End of stream, processing JSON-RPC data" << std::endl;
         jsonrpc_filter_->onData(pending_json_data_, true);
         pending_json_data_.drain(pending_json_data_.length());
       }
@@ -222,6 +240,9 @@ public:
   // ===== McpJsonRpcFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
+    // Store the current filter context for response routing
+    // Following production pattern: maintain request-response context
+    current_request_filter_ = this;
     mcp_callbacks_.onRequest(request);
   }
   
@@ -249,6 +270,35 @@ public:
   
   McpJsonRpcFilter::Encoder& jsonrpcEncoder() {
     return jsonrpc_filter_->encoder();
+  }
+  
+  // Method to send response through the current request's filter
+  void sendResponseThroughFilter(const jsonrpc::Response& response) {
+    std::cerr << "[DEBUG] Sending response through filter chain" << std::endl;
+    
+    // For HTTP, we need to send headers first, then body
+    if (is_server_ && !is_sse_mode_) {
+      // Convert response to JSON string first
+      auto json_val = json::to_json(response);
+      std::string json_str = json_val.toString();
+      
+      // Prepare HTTP headers with content length
+      std::map<std::string, std::string> headers;
+      headers["content-type"] = "application/json";
+      headers["cache-control"] = "no-cache";
+      headers["content-length"] = std::to_string(json_str.length());
+      
+      // Send HTTP headers (end_stream=false because body follows)
+      http_filter_->messageEncoder().encodeHeaders("200 OK", headers, false);
+      
+      // Send JSON-RPC response as HTTP body
+      OwnedBuffer body_buffer;
+      body_buffer.add(json_str);
+      http_filter_->messageEncoder().encodeData(body_buffer, true);
+    } else {
+      // For SSE or other modes, just encode the JSON-RPC response
+      jsonrpcEncoder().encodeResponse(response);
+    }
   }
   
 private:
@@ -318,7 +368,23 @@ private:
   
   // Buffered data
   OwnedBuffer pending_json_data_;
+  
+  // Thread-local storage for current request filter
+  // Following production pattern: maintain request context for response routing
+  static thread_local McpHttpSseJsonRpcFilter* current_request_filter_;
 };
+
+// Define thread-local storage for request context
+thread_local McpHttpSseJsonRpcFilter* McpHttpSseJsonRpcFilter::current_request_filter_ = nullptr;
+
+// Static method to send response through the current request's filter chain
+void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response) {
+  if (McpHttpSseJsonRpcFilter::current_request_filter_) {
+    McpHttpSseJsonRpcFilter::current_request_filter_->sendResponseThroughFilter(response);
+  } else {
+    std::cerr << "[ERROR] No current request filter to send response!" << std::endl;
+  }
+}
 
 // ===== Factory Implementation =====
 

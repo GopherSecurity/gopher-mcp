@@ -124,11 +124,17 @@ void McpJsonRpcFilter::initializeWriteFilterCallbacks(
 }
 
 network::FilterStatus McpJsonRpcFilter::onData(Buffer& data, bool end_stream) {
-  (void)end_stream;
-  
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);
+  
+  // If end_stream and we have partial data, try to parse it as a complete message
+  // This handles HTTP requests where the body doesn't end with a newline
+  if (end_stream && !partial_message_.empty() && !use_framing_) {
+    std::cerr << "[DEBUG] End of stream with partial message: " << partial_message_ << std::endl;
+    parseMessage(partial_message_);
+    partial_message_.clear();
+  }
   
   return network::FilterStatus::Continue;
 }
@@ -159,6 +165,9 @@ void McpJsonRpcFilter::parseMessages(Buffer& buffer) {
   // Convert buffer to string and drain it
   std::string buffer_str = buffer.toString();
   buffer.drain(buffer.length());
+  
+  std::cerr << "[DEBUG] McpJsonRpcFilter::parseMessages called with " 
+            << buffer_str.length() << " bytes: " << buffer_str << std::endl;
   
   // Add to partial message buffer
   partial_message_ += buffer_str;
@@ -200,18 +209,24 @@ void McpJsonRpcFilter::parseMessages(Buffer& buffer) {
 }
 
 bool McpJsonRpcFilter::parseMessage(const std::string& json_str) {
+  std::cerr << "[DEBUG] McpJsonRpcFilter::parseMessage called with: " << json_str << std::endl;
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
+    std::cerr << "[DEBUG] JSON parsed successfully" << std::endl;
     
     // Determine message type and dispatch to callbacks
     if (json_val.contains("method")) {
+      std::cerr << "[DEBUG] Message contains method field" << std::endl;
       if (json_val.contains("id")) {
+        std::cerr << "[DEBUG] Message is a request" << std::endl;
         // JSON-RPC Request
         jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
         requests_received_++;
+        std::cerr << "[DEBUG] Calling callbacks_.onRequest" << std::endl;
         callbacks_.onRequest(request);
       } else {
+        std::cerr << "[DEBUG] Message is a notification" << std::endl;
         // JSON-RPC Notification
         jsonrpc::Notification notification = json::from_json<jsonrpc::Notification>(json_val);
         notifications_received_++;
