@@ -395,6 +395,12 @@ class McpClient : public application::ApplicationBase {
   VoidResult connect(const std::string& uri);
   void disconnect();
   bool isConnected() const { return connected_; }
+  
+  // Shutdown the client (stops workers and event loop)
+  void shutdown();
+  
+  // Check if shutting down
+  bool isShuttingDown() const { return shutting_down_; }
 
   // Initialize protocol - must be called after connect
   std::future<InitializeResult> initializeProtocol();
@@ -501,6 +507,7 @@ class McpClient : public application::ApplicationBase {
  private:
   McpClientConfig config_;
   McpClientStats client_stats_;
+  std::atomic<bool> shutting_down_{false};
 
   // Connection management
   std::unique_ptr<McpConnectionManager> connection_manager_;

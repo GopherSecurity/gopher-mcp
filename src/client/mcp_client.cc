@@ -75,9 +75,21 @@ VoidResult McpClient::connect(const std::string& uri) {
       start();  // This will block until stop() is called
     }).detach();
     
-    // Wait for main dispatcher to be ready
-    while (!main_dispatcher_) {
+    // Wait for main dispatcher to be ready with timeout
+    int wait_count = 0;
+    while (!main_dispatcher_ && wait_count < 1000 && !shutting_down_) { // 10 second timeout
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      wait_count++;
+    }
+    
+    if (shutting_down_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                                "Client is shutting down"));
+    }
+    
+    if (!main_dispatcher_) {
+      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                                "Failed to initialize dispatcher"));
     }
   }
   
@@ -142,6 +154,29 @@ VoidResult McpClient::connect(const std::string& uri) {
   });
   
   return connect_future.get();
+}
+
+// Shutdown the client completely
+void McpClient::shutdown() {
+  // Set shutting down flag first
+  if (shutting_down_.exchange(true)) {
+    // Already shutting down
+    return;
+  }
+  
+  // First disconnect if connected
+  if (connected_) {
+    disconnect();
+  }
+  
+  // Exit the dispatcher if it exists
+  // This will cause dispatcher_->run() to return
+  if (main_dispatcher_) {
+    main_dispatcher_->exit();
+  }
+  
+  // Stop the application base (stops workers and event loop)
+  stop();
 }
 
 // Disconnect from server

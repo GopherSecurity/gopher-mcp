@@ -111,7 +111,13 @@ void signal_handler(int signal) {
   // Signal handlers should do minimal work to avoid deadlocks
   std::cerr << "\n[INFO] Received signal " << signal << ", shutting down..." << std::endl;
   g_shutdown = true;
-  // Don't try to disconnect here - let the main loop handle it cleanly
+  
+  // Schedule shutdown through client if it exists
+  // This is thread-safe as shutdown() is idempotent
+  auto client = g_client;  // Local copy to avoid lock in signal handler
+  if (client) {
+    client->shutdown();
+  }
 }
 
 void printUsage(const char* program) {
