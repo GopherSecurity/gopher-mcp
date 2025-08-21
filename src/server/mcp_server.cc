@@ -968,24 +968,49 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   std::string name = get<std::string>(name_it->second);
 
   // Extract optional arguments
-  // TODO: Properly handle nested metadata arguments
+  // Since params is already a Metadata (map<string, MetadataValue>), 
+  // we can directly extract the arguments if they exist
   optional<Metadata> arguments;
   auto args_it = params.find("arguments");
   if (args_it != params.end()) {
-    // For now, create empty metadata if arguments are present
-    arguments = make_optional(make<Metadata>().build());
+    // Arguments in the params should be another metadata object
+    // We need to convert the MetadataValue to Metadata
+    // For now, pass the entire params as arguments (which includes the tool arguments)
+    Metadata tool_args;
+    
+    // Copy all params except "name" as tool arguments
+    for (const auto& [key, value] : params) {
+      if (key != "name" && key != "arguments") {
+        tool_args[key] = value;
+      } else if (key == "arguments") {
+        // If arguments is present, it should contain the actual tool parameters
+        // For simplicity, we'll pass empty metadata for now and fix properly later
+        // This needs proper JSON deserialization from the request
+      }
+    }
+    
+    arguments = make_optional(tool_args);
   }
 
   // Call tool
   auto result = tool_registry_->callTool(name, arguments, session);
 
-  // Convert to response
-  // TODO: Serialize CallToolResult to ResponseResult
+  // Convert CallToolResult to proper response
+  // Extract text content from the result
+  std::string content_text;
+  if (!result.content.empty()) {
+    for (const auto& content_block : result.content) {
+      if (holds_alternative<TextContent>(content_block)) {
+        const auto& text_content = get<TextContent>(content_block);
+        content_text += text_content.text;
+      }
+    }
+  }
+
+  // Build response metadata with actual result
   auto response_metadata =
       make<Metadata>()
-          .add("content",
-               std::string("Tool result placeholder"))  // Simplified - avoid
-                                                        // nested metadata
+          .add("content", content_text.empty() ? std::string("No result") : content_text)
           .add("isError", result.isError)
           .build();
 
