@@ -767,7 +767,7 @@ class FilterChainBuilder {
  * - Metrics and observability
  * - Graceful shutdown
  */
-class ApplicationBase : public McpMessageCallbacks {
+class ApplicationBase {
  public:
   /**
    * Application configuration
@@ -1043,11 +1043,11 @@ class ApplicationBase : public McpMessageCallbacks {
     return worker_contexts_[index].get();
   }
 
-  // McpMessageCallbacks - override in derived classes
-  void onRequest(const jsonrpc::Request& request) override {}
-  void onNotification(const jsonrpc::Notification& notification) override {}
-  void onResponse(const jsonrpc::Response& response) override {}
-  void onError(const Error& error) override {
+  // Message callbacks - can be overridden in derived classes if needed
+  virtual void onRequest(const jsonrpc::Request& request) {}
+  virtual void onNotification(const jsonrpc::Notification& notification) {}
+  virtual void onResponse(const jsonrpc::Response& response) {}
+  virtual void onError(const Error& error) {
     stats_.errors_total++;
   }
 
