@@ -1,12 +1,13 @@
 #pragma once
 
+#include <memory>
+
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/mcp_jsonrpc_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
-#include <memory>
 
 // Forward declarations
 namespace mcp {
@@ -16,7 +17,7 @@ namespace filter {
 class HttpRoutingFilter;
 class MetricsFilter;
 }  // namespace filter
-}
+}  // namespace mcp
 
 namespace mcp {
 namespace filter {
@@ -91,7 +92,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * When true, adds MetricsFilter to the chain
    */
   void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
-  
+
   /**
    * Send a response through the connection's filter chain
    * Following production pattern: connection context flows through
@@ -99,7 +100,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * @param connection The connection to send the response on
    */
   static void sendHttpResponse(const jsonrpc::Response& response,
-                              network::Connection& connection);
+                               network::Connection& connection);
 
  private:
   event::Dispatcher& dispatcher_;

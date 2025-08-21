@@ -395,10 +395,10 @@ class McpClient : public application::ApplicationBase {
   VoidResult connect(const std::string& uri);
   void disconnect();
   bool isConnected() const { return connected_; }
-  
+
   // Shutdown the client (stops workers and event loop)
   void shutdown() override;
-  
+
   // Check if shutting down
   bool isShuttingDown() const { return shutting_down_; }
 
@@ -463,9 +463,9 @@ class McpClient : public application::ApplicationBase {
 
   // Message callbacks handler (internal)
   class MessageCallbacksImpl : public mcp::McpMessageCallbacks {
-  public:
+   public:
     MessageCallbacksImpl(McpClient& client) : client_(client) {}
-    
+
     void onRequest(const jsonrpc::Request& request) override {
       client_.handleRequest(request);
     }
@@ -478,14 +478,12 @@ class McpClient : public application::ApplicationBase {
     void onConnectionEvent(network::ConnectionEvent event) override {
       client_.handleConnectionEvent(event);
     }
-    void onError(const Error& error) override {
-      client_.handleError(error);
-    }
-    
-  private:
+    void onError(const Error& error) override { client_.handleError(error); }
+
+   private:
     McpClient& client_;
   };
-  
+
   // Internal message handlers
   void handleRequest(const jsonrpc::Request& request);
   void handleNotification(const jsonrpc::Notification& notification);
@@ -509,7 +507,7 @@ class McpClient : public application::ApplicationBase {
                        event::Dispatcher& dispatcher,
                        size_t max_connections,
                        uint32_t streams_per_connection)
-        : ConnectionPool(dispatcher, max_connections, streams_per_connection), 
+        : ConnectionPool(dispatcher, max_connections, streams_per_connection),
           client_(client) {}
 
    protected:

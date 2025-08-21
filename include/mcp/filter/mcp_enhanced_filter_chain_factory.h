@@ -1,14 +1,14 @@
 #pragma once
 
 #include "mcp/event/event_loop.h"
+#include "mcp/filter/backpressure_filter.h"
+#include "mcp/filter/circuit_breaker_filter.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/filter/sse_codec_filter.h"
-#include "mcp/filter/circuit_breaker_filter.h"
-#include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/metrics_filter.h"
+#include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
-#include "mcp/filter/backpressure_filter.h"
+#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 
@@ -33,8 +33,8 @@ namespace filter {
  *
  * Filter Chain Architecture:
  * ```
- * [TCP Socket] → [Circuit Breaker] → [Rate Limiter] → [Metrics] 
- *              → [Request Validator] → [Backpressure] → [HTTP Codec] 
+ * [TCP Socket] → [Circuit Breaker] → [Rate Limiter] → [Metrics]
+ *              → [Request Validator] → [Backpressure] → [HTTP Codec]
  *              → [SSE Codec] → [JSON-RPC] → [Application]
  * ```
  */
@@ -47,19 +47,19 @@ class McpEnhancedFilterChainFactory : public network::FilterChainFactory {
     // Circuit breaker settings
     bool enable_circuit_breaker = true;
     CircuitBreakerConfig circuit_breaker_config;
-    
+
     // Rate limiting settings
     bool enable_rate_limiting = true;
     RateLimitConfig rate_limit_config;
-    
+
     // Metrics collection settings
     bool enable_metrics = true;
     MetricsConfig metrics_config;
-    
+
     // Request validation settings
     bool enable_request_validation = true;
     RequestValidationConfig validation_config;
-    
+
     // Backpressure settings
     bool enable_backpressure = true;
     BackpressureConfig backpressure_config;

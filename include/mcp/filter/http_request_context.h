@@ -1,6 +1,6 @@
 /**
  * HTTP Request Context
- * 
+ *
  * Following production design patterns:
  * - Request state lives in a context object, not in filters
  * - Context flows through the filter chain via callbacks
@@ -9,9 +9,10 @@
 
 #pragma once
 
-#include <string>
 #include <map>
 #include <memory>
+#include <string>
+
 #include "mcp/buffer.h"
 
 namespace mcp {
@@ -22,20 +23,20 @@ namespace filter {
  * Holds all state for a single HTTP request as it flows through filters
  */
 class HttpRequestContext {
-public:
+ public:
   // Request data
   std::string method;
   std::string path;
   std::map<std::string, std::string> headers;
   OwnedBuffer body;
   bool keep_alive = true;
-  
+
   // Response data (if filter handles the request)
   bool handled = false;
   int response_status = 0;
   std::map<std::string, std::string> response_headers;
   std::string response_body;
-  
+
   // Reset for reuse
   void reset() {
     method.clear();
@@ -52,5 +53,5 @@ public:
 
 using HttpRequestContextPtr = std::shared_ptr<HttpRequestContext>;
 
-} // namespace filter
-} // namespace mcp
+}  // namespace filter
+}  // namespace mcp

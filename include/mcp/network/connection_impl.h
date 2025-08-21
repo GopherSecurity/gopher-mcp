@@ -90,7 +90,9 @@ class ConnectionImpl : public ConnectionImplBase,
   Buffer& readBuffer() override { return read_buffer_; }
   Buffer& writeBuffer() override { return write_buffer_; }
   Buffer* currentWriteBuffer() override { return current_write_buffer_; }
-  bool currentWriteEndStream() const override { return current_write_end_stream_; }
+  bool currentWriteEndStream() const override {
+    return current_write_end_stream_;
+  }
   bool readHalfClosed() const override { return read_half_closed_; }
   bool isClosed() const override { return state_ == ConnectionState::Closed; }
   void readDisable(bool disable) override {
@@ -165,11 +167,12 @@ class ConnectionImpl : public ConnectionImplBase,
   void enableFileEvents(uint32_t events);
   void disableFileEvents(uint32_t events);
   uint32_t getReadyEvents();
-  
+
   // Deferred close handling
-  // closeThroughFilterManager: Safely closes connection using deferred deletion pattern
-  // to prevent use-after-free when connection is destroyed during method execution.
-  // This is critical for preventing segfaults when EOF is detected in doRead().
+  // closeThroughFilterManager: Safely closes connection using deferred deletion
+  // pattern to prevent use-after-free when connection is destroyed during
+  // method execution. This is critical for preventing segfaults when EOF is
+  // detected in doRead().
   void closeThroughFilterManager(ConnectionEvent close_type);
   void scheduleDelayedClose();
 
@@ -212,8 +215,9 @@ class ConnectionImpl : public ConnectionImplBase,
   std::list<WatermarkCallbacks*> watermark_callbacks_;
 
   // Current write context for filter chain processing
-  // These are temporary storage used only during write() call in dispatcher thread
-  // Following production pattern: all operations happen in dispatcher thread
+  // These are temporary storage used only during write() call in dispatcher
+  // thread Following production pattern: all operations happen in dispatcher
+  // thread
   Buffer* current_write_buffer_{nullptr};
   bool current_write_end_stream_{false};
 
