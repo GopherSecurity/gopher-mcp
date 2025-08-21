@@ -163,6 +163,13 @@ class ConnectionImpl : public ConnectionImplBase,
   void enableFileEvents(uint32_t events);
   void disableFileEvents(uint32_t events);
   uint32_t getReadyEvents();
+  
+  // Deferred close handling
+  // closeThroughFilterManager: Safely closes connection using deferred deletion pattern
+  // to prevent use-after-free when connection is destroyed during method execution.
+  // This is critical for preventing segfaults when EOF is detected in doRead().
+  void closeThroughFilterManager(ConnectionEvent close_type);
+  void scheduleDelayedClose();
 
   // State flags
   bool read_half_closed_{false};
@@ -180,6 +187,7 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Deferred close handling
   bool delayed_close_pending_{false};
+  bool deferred_delete_{false};
 
   // Current file event state
   uint32_t file_event_state_{0};

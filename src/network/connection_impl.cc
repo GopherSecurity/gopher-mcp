@@ -318,8 +318,6 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
 
         // Following production pattern: create file event with Read and Write events
         // enabled from the start. The connection will manage flow control as needed.
-        std::cerr << "[DEBUG] Creating file event for fd: " << socket_->ioHandle().fd() 
-                  << " trigger_type: " << (trigger_type == event::FileTriggerType::Level ? "Level" : "Edge") << std::endl;
         
         uint32_t initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
                                  static_cast<uint32_t>(event::FileReadyType::Write);
@@ -329,16 +327,12 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
             [this](uint32_t events) { onFileEvent(events); }, trigger_type,
             initial_events);
         
-        std::cerr << "[DEBUG] File event created: " << (file_event_ ? "YES" : "NO") 
-                  << " with initial events: " << initial_events << std::endl;
-        
         // Track which events are enabled
         file_event_state_ = initial_events;
         
         // For client connections that are connecting, we might need to adjust events
         if (!connected && connecting_) {
           // Client connection in progress - will be handled by doConnect()
-          std::cerr << "[DEBUG] Client connection in progress, events will be managed by doConnect" << std::endl;
         }
       }
     } catch (...) {
@@ -619,20 +613,16 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle
   // read/write/close All callbacks are invoked in dispatcher thread context
 
-  std::cerr << "[DEBUG] onFileEvent called with events: " << events << std::endl;
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
-    std::cerr << "[DEBUG] Write ready event" << std::endl;
     onWriteReady();
   }
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
-    std::cerr << "[DEBUG] Read ready event" << std::endl;
     onReadReady();
   }
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
-    std::cerr << "[DEBUG] Closed event" << std::endl;
     // Remote close detected
     detected_close_type_ = DetectedCloseType::RemoteReset;
     closeSocket(ConnectionEvent::RemoteClose);
@@ -640,7 +630,6 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
-  std::cerr << "[DEBUG] ConnectionImpl::onReadReady() called" << std::endl;
   
   // Notify state machine of read ready event
   if (state_machine_) {
@@ -681,6 +670,44 @@ void ConnectionImpl::onWriteReady() {
     if (write_buffer_.length() == 0) {
       disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
     }
+  }
+}
+
+void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
+  if (state_ == ConnectionState::Closed) {
+    return;
+  }
+  
+  // Process any pending data in read buffer before closing
+  // This ensures filters see all data before connection close
+  if (read_buffer_.length() > 0) {
+    processReadBuffer();
+  }
+  
+  // CRITICAL: Use deferred deletion pattern to prevent use-after-free
+  // Problem: When EOF is detected in doRead(), calling closeSocket() directly
+  //          can cause the ConnectionImpl (managed by unique_ptr) to be destroyed
+  //          while still executing doRead(), causing segfault on return.
+  // Solution: Defer the actual close to the next event loop iteration using a
+  //          0-delay timer. This ensures the object remains valid throughout
+  //          the current call stack.
+  // Flow: EOF detected → closeThroughFilterManager → disable events → 
+  //       schedule timer → return safely → timer fires → closeSocket
+  if (!deferred_delete_) {
+    deferred_delete_ = true;
+    
+    // Step 1: Disable file events immediately to prevent further I/O events
+    // This stops new read/write events from being processed while close is pending
+    if (file_event_) {
+      file_event_->setEnabled(0);
+    }
+    
+    // Step 2: Schedule the actual close for the next event loop iteration
+    // The timer with 0 delay ensures closeSocket runs after current stack unwinds
+    auto close_timer = dispatcher_.createTimer([this, close_type]() {
+      closeSocket(close_type);
+    });
+    close_timer->enableTimer(std::chrono::milliseconds(0));
   }
 }
 
@@ -795,68 +822,55 @@ void ConnectionImpl::doRead() {
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
   // Transport::doRead All operations happen in dispatcher thread context
 
-  std::cerr << "[DEBUG] ConnectionImpl::doRead() called" << std::endl;
-  
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
-    std::cerr << "[DEBUG] doRead skipped: read_disable_count=" << read_disable_count_ 
-              << " state=" << static_cast<int>(state_) << std::endl;
     return;
   }
 
   while (true) {
     // Read from socket into buffer
-    std::cerr << "[DEBUG] About to doReadFromSocket()" << std::endl;
     auto result = doReadFromSocket();
 
     // Check for errors
     if (!result.ok()) {
-      // Socket error - close the connection
-      closeSocket(ConnectionEvent::RemoteClose);
+      // Socket error - use deferred close for safety
+      closeThroughFilterManager(ConnectionEvent::RemoteClose);
       return;
     }
 
     // Check the action to take based on the result
     if (result.action_ == TransportIoResult::CLOSE) {
       // Transport indicated connection should be closed
-      closeSocket(ConnectionEvent::RemoteClose);
+      // Use deferred close to prevent use-after-free
+      closeThroughFilterManager(ConnectionEvent::RemoteClose);
       return;
     }
 
     // Check if we got any data
-    std::cerr << "[DEBUG] Checking bytes_processed: " << result.bytes_processed_ << std::endl;
     if (result.bytes_processed_ == 0) {
       // No data available right now (EAGAIN case handled by transport returning
       // stop()) or EOF (handled by transport returning endStream with
       // end_stream_read_ = true)
-      std::cerr << "[DEBUG] No bytes processed, checking end_stream_read: " << result.end_stream_read_ << std::endl;
-
       if (result.end_stream_read_) {
-        // This is a real EOF - the other end closed the connection
+        // EOF detected - the remote end has closed the connection
         read_half_closed_ = true;
         detected_close_type_ = DetectedCloseType::RemoteReset;
-        // Close immediately but safely
-        closeSocket(ConnectionEvent::RemoteClose);
+        
+        // SAFETY: Must use closeThroughFilterManager instead of closeSocket
+        // to avoid use-after-free when ConnectionImpl is destroyed during close
+        closeThroughFilterManager(ConnectionEvent::RemoteClose);
         return;
       }
 
       // No data available, but not EOF - just stop reading for now
       // The event loop will trigger another read when data is available
-      std::cerr << "[DEBUG] Breaking from doRead loop - no more data" << std::endl;
       break;
     }
     
-    std::cerr << "[DEBUG] Processing " << result.bytes_processed_ << " bytes" << std::endl;
-
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
     
-    std::cerr << "[DEBUG] Before processReadBuffer: buffer_length=" << read_buffer_.length() 
-              << " bytes_processed=" << result.bytes_processed_ << std::endl;
-
     // Process through filter chain
     processReadBuffer();
-    
-    std::cerr << "[DEBUG] After processReadBuffer: buffer_length=" << read_buffer_.length() << std::endl;
 
     if (read_disable_count_ > 0) {
       // Reading was disabled during processing
@@ -870,16 +884,11 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
 
   // If we have a transport socket, use it
   if (transport_socket_) {
-    std::cerr << "[DEBUG] Calling transport_socket_->doRead()" << std::endl;
     auto result = transport_socket_->doRead(read_buffer_);
-    std::cerr << "[DEBUG] doRead result: ok=" << result.ok() 
-              << " bytes=" << result.bytes_processed_ 
-              << " action=" << static_cast<int>(result.action_) << std::endl;
     return result;
   }
   
   // No transport socket - read directly from socket
-  std::cerr << "[DEBUG] Reading directly from socket (no transport layer)" << std::endl;
   
   // Read from socket (IoHandle will manage buffer space)
   auto io_result = socket_->ioHandle().read(read_buffer_);
@@ -887,7 +896,6 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Convert IoCallResult to TransportIoResult
   if (!io_result.ok()) {
     // Socket error
-    std::cerr << "[DEBUG] Socket read error: " << io_result.error_code() << std::endl;
     
     // Check if it's just EAGAIN/EWOULDBLOCK
     if (io_result.wouldBlock()) {
@@ -902,7 +910,6 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   }
   
   size_t bytes_read = *io_result;
-  std::cerr << "[DEBUG] Direct socket read: bytes=" << bytes_read << std::endl;
   
   // Check for EOF
   if (bytes_read == 0) {
@@ -914,12 +921,8 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
 }
 
 void ConnectionImpl::processReadBuffer() {
-  std::cerr << "[DEBUG] processReadBuffer called, buffer length: " << read_buffer_.length() << std::endl;
   if (read_buffer_.length() > 0) {
-    std::cerr << "[DEBUG] Calling filter_manager_.onRead()" << std::endl;
     filter_manager_.onRead();
-  } else {
-    std::cerr << "[DEBUG] No data in read buffer, skipping filter processing" << std::endl;
   }
 }
 
@@ -984,12 +987,12 @@ void ConnectionImpl::doWrite() {
     }
 
     if (!write_result.ok()) {
-      closeSocket(ConnectionEvent::LocalClose);
+      closeThroughFilterManager(ConnectionEvent::LocalClose);
       return;
     }
 
     if (write_result.action_ == TransportIoResult::CLOSE) {
-      closeSocket(ConnectionEvent::LocalClose);
+      closeThroughFilterManager(ConnectionEvent::LocalClose);
       return;
     }
 
@@ -1024,7 +1027,7 @@ void ConnectionImpl::doWrite() {
   if (write_buffer_.length() == 0 && write_half_closed_) {
     // All data written and we're closing
     if (state_ == ConnectionState::Closing) {
-      closeSocket(ConnectionEvent::LocalClose);
+      closeThroughFilterManager(ConnectionEvent::LocalClose);
     }
   }
 }
@@ -1076,14 +1079,9 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
-  std::cerr << "[DEBUG] enableFileEvents: events=" << events 
-            << " current_state=" << file_event_state_ << std::endl;
   file_event_state_ |= events;
   if (file_event_) {
-    std::cerr << "[DEBUG] Setting file event enabled state to: " << file_event_state_ << std::endl;
     file_event_->setEnabled(file_event_state_);
-  } else {
-    std::cerr << "[ERROR] No file_event_ to enable!" << std::endl;
   }
 }
 
