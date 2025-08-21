@@ -69,6 +69,9 @@ network::FilterStatus HttpCodecFilter::onNewConnection() {
 }
 
 network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
+  std::cerr << "[DEBUG] HttpCodecFilter::onData called with " << data.length() 
+            << " bytes, end_stream=" << end_stream << std::endl;
+  
   // Check if we need to reset for next message
   if (state_machine_->currentState() == HttpCodecState::Closed) {
     // Reset for next message if connection was closed
@@ -81,6 +84,9 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
   
   // Process HTTP data
   dispatch(data);
+  
+  std::cerr << "[DEBUG] HttpCodecFilter::onData completed, remaining data: " 
+            << data.length() << " bytes" << std::endl;
   
   return network::FilterStatus::Continue;
 }
@@ -384,10 +390,16 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   // End headers
   message << "\r\n";
   
-  // Store headers in message buffer for later use
-  // DON'T call sendMessageData here - that would cause infinite loop
+  // For server responses, send the headers immediately through write callbacks
   std::string message_str = message.str();
-  parent_.message_buffer_.add(message_str.c_str(), message_str.length());
+  if (parent_.is_server_ && parent_.write_callbacks_) {
+    parent_.message_buffer_.add(message_str.c_str(), message_str.length());
+    parent_.write_callbacks_->injectWriteDataToFilterChain(parent_.message_buffer_, false);
+    parent_.message_buffer_.drain(parent_.message_buffer_.length());
+  } else {
+    // For client requests, store in buffer
+    parent_.message_buffer_.add(message_str.c_str(), message_str.length());
+  }
   
   if (end_stream) {
     if (parent_.is_server_) {
