@@ -552,11 +552,27 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     }
   }
 
-  // Send response through connection manager
-  for (auto& conn_manager : connection_managers_) {
-    if (conn_manager->isConnected()) {
-      conn_manager->sendResponse(response);
-      break;
+  // Send response through appropriate channel
+  // Following proper architecture: server sends JSON-RPC, filter handles HTTP
+  if (current_connection_) {
+    // Convert response to JSON
+    auto json_val = json::to_json(response);
+    std::string json_str = json_val.toString();
+    
+    // Create buffer with just the JSON-RPC response
+    // The filter chain will handle HTTP framing/headers
+    OwnedBuffer response_buffer;
+    response_buffer.add(json_str);
+    
+    // Write through the connection - filters will handle protocol encoding
+    current_connection_->write(response_buffer, false);
+  } else {
+    // Fall back to connection managers (for stdio transport)
+    for (auto& conn_manager : connection_managers_) {
+      if (conn_manager->isConnected()) {
+        conn_manager->sendResponse(response);
+        break;
+      }
     }
   }
   
