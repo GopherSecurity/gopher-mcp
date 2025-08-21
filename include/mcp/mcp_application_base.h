@@ -28,28 +28,33 @@
 #include <vector>
 
 #include "mcp/buffer.h"
+#include "mcp/builders.h"
 #include "mcp/event/libevent_dispatcher.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
-#include "mcp/filter/rate_limit_filter.h"
-#include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/metrics_filter.h"
+#include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/socket_interface_impl.h"
-#include "mcp/builders.h"
-#include "mcp/json/json_serialization.h"
 
 // Production-style assertion macro
 #ifndef ASSERT
 #ifdef NDEBUG
 #define ASSERT(x) ((void)0)
 #else
-#define ASSERT(x) do { if (!(x)) { std::cerr << "Assertion failed: " #x \
-                       << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-                       std::abort(); } } while(0)
+#define ASSERT(x)                                                       \
+  do {                                                                  \
+    if (!(x)) {                                                         \
+      std::cerr << "Assertion failed: " #x << " at " << __FILE__ << ":" \
+                << __LINE__ << std::endl;                               \
+      std::abort();                                                     \
+    }                                                                   \
+  } while (0)
 #endif
 #endif
 
@@ -161,9 +166,10 @@ struct ApplicationStats {
 /**
  * Metrics callbacks implementation for MetricsFilter
  */
-class ApplicationMetricsCallbacks : public filter::MetricsFilter::MetricsCallbacks {
+class ApplicationMetricsCallbacks
+    : public filter::MetricsFilter::MetricsCallbacks {
  public:
-  explicit ApplicationMetricsCallbacks(ApplicationStats& stats) 
+  explicit ApplicationMetricsCallbacks(ApplicationStats& stats)
       : stats_(stats) {}
 
   void onMetricsUpdate(const filter::ConnectionMetrics& metrics) override {
@@ -171,7 +177,7 @@ class ApplicationMetricsCallbacks : public filter::MetricsFilter::MetricsCallbac
     stats_.bytes_sent.store(metrics.bytes_sent);
     stats_.bytes_received.store(metrics.bytes_received);
     stats_.requests_total.store(metrics.requests_sent);
-    
+
     // Update latency stats
     if (metrics.max_latency_ms > stats_.request_duration_ms_max.load()) {
       stats_.request_duration_ms_max.store(metrics.max_latency_ms);
@@ -182,10 +188,10 @@ class ApplicationMetricsCallbacks : public filter::MetricsFilter::MetricsCallbac
   }
 
   void onThresholdExceeded(const std::string& metric_name,
-                          uint64_t value,
-                          uint64_t threshold) override {
-    std::cerr << "[WARNING] Metric threshold exceeded: " << metric_name 
-              << " (value: " << value << ", threshold: " << threshold << ")" 
+                           uint64_t value,
+                           uint64_t threshold) override {
+    std::cerr << "[WARNING] Metric threshold exceeded: " << metric_name
+              << " (value: " << value << ", threshold: " << threshold << ")"
               << std::endl;
   }
 
@@ -257,13 +263,13 @@ class LinkedObject {
     to.push_back(std::move(node));
     entry_ = std::prev(to.end());
   }
-  
+
   // Remove from list in O(1)
   void removeFromList(std::list<std::unique_ptr<T>>& list) {
     list.erase(entry_);
     entry_ = {};
   }
-  
+
   // LinkedList helper for moving into lists
   struct LinkedList {
     static void moveIntoList(std::unique_ptr<T>&& item,
@@ -276,10 +282,10 @@ class LinkedObject {
 
  private:
   friend struct LinkedList;
-  
+
   // Store iterator for O(1) removal
   typename std::list<std::unique_ptr<T>>::iterator entry_;
-  
+
   // For debug assertions
   struct ListEntry {
     void* next_{nullptr};
@@ -294,7 +300,7 @@ class LinkedObject {
 class PooledConnection : public LinkedObject<PooledConnection> {
  public:
   using ConnectionPtr = std::shared_ptr<network::Connection>;
-  
+
   enum class State {
     Connecting,  // Connection being established
     Ready,       // Available for streams
@@ -302,26 +308,26 @@ class PooledConnection : public LinkedObject<PooledConnection> {
     Draining,    // No new streams, will close when idle
     Closed       // Connection closed
   };
-  
+
   PooledConnection(ConnectionPtr conn, uint32_t stream_limit)
       : connection_(conn),
         remaining_streams_(stream_limit),
         concurrent_stream_limit_(stream_limit) {}
-  
+
   virtual ~PooledConnection() = default;
-  
+
   State state() const { return state_; }
   void setState(State state) { state_ = state; }
-  
+
   bool readyForStream() const {
     return state_ == State::Ready && currentUnusedCapacity() > 0;
   }
-  
+
   int64_t currentUnusedCapacity() const {
     return std::min<int64_t>(remaining_streams_,
                              concurrent_stream_limit_ - active_streams_);
   }
-  
+
   void onStreamCreated() {
     active_streams_++;
     remaining_streams_--;
@@ -329,19 +335,19 @@ class PooledConnection : public LinkedObject<PooledConnection> {
       state_ = State::Busy;
     }
   }
-  
+
   void onStreamClosed() {
     active_streams_--;
     if (state_ == State::Busy && currentUnusedCapacity() > 0) {
       state_ = State::Ready;
     }
   }
-  
+
   ConnectionPtr connection_;
   uint32_t remaining_streams_;
   uint32_t concurrent_stream_limit_;
   uint32_t active_streams_{0};
-  
+
  private:
   State state_{State::Connecting};
 };
@@ -372,7 +378,7 @@ class ConnectionPool {
   // Request a connection for a new stream (called from dispatcher thread)
   ConnectionPtr acquireConnection() {
     ASSERT(dispatcher_.isThreadSafe());
-    
+
     // First try ready connections
     if (!ready_connections_.empty()) {
       auto& pooled = *ready_connections_.front();
@@ -385,12 +391,12 @@ class ConnectionPool {
         return pooled.connection_;
       }
     }
-    
+
     // Create new connection if under limit
     if (total_connections_ < max_connections_) {
       return createNewConnectionForStream();
     }
-    
+
     // No available connection
     return nullptr;
   }
@@ -398,36 +404,36 @@ class ConnectionPool {
   // Release a stream on a connection (called from dispatcher thread)
   void releaseStream(ConnectionPtr conn) {
     ASSERT(dispatcher_.isThreadSafe());
-    
+
     // Find the pooled connection
     PooledConnection* pooled = findPooledConnection(conn.get());
     if (!pooled) {
       return;
     }
-    
+
     pooled->onStreamClosed();
-    
+
     // Move from busy to ready if it has capacity
     if (pooled->state() == PooledConnection::State::Busy &&
         pooled->readyForStream()) {
       transitionConnectionState(*pooled, PooledConnection::State::Ready);
     }
   }
-  
+
   // Called when connection is established
   void onConnectionConnected(network::Connection* conn) {
     ASSERT(dispatcher_.isThreadSafe());
-    
+
     PooledConnection* pooled = findPooledConnection(conn);
     if (pooled && pooled->state() == PooledConnection::State::Connecting) {
       transitionConnectionState(*pooled, PooledConnection::State::Ready);
     }
   }
-  
+
   // Called when connection fails or closes
   void onConnectionClosed(network::Connection* conn) {
     ASSERT(dispatcher_.isThreadSafe());
-    
+
     PooledConnection* pooled = findPooledConnection(conn);
     if (pooled) {
       removeConnection(*pooled);
@@ -437,34 +443,36 @@ class ConnectionPool {
   size_t getActiveConnections() const {
     return busy_connections_.size() + ready_connections_.size();
   }
-  
+
   size_t getTotalConnections() const { return total_connections_; }
 
  protected:
   virtual ConnectionPtr createNewConnection() = 0;
-  
+
  private:
   ConnectionPtr createNewConnectionForStream() {
     auto conn = createNewConnection();
     if (conn) {
-      auto pooled = std::make_unique<PooledConnection>(conn, streams_per_connection_);
+      auto pooled =
+          std::make_unique<PooledConnection>(conn, streams_per_connection_);
       pooled->setState(PooledConnection::State::Connecting);
       pooled->onStreamCreated();  // Reserve for current stream
-      
+
       // Add to connecting list
-      LinkedObject<PooledConnection>::LinkedList::moveIntoList(std::move(pooled), connecting_connections_);
+      LinkedObject<PooledConnection>::LinkedList::moveIntoList(
+          std::move(pooled), connecting_connections_);
       total_connections_++;
-      
+
       return conn;
     }
     return nullptr;
   }
-  
+
   void transitionConnectionState(PooledConnection& pooled,
                                  PooledConnection::State new_state) {
     auto& current_list = owningList(pooled.state());
     auto& target_list = owningList(new_state);
-    
+
     if (&current_list != &target_list) {
       pooled.setState(new_state);
       pooled.moveBetweenLists(current_list, target_list);
@@ -472,7 +480,7 @@ class ConnectionPool {
       pooled.setState(new_state);
     }
   }
-  
+
   std::list<PooledConnectionPtr>& owningList(PooledConnection::State state) {
     switch (state) {
       case PooledConnection::State::Connecting:
@@ -487,7 +495,7 @@ class ConnectionPool {
         return busy_connections_;
     }
   }
-  
+
   PooledConnection* findPooledConnection(network::Connection* raw_conn) {
     for (auto& pooled : ready_connections_) {
       if (pooled->connection_.get() == raw_conn) {
@@ -506,7 +514,7 @@ class ConnectionPool {
     }
     return nullptr;
   }
-  
+
   void removeConnection(PooledConnection& pooled) {
     auto& current_list = owningList(pooled.state());
     pooled.removeFromList(current_list);
@@ -556,25 +564,28 @@ class FilterChainBuilder {
   using FilterPtr = std::shared_ptr<network::Filter>;
 
   FilterChainBuilder(event::Dispatcher& dispatcher,
-                    ApplicationStats& stats,
-                    network::WriteFilterCallbacks* write_callbacks = nullptr)
-      : dispatcher_(dispatcher), stats_(stats), write_callbacks_(write_callbacks) {}
-  
+                     ApplicationStats& stats,
+                     network::WriteFilterCallbacks* write_callbacks = nullptr)
+      : dispatcher_(dispatcher),
+        stats_(stats),
+        write_callbacks_(write_callbacks) {}
+
   // Provide access to dispatcher for filter creation
   event::Dispatcher& getDispatcher() { return dispatcher_; }
 
   // Add rate limiting filter
-  FilterChainBuilder& withRateLimiting(const filter::RateLimitConfig& config,
-                                       network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<RateLimitCallbacks>(stats_, connection, write_callbacks_);
-    auto filter = std::make_shared<filter::RateLimitFilter>(
-        *callbacks, config);
+  FilterChainBuilder& withRateLimiting(
+      const filter::RateLimitConfig& config,
+      network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RateLimitCallbacks>(stats_, connection,
+                                                          write_callbacks_);
+    auto filter = std::make_shared<filter::RateLimitFilter>(*callbacks, config);
     filters_.push_back(filter);
     rate_limit_callbacks_ = callbacks;
     return *this;
   }
 
-  // Add metrics collection filter  
+  // Add metrics collection filter
   FilterChainBuilder& withMetrics(const filter::MetricsFilter::Config& config) {
     auto callbacks = std::make_shared<ApplicationMetricsCallbacks>(stats_);
     auto filter = std::make_shared<filter::MetricsFilter>(*callbacks, config);
@@ -584,47 +595,55 @@ class FilterChainBuilder {
   }
 
   // Add circuit breaker filter
-  FilterChainBuilder& withCircuitBreaker(const filter::CircuitBreakerConfig& config,
-                                         network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<CircuitBreakerCallbacks>(stats_, connection, write_callbacks_);
-    auto filter = std::make_shared<filter::CircuitBreakerFilter>(*callbacks, config);
+  FilterChainBuilder& withCircuitBreaker(
+      const filter::CircuitBreakerConfig& config,
+      network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<CircuitBreakerCallbacks>(
+        stats_, connection, write_callbacks_);
+    auto filter =
+        std::make_shared<filter::CircuitBreakerFilter>(*callbacks, config);
     filters_.push_back(filter);
     circuit_breaker_callbacks_ = callbacks;
     return *this;
   }
 
   // Add backpressure filter
-  FilterChainBuilder& withBackpressure(const filter::BackpressureConfig& config,
-                                       network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<BackpressureCallbacks>(stats_, connection, write_callbacks_);
-    auto filter = std::make_shared<filter::BackpressureFilter>(*callbacks, config);
+  FilterChainBuilder& withBackpressure(
+      const filter::BackpressureConfig& config,
+      network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<BackpressureCallbacks>(stats_, connection,
+                                                             write_callbacks_);
+    auto filter =
+        std::make_shared<filter::BackpressureFilter>(*callbacks, config);
     filters_.push_back(filter);
     backpressure_callbacks_ = callbacks;
     return *this;
   }
 
   // Add request validation filter
-  FilterChainBuilder& withRequestValidation(const filter::RequestValidationConfig& config,
-                                           network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<RequestValidationCallbacks>(stats_, connection, write_callbacks_);
-    auto filter = std::make_shared<filter::RequestValidationFilter>(*callbacks, config);
+  FilterChainBuilder& withRequestValidation(
+      const filter::RequestValidationConfig& config,
+      network::Connection* connection = nullptr) {
+    auto callbacks = std::make_shared<RequestValidationCallbacks>(
+        stats_, connection, write_callbacks_);
+    auto filter =
+        std::make_shared<filter::RequestValidationFilter>(*callbacks, config);
     filters_.push_back(filter);
     validation_callbacks_ = callbacks;
     return *this;
   }
 
   // Build the filter chain
-  std::vector<FilterPtr> build() {
-    return filters_;
-  }
-  
+  std::vector<FilterPtr> build() { return filters_; }
+
   // Legacy API support - add filter with factory function
-  FilterChainBuilder& addFilter(std::function<network::FilterSharedPtr()> factory) {
+  FilterChainBuilder& addFilter(
+      std::function<network::FilterSharedPtr()> factory) {
     auto filter = factory();
     filters_.push_back(filter);
     return *this;
   }
-  
+
   // Legacy API support - add filter instance directly
   FilterChainBuilder& addFilterInstance(network::FilterSharedPtr filter) {
     filters_.push_back(filter);
@@ -640,9 +659,12 @@ class FilterChainBuilder {
   // Callback implementations
   class RateLimitCallbacks : public filter::RateLimitFilter::Callbacks {
    public:
-    RateLimitCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr,
+    RateLimitCallbacks(ApplicationStats& stats,
+                       network::Connection* connection = nullptr,
                        network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats), connection_(connection), write_callbacks_(write_callbacks) {}
+        : stats_(stats),
+          connection_(connection),
+          write_callbacks_(write_callbacks) {}
 
     void onRequestAllowed() override {
       // Request was allowed through - update stats
@@ -651,21 +673,19 @@ class FilterChainBuilder {
 
     void onRequestLimited(std::chrono::milliseconds retry_after) override {
       stats_.requests_failed++;
-      
+
       // Send rate limit error response to client
       if (connection_) {
         // Create error data as map<string, string> for ErrorData
         std::map<std::string, std::string> errorData;
         errorData["retry_after_ms"] = std::to_string(retry_after.count());
         errorData["error_type"] = "rate_limit";
-        
+
         // Use builders to create error response
-        auto error = make<Error>(-32429, "Rate limit exceeded")
-            .data(errorData);
-        
-        auto response = make<jsonrpc::Response>(last_request_id_)
-            .error(error);
-        
+        auto error = make<Error>(-32429, "Rate limit exceeded").data(errorData);
+
+        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
+
         // Send error response through connection
         if (write_callbacks_) {
           auto response_obj = response.build();
@@ -684,10 +704,8 @@ class FilterChainBuilder {
         stats_.errors_total++;
       }
     }
-    
-    void setLastRequestId(const RequestId& id) {
-      last_request_id_ = id;
-    }
+
+    void setLastRequestId(const RequestId& id) { last_request_id_ = id; }
 
    private:
     ApplicationStats& stats_;
@@ -696,20 +714,25 @@ class FilterChainBuilder {
     RequestId last_request_id_;
   };
 
-  class CircuitBreakerCallbacks : public filter::CircuitBreakerFilter::Callbacks {
+  class CircuitBreakerCallbacks
+      : public filter::CircuitBreakerFilter::Callbacks {
    public:
-    CircuitBreakerCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr,
-                           network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats), connection_(connection), write_callbacks_(write_callbacks) {}
+    CircuitBreakerCallbacks(
+        ApplicationStats& stats,
+        network::Connection* connection = nullptr,
+        network::WriteFilterCallbacks* write_callbacks = nullptr)
+        : stats_(stats),
+          connection_(connection),
+          write_callbacks_(write_callbacks) {}
 
     void onStateChange(filter::CircuitState old_state,
-                      filter::CircuitState new_state,
-                      const std::string& reason) override {
+                       filter::CircuitState new_state,
+                       const std::string& reason) override {
       // Handle state transitions
       if (new_state == filter::CircuitState::OPEN) {
         // Circuit is open - stop accepting new requests
         is_circuit_open_ = true;
-        
+
         // Could trigger failover to backup service or cache
         // Could notify load balancer to redirect traffic
         stats_.errors_total++;
@@ -724,22 +747,21 @@ class FilterChainBuilder {
 
     void onRequestBlocked(const std::string& method) override {
       stats_.requests_failed++;
-      
+
       // Send service unavailable error to client
       if (connection_) {
         // Create error data as map<string, string> for ErrorData
         std::map<std::string, std::string> errorData;
         errorData["method"] = method;
         errorData["error_type"] = "circuit_breaker_open";
-        errorData["retry_after_ms"] = "5000"; // Suggest retry after 5 seconds
-        
+        errorData["retry_after_ms"] = "5000";  // Suggest retry after 5 seconds
+
         // Use builders to create error response
         auto error = make<Error>(-32503, "Service temporarily unavailable")
-            .data(errorData);
-        
-        auto response = make<jsonrpc::Response>(last_request_id_)
-            .error(error);
-        
+                         .data(errorData);
+
+        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
+
         // Send error response through connection
         if (write_callbacks_) {
           auto response_obj = response.build();
@@ -753,21 +775,19 @@ class FilterChainBuilder {
 
     void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
       // Track health metrics for monitoring/alerting
-      if (success_rate < 0.5) { // Less than 50% success rate
+      if (success_rate < 0.5) {  // Less than 50% success rate
         // Could trigger alerts or start pre-emptive actions
         stats_.errors_total++;
       }
-      
+
       // Update latency tracking
       if (latency_ms > stats_.request_duration_ms_max.load()) {
         stats_.request_duration_ms_max.store(latency_ms);
       }
     }
-    
-    void setLastRequestId(const RequestId& id) {
-      last_request_id_ = id;
-    }
-    
+
+    void setLastRequestId(const RequestId& id) { last_request_id_ = id; }
+
     bool isCircuitOpen() const { return is_circuit_open_; }
 
    private:
@@ -780,18 +800,22 @@ class FilterChainBuilder {
 
   class BackpressureCallbacks : public filter::BackpressureFilter::Callbacks {
    public:
-    BackpressureCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr,
-                         network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats), connection_(connection), write_callbacks_(write_callbacks) {}
+    BackpressureCallbacks(
+        ApplicationStats& stats,
+        network::Connection* connection = nullptr,
+        network::WriteFilterCallbacks* write_callbacks = nullptr)
+        : stats_(stats),
+          connection_(connection),
+          write_callbacks_(write_callbacks) {}
 
     void onBackpressureApplied() override {
       is_backpressure_active_ = true;
-      
+
       // Pause reading from connection to prevent buffer overflow
       if (connection_) {
         connection_->readDisable(true);
       }
-      
+
       // Could also:
       // - Start buffering to disk if critical
       // - Notify upstream to slow down
@@ -800,12 +824,12 @@ class FilterChainBuilder {
 
     void onBackpressureReleased() override {
       is_backpressure_active_ = false;
-      
+
       // Resume reading from connection
       if (connection_) {
         connection_->readDisable(false);
       }
-      
+
       // Could also:
       // - Process any buffered data
       // - Notify upstream that normal rate can resume
@@ -815,7 +839,7 @@ class FilterChainBuilder {
     void onDataDropped(size_t bytes) override {
       stats_.errors_total++;
       dropped_bytes_ += bytes;
-      
+
       // Critical situation - data loss occurring
       if (connection_) {
         // Send warning to client about data loss
@@ -823,26 +847,27 @@ class FilterChainBuilder {
         params["bytes_dropped"] = static_cast<int64_t>(bytes);
         params["total_dropped"] = static_cast<int64_t>(dropped_bytes_.load());
         params["reason"] = std::string("buffer_overflow");
-        
-        auto notification = make<jsonrpc::Notification>("backpressure.data_dropped")
-            .params(params);
-        
+
+        auto notification =
+            make<jsonrpc::Notification>("backpressure.data_dropped")
+                .params(params);
+
         // Send notification through connection
         if (write_callbacks_) {
           auto notification_obj = notification.build();
-          // Note: Actual implementation would serialize and send the notification
-          // through the write callbacks. This requires access to the buffer
-          // implementation which is not exposed in the public API.
+          // Note: Actual implementation would serialize and send the
+          // notification through the write callbacks. This requires access to
+          // the buffer implementation which is not exposed in the public API.
           // The connection would handle this through its filter chain.
         }
       }
-      
+
       // Could trigger emergency measures:
       // - Force disconnect abusive clients
       // - Enable more aggressive rate limiting
       // - Alert operations team
     }
-    
+
     bool isBackpressureActive() const { return is_backpressure_active_; }
     size_t getDroppedBytes() const { return dropped_bytes_; }
 
@@ -854,11 +879,16 @@ class FilterChainBuilder {
     std::atomic<size_t> dropped_bytes_{0};
   };
 
-  class RequestValidationCallbacks : public filter::RequestValidationFilter::ValidationCallbacks {
+  class RequestValidationCallbacks
+      : public filter::RequestValidationFilter::ValidationCallbacks {
    public:
-    RequestValidationCallbacks(ApplicationStats& stats, network::Connection* connection = nullptr,
-                              network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats), connection_(connection), write_callbacks_(write_callbacks) {}
+    RequestValidationCallbacks(
+        ApplicationStats& stats,
+        network::Connection* connection = nullptr,
+        network::WriteFilterCallbacks* write_callbacks = nullptr)
+        : stats_(stats),
+          connection_(connection),
+          write_callbacks_(write_callbacks) {}
 
     void onRequestValidated(const std::string& method) override {
       // Request passed validation - update success stats
@@ -867,10 +897,10 @@ class FilterChainBuilder {
     }
 
     void onRequestRejected(const std::string& method,
-                          const std::string& reason) override {
+                           const std::string& reason) override {
       stats_.requests_failed++;
       rejected_requests_++;
-      
+
       // Send validation error response to client
       if (connection_) {
         // Create error data as map<string, string> for ErrorData
@@ -878,14 +908,13 @@ class FilterChainBuilder {
         errorData["method"] = method;
         errorData["reason"] = reason;
         errorData["error_type"] = "validation_failed";
-        
+
         // Use builders to create error response
-        auto error = make<Error>(-32602, "Request validation failed")
-            .data(errorData);
-        
-        auto response = make<jsonrpc::Response>(last_request_id_)
-            .error(error);
-        
+        auto error =
+            make<Error>(-32602, "Request validation failed").data(errorData);
+
+        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
+
         // Send error response through connection
         if (write_callbacks_) {
           auto response_obj = response.build();
@@ -894,7 +923,7 @@ class FilterChainBuilder {
           // implementation which is not exposed in the public API.
           // The connection would handle this through its filter chain.
         }
-        
+
         // For security violations, might want to:
         // - Log the attempt for security audit
         // - Increment security violation counter
@@ -902,7 +931,7 @@ class FilterChainBuilder {
         if (reason.find("security") != std::string::npos ||
             reason.find("injection") != std::string::npos) {
           security_violations_++;
-          
+
           // Block client after too many security violations
           if (security_violations_ > 5 && connection_) {
             connection_->close(network::ConnectionCloseType::NoFlush);
@@ -914,7 +943,7 @@ class FilterChainBuilder {
     void onRateLimitExceeded(const std::string& method) override {
       stats_.requests_failed++;
       rate_limit_violations_++;
-      
+
       // Send rate limit error for method-specific limits
       if (connection_) {
         // Create error data as map<string, string> for ErrorData
@@ -922,14 +951,13 @@ class FilterChainBuilder {
         errorData["method"] = method;
         errorData["error_type"] = "method_rate_limit";
         errorData["retry_after_ms"] = "1000";
-        
+
         // Use builders to create error response
-        auto error = make<Error>(-32429, "Method rate limit exceeded")
-            .data(errorData);
-        
-        auto response = make<jsonrpc::Response>(last_request_id_)
-            .error(error);
-        
+        auto error =
+            make<Error>(-32429, "Method rate limit exceeded").data(errorData);
+
+        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
+
         // Send error response through connection
         if (write_callbacks_) {
           auto response_obj = response.build();
@@ -940,11 +968,9 @@ class FilterChainBuilder {
         }
       }
     }
-    
-    void setLastRequestId(const RequestId& id) {
-      last_request_id_ = id;
-    }
-    
+
+    void setLastRequestId(const RequestId& id) { last_request_id_ = id; }
+
     size_t getValidatedRequests() const { return validated_requests_; }
     size_t getRejectedRequests() const { return rejected_requests_; }
     size_t getSecurityViolations() const { return security_violations_; }
@@ -964,7 +990,7 @@ class FilterChainBuilder {
   ApplicationStats& stats_;
   network::WriteFilterCallbacks* write_callbacks_;
   std::vector<FilterPtr> filters_;
-  
+
   // Store specific filter references
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;
   std::shared_ptr<RateLimitCallbacks> rate_limit_callbacks_;
@@ -990,7 +1016,7 @@ class ApplicationBase {
    */
   struct Config {
     // Legacy config compatibility
-    size_t num_workers = 4;  // For old API compatibility
+    size_t num_workers = 4;                        // For old API compatibility
     uint32_t buffer_high_watermark = 1024 * 1024;  // 1MB - legacy API
     uint32_t buffer_low_watermark = 256 * 1024;    // 256KB - legacy API
     std::string name = "MCPApplication";
@@ -1003,7 +1029,7 @@ class ApplicationBase {
     bool enable_backpressure = true;
     bool enable_request_validation = false;
     std::chrono::seconds shutdown_timeout{30};
-    
+
     // Filter configurations
     filter::RateLimitConfig rate_limit_config;
     filter::MetricsFilter::Config metrics_config;
@@ -1013,16 +1039,12 @@ class ApplicationBase {
   };
 
   ApplicationBase(const Config& config)
-      : config_(config),
-        shutdown_requested_(false),
-        workers_started_(false) {
-    std::cerr << "[INFO] Initializing application: " << config_.name 
+      : config_(config), shutdown_requested_(false), workers_started_(false) {
+    std::cerr << "[INFO] Initializing application: " << config_.name
               << std::endl;
   }
 
-  virtual ~ApplicationBase() {
-    shutdown();
-  }
+  virtual ~ApplicationBase() { shutdown(); }
 
   /**
    * Initialize the application
@@ -1033,22 +1055,24 @@ class ApplicationBase {
     if (!socket_interface_) {
       socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
     }
-    
+
     // Create main dispatcher early (before workers)
     if (!main_dispatcher_) {
-      main_dispatcher_owned_ = std::make_unique<event::LibeventDispatcher>("main");
+      main_dispatcher_owned_ =
+          std::make_unique<event::LibeventDispatcher>("main");
       main_dispatcher_ = main_dispatcher_owned_.get();
       std::cerr << "[INFO] Created main dispatcher" << std::endl;
     }
-    
-    std::cerr << "[INFO] Initializing application with " 
+
+    std::cerr << "[INFO] Initializing application with "
               << config_.worker_threads << " workers" << std::endl;
 
     // Create worker threads
     for (size_t i = 0; i < config_.worker_threads; ++i) {
-      auto worker = std::make_unique<WorkerThread>("worker_" + std::to_string(i));
+      auto worker =
+          std::make_unique<WorkerThread>("worker_" + std::to_string(i));
       workers_.push_back(std::move(worker));
-      
+
       // Create WorkerContext for legacy API support
       // Note: We'll initialize these properly when workers start
       worker_contexts_.push_back(nullptr);
@@ -1056,7 +1080,7 @@ class ApplicationBase {
 
     // Initialize connection pool
     connection_pool_ = createConnectionPool();
-    
+
     // Mark as initialized for legacy API compatibility
     initialized_ = true;
 
@@ -1076,21 +1100,20 @@ class ApplicationBase {
     // Start worker threads
     for (size_t i = 0; i < workers_.size(); ++i) {
       workers_[i]->start();
-      
+
       // Create WorkerContext for legacy API after worker starts
       if (workers_[i]->getDispatcher()) {
         worker_contexts_[i] = std::make_unique<WorkerContext>(
-            "worker_" + std::to_string(i),
-            *workers_[i]->getDispatcher(),
+            "worker_" + std::to_string(i), *workers_[i]->getDispatcher(),
             *socket_interface_);
-        
+
         // Initialize worker using legacy API if derived class overrides it
         initializeWorker(*worker_contexts_[i]);
       }
     }
 
     workers_started_ = true;
-    running_ = true;  // Legacy API compatibility
+    running_ = true;      // Legacy API compatibility
     initialized_ = true;  // Legacy API compatibility
 
     // Application-specific startup
@@ -1105,7 +1128,9 @@ class ApplicationBase {
 
     // Main dispatcher should already be created in initialize()
     if (!main_dispatcher_) {
-      std::cerr << "[ERROR] Main dispatcher not initialized. Call initialize() first." << std::endl;
+      std::cerr
+          << "[ERROR] Main dispatcher not initialized. Call initialize() first."
+          << std::endl;
       return;
     }
 
@@ -1129,7 +1154,7 @@ class ApplicationBase {
 
     std::cerr << "[INFO] Shutting down application" << std::endl;
     shutdown_requested_ = true;
-    running_ = false;  // Legacy API compatibility
+    running_ = false;      // Legacy API compatibility
     initialized_ = false;  // Legacy API compatibility
 
     // Application-specific shutdown
@@ -1142,7 +1167,8 @@ class ApplicationBase {
 
     // Wait for workers with timeout
     auto start = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - start < config_.shutdown_timeout) {
+    while (std::chrono::steady_clock::now() - start <
+           config_.shutdown_timeout) {
       bool all_stopped = true;
       for (const auto& worker : workers_) {
         if (!worker->isStopped()) {
@@ -1200,7 +1226,7 @@ class ApplicationBase {
     if (config_.enable_backpressure) {
       builder.withBackpressure(config_.backpressure_config);
     }
-    
+
     // Call legacy setupFilterChain for derived classes
     setupFilterChain(builder);
 
@@ -1215,45 +1241,48 @@ class ApplicationBase {
   virtual std::unique_ptr<ConnectionPool> createConnectionPool() {
     return nullptr;
   }
-  
+
   // Legacy API support - override this in derived classes that need old API
   virtual void initializeWorker(WorkerContext& worker) {
     // Default implementation - derived classes override if needed
     // Workers are initialized separately for better isolation
   }
-  
+
   // Legacy API support - setup filter chain using old builder API
   virtual void setupFilterChain(FilterChainBuilder& builder) {
     // Default implementation adds standard filters
     // Derived classes can override to customize
   }
-  
+
   // Helper to create JSON-RPC filter (legacy API support)
   struct JsonRpcFilterBundle {
     std::shared_ptr<McpJsonRpcCallbackAdapter> adapter;
     network::FilterSharedPtr filter;
   };
-  
+
   std::shared_ptr<JsonRpcFilterBundle> createJsonRpcFilter(
-      McpMessageCallbacks& callbacks, event::Dispatcher& dispatcher, 
-      bool is_server, bool use_framing = true) {
+      McpMessageCallbacks& callbacks,
+      event::Dispatcher& dispatcher,
+      bool is_server,
+      bool use_framing = true) {
     auto bundle = std::make_shared<JsonRpcFilterBundle>();
-    
+
     // Create adapter
     bundle->adapter = std::make_shared<McpJsonRpcCallbackAdapter>(callbacks);
-    
+
     // Create filter with dispatcher
     bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
         *bundle->adapter, dispatcher, is_server);
-    
+
     // Note: use_framing is handled at transport layer, not JSON-RPC layer
-    
+
     return bundle;
   }
-  
+
   // Get next worker for load balancing (legacy API)
   WorkerContext* getNextWorker() {
-    if (worker_contexts_.empty()) return nullptr;
+    if (worker_contexts_.empty())
+      return nullptr;
     static std::atomic<size_t> counter{0};
     size_t index = counter++ % worker_contexts_.size();
     return worker_contexts_[index].get();
@@ -1263,9 +1292,7 @@ class ApplicationBase {
   virtual void onRequest(const jsonrpc::Request& request) {}
   virtual void onNotification(const jsonrpc::Notification& notification) {}
   virtual void onResponse(const jsonrpc::Response& response) {}
-  virtual void onError(const Error& error) {
-    stats_.errors_total++;
-  }
+  virtual void onError(const Error& error) { stats_.errors_total++; }
 
   /**
    * Worker thread for processing
@@ -1275,9 +1302,7 @@ class ApplicationBase {
     WorkerThread(const std::string& name)
         : name_(name), running_(false), stopped_(true) {}
 
-    ~WorkerThread() {
-      stop();
-    }
+    ~WorkerThread() { stop(); }
 
     void start() {
       if (running_) {
@@ -1340,30 +1365,29 @@ class ApplicationBase {
   // Worker threads
   std::vector<std::unique_ptr<WorkerThread>> workers_;
   event::Dispatcher* main_dispatcher_ = nullptr;
-  std::unique_ptr<event::Dispatcher> main_dispatcher_owned_;  // Owned dispatcher
+  std::unique_ptr<event::Dispatcher>
+      main_dispatcher_owned_;  // Owned dispatcher
 
   // Connection pool
   std::unique_ptr<ConnectionPool> connection_pool_;
 
   // Statistics
   ApplicationStats stats_;
-  
+
   // Legacy API support members
   std::vector<std::unique_ptr<WorkerContext>> worker_contexts_;
   std::unique_ptr<network::SocketInterface> socket_interface_;
-  
+
   // Legacy compatibility flags
   std::atomic<bool> initialized_{false};
   std::atomic<bool> running_{false};
-  
+
   // Support old API methods
   void stop() { shutdown(); }
   void runEventLoop() { run(); }
-  
+
   // Track failures for legacy API
-  void trackFailure(const FailureReason& reason) {
-    stats_.errors_total++;
-  }
+  void trackFailure(const FailureReason& reason) { stats_.errors_total++; }
 };
 
 }  // namespace application

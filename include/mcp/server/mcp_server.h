@@ -492,7 +492,7 @@ class SessionManager {
     // Create session
     auto session = std::make_shared<SessionContext>(session_id, connection);
     sessions_[session_id] = session;
-    
+
     // Track by connection if available
     if (connection) {
       connection_sessions_[connection] = session;
@@ -528,11 +528,12 @@ class SessionManager {
       stats_.sessions_active--;
     }
   }
-  
+
   // Remove session by connection
   void removeSessionByConnection(network::Connection* connection) {
-    if (!connection) return;
-    
+    if (!connection)
+      return;
+
     std::lock_guard<std::mutex> lock(mutex_);
     auto conn_it = connection_sessions_.find(connection);
     if (conn_it != connection_sessions_.end()) {
@@ -542,11 +543,12 @@ class SessionManager {
       stats_.sessions_active--;
     }
   }
-  
+
   // Get session by connection
   SessionPtr getSessionByConnection(network::Connection* connection) {
-    if (!connection) return nullptr;
-    
+    if (!connection)
+      return nullptr;
+
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = connection_sessions_.find(connection);
     return (it != connection_sessions_.end()) ? it->second : nullptr;
@@ -685,14 +687,14 @@ class McpServer : public application::ApplicationBase,
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event);
   void onError(const Error& error) override;
-  
+
   // Request tracking helpers
   bool isRequestCancelled(const RequestId& id) const {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(id) 
-        ? get<std::string>(id) 
-        : std::to_string(get<int>(id));
+    std::string key = holds_alternative<std::string>(id)
+                          ? get<std::string>(id)
+                          : std::to_string(get<int>(id));
     auto it = pending_requests_.find(key);
     return (it != pending_requests_.end() && it->second->cancelled.load());
   }
@@ -750,31 +752,29 @@ class McpServer : public application::ApplicationBase,
   class ServerMessageCallbacks : public McpMessageCallbacks {
    public:
     explicit ServerMessageCallbacks(McpServer& server) : server_(server) {}
-    
+
     void onRequest(const jsonrpc::Request& request) override {
       server_.onRequest(request);
     }
-    
+
     void onNotification(const jsonrpc::Notification& notification) override {
       server_.onNotification(notification);
     }
-    
+
     void onResponse(const jsonrpc::Response& response) override {
       server_.onResponse(response);
     }
-    
+
     void onConnectionEvent(network::ConnectionEvent event) override {
       server_.onConnectionEvent(event);
     }
-    
-    void onError(const Error& error) override {
-      server_.onError(error);
-    }
-    
+
+    void onError(const Error& error) override { server_.onError(error); }
+
    private:
     McpServer& server_;
   };
-  
+
   McpServerConfig config_;
   McpServerStats server_stats_;
   std::unique_ptr<ServerMessageCallbacks> message_callbacks_;
@@ -783,7 +783,7 @@ class McpServer : public application::ApplicationBase,
   // IMPROVEMENT: Using TcpActiveListener for robust listener management
   // Following production architecture for better connection lifecycle handling
   std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
-  
+
   // Store active connections to manage their lifetime
   // Following production pattern: server owns connections until they close
 
@@ -794,28 +794,29 @@ class McpServer : public application::ApplicationBase,
 
   // Session management
   std::unique_ptr<SessionManager> session_manager_;
-  
+
   // Connection management
   // Following production pattern: listener owns connections, not threads
   // Connections tracked by count only, ownership managed by listener
-  
+
   // Track connection count for statistics
   std::atomic<uint64_t> num_connections_{0};
-  
+
   // Current connection being processed (for request context)
   // This is set temporarily during request processing in dispatcher thread
   network::Connection* current_connection_{nullptr};
-  
+
   // Active connections owned by server
-  // Following production pattern: all operations in dispatcher thread, no mutex needed
-  // Connections removed when they close via callbacks
+  // Following production pattern: all operations in dispatcher thread, no mutex
+  // needed Connections removed when they close via callbacks
   std::list<network::ConnectionPtr> active_connections_;
-  
+
   // Connection to session mapping
   // Following production pattern: managed by session manager, not thread-local
-  std::map<network::Connection*, SessionManager::SessionPtr> connection_sessions_;
+  std::map<network::Connection*, SessionManager::SessionPtr>
+      connection_sessions_;
   std::mutex connection_sessions_mutex_;
-  
+
   // Request tracking for cancellation support
   struct PendingRequest {
     RequestId id;
@@ -824,7 +825,8 @@ class McpServer : public application::ApplicationBase,
     std::atomic<bool> cancelled{false};
   };
   // Use string key for map to avoid variant comparison issues
-  std::unordered_map<std::string, std::shared_ptr<PendingRequest>> pending_requests_;
+  std::unordered_map<std::string, std::shared_ptr<PendingRequest>>
+      pending_requests_;
   mutable std::mutex pending_requests_mutex_;
 
   // Resource, tool, and prompt management

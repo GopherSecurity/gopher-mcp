@@ -1,6 +1,6 @@
 /**
  * HTTP Stream Context
- * 
+ *
  * Following production design patterns:
  * - Each HTTP stream (request/response pair) has its own context
  * - Supports HTTP/2 concurrent streams on single connection
@@ -9,10 +9,11 @@
 
 #pragma once
 
-#include <string>
+#include <functional>
 #include <map>
 #include <memory>
-#include <functional>
+#include <string>
+
 #include "mcp/buffer.h"
 
 namespace mcp {
@@ -23,24 +24,24 @@ namespace filter {
  * Each HTTP/2 stream or HTTP/1.1 request gets its own context
  */
 class HttpStreamContext {
-public:
+ public:
   // Stream identifier (for HTTP/2)
   uint32_t stream_id = 0;
-  
+
   // Request data accumulated during processing
   std::string method;
   std::string path;
   std::map<std::string, std::string> headers;
   std::string body;
   bool keep_alive = true;
-  
+
   // Routing decision
-  bool should_handle = false;  // Whether routing filter will handle this
+  bool should_handle = false;      // Whether routing filter will handle this
   bool headers_forwarded = false;  // Whether headers were passed to next filter
-  
+
   // Response callback if handled by routing filter
   std::function<void()> send_response;
-  
+
   void reset() {
     stream_id = 0;
     method.clear();
@@ -61,7 +62,7 @@ using HttpStreamContextPtr = std::shared_ptr<HttpStreamContext>;
  * Manages contexts for concurrent HTTP streams
  */
 class HttpStreamContextManager {
-public:
+ public:
   // Get or create context for a stream
   HttpStreamContextPtr getOrCreateContext(uint32_t stream_id) {
     auto it = contexts_.find(stream_id);
@@ -73,21 +74,19 @@ public:
     contexts_[stream_id] = context;
     return context;
   }
-  
+
   // Remove context when stream completes
-  void removeContext(uint32_t stream_id) {
-    contexts_.erase(stream_id);
-  }
-  
+  void removeContext(uint32_t stream_id) { contexts_.erase(stream_id); }
+
   // Get context if exists
   HttpStreamContextPtr getContext(uint32_t stream_id) {
     auto it = contexts_.find(stream_id);
     return (it != contexts_.end()) ? it->second : nullptr;
   }
-  
-private:
+
+ private:
   std::map<uint32_t, HttpStreamContextPtr> contexts_;
 };
 
-} // namespace filter
-} // namespace mcp
+}  // namespace filter
+}  // namespace mcp
