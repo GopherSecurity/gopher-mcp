@@ -302,9 +302,10 @@ public:
     // Following production pattern: create a new stream for each request
     // This supports HTTP pipelining with multiple concurrent requests
     auto stream = std::make_unique<RequestStream>(request.id, this);
-    active_streams_[request.id] = std::move(stream);
+    std::string id_key = requestIdToString(request.id);
+    active_streams_[id_key] = std::move(stream);
     
-    std::cerr << "[DEBUG] Created stream for request " << requestIdToString(request.id) 
+    std::cerr << "[DEBUG] Created stream for request " << id_key
               << ", active streams: " << active_streams_.size() << std::endl;
     
     mcp_callbacks_.onRequest(request);
@@ -339,10 +340,11 @@ public:
   // Method to send response through this filter instance
   // Send response for a specific stream
   void sendResponseForStream(const jsonrpc::Response& response, RequestId stream_id) {
-    std::cerr << "[DEBUG] Sending response for stream " << requestIdToString(stream_id) << std::endl;
+    std::string id_key = requestIdToString(stream_id);
+    std::cerr << "[DEBUG] Sending response for stream " << id_key << std::endl;
     
     // Remove the stream after sending response
-    auto it = active_streams_.find(stream_id);
+    auto it = active_streams_.find(id_key);
     if (it != active_streams_.end()) {
       sendResponseThroughFilter(response);
       active_streams_.erase(it);
@@ -461,7 +463,8 @@ private:
   
   // Stream management - following production pattern
   // Multiple concurrent requests per connection (HTTP pipelining support)
-  std::map<RequestId, std::unique_ptr<RequestStream>> active_streams_;
+  // Using string key since RequestId is a variant without comparison operators
+  std::map<std::string, std::unique_ptr<RequestStream>> active_streams_;
   
   // Connection reference for response routing
   network::Connection* connection_{nullptr};
@@ -490,12 +493,13 @@ void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& respon
     std::cerr << "[DEBUG] Found filter for connection, checking for stream" << std::endl;
     
     // Find the stream that matches this response
-    auto stream_it = filter->active_streams_.find(response.id);
+    std::string resp_id_key = requestIdToString(response.id);
+    auto stream_it = filter->active_streams_.find(resp_id_key);
     if (stream_it != filter->active_streams_.end()) {
-      std::cerr << "[DEBUG] Found stream for response ID " << requestIdToString(response.id) << std::endl;
+      std::cerr << "[DEBUG] Found stream for response ID " << resp_id_key << std::endl;
       stream_it->second->sendResponse(response);
     } else {
-      std::cerr << "[ERROR] No stream found for response ID " << requestIdToString(response.id) << std::endl;
+      std::cerr << "[ERROR] No stream found for response ID " << resp_id_key << std::endl;
       // Fallback: send response anyway
       filter->sendResponseThroughFilter(response);
     }
