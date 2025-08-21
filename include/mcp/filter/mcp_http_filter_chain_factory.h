@@ -90,6 +90,13 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * When true, adds MetricsFilter to the chain
    */
   void enableMetrics(bool enable = true) { enable_metrics_ = enable; }
+  
+  /**
+   * Send a response through the current request's filter chain
+   * Following production pattern: maintain request-response context
+   * This is used by the server to send responses for HTTP requests
+   */
+  static void sendHttpResponse(const jsonrpc::Response& response);
 
  private:
   event::Dispatcher& dispatcher_;
