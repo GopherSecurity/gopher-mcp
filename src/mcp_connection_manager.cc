@@ -487,10 +487,14 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
+  
+  std::cerr << "[DEBUG] McpConnectionManager::onConnectionEvent called with event: " 
+            << static_cast<int>(event) << std::endl;
 
   if (event == network::ConnectionEvent::Connected) {
     // Connection established successfully
     connected_ = true;
+    std::cerr << "[DEBUG] Connection established in manager, setting connected_ = true" << std::endl;
 
     // TRANSPORT NOTIFICATION: Notify HTTP/SSE transport about TCP connection
     // Flow: TCP connected → ConnectionEvent::Connected →
@@ -515,7 +519,10 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
 
   // Forward event to upper layer callbacks
   if (message_callbacks_) {
+    std::cerr << "[DEBUG] Forwarding connection event to message callbacks" << std::endl;
     message_callbacks_->onConnectionEvent(event);
+  } else {
+    std::cerr << "[DEBUG] No message callbacks registered!" << std::endl;
   }
 }
 
