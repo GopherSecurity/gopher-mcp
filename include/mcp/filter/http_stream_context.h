@@ -31,9 +31,18 @@ class HttpStreamContext {
   // Request data accumulated during processing
   std::string method;
   std::string path;
+  std::string url;  // Full URL for request
   std::map<std::string, std::string> headers;
   std::string body;
   bool keep_alive = true;
+  
+  // Response data
+  std::string status;  // Response status for client mode
+  std::string accept_header;  // Accept header for content negotiation
+  
+  // HTTP version from request (for transparent response formatting)
+  uint8_t http_major = 1;
+  uint8_t http_minor = 1;
 
   // Routing decision
   bool should_handle = false;      // Whether routing filter will handle this
@@ -46,9 +55,14 @@ class HttpStreamContext {
     stream_id = 0;
     method.clear();
     path.clear();
+    url.clear();
     headers.clear();
     body.clear();
     keep_alive = true;
+    status.clear();
+    accept_header.clear();
+    http_major = 1;
+    http_minor = 1;
     should_handle = false;
     headers_forwarded = false;
     send_response = nullptr;
