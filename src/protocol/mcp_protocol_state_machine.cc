@@ -204,21 +204,12 @@ void McpProtocolStateMachine::transitionTo(McpProtocolState new_state,
 void McpProtocolStateMachine::startStateTimer(std::chrono::milliseconds timeout) {
   cancelStateTimer();
   
-  // Create timer in dispatcher thread if needed
-  if (dispatcher_.isThreadSafe()) {
-    state_timer_ = dispatcher_.createTimer([this]() {
-      handleStateTimeout();
-    });
-    state_timer_->enableTimer(timeout);
-  } else {
-    // Post to dispatcher thread to create timer
-    dispatcher_.post([this, timeout]() {
-      state_timer_ = dispatcher_.createTimer([this]() {
-        handleStateTimeout();
-      });
-      state_timer_->enableTimer(timeout);
-    });
-  }
+  // Create timer directly - following pattern from other state machines
+  // This should be called from dispatcher thread context (from handleEvent)
+  state_timer_ = dispatcher_.createTimer([this]() {
+    handleStateTimeout();
+  });
+  state_timer_->enableTimer(timeout);
 }
 
 void McpProtocolStateMachine::cancelStateTimer() {
