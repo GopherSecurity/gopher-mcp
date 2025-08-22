@@ -259,7 +259,9 @@ set(MCP_SDK_SOURCES
     src/filter/mcp_http_filter_chain_factory.cc
     src/filter/mcp_stdio_filter_chain_factory.cc
     src/filter/mcp_jsonrpc_filter.cc
+    src/filter/mcp_protocol_detection_filter_chain_factory.cc
     src/filter/http_routing_filter.cc
+    src/filter/protocol_detection_filter.cc
     src/mcp_connection_manager.cc
     src/client/mcp_client.cc
     src/server/mcp_server.cc
