@@ -263,6 +263,7 @@ set(MCP_SDK_SOURCES
     src/mcp_connection_manager.cc
     src/client/mcp_client.cc
     src/server/mcp_server.cc
+    src/protocol/mcp_protocol_state_machine.cc
 )
 
 # HTTP parser sources (conditional on llhttp)
