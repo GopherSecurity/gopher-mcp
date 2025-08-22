@@ -6,6 +6,7 @@
 #include "mcp/core/result.h"
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/filter/mcp_stdio_filter_chain_factory.h"
+#include "mcp/filter/mcp_protocol_detection_filter_chain_factory.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
@@ -600,6 +601,18 @@ std::shared_ptr<network::FilterChainFactory>
 McpConnectionManager::createFilterChainFactory() {
   // Create filter chain based on transport requirements
   // Architecture principle: Each filter handles exactly one protocol layer
+  
+  // Check if protocol detection is enabled
+  if (config_.use_protocol_detection) {
+    // Use protocol detection to automatically determine HTTP vs native MCP
+    // This allows the client to connect to any server without knowing
+    // the protocol in advance
+    return std::make_shared<filter::McpProtocolDetectionFilterChainFactory>(
+        dispatcher_, *this, is_server_,
+        true,  // enable_http
+        true   // enable_native_mcp
+    );
+  }
   
   if (config_.transport_type == TransportType::HttpSse) {
     // Complex protocol stack for HTTP+SSE:
