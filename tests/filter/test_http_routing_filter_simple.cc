@@ -5,12 +5,14 @@
  */
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #include <memory>
 #include <string>
 #include <atomic>
 #include <chrono>
 
 #include "mcp/filter/http_routing_filter.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/buffer.h"
 #include "../integration/real_io_test_base.h"
 
@@ -19,6 +21,26 @@ namespace filter {
 namespace {
 
 using namespace std::chrono_literals;
+using ::testing::_;
+using ::testing::Return;
+
+// Mock callbacks for testing
+class MockMessageCallbacks : public HttpCodecFilter::MessageCallbacks {
+public:
+  MOCK_METHOD(void, onHeaders, ((const std::map<std::string, std::string>&), bool), (override));
+  MOCK_METHOD(void, onBody, (const std::string&, bool), (override));
+  MOCK_METHOD(void, onMessageComplete, (), (override));
+  MOCK_METHOD(void, onError, (const std::string&), (override));
+};
+
+// Mock encoder for testing
+class MockMessageEncoder : public HttpCodecFilter::MessageEncoder {
+public:
+  MOCK_METHOD(void, encodeHeaders, 
+              (const std::string&, (const std::map<std::string, std::string>&), bool, const std::string&),
+              (override));
+  MOCK_METHOD(void, encodeData, (Buffer&, bool), (override));
+};
 
 // Test fixture using real I/O test base
 class HttpRoutingFilterSimpleTest : public test::RealIoTestBase {
@@ -26,9 +48,11 @@ protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
     
-    // Create filter in dispatcher thread
+    // Create mocks and filter in dispatcher thread
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<HttpRoutingFilter>(*dispatcher_, true);
+      next_callbacks_ = std::make_unique<MockMessageCallbacks>();
+      encoder_ = std::make_unique<MockMessageEncoder>();
+      filter_ = std::make_unique<HttpRoutingFilter>(next_callbacks_.get(), encoder_.get(), true);
     });
   }
   
@@ -36,6 +60,8 @@ protected:
     // Clean up filter in dispatcher thread
     executeInDispatcher([this]() {
       filter_.reset();
+      encoder_.reset();
+      next_callbacks_.reset();
     });
     
     RealIoTestBase::TearDown();
@@ -59,6 +85,8 @@ protected:
   }
   
   std::unique_ptr<HttpRoutingFilter> filter_;
+  std::unique_ptr<MockMessageCallbacks> next_callbacks_;
+  std::unique_ptr<MockMessageEncoder> encoder_;
 };
 
 // Test handler registration
@@ -252,10 +280,11 @@ TEST_F(HttpRoutingFilterSimpleTest, FilterInitialization) {
   // Filter should be properly initialized
   EXPECT_NE(filter_, nullptr);
   
-  // Create new connection in dispatcher thread - should succeed
+  // HttpRoutingFilter doesn't have onNewConnection - it's a MessageCallbacks not a Filter
+  // Just verify it was created successfully
   executeInDispatcher([this]() {
-    auto status = filter_->onNewConnection();
-    EXPECT_EQ(status, network::FilterStatus::Continue);
+    // Filter is ready to handle HTTP messages
+    EXPECT_NE(filter_, nullptr);
   });
 }
 
