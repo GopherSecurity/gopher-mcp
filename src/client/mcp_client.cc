@@ -976,6 +976,10 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
   config.buffer_limit = config_.buffer_high_watermark;
   config.connection_timeout = std::chrono::milliseconds(config_.request_timeout.count());
   
+  // Enable protocol detection if configured
+  // This allows the client to automatically detect HTTP vs native MCP
+  config.use_protocol_detection = false;  // Disable for now due to stability issues
+  
   // Set transport-specific configuration
   if (transport == TransportType::Stdio) {
     config.stdio_config = transport::StdioTransportSocketConfig();
