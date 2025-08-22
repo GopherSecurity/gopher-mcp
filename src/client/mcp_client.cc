@@ -48,6 +48,27 @@ McpClient::McpClient(const McpClientConfig& config)
       *main_dispatcher_,  // Use main dispatcher for connection management
       config_.connection_pool_size,
       100);  // streams_per_connection - reasonable for HTTP/2
+  
+  // Initialize protocol state machine for managing MCP protocol lifecycle
+  protocol::McpProtocolStateMachineConfig protocol_config;
+  protocol_config.initialization_timeout = config_.protocol_initialization_timeout;
+  protocol_config.connection_timeout = config_.protocol_connection_timeout;
+  protocol_config.drain_timeout = config_.protocol_drain_timeout;
+  protocol_config.auto_reconnect = config_.protocol_auto_reconnect;
+  protocol_config.max_reconnect_attempts = config_.protocol_max_reconnect_attempts;
+  protocol_config.reconnect_delay = config_.protocol_reconnect_delay;
+  
+  // Set callbacks for protocol state changes
+  protocol_config.state_change_callback = 
+      [this](const protocol::ProtocolStateTransitionContext& ctx) {
+        handleProtocolStateChange(ctx);
+      };
+  
+  protocol_config.error_callback = [this](const Error& error) {
+    handleError(error);
+  };
+  
+  // Protocol state machine will be created in dispatcher thread during initialization
 }
 
 // Destructor
@@ -120,6 +141,32 @@ VoidResult McpClient::connect(const std::string& uri) {
   
   main_dispatcher_->post([this, uri, connect_promise]() {
     try {
+      // Initialize protocol state machine if not already created
+      if (!protocol_state_machine_) {
+        protocol::McpProtocolStateMachineConfig protocol_config;
+        protocol_config.initialization_timeout = config_.protocol_initialization_timeout;
+        protocol_config.connection_timeout = config_.protocol_connection_timeout;
+        protocol_config.drain_timeout = config_.protocol_drain_timeout;
+        protocol_config.auto_reconnect = config_.protocol_auto_reconnect;
+        protocol_config.max_reconnect_attempts = config_.protocol_max_reconnect_attempts;
+        protocol_config.reconnect_delay = config_.protocol_reconnect_delay;
+        
+        protocol_config.state_change_callback = 
+            [this](const protocol::ProtocolStateTransitionContext& ctx) {
+              handleProtocolStateChange(ctx);
+            };
+        
+        protocol_config.error_callback = [this](const Error& error) {
+          handleError(error);
+        };
+        
+        protocol_state_machine_ = std::make_unique<protocol::McpProtocolStateMachine>(
+            *main_dispatcher_, protocol_config);
+      }
+      
+      // Trigger protocol connection state
+      protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::CONNECT_REQUESTED);
+      
       // Transport negotiation flow:
       // 1. Parse URI to determine transport type
       // 2. Create connection configuration with transport settings
@@ -211,6 +258,11 @@ void McpClient::disconnect() {
   // Perform disconnect in dispatcher context
   if (main_dispatcher_) {
     main_dispatcher_->post([this]() {
+      // Notify protocol state machine of shutdown request
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
+      }
+      
       if (connection_manager_) {
         connection_manager_->close();
       }
@@ -237,6 +289,11 @@ void McpClient::disconnect() {
 
 // Initialize protocol
 std::future<InitializeResult> McpClient::initializeProtocol() {
+  // Notify protocol state machine that initialization is starting
+  if (protocol_state_machine_) {
+    protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
+  }
+  
   // Build initialize request with client capabilities
   // For now, use simple parameters - full serialization needs JSON conversion
   auto init_params = make_metadata();
@@ -319,6 +376,11 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         // Store server capabilities
         server_capabilities_ = init_result.capabilities;
         initialized_ = true;
+        
+        // Notify protocol state machine that initialization is complete
+        if (protocol_state_machine_) {
+          protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::INITIALIZED);
+        }
         
         result_promise->set_value(init_result);
       }
@@ -796,12 +858,22 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
     case network::ConnectionEvent::Connected:
       connected_ = true;
       client_stats_.connections_active++;
+      
+      // Notify protocol state machine of network connection
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_CONNECTED);
+      }
       break;
       
     case network::ConnectionEvent::RemoteClose:
     case network::ConnectionEvent::LocalClose:
       connected_ = false;
       client_stats_.connections_active--;
+      
+      // Notify protocol state machine of network disconnection
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_DISCONNECTED);
+      }
       
       // Fail all pending requests
       auto pending = request_tracker_->getTimedOutRequests();
@@ -1293,6 +1365,72 @@ std::future<CreateMessageResult> McpClient::createMessage(
   }).detach();
   
   return result_future;
+}
+
+// Protocol state coordination - handle protocol state changes
+void McpClient::handleProtocolStateChange(const protocol::ProtocolStateTransitionContext& context) {
+  // Log state transition for debugging
+  std::cerr << "[CLIENT] Protocol state changed: " 
+            << protocol::McpProtocolStateMachine::stateToString(context.from_state)
+            << " -> "
+            << protocol::McpProtocolStateMachine::stateToString(context.to_state)
+            << " (event: " << protocol::McpProtocolStateMachine::eventToString(context.trigger_event) << ")"
+            << std::endl;
+  
+  // Take action based on new state
+  switch (context.to_state) {
+    case protocol::McpProtocolState::READY:
+      // Protocol is ready - can now send normal requests
+      // Process any queued requests
+      processQueuedRequests();
+      break;
+      
+    case protocol::McpProtocolState::ERROR:
+      // Protocol error - may need to reconnect
+      if (context.error.has_value()) {
+        std::cerr << "[CLIENT] Protocol error: " << context.error->message << std::endl;
+        // Circuit breaker should handle this
+        circuit_breaker_->recordFailure();
+      }
+      break;
+      
+    case protocol::McpProtocolState::DISCONNECTED:
+      // Protocol disconnected - clear state
+      initialized_ = false;
+      break;
+      
+    case protocol::McpProtocolState::DRAINING:
+      // Graceful shutdown in progress
+      // Stop accepting new requests
+      break;
+      
+    default:
+      // Other states don't require specific action
+      break;
+  }
+}
+
+// Coordinate protocol state with network connection state
+void McpClient::coordinateProtocolState() {
+  if (!protocol_state_machine_) {
+    return;
+  }
+  
+  // Check current states
+  auto protocol_state = protocol_state_machine_->currentState();
+  
+  // Coordinate based on current situation
+  if (connected_ && protocol_state == protocol::McpProtocolState::CONNECTED) {
+    // Network is connected but protocol not initialized
+    // Trigger initialization if not already in progress
+    if (!initialized_ && protocol_state != protocol::McpProtocolState::INITIALIZING) {
+      // Auto-initialize protocol after connection
+      initializeProtocol();
+    }
+  } else if (!connected_ && protocol_state != protocol::McpProtocolState::DISCONNECTED) {
+    // Network disconnected but protocol thinks it's connected
+    protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_DISCONNECTED);
+  }
 }
 
 
