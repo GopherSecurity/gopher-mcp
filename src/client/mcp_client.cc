@@ -9,7 +9,7 @@
 #include <iostream>
 #include <sstream>
 
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 
 namespace mcp {
@@ -749,7 +749,7 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
   });
 }
 
-// McpMessageCallbacks overrides
+// McpProtocolCallbacks overrides
 void McpClient::handleRequest(const jsonrpc::Request& request) {
   // Client typically doesn't receive requests, but handle if needed
   // Could be server-initiated requests like elicitation

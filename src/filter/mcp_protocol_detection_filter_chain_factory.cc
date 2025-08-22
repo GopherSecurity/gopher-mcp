@@ -5,15 +5,15 @@
 #include "mcp/filter/mcp_protocol_detection_filter_chain_factory.h"
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/filter/mcp_stdio_filter_chain_factory.h"
-#include "mcp/mcp_connection_manager.h"  // For McpMessageCallbacks
+#include "mcp/mcp_connection_manager.h"  // For McpProtocolCallbacks
 
 namespace mcp {
 namespace filter {
 
-// Adapter for McpMessageCallbacks to McpJsonRpcFilter::Callbacks
-class ProtocolDetectionJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
+// Adapter for McpProtocolCallbacks to JsonRpcProtocolFilter::Callbacks
+class ProtocolDetectionJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
 public:
-  ProtocolDetectionJsonRpcCallbacks(McpMessageCallbacks& mcp_callbacks)
+  ProtocolDetectionJsonRpcCallbacks(McpProtocolCallbacks& mcp_callbacks)
       : mcp_callbacks_(mcp_callbacks) {}
   
   void onRequest(const jsonrpc::Request& request) override {
@@ -33,12 +33,12 @@ public:
   }
   
 private:
-  McpMessageCallbacks& mcp_callbacks_;
+  McpProtocolCallbacks& mcp_callbacks_;
 };
 
 McpProtocolDetectionFilterChainFactory::McpProtocolDetectionFilterChainFactory(
     event::Dispatcher& dispatcher,
-    McpMessageCallbacks& callbacks,
+    McpProtocolCallbacks& callbacks,
     bool is_server,
     bool enable_http,
     bool enable_native_mcp)
@@ -79,7 +79,7 @@ bool McpProtocolDetectionFilterChainFactory::createFilterChain(
   // In production, this would be added dynamically after detection
   // Create callbacks adapter that outlives the filter
   auto adapter = std::make_shared<ProtocolDetectionJsonRpcCallbacks>(callbacks_);
-  auto jsonrpc_filter = std::make_shared<McpJsonRpcFilter>(
+  auto jsonrpc_filter = std::make_shared<JsonRpcProtocolFilter>(
       *adapter, dispatcher_, is_server_);
   
   // Keep the adapter alive with the filter

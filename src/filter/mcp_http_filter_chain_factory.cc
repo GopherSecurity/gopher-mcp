@@ -10,7 +10,7 @@
 
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/metrics_filter.h"
@@ -78,13 +78,13 @@ private:
 class McpHttpSseJsonRpcFilter : public network::Filter,
                                  public HttpCodecFilter::MessageCallbacks,
                                  public SseCodecFilter::EventCallbacks,
-                                 public McpJsonRpcFilter::Callbacks {
+                                 public JsonRpcProtocolFilter::Callbacks {
 public:
   // Make active_streams_ accessible for response routing
   friend void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response&, network::Connection&);
   
   McpHttpSseJsonRpcFilter(event::Dispatcher& dispatcher,
-                          McpMessageCallbacks& mcp_callbacks,
+                          McpProtocolCallbacks& mcp_callbacks,
                           bool is_server)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
@@ -109,7 +109,7 @@ public:
     
     // SSE and JSON-RPC filters for protocol-specific handling
     sse_filter_ = std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
-    jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
+    jsonrpc_filter_ = std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
   }
   
   ~McpHttpSseJsonRpcFilter() = default;
@@ -313,7 +313,7 @@ public:
     (void)comment;
   }
   
-  // ===== McpJsonRpcFilter::Callbacks =====
+  // ===== JsonRpcProtocolFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
     // Following production pattern: create a new stream for each request
@@ -351,7 +351,7 @@ public:
     return sse_filter_->eventEncoder();
   }
   
-  McpJsonRpcFilter::Encoder& jsonrpcEncoder() {
+  JsonRpcProtocolFilter::Encoder& jsonrpcEncoder() {
     return jsonrpc_filter_->encoder();
   }
   
@@ -486,7 +486,7 @@ private:
   }
   
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& mcp_callbacks_;
+  McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
   bool is_sse_mode_{false};
   
@@ -494,7 +494,7 @@ private:
   std::shared_ptr<HttpCodecFilter> http_filter_;
   std::shared_ptr<HttpRoutingFilter> routing_filter_;  // Routing filter (shared for lifetime management)
   std::shared_ptr<SseCodecFilter> sse_filter_;
-  std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
+  std::shared_ptr<JsonRpcProtocolFilter> jsonrpc_filter_;
   
   // Filter callbacks
   network::ReadFilterCallbacks* read_callbacks_{nullptr};

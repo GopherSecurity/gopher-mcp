@@ -11,13 +11,13 @@
 
 #include "mcp/network/filter.h"
 #include "mcp/filter/protocol_detection_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/event/event_loop.h"
 
 namespace mcp {
 
 // Forward declaration
-class McpMessageCallbacks;
+class McpProtocolCallbacks;
 namespace filter {
 
 /**
@@ -39,7 +39,7 @@ public:
    * @param enable_native_mcp Enable native MCP detection
    */
   McpProtocolDetectionFilterChainFactory(event::Dispatcher& dispatcher,
-                                         McpMessageCallbacks& callbacks,
+                                         McpProtocolCallbacks& callbacks,
                                          bool is_server,
                                          bool enable_http = true,
                                          bool enable_native_mcp = true);
@@ -58,7 +58,7 @@ public:
   
 private:
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& callbacks_;
+  McpProtocolCallbacks& callbacks_;
   bool is_server_;
   bool enable_http_;
   bool enable_native_mcp_;

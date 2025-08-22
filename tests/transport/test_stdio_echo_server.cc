@@ -58,7 +58,7 @@ using ::testing::AtLeast;
  * - Server reads from server_stdin_pipe and writes to server_stdout_pipe
  * - Test writes to server_stdin_pipe[1] and reads from server_stdout_pipe[0]
  * - Uses libevent dispatcher for async I/O processing
- * - MockEchoServer implements McpMessageCallbacks to handle JSON-RPC messages
+ * - MockEchoServer implements McpProtocolCallbacks to handle JSON-RPC messages
  */
 class StdioEchoServerTest : public ::testing::Test {
 protected:
@@ -103,7 +103,7 @@ protected:
    * - Handles shutdown notification for graceful termination
    * - Thread-safe: connection initiated from dispatcher thread
    */
-  class MockEchoServer : public McpMessageCallbacks {
+  class MockEchoServer : public McpProtocolCallbacks {
   public:
     MockEchoServer(event::Dispatcher& dispatcher,
                    int stdin_fd, int stdout_fd)
@@ -152,7 +152,7 @@ protected:
       connection_manager_->close();
     }
     
-    // McpMessageCallbacks implementation
+    // McpProtocolCallbacks implementation
     void onRequest(const jsonrpc::Request& request) override {
       request_count_++;
       last_request_ = request;

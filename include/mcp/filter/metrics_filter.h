@@ -98,7 +98,7 @@ struct ConnectionMetrics {
  * - Method-specific statistics
  */
 class MetricsFilter : public network::NetworkFilterBase,
-                      public McpJsonRpcFilter::Callbacks {
+                      public JsonRpcProtocolFilter::Callbacks {
  public:
   /**
    * Callbacks for metrics events
@@ -221,7 +221,7 @@ class MetricsFilter : public network::NetworkFilterBase,
     return network::FilterStatus::Continue;
   }
 
-  // McpJsonRpcFilter::Callbacks implementation
+  // JsonRpcProtocolFilter::Callbacks implementation
   void onRequest(const jsonrpc::Request& request) override {
     metrics_.requests_received++;
 
@@ -296,7 +296,7 @@ class MetricsFilter : public network::NetworkFilterBase,
   /**
    * Set the next callbacks in the chain
    */
-  void setNextCallbacks(McpJsonRpcFilter::Callbacks* callbacks) {
+  void setNextCallbacks(JsonRpcProtocolFilter::Callbacks* callbacks) {
     next_callbacks_ = callbacks;
   }
 
@@ -395,7 +395,7 @@ class MetricsFilter : public network::NetworkFilterBase,
 
   MetricsCallbacks& callbacks_;
   Config config_;
-  McpJsonRpcFilter::Callbacks* next_callbacks_ = nullptr;
+  JsonRpcProtocolFilter::Callbacks* next_callbacks_ = nullptr;
 
   // Metrics data
   ConnectionMetrics metrics_;

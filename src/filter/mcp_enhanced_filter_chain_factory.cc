@@ -11,7 +11,7 @@
 
 #include "mcp/filter/mcp_enhanced_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/mcp_connection_manager.h"
 #include <iostream>
@@ -26,7 +26,7 @@ namespace filter {
 class McpEnhancedFilter : public network::Filter,
                           public HttpCodecFilter::MessageCallbacks,
                           public SseCodecFilter::EventCallbacks,
-                          public McpJsonRpcFilter::Callbacks,
+                          public JsonRpcProtocolFilter::MessageHandler,
                           public CircuitBreakerFilter::Callbacks,
                           public RateLimitFilter::Callbacks,
                           public MetricsFilter::Callbacks,
@@ -34,7 +34,7 @@ class McpEnhancedFilter : public network::Filter,
                           public BackpressureFilter::Callbacks {
 public:
   McpEnhancedFilter(event::Dispatcher& dispatcher,
-                   McpMessageCallbacks& mcp_callbacks,
+                   McpProtocolCallbacks& mcp_callbacks,
                    bool is_server,
                    const McpEnhancedFilterChainFactory::Config& config)
       : dispatcher_(dispatcher),
@@ -71,7 +71,7 @@ public:
     // Create protocol filters
     http_filter_ = std::make_shared<HttpCodecFilter>(*this, dispatcher_, is_server_);
     sse_filter_ = std::make_shared<SseCodecFilter>(*this, dispatcher_, is_server_);
-    jsonrpc_filter_ = std::make_shared<McpJsonRpcFilter>(*this, dispatcher_, is_server_);
+    jsonrpc_filter_ = std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
     
     // Wire up the filter chain callbacks
     if (circuit_breaker_) {
@@ -267,7 +267,7 @@ public:
     std::cerr << "[SSE Error] " << error << std::endl;
   }
   
-  // ===== McpJsonRpcFilter::Callbacks =====
+  // ===== JsonRpcProtocolFilter::Callbacks =====
   
   void onRequest(const jsonrpc::Request& request) override {
     // Track metrics
@@ -375,7 +375,7 @@ public:
   
 private:
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& mcp_callbacks_;
+  McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
   McpEnhancedFilterChainFactory::Config config_;
   
@@ -389,7 +389,7 @@ private:
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
   std::shared_ptr<SseCodecFilter> sse_filter_;
-  std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
+  std::shared_ptr<JsonRpcProtocolFilter> jsonrpc_filter_;
   
   // State
   bool is_sse_mode_ = false;

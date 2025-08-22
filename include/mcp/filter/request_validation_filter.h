@@ -83,7 +83,7 @@ struct RequestValidationConfig {
  * - Protocol version compliance
  */
 class RequestValidationFilter : public network::NetworkFilterBase,
-                                public McpJsonRpcFilter::Callbacks {
+                                public JsonRpcProtocolFilter::Callbacks {
  public:
   /**
    * Callbacks for validation events
@@ -134,7 +134,7 @@ class RequestValidationFilter : public network::NetworkFilterBase,
     }
   }
 
-  // McpJsonRpcFilter::Callbacks implementation
+  // JsonRpcProtocolFilter::Callbacks implementation
   void onRequest(const jsonrpc::Request& request) override {
     // Validate the request
     if (!validateRequest(request)) {
@@ -196,7 +196,7 @@ class RequestValidationFilter : public network::NetworkFilterBase,
    * Set the next callbacks in the chain
    * @param callbacks The next callbacks to forward to after validation
    */
-  void setNextCallbacks(McpJsonRpcFilter::Callbacks* callbacks) {
+  void setNextCallbacks(JsonRpcProtocolFilter::Callbacks* callbacks) {
     next_callbacks_ = callbacks;
   }
 
@@ -302,7 +302,7 @@ class RequestValidationFilter : public network::NetworkFilterBase,
 
   ValidationCallbacks& callbacks_;
   RequestValidationConfig config_;
-  McpJsonRpcFilter::Callbacks* next_callbacks_ = nullptr;
+  JsonRpcProtocolFilter::Callbacks* next_callbacks_ = nullptr;
 
   // Rate limiting state
   std::map<std::string, size_t> method_request_counts_;

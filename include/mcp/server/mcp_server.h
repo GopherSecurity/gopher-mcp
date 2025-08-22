@@ -598,7 +598,7 @@ class SessionManager {
  *
  * Architecture (production-grade patterns):
  * - Inherits from ApplicationBase for worker thread model
- * - Implements McpMessageCallbacks for protocol handling
+ * - Implements McpProtocolCallbacks for protocol handling
  * - Implements ListenerCallbacks for connection acceptance
  * - Implements ConnectionCallbacks for connection lifecycle
  * - Uses robust listener management infrastructure
@@ -747,11 +747,11 @@ class McpServer : public application::ApplicationBase,
   void stopBackgroundTasks();
 
  private:
-  // Internal callbacks class to bridge McpMessageCallbacks to McpServer
+  // Internal callbacks class to bridge McpProtocolCallbacks to McpServer
   // Following production pattern: separate callback interface from main class
-  class ServerMessageCallbacks : public McpMessageCallbacks {
+  class ServerProtocolCallbacks : public McpProtocolCallbacks {
    public:
-    explicit ServerMessageCallbacks(McpServer& server) : server_(server) {}
+    explicit ServerProtocolCallbacks(McpServer& server) : server_(server) {}
 
     void onRequest(const jsonrpc::Request& request) override {
       server_.onRequest(request);
@@ -777,7 +777,7 @@ class McpServer : public application::ApplicationBase,
 
   McpServerConfig config_;
   McpServerStats server_stats_;
-  std::unique_ptr<ServerMessageCallbacks> message_callbacks_;
+  std::unique_ptr<ServerProtocolCallbacks> protocol_callbacks_;
 
   // Connection management (production pattern)
   // IMPROVEMENT: Using TcpActiveListener for robust listener management

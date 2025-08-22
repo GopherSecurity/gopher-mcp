@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/mcp_stdio_filter_chain_factory.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/mcp_connection_manager.h"
@@ -34,7 +34,7 @@ using ::testing::Return;
 /**
  * Mock MCP message callbacks for testing
  */
-class MockMcpMessageCallbacks : public McpMessageCallbacks {
+class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
  public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));
@@ -50,7 +50,7 @@ class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
-    message_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
+    message_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
   }
 
   void TearDown() override {
@@ -101,7 +101,7 @@ class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
     });
   }
 
-  std::unique_ptr<MockMcpMessageCallbacks> message_callbacks_;
+  std::unique_ptr<MockMcpProtocolCallbacks> message_callbacks_;
   std::unique_ptr<network::ConnectionImpl> captured_connection_;
 };
 
@@ -214,8 +214,8 @@ protected:
   
   void setupConnections() {
     // Create message callbacks
-    client_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
-    server_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
+    client_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
+    server_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
     
     // Create factories
     auto client_factory = std::make_shared<McpStdioFilterChainFactory>(
@@ -270,8 +270,8 @@ protected:
   
   std::unique_ptr<network::ConnectionImpl> client_connection_;
   std::unique_ptr<network::ConnectionImpl> server_connection_;
-  std::unique_ptr<MockMcpMessageCallbacks> client_callbacks_;
-  std::unique_ptr<MockMcpMessageCallbacks> server_callbacks_;
+  std::unique_ptr<MockMcpProtocolCallbacks> client_callbacks_;
+  std::unique_ptr<MockMcpProtocolCallbacks> server_callbacks_;
   network::ConnectionEvent last_event_;
   network::IoHandlePtr client_handle_;
   network::IoHandlePtr server_handle_;
@@ -401,8 +401,8 @@ TEST_F(McpStdioFilterChainIntegrationTest, WithFraming) {
     server_handle_ = std::move(socket_pair.second);
     
     // Create new callbacks
-    client_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
-    server_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
+    client_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
+    server_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
     
     // Create factories with framing
     auto client_factory = std::make_shared<McpStdioFilterChainFactory>(

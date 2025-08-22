@@ -151,7 +151,7 @@ TEST_F(ApplicationBaseRefactoredTest, CreateFilterChain) {
 
 // Test JSON-RPC callback adapter
 TEST_F(ApplicationBaseRefactoredTest, JsonRpcCallbackAdapter) {
-  class MockCallbacks : public McpMessageCallbacks {
+  class MockCallbacks : public McpProtocolCallbacks {
    public:
     MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
     MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));

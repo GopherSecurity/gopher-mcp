@@ -11,7 +11,7 @@
 
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/mcp_http_filter_chain_factory.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include <iostream>
 #include <sstream>
 
@@ -456,7 +456,7 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   }
 }
 
-// McpMessageCallbacks overrides
+// McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
   std::cerr << "[DEBUG] McpServer::onRequest called with method: " << request.method << std::endl;
   

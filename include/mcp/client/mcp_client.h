@@ -402,7 +402,7 @@ class RetryManager {
  *
  * Architecture:
  * - Inherits from ApplicationBase for worker thread model
- * - Implements McpMessageCallbacks for protocol handling
+ * - Implements McpProtocolCallbacks for protocol handling
  * - Uses filter chain for extensible message processing
  * - Manages connection pool for efficient resource usage
  * - Implements circuit breaker for failure isolation
@@ -483,10 +483,10 @@ class McpClient : public application::ApplicationBase {
   void initializeWorker(application::WorkerContext& worker) override;
   void setupFilterChain(application::FilterChainBuilder& builder) override;
 
-  // Message callbacks handler (internal)
-  class MessageCallbacksImpl : public mcp::McpMessageCallbacks {
+  // Protocol callbacks handler (internal)
+  class ProtocolCallbacksImpl : public mcp::McpProtocolCallbacks {
    public:
-    MessageCallbacksImpl(McpClient& client) : client_(client) {}
+    ProtocolCallbacksImpl(McpClient& client) : client_(client) {}
 
     void onRequest(const jsonrpc::Request& request) override {
       client_.handleRequest(request);
@@ -563,7 +563,7 @@ class McpClient : public application::ApplicationBase {
 
   // Connection management
   std::unique_ptr<mcp::McpConnectionManager> connection_manager_;
-  std::unique_ptr<MessageCallbacksImpl> message_callbacks_;
+  std::unique_ptr<ProtocolCallbacksImpl> protocol_callbacks_;
   std::unique_ptr<ConnectionPoolImpl> connection_pool_;
   std::atomic<bool> connected_{false};
   std::string current_uri_;
