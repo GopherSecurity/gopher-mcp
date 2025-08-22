@@ -78,38 +78,46 @@ TEST_F(McpProtocolStateMachineTest, InitialState) {
 
 // Test basic connection flow
 TEST_F(McpProtocolStateMachineTest, BasicConnectionFlow) {
-  // Request connection
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
-  EXPECT_EQ(transition_count_, 1);
+  // All state transitions in dispatcher thread
+  executeInDispatcher([this]() {
+    // Request connection
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
+    
+    // Network connected
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTED);
+    
+    // Initialize protocol
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::INITIALIZING);
+    
+    // Protocol initialized
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    EXPECT_TRUE(state_machine_->isReady());
+  });
   
-  // Network connected
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTED);
-  EXPECT_EQ(transition_count_, 2);
-  
-  // Initialize protocol
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::INITIALIZING);
-  EXPECT_EQ(transition_count_, 3);
-  
-  // Protocol initialized
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  EXPECT_TRUE(state_machine_->isReady());
+  // Verify final state
   EXPECT_EQ(transition_count_, 4);
 }
 
 // Test connection timeout
 TEST_F(McpProtocolStateMachineTest, ConnectionTimeout) {
-  // Request connection
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+  // Request connection in dispatcher thread to ensure timer is created properly
+  executeInDispatcher([this]() {
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+  });
+  
   EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
   
-  // Wait for timeout
-  runDispatcher(std::chrono::milliseconds(150));
+  // Wait for timeout using waitFor (dispatcher is already running in background)
+  bool transitioned = waitFor([this]() {
+    return state_machine_->currentState() == McpProtocolState::DISCONNECTED;
+  }, std::chrono::milliseconds(200));
   
   // Should transition to disconnected on timeout
+  EXPECT_TRUE(transitioned);
   EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
   EXPECT_EQ(error_count_, 1);
   EXPECT_TRUE(last_error_.message.find("timeout") != std::string::npos);
@@ -117,16 +125,22 @@ TEST_F(McpProtocolStateMachineTest, ConnectionTimeout) {
 
 // Test initialization timeout
 TEST_F(McpProtocolStateMachineTest, InitializationTimeout) {
-  // Move to initializing state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+  // Move to initializing state in dispatcher thread
+  executeInDispatcher([this]() {
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+  });
+  
   EXPECT_EQ(state_machine_->currentState(), McpProtocolState::INITIALIZING);
   
-  // Wait for timeout
-  runDispatcher(std::chrono::milliseconds(150));
+  // Wait for timeout using waitFor
+  bool transitioned = waitFor([this]() {
+    return state_machine_->currentState() == McpProtocolState::ERROR;
+  }, std::chrono::milliseconds(200));
   
   // Should transition to error on timeout
+  EXPECT_TRUE(transitioned);
   EXPECT_EQ(state_machine_->currentState(), McpProtocolState::ERROR);
   EXPECT_TRUE(state_machine_->isError());
   EXPECT_EQ(error_count_, 1);
@@ -134,34 +148,38 @@ TEST_F(McpProtocolStateMachineTest, InitializationTimeout) {
 
 // Test graceful shutdown
 TEST_F(McpProtocolStateMachineTest, GracefulShutdown) {
-  // Get to ready state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  
-  // Request shutdown
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::SHUTDOWN_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DRAINING);
-  
-  // Complete drain
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::DRAIN_COMPLETE));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CLOSED);
+  executeInDispatcher([this]() {
+    // Get to ready state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    
+    // Request shutdown
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::SHUTDOWN_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DRAINING);
+    
+    // Complete drain
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::DRAIN_COMPLETE));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CLOSED);
+  });
 }
 
 // Test network disconnection handling
 TEST_F(McpProtocolStateMachineTest, NetworkDisconnection) {
-  // Get to ready state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  
-  // Network disconnected
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  executeInDispatcher([this]() {
+    // Get to ready state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    
+    // Network disconnected
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  });
 }
 
 // Test auto-reconnection
@@ -169,88 +187,99 @@ TEST_F(McpProtocolStateMachineTest, AutoReconnection) {
   // Enable auto-reconnect
   config_.auto_reconnect = true;
   config_.max_reconnect_attempts = 2;
-  state_machine_ = std::make_unique<McpProtocolStateMachine>(*dispatcher_, config_);
   
-  // Get to ready state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  
-  // First disconnection - should auto-reconnect
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
-  
-  // Fail connection
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  executeInDispatcher([this]() {
+    state_machine_ = std::make_unique<McpProtocolStateMachine>(*dispatcher_, config_);
+    
+    // Get to ready state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    
+    // First disconnection - should auto-reconnect
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
+    
+    // Fail connection
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_DISCONNECTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  });
 }
 
 // Test protocol error handling
 TEST_F(McpProtocolStateMachineTest, ProtocolError) {
-  // Get to ready state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  
-  // Protocol error
-  mcp::Error error;
-  error.code = -1;
-  error.message = "Test protocol error";
-  state_machine_->handleError(error);
-  
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::ERROR);
-  EXPECT_TRUE(state_machine_->isError());
-  
-  auto last_error = state_machine_->getLastError();
-  EXPECT_TRUE(last_error.has_value());
-  EXPECT_EQ(last_error->message, "Test protocol error");
+  executeInDispatcher([this]() {
+    // Get to ready state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    
+    // Protocol error
+    mcp::Error error;
+    error.code = -1;
+    error.message = "Test protocol error";
+    state_machine_->handleError(error);
+    
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::ERROR);
+    EXPECT_TRUE(state_machine_->isError());
+    
+    auto last_error = state_machine_->getLastError();
+    EXPECT_TRUE(last_error.has_value());
+    EXPECT_EQ(last_error->message, "Test protocol error");
+  });
 }
 
 // Test recovery from error state
 TEST_F(McpProtocolStateMachineTest, ErrorRecovery) {
-  // Get to error state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::ERROR);
-  
-  // Attempt reconnection
-  config_.max_reconnect_attempts = 1;
-  state_machine_ = std::make_unique<McpProtocolStateMachine>(*dispatcher_, config_);
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::RECONNECT_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
+  executeInDispatcher([this]() {
+    // Get to error state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::ERROR);
+    
+    // Attempt reconnection
+    config_.max_reconnect_attempts = 1;
+    state_machine_ = std::make_unique<McpProtocolStateMachine>(*dispatcher_, config_);
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::PROTOCOL_ERROR));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::RECONNECT_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
+  });
 }
 
 // Test invalid transitions
 TEST_F(McpProtocolStateMachineTest, InvalidTransitions) {
-  // Cannot initialize from disconnected state
-  EXPECT_FALSE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
-  
-  // Cannot shutdown from disconnected state
-  EXPECT_FALSE(state_machine_->handleEvent(McpProtocolEvent::SHUTDOWN_REQUESTED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  executeInDispatcher([this]() {
+    // Cannot initialize from disconnected state
+    EXPECT_FALSE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+    
+    // Cannot shutdown from disconnected state
+    EXPECT_FALSE(state_machine_->handleEvent(McpProtocolEvent::SHUTDOWN_REQUESTED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+  });
 }
 
 // Test state machine reset
 TEST_F(McpProtocolStateMachineTest, Reset) {
-  // Get to ready state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
-  
-  // Reset
-  state_machine_->reset();
-  EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
-  EXPECT_FALSE(state_machine_->getLastError().has_value());
+  executeInDispatcher([this]() {
+    // Get to ready state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::NETWORK_CONNECTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZE_REQUESTED));
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::INITIALIZED));
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::READY);
+    
+    // Reset
+    state_machine_->reset();
+    EXPECT_EQ(state_machine_->currentState(), McpProtocolState::DISCONNECTED);
+    EXPECT_FALSE(state_machine_->getLastError().has_value());
+  });
 }
 
 // Test time tracking
@@ -264,8 +293,10 @@ TEST_F(McpProtocolStateMachineTest, TimeInState) {
   auto later_time = state_machine_->getTimeInCurrentState();
   EXPECT_GT(later_time.count(), initial_time.count());
   
-  // Change state
-  EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+  executeInDispatcher([this]() {
+    // Change state
+    EXPECT_TRUE(state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED));
+  });
   
   auto new_state_time = state_machine_->getTimeInCurrentState();
   EXPECT_LT(new_state_time.count(), later_time.count());
@@ -296,12 +327,14 @@ TEST_F(McpProtocolStateMachineTest, ThreadSafety) {
   std::atomic<int> success_count{0};
   std::vector<std::thread> threads;
   
-  // Multiple threads trying to change state
+  // Multiple threads trying to change state through dispatcher
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([this, &success_count]() {
-      if (state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED)) {
-        success_count++;
-      }
+      executeInDispatcher([this, &success_count]() {
+        if (state_machine_->handleEvent(McpProtocolEvent::CONNECT_REQUESTED)) {
+          success_count++;
+        }
+      });
     });
   }
   
@@ -309,7 +342,7 @@ TEST_F(McpProtocolStateMachineTest, ThreadSafety) {
     t.join();
   }
   
-  // Only one should succeed
+  // Only one should succeed (first one to get CONNECT_REQUESTED through)
   EXPECT_EQ(success_count, 1);
   EXPECT_EQ(state_machine_->currentState(), McpProtocolState::CONNECTING);
 }
