@@ -82,7 +82,25 @@ network::FilterStatus SseCodecFilter::onData(Buffer& data, bool end_stream) {
 
 // network::WriteFilter interface
 network::FilterStatus SseCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  // Pass through SSE data
+  // In server mode, format outgoing data as SSE events
+  if (is_server_ && data.length() > 0) {
+    // The data contains JSON-RPC response that needs SSE formatting
+    size_t data_len = data.length();
+    std::string json_data(static_cast<const char*>(data.linearize(data_len)), data_len);
+    
+    // Clear the buffer
+    data.drain(data_len);
+    
+    // Format as SSE event
+    // Using "message" event type for JSON-RPC messages
+    std::string sse_event = "event: message\n";
+    sse_event += "data: " + json_data + "\n\n";
+    
+    // Add formatted SSE event back to buffer
+    data.add(sse_event.c_str(), sse_event.length());
+  }
+  
+  // Pass through (formatted) SSE data
   return network::FilterStatus::Continue;
 }
 
