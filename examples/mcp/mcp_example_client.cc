@@ -578,6 +578,24 @@ int main(int argc, char* argv[]) {
   
   std::cerr << "[INFO] Connected successfully!" << std::endl;
   
+  // Wait for connection to be fully established
+  // The connection happens asynchronously, so we need to wait for it
+  std::cerr << "[INFO] Waiting for connection to be established..." << std::endl;
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      // Wait up to 5 seconds for connection to be established
+      auto start = std::chrono::steady_clock::now();
+      while (!g_client->isConnected()) {
+        if (std::chrono::steady_clock::now() - start > std::chrono::seconds(5)) {
+          std::cerr << "[ERROR] Timeout waiting for connection" << std::endl;
+          return 1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
+  }
+  
   // Initialize MCP protocol - REQUIRED before any requests
   std::cerr << "[INFO] Initializing MCP protocol..." << std::endl;
   {
