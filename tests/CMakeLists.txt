@@ -855,8 +855,8 @@ add_test(NAME SseCodecFilterTest COMMAND test_sse_codec_filter)
 # add_test(NAME SseCodecFilterComprehensiveTest COMMAND test_sse_codec_filter_comprehensive)
 
 # MCP JSON-RPC Filter Tests
-add_executable(test_mcp_jsonrpc_filter filter/test_mcp_jsonrpc_filter.cc)
-target_link_libraries(test_mcp_jsonrpc_filter 
+add_executable(test_json_rpc_protocol_filter filter/test_json_rpc_protocol_filter.cc)
+target_link_libraries(test_json_rpc_protocol_filter 
     mcp-sdk
     mcp-event
     gtest 
@@ -864,7 +864,7 @@ target_link_libraries(test_mcp_jsonrpc_filter
     gmock
     Threads::Threads
 )
-add_test(NAME McpJsonRpcFilterTest COMMAND test_mcp_jsonrpc_filter)
+add_test(NAME JsonRpcProtocolFilterTest COMMAND test_json_rpc_protocol_filter)
 
 # MCP Protocol State Machine Tests
 add_executable(test_mcp_protocol_state_machine protocol/test_mcp_protocol_state_machine.cc)

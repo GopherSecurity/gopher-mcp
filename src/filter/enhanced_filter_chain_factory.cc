@@ -23,7 +23,7 @@ namespace filter {
  * Enhanced filter implementing all protocol and enterprise layers
  * This combines the protocol handling with enterprise features
  */
-class McpEnhancedFilter : public network::Filter,
+class EnhancedProtocolFilter : public network::Filter,
                           public HttpCodecFilter::MessageCallbacks,
                           public SseCodecFilter::EventCallbacks,
                           public JsonRpcProtocolFilter::MessageHandler,
@@ -33,7 +33,7 @@ class McpEnhancedFilter : public network::Filter,
                           public RequestValidationFilter::Callbacks,
                           public BackpressureFilter::Callbacks {
 public:
-  McpEnhancedFilter(event::Dispatcher& dispatcher,
+  EnhancedProtocolFilter(event::Dispatcher& dispatcher,
                    McpProtocolCallbacks& mcp_callbacks,
                    bool is_server,
                    const EnhancedFilterChainFactory::Config& config)
@@ -404,7 +404,7 @@ bool EnhancedFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Create the enhanced filter with all features
-  auto filter = std::make_shared<McpEnhancedFilter>(
+  auto filter = std::make_shared<EnhancedProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_, config_);
   
   // Store references to specific filters for external access
