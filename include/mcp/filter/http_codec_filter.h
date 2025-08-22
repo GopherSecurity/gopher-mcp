@@ -7,6 +7,7 @@
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_state_machine.h"
+#include "mcp/filter/http_stream_context.h"
 #include "mcp/http/http_parser.h"
 #include "mcp/network/filter.h"
 
@@ -222,16 +223,12 @@ class HttpCodecFilter : public network::Filter {
   std::unique_ptr<MessageEncoderImpl> message_encoder_;
   std::unique_ptr<HttpCodecStateMachine> state_machine_;
 
-  // Message state
-  std::map<std::string, std::string> current_headers_;
-  std::string current_body_;
-  std::string current_url_;     // For client mode request parsing
-  std::string current_status_;  // For client mode response parsing
-  bool keep_alive_{true};
-  http::HttpVersion current_version_{
-      http::HttpVersion::HTTP_1_1};  // Store HTTP version from request
-
-  // Message buffering
+  // Stream context management for stateless filter design
+  // Per-request state is stored in HttpStreamContext, not in the filter
+  HttpStreamContextManager stream_manager_;
+  HttpStreamContextPtr current_stream_;  // Current stream being processed
+  
+  // Message buffering (connection-level, not per-request)
   OwnedBuffer message_buffer_;
 };
 
