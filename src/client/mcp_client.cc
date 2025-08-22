@@ -854,8 +854,12 @@ void McpClient::handleResponse(const jsonrpc::Response& response) {
 
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events in dispatcher context
+  std::cerr << "[DEBUG] McpClient::handleConnectionEvent called with event: " 
+            << static_cast<int>(event) << std::endl;
+  
   switch (event) {
     case network::ConnectionEvent::Connected:
+      std::cerr << "[DEBUG] Connected event received in client, setting connected_ = true" << std::endl;
       connected_ = true;
       client_stats_.connections_active++;
       
