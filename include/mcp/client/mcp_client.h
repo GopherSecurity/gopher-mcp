@@ -39,6 +39,7 @@
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
+#include "mcp/protocol/mcp_protocol_state_machine.h"
 #include "mcp/types.h"
 
 namespace mcp {
@@ -90,6 +91,14 @@ struct McpClientConfig : public application::ApplicationBase::Config {
 
   // Capabilities
   ClientCapabilities capabilities;
+  
+  // Protocol state machine configuration
+  std::chrono::milliseconds protocol_initialization_timeout{30000};
+  std::chrono::milliseconds protocol_connection_timeout{10000};
+  std::chrono::milliseconds protocol_drain_timeout{10000};
+  bool protocol_auto_reconnect = true;
+  size_t protocol_max_reconnect_attempts = 3;
+  std::chrono::milliseconds protocol_reconnect_delay{1000};
 };
 
 /**
@@ -125,6 +134,7 @@ struct McpClientStats : public application::ApplicationStats {
 /**
  * Request context for tracking
  * Maintains all state for a single request including retry count and timing
+ * Following production patterns for proper lifecycle management
  */
 struct RequestContext {
   RequestId id;
@@ -135,9 +145,21 @@ struct RequestContext {
   size_t retry_count{0};
   bool is_batch{false};
   optional<ProgressToken> progress_token;
+  
+  // Timer-based timeout management
+  event::TimerPtr timeout_timer;
+  bool timeout_enabled{false};
+  bool completed{false};  // Ensures single completion
 
   RequestContext(const RequestId& id, const std::string& method)
       : id(id), method(method), start_time(std::chrono::steady_clock::now()) {}
+  
+  ~RequestContext() {
+    // Ensure timer is cleaned up
+    if (timeout_timer && timeout_enabled) {
+      timeout_timer->disableTimer();
+    }
+  }
 };
 
 /**
@@ -499,6 +521,11 @@ class McpClient : public application::ApplicationBase {
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
+  
+  // Timer-based timeout management following production patterns
+  void enableRequestTimeout(std::shared_ptr<RequestContext> context);
+  void disableRequestTimeout(std::shared_ptr<RequestContext> context);
+  void handleRequestTimeout(std::shared_ptr<RequestContext> context);
 
   // Connection pool implementation
   class ConnectionPoolImpl : public application::ConnectionPool {
@@ -559,6 +586,9 @@ class McpClient : public application::ApplicationBase {
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
+  
+  // Protocol state machine for managing MCP protocol lifecycle
+  std::unique_ptr<protocol::McpProtocolStateMachine> protocol_state_machine_;
 
   // Periodic task management using dispatcher timers
   void schedulePeriodicTasks();
@@ -567,6 +597,10 @@ class McpClient : public application::ApplicationBase {
   // Timer handles for periodic tasks
   event::TimerPtr timeout_timer_;
   event::TimerPtr retry_timer_;
+  
+  // Protocol state coordination
+  void coordinateProtocolState();
+  void handleProtocolStateChange(const protocol::ProtocolStateTransitionContext& context);
 };
 
 /**
