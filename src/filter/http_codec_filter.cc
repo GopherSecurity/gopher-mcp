@@ -94,6 +94,9 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
   
+  std::cerr << "[DEBUG] HttpCodecFilter::onWrite called with " << data.length() 
+            << " bytes, is_server=" << is_server_ << std::endl;
+  
   // Following production pattern: format HTTP message in-place
   if (data.length() == 0) {
     return network::FilterStatus::Continue;
@@ -167,6 +170,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       // Add formatted request to buffer
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
+      
+      std::cerr << "[DEBUG] HttpCodecFilter client sending HTTP request: " 
+                << request_str.substr(0, 200) << "..." << std::endl;
       
       // Update state machine
       state_machine_->handleEvent(HttpCodecEvent::RequestBegin);

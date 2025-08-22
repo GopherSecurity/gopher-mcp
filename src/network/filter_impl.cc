@@ -156,7 +156,11 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_strea
 }
 
 FilterStatus FilterManagerImpl::onWrite() {
+  std::cerr << "[DEBUG] FilterManagerImpl::onWrite() called, initialized_=" 
+            << initialized_ << ", write_filters count: " << write_filters_.size() << std::endl;
+  
   if (!initialized_) {
+    std::cerr << "[DEBUG] FilterManager not initialized, skipping write filters" << std::endl;
     return FilterStatus::Continue;
   }
 
@@ -167,9 +171,12 @@ FilterStatus FilterManagerImpl::onWrite() {
   bool end_stream = connection_.currentWriteEndStream();
   
   if (!current_buffer) {
+    std::cerr << "[DEBUG] No current write buffer" << std::endl;
     return FilterStatus::Continue;
   }
   
+  std::cerr << "[DEBUG] Processing write through " << write_filters_.size() 
+            << " filters, buffer size: " << current_buffer->length() << std::endl;
   
   // Process through write filters
   current_write_filter_ = write_filters_.begin();
