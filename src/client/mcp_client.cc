@@ -22,7 +22,7 @@ McpClient::McpClient(const McpClientConfig& config)
       client_stats_() {
   
   // Initialize message callbacks
-  message_callbacks_ = std::make_unique<MessageCallbacksImpl>(*this);
+  protocol_callbacks_ = std::make_unique<ProtocolCallbacksImpl>(*this);
   
   // Initialize request tracker with configured timeout
   request_tracker_ = std::make_unique<RequestTracker>(config_.request_timeout);
@@ -189,7 +189,7 @@ VoidResult McpClient::connect(const std::string& uri) {
           conn_config);
       
       // Set message callback handler
-      connection_manager_->setMessageCallbacks(*message_callbacks_);
+      connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
       
       // Initiate connection based on transport type
       // All transports use the same connect() method
@@ -699,7 +699,7 @@ void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
   // Configure framing based on transport type (HTTP doesn't use framing)
   bool use_framing = (config_.preferred_transport != TransportType::HttpSse);
   // Use the dispatcher from the builder
-  auto filter_bundle = createJsonRpcFilter(*message_callbacks_, builder.getDispatcher(), false, use_framing);
+  auto filter_bundle = createJsonRpcFilter(*protocol_callbacks_, builder.getDispatcher(), false, use_framing);
   
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);

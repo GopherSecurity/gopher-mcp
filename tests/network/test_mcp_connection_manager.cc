@@ -263,7 +263,7 @@ protected:
     manager_ = std::make_unique<McpConnectionManager>(
         *dispatcher_, *socket_interface_, config_);
     
-    manager_->setMessageCallbacks(callbacks_);
+    manager_->setProtocolCallbacks(callbacks_);
   }
   
   void TearDown() override {

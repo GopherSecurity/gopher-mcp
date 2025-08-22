@@ -161,7 +161,7 @@ TEST_F(ApplicationBaseRefactoredTest, JsonRpcCallbackAdapter) {
   };
   
   MockCallbacks mock_callbacks;
-  McpJsonRpcCallbackAdapter adapter(mock_callbacks);
+  McpToJsonRpcAdapter adapter(mock_callbacks);
   
   // Test request forwarding
   jsonrpc::Request request;
