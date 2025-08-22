@@ -38,7 +38,7 @@
 
 #include "../network/filter.h"
 #include "../types.h"
-#include "mcp_jsonrpc_filter.h"
+#include "json_rpc_protocol_filter.h"
 
 namespace mcp {
 namespace filter {
