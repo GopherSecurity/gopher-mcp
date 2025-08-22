@@ -467,21 +467,21 @@ bool McpConnectionManager::isConnected() const {
 }
 
 void McpConnectionManager::onRequest(const jsonrpc::Request& request) {
-  if (message_callbacks_) {
-    message_callbacks_->onRequest(request);
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onRequest(request);
   }
 }
 
 void McpConnectionManager::onNotification(
     const jsonrpc::Notification& notification) {
-  if (message_callbacks_) {
-    message_callbacks_->onNotification(notification);
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onNotification(notification);
   }
 }
 
 void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
-  if (message_callbacks_) {
-    message_callbacks_->onResponse(response);
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onResponse(response);
   }
 }
 
@@ -519,17 +519,17 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   }
 
   // Forward event to upper layer callbacks
-  if (message_callbacks_) {
-    std::cerr << "[DEBUG] Forwarding connection event to message callbacks" << std::endl;
-    message_callbacks_->onConnectionEvent(event);
+  if (protocol_callbacks_) {
+    std::cerr << "[DEBUG] Forwarding connection event to protocol callbacks" << std::endl;
+    protocol_callbacks_->onConnectionEvent(event);
   } else {
     std::cerr << "[DEBUG] No message callbacks registered!" << std::endl;
   }
 }
 
 void McpConnectionManager::onError(const Error& error) {
-  if (message_callbacks_) {
-    message_callbacks_->onError(error);
+  if (protocol_callbacks_) {
+    protocol_callbacks_->onError(error);
   }
 }
 

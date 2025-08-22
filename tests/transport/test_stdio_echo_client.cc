@@ -115,7 +115,7 @@ protected:
       socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();
       connection_manager_ = std::make_unique<McpConnectionManager>(
           dispatcher_, *socket_interface_, config);
-      connection_manager_->setMessageCallbacks(*this);
+      connection_manager_->setProtocolCallbacks(*this);
     }
     
     bool start() {
