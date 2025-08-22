@@ -182,7 +182,7 @@ TEST_F(StdioFilterChainFactoryTest, FilterLifetimeManagement) {
  * NOTE: Disabled due to issues with real I/O test infrastructure
  */
 #if 0
-class McpStdioFilterChainIntegrationTest : public test::RealIoTestBase,
+class StdioFilterChainIntegrationTest : public test::RealIoTestBase,
                                             public network::ConnectionCallbacks {
 protected:
   void SetUp() override {
@@ -280,7 +280,7 @@ protected:
 /**
  * Test end-to-end message flow through stdio filter chain
  */
-TEST_F(McpStdioFilterChainIntegrationTest, EndToEndRequestResponse) {
+TEST_F(StdioFilterChainIntegrationTest, EndToEndRequestResponse) {
   // Server should receive request
   EXPECT_CALL(*server_callbacks_, onRequest(_))
       .WillOnce([this](const jsonrpc::Request& req) {
@@ -332,7 +332,7 @@ TEST_F(McpStdioFilterChainIntegrationTest, EndToEndRequestResponse) {
 /**
  * Test notification flow
  */
-TEST_F(McpStdioFilterChainIntegrationTest, NotificationFlow) {
+TEST_F(StdioFilterChainIntegrationTest, NotificationFlow) {
   // Server should receive notification
   EXPECT_CALL(*server_callbacks_, onNotification(_))
       .WillOnce([](const jsonrpc::Notification& notif) {
@@ -362,7 +362,7 @@ TEST_F(McpStdioFilterChainIntegrationTest, NotificationFlow) {
 /**
  * Test error handling
  */
-TEST_F(McpStdioFilterChainIntegrationTest, ErrorHandling) {
+TEST_F(StdioFilterChainIntegrationTest, ErrorHandling) {
   // Expect error callback when invalid JSON is sent
   EXPECT_CALL(*server_callbacks_, onError(_))
       .WillOnce([](const Error& error) {
@@ -388,7 +388,7 @@ TEST_F(McpStdioFilterChainIntegrationTest, ErrorHandling) {
 /**
  * Test with framing enabled
  */
-TEST_F(McpStdioFilterChainIntegrationTest, WithFraming) {
+TEST_F(StdioFilterChainIntegrationTest, WithFraming) {
   // Recreate connections with framing enabled
   executeInDispatcher([this]() {
     // Close existing connections
