@@ -94,8 +94,12 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
   
-  // Following production pattern: format HTTP response in-place
-  if (is_server_ && data.length() > 0) {
+  // Following production pattern: format HTTP message in-place
+  if (data.length() == 0) {
+    return network::FilterStatus::Continue;
+  }
+  
+  if (is_server_) {
     // For server mode, this is a response that needs HTTP framing
     // Check if we're in a state where we can send a response
     auto current_state = state_machine_->currentState();
@@ -134,8 +138,43 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         state_machine_->handleEvent(HttpCodecEvent::ResponseComplete);
       }
     }
+  } else {
+    // Client mode: format as HTTP POST request
+    auto current_state = state_machine_->currentState();
+    
+    // Check if we can send a request
+    // Client can send when idle or after receiving a complete response
+    if (current_state == HttpCodecState::Idle) {
+      
+      // Save the original request body (JSON-RPC)
+      size_t body_length = data.length();
+      std::string body_data(static_cast<const char*>(data.linearize(body_length)), body_length);
+      
+      // Clear the buffer to build formatted HTTP request
+      data.drain(body_length);
+      
+      // Build HTTP POST request
+      std::ostringstream request;
+      request << "POST /rpc HTTP/1.1\r\n";
+      request << "Host: localhost\r\n";
+      request << "Content-Type: application/json\r\n";
+      request << "Content-Length: " << body_length << "\r\n";
+      request << "Accept: application/json\r\n";
+      request << "Connection: keep-alive\r\n";
+      request << "\r\n";
+      request << body_data;
+      
+      // Add formatted request to buffer
+      std::string request_str = request.str();
+      data.add(request_str.c_str(), request_str.length());
+      
+      // Update state machine
+      state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
+      if (end_stream) {
+        state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
+      }
+    }
   }
-  
   return network::FilterStatus::Continue;
 }
 
