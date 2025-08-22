@@ -161,6 +161,9 @@ public:
     // Write flows through filters in reverse order
     // JSON-RPC -> SSE -> HTTP
     
+    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onWrite called with " << data.length() 
+              << " bytes, is_server=" << is_server_ << std::endl;
+    
     // JSON-RPC filter handles framing
     auto status = jsonrpc_filter_->onWrite(data, end_stream);
     if (status == network::FilterStatus::StopIteration) {
@@ -240,15 +243,10 @@ public:
               << data.length() << " bytes, end_stream=" << end_stream 
               << ", is_sse_mode=" << is_sse_mode_ << std::endl;
     
-    if (is_sse_mode_) {
-      // In SSE mode, body contains event stream
-      // Forward to SSE filter for parsing
-      auto buffer = std::make_unique<OwnedBuffer>();
-      buffer->add(data);
-      sse_filter_->onData(*buffer, end_stream);
-    } else {
-      // In RPC mode, body contains JSON-RPC
-      // Accumulate and forward to JSON-RPC filter
+    // Server receives JSON-RPC in request body regardless of SSE mode
+    // SSE mode only affects the response format
+    if (is_server_) {
+      // Server always receives JSON-RPC in request body
       pending_json_data_.add(data);
       std::cerr << "[DEBUG] Accumulated " << pending_json_data_.length() 
                 << " bytes of JSON-RPC data" << std::endl;
@@ -256,6 +254,26 @@ public:
         std::cerr << "[DEBUG] End of stream, processing JSON-RPC data" << std::endl;
         jsonrpc_filter_->onData(pending_json_data_, true);
         pending_json_data_.drain(pending_json_data_.length());
+      }
+    } else {
+      // Client mode: parse based on content type
+      if (is_sse_mode_) {
+        // In SSE mode, body contains event stream
+        // Forward to SSE filter for parsing
+        auto buffer = std::make_unique<OwnedBuffer>();
+        buffer->add(data);
+        sse_filter_->onData(*buffer, end_stream);
+      } else {
+        // In RPC mode, body contains JSON-RPC
+        // Accumulate and forward to JSON-RPC filter
+        pending_json_data_.add(data);
+        std::cerr << "[DEBUG] Accumulated " << pending_json_data_.length() 
+                  << " bytes of JSON-RPC data" << std::endl;
+        if (end_stream) {
+          std::cerr << "[DEBUG] End of stream, processing JSON-RPC data" << std::endl;
+          jsonrpc_filter_->onData(pending_json_data_, true);
+          pending_json_data_.drain(pending_json_data_.length());
+        }
       }
     }
   }
@@ -360,7 +378,7 @@ public:
   }
   
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
-    std::cerr << "[DEBUG] Sending response through filter chain" << std::endl;
+    std::cerr << "[DEBUG] Sending response through filter chain, is_sse_mode=" << is_sse_mode_ << std::endl;
     
     // Check if we have write callbacks to send data
     if (!write_callbacks_) {
@@ -369,28 +387,47 @@ public:
     }
     
     // Send response through proper channel
-    if (is_server_ && !is_sse_mode_) {
-      // For JSON-RPC over HTTP, use routing filter to send HTTP response
-      // This maintains proper separation of concerns
-      auto json_val = json::to_json(response);
-      std::string json_str = json_val.toString();
-      
-      std::cerr << "[DEBUG] Sending JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
-      
-      // Create HTTP response and send through routing filter
-      if (routing_filter_) {
-        HttpRoutingFilter::Response http_resp;
-        http_resp.status_code = 200;
-        http_resp.headers["content-type"] = "application/json";
-        http_resp.headers["content-length"] = std::to_string(json_str.length());
-        http_resp.headers["cache-control"] = "no-cache";
-        http_resp.body = json_str;
+    if (is_server_) {
+      if (is_sse_mode_) {
+        // For SSE mode, format response as SSE event
+        auto json_val = json::to_json(response);
+        std::string json_str = json_val.toString();
         
-        // Send through routing filter which will handle HTTP formatting
-        routing_filter_->sendResponse(http_resp);
+        std::cerr << "[DEBUG] Sending SSE event with JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
+        
+        // Format as SSE event
+        std::ostringstream sse_event;
+        sse_event << "data: " << json_str << "\n\n";
+        std::string event_str = sse_event.str();
+        
+        // Send directly through write callbacks
+        OwnedBuffer buffer;
+        buffer.add(event_str);
+        write_callbacks_->connection().write(buffer, false);
+        
+      } else {
+        // For JSON-RPC over HTTP, use routing filter to send HTTP response
+        // This maintains proper separation of concerns
+        auto json_val = json::to_json(response);
+        std::string json_str = json_val.toString();
+        
+        std::cerr << "[DEBUG] Sending JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
+        
+        // Create HTTP response and send through routing filter
+        if (routing_filter_) {
+          HttpRoutingFilter::Response http_resp;
+          http_resp.status_code = 200;
+          http_resp.headers["content-type"] = "application/json";
+          http_resp.headers["content-length"] = std::to_string(json_str.length());
+          http_resp.headers["cache-control"] = "no-cache";
+          http_resp.body = json_str;
+          
+          // Send through routing filter which will handle HTTP formatting
+          routing_filter_->sendResponse(http_resp);
+        }
       }
     } else {
-      // For SSE or other modes, just encode the JSON-RPC response
+      // Client mode: just encode the JSON-RPC response
       jsonrpcEncoder().encodeResponse(response);
     }
   }
