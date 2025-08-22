@@ -508,18 +508,25 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     }
   }
 
-  // Enable write events since we now have data to write
+  // Enable write events and trigger write
   if (write_buffer_.length() > 0) {
+    // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-  }
-  
-  // Schedule write
-  if (!write_scheduled_) {
-    write_scheduled_ = true;
-    dispatcher_.post([this]() {
-      write_scheduled_ = false;
+    
+    // If socket is already write-ready, write immediately
+    // Otherwise onWriteReady will be called when socket becomes ready
+    // This fix ensures data is written even when socket is already write-ready
+    if (write_ready_) {
+      // Socket is ready, write now
       doWrite();
-    });
+    } else if (!write_scheduled_) {
+      // Socket not ready, schedule write for safety
+      write_scheduled_ = true;
+      dispatcher_.post([this]() {
+        write_scheduled_ = false;
+        doWrite();
+      });
+    }
   }
 }
 
