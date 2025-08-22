@@ -274,7 +274,14 @@ struct JsonDeserializeTraits<Metadata> {
         metadata[key] = MetadataValue(value.getFloat());
       } else if (value.isBoolean()) {
         metadata[key] = MetadataValue(value.getBool());
+      } else if (value.isObject() || value.isArray()) {
+        // Store nested objects and arrays as JSON strings
+        // They can be parsed back when needed by specific handlers
+        // This is a pragmatic approach to support MCP's nested arguments
+        // without changing the MetadataValue variant type
+        metadata[key] = MetadataValue(value.toString());
       } else {
+        // Fallback for any other type
         metadata[key] = MetadataValue(value.toString());
       }
     }

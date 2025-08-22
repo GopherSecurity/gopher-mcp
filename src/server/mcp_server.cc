@@ -968,28 +968,29 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   std::string name = get<std::string>(name_it->second);
 
   // Extract optional arguments
-  // Since params is already a Metadata (map<string, MetadataValue>), 
-  // we can directly extract the arguments if they exist
+  // The MCP protocol expects arguments to be nested under "arguments" field
+  // Since MetadataValue doesn't support nested maps, we need to handle this specially
   optional<Metadata> arguments;
   auto args_it = params.find("arguments");
+  
   if (args_it != params.end()) {
-    // Arguments in the params should be another metadata object
-    // We need to convert the MetadataValue to Metadata
-    // For now, pass the entire params as arguments (which includes the tool arguments)
-    Metadata tool_args;
-    
-    // Copy all params except "name" as tool arguments
-    for (const auto& [key, value] : params) {
-      if (key != "name" && key != "arguments") {
-        tool_args[key] = value;
-      } else if (key == "arguments") {
-        // If arguments is present, it should contain the actual tool parameters
-        // For simplicity, we'll pass empty metadata for now and fix properly later
-        // This needs proper JSON deserialization from the request
+    // The arguments field contains a JSON string representation of the nested object
+    // We need to parse it back to extract the actual arguments
+    if (holds_alternative<std::string>(args_it->second)) {
+      // The nested object was stringified during deserialization
+      // Parse it back to get the actual arguments
+      std::string args_json = get<std::string>(args_it->second);
+      try {
+        auto args_value = json::JsonValue::parse(args_json);
+        arguments = make_optional(json::jsonToMetadata(args_value));
+      } catch (const json::JsonException& e) {
+        // If parsing fails, treat it as empty arguments
+        arguments = make_optional(Metadata());
       }
+    } else {
+      // Fallback: if arguments is not a string, create empty metadata
+      arguments = make_optional(Metadata());
     }
-    
-    arguments = make_optional(tool_args);
   }
 
   // Call tool
