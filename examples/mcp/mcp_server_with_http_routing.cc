@@ -132,18 +132,26 @@ public:
       return false;
     }
     
-    // Then add our HTTP routing filter
+    // Then add our HTTP routing filter (when properly implemented)
     auto routing_filter = createRoutingFilter();
-    filter_manager.addReadFilter(routing_filter);
-    filter_manager.addWriteFilter(routing_filter);
+    // NOTE: HttpRoutingFilter is not a network filter, it's a MessageCallbacks
+    // This would need proper integration with the HTTP codec filter
+    // filter_manager.addReadFilter(routing_filter);
+    // filter_manager.addWriteFilter(routing_filter);
     
     return true;
   }
   
 private:
   std::shared_ptr<HttpRoutingFilter> createRoutingFilter() const {
-    auto filter = std::make_shared<HttpRoutingFilter>(dispatcher_, true);
+    // NOTE: HttpRoutingFilter requires MessageCallbacks and MessageEncoder
+    // This example shows the architecture but needs proper initialization
+    // auto filter = std::make_shared<HttpRoutingFilter>(callbacks, encoder, true);
     
+    // For now, return nullptr as this is a demonstration
+    return nullptr;
+    
+    /* Example registration code (when properly initialized):
     // Register health endpoint
     filter->registerHandler("GET", "/health", 
         [](const HttpRoutingFilter::RequestContext& req) {
@@ -206,6 +214,7 @@ mcp_server_requests_total 1337
     });
     
     return filter;
+    */
   }
   
   mcp::event::Dispatcher& dispatcher_;
