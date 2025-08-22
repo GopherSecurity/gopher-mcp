@@ -8,7 +8,7 @@
  * - Clean separation between protocol layers
  */
 
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
@@ -81,7 +81,7 @@ class HttpSseJsonRpcProtocolFilter : public network::Filter,
                                      public JsonRpcProtocolFilter::MessageHandler {
 public:
   // Make active_streams_ accessible for response routing
-  friend void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response&, network::Connection&);
+  friend void HttpSseFilterChainFactory::sendHttpResponse(const jsonrpc::Response&, network::Connection&);
   
   HttpSseJsonRpcProtocolFilter(event::Dispatcher& dispatcher,
                           McpProtocolCallbacks& mcp_callbacks,
@@ -523,9 +523,9 @@ void RequestStream::sendResponse(const jsonrpc::Response& response) {
 
 // Static method to send response through the connection's filter chain
 // Following production pattern: ensure execution in the connection's dispatcher thread
-void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
+void HttpSseFilterChainFactory::sendHttpResponse(const jsonrpc::Response& response,
                                                 network::Connection& connection) {
-  std::cerr << "[WARNING] McpHttpFilterChainFactory::sendHttpResponse called but filter access not available" << std::endl;
+  std::cerr << "[WARNING] HttpSseFilterChainFactory::sendHttpResponse called but filter access not available" << std::endl;
   std::cerr << "[WARNING] Response ID " << requestIdToString(response.id) << " dropped - no direct filter access" << std::endl;
   
   // Following production pattern: without direct filter access, we cannot route responses
@@ -536,7 +536,7 @@ void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response& respon
 
 // ===== Factory Implementation =====
 
-bool McpHttpFilterChainFactory::createFilterChain(
+bool HttpSseFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Following production pattern: create filters in order
@@ -590,7 +590,7 @@ bool McpHttpFilterChainFactory::createFilterChain(
 
 // Removed createHttpRoutingFilter - routing is now integrated in the combined filter
 
-bool McpHttpFilterChainFactory::createNetworkFilterChain(
+bool HttpSseFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& filter_factories) const {
   

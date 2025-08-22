@@ -12,7 +12,7 @@
 
 #include "mcp/server/mcp_server.h"
 #include "mcp/transport/http_sse_transport_socket.h"
-#include "mcp/filter/mcp_enhanced_filter_chain_factory.h"
+#include "mcp/filter/enhanced_filter_chain_factory.h"
 #include <iostream>
 #include <signal.h>
 #include <ctime>

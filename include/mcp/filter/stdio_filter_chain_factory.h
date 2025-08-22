@@ -24,7 +24,7 @@ namespace filter {
  * This is much simpler than HTTP+SSE as there's no protocol stack,
  * just direct JSON-RPC message handling.
  */
-class McpStdioFilterChainFactory : public network::FilterChainFactory {
+class StdioFilterChainFactory : public network::FilterChainFactory {
  public:
   /**
    * Constructor
@@ -33,7 +33,7 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
    * @param is_server True for server mode, false for client mode
    * @param use_framing Whether to use length-prefixed framing
    */
-  McpStdioFilterChainFactory(event::Dispatcher& dispatcher,
+  StdioFilterChainFactory(event::Dispatcher& dispatcher,
                              McpProtocolCallbacks& message_callbacks,
                              bool is_server,
                              bool use_framing = true)

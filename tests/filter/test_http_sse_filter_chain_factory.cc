@@ -1,5 +1,5 @@
 /**
- * Unit tests for McpHttpFilterChainFactory
+ * Unit tests for HttpSseFilterChainFactory
  *
  * Tests the factory that creates HTTP+SSE+JSON-RPC filter chains
  * for the complete protocol stack.
@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 
 #include "mcp/buffer.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
@@ -42,9 +42,9 @@ class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
 };
 
 /**
- * Test fixture for McpHttpFilterChainFactory using real I/O
+ * Test fixture for HttpSseFilterChainFactory using real I/O
  */
-class McpHttpFilterChainFactoryTest : public test::RealIoTestBase {
+class HttpSseFilterChainFactoryTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
@@ -60,7 +60,7 @@ class McpHttpFilterChainFactoryTest : public test::RealIoTestBase {
   void testFilterChain(bool is_server) {
     executeInDispatcher([this, is_server]() {
       // Create factory
-      auto factory = std::make_shared<McpHttpFilterChainFactory>(
+      auto factory = std::make_shared<HttpSseFilterChainFactory>(
           *dispatcher_, *message_callbacks_, is_server);
 
       // Create test connection
@@ -124,23 +124,23 @@ class McpHttpFilterChainFactoryTest : public test::RealIoTestBase {
 /**
  * Test filter chain creation for server mode
  */
-TEST_F(McpHttpFilterChainFactoryTest, CreateFilterChainServerMode) {
+TEST_F(HttpSseFilterChainFactoryTest, CreateFilterChainServerMode) {
   testFilterChain(true);
 }
 
 /**
  * Test filter chain creation for client mode
  */
-TEST_F(McpHttpFilterChainFactoryTest, CreateFilterChainClientMode) {
+TEST_F(HttpSseFilterChainFactoryTest, CreateFilterChainClientMode) {
   testFilterChain(false);
 }
 
 /**
  * Test createNetworkFilterChain method
  */
-TEST_F(McpHttpFilterChainFactoryTest, CreateNetworkFilterChain) {
+TEST_F(HttpSseFilterChainFactoryTest, CreateNetworkFilterChain) {
   executeInDispatcher([this]() {
-    McpHttpFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
 
     // Create dummy filter manager
     int test_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -168,9 +168,9 @@ TEST_F(McpHttpFilterChainFactoryTest, CreateNetworkFilterChain) {
 /**
  * Test createListenerFilterChain (should return false)
  */
-TEST_F(McpHttpFilterChainFactoryTest, CreateListenerFilterChain) {
+TEST_F(HttpSseFilterChainFactoryTest, CreateListenerFilterChain) {
   executeInDispatcher([this]() {
-    McpHttpFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_, true);
 
     // Create dummy filter manager
     int test_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -195,13 +195,13 @@ TEST_F(McpHttpFilterChainFactoryTest, CreateListenerFilterChain) {
  * Test filter lifetime management
  * Verifies filters remain valid after factory destruction
  */
-TEST_F(McpHttpFilterChainFactoryTest, FilterLifetimeManagement) {
+TEST_F(HttpSseFilterChainFactoryTest, FilterLifetimeManagement) {
   executeInDispatcher([this]() {
     std::unique_ptr<network::ConnectionImpl> connection;
 
     {
       // Create factory in a scope
-      McpHttpFilterChainFactory factory(*dispatcher_, *message_callbacks_,
+      HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_,
                                         true);  // server mode
 
       // Create connection
@@ -242,10 +242,10 @@ TEST_F(McpHttpFilterChainFactoryTest, FilterLifetimeManagement) {
  * Test HTTP request processing through the filter chain
  * NOTE: Disabled - requires full filter implementation
  */
-TEST_F(McpHttpFilterChainFactoryTest, DISABLED_ProcessHttpRequest) {
+TEST_F(HttpSseFilterChainFactoryTest, DISABLED_ProcessHttpRequest) {
   executeInDispatcher([this]() {
     // Create factory in server mode
-    McpHttpFilterChainFactory factory(*dispatcher_, *message_callbacks_,
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_,
                                       true);  // server mode
 
     // Create connection
@@ -296,10 +296,10 @@ TEST_F(McpHttpFilterChainFactoryTest, DISABLED_ProcessHttpRequest) {
  * Test SSE event processing through the filter chain
  * NOTE: Disabled - requires full filter implementation
  */
-TEST_F(McpHttpFilterChainFactoryTest, DISABLED_ProcessSseEvents) {
+TEST_F(HttpSseFilterChainFactoryTest, DISABLED_ProcessSseEvents) {
   executeInDispatcher([this]() {
     // Create factory in client mode
-    McpHttpFilterChainFactory factory(*dispatcher_, *message_callbacks_,
+    HttpSseFilterChainFactory factory(*dispatcher_, *message_callbacks_,
                                       false);  // client mode
 
     // Create connection

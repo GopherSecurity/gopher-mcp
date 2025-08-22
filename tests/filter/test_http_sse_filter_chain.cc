@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/server_listener_impl.h"

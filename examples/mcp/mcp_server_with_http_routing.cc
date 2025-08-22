@@ -18,7 +18,7 @@
 
 #include "mcp/server/mcp_server.h"
 #include "mcp/filter/http_routing_filter.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
 
@@ -119,16 +119,16 @@ namespace example {
 using namespace mcp;
 using namespace mcp::filter;
 
-class HttpRoutingFilterChainFactory : public McpHttpFilterChainFactory {
+class HttpRoutingFilterChainFactory : public HttpSseFilterChainFactory {
 public:
   HttpRoutingFilterChainFactory(mcp::event::Dispatcher& dispatcher,
                                McpProtocolCallbacks& callbacks)
-      : McpHttpFilterChainFactory(dispatcher, callbacks, true),
+      : HttpSseFilterChainFactory(dispatcher, callbacks, true),
         dispatcher_(dispatcher) {}
   
   bool createFilterChain(network::FilterManager& filter_manager) const override {
     // First create the standard MCP filter chain
-    if (!McpHttpFilterChainFactory::createFilterChain(filter_manager)) {
+    if (!HttpSseFilterChainFactory::createFilterChain(filter_manager)) {
       return false;
     }
     

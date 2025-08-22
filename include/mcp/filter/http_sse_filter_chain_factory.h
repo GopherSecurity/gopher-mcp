@@ -46,7 +46,7 @@ namespace filter {
  * ```
  *
  */
-class McpHttpFilterChainFactory : public network::FilterChainFactory {
+class HttpSseFilterChainFactory : public network::FilterChainFactory {
  public:
   /**
    * Constructor
@@ -54,7 +54,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * @param message_callbacks MCP message callbacks for handling requests
    * @param is_server True for server mode, false for client mode
    */
-  McpHttpFilterChainFactory(event::Dispatcher& dispatcher,
+  HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
                             McpProtocolCallbacks& message_callbacks,
                             bool is_server = true)
       : dispatcher_(dispatcher),

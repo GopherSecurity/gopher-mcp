@@ -38,7 +38,7 @@ namespace filter {
  *              → [SSE Codec] → [JSON-RPC] → [Application]
  * ```
  */
-class McpEnhancedFilterChainFactory : public network::FilterChainFactory {
+class EnhancedFilterChainFactory : public network::FilterChainFactory {
  public:
   /**
    * Configuration for enterprise filters
@@ -72,7 +72,7 @@ class McpEnhancedFilterChainFactory : public network::FilterChainFactory {
    * @param is_server True for server mode, false for client mode
    * @param config Configuration for enterprise filters
    */
-  McpEnhancedFilterChainFactory(event::Dispatcher& dispatcher,
+  EnhancedFilterChainFactory(event::Dispatcher& dispatcher,
                                 McpProtocolCallbacks& message_callbacks,
                                 bool is_server = true,
                                 const Config& config = Config())

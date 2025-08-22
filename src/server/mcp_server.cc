@@ -10,7 +10,7 @@
 #include <future>
 
 #include "mcp/filter/json_rpc_filter_factory.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include <iostream>
 #include <sstream>
@@ -180,7 +180,7 @@ void McpServer::performListen() {
       // Following production pattern: Filters handle ALL protocol logic
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
       tcp_config.filter_chain_factory = 
-          std::make_shared<filter::McpHttpFilterChainFactory>(
+          std::make_shared<filter::HttpSseFilterChainFactory>(
               *main_dispatcher_, *message_callbacks_);
       
       tcp_config.backlog = 128;
@@ -502,7 +502,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Send response through the current connection (for TCP/HTTP connections)
     // Following production pattern: thread-local connection context
     if (current_connection_) {
-      filter::McpHttpFilterChainFactory::sendHttpResponse(response, 
+      filter::HttpSseFilterChainFactory::sendHttpResponse(response, 
                                                           *current_connection_);
     }
     
