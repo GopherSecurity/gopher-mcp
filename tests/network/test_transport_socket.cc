@@ -105,6 +105,8 @@ class TestConnection : public Connection {
   bool readHalfClosed() const override { return false; }
   bool isClosed() const override { return false; }
   bool readDisabled() const override { return false; }
+  Buffer* currentWriteBuffer() override { return write_buffer_.get(); }
+  bool currentWriteEndStream() const override { return false; }
   
   // TransportSocketCallbacks interface (Connection inherits from this)
   IoHandle& ioHandle() override { return *io_handle_; }

@@ -31,7 +31,7 @@ class TestApplication : public ApplicationBase {
     ApplicationBase::onRequest(request);
   }
 
-  void onConnectionEvent(network::ConnectionEvent event) override {
+  void onConnectionEvent(network::ConnectionEvent evt) {
     // Handle connection events
   }
 
@@ -196,7 +196,8 @@ TEST_F(ApplicationBaseRefactoredTest, JsonRpcCallbackAdapter) {
 TEST_F(ApplicationBaseRefactoredTest, ConnectionPool) {
   class TestConnectionPool : public ConnectionPool {
    public:
-    TestConnectionPool() : ConnectionPool(5, 2) {}
+    TestConnectionPool(mcp::event::Dispatcher& dispatcher) 
+        : ConnectionPool(dispatcher, 5, 2) {}
     
    protected:
     ConnectionPtr createNewConnection() override {
@@ -205,12 +206,12 @@ TEST_F(ApplicationBaseRefactoredTest, ConnectionPool) {
     }
   };
   
-  TestConnectionPool pool;
+  TestConnectionPool pool(*dispatcher_);
   
   // Verify initial state
   EXPECT_EQ(pool.getActiveConnections(), 0);
   EXPECT_EQ(pool.getTotalConnections(), 0);
-  EXPECT_EQ(pool.getIdleConnections(), 0);
+  // Note: getIdleConnections() doesn't exist in the API
 }
 
 // Test failure reason tracking
