@@ -8,6 +8,7 @@
  */
 
 #include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/network/connection.h"
 #include "mcp/json/json_serialization.h"
 #include <iostream>
 
@@ -36,9 +37,10 @@ public:
     
     // Trigger write through filter manager
     // This will flow through the filter chain in reverse order
-    // Use write callbacks to inject data if available
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method
     if (parent_.write_callbacks_) {
-      parent_.write_callbacks_->injectWriteDataToFilterChain(*buffer, false);
+      parent_.write_callbacks_->connection().write(*buffer, false);
     }
     
     return makeVoidSuccess();
@@ -58,9 +60,10 @@ public:
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(json_str);
     
-    // Use write callbacks to inject data if available
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method
     if (parent_.write_callbacks_) {
-      parent_.write_callbacks_->injectWriteDataToFilterChain(*buffer, false);
+      parent_.write_callbacks_->connection().write(*buffer, false);
     }
     
     return makeVoidSuccess();
@@ -80,9 +83,10 @@ public:
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(json_str);
     
-    // Use write callbacks to inject data if available
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method
     if (parent_.write_callbacks_) {
-      parent_.write_callbacks_->injectWriteDataToFilterChain(*buffer, false);
+      parent_.write_callbacks_->connection().write(*buffer, false);
     }
     
     return makeVoidSuccess();

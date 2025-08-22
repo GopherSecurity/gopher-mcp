@@ -213,7 +213,9 @@ void HttpCodecFilter::handleParserError(const std::string& error) {
 
 void HttpCodecFilter::sendMessageData(Buffer& data) {
   if (write_callbacks_) {
-    write_callbacks_->injectWriteDataToFilterChain(data, false);
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method
+    write_callbacks_->connection().write(data, false);
   }
 }
 
@@ -436,7 +438,9 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   std::string message_str = message.str();
   if (parent_.is_server_ && parent_.write_callbacks_) {
     parent_.message_buffer_.add(message_str.c_str(), message_str.length());
-    parent_.write_callbacks_->injectWriteDataToFilterChain(parent_.message_buffer_, false);
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method
+    parent_.write_callbacks_->connection().write(parent_.message_buffer_, false);
     parent_.message_buffer_.drain(parent_.message_buffer_.length());
   } else {
     // For client requests, store in buffer

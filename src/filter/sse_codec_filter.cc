@@ -118,7 +118,9 @@ void SseCodecFilter::dispatch(Buffer& data) {
 
 void SseCodecFilter::sendEventData(Buffer& data) {
   if (write_callbacks_) {
-    write_callbacks_->injectWriteDataToFilterChain(data, false);
+    // Write directly to connection following production pattern
+    // This replaces the deprecated injectWriteDataToFilterChain method  
+    write_callbacks_->connection().write(data, false);
   }
 }
 
