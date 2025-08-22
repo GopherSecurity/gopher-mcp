@@ -159,7 +159,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       request << "Host: localhost\r\n";
       request << "Content-Type: application/json\r\n";
       request << "Content-Length: " << body_length << "\r\n";
-      request << "Accept: application/json\r\n";
+      request << "Accept: text/event-stream\r\n";  // Support SSE responses
       request << "Connection: keep-alive\r\n";
       request << "\r\n";
       request << body_data;
