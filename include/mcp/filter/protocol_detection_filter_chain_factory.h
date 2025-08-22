@@ -28,7 +28,7 @@ namespace filter {
  * 2. Installs appropriate filters based on detection
  * 3. Handles both protocols transparently
  */
-class McpProtocolDetectionFilterChainFactory : public network::FilterChainFactory {
+class ProtocolDetectionFilterChainFactory : public network::FilterChainFactory {
 public:
   /**
    * Constructor
@@ -38,13 +38,13 @@ public:
    * @param enable_http Enable HTTP protocol detection
    * @param enable_native_mcp Enable native MCP detection
    */
-  McpProtocolDetectionFilterChainFactory(event::Dispatcher& dispatcher,
+  ProtocolDetectionFilterChainFactory(event::Dispatcher& dispatcher,
                                          McpProtocolCallbacks& callbacks,
                                          bool is_server,
                                          bool enable_http = true,
                                          bool enable_native_mcp = true);
   
-  ~McpProtocolDetectionFilterChainFactory() override = default;
+  ~ProtocolDetectionFilterChainFactory() override = default;
   
   // FilterChainFactory interface
   bool createFilterChain(network::FilterManager& filter_manager) const override;

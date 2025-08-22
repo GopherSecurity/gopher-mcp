@@ -2,9 +2,9 @@
  * MCP Protocol Detection Filter Chain Factory Implementation
  */
 
-#include "mcp/filter/mcp_protocol_detection_filter_chain_factory.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
-#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
+#include "mcp/filter/protocol_detection_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/mcp_connection_manager.h"  // For McpProtocolCallbacks
 
 namespace mcp {
@@ -36,7 +36,7 @@ private:
   McpProtocolCallbacks& mcp_callbacks_;
 };
 
-McpProtocolDetectionFilterChainFactory::McpProtocolDetectionFilterChainFactory(
+ProtocolDetectionFilterChainFactory::ProtocolDetectionFilterChainFactory(
     event::Dispatcher& dispatcher,
     McpProtocolCallbacks& callbacks,
     bool is_server,
@@ -48,7 +48,7 @@ McpProtocolDetectionFilterChainFactory::McpProtocolDetectionFilterChainFactory(
       enable_http_(enable_http),
       enable_native_mcp_(enable_native_mcp) {}
 
-bool McpProtocolDetectionFilterChainFactory::createFilterChain(
+bool ProtocolDetectionFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // For now, we'll create a simplified approach:
@@ -90,7 +90,7 @@ bool McpProtocolDetectionFilterChainFactory::createFilterChain(
 }
 
 network::FilterSharedPtr 
-McpProtocolDetectionFilterChainFactory::createProtocolDetectionFilter() const {
+ProtocolDetectionFilterChainFactory::createProtocolDetectionFilter() const {
   // Create protocol detection filter
   auto filter = std::make_shared<ProtocolDetectionFilter>(
       [this](DetectedProtocol protocol, const ProtocolDetectionResult& result) {
@@ -101,7 +101,7 @@ McpProtocolDetectionFilterChainFactory::createProtocolDetectionFilter() const {
   return filter;
 }
 
-bool McpProtocolDetectionFilterChainFactory::createNetworkFilterChain(
+bool ProtocolDetectionFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& factories) const {
   // Apply any additional filter factories first
@@ -117,14 +117,14 @@ bool McpProtocolDetectionFilterChainFactory::createNetworkFilterChain(
   return createFilterChain(filter_manager);
 }
 
-bool McpProtocolDetectionFilterChainFactory::createListenerFilterChain(
+bool ProtocolDetectionFilterChainFactory::createListenerFilterChain(
     network::FilterManager& filter_manager) const {
   // Server-side listener filter chain
   // For now, just delegate to createFilterChain
   return createFilterChain(filter_manager);
 }
 
-void McpProtocolDetectionFilterChainFactory::onProtocolDetected(
+void ProtocolDetectionFilterChainFactory::onProtocolDetected(
     network::FilterManager& filter_manager,
     DetectedProtocol protocol,
     const ProtocolDetectionResult& result) const {
@@ -135,7 +135,7 @@ void McpProtocolDetectionFilterChainFactory::onProtocolDetected(
     case DetectedProtocol::SSE: {
       if (enable_http_) {
         // Create HTTP/SSE filter chain
-        auto http_factory = std::make_shared<McpHttpFilterChainFactory>(
+        auto http_factory = std::make_shared<HttpSseFilterChainFactory>(
             dispatcher_, callbacks_, is_server_);
         
         // Add HTTP filters after detection filter
@@ -149,7 +149,7 @@ void McpProtocolDetectionFilterChainFactory::onProtocolDetected(
     case DetectedProtocol::JsonRpc: {
       if (enable_native_mcp_) {
         // Create native MCP filter chain
-        auto stdio_factory = std::make_shared<McpStdioFilterChainFactory>(
+        auto stdio_factory = std::make_shared<StdioFilterChainFactory>(
             dispatcher_, callbacks_, is_server_, true);
         
         // Add MCP filters after detection filter

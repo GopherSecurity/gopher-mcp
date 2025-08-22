@@ -878,9 +878,9 @@ target_link_libraries(test_mcp_protocol_state_machine
 )
 add_test(NAME McpProtocolStateMachineTest COMMAND test_mcp_protocol_state_machine)
 
-# MCP Stdio Filter Chain Factory Tests
-add_executable(test_mcp_stdio_filter_chain_factory filter/test_mcp_stdio_filter_chain_factory.cc)
-target_link_libraries(test_mcp_stdio_filter_chain_factory 
+# Stdio Filter Chain Factory Tests
+add_executable(test_stdio_filter_chain_factory filter/test_stdio_filter_chain_factory.cc)
+target_link_libraries(test_stdio_filter_chain_factory 
     mcp-sdk
     mcp-event
     gtest 
@@ -888,7 +888,7 @@ target_link_libraries(test_mcp_stdio_filter_chain_factory
     gmock
     Threads::Threads
 )
-add_test(NAME McpStdioFilterChainFactoryTest COMMAND test_mcp_stdio_filter_chain_factory)
+add_test(NAME StdioFilterChainFactoryTest COMMAND test_stdio_filter_chain_factory)
 
 # JSON-RPC Filter Factory Tests
 add_executable(test_json_rpc_filter_factory filter/test_json_rpc_filter_factory.cc)
@@ -902,9 +902,9 @@ target_link_libraries(test_json_rpc_filter_factory
 )
 add_test(NAME JsonRpcFilterFactoryTest COMMAND test_json_rpc_filter_factory)
 
-# MCP HTTP Filter Chain Factory Tests
-add_executable(test_mcp_http_filter_chain_factory filter/test_mcp_http_filter_chain_factory.cc)
-target_link_libraries(test_mcp_http_filter_chain_factory 
+# HTTP SSE Filter Chain Factory Tests
+add_executable(test_http_sse_filter_chain_factory filter/test_http_sse_filter_chain_factory.cc)
+target_link_libraries(test_http_sse_filter_chain_factory 
     mcp-sdk
     mcp-event
     gtest 
@@ -912,7 +912,7 @@ target_link_libraries(test_mcp_http_filter_chain_factory
     gmock
     Threads::Threads
 )
-add_test(NAME McpHttpFilterChainFactoryTest COMMAND test_mcp_http_filter_chain_factory)
+add_test(NAME HttpSseFilterChainFactoryTest COMMAND test_http_sse_filter_chain_factory)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES

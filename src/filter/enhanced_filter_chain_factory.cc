@@ -9,7 +9,7 @@
  * - Stability with backpressure management
  */
 
-#include "mcp/filter/mcp_enhanced_filter_chain_factory.h"
+#include "mcp/filter/enhanced_filter_chain_factory.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
@@ -36,7 +36,7 @@ public:
   McpEnhancedFilter(event::Dispatcher& dispatcher,
                    McpProtocolCallbacks& mcp_callbacks,
                    bool is_server,
-                   const McpEnhancedFilterChainFactory::Config& config)
+                   const EnhancedFilterChainFactory::Config& config)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
@@ -377,7 +377,7 @@ private:
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
-  McpEnhancedFilterChainFactory::Config config_;
+  EnhancedFilterChainFactory::Config config_;
   
   // Enterprise filters
   std::shared_ptr<CircuitBreakerFilter> circuit_breaker_;
@@ -400,7 +400,7 @@ private:
 
 // ===== Factory Implementation =====
 
-bool McpEnhancedFilterChainFactory::createFilterChain(
+bool EnhancedFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Create the enhanced filter with all features
@@ -438,7 +438,7 @@ bool McpEnhancedFilterChainFactory::createFilterChain(
   return true;
 }
 
-bool McpEnhancedFilterChainFactory::createNetworkFilterChain(
+bool EnhancedFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& filter_factories) const {
   

@@ -4,9 +4,9 @@
 #include <sstream>
 
 #include "mcp/core/result.h"
-#include "mcp/filter/mcp_http_filter_chain_factory.h"
-#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
-#include "mcp/filter/mcp_protocol_detection_filter_chain_factory.h"
+#include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/stdio_filter_chain_factory.h"
+#include "mcp/filter/protocol_detection_filter_chain_factory.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
@@ -607,7 +607,7 @@ McpConnectionManager::createFilterChainFactory() {
     // Use protocol detection to automatically determine HTTP vs native MCP
     // This allows the client to connect to any server without knowing
     // the protocol in advance
-    return std::make_shared<filter::McpProtocolDetectionFilterChainFactory>(
+    return std::make_shared<filter::ProtocolDetectionFilterChainFactory>(
         dispatcher_, *this, is_server_,
         true,  // enable_http
         true   // enable_native_mcp
@@ -623,7 +623,7 @@ McpConnectionManager::createFilterChainFactory() {
     // - SSE codec for event streams
     // - JSON-RPC for message protocol
     
-    return std::make_shared<filter::McpHttpFilterChainFactory>(
+    return std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_);
     
   } else {
@@ -632,7 +632,7 @@ McpConnectionManager::createFilterChainFactory() {
     // 
     // No protocol stack needed - just JSON-RPC message handling
     
-    return std::make_shared<filter::McpStdioFilterChainFactory>(
+    return std::make_shared<filter::StdioFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.use_message_framing);
   }
 }

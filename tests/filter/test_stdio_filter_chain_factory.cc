@@ -14,7 +14,7 @@
 #include <sys/socket.h>
 
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
+#include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
@@ -44,9 +44,9 @@ class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
 };
 
 /**
- * Test fixture for McpStdioFilterChainFactory using real I/O
+ * Test fixture for StdioFilterChainFactory using real I/O
  */
-class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
+class StdioFilterChainFactoryTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
@@ -62,7 +62,7 @@ class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
   void testFilterChain(bool is_server, bool use_framing) {
     executeInDispatcher([this, is_server, use_framing]() {
       // Create factory
-      auto factory = std::make_shared<McpStdioFilterChainFactory>(
+      auto factory = std::make_shared<StdioFilterChainFactory>(
           *dispatcher_, *message_callbacks_, is_server, use_framing);
 
       // Create mock connection for filter manager
@@ -108,14 +108,14 @@ class McpStdioFilterChainFactoryTest : public test::RealIoTestBase {
 /**
  * Test filter chain creation for client mode
  */
-TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainClientMode) {
+TEST_F(StdioFilterChainFactoryTest, CreateFilterChainClientMode) {
   testFilterChain(false, true);  // client mode, with framing
 }
 
 /**
  * Test filter chain creation for server mode
  */
-TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainServerMode) {
+TEST_F(StdioFilterChainFactoryTest, CreateFilterChainServerMode) {
   testFilterChain(true, false);  // server mode, without framing
 }
 
@@ -123,13 +123,13 @@ TEST_F(McpStdioFilterChainFactoryTest, CreateFilterChainServerMode) {
  * Test filter lifetime management
  * Verifies that the filter wrapper owns callbacks and they outlive the factory
  */
-TEST_F(McpStdioFilterChainFactoryTest, FilterLifetimeManagement) {
+TEST_F(StdioFilterChainFactoryTest, FilterLifetimeManagement) {
   executeInDispatcher([this]() {
     network::FilterSharedPtr captured_filter;
 
     {
       // Create factory in a scope
-      McpStdioFilterChainFactory factory(*dispatcher_, *message_callbacks_,
+      StdioFilterChainFactory factory(*dispatcher_, *message_callbacks_,
                                          false,  // client mode
                                          true);  // use framing
 
@@ -218,9 +218,9 @@ protected:
     server_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
     
     // Create factories
-    auto client_factory = std::make_shared<McpStdioFilterChainFactory>(
+    auto client_factory = std::make_shared<StdioFilterChainFactory>(
         *dispatcher_, *client_callbacks_, false, false); // client, no framing
-    auto server_factory = std::make_shared<McpStdioFilterChainFactory>(
+    auto server_factory = std::make_shared<StdioFilterChainFactory>(
         *dispatcher_, *server_callbacks_, true, false);  // server, no framing
     
     // Create client connection
@@ -405,9 +405,9 @@ TEST_F(McpStdioFilterChainIntegrationTest, WithFraming) {
     server_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
     
     // Create factories with framing
-    auto client_factory = std::make_shared<McpStdioFilterChainFactory>(
+    auto client_factory = std::make_shared<StdioFilterChainFactory>(
         *dispatcher_, *client_callbacks_, false, true); // client, with framing
-    auto server_factory = std::make_shared<McpStdioFilterChainFactory>(
+    auto server_factory = std::make_shared<StdioFilterChainFactory>(
         *dispatcher_, *server_callbacks_, true, true);  // server, with framing
     
     // Recreate connections (similar to setupConnections)

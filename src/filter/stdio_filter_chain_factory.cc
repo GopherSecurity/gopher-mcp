@@ -4,7 +4,7 @@
  * Simple filter chain for direct transports without protocol stacks
  */
 
-#include "mcp/filter/mcp_stdio_filter_chain_factory.h"
+#include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 
 namespace mcp {
@@ -85,7 +85,7 @@ private:
   std::shared_ptr<JsonRpcProtocolFilter> jsonrpc_filter_;
 };
 
-bool McpStdioFilterChainFactory::createFilterChain(
+bool StdioFilterChainFactory::createFilterChain(
     network::FilterManager& filter_manager) const {
   
   // Create wrapper filter that owns its callbacks
@@ -103,7 +103,7 @@ bool McpStdioFilterChainFactory::createFilterChain(
   return true;
 }
 
-bool McpStdioFilterChainFactory::createNetworkFilterChain(
+bool StdioFilterChainFactory::createNetworkFilterChain(
     network::FilterManager& filter_manager,
     const std::vector<network::FilterFactoryCb>& filter_factories) const {
   
