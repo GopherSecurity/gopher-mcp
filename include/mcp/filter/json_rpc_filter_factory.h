@@ -12,7 +12,7 @@ namespace filter {
  * Direct callbacks adapter for JSON-RPC to MCP
  * Simply forwards JSON-RPC messages to MCP callbacks
  */
-class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
+class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
  public:
   DirectJsonRpcCallbacks(McpProtocolCallbacks& mcp_callbacks)
       : mcp_callbacks_(mcp_callbacks) {}

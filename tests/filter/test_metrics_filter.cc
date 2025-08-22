@@ -35,7 +35,7 @@ class MockMetricsCallbacks : public MetricsFilter::MetricsCallbacks {
 };
 
 // Mock JSON-RPC callbacks
-class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
+class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
  public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request& request), (override));
   MOCK_METHOD(void,

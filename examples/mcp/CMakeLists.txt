@@ -35,29 +35,7 @@ target_link_libraries(mcp_server_with_http_routing
     ${LIBEVENT_LIBRARIES}
 )
 
-# Protocol detection example
-add_executable(protocol_detection_example 
-    ../protocol_detection_example.cc
-)
-
-target_link_libraries(protocol_detection_example 
-    mcp-sdk 
-    mcp-event
-    ${LIBEVENT_LIBRARIES}
-)
-
-# MCP Client with Protocol Detection
-add_executable(mcp_client_with_protocol_detection
-    mcp_client_with_protocol_detection.cc
-)
-
-target_link_libraries(mcp_client_with_protocol_detection
-    mcp-sdk
-    mcp-event
-    ${LIBEVENT_LIBRARIES}
-)
-
 # Install targets
-install(TARGETS mcp_example_client mcp_example_server mcp_server_with_http_routing protocol_detection_example mcp_client_with_protocol_detection
+install(TARGETS mcp_example_client mcp_example_server mcp_server_with_http_routing
     RUNTIME DESTINATION bin
 )

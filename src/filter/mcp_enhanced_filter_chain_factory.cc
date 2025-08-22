@@ -267,7 +267,7 @@ public:
     std::cerr << "[SSE Error] " << error << std::endl;
   }
   
-  // ===== JsonRpcProtocolFilter::Callbacks =====
+  // ===== JsonRpcProtocolFilter::MessageHandler =====
   
   void onRequest(const jsonrpc::Request& request) override {
     // Track metrics
