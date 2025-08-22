@@ -864,6 +864,18 @@ target_link_libraries(test_mcp_jsonrpc_filter
 )
 add_test(NAME McpJsonRpcFilterTest COMMAND test_mcp_jsonrpc_filter)
 
+# MCP Protocol State Machine Tests
+add_executable(test_mcp_protocol_state_machine protocol/test_mcp_protocol_state_machine.cc)
+target_link_libraries(test_mcp_protocol_state_machine 
+    mcp-sdk
+    mcp-event
+    gtest 
+    gtest_main 
+    gmock
+    Threads::Threads
+)
+add_test(NAME McpProtocolStateMachineTest COMMAND test_mcp_protocol_state_machine)
+
 # MCP Stdio Filter Chain Factory Tests
 add_executable(test_mcp_stdio_filter_chain_factory filter/test_mcp_stdio_filter_chain_factory.cc)
 target_link_libraries(test_mcp_stdio_filter_chain_factory 
