@@ -5,7 +5,7 @@
  */
 
 #include "mcp/filter/mcp_stdio_filter_chain_factory.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 
 namespace mcp {
 namespace filter {
@@ -14,9 +14,9 @@ namespace filter {
  * Direct callbacks adapter for JSON-RPC to MCP
  * Simply forwards JSON-RPC messages to MCP callbacks
  */
-class DirectJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
+class DirectJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
 public:
-  DirectJsonRpcCallbacks(McpMessageCallbacks& mcp_callbacks)
+  DirectJsonRpcCallbacks(McpProtocolCallbacks& mcp_callbacks)
       : mcp_callbacks_(mcp_callbacks) {}
   
   void onRequest(const jsonrpc::Request& request) override {
@@ -36,7 +36,7 @@ public:
   }
   
 private:
-  McpMessageCallbacks& mcp_callbacks_;
+  McpProtocolCallbacks& mcp_callbacks_;
 };
 
 /**
@@ -46,11 +46,11 @@ private:
 class StdioJsonRpcFilterWrapper : public network::NetworkFilterBase {
 public:
   StdioJsonRpcFilterWrapper(event::Dispatcher& dispatcher,
-                           McpMessageCallbacks& message_callbacks,
+                           McpProtocolCallbacks& message_callbacks,
                            bool is_server,
                            bool use_framing)
       : callbacks_adapter_(std::make_shared<DirectJsonRpcCallbacks>(message_callbacks)),
-        jsonrpc_filter_(std::make_shared<McpJsonRpcFilter>(
+        jsonrpc_filter_(std::make_shared<JsonRpcProtocolFilter>(
             *callbacks_adapter_,
             dispatcher,
             is_server)) {
@@ -82,7 +82,7 @@ public:
 private:
   // Own the callbacks adapter to ensure it outlives the filter
   std::shared_ptr<DirectJsonRpcCallbacks> callbacks_adapter_;
-  std::shared_ptr<McpJsonRpcFilter> jsonrpc_filter_;
+  std::shared_ptr<JsonRpcProtocolFilter> jsonrpc_filter_;
 };
 
 bool McpStdioFilterChainFactory::createFilterChain(

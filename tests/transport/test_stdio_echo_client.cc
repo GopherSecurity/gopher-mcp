@@ -96,7 +96,7 @@ protected:
    * - Maintains pending/completed request maps for verification
    * - Thread-safe: connection initiated from dispatcher thread
    */
-  class MockEchoClient : public McpMessageCallbacks {
+  class MockEchoClient : public McpProtocolCallbacks {
   public:
     MockEchoClient(event::Dispatcher& dispatcher,
                    int stdin_fd, int stdout_fd)
@@ -184,7 +184,7 @@ protected:
       connection_manager_->sendNotification(notification);
     }
     
-    // McpMessageCallbacks
+    // McpProtocolCallbacks
     void onRequest(const jsonrpc::Request& request) override {
       received_requests_.push_back(request);
       

@@ -24,7 +24,7 @@
 namespace mcp {
 namespace filter {
 class HttpCodecFilter;
-class McpJsonRpcFilter;
+class JsonRpcProtocolFilter;
 class SseCodecFilter;
 class HttpRoutingFilter;
 } // namespace filter

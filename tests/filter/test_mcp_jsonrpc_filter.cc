@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "mcp/buffer.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
@@ -31,7 +31,7 @@ using ::testing::Return;
 /**
  * Mock callbacks for JSON-RPC filter
  */
-class MockJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
+class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
  public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));
@@ -40,9 +40,9 @@ class MockJsonRpcCallbacks : public McpJsonRpcFilter::Callbacks {
 };
 
 /**
- * Test fixture for McpJsonRpcFilter using real I/O
+ * Test fixture for JsonRpcProtocolFilter using real I/O
  */
-class McpJsonRpcFilterTest : public test::RealIoTestBase {
+class JsonRpcProtocolFilterTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
@@ -52,7 +52,7 @@ class McpJsonRpcFilterTest : public test::RealIoTestBase {
     // Create filter in dispatcher thread
     executeInDispatcher([this]() {
       filter_ =
-          std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+          std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
                                              false);  // client mode by default
     });
   }
@@ -75,18 +75,18 @@ class McpJsonRpcFilterTest : public test::RealIoTestBase {
   }
 
   // Helper to test encoder
-  void testEncoder(std::function<void(McpJsonRpcFilter::Encoder&)> test_func) {
+  void testEncoder(std::function<void(JsonRpcProtocolFilter::Encoder&)> test_func) {
     executeInDispatcher([this, test_func]() { test_func(filter_->encoder()); });
   }
 
   std::unique_ptr<MockJsonRpcCallbacks> callbacks_;
-  std::unique_ptr<McpJsonRpcFilter> filter_;
+  std::unique_ptr<JsonRpcProtocolFilter> filter_;
 };
 
 /**
  * Test parsing JSON-RPC request
  */
-TEST_F(McpJsonRpcFilterTest, ParseRequest) {
+TEST_F(JsonRpcProtocolFilterTest, ParseRequest) {
   // Expect onRequest to be called
   EXPECT_CALL(*callbacks_, onRequest(_))
       .WillOnce([](const jsonrpc::Request& req) {
@@ -107,10 +107,10 @@ TEST_F(McpJsonRpcFilterTest, ParseRequest) {
 /**
  * Test parsing JSON-RPC notification
  */
-TEST_F(McpJsonRpcFilterTest, ParseNotification) {
+TEST_F(JsonRpcProtocolFilterTest, ParseNotification) {
   // Create filter in server mode
   executeInDispatcher([this]() {
-    filter_ = std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+    filter_ = std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
                                                  true);  // server mode
   });
 
@@ -132,7 +132,7 @@ TEST_F(McpJsonRpcFilterTest, ParseNotification) {
 /**
  * Test parsing JSON-RPC response
  */
-TEST_F(McpJsonRpcFilterTest, ParseResponse) {
+TEST_F(JsonRpcProtocolFilterTest, ParseResponse) {
   // Expect onResponse to be called
   EXPECT_CALL(*callbacks_, onResponse(_))
       .WillOnce([](const jsonrpc::Response& resp) {
@@ -152,7 +152,7 @@ TEST_F(McpJsonRpcFilterTest, ParseResponse) {
 /**
  * Test parsing error response
  */
-TEST_F(McpJsonRpcFilterTest, ParseErrorResponse) {
+TEST_F(JsonRpcProtocolFilterTest, ParseErrorResponse) {
   // Expect onResponse to be called with error
   EXPECT_CALL(*callbacks_, onResponse(_))
       .WillOnce([](const jsonrpc::Response& resp) {
@@ -172,7 +172,7 @@ TEST_F(McpJsonRpcFilterTest, ParseErrorResponse) {
 /**
  * Test handling invalid JSON
  */
-TEST_F(McpJsonRpcFilterTest, InvalidJson) {
+TEST_F(JsonRpcProtocolFilterTest, InvalidJson) {
   // Expect protocol error to be called
   EXPECT_CALL(*callbacks_, onProtocolError(_)).WillOnce([](const Error& error) {
     EXPECT_EQ(jsonrpc::PARSE_ERROR, error.code);
@@ -188,7 +188,7 @@ TEST_F(McpJsonRpcFilterTest, InvalidJson) {
 /**
  * Test message framing mode
  */
-TEST_F(McpJsonRpcFilterTest, MessageFraming) {
+TEST_F(JsonRpcProtocolFilterTest, MessageFraming) {
   executeInDispatcher([this]() {
     filter_->setUseFraming(true);  // Enable framing
   });
@@ -211,7 +211,7 @@ TEST_F(McpJsonRpcFilterTest, MessageFraming) {
 /**
  * Test partial message handling
  */
-TEST_F(McpJsonRpcFilterTest, PartialMessage) {
+TEST_F(JsonRpcProtocolFilterTest, PartialMessage) {
   // Expect one complete request
   EXPECT_CALL(*callbacks_, onRequest(_)).Times(1);
 
@@ -232,10 +232,10 @@ TEST_F(McpJsonRpcFilterTest, PartialMessage) {
 /**
  * Test multiple messages in one buffer
  */
-TEST_F(McpJsonRpcFilterTest, MultipleMessages) {
+TEST_F(JsonRpcProtocolFilterTest, MultipleMessages) {
   // Create filter in server mode
   executeInDispatcher([this]() {
-    filter_ = std::make_unique<McpJsonRpcFilter>(*callbacks_, *dispatcher_,
+    filter_ = std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
                                                  true);  // server mode
   });
 
@@ -261,7 +261,7 @@ TEST_F(McpJsonRpcFilterTest, MultipleMessages) {
 /**
  * Test onNewConnection resets state
  */
-TEST_F(McpJsonRpcFilterTest, NewConnectionResetsState) {
+TEST_F(JsonRpcProtocolFilterTest, NewConnectionResetsState) {
   // Send partial message
   processData(R"({"jsonrpc":"2.0","id":1,)");
 
@@ -280,7 +280,7 @@ TEST_F(McpJsonRpcFilterTest, NewConnectionResetsState) {
 /**
  * Test write filter adds framing
  */
-TEST_F(McpJsonRpcFilterTest, WriteFilterAddsFraming) {
+TEST_F(JsonRpcProtocolFilterTest, WriteFilterAddsFraming) {
   executeInDispatcher([this]() {
     filter_->setUseFraming(true);  // Enable framing
   });
@@ -310,7 +310,7 @@ TEST_F(McpJsonRpcFilterTest, WriteFilterAddsFraming) {
  * NOTE: Disabled due to issues with real I/O test infrastructure
  */
 #if 0
-class McpJsonRpcFilterIntegrationTest : public test::RealIoTestBase,
+class JsonRpcProtocolFilterIntegrationTest : public test::RealIoTestBase,
                                          public network::ConnectionCallbacks {
 protected:
   void SetUp() override {
@@ -373,9 +373,9 @@ protected:
     client_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
     server_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
     
-    auto client_filter = std::make_shared<McpJsonRpcFilter>(
+    auto client_filter = std::make_shared<JsonRpcProtocolFilter>(
         *client_callbacks_, *dispatcher_, false);
-    auto server_filter = std::make_shared<McpJsonRpcFilter>(
+    auto server_filter = std::make_shared<JsonRpcProtocolFilter>(
         *server_callbacks_, *dispatcher_, true);
     
     client_connection_->filterManager().addReadFilter(client_filter);
@@ -408,7 +408,7 @@ protected:
 /**
  * Test end-to-end message flow
  */
-TEST_F(McpJsonRpcFilterIntegrationTest, EndToEndMessageFlow) {
+TEST_F(JsonRpcProtocolFilterIntegrationTest, EndToEndMessageFlow) {
   // Server should receive request
   EXPECT_CALL(*server_callbacks_, onRequest(_))
       .WillOnce([](const jsonrpc::Request& req) {

@@ -9,7 +9,7 @@ namespace mcp {
 namespace {
 
 // Mock MCP message callbacks
-class MockMcpMessageCallbacks : public McpMessageCallbacks {
+class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
 public:
   void onRequest(const jsonrpc::Request& request) override {
     request_called_++;
@@ -50,8 +50,8 @@ public:
 };
 
 // JsonRpcMessageFilter tests
-// NOTE: JsonRpcMessageFilter has been removed in favor of McpJsonRpcFilter
-// These tests are temporarily disabled and should be rewritten for McpJsonRpcFilter
+// NOTE: JsonRpcMessageFilter has been removed in favor of JsonRpcProtocolFilter
+// These tests are temporarily disabled and should be rewritten for JsonRpcProtocolFilter
 
 /*
 class JsonRpcMessageFilterTest : public ::testing::Test {
@@ -62,12 +62,12 @@ protected:
     filter_->setUseFraming(false);
   }
   
-  MockMcpMessageCallbacks callbacks_;
+  MockMcpProtocolCallbacks callbacks_;
   std::unique_ptr<JsonRpcMessageFilter> filter_;
 };
 */
 
-/* Disabled - JsonRpcMessageFilter removed in favor of McpJsonRpcFilter
+/* Disabled - JsonRpcMessageFilter removed in favor of JsonRpcProtocolFilter
 TEST_F(JsonRpcMessageFilterTest, ParseRequest) {
   // Create JSON-RPC request
   std::string request_json = R"({"jsonrpc":"2.0","id":123,"method":"test_method","params":{"key":"value"}})";
@@ -275,7 +275,7 @@ protected:
   network::SocketInterface* socket_interface_;
   McpConnectionConfig config_;
   std::unique_ptr<McpConnectionManager> manager_;
-  MockMcpMessageCallbacks callbacks_;
+  MockMcpProtocolCallbacks callbacks_;
 };
 
 TEST_F(McpConnectionManagerTest, InitialState) {

@@ -4,14 +4,14 @@
 
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 
 // Forward declarations
 namespace mcp {
-class McpMessageCallbacks;
+class McpProtocolCallbacks;
 
 namespace filter {
 class HttpRoutingFilter;
@@ -55,7 +55,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
    * @param is_server True for server mode, false for client mode
    */
   McpHttpFilterChainFactory(event::Dispatcher& dispatcher,
-                            McpMessageCallbacks& message_callbacks,
+                            McpProtocolCallbacks& message_callbacks,
                             bool is_server = true)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
@@ -104,7 +104,7 @@ class McpHttpFilterChainFactory : public network::FilterChainFactory {
 
  private:
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& message_callbacks_;
+  McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 

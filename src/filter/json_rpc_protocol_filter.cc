@@ -1,5 +1,5 @@
 /**
- * MCP JSON-RPC Protocol Filter Implementation
+ * JSON-RPC Protocol Filter Implementation
  * 
  * Following production architecture patterns:
  * - Pure protocol processing, no I/O or transport concerns
@@ -7,7 +7,7 @@
  * - Stateless message processing
  */
 
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/json/json_serialization.h"
 #include <iostream>
@@ -17,9 +17,9 @@ namespace filter {
 
 // EncoderImpl - Internal implementation of the encoder interface
 // Forward declare to access write_callbacks_
-class McpJsonRpcFilter::EncoderImpl : public McpJsonRpcFilter::Encoder {
+class JsonRpcProtocolFilter::EncoderImpl : public JsonRpcProtocolFilter::Encoder {
 public:
-  EncoderImpl(McpJsonRpcFilter& parent) : parent_(parent) {}
+  EncoderImpl(JsonRpcProtocolFilter& parent) : parent_(parent) {}
   
   VoidResult encodeRequest(const jsonrpc::Request& request) override {
     // Convert request to JSON
@@ -93,41 +93,41 @@ public:
   }
   
 private:
-  McpJsonRpcFilter& parent_;
+  JsonRpcProtocolFilter& parent_;
 };
 
-// McpJsonRpcFilter implementation
+// JsonRpcProtocolFilter implementation
 
-McpJsonRpcFilter::McpJsonRpcFilter(Callbacks& callbacks,
+JsonRpcProtocolFilter::JsonRpcProtocolFilter(MessageHandler& handler,
                                    event::Dispatcher& dispatcher,
-                                   bool is_server)
-    : callbacks_(callbacks),
+                                             bool is_server)
+    : handler_(handler),
       dispatcher_(dispatcher),
       is_server_(is_server),
       encoder_(std::make_unique<EncoderImpl>(*this)) {}
 
-McpJsonRpcFilter::~McpJsonRpcFilter() {
+JsonRpcProtocolFilter::~JsonRpcProtocolFilter() {
   // Destructor defined here where EncoderImpl is complete
 }
 
-McpJsonRpcFilter::Encoder& McpJsonRpcFilter::encoder() {
+JsonRpcProtocolFilter::Encoder& JsonRpcProtocolFilter::encoder() {
   return *encoder_;
 }
 
-void McpJsonRpcFilter::initializeReadFilterCallbacks(
+void JsonRpcProtocolFilter::initializeReadFilterCallbacks(
     network::ReadFilterCallbacks& callbacks) {
   // Store read callbacks for potential use
   // JSON-RPC filter doesn't need special read initialization
 }
 
-void McpJsonRpcFilter::initializeWriteFilterCallbacks(
+void JsonRpcProtocolFilter::initializeWriteFilterCallbacks(
     network::WriteFilterCallbacks& callbacks) {
   // Store write callbacks for encoder use
   // This allows the encoder to inject data into the filter chain
   write_callbacks_ = &callbacks;
 }
 
-network::FilterStatus McpJsonRpcFilter::onData(Buffer& data, bool end_stream) {
+network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data, bool end_stream) {
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);
@@ -143,7 +143,7 @@ network::FilterStatus McpJsonRpcFilter::onData(Buffer& data, bool end_stream) {
   return network::FilterStatus::Continue;
 }
 
-network::FilterStatus McpJsonRpcFilter::onNewConnection() {
+network::FilterStatus JsonRpcProtocolFilter::onNewConnection() {
   // Reset state for new connection
   partial_message_.clear();
   requests_received_ = 0;
@@ -154,7 +154,7 @@ network::FilterStatus McpJsonRpcFilter::onNewConnection() {
   return network::FilterStatus::Continue;
 }
 
-network::FilterStatus McpJsonRpcFilter::onWrite(Buffer& data, bool end_stream) {
+network::FilterStatus JsonRpcProtocolFilter::onWrite(Buffer& data, bool end_stream) {
   (void)end_stream;
   
   // Frame outgoing messages if configured
@@ -165,12 +165,12 @@ network::FilterStatus McpJsonRpcFilter::onWrite(Buffer& data, bool end_stream) {
   return network::FilterStatus::Continue;
 }
 
-void McpJsonRpcFilter::parseMessages(Buffer& buffer) {
+void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
   // Convert buffer to string and drain it
   std::string buffer_str = buffer.toString();
   buffer.drain(buffer.length());
   
-  std::cerr << "[DEBUG] McpJsonRpcFilter::parseMessages called with " 
+  std::cerr << "[DEBUG] JsonRpcProtocolFilter::parseMessages called with " 
             << buffer_str.length() << " bytes: " << buffer_str << std::endl;
   
   // Add to partial message buffer
@@ -212,8 +212,8 @@ void McpJsonRpcFilter::parseMessages(Buffer& buffer) {
   }
 }
 
-bool McpJsonRpcFilter::parseMessage(const std::string& json_str) {
-  std::cerr << "[DEBUG] McpJsonRpcFilter::parseMessage called with: " << json_str << std::endl;
+bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
+  std::cerr << "[DEBUG] JsonRpcProtocolFilter::parseMessage called with: " << json_str << std::endl;
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
@@ -227,27 +227,27 @@ bool McpJsonRpcFilter::parseMessage(const std::string& json_str) {
         // JSON-RPC Request
         jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
         requests_received_++;
-        std::cerr << "[DEBUG] Calling callbacks_.onRequest" << std::endl;
-        callbacks_.onRequest(request);
+        std::cerr << "[DEBUG] Calling handler_.onRequest" << std::endl;
+        handler_.onRequest(request);
       } else {
         std::cerr << "[DEBUG] Message is a notification" << std::endl;
         // JSON-RPC Notification
         jsonrpc::Notification notification = json::from_json<jsonrpc::Notification>(json_val);
         notifications_received_++;
-        callbacks_.onNotification(notification);
+        handler_.onNotification(notification);
       }
     } else if (json_val.contains("result") || json_val.contains("error")) {
       // JSON-RPC Response
       jsonrpc::Response response = json::from_json<jsonrpc::Response>(json_val);
       responses_received_++;
-      callbacks_.onResponse(response);
+      handler_.onResponse(response);
     } else {
       // Invalid JSON-RPC message
       Error error;
       error.code = jsonrpc::INVALID_REQUEST;
       error.message = "Invalid JSON-RPC message format";
       protocol_errors_++;
-      callbacks_.onProtocolError(error);
+      handler_.onProtocolError(error);
       return false;
     }
     
@@ -259,7 +259,7 @@ bool McpJsonRpcFilter::parseMessage(const std::string& json_str) {
     error.code = jsonrpc::PARSE_ERROR;
     error.message = "JSON parse error: " + std::string(e.what());
     protocol_errors_++;
-    callbacks_.onProtocolError(error);
+    handler_.onProtocolError(error);
     return false;
     
   } catch (const std::exception& e) {
@@ -268,12 +268,12 @@ bool McpJsonRpcFilter::parseMessage(const std::string& json_str) {
     error.code = jsonrpc::INTERNAL_ERROR;
     error.message = "Internal error: " + std::string(e.what());
     protocol_errors_++;
-    callbacks_.onProtocolError(error);
+    handler_.onProtocolError(error);
     return false;
   }
 }
 
-void McpJsonRpcFilter::frameMessage(Buffer& data) {
+void JsonRpcProtocolFilter::frameMessage(Buffer& data) {
   if (!use_framing_ || data.length() == 0) {
     return;
   }

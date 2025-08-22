@@ -122,7 +122,7 @@ using namespace mcp::filter;
 class HttpRoutingFilterChainFactory : public McpHttpFilterChainFactory {
 public:
   HttpRoutingFilterChainFactory(mcp::event::Dispatcher& dispatcher,
-                               McpMessageCallbacks& callbacks)
+                               McpProtocolCallbacks& callbacks)
       : McpHttpFilterChainFactory(dispatcher, callbacks, true),
         dispatcher_(dispatcher) {}
   

@@ -4,7 +4,7 @@
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 
-// Need full definition of McpMessageCallbacks
+// Need full definition of McpProtocolCallbacks
 #include "mcp/mcp_connection_manager.h"
 
 namespace mcp {
@@ -34,7 +34,7 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
    * @param use_framing Whether to use length-prefixed framing
    */
   McpStdioFilterChainFactory(event::Dispatcher& dispatcher,
-                             McpMessageCallbacks& message_callbacks,
+                             McpProtocolCallbacks& message_callbacks,
                              bool is_server,
                              bool use_framing = true)
       : dispatcher_(dispatcher),
@@ -66,7 +66,7 @@ class McpStdioFilterChainFactory : public network::FilterChainFactory {
 
  private:
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& message_callbacks_;
+  McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
   bool use_framing_;
 };

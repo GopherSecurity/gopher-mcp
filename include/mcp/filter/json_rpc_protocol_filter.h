@@ -32,15 +32,15 @@ namespace filter {
  * - Handle protocol-level errors
  *
  */
-class McpJsonRpcFilter : public network::Filter {
+class JsonRpcProtocolFilter : public network::Filter {
  public:
   /**
-   * Callbacks for JSON-RPC message events
+   * Message handler for JSON-RPC protocol events
    * Application layer implements this to handle business logic
    */
-  class Callbacks {
+  class MessageHandler {
    public:
-    virtual ~Callbacks() = default;
+    virtual ~MessageHandler() = default;
 
     /**
      * Called when a JSON-RPC request is received
@@ -100,15 +100,15 @@ class McpJsonRpcFilter : public network::Filter {
 
   /**
    * Constructor
-   * @param callbacks Application callbacks for message handling
+   * @param handler Application message handler for protocol events
    * @param dispatcher Event dispatcher for async operations
    * @param is_server True for server mode, false for client mode
    */
-  McpJsonRpcFilter(Callbacks& callbacks,
+  JsonRpcProtocolFilter(MessageHandler& handler,
                    event::Dispatcher& dispatcher,
                    bool is_server);
 
-  ~McpJsonRpcFilter()
+  ~JsonRpcProtocolFilter()
       override;  // Defined in .cc to avoid incomplete type issues
 
   // Network filter interface
@@ -157,7 +157,7 @@ class McpJsonRpcFilter : public network::Filter {
    */
   void frameMessage(Buffer& data);
 
-  Callbacks& callbacks_;
+  MessageHandler& handler_;
   event::Dispatcher& dispatcher_;
   bool is_server_;
   bool use_framing_{false};

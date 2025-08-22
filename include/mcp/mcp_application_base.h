@@ -32,7 +32,7 @@
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
@@ -113,15 +113,15 @@ class MetricsTrackingFilter : public network::NetworkFilterBase {
 };
 
 /**
- * Common adapter from McpMessageCallbacks to McpJsonRpcFilter::Callbacks
+ * Common adapter from McpProtocolCallbacks to JsonRpcProtocolFilter::MessageHandler
  *
- * This adapter bridges the MCP message callback interface to the JSON-RPC
- * filter callback interface, allowing ApplicationBase-derived classes to
- * use the unified McpJsonRpcFilter.
+ * This adapter bridges the MCP protocol callback interface to the JSON-RPC
+ * filter message handler interface, allowing ApplicationBase-derived classes to
+ * use the unified JsonRpcProtocolFilter.
  */
-class McpJsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
+class McpToJsonRpcAdapter : public filter::JsonRpcProtocolFilter::MessageHandler {
  public:
-  explicit McpJsonRpcCallbackAdapter(McpMessageCallbacks& callbacks)
+  explicit McpToJsonRpcAdapter(McpProtocolCallbacks& callbacks)
       : callbacks_(callbacks) {}
 
   void onRequest(const jsonrpc::Request& request) override {
@@ -141,7 +141,7 @@ class McpJsonRpcCallbackAdapter : public filter::McpJsonRpcFilter::Callbacks {
   }
 
  private:
-  McpMessageCallbacks& callbacks_;
+  McpProtocolCallbacks& callbacks_;
 };
 
 /**
@@ -1256,22 +1256,22 @@ class ApplicationBase {
 
   // Helper to create JSON-RPC filter (legacy API support)
   struct JsonRpcFilterBundle {
-    std::shared_ptr<McpJsonRpcCallbackAdapter> adapter;
+    std::shared_ptr<McpToJsonRpcAdapter> adapter;
     network::FilterSharedPtr filter;
   };
 
   std::shared_ptr<JsonRpcFilterBundle> createJsonRpcFilter(
-      McpMessageCallbacks& callbacks,
+      McpProtocolCallbacks& callbacks,
       event::Dispatcher& dispatcher,
       bool is_server,
       bool use_framing = true) {
     auto bundle = std::make_shared<JsonRpcFilterBundle>();
 
     // Create adapter
-    bundle->adapter = std::make_shared<McpJsonRpcCallbackAdapter>(callbacks);
+    bundle->adapter = std::make_shared<McpToJsonRpcAdapter>(callbacks);
 
     // Create filter with dispatcher
-    bundle->filter = std::make_shared<filter::McpJsonRpcFilter>(
+    bundle->filter = std::make_shared<filter::JsonRpcProtocolFilter>(
         *bundle->adapter, dispatcher, is_server);
 
     // Note: use_framing is handled at transport layer, not JSON-RPC layer

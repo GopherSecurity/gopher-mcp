@@ -263,7 +263,7 @@ TEST_F(StdioPipeBridgeTest, PipeToStdoutBridge) {
 /**
  * Mock echo server for bridge testing
  */
-class MockBridgeEchoServer : public McpMessageCallbacks {
+class MockBridgeEchoServer : public McpProtocolCallbacks {
 public:
   MockBridgeEchoServer(event::Dispatcher& dispatcher, int stdin_fd, int stdout_fd) 
       : dispatcher_(dispatcher) {
@@ -310,7 +310,7 @@ public:
     connection_manager_->close();
   }
   
-  // McpMessageCallbacks
+  // McpProtocolCallbacks
   void onRequest(const jsonrpc::Request& request) override {
     request_count_++;
     last_request_ = request;
@@ -663,7 +663,7 @@ TEST_F(StdioPipeBridgeTest, DISABLED_ConcurrentReadWrite) {
 /**
  * Mock client for bridge testing
  */
-class MockBridgeClient : public McpMessageCallbacks {
+class MockBridgeClient : public McpProtocolCallbacks {
 public:
   MockBridgeClient(event::Dispatcher& dispatcher, int stdin_fd, int stdout_fd)
       : dispatcher_(dispatcher), next_request_id_(1) {
@@ -746,7 +746,7 @@ public:
     connection_manager_->sendNotification(notification);
   }
   
-  // McpMessageCallbacks
+  // McpProtocolCallbacks
   void onRequest(const jsonrpc::Request& request) override {
     received_requests_.push_back(request);
     

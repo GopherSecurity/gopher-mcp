@@ -364,7 +364,7 @@ std::vector<network::FilterSharedPtr> ProtocolRoutingFilterFactory::createMcpFil
   // Create MCP JSON-RPC filter
   // Note: This would need proper callbacks and dispatcher in real implementation
   // For now, we just demonstrate the structure
-  // auto mcp_filter = std::make_shared<McpJsonRpcFilter>(callbacks, dispatcher, true);
+  // auto mcp_filter = std::make_shared<JsonRpcProtocolFilter>(callbacks, dispatcher, true);
   // filters.push_back(mcp_filter);
   
   // Notify callback

@@ -47,11 +47,12 @@ struct McpConnectionConfig {
 };
 
 /**
- * MCP message callbacks
+ * MCP protocol callbacks
+ * Handles both protocol messages and connection events
  */
-class McpMessageCallbacks {
+class McpProtocolCallbacks {
  public:
-  virtual ~McpMessageCallbacks() = default;
+  virtual ~McpProtocolCallbacks() = default;
 
   /**
    * Called when a request is received
@@ -84,7 +85,7 @@ class McpMessageCallbacks {
  *
  * High-level interface for managing MCP connections
  */
-class McpConnectionManager : public McpMessageCallbacks,
+class McpConnectionManager : public McpProtocolCallbacks,
                              public network::ListenerCallbacks,
                              public network::ConnectionCallbacks {
  public:
@@ -129,13 +130,13 @@ class McpConnectionManager : public McpMessageCallbacks,
   bool isConnected() const;
 
   /**
-   * Set message callbacks
+   * Set protocol callbacks
    */
-  void setMessageCallbacks(McpMessageCallbacks& callbacks) {
-    message_callbacks_ = &callbacks;
+  void setProtocolCallbacks(McpProtocolCallbacks& callbacks) {
+    protocol_callbacks_ = &callbacks;
   }
 
-  // McpMessageCallbacks interface (default implementations)
+  // McpProtocolCallbacks interface (default implementations)
   void onRequest(const jsonrpc::Request& request) override;
   void onNotification(const jsonrpc::Notification& notification) override;
   void onResponse(const jsonrpc::Response& response) override;
@@ -176,8 +177,8 @@ class McpConnectionManager : public McpMessageCallbacks,
   // Must keep listener manager alive for the lifetime of the server
   std::unique_ptr<network::ListenerManager> listener_manager_;
 
-  // Message callbacks
-  McpMessageCallbacks* message_callbacks_{nullptr};
+  // Protocol callbacks
+  McpProtocolCallbacks* protocol_callbacks_{nullptr};
 
   // State
   bool is_server_{false};

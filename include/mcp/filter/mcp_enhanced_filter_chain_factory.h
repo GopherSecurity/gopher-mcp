@@ -4,7 +4,7 @@
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/mcp_jsonrpc_filter.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
@@ -14,7 +14,7 @@
 
 // Forward declarations
 namespace mcp {
-class McpMessageCallbacks;
+class McpProtocolCallbacks;
 }
 
 namespace mcp {
@@ -73,7 +73,7 @@ class McpEnhancedFilterChainFactory : public network::FilterChainFactory {
    * @param config Configuration for enterprise filters
    */
   McpEnhancedFilterChainFactory(event::Dispatcher& dispatcher,
-                                McpMessageCallbacks& message_callbacks,
+                                McpProtocolCallbacks& message_callbacks,
                                 bool is_server = true,
                                 const Config& config = Config())
       : dispatcher_(dispatcher),
@@ -113,7 +113,7 @@ class McpEnhancedFilterChainFactory : public network::FilterChainFactory {
 
  private:
   event::Dispatcher& dispatcher_;
-  McpMessageCallbacks& message_callbacks_;
+  McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
   Config config_;
 

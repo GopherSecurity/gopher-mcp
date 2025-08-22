@@ -30,7 +30,7 @@ using ::testing::Return;
 /**
  * Mock MCP message callbacks for testing
  */
-class MockMcpMessageCallbacks : public McpMessageCallbacks {
+class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
  public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));
@@ -46,7 +46,7 @@ class JsonRpcFilterChainFactoryTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
-    message_callbacks_ = std::make_unique<NiceMock<MockMcpMessageCallbacks>>();
+    message_callbacks_ = std::make_unique<NiceMock<MockMcpProtocolCallbacks>>();
   }
 
   void TearDown() override {
@@ -107,7 +107,7 @@ class JsonRpcFilterChainFactoryTest : public test::RealIoTestBase {
     });
   }
 
-  std::unique_ptr<MockMcpMessageCallbacks> message_callbacks_;
+  std::unique_ptr<MockMcpProtocolCallbacks> message_callbacks_;
   std::unique_ptr<network::ConnectionImpl> captured_connection_;
 };
 
