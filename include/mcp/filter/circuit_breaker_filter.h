@@ -81,7 +81,7 @@ struct CircuitBreakerConfig {
  * - HALF_OPEN: Limited requests to test recovery
  */
 class CircuitBreakerFilter : public network::NetworkFilterBase,
-                             public JsonRpcProtocolFilter::Callbacks {
+                             public JsonRpcProtocolFilter::MessageHandler {
  public:
   /**
    * Callbacks for circuit breaker events
@@ -146,7 +146,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     return network::FilterStatus::Continue;
   }
 
-  // JsonRpcProtocolFilter::Callbacks implementation
+  // JsonRpcProtocolFilter::MessageHandler implementation
   void onRequest(const jsonrpc::Request& request) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -239,7 +239,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
   /**
    * Set the next callbacks in the chain
    */
-  void setNextCallbacks(JsonRpcProtocolFilter::Callbacks* callbacks) {
+  void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks) {
     next_callbacks_ = callbacks;
   }
 
@@ -435,7 +435,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
 
   Callbacks& callbacks_;
   CircuitBreakerConfig config_;
-  JsonRpcProtocolFilter::Callbacks* next_callbacks_ = nullptr;
+  JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
 
   // Circuit state
   mutable std::mutex mutex_;

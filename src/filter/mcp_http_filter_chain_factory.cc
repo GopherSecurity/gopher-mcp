@@ -25,7 +25,7 @@ namespace mcp {
 namespace filter {
 
 // Forward declaration
-class McpHttpSseJsonRpcFilter;
+class HttpSseJsonRpcProtocolFilter;
 
 /**
  * Combined filter that implements all protocol layers
@@ -59,31 +59,31 @@ static std::string requestIdToString(const RequestId& id) {
 // Each incoming request creates a new stream that tracks its own state
 class RequestStream {
 public:
-  RequestStream(RequestId id, McpHttpSseJsonRpcFilter* filter)
+  RequestStream(RequestId id, HttpSseJsonRpcProtocolFilter* filter)
       : id_(id), filter_(filter), creation_time_(std::chrono::steady_clock::now()) {}
   
   RequestId id() const { return id_; }
   
-  // Note: sendResponse implementation moved after McpHttpSseJsonRpcFilter definition
+  // Note: sendResponse implementation moved after HttpSseJsonRpcProtocolFilter definition
   void sendResponse(const jsonrpc::Response& response);
   
   std::chrono::steady_clock::time_point creationTime() const { return creation_time_; }
   
 private:
   RequestId id_;
-  McpHttpSseJsonRpcFilter* filter_;
+  HttpSseJsonRpcProtocolFilter* filter_;
   std::chrono::steady_clock::time_point creation_time_;
 };
 
-class McpHttpSseJsonRpcFilter : public network::Filter,
-                                 public HttpCodecFilter::MessageCallbacks,
-                                 public SseCodecFilter::EventCallbacks,
-                                 public JsonRpcProtocolFilter::Callbacks {
+class HttpSseJsonRpcProtocolFilter : public network::Filter,
+                                     public HttpCodecFilter::MessageCallbacks,
+                                     public SseCodecFilter::EventCallbacks,
+                                     public JsonRpcProtocolFilter::MessageHandler {
 public:
   // Make active_streams_ accessible for response routing
   friend void McpHttpFilterChainFactory::sendHttpResponse(const jsonrpc::Response&, network::Connection&);
   
-  McpHttpSseJsonRpcFilter(event::Dispatcher& dispatcher,
+  HttpSseJsonRpcProtocolFilter(event::Dispatcher& dispatcher,
                           McpProtocolCallbacks& mcp_callbacks,
                           bool is_server)
       : dispatcher_(dispatcher),
@@ -112,7 +112,7 @@ public:
     jsonrpc_filter_ = std::make_shared<JsonRpcProtocolFilter>(*this, dispatcher_, is_server_);
   }
   
-  ~McpHttpSseJsonRpcFilter() = default;
+  ~HttpSseJsonRpcProtocolFilter() = default;
   
   // ===== Network Filter Interface =====
   
@@ -161,7 +161,7 @@ public:
     // Write flows through filters in reverse order
     // JSON-RPC -> SSE -> HTTP
     
-    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onWrite called with " << data.length() 
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite called with " << data.length() 
               << " bytes, is_server=" << is_server_ << std::endl;
     
     // JSON-RPC filter handles framing
@@ -203,7 +203,7 @@ public:
   
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
-    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onHeaders called, is_server=" 
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onHeaders called, is_server=" 
               << is_server_ << std::endl;
     for (const auto& h : headers) {
       std::cerr << "[DEBUG]   " << h.first << ": " << h.second << std::endl;
@@ -239,7 +239,7 @@ public:
   }
   
   void onBody(const std::string& data, bool end_stream) override {
-    std::cerr << "[DEBUG] McpHttpSseJsonRpcFilter::onBody called with " 
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onBody called with " 
               << data.length() << " bytes, end_stream=" << end_stream 
               << ", is_sse_mode=" << is_sse_mode_ << std::endl;
     
@@ -313,7 +313,7 @@ public:
     (void)comment;
   }
   
-  // ===== JsonRpcProtocolFilter::Callbacks =====
+  // ===== JsonRpcProtocolFilter::MessageHandler =====
   
   void onRequest(const jsonrpc::Request& request) override {
     // Following production pattern: create a new stream for each request
@@ -513,7 +513,7 @@ private:
   OwnedBuffer pending_json_data_;
 };
 
-// RequestStream method implementation (after McpHttpSseJsonRpcFilter definition)
+// RequestStream method implementation (after HttpSseJsonRpcProtocolFilter definition)
 void RequestStream::sendResponse(const jsonrpc::Response& response) {
   // Each stream knows how to send its own response
   if (filter_) {
@@ -575,7 +575,7 @@ bool McpHttpFilterChainFactory::createFilterChain(
   // No separate routing filter needed
   
   // Create the combined protocol filter
-  auto combined_filter = std::make_shared<McpHttpSseJsonRpcFilter>(
+  auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
       dispatcher_, message_callbacks_, is_server_);
   
   // Add as both read and write filter

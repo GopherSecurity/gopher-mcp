@@ -31,7 +31,7 @@ using ::testing::Return;
 /**
  * Mock callbacks for JSON-RPC filter
  */
-class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
+class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
  public:
   MOCK_METHOD(void, onRequest, (const jsonrpc::Request&), (override));
   MOCK_METHOD(void, onNotification, (const jsonrpc::Notification&), (override));

@@ -10,8 +10,8 @@
 namespace mcp {
 namespace filter {
 
-// Adapter for McpProtocolCallbacks to JsonRpcProtocolFilter::Callbacks
-class ProtocolDetectionJsonRpcCallbacks : public JsonRpcProtocolFilter::Callbacks {
+// Adapter for McpProtocolCallbacks to JsonRpcProtocolFilter::MessageHandler
+class ProtocolDetectionJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
 public:
   ProtocolDetectionJsonRpcCallbacks(McpProtocolCallbacks& mcp_callbacks)
       : mcp_callbacks_(mcp_callbacks) {}

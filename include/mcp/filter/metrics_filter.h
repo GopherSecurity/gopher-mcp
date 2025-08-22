@@ -37,7 +37,7 @@
 
 #include "../network/filter.h"
 #include "../types.h"
-#include "mcp_jsonrpc_filter.h"
+#include "json_rpc_protocol_filter.h"
 
 namespace mcp {
 namespace filter {
@@ -98,7 +98,7 @@ struct ConnectionMetrics {
  * - Method-specific statistics
  */
 class MetricsFilter : public network::NetworkFilterBase,
-                      public JsonRpcProtocolFilter::Callbacks {
+                      public JsonRpcProtocolFilter::MessageHandler {
  public:
   /**
    * Callbacks for metrics events
@@ -296,7 +296,7 @@ class MetricsFilter : public network::NetworkFilterBase,
   /**
    * Set the next callbacks in the chain
    */
-  void setNextCallbacks(JsonRpcProtocolFilter::Callbacks* callbacks) {
+  void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks) {
     next_callbacks_ = callbacks;
   }
 
@@ -395,7 +395,7 @@ class MetricsFilter : public network::NetworkFilterBase,
 
   MetricsCallbacks& callbacks_;
   Config config_;
-  JsonRpcProtocolFilter::Callbacks* next_callbacks_ = nullptr;
+  JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
 
   // Metrics data
   ConnectionMetrics metrics_;
