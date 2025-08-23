@@ -470,9 +470,6 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   assert(dispatcher_.isThreadSafe() && "write() must be called from dispatcher thread");
   
   if (state_ != ConnectionState::Open || write_half_closed_) {
-    std::cerr << "[DEBUG] ConnectionImpl::write rejected: state=" 
-              << static_cast<int>(state_) 
-              << " write_half_closed=" << write_half_closed_ << std::endl;
     return;
   }
 
@@ -513,10 +510,6 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
 
   // Enable write events and trigger write
   if (write_buffer_.length() > 0) {
-    std::cerr << "[DEBUG] ConnectionImpl::write enabling write events, buffer_len=" 
-              << write_buffer_.length() 
-              << " write_ready_=" << write_ready_ 
-              << " socket_fd=" << (socket_ ? socket_->ioHandle().fd() : -1) << std::endl;
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
     
@@ -525,21 +518,11 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     // This fix ensures data is written even when socket is already write-ready
     if (write_ready_) {
       // Socket is ready, write now
-      std::cerr << "[DEBUG] Socket is write-ready, calling doWrite immediately" << std::endl;
       doWrite();
-      // After writing, check if we should adjust events
-      // Flow: Write complete → Check buffer → Adjust events
-      // Why: If buffer is empty after write, disable write events and ensure read is enabled
+      // After writing, keep both read and write events enabled
       if (write_buffer_.length() == 0) {
-        disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-        std::cerr << "[DEBUG] Write completed, buffer empty, enabled read events, fd=" 
-                  << (socket_ ? socket_->ioHandle().fd() : -1) << std::endl;
-        
-        // Activate read events to check for buffered data
-        if (file_event_) {
-          file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
-        }
+        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                        static_cast<uint32_t>(event::FileReadyType::Write));
       }
     } else if (!write_scheduled_) {
       // Socket not ready, schedule write for safety
@@ -676,8 +659,6 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
-  std::cerr << "[DEBUG] ConnectionImpl::onReadReady called, state=" 
-            << static_cast<int>(state_) << std::endl;
   
   // Notify state machine of read ready event
   if (state_machine_) {
@@ -696,7 +677,6 @@ void ConnectionImpl::onWriteReady() {
 
   if (connecting_) {
     // Connection completed
-    std::cerr << "[DEBUG] Async connection completed in onWriteReady, setting state to Open" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -708,27 +688,18 @@ void ConnectionImpl::onWriteReady() {
 
     raiseConnectionEvent(ConnectionEvent::Connected);
 
-    // Enable read events
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-    // Disable write events until we have data to write
-    // This prevents busy loops when the socket is write-ready but we have no data
-    disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+    // Enable BOTH read and write events following production pattern
+    // Even though we may not have data to write immediately, keeping both enabled
+    // avoids race conditions from event reassignment
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                    static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     doWrite();
-    // If there's no data left to write, disable write events to prevent busy loops
-    std::cerr << "[DEBUG] After doWrite, buffer_len=" << write_buffer_.length() << std::endl;
+    // After write, keep both read and write events enabled
+    // This avoids race conditions from event reassignment
     if (write_buffer_.length() == 0) {
-      std::cerr << "[DEBUG] Buffer empty, disabling write and enabling read" << std::endl;
-      disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-      // CRITICAL: Must enable read events after write completes
-      // Flow: Write complete → Disable write → Enable read → Wait for response
-      // Why: After sending a request, we need to be ready to receive the response.
-      // Without this, the client sends data but never processes incoming responses,
-      // causing protocol initialization timeouts.
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-    } else {
-      std::cerr << "[DEBUG] Buffer not empty (" << write_buffer_.length() 
-                << " bytes), keeping write enabled" << std::endl;
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                      static_cast<uint32_t>(event::FileReadyType::Write));
     }
   }
 }
@@ -839,8 +810,6 @@ void ConnectionImpl::doConnect() {
     // connections) Schedule the Connected event to be handled in the next
     // dispatcher iteration This ensures all callbacks are invoked in proper
     // dispatcher thread context
-    std::cerr << "[DEBUG] Immediate connection success, this=" << this 
-              << " setting state to Open" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -849,13 +818,9 @@ void ConnectionImpl::doConnect() {
     // Post the event to dispatcher to ensure proper thread context
     dispatcher_.post([this]() {
       raiseConnectionEvent(ConnectionEvent::Connected);
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-      
-      // Immediately check for readable data after connection
-      // This handles race conditions where server sends data immediately
-      if (file_event_) {
-        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
-      }
+      // Enable both read and write events
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                      static_cast<uint32_t>(event::FileReadyType::Write));
     });
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
@@ -891,21 +856,13 @@ void ConnectionImpl::doRead() {
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
   // Transport::doRead All operations happen in dispatcher thread context
 
-  std::cerr << "[DEBUG] doRead called: read_disable_count=" << read_disable_count_
-            << " state=" << static_cast<int>(state_) << std::endl;
-
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
-    std::cerr << "[DEBUG] doRead returning early: disabled or not open" << std::endl;
     return;
   }
 
   while (true) {
     // Read from socket into buffer
     auto result = doReadFromSocket();
-    
-    std::cerr << "[DEBUG] doReadFromSocket returned: action=" << static_cast<int>(result.action_)
-              << " bytes=" << result.bytes_processed_ 
-              << " end_stream=" << result.end_stream_read_ << std::endl;
 
     // Check for errors
     if (!result.ok()) {
@@ -959,13 +916,9 @@ void ConnectionImpl::doRead() {
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
   
-  std::cerr << "[DEBUG] doReadFromSocket: read_buffer_len=" << read_buffer_.length() << std::endl;
-
   // If we have a transport socket, use it
   if (transport_socket_) {
     auto result = transport_socket_->doRead(read_buffer_);
-    std::cerr << "[DEBUG] transport_socket_->doRead returned: action=" << static_cast<int>(result.action_)
-              << " bytes=" << result.bytes_processed_ << std::endl;
     return result;
   }
   
@@ -1046,18 +999,11 @@ void ConnectionImpl::doWrite() {
     // If transport handled the write and buffer is now empty, we're done
     // Must ensure read events are enabled for response
     if (transport_handled) {
-      // Disable write events since buffer is empty
-      disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-      // Enable read events to receive response
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-      std::cerr << "[DEBUG] Transport completed write, enabled read events" << std::endl;
-      
-      // CRITICAL: Activate read events to check for data already in buffers
-      // This follows production pattern - after writes, immediately check for readable data
-      if (file_event_) {
-        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
-        std::cerr << "[DEBUG] Activated read events to check for buffered data" << std::endl;
-      }
+      // Keep both read and write events enabled to avoid race conditions
+      // Disabling and re-enabling events separately can cause event loss
+      // because event_del() followed by event_add() creates a window where events can be missed
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                      static_cast<uint32_t>(event::FileReadyType::Write));
     }
     return;
   }
@@ -1184,20 +1130,14 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
-  uint32_t old_state = file_event_state_;
   file_event_state_ |= events;
-  std::cerr << "[DEBUG] ConnectionImpl::enableFileEvents: old=" << old_state 
-            << " adding=" << events << " new=" << file_event_state_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
 }
 
 void ConnectionImpl::disableFileEvents(uint32_t events) {
-  uint32_t old_state = file_event_state_;
   file_event_state_ &= ~events;
-  std::cerr << "[DEBUG] ConnectionImpl::disableFileEvents: old=" << old_state 
-            << " removing=" << events << " new=" << file_event_state_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
