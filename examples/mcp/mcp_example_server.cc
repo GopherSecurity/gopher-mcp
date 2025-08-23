@@ -92,6 +92,7 @@
 #include "mcp/json/json_bridge.h"
 #include <iostream>
 #include <signal.h>
+#include <unistd.h>  // for _exit
 #include <ctime>
 #include <sstream>
 #include <condition_variable>
@@ -141,11 +142,13 @@ void signal_handler(int signal) {
   g_shutdown_cv.notify_all();
   
   // For safety, if we receive multiple signals, force exit
-  static int signal_count = 0;
+  static std::atomic<int> signal_count(0);
   signal_count++;
   if (signal_count > 1) {
     std::cerr << "\n[INFO] Force shutdown after multiple signals..." << std::endl;
-    std::exit(0);
+    // Use _exit instead of std::exit to avoid destructor issues in signal handler
+    // This is safer as it doesn't run destructors which might use mutexes
+    _exit(0);
   }
 }
 
