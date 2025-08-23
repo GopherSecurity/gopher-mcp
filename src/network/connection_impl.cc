@@ -430,6 +430,17 @@ void ConnectionImpl::hashKey(std::vector<uint8_t>& hash) const {
 }
 
 void ConnectionImpl::noDelay(bool enable) {
+  // Follow reference pattern: check if socket is open first
+  // This prevents errors when connection has already failed
+  if (!socket_->isOpen()) {
+    return;
+  }
+  
+  // Don't set NODELAY for non-IP sockets (Unix domain, etc.)
+  if (socket_->addressType() != Address::Type::Ip) {
+    return;
+  }
+  
   int val = enable ? 1 : 0;
   socket_->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
 }
@@ -480,6 +491,14 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
     
     return ReadDisableStatus::StillReadDisabled;
   }
+}
+
+bool ConnectionImpl::readEnabled() const {
+  // Follow reference pattern: assert connection is open
+  // Calls to readEnabled on closed socket are an error
+  assert(state() == ConnectionState::Open && "readEnabled called on non-open connection");
+  assert(dispatcher_.isThreadSafe() && "readEnabled must be called from dispatcher thread");
+  return read_disable_count_ == 0;
 }
 
 optional<Connection::UnixDomainSocketPeerCredentials>
@@ -720,6 +739,10 @@ void ConnectionImpl::onWriteReady() {
     onConnected();
 
     raiseConnectionEvent(ConnectionEvent::Connected);
+    
+    // Flush any pending write data (reference pattern)
+    // Transport may have queued data during handshake
+    flushWriteBuffer();
 
     // Enable BOTH read and write events following production pattern
     // Even though we may not have data to write immediately, keeping both enabled
@@ -798,6 +821,11 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (transport_socket_) {
     transport_socket_->closeSocket(close_type);
   }
+  
+  // Drain buffers (reference pattern)
+  // This prevents buffer fragments from outliving the connection
+  write_buffer_.drain(write_buffer_.length());
+  read_buffer_.drain(read_buffer_.length());
 
   // Close actual socket
   socket_->close();
