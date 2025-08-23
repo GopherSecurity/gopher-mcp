@@ -518,7 +518,7 @@ int main(int argc, char* argv[]) {
     }
   }
   
-  // Connect to server
+  // Connect to server first - this will initialize the application
   std::cerr << "[INFO] Connecting to server..." << std::endl;
   VoidResult connect_result;
   {
@@ -577,6 +577,9 @@ int main(int argc, char* argv[]) {
   }
   
   std::cerr << "[INFO] Connected successfully!" << std::endl;
+  
+  // The event loop is already running from connect()
+  // No need to start it separately
   
   // Wait for connection to be fully established
   // The connection happens asynchronously, so we need to wait for it
@@ -737,6 +740,15 @@ int main(int argc, char* argv[]) {
   
   std::cerr << "\n[INFO] Client shutdown complete" << std::endl;
   std::cerr << "[INFO] Total pings sent: " << ping_count << std::endl;
+  
+  // Shutdown client and clean up
+  {
+    std::lock_guard<std::mutex> lock(g_client_mutex);
+    if (g_client) {
+      // Shutdown the client
+      g_client->shutdown();
+    }
+  }
   
   // Clean up global client
   {
