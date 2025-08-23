@@ -1,4 +1,5 @@
 #include "mcp/mcp_connection_manager.h"
+#include <netinet/tcp.h>  // For TCP_NODELAY
 
 #include <iostream>
 #include <sstream>
@@ -238,6 +239,11 @@ VoidResult McpConnectionManager::connect() {
 
     // Set socket to non-blocking mode for async I/O
     socket_wrapper->ioHandle().setBlocking(false);
+    
+    // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
+    // This ensures data is sent immediately rather than being buffered
+    int nodelay = 1;
+    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
     // Create HTTP/SSE transport socket wrapper
     auto transport_factory = createTransportSocketFactory();
