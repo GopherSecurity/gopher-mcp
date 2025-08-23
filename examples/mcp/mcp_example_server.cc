@@ -979,6 +979,10 @@ int main(int argc, char* argv[]) {
     // Shutdown was requested
     if (g_server) {
       try {
+        // Print statistics before shutdown
+        std::cerr << "\n[INFO] Printing server statistics before shutdown..." << std::endl;
+        printStatistics(*g_server);
+        
         // Send shutdown notification to all clients
         auto shutdown_notif = jsonrpc::make_notification("server/shutdown");
         g_server->broadcastNotification(shutdown_notif);
@@ -1079,21 +1083,17 @@ int main(int argc, char* argv[]) {
   */
   
   // Graceful shutdown
-  std::cerr << "\n[INFO] Shutting down server gracefully..." << std::endl;
+  std::cerr << "\n[INFO] Shutting down application..." << std::endl;
   
   // Server shutdown already initiated in signal handler
-  // Just wait a bit more for cleanup
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+  // Statistics were already printed in shutdown monitor
+  // Just wait a bit for cleanup
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
   
-  // Print final statistics safely
+  // Clean up server
   {
     std::lock_guard<std::mutex> lock(g_server_mutex);
     if (g_server) {
-      try {
-        printStatistics(*g_server);
-      } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Failed to print final statistics: " << e.what() << std::endl;
-      }
       g_server.reset(); // Clean up server
     }
   }
