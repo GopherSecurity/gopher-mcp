@@ -515,28 +515,13 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     
     // If socket is already write-ready, write immediately
     // Otherwise onWriteReady will be called when socket becomes ready
-    // This fix ensures data is written even when socket is already write-ready
+    // Following reference pattern: always write immediately when possible
     if (write_ready_) {
       // Socket is ready, write now
       doWrite();
-      // After writing, keep both read and write events enabled
-      if (write_buffer_.length() == 0) {
-        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                        static_cast<uint32_t>(event::FileReadyType::Write));
-      }
-    } else if (!write_scheduled_) {
-      // Socket not ready, schedule write for safety
-      write_scheduled_ = true;
-      dispatcher_.post([this]() {
-        write_scheduled_ = false;
-        doWrite();
-        // After writing, check if we should adjust events
-        if (write_buffer_.length() == 0) {
-          disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-          enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-        }
-      });
     }
+    // Note: No else clause needed - if not write_ready_, onWriteReady() 
+    // will be called by event loop when socket becomes writable
   }
 }
 
@@ -965,11 +950,6 @@ void ConnectionImpl::doWrite() {
   // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
   // All operations happen in dispatcher thread context
 
-  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, this=" << this
-            << " buffer_len=" << write_buffer_.length() 
-            << " state=" << static_cast<int>(state_)
-            << " (0=Open,1=Closing,2=Closed)" 
-            << " connected_=" << connected_ << std::endl;
 
   if (state_ != ConnectionState::Open) {
     return;

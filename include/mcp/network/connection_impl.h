@@ -197,8 +197,7 @@ class ConnectionImpl : public ConnectionImplBase,
   // Current file event state
   uint32_t file_event_state_{0};
 
-  // Write scheduling
-  bool write_scheduled_{false};
+  // Write scheduling callback (unused, kept for future use)
   event::SchedulableCallbackPtr write_scheduled_callback_;
 
   // Connection type
