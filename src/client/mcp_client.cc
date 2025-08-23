@@ -612,7 +612,7 @@ std::future<ListResourcesResult> McpClient::listResources(
   // Process response in dispatcher context
   // Use shared_ptr to allow copying the lambda
   auto shared_future = std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise, this]() {
+  main_dispatcher_->post([shared_future, result_promise]() {
     // Process the future result directly
     try {
       auto response = shared_future->get();
@@ -646,7 +646,7 @@ std::future<ReadResourceResult> McpClient::readResource(const std::string& uri) 
   // Process response in dispatcher context
   // Use shared_ptr to allow copying the lambda
   auto shared_future = std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise, this]() {
+  main_dispatcher_->post([shared_future, result_promise]() {
     // Process the future result directly
     try {
       auto response = shared_future->get();
@@ -679,10 +679,13 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
   
   // Use dispatcher post pattern (reference architecture)
   // Never use detached threads for async operations
+  // Wrap future in shared_ptr to allow capture in lambda
+  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
+  
   if (main_dispatcher_) {
-    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+    main_dispatcher_->post([future_ptr, result_promise]() {
       try {
-        auto response = future.get();
+        auto response = future_ptr->get();
         if (response.error.has_value()) {
           result_promise->set_value(makeVoidError(*response.error));
         } else {
@@ -712,10 +715,13 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
   
   // Use dispatcher post pattern (reference architecture)
   // Never use detached threads for async operations
+  // Wrap future in shared_ptr to allow capture in lambda
+  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
+  
   if (main_dispatcher_) {
-    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+    main_dispatcher_->post([future_ptr, result_promise]() {
       try {
-        auto response = future.get();
+        auto response = future_ptr->get();
         if (response.error.has_value()) {
           result_promise->set_value(makeVoidError(*response.error));
         } else {
@@ -750,7 +756,7 @@ std::future<ListToolsResult> McpClient::listTools(
   // Process response in dispatcher context
   // Use shared_ptr to allow copying the lambda
   auto shared_future = std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise, this]() {
+  main_dispatcher_->post([shared_future, result_promise]() {
     // Process the future result directly
     try {
       auto response = shared_future->get();
@@ -793,7 +799,7 @@ std::future<CallToolResult> McpClient::callTool(
   // Process response in dispatcher context
   // Use shared_ptr to allow copying the lambda
   auto shared_future = std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise, this]() {
+  main_dispatcher_->post([shared_future, result_promise]() {
     // Process the future result directly
     try {
       auto response = shared_future->get();
@@ -829,10 +835,13 @@ std::future<ListPromptsResult> McpClient::listPrompts(
   auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
   
   // Use dispatcher post pattern (reference architecture)
+  // Wrap future in shared_ptr to allow capture in lambda
+  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
+  
   if (main_dispatcher_) {
-    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+    main_dispatcher_->post([future_ptr, result_promise]() {
       try {
-        auto response = future.get();
+        auto response = future_ptr->get();
         ListPromptsResult result;
         // Parse response into result structure
         if (!response.error.has_value() && response.result.has_value()) {
@@ -871,10 +880,13 @@ std::future<GetPromptResult> McpClient::getPrompt(
   auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
   
   // Use dispatcher post pattern (reference architecture)
+  // Wrap future in shared_ptr to allow capture in lambda
+  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
+  
   if (main_dispatcher_) {
-    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+    main_dispatcher_->post([future_ptr, result_promise]() {
       try {
-        auto response = future.get();
+        auto response = future_ptr->get();
         GetPromptResult result;
         // Parse response into result structure
         if (!response.error.has_value() && response.result.has_value()) {
@@ -905,10 +917,13 @@ std::future<VoidResult> McpClient::setLogLevel(enums::LoggingLevel::Value level)
   
   // Use dispatcher post pattern (reference architecture)
   // Never use detached threads for async operations
+  // Wrap future in shared_ptr to allow capture in lambda
+  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
+  
   if (main_dispatcher_) {
-    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+    main_dispatcher_->post([future_ptr, result_promise]() {
       try {
-        auto response = future.get();
+        auto response = future_ptr->get();
         if (response.error.has_value()) {
           result_promise->set_value(makeVoidError(*response.error));
         } else {
@@ -998,12 +1013,12 @@ std::future<CreateMessageResult> McpClient::createMessage(
   sendRequestInternal(context);
   
   // Return future that will convert response to CreateMessageResult
-  std::promise<CreateMessageResult> result_promise;
-  auto result_future = result_promise.get_future();
+  auto result_promise = std::make_shared<std::promise<CreateMessageResult>>();
+  auto result_future = result_promise->get_future();
   
   // Use dispatcher post pattern (reference architecture)
   if (main_dispatcher_) {
-    main_dispatcher_->post([context, result_promise = std::move(result_promise)]() mutable {
+    main_dispatcher_->post([context, result_promise]() {
       try {
         auto response = context->promise.get_future().get();
         CreateMessageResult result;
@@ -1017,13 +1032,13 @@ std::future<CreateMessageResult> McpClient::createMessage(
           result.model = "unknown";
           result.role = enums::Role::ASSISTANT;
         }
-        result_promise.set_value(result);
+        result_promise->set_value(result);
       } catch (...) {
-        result_promise.set_exception(std::current_exception());
+        result_promise->set_exception(std::current_exception());
       }
     });
   } else {
-    result_promise.set_exception(
+    result_promise->set_exception(
         std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
   }
   
