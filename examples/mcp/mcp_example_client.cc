@@ -601,17 +601,31 @@ int main(int argc, char* argv[]) {
   
   // Initialize MCP protocol - REQUIRED before any requests
   std::cerr << "[INFO] Initializing MCP protocol..." << std::endl;
+  std::future<InitializeResult> init_future;
   {
     std::lock_guard<std::mutex> lock(g_client_mutex);
     if (g_client) {
       try {
-        auto init_future = g_client->initializeProtocol();
-        // Use wait_for to allow checking for shutdown
-        auto status = init_future.wait_for(std::chrono::seconds(10));
-        if (status == std::future_status::timeout) {
-          std::cerr << "[ERROR] Protocol initialization timeout" << std::endl;
-          return 1;
-        } else if (status == std::future_status::ready) {
+        init_future = g_client->initializeProtocol();
+      } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Failed to start initialization: " << e.what() << std::endl;
+        return 1;
+      }
+    }
+  }
+  
+  // Poll the future without blocking the event loop
+  // This allows the dispatcher to continue processing events
+  {
+    bool initialized = false;
+    auto start_time = std::chrono::steady_clock::now();
+    
+    while (!initialized && !g_shutdown) {
+      // Check if future is ready without blocking
+      auto status = init_future.wait_for(std::chrono::milliseconds(100));
+      
+      if (status == std::future_status::ready) {
+        try {
           auto init_result = init_future.get();
           std::cerr << "[INFO] Protocol initialized: " << init_result.protocolVersion << std::endl;
           if (init_result.serverInfo.has_value()) {

@@ -902,6 +902,10 @@ void ConnectionImpl::doRead() {
   while (true) {
     // Read from socket into buffer
     auto result = doReadFromSocket();
+    
+    std::cerr << "[DEBUG] doReadFromSocket returned: action=" << static_cast<int>(result.action_)
+              << " bytes=" << result.bytes_processed_ 
+              << " end_stream=" << result.end_stream_read_ << std::endl;
 
     // Check for errors
     if (!result.ok()) {
@@ -954,10 +958,14 @@ void ConnectionImpl::doRead() {
 
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
+  
+  std::cerr << "[DEBUG] doReadFromSocket: read_buffer_len=" << read_buffer_.length() << std::endl;
 
   // If we have a transport socket, use it
   if (transport_socket_) {
     auto result = transport_socket_->doRead(read_buffer_);
+    std::cerr << "[DEBUG] transport_socket_->doRead returned: action=" << static_cast<int>(result.action_)
+              << " bytes=" << result.bytes_processed_ << std::endl;
     return result;
   }
   
