@@ -220,17 +220,22 @@ void McpProtocolStateMachine::cancelStateTimer() {
 }
 
 void McpProtocolStateMachine::handleStateTimeout() {
+  auto timeout_state = current_state_.load();
   std::cerr << "[PROTOCOL] State timeout in state: " 
-            << stateToString(current_state_) << std::endl;
+            << stateToString(timeout_state) << std::endl;
   
   // Handle timeout based on current state
-  handleEvent(McpProtocolEvent::TIMEOUT, "State timeout");
+  bool result = handleEvent(McpProtocolEvent::TIMEOUT, "State timeout");
+  if (!result) {
+    std::cerr << "[PROTOCOL] WARNING: Timeout event not handled in state: " 
+              << stateToString(timeout_state) << std::endl;
+  }
   
   // Notify error callback
   if (config_.error_callback) {
     Error error;
     error.code = -1;
-    error.message = "Protocol state timeout in " + stateToString(current_state_);
+    error.message = "Protocol state timeout in " + stateToString(timeout_state);
     config_.error_callback(error);
   }
 }
