@@ -62,7 +62,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void detectEarlyCloseWhenReadDisabled(bool should_detect) override {
     detect_early_close_ = should_detect;
   }
-  bool readEnabled() const override { return read_disable_count_ == 0; }
+  bool readEnabled() const override;  // Moved to implementation for assertion
   optional<UnixDomainSocketPeerCredentials> unixSocketPeerCredentials()
       const override;
   void setConnectionStats(const ConnectionStats& stats) override {
@@ -70,7 +70,17 @@ class ConnectionImpl : public ConnectionImplBase,
   }
   SslConnectionInfoConstSharedPtr ssl() const override;
   std::string requestedServerName() const override;
-  ConnectionState state() const override { return state_; }
+  ConnectionState state() const override {
+    // Follow reference pattern: check socket state first
+    if (!socket_ || !socket_->isOpen()) {
+      return ConnectionState::Closed;
+    }
+    // Check if we're in delayed close
+    if (delayed_close_pending_ || state_ == ConnectionState::Closing) {
+      return ConnectionState::Closing;
+    }
+    return ConnectionState::Open;
+  }
   bool connecting() const override { return connecting_; }
   void write(Buffer& data, bool end_stream) override;
   void setBufferLimits(uint32_t limit) override;
