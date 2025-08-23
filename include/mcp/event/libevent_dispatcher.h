@@ -80,6 +80,9 @@ class LibeventDispatcher : public Dispatcher {
   event_base* base() { return base_; }
 
  private:
+  // Forward declaration for FileEventImpl
+  class SchedulableCallbackImpl;
+  
   // Libevent file event implementation
   class FileEventImpl : public FileEvent {
    public:
@@ -92,9 +95,14 @@ class LibeventDispatcher : public Dispatcher {
 
     void activate(uint32_t events) override;
     void setEnabled(uint32_t events) override;
+    void unregisterEventIfEmulatedEdge(uint32_t event) override;
+    void registerEventIfEmulatedEdge(uint32_t event) override;
 
    private:
     static void eventCallback(int fd, short events, void* arg);
+    void assignEvents(uint32_t events);
+    void updateEvents(uint32_t events);
+    void mergeInjectedEventsAndRunCb(uint32_t events);
 
     LibeventDispatcher& dispatcher_;
     int fd_;
@@ -102,6 +110,10 @@ class LibeventDispatcher : public Dispatcher {
     FileTriggerType trigger_;
     libevent_event* event_;
     uint32_t enabled_events_;
+    
+    // For EmulatedEdge support
+    uint32_t injected_activation_events_{0};
+    std::unique_ptr<SchedulableCallbackImpl> activation_cb_;
   };
 
   // Libevent timer implementation
