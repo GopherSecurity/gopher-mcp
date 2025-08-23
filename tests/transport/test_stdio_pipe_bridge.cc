@@ -423,7 +423,7 @@ private:
   std::vector<network::ConnectionEvent> connection_events_;
 };
 
-TEST_F(StdioPipeBridgeTest, DISABLED_JsonRpcMessageFlow) {
+TEST_F(StdioPipeBridgeTest, JsonRpcMessageFlow) {
   // Test complete JSON-RPC message flow through the pipe bridge
   // Flow Explanation:
   // 1. MockBridgeEchoServer creates McpConnectionManager with stdio transport
@@ -434,27 +434,19 @@ TEST_F(StdioPipeBridgeTest, DISABLED_JsonRpcMessageFlow) {
   // 6. Server's onRequest callback sends response
   // 7. Response flows back through connection -> transport -> bridge -> stdout
   
-  std::cerr << "[TEST] Creating MockBridgeEchoServer\n";
   MockBridgeEchoServer server(*dispatcher_, test_stdin_pipe_[0], test_stdout_pipe_[1]);
   
-  std::cerr << "[TEST] Starting server\n";
   ASSERT_TRUE(server.start());
-  std::cerr << "[TEST] Server started successfully\n";
   
   // Process initial connection events
-  std::cerr << "[TEST] Processing connection events\n";
   for (int i = 0; i < 10; ++i) {
     dispatcher_->run(event::RunType::NonBlock);
-    if (server.isConnected()) {
-      std::cerr << "[TEST] Server connected on iteration " << i << "\n";
-      break;
-    }
+    if (server.isConnected()) break;
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   
   // Verify connection established
   EXPECT_TRUE(server.isConnected());
-  std::cerr << "[TEST] Connection verified\n";
   
   // Send a JSON-RPC request
   std::string request_json = R"({"jsonrpc":"2.0","id":1,"method":"test.echo","params":{"msg":"hello"}})";
@@ -579,7 +571,7 @@ TEST_F(StdioPipeBridgeTest, HandleLargeMessages) {
   server.stop();
 }
 
-TEST_F(StdioPipeBridgeTest, DISABLED_ConcurrentReadWrite) {
+TEST_F(StdioPipeBridgeTest, ConcurrentReadWrite) {
   // Test concurrent reading and writing through the bridge
   // 
   // DISABLED: This test has inherent synchronization challenges:
@@ -1219,7 +1211,7 @@ TEST_F(StdioPipeBridgeTest, ErrorResponseHandling) {
 }
 
 // Test connection event handling
-TEST_F(StdioPipeBridgeTest, DISABLED_ConnectionEvents) {
+TEST_F(StdioPipeBridgeTest, ConnectionEvents) {
   // Test Flow:
   // 1. Start server and verify Connected event
   // 2. Close stdin pipe to simulate remote disconnect

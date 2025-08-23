@@ -123,14 +123,14 @@ protected:
       // The McpConnectionManager must be connected from the dispatcher thread
       // to ensure all socket operations happen on the same thread.
       // Using promise/future pattern for synchronization.
-      std::promise<bool> connected_promise;
-      auto connected_future = connected_promise.get_future();
+      auto connected_promise = std::make_shared<std::promise<bool>>();
+      auto connected_future = connected_promise->get_future();
       
-      dispatcher_.post([this, &connected_promise]() {
+      dispatcher_.post([this, connected_promise]() {
         auto result = connection_manager_->connect();
         bool success = !holds_alternative<Error>(result);
         running_ = success;
-        connected_promise.set_value(success);
+        connected_promise->set_value(success);
       });
       
       // Process the posted task
