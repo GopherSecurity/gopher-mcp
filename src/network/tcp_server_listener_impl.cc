@@ -74,7 +74,7 @@ TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
     file_event_ = dispatcher_.createFileEvent(
         fd,
         [this](uint32_t events) { onSocketEvent(events); },
-        event::FileTriggerType::Edge,  // Edge-triggered for efficiency
+        event::PlatformDefaultTriggerType,  // Use platform-specific default
         static_cast<uint32_t>(event::FileReadyType::Read));
     
     std::cerr << "[DEBUG] Listener file event created: " 
