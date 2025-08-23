@@ -634,10 +634,12 @@ int main(int argc, char* argv[]) {
           }
           // Store server capabilities
           g_client->setServerCapabilities(init_result.capabilities);
+        } catch (const std::exception& e) {
+          std::cerr << "[ERROR] Failed to initialize protocol: " << e.what() << std::endl;
+          return 1;
         }
-      } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Failed to initialize protocol: " << e.what() << std::endl;
-        return 1;
+        initialized = true;
+        break;
       }
     }
   }
