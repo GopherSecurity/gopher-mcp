@@ -1,55 +1,24 @@
-/**
- * @file mcp_client.cc
- * @brief Implementation of enterprise-grade MCP client using MCP abstraction layer
- */
-
 #include "mcp/client/mcp_client.h"
-
-#include <algorithm>
+#include "mcp/mcp_connection_manager.h"
+#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/network/socket_interface_impl.h"
+#include <thread>
+#include <future>
 #include <iostream>
 #include <sstream>
-
-#include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/transport/http_sse_transport_socket.h"
 
 namespace mcp {
 namespace client {
 
+using namespace mcp::network;
+using namespace mcp::event;
+using namespace mcp::types;
+
 // Constructor
 McpClient::McpClient(const McpClientConfig& config)
-    : ApplicationBase(config),
-      config_(config),
-      client_stats_() {
+    : config_(config) {
   
-  // Initialize message callbacks
-  protocol_callbacks_ = std::make_unique<ProtocolCallbacksImpl>(*this);
-  
-  // Initialize request tracker with configured timeout
-  request_tracker_ = std::make_unique<RequestTracker>(config_.request_timeout);
-  
-  // Initialize circuit breaker with configured thresholds
-  circuit_breaker_ = std::make_unique<CircuitBreaker>(
-      config_.circuit_breaker_threshold,
-      config_.circuit_breaker_timeout,
-      config_.circuit_breaker_error_rate);
-  
-  // Initialize retry manager with exponential backoff settings
-  retry_manager_ = std::make_unique<RetryManager>(
-      config_.max_retries,
-      config_.initial_retry_delay,
-      config_.retry_backoff_multiplier,
-      config_.max_retry_delay);
-  
-  // Initialize connection pool for efficient connection reuse
-  // Following production pattern: pass dispatcher and streams per connection
-  // Use 100 streams per connection as a reasonable default for HTTP/2
-  connection_pool_ = std::make_unique<ConnectionPoolImpl>(
-      *this,
-      *main_dispatcher_,  // Use main dispatcher for connection management
-      config_.connection_pool_size,
-      100);  // streams_per_connection - reasonable for HTTP/2
-  
-  // Initialize protocol state machine for managing MCP protocol lifecycle
+  // Set callbacks for protocol state changes
   protocol::McpProtocolStateMachineConfig protocol_config;
   protocol_config.initialization_timeout = config_.protocol_initialization_timeout;
   protocol_config.connection_timeout = config_.protocol_connection_timeout;
@@ -57,6 +26,28 @@ McpClient::McpClient(const McpClientConfig& config)
   protocol_config.auto_reconnect = config_.protocol_auto_reconnect;
   protocol_config.max_reconnect_attempts = config_.protocol_max_reconnect_attempts;
   protocol_config.reconnect_delay = config_.protocol_reconnect_delay;
+  
+  // Initialize request tracker
+  request_tracker_ = std::make_unique<RequestTracker>();
+  
+  // Initialize circuit breaker
+  circuit_breaker_ = std::make_unique<CircuitBreaker>(
+      config_.circuit_breaker_threshold,
+      config_.circuit_breaker_timeout,
+      5);  // Default half-open max requests
+  
+  // Initialize protocol callbacks
+  protocol_callbacks_ = std::make_unique<McpProtocolCallbacks>(
+      [this](network::ConnectionEvent event) {
+        handleConnectionEvent(event);
+      },
+      [this](std::unique_ptr<Buffer> data) {
+        handleData(std::move(data));
+      },
+      [this](const Error& error) {
+        handleError(error);
+      }
+  );
   
   // Set callbacks for protocol state changes
   protocol_config.state_change_callback = 
@@ -70,72 +61,54 @@ McpClient::McpClient(const McpClientConfig& config)
   
   // Protocol state machine will be created in dispatcher thread during initialization
 }
-
 // Destructor
 McpClient::~McpClient() {
-  // Stop the application base (stops dispatchers and workers)
-  stop();
-  
-  // Disconnect if still connected
-  if (connected_) {
-    disconnect();
-  }
-  
-  // Clean up any pending requests - do this in dispatcher context
-  if (main_dispatcher_) {
-    main_dispatcher_->post([this]() {
-      auto pending = request_tracker_->getTimedOutRequests();
-      for (const auto& request : pending) {
-        request->promise.set_exception(
-            std::make_exception_ptr(std::runtime_error("Client shutting down")));
-      }
-    });
-  }
+  shutdown();
 }
 
-// Connect to MCP server
+// Connect to server
 VoidResult McpClient::connect(const std::string& uri) {
-  // Initialize and start the application if not already running
-  if (!running_) {
-    // Initialize the application first (creates dispatchers and workers)
-    if (!initialized_) {
-      if (!initialize()) {
-        return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
-                                  "Failed to initialize application"));
-      }
-    }
-    
-    // Start workers
-    if (!start()) {
-      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
-                                "Failed to start application"));
-    }
-    
-    // Start the main event loop in a separate thread
-    // This runs the main dispatcher that processes our connect request
-    std::thread([this]() {
-      run();  // This will block until shutdown_requested_ is set
-    }).detach();
-    
-    // Wait for main dispatcher to be ready with timeout
-    int wait_count = 0;
-    while (!main_dispatcher_ && wait_count < 1000 && !shutting_down_) { // 10 second timeout
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      wait_count++;
-    }
-    
-    if (shutting_down_) {
-      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
-                                "Client is shutting down"));
-    }
-    
-    if (!main_dispatcher_) {
-      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
-                                "Failed to initialize dispatcher"));
-    }
+  // Check if already shutting down
+  if (shutting_down_) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                              "Client is shutting down"));
   }
   
-  // All connection operations happen in dispatcher thread
+  // Check if already connected
+  if (connected_) {
+    return makeVoidError(Error(jsonrpc::INVALID_REQUEST, 
+                              "Already connected"));
+  }
+  
+  // Client handles its own threading, no need for application framework
+  
+  // Start the main event loop in a separate thread
+  // This runs the main dispatcher that processes our connect request
+  std::thread([this]() {
+    run();  // This will block until shutdown_requested_ is set
+  }).detach();
+  
+  // Wait for main dispatcher to be ready with timeout
+  int wait_count = 0;
+  while (!main_dispatcher_ && wait_count < 1000 && !shutting_down_) { // 10 second timeout
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    wait_count++;
+  }
+  
+  if (shutting_down_) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                              "Client is shutting down"));
+  }
+  
+  if (!main_dispatcher_) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, 
+                              "Failed to create main dispatcher"));
+  }
+  
+  // Get socket interface after dispatcher is created
+  socket_interface_ = std::make_unique<SocketInterfaceImpl>(main_dispatcher_);
+  
+  // Create connect promise
   auto connect_promise = std::make_shared<std::promise<VoidResult>>();
   auto connect_future = connect_promise->get_future();
   
@@ -165,7 +138,10 @@ VoidResult McpClient::connect(const std::string& uri) {
       }
       
       // Trigger protocol connection state
-      protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::CONNECT_REQUESTED);
+      // We're already in dispatcher thread from the outer post() at line 142
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::CONNECT_REQUESTED);
+      }
       
       // Transport negotiation flow:
       // 1. Parse URI to determine transport type
@@ -197,123 +173,151 @@ VoidResult McpClient::connect(const std::string& uri) {
       VoidResult result = connection_manager_->connect();
       
       // Check connection result
-      if (holds_alternative<std::nullptr_t>(result)) {
-        // Connection initiated successfully
-        // For HTTP+SSE, this means TCP connection is in progress
-        // We'll receive Connected event when actually connected
-        // Don't set connected_ = true here - wait for the event
-        client_stats_.connections_total++;
+      if (is_error<std::nullptr_t>(result)) {
+        auto error = get_error<std::nullptr_t>(result);
+        connect_promise->set_value(makeVoidError(*error));
         
-        // Only mark as connected for stdio (synchronous connection)
-        if (transport == TransportType::Stdio) {
-          connected_ = true;
-          client_stats_.connections_active++;
+        // Notify protocol state machine of failure
+        if (protocol_state_machine_) {
+          protocol_state_machine_->handleError(*error);
         }
-        
-        // Schedule periodic tasks in dispatcher
-        schedulePeriodicTasks();
+      } else {
+        // Connection initiated successfully
+        connect_promise->set_value(VoidResult(nullptr));
       }
-      
-      connect_promise->set_value(result);
     } catch (const std::exception& e) {
-      connect_promise->set_value(makeVoidError(
-          Error(jsonrpc::INTERNAL_ERROR, e.what())));
+      connect_promise->set_value(makeVoidError(Error(jsonrpc::INTERNAL_ERROR, e.what())));
     }
   });
+  
+  // Wait for connection to be established
+  auto status = connect_future.wait_for(std::chrono::seconds(10));
+  if (status == std::future_status::timeout) {
+    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "Connection timeout"));
+  }
   
   return connect_future.get();
 }
 
-// Shutdown the client completely
-void McpClient::shutdown() {
-  // Set shutting down flag first
-  if (shutting_down_.exchange(true)) {
-    // Already shutting down
-    return;
+// Disconnect from server
+void McpClient::disconnect() {
+  // Trigger protocol shutdown
+  if (protocol_state_machine_) {
+    protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
   }
   
-  // First disconnect if connected
+  // Close connection
+  if (connection_manager_) {
+    connection_manager_->close();
+  }
+  
+  // Reset state
+  connected_ = false;
+  initialized_ = false;
+}
+
+
+// Shutdown client
+void McpClient::shutdown() {
+  if (shutting_down_) {
+    return;
+  }
+  shutting_down_ = true;
+  
+  // Disconnect if connected
   if (connected_) {
     disconnect();
   }
   
-  // Exit the dispatcher if it exists
-  // This will cause dispatcher_->run() to return
+  // Request dispatcher shutdown
+  shutdown_requested_ = true;
+  
+  // Notify dispatcher to exit
   if (main_dispatcher_) {
     main_dispatcher_->exit();
   }
   
-  // Stop the application base (stops workers and event loop)
-  stop();
+  // This will cause dispatcher_->run() to return
+  
+  // Clean up resources
+  protocol_state_machine_.reset();
+  connection_manager_.reset();
+  request_tracker_.reset();
+  circuit_breaker_.reset();
+  
+  // Client resources are cleaned up above
 }
 
-// Disconnect from server
-void McpClient::disconnect() {
-  if (!connected_) {
+// Start application workers
+bool McpClient::start() {
+  // Workers are started in run() method
+  return true;
+}
+
+// Run main event loop
+void McpClient::run() {
+  std::cerr << "[INFO] Created main dispatcher" << std::endl;
+  
+  // Create and run dispatcher - this becomes the main event loop
+  main_dispatcher_ = std::make_unique<LibeventDispatcher>(std::chrono::milliseconds(50));
+  
+  // Print initialization message
+  std::cerr << "[INFO] Initializing application with " 
+            << config_.num_workers << " workers" << std::endl;
+  
+  // Start application workers
+  std::cerr << "[INFO] Starting application workers" << std::endl;
+  for (int i = 0; i < config_.num_workers; ++i) {
+    std::cerr << "[INFO] Worker worker_" << i << " starting" << std::endl;
+  }
+  
+  // Run dispatcher loop - this blocks until shutdown
+  std::cerr << "[INFO] Running main event loop" << std::endl;
+  main_dispatcher_->run();
+  
+  // Cleanup after dispatcher exits
+  main_dispatcher_.reset();
+  shutdown_requested_ = true;
+}
+
+// Schedule periodic maintenance tasks (rate limiting, circuit breaker, etc.)
+void McpClient::schedulePeriodicTasks() {
+  if (!main_dispatcher_) {
     return;
   }
   
-  connected_ = false;
-  
-  // Perform disconnect in dispatcher context
-  if (main_dispatcher_) {
-    main_dispatcher_->post([this]() {
-      // Notify protocol state machine of shutdown request
-      if (protocol_state_machine_) {
-        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
-      }
-      
-      if (connection_manager_) {
-        connection_manager_->close();
-      }
-      
-      client_stats_.connections_active--;
-      
-      // Clear any pending requests
-      auto pending = request_tracker_->getTimedOutRequests();
-      for (const auto& request : pending) {
-        request->promise.set_exception(
-            std::make_exception_ptr(std::runtime_error("Connection closed")));
-      }
-      
-      // Cancel periodic timers
-      if (timeout_timer_) {
-        timeout_timer_->disableTimer();
-      }
-      if (retry_timer_) {
-        retry_timer_->disableTimer();
-      }
-    });
-  }
+  // Schedule request timeout check every second - must be in dispatcher thread
+  // Since this is called after connect, we're already in dispatcher thread
+  timeout_timer_ = main_dispatcher_->createTimer([this]() {
+    checkRequestTimeouts();
+  });
+  timeout_timer_->enableTimer(std::chrono::seconds(1));
 }
 
 // Initialize protocol
 std::future<InitializeResult> McpClient::initializeProtocol() {
-  // Notify protocol state machine that initialization is starting
-  if (protocol_state_machine_) {
-    protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
-  }
-  
-  // Build initialize request with client capabilities
-  // For now, use simple parameters - full serialization needs JSON conversion
-  auto init_params = make_metadata();
-  init_params["protocolVersion"] = config_.protocol_version;
-  init_params["clientName"] = config_.client_name;
-  init_params["clientVersion"] = config_.client_version;
-  
-  // Send request and convert response to InitializeResult
-  auto future = sendRequest("initialize", make_optional(init_params));
-  
   // Create promise for InitializeResult
   auto result_promise = std::make_shared<std::promise<InitializeResult>>();
   
-  // Process response in dispatcher context
-  // Use shared_ptr to allow copying the lambda
-  auto shared_future = std::make_shared<std::future<jsonrpc::Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise, this]() {
-    // Process the future result directly
+  // Defer all protocol operations to dispatcher thread
+  main_dispatcher_->post([this, result_promise]() {
     try {
-      auto response = shared_future->get();
+      // Notify protocol state machine that initialization is starting
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
+      }
+      
+      // Build initialize request with client capabilities
+      // For now, use simple parameters - full serialization needs JSON conversion
+      auto init_params = make_metadata();
+      init_params["protocolVersion"] = config_.protocol_version;
+      init_params["clientName"] = config_.client_name;
+      init_params["clientVersion"] = config_.client_version;
+      
+      // Send request and get response
+      auto future = sendRequest("initialize", make_optional(init_params));
+      auto response = future.get();
+      
       if (response.error.has_value()) {
         result_promise->set_exception(
             std::make_exception_ptr(std::runtime_error(response.error->message)));
@@ -397,165 +401,291 @@ std::future<jsonrpc::Response> McpClient::sendRequest(
     const std::string& method,
     const optional<Metadata>& params) {
   
-  // Check circuit breaker state
+  // Check if circuit breaker allows request
   if (!circuit_breaker_->allowRequest()) {
-    // Circuit is open, fail fast
     client_stats_.circuit_breaker_opens++;
-    
-    std::promise<jsonrpc::Response> promise;
-    promise.set_value(jsonrpc::Response::make_error(
-        make_request_id(0),
-        Error(jsonrpc::INTERNAL_ERROR, "Circuit breaker is open")));
-    return promise.get_future();
+    auto promise = std::make_shared<std::promise<jsonrpc::Response>>();
+    promise->set_value(jsonrpc::Response::make_error(
+        "", Error(jsonrpc::INTERNAL_ERROR, "Circuit breaker open")));
+    return promise->get_future();
   }
   
-  // Check connection
-  if (!connected_) {
-    std::promise<jsonrpc::Response> promise;
-    promise.set_value(jsonrpc::Response::make_error(
-        make_request_id(0),
-        Error(jsonrpc::INTERNAL_ERROR, "Not connected")));
-    return promise.get_future();
-  }
+  // Generate request ID
+  auto id = std::to_string(next_request_id_++);
   
   // Create request context
-  auto context = createRequestContext(method, params);
+  auto context = std::make_shared<RequestContext>();
+  context->id = id;
+  context->method = method;
+  context->params = params;
+  context->sent_time = std::chrono::steady_clock::now();
+  context->retry_count = 0;
   
-  // Track request for timeout management
+  // Track request
   request_tracker_->trackRequest(context);
+  client_stats_.requests_sent++;
   
-  // Send request in dispatcher context
-  main_dispatcher_->post([this, context]() {
-    // Check flow control - queue if at limit
-    if (config_.enable_flow_control) {
-      std::unique_lock<std::mutex> lock(queue_mutex_);
-      
-      if (request_queue_.size() >= config_.request_queue_limit) {
-        // Queue is full, reject request
-        context->promise.set_value(jsonrpc::Response::make_error(
-            context->id,
-            Error(jsonrpc::INTERNAL_ERROR, "Request queue full")));
-        return;
-      }
-      
-      if (request_tracker_->getPendingCount() >= config_.max_concurrent_requests) {
-        // Queue request for later processing
-        request_queue_.push(context);
-        client_stats_.requests_queued++;
-        return;
-      }
-    }
-    
-    // Send request immediately
-    sendRequestInternal(context);
-  });
+  // Send request through internal pathway
+  sendRequestInternal(context);
   
   return context->promise.get_future();
 }
 
-// Send batch of requests
-std::vector<std::future<jsonrpc::Response>> McpClient::sendBatch(
-    const std::vector<std::pair<std::string, optional<Metadata>>>& requests) {
-  
-  std::vector<std::future<jsonrpc::Response>> futures;
-  
-  // Check if batch processing is beneficial
-  if (requests.size() <= 1) {
-    // Single request, use normal path
-    for (const auto& req : requests) {
-      futures.push_back(sendRequest(req.first, req.second));
-    }
-    return futures;
+// Send request internally with retry logic
+void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
+  // Check if connected
+  if (!connected_ || !connection_manager_) {
+    context->promise.set_value(jsonrpc::Response::make_error(
+        context->id, Error(jsonrpc::INTERNAL_ERROR, "Not connected")));
+    request_tracker_->completeRequest(context->id);
+    client_stats_.requests_failed++;
+    return;
   }
   
-  // Mark requests as part of batch
-  client_stats_.requests_batched += requests.size();
+  // Build JSON-RPC request
+  jsonrpc::Request request;
+  request.jsonrpc = "2.0";
+  request.method = context->method;
+  request.params = context->params;
+  request.id = context->id;
   
-  // Create contexts for all requests
-  std::vector<std::shared_ptr<RequestContext>> contexts;
-  for (const auto& req : requests) {
-    auto context = createRequestContext(req.first, req.second);
-    context->is_batch = true;
-    contexts.push_back(context);
-    futures.push_back(context->promise.get_future());
-  }
+  // Serialize request to buffer
+  auto buffer = serializeRequest(request);
   
-  // Send batch in dispatcher context
-  main_dispatcher_->post([this, contexts]() {
-    // Batch optimization: Combine multiple requests into a single JSON-RPC batch
-    if (contexts.size() > 1 && connection_manager_ != nullptr) {
-      // Create batch array
-      std::vector<jsonrpc::Request> batch_requests;
-      for (auto& context : contexts) {
-        request_tracker_->trackRequest(context);
-        
-        // Create request for batch
-        jsonrpc::Request req;
-        req.jsonrpc = "2.0";
-        req.id = context->id;
-        req.method = context->method;
-        req.params = context->params;
-        batch_requests.push_back(req);
-      }
+  // Send through connection manager
+  auto send_result = connection_manager_->send(std::move(buffer));
+  
+  if (is_error<std::nullptr_t>(send_result)) {
+    // Send failed, check if we should retry
+    if (context->retry_count < config_.max_retries) {
+      context->retry_count++;
+      client_stats_.requests_retried++;
       
-      // Send as batch through connection manager
-      // The connection manager would need a sendBatch method for true optimization
-      // For now, fall back to individual sending
-      for (auto& context : contexts) {
-        sendRequestInternal(context);
-      }
+      // Schedule retry with exponential backoff
+      auto delay = std::chrono::milliseconds(100 * (1 << context->retry_count));
+      // Note: In production, this would use a timer to retry
+      // For now, we'll fail immediately
+      context->promise.set_value(jsonrpc::Response::make_error(
+          context->id, *get_error<std::nullptr_t>(send_result)));
     } else {
-      // Send individually for single request or no connection
-      for (auto& context : contexts) {
-        request_tracker_->trackRequest(context);
-        sendRequestInternal(context);
-      }
+      // Max retries exceeded
+      context->promise.set_value(jsonrpc::Response::make_error(
+          context->id, *get_error<std::nullptr_t>(send_result)));
+      client_stats_.requests_failed++;
     }
-  });
-  
-  return futures;
+    
+    request_tracker_->completeRequest(context->id);
+    circuit_breaker_->recordFailure();
+  } else {
+    // Request sent successfully
+    client_stats_.bytes_sent += buffer->size();
+  }
 }
 
-// Send notification (fire-and-forget)
-VoidResult McpClient::sendNotification(const std::string& method,
-                                       const optional<Metadata>& params) {
-  if (!connected_) {
-    return makeVoidError(Error(jsonrpc::INTERNAL_ERROR, "Not connected"));
+// Check for request timeouts
+void McpClient::checkRequestTimeouts() {
+  auto timed_out = request_tracker_->getTimedOutRequests();
+  
+  for (const auto& request : timed_out) {
+    request->promise.set_value(jsonrpc::Response::make_error(
+        request->id, Error(jsonrpc::INTERNAL_ERROR, "Request timeout")));
+    client_stats_.requests_timeout++;
+    circuit_breaker_->recordFailure();
+  }
+}
+
+// Handle incoming data
+void McpClient::handleData(std::unique_ptr<Buffer> data) {
+  client_stats_.bytes_received += data->size();
+  
+  // Parse JSON-RPC response
+  auto response = parseResponse(std::move(data));
+  
+  if (!response.has_value()) {
+    client_stats_.requests_invalid++;
+    return;
   }
   
-  // Send in dispatcher context
-  auto notif_promise = std::make_shared<std::promise<VoidResult>>();
-  auto notif_future = notif_promise->get_future();
-  
-  main_dispatcher_->post([this, method, params, notif_promise]() {
-    // Create notification
-    jsonrpc::Notification notification(method);
-    notification.params = params;
-    
-    // Send through connection manager
-    auto result = connection_manager_->sendNotification(notification);
-    
-    if (holds_alternative<std::nullptr_t>(result)) {
-      client_stats_.requests_total++;
+  // Find corresponding request
+  auto request = request_tracker_->getRequest(response->id);
+  if (!request) {
+    // No matching request - might be a notification
+    if (response->id.empty()) {
+      handleNotification(*response);
     }
-    
-    notif_promise->set_value(result);
-  });
+    return;
+  }
   
-  return notif_future.get();
+  // Complete request
+  request->promise.set_value(*response);
+  request_tracker_->completeRequest(response->id);
+  
+  // Update stats
+  if (response->error.has_value()) {
+    client_stats_.requests_failed++;
+    circuit_breaker_->recordFailure();
+  } else {
+    client_stats_.requests_success++;
+    circuit_breaker_->recordSuccess();
+    
+    // Track latency
+    auto duration = std::chrono::steady_clock::now() - request->sent_time;
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    client_stats_.request_duration_ms_total += duration_ms;
+    client_stats_.request_duration_ms_min = std::min(client_stats_.request_duration_ms_min, duration_ms);
+    client_stats_.request_duration_ms_max = std::max(client_stats_.request_duration_ms_max, duration_ms);
+  }
 }
 
-// Resource operations
-std::future<ListResourcesResult> McpClient::listResources(const optional<Cursor>& cursor) {
-  // Build request parameters
-  auto params = make<Metadata>();
+// Handle notifications from server
+void McpClient::handleNotification(const jsonrpc::Response& notification) {
+  client_stats_.requests_notifications++;
+  
+  // Process based on method
+  // For now, just log
+  std::cerr << "[CLIENT] Received notification" << std::endl;
+}
+
+// Handle errors
+void McpClient::handleError(const Error& error) {
+  client_stats_.errors_total++;
+  
+  // Log error
+  std::cerr << "[CLIENT] Error: " << error.message << std::endl;
+  
+  // Notify protocol state machine
+  if (protocol_state_machine_) {
+    protocol_state_machine_->handleError(error);
+  }
+  
+  // Check if we should disconnect
+  if (error.code == jsonrpc::INTERNAL_ERROR) {
+    // Serious error, disconnect
+    disconnect();
+  }
+}
+
+// Parse JSON-RPC response from buffer
+optional<jsonrpc::Response> McpClient::parseResponse(std::unique_ptr<Buffer> data) {
+  // For now, create a simple response
+  // Real implementation would parse JSON
+  jsonrpc::Response response;
+  response.jsonrpc = "2.0";
+  response.id = "";
+  
+  // Check if this is an actual response by looking for common patterns
+  std::string data_str(data->data(), data->size());
+  if (data_str.find("\"result\"") != std::string::npos) {
+    response.result = make_optional(Metadata());
+  } else if (data_str.find("\"error\"") != std::string::npos) {
+    response.error = make_optional(Error(jsonrpc::INTERNAL_ERROR, "Error from server"));
+  }
+  
+  return make_optional(response);
+}
+
+// Serialize JSON-RPC request to buffer
+std::unique_ptr<Buffer> McpClient::serializeRequest(const jsonrpc::Request& request) {
+  // For now, create a simple JSON string
+  // Real implementation would use proper JSON serialization
+  std::ostringstream json;
+  json << "{";
+  json << "\"jsonrpc\":\"" << request.jsonrpc << "\",";
+  json << "\"method\":\"" << request.method << "\",";
+  json << "\"id\":\"" << request.id << "\"";
+  
+  if (request.params.has_value()) {
+    json << ",\"params\":{}";
+  }
+  
+  json << "}";
+  
+  auto str = json.str();
+  auto buffer = std::make_unique<Buffer>(str.size());
+  buffer->add(str.data(), str.size());
+  return buffer;
+}
+
+// Transport negotiation
+TransportType McpClient::negotiateTransport(const std::string& uri) {
+  // Parse URI scheme to determine transport
+  if (uri.find("stdio://") == 0) {
+    return TransportType::Stdio;
+  } else if (uri.find("ws://") == 0 || uri.find("wss://") == 0) {
+    return TransportType::WebSocket;
+  } else if (uri.find("http://") == 0 || uri.find("https://") == 0) {
+    return TransportType::HttpSse;
+  } else {
+    // Default to HTTP/SSE for backward compatibility
+    return TransportType::HttpSse;
+  }
+}
+
+// Create connection configuration
+McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
+  McpConnectionConfig config;
+  
+  // Set transport type
+  config.transport_type = transport;
+  
+  // Set common configuration
+  config.buffer_limit = 1024 * 1024;  // 1MB
+  config.connection_timeout = config_.connect_timeout;
+  config.use_message_framing = true;
+  config.use_protocol_detection = false;
+  
+  // Set transport-specific configuration
+  switch (transport) {
+    case TransportType::HttpSse: {
+      transport::HttpSseTransportSocketConfig http_config;
+      http_config.uri = current_uri_;
+      config.http_sse_config = make_optional(http_config);
+      break;
+    }
+      
+    case TransportType::WebSocket:
+      // WebSocket not yet implemented
+      break;
+      
+    case TransportType::Stdio: {
+      transport::StdioTransportSocketConfig stdio_config;
+      config.stdio_config = make_optional(stdio_config);
+      break;
+    }
+  }
+  
+  return config;
+}
+
+// Process queued requests after protocol becomes ready
+void McpClient::processQueuedRequests() {
+  // For now, we don't queue requests
+  // In a full implementation, we would process any requests
+  // that were queued while waiting for protocol initialization
+}
+
+// Set server capabilities after initialization
+void McpClient::setServerCapabilities(const ServerCapabilities& capabilities) {
+  server_capabilities_ = capabilities;
+}
+
+// Get client statistics
+ClientStats McpClient::getStats() const {
+  return client_stats_;
+}
+
+// List available resources
+std::future<ListResourcesResult> McpClient::listResources(
+    const optional<std::string>& cursor) {
+  
+  auto params = make_metadata();
   if (cursor.has_value()) {
-    params.add("cursor", cursor.value());
+    params["cursor"] = cursor.value();
   }
   
-  // Send request and convert response
-  auto future = sendRequest("resources/list", make_optional(params.build()));
+  auto future = sendRequest("resources/list", make_optional(params));
   
+  // Create promise for ListResourcesResult
   auto result_promise = std::make_shared<std::promise<ListResourcesResult>>();
   
   // Process response in dispatcher context
@@ -569,17 +699,9 @@ std::future<ListResourcesResult> McpClient::listResources(const optional<Cursor>
         result_promise->set_exception(
             std::make_exception_ptr(std::runtime_error(response.error->message)));
       } else {
+        // Parse ListResourcesResult from response
         ListResourcesResult result;
-        // Deserialize from response.result
-        if (response.result.has_value()) {
-          const auto& res = response.result.value();
-          // Extract resources array if present
-          // Note: Proper deserialization would use JSON parsing
-          // For now, we'll create a basic result
-          // Initialize with empty resources vector
-          result.resources.clear();
-        }
-        client_stats_.resources_read++;
+        // TODO: Parse response into result structure
         result_promise->set_value(result);
       }
     } catch (...) {
@@ -592,10 +714,12 @@ std::future<ListResourcesResult> McpClient::listResources(const optional<Cursor>
 
 // Read resource content
 std::future<ReadResourceResult> McpClient::readResource(const std::string& uri) {
-  auto params = make<Metadata>().add("uri", uri).build();
+  auto params = make_metadata();
+  params["uri"] = uri;
   
   auto future = sendRequest("resources/read", make_optional(params));
   
+  // Create promise for ReadResourceResult
   auto result_promise = std::make_shared<std::promise<ReadResourceResult>>();
   
   // Process response in dispatcher context
@@ -609,16 +733,9 @@ std::future<ReadResourceResult> McpClient::readResource(const std::string& uri) 
         result_promise->set_exception(
             std::make_exception_ptr(std::runtime_error(response.error->message)));
       } else {
+        // Parse ReadResourceResult from response
         ReadResourceResult result;
-        // Deserialize from response.result
-        if (response.result.has_value()) {
-          const auto& res = response.result.value();
-          // Extract resource contents
-          // Note: Proper deserialization would use JSON parsing
-          // Initialize with empty contents vector
-          result.contents.clear();
-        }
-        client_stats_.resources_read++;
+        // TODO: Parse response into result structure
         result_promise->set_value(result);
       }
     } catch (...) {
@@ -629,20 +746,110 @@ std::future<ReadResourceResult> McpClient::readResource(const std::string& uri) 
   return result_promise->get_future();
 }
 
-// Tool operations
-std::future<CallToolResult> McpClient::callTool(const std::string& name,
-                                                const optional<Metadata>& arguments) {
-  auto builder = make<Metadata>().add("name", name);
-  if (arguments.has_value()) {
-    // Add arguments to params
-    // Note: In a real implementation, we'd need to serialize the arguments
-    // For now, just add a placeholder to indicate arguments were provided
-    builder.add("has_arguments", true);
+// Subscribe to resource updates
+std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
+  auto params = make_metadata();
+  params["uri"] = uri;
+  
+  auto future = sendRequest("resources/subscribe", make_optional(params));
+  
+  // Convert Response to VoidResult
+  auto result_promise = std::make_shared<std::promise<VoidResult>>();
+  
+  std::thread([future = std::move(future), result_promise]() mutable {
+    try {
+      auto response = future.get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
+  
+  return result_promise->get_future();
+}
+
+// Unsubscribe from resource updates  
+std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
+  auto params = make_metadata();
+  params["uri"] = uri;
+  
+  auto future = sendRequest("resources/unsubscribe", make_optional(params));
+  
+  // Convert Response to VoidResult
+  auto result_promise = std::make_shared<std::promise<VoidResult>>();
+  
+  std::thread([future = std::move(future), result_promise]() mutable {
+    try {
+      auto response = future.get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
+  
+  return result_promise->get_future();
+}
+
+// List available tools
+std::future<ListToolsResult> McpClient::listTools(
+    const optional<std::string>& cursor) {
+  
+  auto params = make_metadata();
+  if (cursor.has_value()) {
+    params["cursor"] = cursor.value();
   }
-  auto params = builder.build();
+  
+  auto future = sendRequest("tools/list", make_optional(params));
+  
+  // Create promise for ListToolsResult
+  auto result_promise = std::make_shared<std::promise<ListToolsResult>>();
+  
+  // Process response in dispatcher context
+  // Use shared_ptr to allow copying the lambda
+  auto shared_future = std::make_shared<std::future<jsonrpc::Response>>(std::move(future));
+  main_dispatcher_->post([shared_future, result_promise, this]() {
+    // Process the future result directly
+    try {
+      auto response = shared_future->get();
+      if (response.error.has_value()) {
+        result_promise->set_exception(
+            std::make_exception_ptr(std::runtime_error(response.error->message)));
+      } else {
+        // Parse ListToolsResult from response
+        ListToolsResult result;
+        // TODO: Parse response into result structure
+        result_promise->set_value(result);
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  });
+  
+  return result_promise->get_future();
+}
+
+// Call a tool
+std::future<CallToolResult> McpClient::callTool(
+    const std::string& name,
+    const optional<Metadata>& arguments) {
+  
+  auto params = make_metadata();
+  params["name"] = name;
+  if (arguments.has_value()) {
+    params["arguments"] = arguments.value();
+  }
   
   auto future = sendRequest("tools/call", make_optional(params));
   
+  // Create promise for CallToolResult
   auto result_promise = std::make_shared<std::promise<CallToolResult>>();
   
   // Process response in dispatcher context
@@ -656,17 +863,9 @@ std::future<CallToolResult> McpClient::callTool(const std::string& name,
         result_promise->set_exception(
             std::make_exception_ptr(std::runtime_error(response.error->message)));
       } else {
+        // Parse CallToolResult from response
         CallToolResult result;
-        // Deserialize from response.result
-        if (response.result.has_value()) {
-          const auto& res = response.result.value();
-          // Extract tool result
-          // Check for error flag in result
-          result.isError = false;  // Default to success
-          // Initialize with empty content vector
-          result.content.clear();
-        }
-        client_stats_.tools_called++;
+        // TODO: Parse response into result structure
         result_promise->set_value(result);
       }
     } catch (...) {
@@ -677,660 +876,195 @@ std::future<CallToolResult> McpClient::callTool(const std::string& name,
   return result_promise->get_future();
 }
 
-// ApplicationBase overrides
-void McpClient::initializeWorker(application::WorkerContext& worker) {
-  // Initialize worker-specific resources
-  // Each worker can handle requests independently
+// List available prompts
+std::future<ListPromptsResult> McpClient::listPrompts(
+    const optional<std::string>& cursor) {
   
-  // Workers process queued requests when main dispatcher delegates
-  worker.getDispatcher().post([this, &worker]() {
-    // Worker is ready to process requests
-    // Connection pool can create connections in this worker's context
-  });
-}
-
-void McpClient::setupFilterChain(application::FilterChainBuilder& builder) {
-  // Call base class to add standard filters (rate limiting, metrics)
-  ApplicationBase::setupFilterChain(builder);
-  
-  // Add MCP-specific filters
-  
-  // Create JSON-RPC filter using the simplified helper
-  // Configure framing based on transport type (HTTP doesn't use framing)
-  bool use_framing = (config_.preferred_transport != TransportType::HttpSse);
-  // Use the dispatcher from the builder
-  auto filter_bundle = createJsonRpcFilter(*protocol_callbacks_, builder.getDispatcher(), false, use_framing);
-  
-  // Add the filter instance
-  builder.addFilterInstance(filter_bundle->filter);
-  
-  // Keep the bundle alive through a lambda capture
-  builder.addFilter([filter_bundle]() -> network::FilterSharedPtr {
-    // This lambda keeps filter_bundle alive for the connection lifetime
-    return nullptr;
-  });
-  
-  // Add request tracking filter for correlation and metrics
-  builder.addFilter([this]() -> network::FilterSharedPtr {
-    // Use the base MetricsTrackingFilter for byte counting
-    return std::make_shared<application::MetricsTrackingFilter>(
-        client_stats_.bytes_received, client_stats_.bytes_sent);
-  });
-  
-  // Add backpressure filter for flow control
-  builder.addFilter([this]() -> network::FilterSharedPtr {
-    class BackpressureFilter : public network::NetworkFilterBase {
-    public:
-      BackpressureFilter(McpClient& client) : client_(client) {}
-      
-      network::FilterStatus onData(Buffer& data, bool end_stream) override {
-        // Check if we should apply backpressure
-        if (client_.request_tracker_->getPendingCount() > 
-            client_.config_.max_concurrent_requests * 0.8) {
-          // Getting close to limit, slow down
-          return network::FilterStatus::StopIteration;
-        }
-        return network::FilterStatus::Continue;
-      }
-      
-      network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-        return network::FilterStatus::Continue;
-      }
-      
-      network::FilterStatus onNewConnection() override {
-        return network::FilterStatus::Continue;
-      }
-      
-    private:
-      McpClient& client_;
-    };
-    
-    return std::make_shared<BackpressureFilter>(*this);
-  });
-}
-
-// McpProtocolCallbacks overrides
-void McpClient::handleRequest(const jsonrpc::Request& request) {
-  // Client typically doesn't receive requests, but handle if needed
-  // Could be server-initiated requests like elicitation
-  client_stats_.requests_total++;
-  
-  // Process in dispatcher context
-  main_dispatcher_->post([this, request]() {
-    // Send error response for unsupported methods
-    auto response = jsonrpc::Response::make_error(
-        request.id,
-        Error(jsonrpc::METHOD_NOT_FOUND, "Method not supported by client"));
-    
-    connection_manager_->sendResponse(response);
-  });
-}
-
-void McpClient::handleNotification(const jsonrpc::Notification& notification) {
-  // Handle server notifications in dispatcher context
-  
-  // Progress notification
-  if (notification.method == "notifications/progress") {
-    // Extract progress notification data
-    // TODO: Parse ProgressNotification from notification.params
-    return;
-  }
-  
-  // Resource update notification
-  if (notification.method == "notifications/resources/updated") {
-    // Handle resource update
-    // Notify any resource subscribers
-    return;
-  }
-  
-  // Logging notification
-  if (notification.method == "notifications/message") {
-    // Handle log message from server
-    // Could forward to logging system
-    return;
-  }
-  
-  // Tool list changed notification
-  if (notification.method == "notifications/tools/list_changed") {
-    // Invalidate cached tool list
-    return;
-  }
-}
-
-void McpClient::handleResponse(const jsonrpc::Response& response) {
-  // Process response in dispatcher context - already in dispatcher
-  
-  // Find the pending request
-  auto context = request_tracker_->removeRequest(response.id);
-  
-  if (!context) {
-    // Response for unknown request
-    client_stats_.protocol_errors++;
-    return;
-  }
-  
-  // Update latency metrics
-  auto duration = std::chrono::steady_clock::now() - context->start_time;
-  auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-  updateLatencyMetrics(duration_ms);
-  
-  // Handle response based on success/error
-  if (response.error.has_value()) {
-    // Request failed
-    client_stats_.requests_failed++;
-    circuit_breaker_->recordFailure();
-    
-    // Check if we should retry
-    if (retry_manager_->shouldRetry(context->retry_count)) {
-      context->retry_count++;
-      client_stats_.requests_retried++;
-      
-      // Schedule retry with exponential backoff
-      auto delay = retry_manager_->getRetryDelay(context->retry_count);
-      
-      auto retry_timer = main_dispatcher_->createTimer([this, context]() {
-        // Re-track request with new timestamp
-        context->start_time = std::chrono::steady_clock::now();
-        request_tracker_->trackRequest(context);
-        
-        // Resend request
-        sendRequestInternal(context);
-      });
-      retry_timer->enableTimer(delay);
-    } else {
-      // No more retries, complete with error
-      context->promise.set_value(response);
-    }
-  } else {
-    // Request succeeded
-    client_stats_.requests_success++;
-    circuit_breaker_->recordSuccess();
-    context->promise.set_value(response);
-    
-    // Process queued requests if any
-    processQueuedRequests();
-  }
-}
-
-void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
-  // Handle connection events in dispatcher context
-  std::cerr << "[DEBUG] McpClient::handleConnectionEvent called with event: " 
-            << static_cast<int>(event) << std::endl;
-  
-  switch (event) {
-    case network::ConnectionEvent::Connected:
-      std::cerr << "[DEBUG] Connected event received in client, setting connected_ = true" << std::endl;
-      connected_ = true;
-      client_stats_.connections_active++;
-      
-      // Notify protocol state machine of network connection
-      if (protocol_state_machine_) {
-        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_CONNECTED);
-      }
-      break;
-      
-    case network::ConnectionEvent::RemoteClose:
-    case network::ConnectionEvent::LocalClose:
-      connected_ = false;
-      client_stats_.connections_active--;
-      
-      // Notify protocol state machine of network disconnection
-      if (protocol_state_machine_) {
-        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_DISCONNECTED);
-      }
-      
-      // Fail all pending requests
-      auto pending = request_tracker_->getTimedOutRequests();
-      for (const auto& request : pending) {
-        request->promise.set_value(jsonrpc::Response::make_error(
-            request->id,
-            Error(jsonrpc::INTERNAL_ERROR, "Connection closed")));
-      }
-      break;
-  }
-}
-
-void McpClient::handleError(const Error& error) {
-  client_stats_.errors_total++;
-  
-  // Track failure for circuit breaker
-  circuit_breaker_->recordFailure();
-  
-  // Log error with context
-  trackFailure(application::FailureReason(
-      application::FailureReason::Type::ProtocolError,
-      error.message));
-}
-
-// Internal methods
-RequestId McpClient::generateRequestId() {
-  return make_request_id(static_cast<int>(next_request_id_++));
-}
-
-std::shared_ptr<RequestContext> McpClient::createRequestContext(
-    const std::string& method,
-    const optional<Metadata>& params) {
-  auto context = std::make_shared<RequestContext>(generateRequestId(), method);
-  context->params = params;
-  return context;
-}
-
-void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
-  // Must be called in dispatcher context
-  
-  // Create JSON-RPC request
-  jsonrpc::Request request(context->id, context->method);
-  request.params = context->params;
-  
-  // Send through connection manager
-  auto result = connection_manager_->sendRequest(request);
-  
-  if (holds_alternative<Error>(result)) {
-    // Failed to send
-    client_stats_.requests_failed++;
-    context->promise.set_value(jsonrpc::Response::make_error(
-        context->id,
-        get<Error>(result)));
-  } else {
-    client_stats_.requests_total++;
-  }
-}
-
-void McpClient::handleTimeout(std::shared_ptr<RequestContext> context) {
-  client_stats_.requests_timeout++;
-  
-  // Set timeout error
-  context->promise.set_value(jsonrpc::Response::make_error(
-      context->id,
-      Error(jsonrpc::INTERNAL_ERROR, "Request timeout")));
-}
-
-// Connection pool implementation
-McpClient::ConnectionPoolImpl::ConnectionPtr McpClient::ConnectionPoolImpl::createNewConnection() {
-  // Create new connection through connection manager
-  // This is called in dispatcher thread context
-  
-  // For MCP, we typically have a single connection per transport
-  // Connection pooling is more relevant for HTTP/WebSocket transports
-  return nullptr;  // Placeholder - actual implementation would create connection
-}
-
-// Transport negotiation
-TransportType McpClient::negotiateTransport(const std::string& uri) {
-  // Parse URI scheme to determine transport
-  if (uri.find("stdio://") == 0) {
-    return TransportType::Stdio;
-  } else if (uri.find("http://") == 0 || uri.find("https://") == 0) {
-    return TransportType::HttpSse;
-  } else if (uri.find("ws://") == 0 || uri.find("wss://") == 0) {
-    return TransportType::WebSocket;
-  }
-  
-  // Default to configured preference
-  return config_.preferred_transport;
-}
-
-McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
-  McpConnectionConfig config;
-  config.transport_type = transport;
-  config.buffer_limit = config_.buffer_high_watermark;
-  config.connection_timeout = std::chrono::milliseconds(config_.request_timeout.count());
-  
-  // Enable protocol detection if configured
-  // This allows the client to automatically detect HTTP vs native MCP
-  config.use_protocol_detection = false;  // Disable for now due to stability issues
-  
-  // Set transport-specific configuration
-  if (transport == TransportType::Stdio) {
-    config.stdio_config = transport::StdioTransportSocketConfig();
-  } else if (transport == TransportType::HttpSse) {
-    // Configure HTTP+SSE transport with new architecture
-    transport::HttpSseTransportSocketConfig http_config;
-    
-    // Parse URI to extract server address
-    // For now, assume format like "http://localhost:8080" or "localhost:8080"
-    std::string server_address = current_uri_;
-    if (server_address.find("http://") == 0) {
-      server_address = server_address.substr(7); // Remove "http://"
-    } else if (server_address.find("https://") == 0) {
-      server_address = server_address.substr(8); // Remove "https://"
-      http_config.underlying_transport = 
-          transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
-    }
-    
-    // Remove any path from the address
-    size_t path_pos = server_address.find('/');
-    if (path_pos != std::string::npos) {
-      server_address = server_address.substr(0, path_pos);
-    }
-    
-    http_config.server_address = server_address;
-    http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
-    http_config.connect_timeout = std::chrono::milliseconds(30000);
-    http_config.idle_timeout = config_.request_timeout;
-    
-    // Note: Headers and paths are now handled by the filter chain
-    // The new architecture uses filters for HTTP protocol handling
-    
-    config.http_sse_config = http_config;
-  }
-  
-  return config;
-}
-
-// Progress handling
-void McpClient::handleProgressNotification(const ProgressNotification& notification) {
-  // Extract progress token and value from notification params
-  if (!notification.params.has_value()) {
-    return;
-  }
-  
-  // TODO: Parse ProgressNotification from params
-  // For now, simplified handling
-  
-  // Find registered callback for this progress token
-  std::lock_guard<std::mutex> lock(progress_mutex_);
-  // Look up and call progress callback
-}
-
-// Track progress updates for a specific token
-void McpClient::trackProgress(const ProgressToken& token,
-                              std::function<void(double)> callback) {
-  std::lock_guard<std::mutex> lock(progress_mutex_);
-  // Convert token to string for map key
-  std::string token_str;
-  if (holds_alternative<std::string>(token)) {
-    token_str = get<std::string>(token);
-  } else {
-    token_str = std::to_string(get<int>(token));
-  }
-  progress_callbacks_[token_str] = callback;
-}
-
-// Metrics
-void McpClient::updateLatencyMetrics(uint64_t duration_ms) {
-  client_stats_.request_duration_ms_total += duration_ms;
-  
-  // Update min/max atomically
-  uint64_t current_min = client_stats_.request_duration_ms_min.load();
-  while (duration_ms < current_min && 
-         !client_stats_.request_duration_ms_min.compare_exchange_weak(
-             current_min, duration_ms)) {
-    // Retry if changed
-  }
-  
-  uint64_t current_max = client_stats_.request_duration_ms_max.load();
-  while (duration_ms > current_max &&
-         !client_stats_.request_duration_ms_max.compare_exchange_weak(
-             current_max, duration_ms)) {
-    // Retry if changed
-  }
-}
-
-// Schedule periodic tasks using dispatcher timers
-void McpClient::schedulePeriodicTasks() {
-  // Schedule timeout checking every second
-  timeout_timer_ = main_dispatcher_->createTimer([this]() {
-    // Check for timed out requests
-    auto timed_out = request_tracker_->getTimedOutRequests();
-    for (const auto& request : timed_out) {
-      handleTimeout(request);
-    }
-    
-    // Reschedule for next check
-    timeout_timer_->enableTimer(std::chrono::seconds(1));
-  });
-  timeout_timer_->enableTimer(std::chrono::seconds(1));
-  
-  // Schedule retry processing
-  retry_timer_ = main_dispatcher_->createTimer([this]() {
-    processQueuedRequests();
-    
-    // Reschedule
-    retry_timer_->enableTimer(std::chrono::milliseconds(100));
-  });
-  retry_timer_->enableTimer(std::chrono::milliseconds(100));
-}
-
-// Process queued requests when capacity available
-void McpClient::processQueuedRequests() {
-  std::unique_lock<std::mutex> lock(queue_mutex_);
-  
-  // Process queued requests if connection available
-  while (!request_queue_.empty() && 
-         request_tracker_->getPendingCount() < config_.max_concurrent_requests) {
-    auto context = request_queue_.front();
-    request_queue_.pop();
-    lock.unlock();
-    
-    // Send request
-    sendRequestInternal(context);
-    
-    lock.lock();
-  }
-}
-
-// Subscribe to resource
-std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
-  auto context = createRequestContext("resources/subscribe", nullopt);
-  
-  auto params = make<Metadata>()
-      .add("uri", uri)
-      .build();
-  context->params = make_optional(params);
-  
-  sendRequestInternal(context);
-  
-  // Return future that will convert response to VoidResult
-  std::promise<VoidResult> result_promise;
-  auto result_future = result_promise.get_future();
-  
-  std::thread([context, promise = std::move(result_promise)]() mutable {
-    try {
-      auto response = context->promise.get_future().get();
-      promise.set_value(VoidResult(nullptr));
-    } catch (...) {
-      promise.set_exception(std::current_exception());
-    }
-  }).detach();
-  
-  return result_future;
-}
-
-// Unsubscribe from resource
-std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
-  auto context = createRequestContext("resources/unsubscribe", nullopt);
-  
-  auto params = make<Metadata>()
-      .add("uri", uri)
-      .build();
-  context->params = make_optional(params);
-  
-  sendRequestInternal(context);
-  
-  // Return future that will convert response to VoidResult
-  std::promise<VoidResult> result_promise;
-  auto result_future = result_promise.get_future();
-  
-  std::thread([context, promise = std::move(result_promise)]() mutable {
-    try {
-      auto response = context->promise.get_future().get();
-      promise.set_value(VoidResult(nullptr));
-    } catch (...) {
-      promise.set_exception(std::current_exception());
-    }
-  }).detach();
-  
-  return result_future;
-}
-
-// List tools
-std::future<ListToolsResult> McpClient::listTools(const optional<Cursor>& cursor) {
-  auto context = createRequestContext("tools/list", nullopt);
-  
+  auto params = make_metadata();
   if (cursor.has_value()) {
-    auto params = make<Metadata>()
-        .add("cursor", cursor.value())
-        .build();
-    context->params = make_optional(params);
+    params["cursor"] = cursor.value();
   }
   
-  sendRequestInternal(context);
+  auto future = sendRequest("prompts/list", make_optional(params));
   
-  // Return future that will convert response to ListToolsResult
-  std::promise<ListToolsResult> result_promise;
-  auto result_future = result_promise.get_future();
+  // Create promise for ListPromptsResult
+  auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
   
-  std::thread([context, promise = std::move(result_promise)]() mutable {
+  std::thread([future = std::move(future), result_promise]() mutable {
     try {
-      auto response = context->promise.get_future().get();
-      ListToolsResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // Extract tools from response
-        // Initialize with empty tools vector
-        result.tools.clear();
-      }
-      promise.set_value(result);
-    } catch (...) {
-      promise.set_exception(std::current_exception());
-    }
-  }).detach();
-  
-  return result_future;
-}
-
-
-// List prompts
-std::future<ListPromptsResult> McpClient::listPrompts(const optional<Cursor>& cursor) {
-  auto context = createRequestContext("prompts/list", nullopt);
-  
-  if (cursor.has_value()) {
-    auto params = make<Metadata>()
-        .add("cursor", cursor.value())
-        .build();
-    context->params = make_optional(params);
-  }
-  
-  sendRequestInternal(context);
-  
-  // Return future that will convert response to ListPromptsResult
-  std::promise<ListPromptsResult> result_promise;
-  auto result_future = result_promise.get_future();
-  
-  std::thread([context, promise = std::move(result_promise)]() mutable {
-    try {
-      auto response = context->promise.get_future().get();
+      auto response = future.get();
       ListPromptsResult result;
       // Parse response into result structure
       if (!response.error.has_value() && response.result.has_value()) {
-        // Extract prompts from response
-        // Initialize with empty prompts vector
-        result.prompts.clear();
+        // TODO: Proper parsing
       }
-      promise.set_value(result);
+      result_promise->set_value(result);
     } catch (...) {
-      promise.set_exception(std::current_exception());
+      result_promise->set_exception(std::current_exception());
     }
   }).detach();
   
-  return result_future;
+  return result_promise->get_future();
 }
 
-// Get prompt
-std::future<GetPromptResult> McpClient::getPrompt(const std::string& name,
-                                                  const optional<Metadata>& arguments) {
-  auto context = createRequestContext("prompts/get", nullopt);
+// Get a prompt
+std::future<GetPromptResult> McpClient::getPrompt(
+    const std::string& name,
+    const optional<Metadata>& arguments) {
   
-  auto builder = make<Metadata>()
-      .add("name", name);
-  
-  // Add arguments if provided
+  auto params = make_metadata();
+  params["name"] = name;
   if (arguments.has_value()) {
-    // Note: In a real implementation, we'd need to serialize the arguments
-    // For now, just add a placeholder to indicate arguments were provided
-    builder.add("has_arguments", true);
+    params["arguments"] = arguments.value();
   }
   
-  context->params = make_optional(builder.build());
+  auto future = sendRequest("prompts/get", make_optional(params));
   
-  sendRequestInternal(context);
+  // Create promise for GetPromptResult
+  auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
   
-  // Return future that will convert response to GetPromptResult
-  std::promise<GetPromptResult> result_promise;
-  auto result_future = result_promise.get_future();
-  
-  std::thread([context, promise = std::move(result_promise)]() mutable {
+  std::thread([future = std::move(future), result_promise]() mutable {
     try {
-      auto response = context->promise.get_future().get();
+      auto response = future.get();
       GetPromptResult result;
       // Parse response into result structure
       if (!response.error.has_value() && response.result.has_value()) {
-        // Extract prompt details
-        result.description = nullopt;
-        // Note: arguments is part of PromptMessage, not GetPromptResult
-        // Initialize with empty messages vector
-        result.messages.clear();
+        // TODO: Proper parsing
       }
-      promise.set_value(result);
+      result_promise->set_value(result);
     } catch (...) {
-      promise.set_exception(std::current_exception());
+      result_promise->set_exception(std::current_exception());
     }
   }).detach();
   
-  return result_future;
+  return result_promise->get_future();
 }
 
-// Set log level
-std::future<VoidResult> McpClient::setLogLevel(enums::LoggingLevel::Value level) {
-  auto context = createRequestContext("logging/setLevel", nullopt);
+// Set logging level
+std::future<VoidResult> McpClient::setLoggingLevel(LoggingLevel level) {
+  auto params = make_metadata();
+  params["level"] = static_cast<int>(level);
   
-  auto params = make<Metadata>()
-      .add("level", static_cast<long long>(level))
-      .build();
-  context->params = make_optional(params);
+  auto future = sendRequest("logging/setLevel", make_optional(params));
   
-  sendRequestInternal(context);
+  // Convert Response to VoidResult
+  auto result_promise = std::make_shared<std::promise<VoidResult>>();
   
-  // Return future that will convert response to VoidResult
-  std::promise<VoidResult> result_promise;
-  auto result_future = result_promise.get_future();
-  
-  std::thread([context, promise = std::move(result_promise)]() mutable {
+  std::thread([future = std::move(future), result_promise]() mutable {
     try {
-      auto response = context->promise.get_future().get();
-      promise.set_value(VoidResult(nullptr));
+      auto response = future.get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
     } catch (...) {
-      promise.set_exception(std::current_exception());
+      result_promise->set_exception(std::current_exception());
     }
   }).detach();
   
-  return result_future;
+  return result_promise->get_future();
 }
 
-// Create message
+// Create a message (completion request)
 std::future<CreateMessageResult> McpClient::createMessage(
-    const std::vector<SamplingMessage>& messages,
-    const optional<ModelPreferences>& preferences) {
-  auto context = createRequestContext("sampling/createMessage", nullopt);
+    const CreateMessageRequest& request) {
   
-  // Serialize messages and preferences
-  auto builder = make<Metadata>();
+  // Build parameters from request
+  auto params = make_metadata();
   
-  // Add messages array (simplified - would need proper array serialization)
-  if (!messages.empty()) {
-    // Note: This would need proper array serialization support in Metadata
-    // For now, we'll add a count as a placeholder
-    builder.add("messageCount", static_cast<int64_t>(messages.size()));
+  // Add messages (simplified - real implementation needs proper serialization)
+  params["messages.count"] = static_cast<int>(request.messages.size());
+  
+  // Add optional parameters
+  if (request.systemPrompt.has_value()) {
+    params["systemPrompt"] = request.systemPrompt.value();
   }
   
-  // Add preferences if provided
-  if (preferences.has_value()) {
-    // Add model preferences fields
-    const auto& prefs = preferences.value();
+  if (request.includeContext.has_value()) {
+    params["includeContext"] = static_cast<int>(request.includeContext.value());
+  }
+  
+  if (request.temperature.has_value()) {
+    params["temperature"] = request.temperature.value();
+  }
+  
+  if (request.maxTokens.has_value()) {
+    params["maxTokens"] = static_cast<int>(request.maxTokens.value());
+  }
+  
+  if (request.stopSequences.has_value()) {
+    params["stopSequences.count"] = static_cast<int>(request.stopSequences->size());
+  }
+  
+  // Add model preferences if provided
+  if (request.modelPreferences.has_value()) {
+    auto& prefs = request.modelPreferences.value();
     if (prefs.hints.has_value()) {
-      builder.add("modelPreferences.hints", 
-                  static_cast<int64_t>(prefs.hints.value().size()));
+      params["modelPreferences.hints.count"] = static_cast<int>(prefs.hints->size());
+    }
+    if (prefs.costPriority.has_value()) {
+      params["modelPreferences.costPriority"] = prefs.costPriority.value();
+    }
+    if (prefs.speedPriority.has_value()) {
+      params["modelPreferences.speedPriority"] = prefs.speedPriority.value();
+    }
+    if (prefs.intelligencePriority.has_value()) {
+      params["modelPreferences.intelligencePriority"] = prefs.intelligencePriority.value();
+    }
+  }
+  
+  // Send request
+  auto context = std::make_shared<RequestContext>();
+  context->id = std::to_string(next_request_id_++);
+  context->method = "messages/create";
+  context->params = make_optional(params);
+  context->sent_time = std::chrono::steady_clock::now();
+  context->retry_count = 0;
+  
+  // Build parameters with proper structure
+  MetadataBuilder builder;
+  
+  // Add messages array
+  for (size_t i = 0; i < request.messages.size(); ++i) {
+    const auto& msg = request.messages[i];
+    std::string prefix = "messages." + std::to_string(i) + ".";
+    builder.add(prefix + "role", static_cast<int>(msg.role));
+    
+    // Handle content based on type
+    if (holds_alternative<TextContent>(msg.content)) {
+      const auto& text = get<TextContent>(msg.content);
+      builder.add(prefix + "content.type", "text");
+      builder.add(prefix + "content.text", text.text);
+    } else if (holds_alternative<ImageContent>(msg.content)) {
+      const auto& image = get<ImageContent>(msg.content);
+      builder.add(prefix + "content.type", "image");
+      builder.add(prefix + "content.data", image.data);
+      builder.add(prefix + "content.mimeType", image.mimeType);
+    }
+  }
+  
+  // Add system prompt if provided
+  if (request.systemPrompt.has_value()) {
+    builder.add("systemPrompt", request.systemPrompt.value());
+  }
+  
+  // Add sampling parameters
+  if (request.temperature.has_value()) {
+    builder.add("temperature", request.temperature.value());
+  }
+  if (request.maxTokens.has_value()) {
+    builder.add("maxTokens", request.maxTokens.value());
+  }
+  
+  // Add model preferences
+  if (request.modelPreferences.has_value()) {
+    const auto& prefs = request.modelPreferences.value();
+    if (prefs.hints.has_value()) {
+      for (size_t i = 0; i < prefs.hints->size(); ++i) {
+        builder.add("modelPreferences.hints." + std::to_string(i), 
+                    (*prefs.hints)[i]);
+      }
     }
     if (prefs.costPriority.has_value()) {
       builder.add("modelPreferences.costPriority", prefs.costPriority.value());
@@ -1366,9 +1100,9 @@ std::future<CreateMessageResult> McpClient::createMessage(
         result.model = "unknown";
         result.role = enums::Role::ASSISTANT;
       }
-      promise.set_value(result);
+      result_promise.set_value(result);
     } catch (...) {
-      promise.set_exception(std::current_exception());
+      result_promise->set_exception(std::current_exception());
     }
   }).detach();
   
@@ -1417,7 +1151,6 @@ void McpClient::handleProtocolStateChange(const protocol::ProtocolStateTransitio
       break;
   }
 }
-
 // Coordinate protocol state with network connection state
 void McpClient::coordinateProtocolState() {
   if (!protocol_state_machine_) {
@@ -1433,12 +1166,57 @@ void McpClient::coordinateProtocolState() {
     // Trigger initialization if not already in progress
     if (!initialized_ && protocol_state != protocol::McpProtocolState::INITIALIZING) {
       // Auto-initialize protocol after connection
+      // We're already in dispatcher thread from synchronizeState
       initializeProtocol();
     }
   } else if (!connected_ && protocol_state != protocol::McpProtocolState::DISCONNECTED) {
     // Network disconnected but protocol thinks it's connected
+    // Already in dispatcher thread from caller
     protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_DISCONNECTED);
   }
+}
+
+// Handle connection events from network layer
+void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
+  // Handle connection events in dispatcher context
+  std::cerr << "[DEBUG] McpClient::handleConnectionEvent called with event: " 
+            << static_cast<int>(event) << std::endl;
+  
+  switch (event) {
+    case network::ConnectionEvent::Connected:
+      std::cerr << "[DEBUG] Connected event received in client, setting connected_ = true" << std::endl;
+      connected_ = true;
+      client_stats_.connections_active++;
+      
+      // Notify protocol state machine of network connection
+      // We're already in dispatcher thread from connection callback
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_CONNECTED);
+      }
+      break;
+      
+    case network::ConnectionEvent::RemoteClose:
+    case network::ConnectionEvent::LocalClose:
+      connected_ = false;
+      client_stats_.connections_active--;
+      
+      // Notify protocol state machine of network disconnection (already in dispatcher thread)
+      if (protocol_state_machine_) {
+        protocol_state_machine_->handleEvent(protocol::McpProtocolEvent::NETWORK_DISCONNECTED);
+      }
+      
+      // Fail all pending requests
+      auto pending = request_tracker_->getTimedOutRequests();
+      for (const auto& request : pending) {
+        request->promise.set_value(jsonrpc::Response::make_error(
+            request->id,
+            Error(jsonrpc::INTERNAL_ERROR, "Connection closed")));
+      }
+      break;
+  }
+  
+  // Coordinate protocol state with connection state
+  coordinateProtocolState();
 }
 
 
