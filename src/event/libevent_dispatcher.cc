@@ -408,8 +408,14 @@ LibeventDispatcher::FileEventImpl::~FileEventImpl() {
 }
 
 void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
-  if (trigger_ == FileTriggerType::Edge && event_) {
-    event_active(event_, toLibeventEvents(events), 0);
+  // Activate should work for both Edge and Level triggered events
+  // This forces an immediate event check, crucial for data already in buffers
+  if (event_ && (enabled_events_ & events)) {
+    // Only activate events that are currently enabled
+    short libevent_events = toLibeventEvents(events & enabled_events_);
+    if (libevent_events != 0) {
+      event_active(event_, libevent_events, 0);
+    }
   }
 }
 

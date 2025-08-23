@@ -535,6 +535,11 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
         enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
         std::cerr << "[DEBUG] Write completed, buffer empty, enabled read events, fd=" 
                   << (socket_ ? socket_->ioHandle().fd() : -1) << std::endl;
+        
+        // Activate read events to check for buffered data
+        if (file_event_) {
+          file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+        }
       }
     } else if (!write_scheduled_) {
       // Socket not ready, schedule write for safety
@@ -845,6 +850,12 @@ void ConnectionImpl::doConnect() {
     dispatcher_.post([this]() {
       raiseConnectionEvent(ConnectionEvent::Connected);
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+      
+      // Immediately check for readable data after connection
+      // This handles race conditions where server sends data immediately
+      if (file_event_) {
+        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+      }
     });
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
@@ -1032,6 +1043,13 @@ void ConnectionImpl::doWrite() {
       // Enable read events to receive response
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
       std::cerr << "[DEBUG] Transport completed write, enabled read events" << std::endl;
+      
+      // CRITICAL: Activate read events to check for data already in buffers
+      // This follows production pattern - after writes, immediately check for readable data
+      if (file_event_) {
+        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+        std::cerr << "[DEBUG] Activated read events to check for buffered data" << std::endl;
+      }
     }
     return;
   }
