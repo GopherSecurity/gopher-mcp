@@ -543,6 +543,25 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
     case TransportType::HttpSse: {
       transport::HttpSseTransportSocketConfig http_config;
       http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+      
+      // Extract server address from URI
+      // URI format: http://host:port or https://host:port
+      std::string server_addr;
+      if (current_uri_.find("http://") == 0) {
+        server_addr = current_uri_.substr(7);  // Remove "http://"
+      } else if (current_uri_.find("https://") == 0) {
+        server_addr = current_uri_.substr(8);  // Remove "https://"
+      } else {
+        server_addr = current_uri_;
+      }
+      
+      // Remove any path component (everything after first /)
+      size_t slash_pos = server_addr.find('/');
+      if (slash_pos != std::string::npos) {
+        server_addr = server_addr.substr(0, slash_pos);
+      }
+      
+      http_config.server_address = server_addr;
       config.http_sse_config = make_optional(http_config);
       break;
     }
