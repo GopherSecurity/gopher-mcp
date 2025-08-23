@@ -836,6 +836,7 @@ void ConnectionImpl::doConnect() {
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
+    write_ready_ = true;  // Socket is immediately ready for writing
 
     // Post the event to dispatcher to ensure proper thread context
     dispatcher_.post([this]() {
