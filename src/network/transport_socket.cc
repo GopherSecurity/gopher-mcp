@@ -1,4 +1,5 @@
 #include "mcp/network/transport_socket.h"
+#include <iostream>
 
 #include <errno.h>
 #include <sys/socket.h>
@@ -120,6 +121,8 @@ TransportIoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_str
   const size_t num_slices = buffer.getRawSlices(slices, max_iovecs);
   
   // Send data using writev
+  std::cerr << "[DEBUG] RawBufferTransportSocket::doWrite calling writev with " 
+            << num_slices << " slices, buffer_len=" << buffer.length() << std::endl;
   auto result = io_handle.writev(slices, num_slices);
   
   if (!result.ok()) {
@@ -140,6 +143,8 @@ TransportIoResult RawBufferTransportSocket::doWrite(Buffer& buffer, bool end_str
   }
   
   total_bytes_sent = *result;
+  std::cerr << "[DEBUG] RawBufferTransportSocket::doWrite writev returned " 
+            << total_bytes_sent << " bytes" << std::endl;
   
   // Drain sent data from buffer
   buffer.drain(total_bytes_sent);

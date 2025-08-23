@@ -1006,6 +1006,7 @@ void ConnectionImpl::doWrite() {
   // Let transport socket process the buffer first if we have one
   // This allows the transport to add any pending data (like HTTP headers)
   // even if write_buffer_ is initially empty
+  bool transport_handled = false;
   if (transport_socket_) {
     auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     if (!result.ok()) {
@@ -1018,10 +1019,20 @@ void ConnectionImpl::doWrite() {
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
+    transport_handled = true;
   }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
+    // If transport handled the write and buffer is now empty, we're done
+    // Must ensure read events are enabled for response
+    if (transport_handled) {
+      // Disable write events since buffer is empty
+      disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+      // Enable read events to receive response
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+      std::cerr << "[DEBUG] Transport completed write, enabled read events" << std::endl;
+    }
     return;
   }
 
