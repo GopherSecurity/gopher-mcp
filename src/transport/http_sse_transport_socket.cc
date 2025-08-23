@@ -10,6 +10,7 @@
  */
 
 #include "mcp/transport/http_sse_transport_socket.h"
+#include <iostream>
 #include "mcp/transport/tcp_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/filter/http_codec_filter.h"
@@ -185,6 +186,7 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
   assertInDispatcherThread();
   
   if (!connected_) {
+    std::cerr << "[DEBUG] HttpSseTransportSocket::doRead called but not connected" << std::endl;
     return TransportIoResult::error(Error(-1, "Not connected"));
   }
   
@@ -267,6 +269,7 @@ TransportIoResult HttpSseTransportSocket::doWrite(
 void HttpSseTransportSocket::onConnected() {
   assertInDispatcherThread();
   
+  std::cerr << "[DEBUG] HttpSseTransportSocket::onConnected called" << std::endl;
   connecting_ = false;
   connected_ = true;
   stats_.connect_time = std::chrono::steady_clock::now();
