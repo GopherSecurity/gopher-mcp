@@ -515,7 +515,8 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   if (write_buffer_.length() > 0) {
     std::cerr << "[DEBUG] ConnectionImpl::write enabling write events, buffer_len=" 
               << write_buffer_.length() 
-              << " write_ready_=" << write_ready_ << std::endl;
+              << " write_ready_=" << write_ready_ 
+              << " socket_fd=" << (socket_ ? socket_->ioHandle().fd() : -1) << std::endl;
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
     
@@ -532,6 +533,8 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
       if (write_buffer_.length() == 0) {
         disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
         enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+        std::cerr << "[DEBUG] Write completed, buffer empty, enabled read events, fd=" 
+                  << (socket_ ? socket_->ioHandle().fd() : -1) << std::endl;
       }
     } else if (!write_scheduled_) {
       // Socket not ready, schedule write for safety
