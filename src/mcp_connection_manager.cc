@@ -494,14 +494,10 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
-  
-  std::cerr << "[DEBUG] McpConnectionManager::onConnectionEvent called with event: " 
-            << static_cast<int>(event) << std::endl;
 
   if (event == network::ConnectionEvent::Connected) {
     // Connection established successfully
     connected_ = true;
-    std::cerr << "[DEBUG] Connection established in manager, setting connected_ = true" << std::endl;
 
     // TRANSPORT NOTIFICATION: Notify HTTP/SSE transport about TCP connection
     // Flow: TCP connected → ConnectionEvent::Connected →
@@ -526,10 +522,7 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
 
   // Forward event to upper layer callbacks
   if (protocol_callbacks_) {
-    std::cerr << "[DEBUG] Forwarding connection event to protocol callbacks" << std::endl;
     protocol_callbacks_->onConnectionEvent(event);
-  } else {
-    std::cerr << "[DEBUG] No message callbacks registered!" << std::endl;
   }
 }
 
@@ -561,7 +554,6 @@ void McpConnectionManager::onNewConnection(
 
     // Filter chain is already created by the listener
     // We don't need to create it again here
-    std::cerr << "[DEBUG] Connection manager received new connection" << std::endl;
 
     // Mark connection as established
     connected_ = true;
@@ -573,7 +565,6 @@ void McpConnectionManager::onNewConnection(
     
     // Connection should now be ready to receive data
     // The file events are already registered and should fire when data arrives
-    std::cerr << "[DEBUG] Connection ready to receive data" << std::endl;
   }
 }
 
@@ -663,8 +654,6 @@ VoidResult McpConnectionManager::sendJsonMessage(
   auto buffer = std::make_unique<OwnedBuffer>();
   buffer->add(json_str);
 
-  std::cerr << "[DEBUG] McpConnectionManager sending JSON message: " 
-            << json_str.substr(0, 200) << "..." << std::endl;
 
   // Write through filter chain - each filter handles its protocol layer:
   // - JSON-RPC filter: message framing if configured
@@ -672,8 +661,6 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // - HTTP filter: HTTP request/response formatting if applicable
   // - Transport socket: raw I/O only
   active_connection_->write(*buffer, false);
-  
-  std::cerr << "[DEBUG] Write call completed" << std::endl;
 
   return makeVoidSuccess();
 }
