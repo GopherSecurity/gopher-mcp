@@ -258,7 +258,10 @@ public:
     }
     return TransportIoResult::success(*result);
   }
-  void onConnected() override {}
+  void onConnected() override {
+    // RawTransportSocket has no special handling for connection
+    // The base TransportSocket interface requires this method
+  }
   VoidResult connect(Socket&) override { return makeVoidSuccess(); }
   SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
   bool startSecureTransport() override { return false; }
@@ -465,9 +468,12 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
                       static_cast<uint32_t>(event::FileReadyType::Write));
       
-      if (read_buffer_.length() > 0) {
-        // Process any buffered data
-        processReadBuffer();
+      // Check if we need to resume reading (reference pattern)
+      if (read_buffer_.length() > 0 || transport_wants_read_) {
+        // Activate read event to process buffered data or transport requests
+        if (file_event_) {
+          file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+        }
       }
       return ReadDisableStatus::TransitionedToReadEnabled;
     }
@@ -588,8 +594,13 @@ bool ConnectionImpl::shouldDrainReadBuffer() {
 }
 
 void ConnectionImpl::setTransportSocketIsReadable() {
-  if (read_disable_count_ == 0) {
-    setReadBufferReady();
+  // Remember that transport requested read resumption
+  // This follows the reference pattern for handling transport read requests
+  transport_wants_read_ = true;
+  
+  // Only activate read if not read disabled
+  if (read_disable_count_ == 0 && file_event_) {
+    file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
   }
 }
 
@@ -652,20 +663,28 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Handle file events from event loop
   // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle
   // read/write/close All callbacks are invoked in dispatcher thread context
-
-
-  if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
-    onWriteReady();
-  }
-
-  if (events & static_cast<uint32_t>(event::FileReadyType::Read)) {
-    onReadReady();
+  
+  // Check for immediate error first (following reference pattern)
+  if (immediate_error_event_ == ConnectionEvent::LocalClose ||
+      immediate_error_event_ == ConnectionEvent::RemoteClose) {
+    closeSocket(immediate_error_event_);
+    return;
   }
 
   if (events & static_cast<uint32_t>(event::FileReadyType::Closed)) {
     // Remote close detected
     detected_close_type_ = DetectedCloseType::RemoteReset;
     closeSocket(ConnectionEvent::RemoteClose);
+    return;
+  }
+
+  if (events & static_cast<uint32_t>(event::FileReadyType::Write)) {
+    onWriteReady();
+  }
+
+  // Check if socket is still open after write handling
+  if (socket_->isOpen() && (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
+    onReadReady();
   }
 }
 
@@ -696,6 +715,9 @@ void ConnectionImpl::onWriteReady() {
     if (state_machine_) {
       state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
     }
+
+    // Notify transport socket (reference pattern)
+    onConnected();
 
     raiseConnectionEvent(ConnectionEvent::Connected);
 
@@ -801,8 +823,11 @@ void ConnectionImpl::doConnect() {
     // nullptr) VoidResult is variant<nullptr_t, Error> where nullptr = success
     if (!holds_alternative<std::nullptr_t>(transport_result)) {
       // Transport socket rejected the connection - abort
-      immediate_error_event_ = true;
-      closeSocket(ConnectionEvent::LocalClose);
+      immediate_error_event_ = ConnectionEvent::LocalClose;
+      // Activate write event to trigger error handling on next loop
+      if (file_event_) {
+        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Write));
+      }
       return;
     }
   }
@@ -833,8 +858,12 @@ void ConnectionImpl::doConnect() {
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed
-    immediate_error_event_ = true;
-    closeSocket(ConnectionEvent::LocalClose);
+    immediate_error_event_ = ConnectionEvent::RemoteClose;
+    connecting_ = false;
+    // Activate write event to trigger error handling on next loop
+    if (file_event_) {
+      file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Write));
+    }
   }
 }
 
@@ -857,14 +886,26 @@ void ConnectionImpl::raiseConnectionEvent(ConnectionEvent event) {
   filter_manager_.onConnectionEvent(event);
 }
 
+void ConnectionImpl::onConnected() {
+  // Notify transport socket of connection completion
+  // This follows reference pattern for connection lifecycle
+  if (transport_socket_) {
+    transport_socket_->onConnected();
+  }
+}
+
 void ConnectionImpl::doRead() {
   // Read data from socket through transport socket abstraction
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
   // Transport::doRead All operations happen in dispatcher thread context
 
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
+    // Don't clear transport_wants_read_ when returning early
     return;
   }
+  
+  // Clear transport wants read just before reading (reference pattern)
+  transport_wants_read_ = false;
 
   while (true) {
     // Read from socket into buffer

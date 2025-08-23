@@ -139,6 +139,7 @@ class ConnectionImpl : public ConnectionImplBase,
   void closeSocket(ConnectionEvent close_type);
   void doConnect();
   void raiseConnectionEvent(ConnectionEvent event);
+  void onConnected(); // Notify transport socket of connection completion
 
   // State machine integration
   void onStateChanged(ConnectionState old_state, ConnectionState new_state);
@@ -179,9 +180,10 @@ class ConnectionImpl : public ConnectionImplBase,
   // State flags
   bool read_half_closed_{false};
   bool write_half_closed_{false};
-  bool immediate_error_event_{false};
+  ConnectionEvent immediate_error_event_{ConnectionEvent::Connected}; // Use Connected as "no error"
   bool bind_error_{false};
   bool write_ready_{false};
+  bool transport_wants_read_{false}; // Transport requested read resumption
 
   // Socket options
   SocketOptionsSharedPtr socket_options_;
