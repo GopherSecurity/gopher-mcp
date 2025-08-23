@@ -565,6 +565,7 @@ class McpClient : public application::ApplicationBase {
   McpClientConfig config_;
   McpClientStats client_stats_;
   std::atomic<bool> shutting_down_{false};
+  std::thread dispatcher_thread_;  // Dispatcher thread handle
 
   // Connection management
   std::unique_ptr<mcp::McpConnectionManager> connection_manager_;

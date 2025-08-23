@@ -112,12 +112,12 @@ VoidResult McpClient::connect(const std::string& uri) {
   main_dispatcher_ = new LibeventDispatcher("client");
   
   // Start dispatcher in a separate thread
-  std::thread dispatcher_thread([this]() {
+  // Store thread handle for proper cleanup (reference pattern)
+  dispatcher_thread_ = std::thread([this]() {
     std::cerr << "[DEBUG] Dispatcher thread starting, about to run event loop" << std::endl;
     main_dispatcher_->run(RunType::Block);
     std::cerr << "[DEBUG] Dispatcher thread exiting" << std::endl;
   });
-  dispatcher_thread.detach();
   
   // Get socket interface after dispatcher is created
   socket_interface_ = std::make_unique<SocketInterfaceImpl>();
@@ -251,9 +251,16 @@ void McpClient::shutdown() {
     main_dispatcher_->exit();
   }
   
-  // Dispatcher thread was detached, no need to join
+  // Join dispatcher thread if it's joinable (reference pattern)
+  if (dispatcher_thread_.joinable()) {
+    dispatcher_thread_.join();
+  }
   
-  // This will cause dispatcher_->run() to return
+  // Clean up dispatcher after thread has exited
+  if (main_dispatcher_) {
+    delete main_dispatcher_;
+    main_dispatcher_ = nullptr;
+  }
   
   // Clean up resources
   protocol_state_machine_.reset();
