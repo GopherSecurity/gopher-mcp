@@ -167,7 +167,7 @@ VoidResult ActiveListener::listen() {
   file_event_ = dispatcher_.createFileEvent(
       socket_->ioHandle().fd(),
       [this](uint32_t events) { onSocketEvent(events); },
-      event::FileTriggerType::Edge,
+      event::PlatformDefaultTriggerType,  // Use platform-specific default
       static_cast<uint32_t>(event::FileReadyType::Closed));
   
   if (enabled_) {
