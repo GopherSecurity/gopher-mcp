@@ -66,16 +66,36 @@ inline uint32_t operator&(FileReadyType a, uint32_t b) {
 
 // File trigger types
 enum class FileTriggerType {
-  Edge,  // Edge-triggered (EPOLLET/EV_CLEAR)
-  Level  // Level-triggered (default)
+  // Level-triggered events - continuously fire while condition is met
+  // Used on all platforms for DNS and TCP listeners
+  Level,
+  
+  // Edge-triggered events - fire only on state transitions  
+  // Default on Linux/macOS for better performance (EPOLLET/EV_CLEAR)
+  Edge,
+  
+  // Synthetic edge events managed by the framework
+  // Based on level events that are immediately disabled when triggered
+  // Consumer must re-enable the event when the socket operation would block
+  // Main application: Windows which lacks native edge-triggered events
+  // Can only be used where PlatformDefaultTriggerType is EmulatedEdge
+  EmulatedEdge
 };
 
-// Platform default trigger type
-#ifdef __linux__
-constexpr FileTriggerType PlatformDefaultTriggerType = FileTriggerType::Edge;
+// Determine platform-preferred event type
+constexpr FileTriggerType determinePlatformPreferredEventType() {
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(FORCE_LEVEL_EVENTS)
+  // Windows doesn't support native edge triggers, use emulated
+  // FORCE_LEVEL_EVENTS allows testing Windows behavior on POSIX
+  return FileTriggerType::EmulatedEdge;
 #else
-constexpr FileTriggerType PlatformDefaultTriggerType = FileTriggerType::Level;
+  // Linux/macOS/BSD support native edge triggering
+  return FileTriggerType::Edge;
 #endif
+}
+
+// Platform default trigger type
+static constexpr FileTriggerType PlatformDefaultTriggerType = determinePlatformPreferredEventType();
 
 // Run types for dispatcher
 enum class RunType {
@@ -111,7 +131,7 @@ class DeferredDeletable {
  * @brief Abstract interface for file events
  *
  * File events monitor file descriptors for read/write/error conditions.
- * Supports both edge-triggered and level-triggered modes.
+ * Supports edge-triggered, level-triggered, and emulated edge modes.
  */
 class FileEvent {
  public:
@@ -127,6 +147,18 @@ class FileEvent {
    * Enable the file event with a new set of event types to monitor.
    */
   virtual void setEnabled(uint32_t events) = 0;
+  
+  /**
+   * Unregister event if using emulated edge triggering.
+   * Called when socket operation would block to disable the event.
+   */
+  virtual void unregisterEventIfEmulatedEdge(uint32_t event) = 0;
+  
+  /**
+   * Re-register event if using emulated edge triggering.
+   * Called to re-enable the event after socket becomes ready again.
+   */
+  virtual void registerEventIfEmulatedEdge(uint32_t event) = 0;
 };
 
 /**

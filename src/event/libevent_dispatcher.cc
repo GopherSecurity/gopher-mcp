@@ -14,14 +14,29 @@ namespace event {
 
 namespace {
 // Convert our event types to libevent flags
-short toLibeventEvents(uint32_t events) {
-  short result = EV_PERSIST;
+short toLibeventEvents(uint32_t events, FileTriggerType trigger) {
+  short result = 0;
   if (events & static_cast<uint32_t>(FileReadyType::Read)) {
     result |= EV_READ;
   }
   if (events & static_cast<uint32_t>(FileReadyType::Write)) {
     result |= EV_WRITE;
   }
+  
+  // Add trigger type specific flags
+  if (trigger == FileTriggerType::Edge) {
+#ifdef EV_ET
+    result |= EV_ET;  // Edge-triggered (Linux epoll)
+#endif
+    result |= EV_PERSIST;
+  } else if (trigger == FileTriggerType::EmulatedEdge) {
+    // EmulatedEdge: do not use EV_PERSIST, re-add event after each trigger
+    // This simulates edge-triggered behavior on platforms without native support
+  } else {
+    // Level-triggered: use EV_PERSIST for continuous monitoring
+    result |= EV_PERSIST;
+  }
+  
   return result;
 }
 
@@ -380,18 +395,32 @@ LibeventDispatcher::FileEventImpl::FileEventImpl(LibeventDispatcher& dispatcher,
       cb_(std::move(cb)),
       trigger_(trigger),
       enabled_events_(0) {
-  short libevent_events = toLibeventEvents(events);
-  if (trigger == FileTriggerType::Edge) {
-    libevent_events |= EV_ET;
-  }
-  // Always add EV_PERSIST for continuous event monitoring
-  libevent_events |= EV_PERSIST;
-
   
-  event_ = event_new(dispatcher_.base(), fd_, libevent_events,
+#ifdef _WIN32
+  // Windows doesn't support edge triggers with libevent
+  if (trigger == FileTriggerType::Edge) {
+    trigger_ = FileTriggerType::EmulatedEdge;
+  }
+#endif
+
+  // Validate EmulatedEdge usage
+  if constexpr (PlatformDefaultTriggerType != FileTriggerType::EmulatedEdge) {
+    if (trigger_ == FileTriggerType::EmulatedEdge) {
+      throw std::runtime_error(
+          "Cannot use EmulatedEdge events on platforms where they are not the default");
+    }
+  }
+  
+  event_ = event_new(dispatcher_.base(), fd_, 0,
                      &FileEventImpl::eventCallback, this);
   if (!event_) {
     throw std::runtime_error("Failed to create file event");
+  }
+
+  if (trigger_ == FileTriggerType::EmulatedEdge) {
+    // Create activation callback for emulated edge support
+    activation_cb_ = std::make_unique<SchedulableCallbackImpl>(
+        dispatcher_, [this]() { mergeInjectedEventsAndRunCb(0); });
   }
 
   setEnabled(events);
@@ -405,11 +434,15 @@ LibeventDispatcher::FileEventImpl::~FileEventImpl() {
 }
 
 void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
-  // Manual activation of events - works for both Edge and Level triggered
-  // Following reference pattern: simple activation without state checks
-  // This ensures immediate processing of buffered data
-  if (event_) {
-    short libevent_events = toLibeventEvents(events);
+  if (trigger_ == FileTriggerType::EmulatedEdge && activation_cb_) {
+    // For emulated edge, schedule callback with injected events
+    injected_activation_events_ |= events;
+    if (injected_activation_events_ != 0) {
+      activation_cb_->scheduleCallbackCurrentIteration();
+    }
+  } else if (event_) {
+    // For Edge and Level triggers, use direct activation
+    short libevent_events = toLibeventEvents(events, trigger_);
     if (libevent_events != 0) {
       event_active(event_, libevent_events, 0);
     }
@@ -417,28 +450,32 @@ void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
 }
 
 void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
-  if (enabled_events_ == events) {
+  // For edge-triggered, always update even if mask unchanged
+  // This forces re-computation of readable/writable state
+  if (trigger_ != FileTriggerType::Edge && enabled_events_ == events) {
     return;
   }
 
   enabled_events_ = events;
+  updateEvents(events);
+}
 
+void LibeventDispatcher::FileEventImpl::updateEvents(uint32_t events) {
   if (event_) {
     event_del(event_);
 
     if (events != 0) {
-      short libevent_events = toLibeventEvents(events);
-      if (trigger_ == FileTriggerType::Edge) {
-        libevent_events |= EV_ET;
-      }
-      // IMPORTANT: Must add EV_PERSIST or event will be removed after firing once
-      libevent_events |= EV_PERSIST;
-
-      event_assign(event_, dispatcher_.base(), fd_, libevent_events,
-                   &FileEventImpl::eventCallback, this);
-      int result = event_add(event_, nullptr);
+      assignEvents(events);
     }
   }
+}
+
+void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
+  short libevent_events = toLibeventEvents(events, trigger_);
+  
+  event_assign(event_, dispatcher_.base(), fd_, libevent_events,
+               &FileEventImpl::eventCallback, this);
+  event_add(event_, nullptr);
 }
 
 void LibeventDispatcher::FileEventImpl::eventCallback(int fd,
@@ -446,18 +483,55 @@ void LibeventDispatcher::FileEventImpl::eventCallback(int fd,
                                                       void* arg) {
   auto* file_event = static_cast<FileEventImpl*>(arg);
 
-
   // Update approximate time before callback
   file_event->dispatcher_.updateApproximateMonotonicTime();
 
   uint32_t ready_events = fromLibeventEvents(events);
   
-  if (ready_events != 0) {
+  if (file_event->trigger_ == FileTriggerType::EmulatedEdge) {
+    // For emulated edge, merge with any injected events
+    file_event->mergeInjectedEventsAndRunCb(ready_events);
+    
+    // Re-enable the event for next trigger (emulating edge behavior)
+    if (file_event->enabled_events_ != 0) {
+      file_event->assignEvents(file_event->enabled_events_);
+    }
+  } else if (ready_events != 0) {
     file_event->cb_(ready_events);
   }
 
   // Touch watchdog after callback
   file_event->dispatcher_.touchWatchdog();
+}
+
+void LibeventDispatcher::FileEventImpl::mergeInjectedEventsAndRunCb(uint32_t events) {
+  // Merge real events with any injected activation events
+  uint32_t merged_events = events | injected_activation_events_;
+  injected_activation_events_ = 0;
+  
+  if (merged_events != 0) {
+    cb_(merged_events);
+  }
+}
+
+void LibeventDispatcher::FileEventImpl::unregisterEventIfEmulatedEdge(uint32_t event) {
+  if (trigger_ != FileTriggerType::EmulatedEdge) {
+    return;
+  }
+  
+  // Disable the specific event type
+  enabled_events_ &= ~event;
+  updateEvents(enabled_events_);
+}
+
+void LibeventDispatcher::FileEventImpl::registerEventIfEmulatedEdge(uint32_t event) {
+  if (trigger_ != FileTriggerType::EmulatedEdge) {
+    return;
+  }
+  
+  // Re-enable the specific event type  
+  enabled_events_ |= event;
+  updateEvents(enabled_events_);
 }
 
 // TimerImpl implementation
