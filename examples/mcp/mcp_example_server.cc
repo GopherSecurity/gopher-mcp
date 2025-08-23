@@ -133,8 +133,20 @@ void signal_handler(int signal) {
   // Signal handlers should do minimal work
   // Just set the flag and notify - actual shutdown happens in main thread
   std::cerr << "\n[INFO] Received signal " << signal << ", initiating graceful shutdown..." << std::endl;
+  
+  // Set the shutdown flag
   g_shutdown = true;
+  
+  // Notify the shutdown monitor thread
   g_shutdown_cv.notify_all();
+  
+  // For safety, if we receive multiple signals, force exit
+  static int signal_count = 0;
+  signal_count++;
+  if (signal_count > 1) {
+    std::cerr << "\n[INFO] Force shutdown after multiple signals..." << std::endl;
+    std::exit(0);
+  }
 }
 
 void printUsage(const char* program) {
@@ -959,6 +971,8 @@ int main(int argc, char* argv[]) {
     std::unique_lock<std::mutex> lock(g_server_mutex);
     g_shutdown_cv.wait(lock, []() { return g_shutdown.load(); });
     
+    std::cerr << "[DEBUG] Shutdown monitor triggered, initiating server shutdown..." << std::endl;
+    
     // Shutdown was requested
     if (g_server) {
       try {
@@ -970,10 +984,14 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // Shutdown server - this will cause run() to return
+        std::cerr << "[DEBUG] Calling g_server->shutdown()..." << std::endl;
         g_server->shutdown();
+        std::cerr << "[DEBUG] Server shutdown called successfully" << std::endl;
       } catch (const std::exception& e) {
         std::cerr << "[ERROR] Exception during shutdown: " << e.what() << std::endl;
       }
+    } else {
+      std::cerr << "[ERROR] g_server is null, cannot shutdown properly" << std::endl;
     }
   });
   
