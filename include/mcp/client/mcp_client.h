@@ -45,6 +45,11 @@
 namespace mcp {
 namespace client {
 
+// Import JSON-RPC types
+using ::mcp::jsonrpc::Response;
+using ::mcp::jsonrpc::Request;
+using ::mcp::jsonrpc::Notification;
+
 // Forward declarations
 class RequestTracker;
 class CircuitBreaker;
@@ -141,7 +146,7 @@ struct RequestContext {
   std::string method;
   optional<Metadata> params;
   std::chrono::steady_clock::time_point start_time;
-  std::promise<jsonrpc::Response> promise;
+  std::promise<Response> promise;
   size_t retry_count{0};
   bool is_batch{false};
   optional<ProgressToken> progress_token;
@@ -428,11 +433,11 @@ class McpClient : public application::ApplicationBase {
   std::future<InitializeResult> initializeProtocol();
 
   // Request methods with future-based async API
-  std::future<jsonrpc::Response> sendRequest(
+  std::future<Response> sendRequest(
       const std::string& method, const optional<Metadata>& params = nullopt);
 
   // Batch processing - sends multiple requests efficiently
-  std::vector<std::future<jsonrpc::Response>> sendBatch(
+  std::vector<std::future<Response>> sendBatch(
       const std::vector<std::pair<std::string, optional<Metadata>>>& requests);
 
   // Notification (fire-and-forget)
@@ -488,13 +493,13 @@ class McpClient : public application::ApplicationBase {
    public:
     ProtocolCallbacksImpl(McpClient& client) : client_(client) {}
 
-    void onRequest(const jsonrpc::Request& request) override {
+    void onRequest(const Request& request) override {
       client_.handleRequest(request);
     }
-    void onNotification(const jsonrpc::Notification& notification) override {
+    void onNotification(const Notification& notification) override {
       client_.handleNotification(notification);
     }
-    void onResponse(const jsonrpc::Response& response) override {
+    void onResponse(const Response& response) override {
       client_.handleResponse(response);
     }
     void onConnectionEvent(network::ConnectionEvent event) override {
@@ -507,9 +512,9 @@ class McpClient : public application::ApplicationBase {
   };
 
   // Internal message handlers
-  void handleRequest(const jsonrpc::Request& request);
-  void handleNotification(const jsonrpc::Notification& notification);
-  void handleResponse(const jsonrpc::Response& response);
+  void handleRequest(const Request& request);
+  void handleNotification(const Notification& notification);
+  void handleResponse(const Response& response);
   void handleConnectionEvent(network::ConnectionEvent event);
   void handleError(const Error& error);
 
