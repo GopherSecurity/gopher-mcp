@@ -47,9 +47,7 @@ void FilterManagerImpl::removeReadFilter(ReadFilterSharedPtr filter) {
 }
 
 bool FilterManagerImpl::initializeReadFilters() {
-  std::cerr << "[DEBUG] FilterManagerImpl::initializeReadFilters() called, initialized_=" << initialized_ << std::endl;
   if (initialized_) {
-    std::cerr << "[DEBUG] Already initialized, returning true" << std::endl;
     return true;
   }
 
@@ -88,7 +86,6 @@ bool FilterManagerImpl::initializeReadFilters() {
   }
 
   initialized_ = true;
-  std::cerr << "[DEBUG] FilterManager initialized successfully, filter count: " << read_filters_.size() << std::endl;
   
   // Start the filter chain - transitions to Active state
   if (state_machine_) {
@@ -98,9 +95,7 @@ bool FilterManagerImpl::initializeReadFilters() {
 }
 
 void FilterManagerImpl::onRead() {
-  std::cerr << "[DEBUG] FilterManagerImpl::onRead() called, initialized_=" << initialized_ << std::endl;
   if (!initialized_) {
-    std::cerr << "[DEBUG] FilterManager not initialized, returning" << std::endl;
     return;
   }
 
@@ -111,10 +106,6 @@ void FilterManagerImpl::onRead() {
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
-  
-  std::cerr << "[DEBUG] FilterManager buffer length: " << buffer.length() 
-            << " end_stream: " << end_stream 
-            << " read_filters count: " << read_filters_.size() << std::endl;
   
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);
@@ -156,11 +147,7 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_strea
 }
 
 FilterStatus FilterManagerImpl::onWrite() {
-  std::cerr << "[DEBUG] FilterManagerImpl::onWrite() called, initialized_=" 
-            << initialized_ << ", write_filters count: " << write_filters_.size() << std::endl;
-  
   if (!initialized_) {
-    std::cerr << "[DEBUG] FilterManager not initialized, skipping write filters" << std::endl;
     return FilterStatus::Continue;
   }
 
@@ -171,12 +158,8 @@ FilterStatus FilterManagerImpl::onWrite() {
   bool end_stream = connection_.currentWriteEndStream();
   
   if (!current_buffer) {
-    std::cerr << "[DEBUG] No current write buffer" << std::endl;
     return FilterStatus::Continue;
   }
-  
-  std::cerr << "[DEBUG] Processing write through " << write_filters_.size() 
-            << " filters, buffer size: " << current_buffer->length() << std::endl;
   
   // Process through write filters
   current_write_filter_ = write_filters_.begin();
