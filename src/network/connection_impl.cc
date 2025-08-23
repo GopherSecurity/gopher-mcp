@@ -688,6 +688,12 @@ void ConnectionImpl::onWriteReady() {
     // If there's no data left to write, disable write events to prevent busy loops
     if (write_buffer_.length() == 0) {
       disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+      // CRITICAL: Must enable read events after write completes
+      // Flow: Write complete → Disable write → Enable read → Wait for response
+      // Why: After sending a request, we need to be ready to receive the response.
+      // Without this, the client sends data but never processes incoming responses,
+      // causing protocol initialization timeouts.
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
     }
   }
 }
