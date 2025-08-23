@@ -279,6 +279,7 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
           transport_socket ? std::move(transport_socket) 
                           : std::make_unique<RawTransportSocket>()) {
   // Set initial state
+  connected_ = connected;
   connecting_ = !connected;
   state_ = connected ? ConnectionState::Open : ConnectionState::Closed;
 
@@ -517,6 +518,24 @@ std::string ConnectionImpl::requestedServerName() const {
 }
 
 void ConnectionImpl::write(Buffer& data, bool end_stream) {
+  /**
+   * PUBLIC WRITE INTERFACE - Application entry point for sending data
+   * 
+   * Complete flow:
+   * 1. Application calls write() with data buffer
+   * 2. FilterManager::onWrite() processes through write filter chain (REVERSE order):
+   *    - HttpSseJsonRpcProtocolFilter::onWrite() handles SSE/HTTP formatting
+   *    - JsonRpcProtocolFilter::onWrite() adds JSON-RPC framing
+   *    - HttpCodecFilter::onWrite() adds HTTP headers
+   * 3. Filters modify buffer IN-PLACE (critical: no recursion!)
+   * 4. Move processed data to write_buffer_
+   * 5. Enable write events and trigger doWrite() if socket ready
+   * 6. doWrite() writes to socket, continues until buffer empty or EAGAIN
+   * 
+   * Thread safety: All operations must be in dispatcher thread
+   * Buffer ownership: data is moved to write_buffer_ after processing
+   */
+  
   // Thread safety: all writes must happen in dispatcher thread
   assert(dispatcher_.isThreadSafe() && "write() must be called from dispatcher thread");
   
@@ -546,10 +565,11 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   }
 
   // Move processed data to write buffer
+  size_t bytes_to_write = data.length();
   data.move(write_buffer_);
 
-  // Update stats
-  updateWriteBufferStats(data.length(), write_buffer_.length());
+  // Update stats (use saved length since data is now empty after move)
+  updateWriteBufferStats(bytes_to_write, write_buffer_.length());
 
   // Check watermarks
   if (write_buffer_.length() > high_watermark_ && !above_high_watermark_) {
@@ -679,9 +699,26 @@ bool ConnectionImpl::initializeReadFilters() {
 // Private methods
 
 void ConnectionImpl::onFileEvent(uint32_t events) {
-  // Handle file events from event loop
-  // Flow: epoll/kqueue event -> Dispatcher -> onFileEvent -> Handle
-  // read/write/close All callbacks are invoked in dispatcher thread context
+  /**
+   * FILE EVENT HANDLER - Core of async I/O
+   * 
+   * Called by dispatcher when socket has events (read ready, write ready, error)
+   * Flow: epoll/kqueue/select → Dispatcher → FileEventImpl → onFileEvent()
+   * 
+   * All callbacks are invoked in dispatcher thread context - thread-safe by design
+   * 
+   * Event types:
+   * - Read: Socket has data available → onReadReady() → doRead()
+   * - Write: Socket buffer has space → onWriteReady() → doWrite()
+   * - Closed: Socket closed/error → closeSocket()
+   */
+  
+  std::cerr << "[DEBUG] ConnectionImpl::onFileEvent called with events=0x" 
+            << std::hex << events << std::dec 
+            << " (Read=" << (events & static_cast<uint32_t>(event::FileReadyType::Read))
+            << " Write=" << (events & static_cast<uint32_t>(event::FileReadyType::Write))
+            << " Closed=" << (events & static_cast<uint32_t>(event::FileReadyType::Closed))
+            << "), is_server=" << is_server_connection_ << std::endl;
   
   // Check for immediate error first (following reference pattern)
   if (immediate_error_event_ == ConnectionEvent::LocalClose ||
@@ -708,6 +745,18 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
+  /**
+   * READ READY HANDLER
+   * 
+   * Socket has data available for reading
+   * Flow: onFileEvent(Read) → onReadReady() → doRead() → filter_manager_.onData()
+   * 
+   * Steps:
+   * 1. Read from socket into read_buffer_
+   * 2. Pass data through read filter chain
+   * 3. Filters parse protocols (HTTP, SSE, JSON-RPC)
+   * 4. Callbacks deliver parsed messages to application
+   */
   
   // Notify state machine of read ready event
   if (state_machine_) {
@@ -717,6 +766,16 @@ void ConnectionImpl::onReadReady() {
 }
 
 void ConnectionImpl::onWriteReady() {
+  /**
+   * WRITE READY HANDLER
+   * 
+   * Socket buffer has space, can write data
+   * Flow: onFileEvent(Write) → onWriteReady() → doWrite()
+   * 
+   * Two cases:
+   * 1. Connection in progress: Complete connection, enable read/write events
+   * 2. Connected: Flush any pending data in write_buffer_ to socket
+   */
   write_ready_ = true;
 
   // Notify state machine of write ready event
@@ -883,6 +942,7 @@ void ConnectionImpl::doConnect() {
     });
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
+    // Note: Only Write needed here since connection isn't established yet
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed
@@ -923,9 +983,21 @@ void ConnectionImpl::onConnected() {
 }
 
 void ConnectionImpl::doRead() {
-  // Read data from socket through transport socket abstraction
-  // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
-  // Transport::doRead All operations happen in dispatcher thread context
+  /**
+   * CORE READ FUNCTION - Reads data from socket and processes through filters
+   * 
+   * Flow:
+   * 1. doReadFromSocket() - Read from socket/transport into read_buffer_
+   * 2. processReadBuffer() - Pass through filter chain (HTTP, SSE, JSON-RPC)
+   * 3. Filters invoke callbacks to deliver parsed messages to application
+   * 
+   * Continues reading in loop until:
+   * - Socket buffer is empty (EAGAIN)
+   * - EOF detected (connection closed)
+   * - Error occurs
+   * 
+   * Thread safety: All operations in dispatcher thread
+   */
 
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
     // Don't clear transport_wants_read_ when returning early
@@ -941,6 +1013,7 @@ void ConnectionImpl::doRead() {
 
     // Check for errors
     if (!result.ok()) {
+      std::cerr << "[DEBUG] doReadFromSocket returned not ok" << std::endl;
       // Socket error - use deferred close for safety
       closeThroughFilterManager(ConnectionEvent::RemoteClose);
       return;
@@ -977,6 +1050,9 @@ void ConnectionImpl::doRead() {
     
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
+    
+    std::cerr << "[DEBUG] Read " << result.bytes_processed_ << " bytes, buffer now has " 
+              << read_buffer_.length() << " bytes" << std::endl;
     
     // Process through filter chain
     processReadBuffer();
@@ -1036,9 +1112,20 @@ void ConnectionImpl::processReadBuffer() {
 }
 
 void ConnectionImpl::doWrite() {
-  // Write data to socket through transport socket abstraction
-  // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
-  // All operations happen in dispatcher thread context
+  /**
+   * CORE WRITE FUNCTION - Writes data from write_buffer_ to socket
+   * 
+   * Flow:
+   * 1. Check transport socket for any pending data (e.g., TLS handshake)
+   * 2. Write from write_buffer_ to socket
+   * 3. Continue writing until buffer empty or socket buffer full (EAGAIN)
+   * 
+   * Called from:
+   * - onWriteReady() when socket becomes writable
+   * - write() when new data is added and socket is ready
+   * 
+   * Thread safety: All operations in dispatcher thread
+   */
 
 
   if (state_ != ConnectionState::Open) {
@@ -1190,7 +1277,12 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
+  uint32_t old_state = file_event_state_;
   file_event_state_ |= events;
+  std::cerr << "[DEBUG] enableFileEvents: events=0x" << std::hex << events 
+            << ", old_state=0x" << old_state
+            << ", new_state=0x" << file_event_state_ << std::dec
+            << ", is_server=" << is_server_connection_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
