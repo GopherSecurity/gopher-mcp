@@ -311,16 +311,27 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-        // Use level-triggered events for all sockets to ensure we don't miss
-        // data that arrives before event registration completes
-        // TODO: Optimize to edge-triggered once event registration timing is fixed
-        auto trigger_type = event::FileTriggerType::Level;
+        // Use platform default trigger type (Edge on Linux, Level on others)
+        // This follows the reference pattern for optimal performance
+        auto trigger_type = event::PlatformDefaultTriggerType;
 
-        // Following production pattern: create file event with Read and Write events
-        // enabled from the start. The connection will manage flow control as needed.
+        // Set initial events based on connection state
+        // Server connections (connected=true): Start with Read to receive requests
+        // Client connections (connecting=true): Start with Write to detect connection completion
+        // This follows the reference pattern for event initialization
         
-        uint32_t initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
-                                 static_cast<uint32_t>(event::FileReadyType::Write);
+        uint32_t initial_events;
+        if (connected) {
+          // Server connection - enable read and write
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
+                          static_cast<uint32_t>(event::FileReadyType::Write);
+        } else if (connecting_) {
+          // Client connecting - enable write to detect connection completion
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
+        } else {
+          // Not connected and not connecting - shouldn't happen but handle safely
+          initial_events = 0;
+        }
         
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
@@ -329,11 +340,6 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         
         // Track which events are enabled
         file_event_state_ = initial_events;
-        
-        // For client connections that are connecting, we might need to adjust events
-        if (!connected && connecting_) {
-          // Client connection in progress - will be handled by doConnect()
-        }
       }
     } catch (...) {
       // Socket doesn't support file events (e.g., mock socket in tests)
@@ -427,25 +433,45 @@ void ConnectionImpl::noDelay(bool enable) {
 
 ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
   if (disable) {
-    if (read_disable_count_ == 0) {
-      // First disable
-      disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-    }
     read_disable_count_++;
+    
+    if (state_ != ConnectionState::Open) {
+      return ReadDisableStatus::NoTransition;
+    }
+    
+    if (read_disable_count_ > 1) {
+      // Already disabled
+      return ReadDisableStatus::StillReadDisabled;
+    }
+    
+    // First disable - keep Write enabled, disable Read
+    // Following reference pattern: always keep Write enabled
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
     return ReadDisableStatus::TransitionedToReadDisabled;
   } else {
-    if (read_disable_count_ > 0) {
-      read_disable_count_--;
-      if (read_disable_count_ == 0) {
-        // Re-enable reads
-        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-        if (read_buffer_.length() > 0) {
-          // Process any buffered data
-          processReadBuffer();
-        }
-        return ReadDisableStatus::TransitionedToReadEnabled;
-      }
+    if (read_disable_count_ == 0) {
+      return ReadDisableStatus::NoTransition;
     }
+    
+    read_disable_count_--;
+    
+    if (state_ != ConnectionState::Open) {
+      return ReadDisableStatus::NoTransition;
+    }
+    
+    if (read_disable_count_ == 0) {
+      // Re-enable both Read and Write
+      // Following reference pattern: enable both when resuming reads
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                      static_cast<uint32_t>(event::FileReadyType::Write));
+      
+      if (read_buffer_.length() > 0) {
+        // Process any buffered data
+        processReadBuffer();
+      }
+      return ReadDisableStatus::TransitionedToReadEnabled;
+    }
+    
     return ReadDisableStatus::StillReadDisabled;
   }
 }
