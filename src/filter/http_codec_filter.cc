@@ -240,11 +240,19 @@ void HttpCodecFilter::handleParserError(const std::string& error) {
 }
 
 void HttpCodecFilter::sendMessageData(Buffer& data) {
-  if (write_callbacks_) {
-    // Write directly to connection following production pattern
-    // This replaces the deprecated injectWriteDataToFilterChain method
-    write_callbacks_->connection().write(data, false);
+  // This method transfers the accumulated message buffer to the data buffer
+  // It should be called after headers (and optionally body) have been added
+  // 
+  // CRITICAL: Do NOT call connection().write() here - causes infinite recursion!
+  // We're already in the write path, just transfer the buffer contents
+  
+  if (message_buffer_.length() > 0) {
+    // Move message buffer content to data
+    data.move(message_buffer_);
   }
+  
+  // The caller is responsible for writing the data through the appropriate path
+  // This avoids recursion issues when called from within the filter chain
 }
 
 // ParserCallbacks implementation
@@ -499,18 +507,9 @@ void HttpCodecFilter::MessageEncoderImpl::encodeHeaders(
   // End headers
   message << "\r\n";
   
-  // For server responses, send the headers immediately through write callbacks
+  // Store headers in message buffer for both server and client
   std::string message_str = message.str();
-  if (parent_.is_server_ && parent_.write_callbacks_) {
-    parent_.message_buffer_.add(message_str.c_str(), message_str.length());
-    // Write directly to connection following production pattern
-    // This replaces the deprecated injectWriteDataToFilterChain method
-    parent_.write_callbacks_->connection().write(parent_.message_buffer_, false);
-    parent_.message_buffer_.drain(parent_.message_buffer_.length());
-  } else {
-    // For client requests, store in buffer
-    parent_.message_buffer_.add(message_str.c_str(), message_str.length());
-  }
+  parent_.message_buffer_.add(message_str.c_str(), message_str.length());
   
   if (end_stream) {
     if (parent_.is_server_) {
