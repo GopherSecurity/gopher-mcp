@@ -277,7 +277,7 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
                           : std::make_unique<RawTransportSocket>()) {
   // Set initial state
   connecting_ = !connected;
-  state_ = connected ? ConnectionState::Open : ConnectionState::Open;
+  state_ = connected ? ConnectionState::Open : ConnectionState::Closed;
 
   // Set up transport socket callbacks
   if (transport_socket_) {
@@ -470,6 +470,9 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   assert(dispatcher_.isThreadSafe() && "write() must be called from dispatcher thread");
   
   if (state_ != ConnectionState::Open || write_half_closed_) {
+    std::cerr << "[DEBUG] ConnectionImpl::write rejected: state=" 
+              << static_cast<int>(state_) 
+              << " write_half_closed=" << write_half_closed_ << std::endl;
     return;
   }
 
@@ -510,6 +513,9 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
 
   // Enable write events and trigger write
   if (write_buffer_.length() > 0) {
+    std::cerr << "[DEBUG] ConnectionImpl::write enabling write events, buffer_len=" 
+              << write_buffer_.length() 
+              << " write_ready_=" << write_ready_ << std::endl;
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
     
@@ -518,6 +524,7 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     // This fix ensures data is written even when socket is already write-ready
     if (write_ready_) {
       // Socket is ready, write now
+      std::cerr << "[DEBUG] Socket is write-ready, calling doWrite immediately" << std::endl;
       doWrite();
       // After writing, check if we should adjust events
       // Flow: Write complete → Check buffer → Adjust events
@@ -661,7 +668,8 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
-  std::cerr << "[DEBUG] ConnectionImpl::onReadReady called" << std::endl;
+  std::cerr << "[DEBUG] ConnectionImpl::onReadReady called, state=" 
+            << static_cast<int>(state_) << std::endl;
   
   // Notify state machine of read ready event
   if (state_machine_) {
@@ -680,6 +688,7 @@ void ConnectionImpl::onWriteReady() {
 
   if (connecting_) {
     // Connection completed
+    std::cerr << "[DEBUG] Async connection completed in onWriteReady, setting state to Open" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -822,6 +831,8 @@ void ConnectionImpl::doConnect() {
     // connections) Schedule the Connected event to be handled in the next
     // dispatcher iteration This ensures all callbacks are invoked in proper
     // dispatcher thread context
+    std::cerr << "[DEBUG] Immediate connection success, this=" << this 
+              << " setting state to Open" << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -865,7 +876,11 @@ void ConnectionImpl::doRead() {
   // Flow: Socket readable -> onFileEvent -> onReadReady -> doRead ->
   // Transport::doRead All operations happen in dispatcher thread context
 
+  std::cerr << "[DEBUG] doRead called: read_disable_count=" << read_disable_count_
+            << " state=" << static_cast<int>(state_) << std::endl;
+
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
+    std::cerr << "[DEBUG] doRead returning early: disabled or not open" << std::endl;
     return;
   }
 
@@ -974,8 +989,11 @@ void ConnectionImpl::doWrite() {
   // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
   // All operations happen in dispatcher thread context
 
-  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, buffer_len=" 
-            << write_buffer_.length() << " state=" << static_cast<int>(state_) << std::endl;
+  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, this=" << this
+            << " buffer_len=" << write_buffer_.length() 
+            << " state=" << static_cast<int>(state_)
+            << " (0=Open,1=Closing,2=Closed)" 
+            << " connected_=" << connected_ << std::endl;
 
   if (state_ != ConnectionState::Open) {
     return;
