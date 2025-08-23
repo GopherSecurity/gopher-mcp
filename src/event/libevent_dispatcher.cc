@@ -384,6 +384,8 @@ LibeventDispatcher::FileEventImpl::FileEventImpl(LibeventDispatcher& dispatcher,
   if (trigger == FileTriggerType::Edge) {
     libevent_events |= EV_ET;
   }
+  // Always add EV_PERSIST for continuous event monitoring
+  libevent_events |= EV_PERSIST;
 
   std::cerr << "[DEBUG] Creating libevent for fd=" << fd_ 
             << " with events=" << libevent_events << std::endl;
@@ -429,6 +431,8 @@ void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
       if (trigger_ == FileTriggerType::Edge) {
         libevent_events |= EV_ET;
       }
+      // IMPORTANT: Must add EV_PERSIST or event will be removed after firing once
+      libevent_events |= EV_PERSIST;
 
       std::cerr << "[DEBUG] Reassigning event with libevent_events=" << libevent_events << std::endl;
       event_assign(event_, dispatcher_.base(), fd_, libevent_events,

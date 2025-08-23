@@ -113,7 +113,9 @@ VoidResult McpClient::connect(const std::string& uri) {
   
   // Start dispatcher in a separate thread
   std::thread dispatcher_thread([this]() {
+    std::cerr << "[DEBUG] Dispatcher thread starting, about to run event loop" << std::endl;
     main_dispatcher_->run(RunType::Block);
+    std::cerr << "[DEBUG] Dispatcher thread exiting" << std::endl;
   });
   dispatcher_thread.detach();
   
@@ -264,11 +266,21 @@ void McpClient::shutdown() {
 
 // Initialize protocol
 std::future<InitializeResult> McpClient::initializeProtocol() {
+  std::cerr << "[DEBUG] McpClient::initializeProtocol() called, dispatcher=" 
+            << (main_dispatcher_ ? "YES" : "NO") << std::endl;
   // Create promise for InitializeResult
   auto result_promise = std::make_shared<std::promise<InitializeResult>>();
   
+  if (!main_dispatcher_) {
+    std::cerr << "[ERROR] No dispatcher available!" << std::endl;
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+  
   // Defer all protocol operations to dispatcher thread
   main_dispatcher_->post([this, result_promise]() {
+    std::cerr << "[DEBUG] In dispatcher thread, about to send initialize request" << std::endl;
     try {
       // Notify protocol state machine that initialization is starting
       if (protocol_state_machine_) {
@@ -282,6 +294,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       init_params["clientName"] = config_.client_name;
       init_params["clientVersion"] = config_.client_version;
       
+      std::cerr << "[DEBUG] About to call sendRequest for initialize" << std::endl;
       // Send request and get response
       auto future = sendRequest("initialize", make_optional(init_params));
       auto response = future.get();
@@ -1041,7 +1054,8 @@ void McpClient::coordinateProtocolState() {
     if (!initialized_ && protocol_state != protocol::McpProtocolState::INITIALIZING) {
       // Auto-initialize protocol after connection
       // We're already in dispatcher thread from synchronizeState
-      initializeProtocol();
+      // DISABLED: Let the user explicitly call initializeProtocol()
+      // initializeProtocol();
     }
   } else if (!connected_ && protocol_state != protocol::McpProtocolState::DISCONNECTED) {
     // Network disconnected but protocol thinks it's connected

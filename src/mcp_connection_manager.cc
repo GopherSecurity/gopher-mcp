@@ -657,12 +657,17 @@ VoidResult McpConnectionManager::sendJsonMessage(
   auto buffer = std::make_unique<OwnedBuffer>();
   buffer->add(json_str);
 
+  std::cerr << "[DEBUG] McpConnectionManager sending JSON message: " 
+            << json_str.substr(0, 200) << "..." << std::endl;
+
   // Write through filter chain - each filter handles its protocol layer:
   // - JSON-RPC filter: message framing if configured
   // - SSE filter: SSE event formatting if applicable  
   // - HTTP filter: HTTP request/response formatting if applicable
   // - Transport socket: raw I/O only
   active_connection_->write(*buffer, false);
+  
+  std::cerr << "[DEBUG] Write call completed" << std::endl;
 
   return makeVoidSuccess();
 }
