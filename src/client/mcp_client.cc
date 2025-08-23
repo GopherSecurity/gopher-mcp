@@ -114,9 +114,7 @@ VoidResult McpClient::connect(const std::string& uri) {
   // Start dispatcher in a separate thread
   // Store thread handle for proper cleanup (reference pattern)
   dispatcher_thread_ = std::thread([this]() {
-    std::cerr << "[DEBUG] Dispatcher thread starting, about to run event loop" << std::endl;
     main_dispatcher_->run(RunType::Block);
-    std::cerr << "[DEBUG] Dispatcher thread exiting" << std::endl;
   });
   
   // Get socket interface after dispatcher is created
@@ -273,13 +271,10 @@ void McpClient::shutdown() {
 
 // Initialize protocol
 std::future<InitializeResult> McpClient::initializeProtocol() {
-  std::cerr << "[DEBUG] McpClient::initializeProtocol() called, dispatcher=" 
-            << (main_dispatcher_ ? "YES" : "NO") << std::endl;
   // Create promise for InitializeResult
   auto result_promise = std::make_shared<std::promise<InitializeResult>>();
   
   if (!main_dispatcher_) {
-    std::cerr << "[ERROR] No dispatcher available!" << std::endl;
     result_promise->set_exception(
         std::make_exception_ptr(std::runtime_error("No dispatcher")));
     return result_promise->get_future();
@@ -287,7 +282,6 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   
   // Defer all protocol operations to dispatcher thread
   main_dispatcher_->post([this, result_promise]() {
-    std::cerr << "[DEBUG] In dispatcher thread, about to send initialize request" << std::endl;
     try {
       // Notify protocol state machine that initialization is starting
       if (protocol_state_machine_) {
@@ -301,7 +295,6 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       init_params["clientName"] = config_.client_name;
       init_params["clientVersion"] = config_.client_version;
       
-      std::cerr << "[DEBUG] About to call sendRequest for initialize" << std::endl;
       // Send request and get response
       auto future = sendRequest("initialize", make_optional(init_params));
       auto response = future.get();
@@ -507,16 +500,11 @@ void McpClient::handleRequest(const Request& request) {
 // Handle notifications from server
 void McpClient::handleNotification(const Notification& notification) {
   // Process based on method
-  // For now, just log
-  std::cerr << "[CLIENT] Received notification" << std::endl;
 }
 
 // Handle errors
 void McpClient::handleError(const Error& error) {
   client_stats_.errors_total++;
-  
-  // Log error
-  std::cerr << "[CLIENT] Error: " << error.message << std::endl;
   
   // Notify protocol state machine
   if (protocol_state_machine_) {
@@ -689,18 +677,25 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
   
-  std::thread([future = std::move(future), result_promise]() mutable {
-    try {
-      auto response = future.get();
-      if (response.error.has_value()) {
-        result_promise->set_value(makeVoidError(*response.error));
-      } else {
-        result_promise->set_value(VoidResult(nullptr));
+  // Use dispatcher post pattern (reference architecture)
+  // Never use detached threads for async operations
+  if (main_dispatcher_) {
+    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+      try {
+        auto response = future.get();
+        if (response.error.has_value()) {
+          result_promise->set_value(makeVoidError(*response.error));
+        } else {
+          result_promise->set_value(VoidResult(nullptr));
+        }
+      } catch (...) {
+        result_promise->set_exception(std::current_exception());
       }
-    } catch (...) {
-      result_promise->set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_promise->get_future();
 }
@@ -715,18 +710,25 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
   
-  std::thread([future = std::move(future), result_promise]() mutable {
-    try {
-      auto response = future.get();
-      if (response.error.has_value()) {
-        result_promise->set_value(makeVoidError(*response.error));
-      } else {
-        result_promise->set_value(VoidResult(nullptr));
+  // Use dispatcher post pattern (reference architecture)
+  // Never use detached threads for async operations
+  if (main_dispatcher_) {
+    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+      try {
+        auto response = future.get();
+        if (response.error.has_value()) {
+          result_promise->set_value(makeVoidError(*response.error));
+        } else {
+          result_promise->set_value(VoidResult(nullptr));
+        }
+      } catch (...) {
+        result_promise->set_exception(std::current_exception());
       }
-    } catch (...) {
-      result_promise->set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_promise->get_future();
 }
@@ -826,19 +828,25 @@ std::future<ListPromptsResult> McpClient::listPrompts(
   // Create promise for ListPromptsResult
   auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
   
-  std::thread([future = std::move(future), result_promise]() mutable {
-    try {
-      auto response = future.get();
-      ListPromptsResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // TODO: Proper parsing
+  // Use dispatcher post pattern (reference architecture)
+  if (main_dispatcher_) {
+    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+      try {
+        auto response = future.get();
+        ListPromptsResult result;
+        // Parse response into result structure
+        if (!response.error.has_value() && response.result.has_value()) {
+          // TODO: Proper parsing
+        }
+        result_promise->set_value(result);
+      } catch (...) {
+        result_promise->set_exception(std::current_exception());
       }
-      result_promise->set_value(result);
-    } catch (...) {
-      result_promise->set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_promise->get_future();
 }
@@ -862,19 +870,25 @@ std::future<GetPromptResult> McpClient::getPrompt(
   // Create promise for GetPromptResult
   auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
   
-  std::thread([future = std::move(future), result_promise]() mutable {
-    try {
-      auto response = future.get();
-      GetPromptResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // TODO: Proper parsing
+  // Use dispatcher post pattern (reference architecture)
+  if (main_dispatcher_) {
+    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+      try {
+        auto response = future.get();
+        GetPromptResult result;
+        // Parse response into result structure
+        if (!response.error.has_value() && response.result.has_value()) {
+          // TODO: Proper parsing
+        }
+        result_promise->set_value(result);
+      } catch (...) {
+        result_promise->set_exception(std::current_exception());
       }
-      result_promise->set_value(result);
-    } catch (...) {
-      result_promise->set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_promise->get_future();
 }
@@ -889,18 +903,25 @@ std::future<VoidResult> McpClient::setLogLevel(enums::LoggingLevel::Value level)
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
   
-  std::thread([future = std::move(future), result_promise]() mutable {
-    try {
-      auto response = future.get();
-      if (response.error.has_value()) {
-        result_promise->set_value(makeVoidError(*response.error));
-      } else {
-        result_promise->set_value(VoidResult(nullptr));
+  // Use dispatcher post pattern (reference architecture)
+  // Never use detached threads for async operations
+  if (main_dispatcher_) {
+    main_dispatcher_->post([future = std::move(future), result_promise]() mutable {
+      try {
+        auto response = future.get();
+        if (response.error.has_value()) {
+          result_promise->set_value(makeVoidError(*response.error));
+        } else {
+          result_promise->set_value(VoidResult(nullptr));
+        }
+      } catch (...) {
+        result_promise->set_exception(std::current_exception());
       }
-    } catch (...) {
-      result_promise->set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_promise->get_future();
 }
@@ -980,39 +1001,37 @@ std::future<CreateMessageResult> McpClient::createMessage(
   std::promise<CreateMessageResult> result_promise;
   auto result_future = result_promise.get_future();
   
-  std::thread([context, result_promise = std::move(result_promise)]() mutable {
-    try {
-      auto response = context->promise.get_future().get();
-      CreateMessageResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // Extract created message
-        TextContent text_content;
-        text_content.type = "text";
-        text_content.text = "";
-        result.content = text_content;
-        result.model = "unknown";
-        result.role = enums::Role::ASSISTANT;
+  // Use dispatcher post pattern (reference architecture)
+  if (main_dispatcher_) {
+    main_dispatcher_->post([context, result_promise = std::move(result_promise)]() mutable {
+      try {
+        auto response = context->promise.get_future().get();
+        CreateMessageResult result;
+        // Parse response into result structure
+        if (!response.error.has_value() && response.result.has_value()) {
+          // Extract created message
+          TextContent text_content;
+          text_content.type = "text";
+          text_content.text = "";
+          result.content = text_content;
+          result.model = "unknown";
+          result.role = enums::Role::ASSISTANT;
+        }
+        result_promise.set_value(result);
+      } catch (...) {
+        result_promise.set_exception(std::current_exception());
       }
-      result_promise.set_value(result);
-    } catch (...) {
-      result_promise.set_exception(std::current_exception());
-    }
-  }).detach();
+    });
+  } else {
+    result_promise.set_exception(
+        std::make_exception_ptr(std::runtime_error("Dispatcher not available")));
+  }
   
   return result_future;
 }
 
 // Protocol state coordination - handle protocol state changes
 void McpClient::handleProtocolStateChange(const protocol::ProtocolStateTransitionContext& context) {
-  // Log state transition for debugging
-  std::cerr << "[CLIENT] Protocol state changed: " 
-            << protocol::McpProtocolStateMachine::stateToString(context.from_state)
-            << " -> "
-            << protocol::McpProtocolStateMachine::stateToString(context.to_state)
-            << " (event: " << protocol::McpProtocolStateMachine::eventToString(context.trigger_event) << ")"
-            << std::endl;
-  
   // Take action based on new state
   switch (context.to_state) {
     case protocol::McpProtocolState::READY:
@@ -1024,7 +1043,6 @@ void McpClient::handleProtocolStateChange(const protocol::ProtocolStateTransitio
     case protocol::McpProtocolState::ERROR:
       // Protocol error - may need to reconnect
       if (context.error.has_value()) {
-        std::cerr << "[CLIENT] Protocol error: " << context.error->message << std::endl;
         // Circuit breaker should handle this
         circuit_breaker_->recordFailure();
       }
@@ -1074,12 +1092,9 @@ void McpClient::coordinateProtocolState() {
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events in dispatcher context
-  std::cerr << "[DEBUG] McpClient::handleConnectionEvent called with event: " 
-            << static_cast<int>(event) << std::endl;
   
   switch (event) {
     case network::ConnectionEvent::Connected:
-      std::cerr << "[DEBUG] Connected event received in client, setting connected_ = true" << std::endl;
       connected_ = true;
       client_stats_.connections_active++;
       
