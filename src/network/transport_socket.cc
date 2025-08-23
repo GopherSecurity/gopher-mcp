@@ -47,7 +47,10 @@ void RawBufferTransportSocket::closeSocket(ConnectionEvent event) {
 }
 
 TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
+  std::cerr << "[DEBUG] RawBufferTransportSocket::doRead called" << std::endl;
+  
   if (!callbacks_ || shutdown_read_) {
+    std::cerr << "[DEBUG] RawBufferTransportSocket::doRead returning stop (no callbacks or shutdown)" << std::endl;
     return TransportIoResult::stop();
   }
   
@@ -57,11 +60,14 @@ TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
   // Reserve space in the buffer
   void* mem = buffer.reserveSingleSlice(max_slice_size, slice);
   if (!mem) {
+    std::cerr << "[DEBUG] RawBufferTransportSocket::doRead returning stop (no buffer space)" << std::endl;
     return TransportIoResult::stop();
   }
   
   // Read from socket
   IoHandle& io_handle = callbacks_->ioHandle();
+  std::cerr << "[DEBUG] RawBufferTransportSocket calling readv, fd=" << io_handle.fd() 
+            << " slice_len=" << slice.len_ << std::endl;
   auto result = io_handle.readv(slice.len_, &slice, 1);
   
   if (!result.ok()) {
@@ -69,6 +75,7 @@ TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
     
     // Handle would-block
     if (result.wouldBlock()) {
+      std::cerr << "[DEBUG] RawBufferTransportSocket::doRead would block (EAGAIN)" << std::endl;
       return TransportIoResult::stop();
     }
     
@@ -83,16 +90,19 @@ TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
   }
   
   size_t bytes_read = *result;
+  std::cerr << "[DEBUG] RawBufferTransportSocket readv returned " << bytes_read << " bytes" << std::endl;
   
   // Handle EOF
   if (bytes_read == 0) {
     buffer.commit(slice, 0);
     shutdown_read_ = true;
+    std::cerr << "[DEBUG] RawBufferTransportSocket EOF detected" << std::endl;
     return TransportIoResult::endStream(0);
   }
   
   // Commit the read data
   buffer.commit(slice, bytes_read);
+  std::cerr << "[DEBUG] RawBufferTransportSocket committed " << bytes_read << " bytes to buffer" << std::endl;
   
   // Mark socket as readable if edge-triggered
   callbacks_->setTransportSocketIsReadable();
