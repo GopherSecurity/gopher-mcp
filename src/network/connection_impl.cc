@@ -680,12 +680,7 @@ void ConnectionImpl::onWriteReady() {
                     static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     doWrite();
-    // After write, keep both read and write events enabled
-    // This avoids race conditions from event reassignment
-    if (write_buffer_.length() == 0) {
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                      static_cast<uint32_t>(event::FileReadyType::Write));
-    }
+    // Note: No need to adjust events after write - they remain as configured
   }
 }
 
@@ -958,7 +953,6 @@ void ConnectionImpl::doWrite() {
   // Let transport socket process the buffer first if we have one
   // This allows the transport to add any pending data (like HTTP headers)
   // even if write_buffer_ is initially empty
-  bool transport_handled = false;
   if (transport_socket_) {
     auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     if (!result.ok()) {
@@ -971,20 +965,11 @@ void ConnectionImpl::doWrite() {
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
-    transport_handled = true;
   }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
-    // If transport handled the write and buffer is now empty, we're done
-    // Must ensure read events are enabled for response
-    if (transport_handled) {
-      // Keep both read and write events enabled to avoid race conditions
-      // Disabling and re-enabling events separately can cause event loss
-      // because event_del() followed by event_add() creates a window where events can be missed
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                      static_cast<uint32_t>(event::FileReadyType::Write));
-    }
+    // Buffer is empty after transport processing
     return;
   }
 

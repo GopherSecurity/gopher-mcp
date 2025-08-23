@@ -1,5 +1,4 @@
 #include "mcp/network/transport_socket.h"
-#include <iostream>
 
 #include <errno.h>
 #include <sys/socket.h>
