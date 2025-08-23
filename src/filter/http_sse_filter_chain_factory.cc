@@ -6,6 +6,45 @@
  * - Filters implement callback interfaces directly
  * - Filter manager wires filters together
  * - Clean separation between protocol layers
+ * 
+ * ============================================================================
+ * DATA FLOW ARCHITECTURE
+ * ============================================================================
+ * 
+ * READING (Incoming Data):
+ * Socket → ConnectionImpl::onReadReady() → doRead() → FilterManager::onData()
+ * → HttpSseJsonRpcProtocolFilter::onData() → Protocol layers:
+ *   1. HttpCodecFilter: Parse HTTP request/response
+ *   2. SseCodecFilter: Parse SSE events (if SSE mode active)
+ *   3. JsonRpcProtocolFilter: Parse JSON-RPC messages
+ * → Callbacks to McpConnectionManager → Application
+ * 
+ * WRITING (Outgoing Data):
+ * Application → McpConnectionManager::sendRequest/Response() → sendJsonMessage()
+ * → ConnectionImpl::write() → FilterManager::onWrite() (REVERSE order)
+ * → HttpSseJsonRpcProtocolFilter::onWrite():
+ *   - SSE mode: Format as SSE events with HTTP headers on first write
+ *   - Normal mode: Pass through JsonRpcFilter → HttpCodecFilter
+ * → ConnectionImpl::doWrite() → Socket
+ * 
+ * SSE MODE DETECTION:
+ * - Server: Accept header contains "text/event-stream"
+ * - Client: Content-Type header contains "text/event-stream"
+ * 
+ * SSE STREAMING:
+ * - First response: HTTP/1.1 200 OK + SSE headers + first event
+ * - Subsequent responses: SSE events only (data: {json}\n\n)
+ * - Long-lived connection, multiple events over time
+ * 
+ * THREAD SAFETY:
+ * - Each connection has its own filter chain instance
+ * - All operations for a connection happen in single dispatcher thread
+ * - No locks needed, no race conditions
+ * 
+ * CRITICAL RULES:
+ * 1. Filters MUST modify buffer in-place in onWrite()
+ * 2. NEVER call connection().write() from within onWrite() - infinite recursion!
+ * 3. Return FilterStatus::Continue to pass data to next filter/transport
  */
 
 #include "mcp/filter/http_sse_filter_chain_factory.h"
@@ -116,6 +155,21 @@ public:
   
   // ===== Network Filter Interface =====
   
+  /**
+   * READ DATA FLOW (Server receiving request, Client receiving response):
+   * 
+   * 1. ConnectionImpl::onReadReady() - Socket has data available
+   * 2. ConnectionImpl::doRead() - Read from socket into read_buffer_
+   * 3. FilterManagerImpl::onData() - Pass data through read filter chain
+   * 4. HttpSseJsonRpcProtocolFilter::onData() - This method, processes in layers:
+   *    a. HttpCodecFilter::onData() - Parse HTTP headers/body
+   *    b. SseCodecFilter::onData() - Parse SSE events (if SSE mode)
+   *    c. JsonRpcProtocolFilter::onData() - Parse JSON-RPC messages
+   * 5. Callbacks propagate up to McpConnectionManager::onRequest/onResponse()
+   * 
+   * Server flow: HTTP request → Extract JSON-RPC from body → Process request
+   * Client flow: HTTP response → Parse SSE events (if SSE) → Extract JSON-RPC → Process response
+   */
   network::FilterStatus onData(Buffer& data, bool end_stream) override {
     // Data flows through protocol layers in sequence
     // HTTP -> SSE -> JSON-RPC
@@ -156,29 +210,115 @@ public:
     jsonrpc_filter_->onNewConnection();
     return network::FilterStatus::Continue;
   }
-  
+
+  // filters should not call connection().write() from within onWrite() causing infinite recursion.
+  // We need to write directly to the underlying socket without going through the filter chain again.
+  // onWrite should modify the buffer in-place and return Continue to let it flow to the next filter or transport
+  // We shouldn't call connection().write() from within onWrite().
+  /**
+   * WRITE DATA FLOW (Server sending response, Client sending request):
+   * 
+   * 1. McpConnectionManager::sendResponse/sendRequest() - Application initiates write
+   * 2. McpConnectionManager::sendJsonMessage() - Convert to JSON string
+   * 3. ConnectionImpl::write() - Add to write_buffer_, trigger filter chain
+   * 4. FilterManagerImpl::onWrite() - Pass through write filter chain in REVERSE order
+   * 5. HttpSseJsonRpcProtocolFilter::onWrite() - This method, processes based on mode:
+   *    
+   *    Server SSE mode (is_sse_mode_ == true):
+   *    - First write: Add HTTP headers + format as SSE event
+   *    - Subsequent writes: Format as SSE events only
+   *    - Data flows directly to transport, bypassing other filters
+   *    
+   *    Normal HTTP mode:
+   *    a. JsonRpcProtocolFilter::onWrite() - Add JSON-RPC framing if configured
+   *    b. HttpCodecFilter::onWrite() - Add HTTP headers/framing
+   *    
+   * 6. ConnectionImpl::doWrite() - Write from write_buffer_ to socket
+   * 
+   * Server flow: JSON-RPC response → SSE formatting (if SSE) → HTTP headers → Socket
+   * Client flow: JSON-RPC request → HTTP POST formatting → Socket
+   * 
+   * CRITICAL: Filters must modify buffer in-place and return Continue.
+   * Never call connection().write() from within onWrite() - causes infinite recursion!
+   */
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
     // Write flows through filters in reverse order
     // JSON-RPC -> SSE -> HTTP
     
-    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite called with " << data.length() 
-              << " bytes, is_server=" << is_server_ << std::endl;
+    // In SSE mode for server, handle headers + data properly
+    // Design: Use boolean flag to track if HTTP headers have been sent
+    // This is safe because:
+    // - Each connection has its own filter instance (connection-scoped)
+    // - All operations happen in single dispatcher thread (no races)
+    // - SSE connections are long-lived with one stream at a time
+    if (is_server_ && is_sse_mode_) {
+      // Check if we've written anything to this connection yet
+      // If connection has no bytes sent, this is the first response
+      bool is_first_write = false;
+      if (write_callbacks_) {
+        // Check connection's write buffer stats or bytes sent
+        // For now, use a simple approach: if this is the first onWrite call
+        // after entering SSE mode, we need headers
+        // Better approach: query connection's bytes_sent metric
+        is_first_write = !sse_headers_written_;
+      }
+      
+      if (is_first_write) {
+        
+        // Build complete HTTP response with SSE headers and first event
+        std::ostringstream response;
+        response << "HTTP/1.1 200 OK\r\n";
+        response << "Content-Type: text/event-stream\r\n";
+        response << "Cache-Control: no-cache\r\n";
+        response << "Connection: keep-alive\r\n";
+        response << "Access-Control-Allow-Origin: *\r\n";
+        response << "\r\n";  // End of headers
+        
+        // Format the JSON data as SSE event
+        if (data.length() > 0) {
+          size_t data_len = data.length();
+          std::string json_data(static_cast<const char*>(data.linearize(data_len)), data_len);
+          data.drain(data_len);
+          
+          response << "data: " << json_data << "\n\n";
+        }
+        
+        // Replace buffer with complete response
+        std::string response_str = response.str();
+        data.add(response_str);
+        
+        // Mark that headers have been written for this SSE connection
+        // This is connection-scoped, not global
+        sse_headers_written_ = true;
+      } else {
+        // Subsequent SSE events - just format as SSE without HTTP headers
+        if (data.length() > 0) {
+          size_t data_len = data.length();
+          std::string json_data(static_cast<const char*>(data.linearize(data_len)), data_len);
+          data.drain(data_len);
+          
+          // Format as SSE event
+          std::ostringstream sse_event;
+          sse_event << "data: " << json_data << "\n\n";
+          std::string event_str = sse_event.str();
+          
+          
+          // Replace buffer contents with SSE-formatted data
+          data.add(event_str);
+        }
+      }
+      // Let the formatted data flow to transport
+      return network::FilterStatus::Continue;
+    }
     
+    // Normal HTTP path (non-SSE responses)
     // JSON-RPC filter handles framing
     auto status = jsonrpc_filter_->onWrite(data, end_stream);
     if (status == network::FilterStatus::StopIteration) {
       return status;
     }
     
-    // SSE filter formats events (if in SSE mode)
-    if (is_sse_mode_) {
-      status = sse_filter_->onWrite(data, end_stream);
-      if (status == network::FilterStatus::StopIteration) {
-        return status;
-      }
-    }
-    
-    // HTTP filter adds headers/framing
+    // HTTP filter adds headers/framing for normal HTTP responses
     return http_filter_->onWrite(data, end_stream);
   }
   
@@ -201,13 +341,15 @@ public:
   
   // ===== HttpCodecFilter::MessageCallbacks =====
   
+  /**
+   * Called by HttpCodecFilter when HTTP headers are parsed
+   * Server: Called when request headers received
+   * Client: Called when response headers received
+   * 
+   * This determines transport mode (SSE vs regular HTTP) based on headers
+   */
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
-    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onHeaders called, is_server=" 
-              << is_server_ << std::endl;
-    for (const auto& h : headers) {
-      std::cerr << "[DEBUG]   " << h.first << ": " << h.second << std::endl;
-    }
     
     // Determine transport mode based on headers
     if (is_server_) {
@@ -216,16 +358,8 @@ public:
       if (accept != headers.end() && 
           accept->second.find("text/event-stream") != std::string::npos) {
         is_sse_mode_ = true;
-        
-        // Send SSE response headers
-        std::map<std::string, std::string> response_headers = {
-          {"content-type", "text/event-stream"},
-          {"cache-control", "no-cache"},
-          {"connection", keep_alive ? "keep-alive" : "close"},
-          {"access-control-allow-origin", "*"}
-        };
-        
-        http_filter_->messageEncoder().encodeHeaders("200", response_headers, false);
+        // Headers will be sent with first data in onWrite()
+        // This avoids calling connection().write() from onHeaders()
         sse_filter_->startEventStream();
       } else {
         is_sse_mode_ = false;
@@ -239,19 +373,13 @@ public:
   }
   
   void onBody(const std::string& data, bool end_stream) override {
-    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onBody called with " 
-              << data.length() << " bytes, end_stream=" << end_stream 
-              << ", is_sse_mode=" << is_sse_mode_ << std::endl;
     
     // Server receives JSON-RPC in request body regardless of SSE mode
     // SSE mode only affects the response format
     if (is_server_) {
       // Server always receives JSON-RPC in request body
       pending_json_data_.add(data);
-      std::cerr << "[DEBUG] Accumulated " << pending_json_data_.length() 
-                << " bytes of JSON-RPC data" << std::endl;
       if (end_stream) {
-        std::cerr << "[DEBUG] End of stream, processing JSON-RPC data" << std::endl;
         jsonrpc_filter_->onData(pending_json_data_, true);
         pending_json_data_.drain(pending_json_data_.length());
       }
@@ -267,10 +395,7 @@ public:
         // In RPC mode, body contains JSON-RPC
         // Accumulate and forward to JSON-RPC filter
         pending_json_data_.add(data);
-        std::cerr << "[DEBUG] Accumulated " << pending_json_data_.length() 
-                  << " bytes of JSON-RPC data" << std::endl;
         if (end_stream) {
-          std::cerr << "[DEBUG] End of stream, processing JSON-RPC data" << std::endl;
           jsonrpc_filter_->onData(pending_json_data_, true);
           pending_json_data_.drain(pending_json_data_.length());
         }
@@ -315,6 +440,11 @@ public:
   
   // ===== JsonRpcProtocolFilter::MessageHandler =====
   
+  /**
+   * Called by JsonRpcProtocolFilter when a complete JSON-RPC request is parsed
+   * Creates a RequestStream to track this request-response pair
+   * Server only - clients don't receive requests
+   */
   void onRequest(const jsonrpc::Request& request) override {
     // Following production pattern: create a new stream for each request
     // This supports HTTP pipelining with multiple concurrent requests
@@ -322,9 +452,6 @@ public:
     auto stream = std::make_unique<RequestStream>(request.id, this);
     std::string id_key = requestIdToString(request.id);
     active_streams_[id_key] = std::move(stream);
-    
-    std::cerr << "[DEBUG] Created stream for request " << id_key
-              << ", active streams: " << active_streams_.size() << std::endl;
     
     mcp_callbacks_.onRequest(request);
   }
@@ -360,14 +487,12 @@ public:
   // Following production pattern: called only in dispatcher thread context
   void sendResponseForStream(const jsonrpc::Response& response, RequestId stream_id) {
     std::string id_key = requestIdToString(stream_id);
-    std::cerr << "[DEBUG] Sending response for stream " << id_key << std::endl;
     
     // No locks needed - single threaded per connection
     auto it = active_streams_.find(id_key);
     if (it != active_streams_.end()) {
       sendResponseThroughFilter(response);
       active_streams_.erase(it);
-      std::cerr << "[DEBUG] Removed stream, remaining: " << active_streams_.size() << std::endl;
     } else {
       // Following production pattern: no stream means request was already completed or never existed
       // Drop the response - do NOT send it (would violate HTTP protocol)
@@ -378,7 +503,6 @@ public:
   }
   
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
-    std::cerr << "[DEBUG] Sending response through filter chain, is_sse_mode=" << is_sse_mode_ << std::endl;
     
     // Check if we have write callbacks to send data
     if (!write_callbacks_) {
@@ -389,18 +513,17 @@ public:
     // Send response through proper channel
     if (is_server_) {
       if (is_sse_mode_) {
-        // For SSE mode, format response as SSE event
+        // For SSE mode, headers were already sent when SSE mode started
+        // Now just send the data as an SSE event
         auto json_val = json::to_json(response);
         std::string json_str = json_val.toString();
         
-        std::cerr << "[DEBUG] Sending SSE event with JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
-        
-        // Format as SSE event
+        // Format as SSE event (just the data, no HTTP headers)
         std::ostringstream sse_event;
         sse_event << "data: " << json_str << "\n\n";
         std::string event_str = sse_event.str();
         
-        // Send directly through write callbacks
+        // Send the SSE event data directly (headers already sent)
         OwnedBuffer buffer;
         buffer.add(event_str);
         write_callbacks_->connection().write(buffer, false);
@@ -410,8 +533,6 @@ public:
         // This maintains proper separation of concerns
         auto json_val = json::to_json(response);
         std::string json_str = json_val.toString();
-        
-        std::cerr << "[DEBUG] Sending JSON-RPC response: " << json_str.length() << " bytes" << std::endl;
         
         // Create HTTP response and send through routing filter
         if (routing_filter_) {
@@ -489,6 +610,7 @@ private:
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
   bool is_sse_mode_{false};
+  bool sse_headers_written_{false};  // Track if HTTP headers sent for SSE stream
   
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
