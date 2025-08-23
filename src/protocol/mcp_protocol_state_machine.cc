@@ -192,13 +192,6 @@ void McpProtocolStateMachine::transitionTo(McpProtocolState new_state,
     
     config_.state_change_callback(context);
   }
-  
-  std::cerr << "[PROTOCOL] State transition: " 
-            << stateToString(old_state) << " -> " 
-            << stateToString(new_state) 
-            << " (event: " << eventToString(event) << ")"
-            << (reason.has_value() ? " reason: " + reason.value() : "")
-            << std::endl;
 }
 
 void McpProtocolStateMachine::startStateTimer(std::chrono::milliseconds timeout) {
@@ -221,15 +214,9 @@ void McpProtocolStateMachine::cancelStateTimer() {
 
 void McpProtocolStateMachine::handleStateTimeout() {
   auto timeout_state = current_state_.load();
-  std::cerr << "[PROTOCOL] State timeout in state: " 
-            << stateToString(timeout_state) << std::endl;
   
   // Handle timeout based on current state
-  bool result = handleEvent(McpProtocolEvent::TIMEOUT, "State timeout");
-  if (!result) {
-    std::cerr << "[PROTOCOL] WARNING: Timeout event not handled in state: " 
-              << stateToString(timeout_state) << std::endl;
-  }
+  handleEvent(McpProtocolEvent::TIMEOUT, "State timeout");
   
   // Notify error callback
   if (config_.error_callback) {
