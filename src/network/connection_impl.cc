@@ -519,12 +519,24 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     if (write_ready_) {
       // Socket is ready, write now
       doWrite();
+      // After writing, check if we should adjust events
+      // Flow: Write complete → Check buffer → Adjust events
+      // Why: If buffer is empty after write, disable write events and ensure read is enabled
+      if (write_buffer_.length() == 0) {
+        disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+        enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+      }
     } else if (!write_scheduled_) {
       // Socket not ready, schedule write for safety
       write_scheduled_ = true;
       dispatcher_.post([this]() {
         write_scheduled_ = false;
         doWrite();
+        // After writing, check if we should adjust events
+        if (write_buffer_.length() == 0) {
+          disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+          enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+        }
       });
     }
   }
@@ -649,6 +661,7 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 }
 
 void ConnectionImpl::onReadReady() {
+  std::cerr << "[DEBUG] ConnectionImpl::onReadReady called" << std::endl;
   
   // Notify state machine of read ready event
   if (state_machine_) {
@@ -686,7 +699,9 @@ void ConnectionImpl::onWriteReady() {
   } else {
     doWrite();
     // If there's no data left to write, disable write events to prevent busy loops
+    std::cerr << "[DEBUG] After doWrite, buffer_len=" << write_buffer_.length() << std::endl;
     if (write_buffer_.length() == 0) {
+      std::cerr << "[DEBUG] Buffer empty, disabling write and enabling read" << std::endl;
       disableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
       // CRITICAL: Must enable read events after write completes
       // Flow: Write complete → Disable write → Enable read → Wait for response
@@ -694,6 +709,9 @@ void ConnectionImpl::onWriteReady() {
       // Without this, the client sends data but never processes incoming responses,
       // causing protocol initialization timeouts.
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+    } else {
+      std::cerr << "[DEBUG] Buffer not empty (" << write_buffer_.length() 
+                << " bytes), keeping write enabled" << std::endl;
     }
   }
 }
@@ -956,6 +974,9 @@ void ConnectionImpl::doWrite() {
   // Flow: write() -> doWrite -> Transport::doWrite -> Socket write
   // All operations happen in dispatcher thread context
 
+  std::cerr << "[DEBUG] ConnectionImpl::doWrite called, buffer_len=" 
+            << write_buffer_.length() << " state=" << static_cast<int>(state_) << std::endl;
+
   if (state_ != ConnectionState::Open) {
     return;
   }
@@ -1104,14 +1125,20 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
+  uint32_t old_state = file_event_state_;
   file_event_state_ |= events;
+  std::cerr << "[DEBUG] ConnectionImpl::enableFileEvents: old=" << old_state 
+            << " adding=" << events << " new=" << file_event_state_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
 }
 
 void ConnectionImpl::disableFileEvents(uint32_t events) {
+  uint32_t old_state = file_event_state_;
   file_event_state_ &= ~events;
+  std::cerr << "[DEBUG] ConnectionImpl::disableFileEvents: old=" << old_state 
+            << " removing=" << events << " new=" << file_event_state_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
