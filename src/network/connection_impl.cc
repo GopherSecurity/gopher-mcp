@@ -315,13 +315,12 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-        // Use Level-triggered for clients to ensure we don't miss events
-        // Edge-triggered can miss data that arrives while we're not polling
-        // This is critical for HTTP/SSE where responses arrive asynchronously
-        // Server connections come in with connected=true, clients with connected=false
-        auto trigger_type = connected ? 
-                           event::PlatformDefaultTriggerType :  // Server can use edge-triggered
-                           event::FileTriggerType::Level;         // Client needs level-triggered
+        // Use edge-triggered events for both client and server
+        // This avoids busy write loops.
+        // Socket is always writable when TCP send buffer has space,
+        // which creates busy loop with empty write_buffer_
+        // Edge-triggered only fires on state transitions, not continuously
+        auto trigger_type = event::PlatformDefaultTriggerType;
 
 
         // Set initial events based on connection state
@@ -704,6 +703,7 @@ bool ConnectionImpl::initializeReadFilters() {
 // Private methods
 
 void ConnectionImpl::onFileEvent(uint32_t events) {
+  // Handle file events
   /**
    * FILE EVENT HANDLER - Core of async I/O
    * 
@@ -739,6 +739,7 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 
   // Check if socket is still open after write handling
   if (socket_->isOpen() && (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
+    // Process read event
     onReadReady();
   }
 }
@@ -809,7 +810,10 @@ void ConnectionImpl::onWriteReady() {
                     static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     doWrite();
-    // Note: No need to adjust events after write - they remain as configured
+    // Ensure both Read and Write events are enabled after writing
+    // This follows production pattern of keeping both events enabled
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                    static_cast<uint32_t>(event::FileReadyType::Write));
   }
 }
 
@@ -1126,8 +1130,6 @@ void ConnectionImpl::doWrite() {
    * 
    * Thread safety: All operations in dispatcher thread
    */
-
-
   if (state_ != ConnectionState::Open) {
     return;
   }
@@ -1226,15 +1228,39 @@ void ConnectionImpl::doWrite() {
     // Continue loop to write more if buffer still has data
   }
 
-  // CRITICAL FIX: Enable Read events after writing completes
-  // This ensures the client can receive the server's response
-  if (write_buffer_.length() == 0 && !is_server_connection_) {
-    // Client finished writing - enable both Read and Write events
+  // Keep both Read and Write events enabled after writing
+  // This ensures proper event handling for both client and server
+  if (write_buffer_.length() == 0) {
+    // Finished writing current data - ensure both events are enabled
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
                     static_cast<uint32_t>(event::FileReadyType::Write));
     
-    // Try to read immediately in case data is already available
-    doRead();
+    // CRITICAL: Handle edge-triggered race condition
+    // With edge-triggered events, if data arrives while we're in the process of 
+    // enabling Read events, we miss the edge and never get a Read event notification.
+    //
+    // The problem is a race condition with two possible scenarios:
+    //
+    // Scenario 1:
+    // 1. Client writes request
+    // 2. Client enables Read events
+    // 3. Server processes request and sends response
+    // 4. Response arrives at client TCP buffer
+    // 5. But no edge transition because Read was already enabled
+    //
+    // Scenario 2:
+    // 1. Client writes request
+    // 2. Server processes and sends response quickly
+    // 3. Response arrives at client TCP buffer
+    // 4. Client enables Read events
+    // 5. No edge because data was already there
+    //
+    // Solution: Activate a read event to check for any data that may have arrived
+    // This forces the event loop to check the socket for available data
+    if (file_event_ && !is_server_connection_) {
+      // Activate read to check for any data that may have arrived
+      file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+    }
   }
 
   if (write_buffer_.length() == 0 && write_half_closed_) {
@@ -1294,10 +1320,6 @@ void ConnectionImpl::onConnectTimeout() {
 void ConnectionImpl::enableFileEvents(uint32_t events) {
   uint32_t old_state = file_event_state_;
   file_event_state_ |= events;
-  std::cerr << "[DEBUG] enableFileEvents: events=0x" << std::hex << events 
-            << ", old_state=0x" << old_state
-            << ", new_state=0x" << file_event_state_ << std::dec
-            << ", is_server=" << is_server_connection_ << std::endl;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
