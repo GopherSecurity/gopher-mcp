@@ -15,7 +15,6 @@ set(MCP_C_API_SOURCES
     mcp_c_api_builders.cc
     mcp_c_api_utils.cc
     mcp_raii.cc
-    mcp_raii_production.cc
 )
 
 # Create shared library for C bindings

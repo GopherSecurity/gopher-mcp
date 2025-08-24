@@ -597,6 +597,7 @@ if(BUILD_C_API)
     add_executable(test_mcp_raii_simple c_api/test_mcp_raii_simple.cc)
     target_link_libraries(test_mcp_raii_simple
         gopher-mcp
+        gopher_mcp_c
         gtest
         gtest_main
         Threads::Threads
@@ -606,19 +607,13 @@ if(BUILD_C_API)
     add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
     target_link_libraries(test_mcp_raii
         gopher-mcp
+        gopher_mcp_c
         gtest
         gtest_main
         Threads::Threads
     )
     
     # Production RAII utilities test
-    add_executable(test_mcp_raii_production c_api/test_mcp_raii_production.cc)
-    target_link_libraries(test_mcp_raii_production
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
     
     target_link_libraries(test_c_api_protocol_types
         gopher-mcp
