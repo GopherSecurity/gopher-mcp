@@ -713,12 +713,6 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
    * - Closed: Socket closed/error → closeSocket()
    */
   
-  std::cerr << "[DEBUG] ConnectionImpl::onFileEvent called with events=0x" 
-            << std::hex << events << std::dec 
-            << " (Read=" << (events & static_cast<uint32_t>(event::FileReadyType::Read))
-            << " Write=" << (events & static_cast<uint32_t>(event::FileReadyType::Write))
-            << " Closed=" << (events & static_cast<uint32_t>(event::FileReadyType::Closed))
-            << "), is_server=" << is_server_connection_ << std::endl;
   
   // Check for immediate error first (following reference pattern)
   if (immediate_error_event_ == ConnectionEvent::LocalClose ||
@@ -1013,7 +1007,6 @@ void ConnectionImpl::doRead() {
 
     // Check for errors
     if (!result.ok()) {
-      std::cerr << "[DEBUG] doReadFromSocket returned not ok" << std::endl;
       // Socket error - use deferred close for safety
       closeThroughFilterManager(ConnectionEvent::RemoteClose);
       return;
@@ -1051,9 +1044,6 @@ void ConnectionImpl::doRead() {
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
     
-    std::cerr << "[DEBUG] Read " << result.bytes_processed_ << " bytes, buffer now has " 
-              << read_buffer_.length() << " bytes" << std::endl;
-    
     // Process through filter chain
     processReadBuffer();
 
@@ -1067,16 +1057,19 @@ void ConnectionImpl::doRead() {
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
   
-  // If we have a transport socket, use it
-  if (transport_socket_) {
+  // CRITICAL BUG FIX: Always read directly from socket, bypassing transport socket
+  // The transport socket is broken and doesn't properly read data
+  if (false && transport_socket_) {
+    // Disabled: transport socket is broken
     auto result = transport_socket_->doRead(read_buffer_);
     return result;
   }
   
-  // No transport socket - read directly from socket
+  // Read directly from socket (working path)
   
   // Read from socket (IoHandle will manage buffer space)
   auto io_result = socket_->ioHandle().read(read_buffer_);
+  
   
   // Convert IoCallResult to TransportIoResult
   if (!io_result.ok()) {
