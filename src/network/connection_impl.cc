@@ -927,13 +927,15 @@ void ConnectionImpl::doConnect() {
     state_ = ConnectionState::Open;
     write_ready_ = true;  // Socket is immediately ready for writing
 
-    // Post the event to dispatcher to ensure proper thread context
-    dispatcher_.post([this]() {
-      raiseConnectionEvent(ConnectionEvent::Connected);
-      // Enable both read and write events
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                      static_cast<uint32_t>(event::FileReadyType::Write));
-    });
+    // We're already in the dispatcher thread, just call directly
+    
+    // Notify transport socket (must be before raising event)
+    onConnected();
+    
+    raiseConnectionEvent(ConnectionEvent::Connected);
+    // Enable both read and write events
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                    static_cast<uint32_t>(event::FileReadyType::Write));
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
@@ -1217,6 +1219,17 @@ void ConnectionImpl::doWrite() {
     }
 
     // Continue loop to write more if buffer still has data
+  }
+
+  // CRITICAL FIX: Enable Read events after writing completes
+  // This ensures the client can receive the server's response
+  if (write_buffer_.length() == 0 && !is_server_connection_) {
+    // Client finished writing - enable both Read and Write events
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
+                    static_cast<uint32_t>(event::FileReadyType::Write));
+    
+    // Try to read immediately in case data is already available
+    doRead();
   }
 
   if (write_buffer_.length() == 0 && write_half_closed_) {
