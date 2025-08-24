@@ -145,7 +145,7 @@ target_link_libraries(test_optional_advanced
 )
 
 target_link_libraries(test_mcp_type_helpers
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
@@ -153,7 +153,7 @@ target_link_libraries(test_mcp_type_helpers
 )
 
 target_link_libraries(test_mcp_types
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
@@ -167,43 +167,43 @@ target_link_libraries(test_compat
 )
 
 target_link_libraries(test_buffer
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_mcp_serialization
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_mcp_serialization_extensive
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_template_serialization
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_event_loop
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_short_json_api
-    mcp-sdk
+    gopher-mcp
     gtest 
     gtest_main
     Threads::Threads
@@ -211,8 +211,8 @@ target_link_libraries(test_short_json_api
 
 # Network test libraries
 target_link_libraries(test_io_socket_handle
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -220,7 +220,7 @@ target_link_libraries(test_io_socket_handle
 )
 
 target_link_libraries(test_address
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -228,7 +228,7 @@ target_link_libraries(test_address
 )
 
 target_link_libraries(test_socket
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -236,7 +236,7 @@ target_link_libraries(test_socket
 )
 
 target_link_libraries(test_socket_interface
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -244,7 +244,7 @@ target_link_libraries(test_socket_interface
 )
 
 target_link_libraries(test_socket_option
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -252,7 +252,7 @@ target_link_libraries(test_socket_option
 )
 
 target_link_libraries(test_transport_socket
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -260,7 +260,7 @@ target_link_libraries(test_transport_socket
 )
 
 target_link_libraries(test_filter
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -268,8 +268,8 @@ target_link_libraries(test_filter
 )
 
 target_link_libraries(test_connection_impl
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -277,8 +277,8 @@ target_link_libraries(test_connection_impl
 )
 
 target_link_libraries(test_listener_impl
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -286,8 +286,8 @@ target_link_libraries(test_listener_impl
 )
 
 target_link_libraries(test_tcp_listener
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -295,8 +295,8 @@ target_link_libraries(test_tcp_listener
 )
 
 target_link_libraries(test_connection_manager_impl
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -305,7 +305,7 @@ target_link_libraries(test_connection_manager_impl
 
 # Stream info test libraries
 target_link_libraries(test_stream_info_impl
-    mcp-sdk
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
@@ -313,7 +313,7 @@ target_link_libraries(test_stream_info_impl
 
 # Transport test libraries
 target_link_libraries(test_stdio_transport_socket
-    mcp-sdk
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
@@ -321,8 +321,8 @@ target_link_libraries(test_stdio_transport_socket
 
 
 target_link_libraries(test_http_sse_transport_socket
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -330,8 +330,8 @@ target_link_libraries(test_http_sse_transport_socket
 )
 
 target_link_libraries(test_http_sse_transport_socket
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -339,8 +339,8 @@ target_link_libraries(test_http_sse_transport_socket
 )
 
 target_link_libraries(test_http_sse_transport_socket_simple
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -349,8 +349,8 @@ target_link_libraries(test_http_sse_transport_socket_simple
 
 # SSL/TLS transport test libraries
 target_link_libraries(test_ssl_context
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -360,8 +360,8 @@ target_link_libraries(test_ssl_context
 )
 
 target_link_libraries(test_ssl_transport_socket
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -371,8 +371,8 @@ target_link_libraries(test_ssl_transport_socket
 )
 
 target_link_libraries(test_ssl_state_machine
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -382,8 +382,8 @@ target_link_libraries(test_ssl_state_machine
 )
 
 target_link_libraries(test_https_sse_factory
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -393,8 +393,8 @@ target_link_libraries(test_https_sse_factory
 )
 
 target_link_libraries(test_ssl_integration
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -404,8 +404,8 @@ target_link_libraries(test_ssl_integration
 )
 
 target_link_libraries(test_tcp_transport_socket
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -413,8 +413,8 @@ target_link_libraries(test_tcp_transport_socket
 )
 
 target_link_libraries(test_full_stack_transport
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -424,8 +424,8 @@ target_link_libraries(test_full_stack_transport
 )
 
 target_link_libraries(test_application_base_refactored
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -434,8 +434,8 @@ target_link_libraries(test_application_base_refactored
 
 # Transport socket state machine test libraries
 target_link_libraries(test_transport_socket_state_machine
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -444,7 +444,7 @@ target_link_libraries(test_transport_socket_state_machine
 
 # HTTP parser test libraries
 target_link_libraries(test_http_parser
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -452,7 +452,7 @@ target_link_libraries(test_http_parser
 )
 
 target_link_libraries(test_llhttp_parser
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -460,7 +460,7 @@ target_link_libraries(test_llhttp_parser
 )
 
 target_link_libraries(test_nghttp2_parser
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -468,7 +468,7 @@ target_link_libraries(test_nghttp2_parser
 )
 
 target_link_libraries(test_sse_parser
-    mcp-sdk
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -476,8 +476,8 @@ target_link_libraries(test_sse_parser
 )
 
 target_link_libraries(test_stdio_echo_server
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -486,8 +486,8 @@ target_link_libraries(test_stdio_echo_server
 )
 
 target_link_libraries(test_stdio_echo_client
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -496,8 +496,8 @@ target_link_libraries(test_stdio_echo_client
 )
 
 target_link_libraries(test_stdio_pipe_bridge
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -507,8 +507,8 @@ target_link_libraries(test_stdio_pipe_bridge
 
 # Advanced example test libraries
 target_link_libraries(test_stdio_echo_client_advanced
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -517,8 +517,8 @@ target_link_libraries(test_stdio_echo_client_advanced
 )
 
 target_link_libraries(test_stdio_echo_server_advanced
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gmock
     gtest_main
@@ -528,8 +528,8 @@ target_link_libraries(test_stdio_echo_server_advanced
 
 # TCP echo test libraries
 target_link_libraries(test_tcp_echo_client_basic
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
@@ -537,8 +537,8 @@ target_link_libraries(test_tcp_echo_client_basic
 )
 
 target_link_libraries(test_tcp_echo_server_basic
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
@@ -547,15 +547,15 @@ target_link_libraries(test_tcp_echo_server_basic
 
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_builders
-    mcp-sdk
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
@@ -564,43 +564,43 @@ target_link_libraries(test_builders
 # Link libraries for C API tests
 if(BUILD_C_API)
     target_link_libraries(test_c_api_basic
-        mcp-sdk
-        mcp_c
+        gopher-mcp
+        gopher_mcp_c
         gtest
         gtest_main
         Threads::Threads
     )
     
     target_link_libraries(test_c_api_types
-        mcp-sdk
+        gopher-mcp
         gtest
         gtest_main
         Threads::Threads
     )
     
     target_link_libraries(test_c_api_builders
-        mcp-sdk
+        gopher-mcp
         gtest
         gtest_main
         Threads::Threads
     )
     
     target_link_libraries(test_c_api_type_helpers
-        mcp-sdk
+        gopher-mcp
         gtest
         gtest_main
         Threads::Threads
     )
     
     target_link_libraries(test_c_api_protocol_types
-        mcp-sdk
+        gopher-mcp
         gtest
         gtest_main
         Threads::Threads
     )
     
     target_link_libraries(test_c_api_memory
-        mcp-sdk
+        gopher-mcp
         gtest
         gtest_main
         Threads::Threads
@@ -609,46 +609,46 @@ endif()
 
 # Link libraries for new tests
 target_link_libraries(test_connection_pool_callbacks
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_connection_utility
-    mcp-sdk
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_listener_filter_chain
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_listener_filter_chain_simple
-    mcp-sdk
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_thread_safety_extended
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_connection_state_machine
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -656,8 +656,8 @@ target_link_libraries(test_connection_state_machine
 )
 
 target_link_libraries(test_filter_chain_state_machine
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     gtest
     gmock
     gtest_main
@@ -666,16 +666,16 @@ target_link_libraries(test_filter_chain_state_machine
 
 # Link libraries for real IO tests
 target_link_libraries(test_event_loop_real_io
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     gtest
     gtest_main
     Threads::Threads
 )
 
 target_link_libraries(test_connection_manager_real_io
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest
     gtest_main
     Threads::Threads
@@ -774,8 +774,8 @@ add_test(NAME ConnectionManagerRealIoTest COMMAND test_connection_manager_real_i
 # Filter state machine tests
 add_executable(test_http_codec_state_machine filter/test_http_codec_state_machine.cc)
 target_link_libraries(test_http_codec_state_machine 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -785,8 +785,8 @@ add_test(NAME HttpCodecStateMachineTest COMMAND test_http_codec_state_machine)
 
 add_executable(test_http_codec_filter_simple filter/test_http_codec_filter_simple.cc)
 target_link_libraries(test_http_codec_filter_simple 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -797,8 +797,8 @@ add_test(NAME HttpCodecFilterSimpleTest COMMAND test_http_codec_filter_simple)
 # Comprehensive test with real I/O
 add_executable(test_http_codec_filter filter/test_http_codec_filter.cc)
 target_link_libraries(test_http_codec_filter 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -811,8 +811,8 @@ add_test(NAME HttpCodecFilterTest COMMAND test_http_codec_filter)
 # HTTP Routing Filter Test - Simple version
 add_executable(test_http_routing_filter_simple filter/test_http_routing_filter_simple.cc)
 target_link_libraries(test_http_routing_filter_simple 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -822,8 +822,8 @@ add_test(NAME HttpRoutingFilterSimpleTest COMMAND test_http_routing_filter_simpl
 
 add_executable(test_sse_codec_state_machine filter/test_sse_codec_state_machine.cc)
 target_link_libraries(test_sse_codec_state_machine 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -833,8 +833,8 @@ add_test(NAME SseCodecStateMachineTest COMMAND test_sse_codec_state_machine)
 
 add_executable(test_sse_codec_filter filter/test_sse_codec_filter_simple.cc)
 target_link_libraries(test_sse_codec_filter 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -845,8 +845,8 @@ add_test(NAME SseCodecFilterTest COMMAND test_sse_codec_filter)
 # Comprehensive SSE tests disabled due to compilation issues with abstract classes
 # add_executable(test_sse_codec_filter_comprehensive filter/test_sse_codec_filter.cc)
 # target_link_libraries(test_sse_codec_filter_comprehensive 
-#     mcp-sdk
-#     mcp-event
+#     gopher-mcp
+#     gopher-mcp-event
 #     gtest 
 #     gtest_main 
 #     gmock
@@ -857,8 +857,8 @@ add_test(NAME SseCodecFilterTest COMMAND test_sse_codec_filter)
 # MCP JSON-RPC Filter Tests
 add_executable(test_json_rpc_protocol_filter filter/test_json_rpc_protocol_filter.cc)
 target_link_libraries(test_json_rpc_protocol_filter 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -869,8 +869,8 @@ add_test(NAME JsonRpcProtocolFilterTest COMMAND test_json_rpc_protocol_filter)
 # MCP Protocol State Machine Tests
 add_executable(test_mcp_protocol_state_machine protocol/test_mcp_protocol_state_machine.cc)
 target_link_libraries(test_mcp_protocol_state_machine 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -881,8 +881,8 @@ add_test(NAME McpProtocolStateMachineTest COMMAND test_mcp_protocol_state_machin
 # Stdio Filter Chain Factory Tests
 add_executable(test_stdio_filter_chain_factory filter/test_stdio_filter_chain_factory.cc)
 target_link_libraries(test_stdio_filter_chain_factory 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -893,8 +893,8 @@ add_test(NAME StdioFilterChainFactoryTest COMMAND test_stdio_filter_chain_factor
 # JSON-RPC Filter Factory Tests
 add_executable(test_json_rpc_filter_factory filter/test_json_rpc_filter_factory.cc)
 target_link_libraries(test_json_rpc_filter_factory 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -905,8 +905,8 @@ add_test(NAME JsonRpcFilterFactoryTest COMMAND test_json_rpc_filter_factory)
 # HTTP SSE Filter Chain Factory Tests
 add_executable(test_http_sse_filter_chain_factory filter/test_http_sse_filter_chain_factory.cc)
 target_link_libraries(test_http_sse_filter_chain_factory 
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     gtest 
     gtest_main 
     gmock
@@ -931,7 +931,7 @@ add_custom_target(run_tests
             test_filter test_connection_impl test_listener_impl
             test_connection_manager_impl test_stream_info_impl
             test_stdio_transport_socket test_http_sse_transport_socket
-            test_mcp_connection_manager test_builders
+            test_gopher_mcp_connection_manager test_builders
             test_event_loop_real_io test_connection_manager_real_io
             test_http_codec_state_machine test_sse_codec_state_machine
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}

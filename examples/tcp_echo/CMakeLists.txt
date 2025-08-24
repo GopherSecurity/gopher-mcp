@@ -7,8 +7,8 @@ add_executable(tcp_echo_server_basic
 
 target_link_libraries(tcp_echo_server_basic
     PRIVATE
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     Threads::Threads
 )
 
@@ -24,8 +24,8 @@ add_executable(tcp_echo_client_basic
 
 target_link_libraries(tcp_echo_client_basic
     PRIVATE
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     Threads::Threads
 )
 

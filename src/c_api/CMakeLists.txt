@@ -1,4 +1,4 @@
-#CMake configuration for MCP C API bindings
+#CMake configuration for Gopher MCP C API bindings
 cmake_minimum_required(VERSION 3.14)
 
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
@@ -19,10 +19,10 @@ set(MCP_C_API_SOURCES
 )
 
 #Create shared library for C bindings
-add_library(mcp_c SHARED ${MCP_C_API_SOURCES})
+add_library(gopher_mcp_c SHARED ${MCP_C_API_SOURCES})
 
 #Set library properties
-set_target_properties(mcp_c PROPERTIES
+set_target_properties(gopher_mcp_c PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
     POSITION_INDEPENDENT_CODE ON
@@ -34,39 +34,39 @@ set_target_properties(mcp_c PROPERTIES
 #Export only C API symbols
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 #Windows : Use.def file or __declspec(dllexport)
-    set_target_properties(mcp_c PROPERTIES
+    set_target_properties(gopher_mcp_c PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS OFF
     )
-    target_compile_definitions(mcp_c PRIVATE MCP_C_API_EXPORTS)
+    target_compile_definitions(gopher_mcp_c PRIVATE GOPHER_MCP_C_API_EXPORTS)
 else()
 #Unix / Linux / macOS : Use visibility attributes
-    target_compile_options(mcp_c PRIVATE -fvisibility=hidden)
+    target_compile_options(gopher_mcp_c PRIVATE -fvisibility=hidden)
 
 #Generate export map
-    set(EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/mcp_c.map")
+    set(EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.map")
     file(WRITE ${
   EXPORT_MAP} "{\n  global:\n")
     file(APPEND ${
-  EXPORT_MAP} "    mcp_*;\n")  # Export all mcp_* symbols
+  EXPORT_MAP} "    gopher_mcp_*;\n")  # Export all gopher_mcp_* symbols
     file(APPEND ${
   EXPORT_MAP} "  local:\n    *;\n};\n")
     
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        set_target_properties(mcp_c PROPERTIES
+        set_target_properties(gopher_mcp_c PROPERTIES
             LINK_FLAGS "-Wl,--version-script=${EXPORT_MAP}"
         )
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 #macOS uses different linker flags
-        set_target_properties(mcp_c PROPERTIES
-            LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/mcp_c.symbols"
+        set_target_properties(gopher_mcp_c PROPERTIES
+            LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols"
         )
 #Generate symbols list for macOS
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mcp_c.symbols" "_mcp_*\n")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_gopher_mcp_*\n")
     endif()
 endif()
 
 #Include directories
-target_include_directories(mcp_c
+target_include_directories(gopher_mcp_c
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
@@ -74,18 +74,18 @@ target_include_directories(mcp_c
         ${CMAKE_SOURCE_DIR}/src
 )
 
-#Link with the main MCP C++ library
-target_link_libraries(mcp_c
+#Link with the main Gopher MCP C++ library
+target_link_libraries(gopher_mcp_c
     PRIVATE
-        mcp-sdk
-        mcp-event
+        gopher-mcp
+        gopher-mcp-event
         ${LIBEVENT_LIBRARIES}
         OpenSSL::SSL
         OpenSSL::Crypto
 )
 
 #Compile features
-target_compile_features(mcp_c PRIVATE cxx_std_17)
+target_compile_features(gopher_mcp_c PRIVATE cxx_std_17)
 
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
     == == == == == == == == == == == ==
@@ -96,14 +96,14 @@ target_compile_features(mcp_c PRIVATE cxx_std_17)
 option(BUILD_C_API_STATIC "Build static C API library" ON)
 
 if(BUILD_C_API_STATIC)
-    add_library(mcp_c_static STATIC ${MCP_C_API_SOURCES})
+    add_library(gopher_mcp_c_static STATIC ${MCP_C_API_SOURCES})
     
-    set_target_properties(mcp_c_static PROPERTIES
-        OUTPUT_NAME mcp_c
+    set_target_properties(gopher_mcp_c_static PROPERTIES
+        OUTPUT_NAME gopher_mcp_c
         POSITION_INDEPENDENT_CODE ON
     )
     
-    target_include_directories(mcp_c_static
+    target_include_directories(gopher_mcp_c_static
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>
@@ -111,16 +111,16 @@ if(BUILD_C_API_STATIC)
             ${CMAKE_SOURCE_DIR}/src
     )
     
-    target_link_libraries(mcp_c_static
+    target_link_libraries(gopher_mcp_c_static
         PRIVATE
-            mcp-sdk
-            mcp-event
+            gopher-mcp
+            gopher-mcp-event
             ${LIBEVENT_LIBRARIES}
             OpenSSL::SSL
             OpenSSL::Crypto
     )
     
-    target_compile_features(mcp_c_static PRIVATE cxx_std_17)
+    target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
 endif()
 
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
@@ -129,8 +129,7 @@ endif()
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
     == == == == == == == == == == == ==
 
-#TODO : Fix export configuration to properly handle mcp - sdk and mcp - \
-    event dependencies
+#TODO : Fix export configuration to properly handle gopher-mcp and gopher-mcp-event dependencies
 #For now, we'll just build the libraries without installation support
 
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
@@ -141,8 +140,8 @@ endif()
 
 if(FALSE)  # Disabled for now
     configure_file(
-        "${CMAKE_SOURCE_DIR}/cmake/mcp_c.pc.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/mcp_c.pc"
+        "${CMAKE_SOURCE_DIR}/cmake/gopher_mcp_c.pc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.pc"
         @ONLY
     )
 endif()
@@ -156,7 +155,7 @@ endif()
 #Install binding examples and build files
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/
-    DESTINATION share/mcp/bindings
+    DESTINATION share/gopher-mcp/bindings
     PATTERN "build" EXCLUDE
     PATTERN "*.pyc" EXCLUDE
     PATTERN "__pycache__" EXCLUDE
@@ -189,15 +188,15 @@ if(BUILD_DOCS)
         set(DOXYGEN_GENERATE_MAN YES)
         
         doxygen_add_docs(
-            mcp_c_docs
+            gopher_mcp_c_docs
             ${CMAKE_SOURCE_DIR}/include/mcp/c_api/mcp_c_api.h
             ${CMAKE_SOURCE_DIR}/include/mcp/c_api/mcp_c_types.h
-            COMMENT "Generating C API documentation"
+            COMMENT "Generating Gopher MCP C API documentation"
         )
         
         install(
             DIRECTORY ${DOXYGEN_OUTPUT_DIRECTORY}/
-            DESTINATION share/doc/mcp_c
+            DESTINATION share/doc/gopher_mcp_c
         )
     endif()
 endif()
@@ -208,7 +207,7 @@ endif()
 #== == == == == == == == == == == == == == == == == == == == == == == == == == \
     == == == == == == == == == == == ==
 
-message(STATUS "MCP C API Configuration:")
+message(STATUS "Gopher MCP C API Configuration:")
 message(STATUS "  Shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "  Static library: ${BUILD_C_API_STATIC}")
 message(STATUS "  Install prefix: ${CMAKE_INSTALL_PREFIX}")

@@ -1,5 +1,5 @@
 """
-Python bindings example for MCP C++ SDK
+Python bindings example for Gopher MCP library
 
 This demonstrates how to create Python bindings using the C API.
 The same pattern can be applied to other languages like:

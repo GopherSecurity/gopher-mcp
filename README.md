@@ -1,10 +1,10 @@
-# MCP C++ SDK
+# Gopher MCP
 
 A production-ready C++ implementation of the Model Context Protocol (MCP), designed following enterprise-grade design patterns and architectures.
 
 ## Architecture Overview
 
-The MCP C++ SDK follows a layered architecture designed for high performance, scalability, and extensibility:
+Gopher MCP follows a layered architecture designed for high performance, scalability, and extensibility:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

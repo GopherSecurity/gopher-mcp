@@ -6,9 +6,9 @@ add_executable(mcp_example_client
 )
 
 target_link_libraries(mcp_example_client 
-    mcp-sdk 
-    mcp-event
-    mcp-echo-advanced  # For advanced features
+    gopher-mcp 
+    gopher-mcp-event
+    gopher-mcp-echo-advanced  # For advanced features
     ${LIBEVENT_LIBRARIES}
 )
 
@@ -18,9 +18,9 @@ add_executable(mcp_example_server
 )
 
 target_link_libraries(mcp_example_server 
-    mcp-sdk
-    mcp-event
-    mcp-echo-advanced  # For advanced features
+    gopher-mcp
+    gopher-mcp-event
+    gopher-mcp-echo-advanced  # For advanced features
     ${LIBEVENT_LIBRARIES}
 )
 

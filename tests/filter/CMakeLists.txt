@@ -7,8 +7,8 @@ cmake_minimum_required(VERSION 3.14)
 # )
 # target_link_libraries(test_circuit_breaker_filter
 #   PRIVATE
-#   mcp-sdk
-#   mcp-event
+#   gopher-mcp
+#   gopher-mcp-event
 #   gtest
 #   gtest_main
 #   gmock
@@ -22,7 +22,7 @@ add_executable(test_circuit_breaker_filter_simple
 )
 target_link_libraries(test_circuit_breaker_filter_simple
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
@@ -36,7 +36,7 @@ add_executable(test_circuit_breaker_basic
 )
 target_link_libraries(test_circuit_breaker_basic
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
@@ -50,8 +50,8 @@ add_test(NAME CircuitBreakerBasicTest COMMAND test_circuit_breaker_basic)
 # )
 # target_link_libraries(test_rate_limit_filter
 #   PRIVATE
-#   mcp-sdk
-#   mcp-event
+#   gopher-mcp
+#   gopher-mcp-event
 #   gtest
 #   gtest_main
 #   gmock
@@ -65,8 +65,8 @@ add_test(NAME CircuitBreakerBasicTest COMMAND test_circuit_breaker_basic)
 # )
 # target_link_libraries(test_backpressure_filter
 #   PRIVATE
-#   mcp-sdk
-#   mcp-event
+#   gopher-mcp
+#   gopher-mcp-event
 #   gtest
 #   gtest_main
 #   gmock
@@ -80,8 +80,8 @@ add_test(NAME CircuitBreakerBasicTest COMMAND test_circuit_breaker_basic)
 # )
 # target_link_libraries(test_metrics_filter
 #   PRIVATE
-#   mcp-sdk
-#   mcp-event
+#   gopher-mcp
+#   gopher-mcp-event
 #   gtest
 #   gtest_main
 #   gmock
@@ -95,7 +95,7 @@ add_executable(test_metrics_filter_simple
 )
 target_link_libraries(test_metrics_filter_simple
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
@@ -109,8 +109,8 @@ add_test(NAME MetricsFilterSimpleTest COMMAND test_metrics_filter_simple)
 # )
 # target_link_libraries(test_request_validation_filter
 #   PRIVATE
-#   mcp-sdk
-#   mcp-event
+#   gopher-mcp
+#   gopher-mcp-event
 #   gtest
 #   gtest_main
 #   gmock
@@ -124,7 +124,7 @@ add_executable(test_rate_limit_filter_simple
 )
 target_link_libraries(test_rate_limit_filter_simple
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
@@ -138,7 +138,7 @@ add_executable(test_backpressure_filter_simple
 )
 target_link_libraries(test_backpressure_filter_simple
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
@@ -152,7 +152,7 @@ add_executable(test_request_validation_filter_simple
 )
 target_link_libraries(test_request_validation_filter_simple
   PRIVATE
-  mcp-sdk
+  gopher-mcp
   gtest
   gtest_main
   gmock
