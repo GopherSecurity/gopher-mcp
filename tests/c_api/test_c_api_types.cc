@@ -18,6 +18,7 @@ extern "C" {
 
 // Include conversion header for RAII tests
 #include "mcp/c_api/mcp_c_type_conversions.h"
+#include "mcp/c_api/mcp_raii.h"
 using namespace mcp::c_api;
 
 class MCPCApiTypesTest : public ::testing::Test {
