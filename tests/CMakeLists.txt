@@ -602,6 +602,15 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
+    # RAII utilities test (comprehensive)
+    add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
+    target_link_libraries(test_mcp_raii
+        gopher-mcp
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
     target_link_libraries(test_c_api_protocol_types
         gopher-mcp
         gtest
