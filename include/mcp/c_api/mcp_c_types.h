@@ -1,6 +1,6 @@
 /**
  * @file mcp_c_types.h
- * @brief Complete C API type definitions for MCP C++ SDK
+ * @brief Complete C API type definitions for Gopher MCP library
  *
  * This header provides comprehensive C-compatible type definitions that map ALL
  * MCP C++ types from types.h, including JSON serialization/deserialization and
@@ -172,7 +172,7 @@ typedef struct mcp_request_id {
 typedef struct mcp_jsonrpc_error {
   int32_t code;
   mcp_string_t message;
-  mcp_optional_t data; /* Optional JSON value */
+  mcp_optional_t data; /* Optional error data (see mcp_error_data_t) */
 } mcp_jsonrpc_error_t;
 
 /**
@@ -243,6 +243,15 @@ typedef struct mcp_resource_template {
   mcp_optional_t description;
   mcp_optional_t mime_type;
 } mcp_resource_template_t;
+
+/**
+ * Prompt argument
+ */
+typedef struct mcp_prompt_argument {
+  mcp_string_t name;
+  mcp_optional_t description;
+  bool required;
+} mcp_prompt_argument_t;
 
 /**
  * Prompt definition
@@ -490,7 +499,7 @@ typedef struct mcp_server_config {
 } mcp_server_config_t;
 
 /* ============================================================================
- * Additional Protocol Types (Missing from original)
+ * Additional Protocol Types
  * ============================================================================
  */
 
@@ -790,7 +799,7 @@ typedef struct mcp_jsonrpc_request {
 typedef struct mcp_jsonrpc_response {
   mcp_string_t jsonrpc; /* "2.0" */
   mcp_request_id_t id;
-  mcp_optional_t result; /* JSON value */
+  mcp_optional_t result; /* Response result (see mcp_response_result_t) */
   mcp_optional_t error;  /* JSONRPCError */
 } mcp_jsonrpc_response_t;
 
@@ -855,6 +864,41 @@ typedef struct mcp_set_level_request {
 } mcp_set_level_request_t;
 
 /**
+ * Subscribe/Unsubscribe requests
+ */
+typedef struct mcp_subscribe_request {
+  mcp_string_t uri;
+} mcp_subscribe_request_t;
+
+typedef struct mcp_unsubscribe_request {
+  mcp_string_t uri;
+} mcp_unsubscribe_request_t;
+
+/**
+ * List requests (paginated)
+ */
+typedef struct mcp_list_resources_request {
+  mcp_paginated_request_t base;
+} mcp_list_resources_request_t;
+
+typedef struct mcp_list_resource_templates_request {
+  mcp_paginated_request_t base;
+} mcp_list_resource_templates_request_t;
+
+typedef struct mcp_list_prompts_request {
+  mcp_paginated_request_t base;
+} mcp_list_prompts_request_t;
+
+typedef struct mcp_list_tools_request {
+  mcp_paginated_request_t base;
+} mcp_list_tools_request_t;
+
+typedef struct mcp_list_roots_request {
+  /* No pagination */
+  char _placeholder;
+} mcp_list_roots_request_t;
+
+/**
  * Protocol-specific results
  */
 typedef struct mcp_list_resources_result {
@@ -886,6 +930,23 @@ typedef struct mcp_list_tools_result {
   mcp_list_t tools; /* List of Tool */
 } mcp_list_tools_result_t;
 
+/**
+ * Create message request
+ */
+typedef struct mcp_create_message_request {
+  mcp_list_t messages; /* List of SamplingMessage */
+  mcp_optional_t model_preferences; /* ModelPreferences */
+  mcp_optional_t system_prompt; /* string */
+  mcp_optional_t include_context; /* JSON metadata */
+  mcp_optional_t temperature; /* double */
+  mcp_optional_t max_tokens; /* int */
+  mcp_optional_t stop_sequences; /* List of strings */
+  mcp_optional_t metadata; /* JSON */
+} mcp_create_message_request_t;
+
+/**
+ * Create message result
+ */
 typedef struct mcp_create_message_result {
   mcp_sampling_message_t message;
   mcp_string_t model;
@@ -913,6 +974,18 @@ typedef enum mcp_elicit_value_type {
   MCP_ELICIT_NULL
 } mcp_elicit_value_type_t;
 
+/**
+ * Elicit request
+ */
+typedef struct mcp_elicit_request {
+  mcp_string_t name;
+  mcp_primitive_schema_t schema;
+  mcp_optional_t prompt; /* string */
+} mcp_elicit_request_t;
+
+/**
+ * Elicit result
+ */
 typedef struct mcp_elicit_result {
   mcp_elicit_value_type_t type;
   union {
@@ -921,6 +994,14 @@ typedef struct mcp_elicit_result {
     bool boolean_value;
   } value;
 } mcp_elicit_result_t;
+
+/**
+ * Complete request
+ */
+typedef struct mcp_complete_request {
+  mcp_prompt_reference_t ref;
+  mcp_optional_t argument; /* string */
+} mcp_complete_request_t;
 
 /**
  * Notification types
@@ -945,6 +1026,100 @@ typedef struct mcp_logging_message_notification {
 typedef struct mcp_resource_updated_notification {
   mcp_string_t uri;
 } mcp_resource_updated_notification_t;
+
+typedef struct mcp_resource_list_changed_notification {
+  char _placeholder; /* Empty notification */
+} mcp_resource_list_changed_notification_t;
+
+typedef struct mcp_prompt_list_changed_notification {
+  char _placeholder; /* Empty notification */
+} mcp_prompt_list_changed_notification_t;
+
+typedef struct mcp_tool_list_changed_notification {
+  char _placeholder; /* Empty notification */
+} mcp_tool_list_changed_notification_t;
+
+typedef struct mcp_roots_list_changed_notification {
+  char _placeholder; /* Empty notification */
+} mcp_roots_list_changed_notification_t;
+
+/**
+ * Initialized notification
+ */
+typedef struct mcp_initialized_notification {
+  char _placeholder; /* Empty notification */
+} mcp_initialized_notification_t;
+
+/**
+ * Ping request/response
+ */
+typedef struct mcp_ping_request {
+  char _placeholder; /* Empty request */
+} mcp_ping_request_t;
+
+typedef struct mcp_ping_response {
+  char _placeholder; /* Empty response */
+} mcp_ping_response_t;
+
+/* ============================================================================
+ * Error Data Type Support
+ * ============================================================================
+ */
+
+typedef enum mcp_error_data_type {
+  MCP_ERROR_DATA_NULL,
+  MCP_ERROR_DATA_BOOL,
+  MCP_ERROR_DATA_INT,
+  MCP_ERROR_DATA_DOUBLE,
+  MCP_ERROR_DATA_STRING,
+  MCP_ERROR_DATA_STRING_ARRAY,
+  MCP_ERROR_DATA_STRING_MAP
+} mcp_error_data_type_t;
+
+typedef struct mcp_error_data {
+  mcp_error_data_type_t type;
+  union {
+    bool bool_value;
+    int64_t int_value;
+    double double_value;
+    mcp_string_t string_value;
+    mcp_list_t string_array; /* List of strings */
+    mcp_map_t string_map; /* Map of string to string */
+  } value;
+} mcp_error_data_t;
+
+/* ============================================================================
+ * Response Result Type Support
+ * ============================================================================
+ */
+
+typedef enum mcp_response_result_type {
+  MCP_RESPONSE_RESULT_NULL,
+  MCP_RESPONSE_RESULT_BOOL,
+  MCP_RESPONSE_RESULT_INT,
+  MCP_RESPONSE_RESULT_DOUBLE,
+  MCP_RESPONSE_RESULT_STRING,
+  MCP_RESPONSE_RESULT_METADATA,
+  MCP_RESPONSE_RESULT_CONTENT_BLOCKS,
+  MCP_RESPONSE_RESULT_TOOLS,
+  MCP_RESPONSE_RESULT_PROMPTS,
+  MCP_RESPONSE_RESULT_RESOURCES
+} mcp_response_result_type_t;
+
+typedef struct mcp_response_result {
+  mcp_response_result_type_t type;
+  union {
+    bool bool_value;
+    int64_t int_value;
+    double double_value;
+    mcp_string_t string_value;
+    mcp_json_value_t metadata;
+    mcp_list_t content_blocks; /* List of ContentBlock */
+    mcp_list_t tools; /* List of Tool */
+    mcp_list_t prompts; /* List of Prompt */
+    mcp_list_t resources; /* List of Resource */
+  } value;
+} mcp_response_result_t;
 
 /* ============================================================================
  * Memory Management
@@ -1285,6 +1460,71 @@ void mcp_jsonrpc_notification_free(mcp_jsonrpc_notification_t* notif);
 void mcp_primitive_schema_free(mcp_primitive_schema_t* schema);
 void mcp_sampling_params_free(mcp_sampling_params_t* params);
 void mcp_model_preferences_free(mcp_model_preferences_t* prefs);
+void mcp_prompt_argument_free(mcp_prompt_argument_t* arg);
+void mcp_progress_notification_free(mcp_progress_notification_t* notif);
+void mcp_cancelled_notification_free(mcp_cancelled_notification_t* notif);
+void mcp_logging_message_notification_free(mcp_logging_message_notification_t* notif);
+void mcp_resource_updated_notification_free(mcp_resource_updated_notification_t* notif);
+void mcp_resource_list_changed_notification_free(mcp_resource_list_changed_notification_t* notif);
+void mcp_prompt_list_changed_notification_free(mcp_prompt_list_changed_notification_t* notif);
+void mcp_tool_list_changed_notification_free(mcp_tool_list_changed_notification_t* notif);
+void mcp_roots_list_changed_notification_free(mcp_roots_list_changed_notification_t* notif);
+void mcp_initialized_notification_free(mcp_initialized_notification_t* notif);
+void mcp_ping_request_free(mcp_ping_request_t* req);
+void mcp_ping_response_free(mcp_ping_response_t* resp);
+void mcp_error_data_free(mcp_error_data_t* data);
+void mcp_response_result_free(mcp_response_result_t* result);
+void mcp_create_message_request_free(mcp_create_message_request_t* req);
+void mcp_create_message_result_free(mcp_create_message_result_t* result);
+void mcp_elicit_request_free(mcp_elicit_request_t* req);
+void mcp_elicit_result_free(mcp_elicit_result_t* result);
+void mcp_complete_request_free(mcp_complete_request_t* req);
+void mcp_complete_result_free(mcp_complete_result_t* result);
+void mcp_list_resources_request_free(mcp_list_resources_request_t* req);
+void mcp_list_resource_templates_request_free(mcp_list_resource_templates_request_t* req);
+void mcp_list_prompts_request_free(mcp_list_prompts_request_t* req);
+void mcp_list_tools_request_free(mcp_list_tools_request_t* req);
+void mcp_list_roots_request_free(mcp_list_roots_request_t* req);
+void mcp_subscribe_request_free(mcp_subscribe_request_t* req);
+void mcp_unsubscribe_request_free(mcp_unsubscribe_request_t* req);
+void mcp_get_prompt_request_free(mcp_get_prompt_request_t* req);
+void mcp_read_resource_request_free(mcp_read_resource_request_t* req);
+void mcp_set_level_request_free(mcp_set_level_request_t* req);
+void mcp_list_resources_result_free(mcp_list_resources_result_t* result);
+void mcp_list_resource_templates_result_free(mcp_list_resource_templates_result_t* result);
+void mcp_read_resource_result_free(mcp_read_resource_result_t* result);
+void mcp_list_prompts_result_free(mcp_list_prompts_result_t* result);
+void mcp_get_prompt_result_free(mcp_get_prompt_result_t* result);
+void mcp_list_tools_result_free(mcp_list_tools_result_t* result);
+void mcp_list_roots_result_free(mcp_list_roots_result_t* result);
+void mcp_prompt_message_free(mcp_prompt_message_t* msg);
+void mcp_sampling_message_free(mcp_sampling_message_t* msg);
+void mcp_annotations_free(mcp_annotations_t* annotations);
+void mcp_tool_annotations_free(mcp_tool_annotations_t* annotations);
+void mcp_audio_content_free(mcp_audio_content_t* content);
+void mcp_resource_link_free(mcp_resource_link_t* link);
+void mcp_embedded_resource_free(mcp_embedded_resource_t* resource);
+void mcp_resource_contents_free(mcp_resource_contents_t* contents);
+void mcp_text_resource_contents_free(mcp_text_resource_contents_t* contents);
+void mcp_blob_resource_contents_free(mcp_blob_resource_contents_t* contents);
+void mcp_root_free(mcp_root_t* root);
+void mcp_model_hint_free(mcp_model_hint_t* hint);
+void mcp_string_schema_free(mcp_string_schema_t* schema);
+void mcp_number_schema_free(mcp_number_schema_t* schema);
+void mcp_boolean_schema_free(mcp_boolean_schema_t* schema);
+void mcp_enum_schema_free(mcp_enum_schema_t* schema);
+void mcp_resource_template_reference_free(mcp_resource_template_reference_t* ref);
+void mcp_prompt_reference_free(mcp_prompt_reference_t* ref);
+void mcp_empty_capability_free(mcp_empty_capability_t* cap);
+void mcp_resources_capability_free(mcp_resources_capability_t* cap);
+void mcp_prompts_capability_free(mcp_prompts_capability_t* cap);
+void mcp_roots_capability_free(mcp_roots_capability_t* cap);
+void mcp_empty_result_free(mcp_empty_result_t* result);
+void mcp_completion_free(mcp_completion_t* completion);
+void mcp_paginated_request_free(mcp_paginated_request_t* req);
+void mcp_paginated_result_free(mcp_paginated_result_t* result);
+void mcp_resource_template_free(mcp_resource_template_t* template);
+void mcp_tool_parameter_free(mcp_tool_parameter_t* param);
 
 /* Deep copy functions */
 mcp_content_block_t* mcp_content_block_copy(const mcp_content_block_t* block);
