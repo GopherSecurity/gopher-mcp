@@ -578,6 +578,14 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
+    target_link_libraries(test_c_api_types_simple
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
     target_link_libraries(test_c_api_builders
         gopher-mcp
         gtest
