@@ -315,9 +315,14 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
     try {
       auto fd = socket_->ioHandle().fd();
       if (fd != INVALID_SOCKET_FD) {
-        // Use platform default trigger type (Edge on Linux, Level on others)
-        // This follows the reference pattern for optimal performance
-        auto trigger_type = event::PlatformDefaultTriggerType;
+        // Use Level-triggered for clients to ensure we don't miss events
+        // Edge-triggered can miss data that arrives while we're not polling
+        // This is critical for HTTP/SSE where responses arrive asynchronously
+        // Server connections come in with connected=true, clients with connected=false
+        auto trigger_type = connected ? 
+                           event::PlatformDefaultTriggerType :  // Server can use edge-triggered
+                           event::FileTriggerType::Level;         // Client needs level-triggered
+
 
         // Set initial events based on connection state
         // Server connections (connected=true): Start with Read to receive requests
