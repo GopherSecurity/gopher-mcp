@@ -1,5 +1,5 @@
 /**
- * TypeScript/Node.js bindings for MCP C++ SDK
+ * TypeScript/Node.js bindings for Gopher MCP library
  * 
  * This demonstrates how to create Node.js bindings using N-API/node-addon-api.
  * The C API provides a stable ABI that can be wrapped for JavaScript/TypeScript.

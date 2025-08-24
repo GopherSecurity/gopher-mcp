@@ -1,6 +1,6 @@
-//! Rust bindings for MCP C++ SDK
+//! Rust bindings for Gopher MCP library
 //!
-//! This crate provides safe Rust bindings for the MCP C++ SDK using FFI.
+//! This crate provides safe Rust bindings for the Gopher MCP library using FFI.
 //! The C API provides a stable ABI that Rust can safely call.
 //!
 //! # Example

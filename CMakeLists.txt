@@ -10,7 +10,7 @@ Please create a build directory and run cmake from there:
 You may need to remove CMakeCache.txt and CMakeFiles/")
 endif()
 
-project(mcp-cpp-sdk VERSION 0.1.0 LANGUAGES C CXX)
+project(gopher-mcp VERSION 0.1.0 LANGUAGES C CXX)
 
 #Set C++ standard
 if(NOT CMAKE_CXX_STANDARD)
@@ -300,56 +300,56 @@ set(MCP_EVENT_SOURCES
     src/event/worker.cc
 )
 
-# Create MCP SDK library
-add_library(mcp-sdk STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
-target_include_directories(mcp-sdk PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mcp-sdk PUBLIC Threads::Threads nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto)
+# Create Gopher MCP library
+add_library(gopher-mcp STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
+target_include_directories(gopher-mcp PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(gopher-mcp PUBLIC Threads::Threads nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto)
 
 # Add llhttp if found
 if(LLHTTP_FOUND)
-    target_link_libraries(mcp-sdk PUBLIC llhttp)
-    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=1)
+    target_link_libraries(gopher-mcp PUBLIC llhttp)
+    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_LLHTTP=1)
 else()
-    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_LLHTTP=0)
+    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_LLHTTP=0)
 endif()
 
 # Add nghttp2 if found
 if(NGHTTP2_FOUND)
-    target_include_directories(mcp-sdk PUBLIC ${NGHTTP2_INCLUDE_DIRS})
+    target_include_directories(gopher-mcp PUBLIC ${NGHTTP2_INCLUDE_DIRS})
     if(NGHTTP2_LIBRARY_DIRS)
-        target_link_directories(mcp-sdk PUBLIC ${NGHTTP2_LIBRARY_DIRS})
+        target_link_directories(gopher-mcp PUBLIC ${NGHTTP2_LIBRARY_DIRS})
     endif()
     if(NGHTTP2_LIBRARIES)
-        target_link_libraries(mcp-sdk PUBLIC ${NGHTTP2_LIBRARIES})
+        target_link_libraries(gopher-mcp PUBLIC ${NGHTTP2_LIBRARIES})
     else()
-        target_link_libraries(mcp-sdk PUBLIC nghttp2)
+        target_link_libraries(gopher-mcp PUBLIC nghttp2)
     endif()
-    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_NGHTTP2=1)
+    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_NGHTTP2=1)
 else()
-    target_compile_definitions(mcp-sdk PUBLIC MCP_HAS_NGHTTP2=0)
+    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_NGHTTP2=0)
 endif()
 
-# Create MCP Echo Advanced library (transport-agnostic advanced echo components)
-add_library(mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
-target_include_directories(mcp-echo-advanced PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mcp-echo-advanced PUBLIC mcp-sdk Threads::Threads nlohmann_json::nlohmann_json)
+# Create Gopher MCP Echo Advanced library (transport-agnostic advanced echo components)
+add_library(gopher-mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
+target_include_directories(gopher-mcp-echo-advanced PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(gopher-mcp-echo-advanced PUBLIC gopher-mcp Threads::Threads nlohmann_json::nlohmann_json)
 
-# Create MCP Event library
-add_library(mcp-event STATIC ${MCP_EVENT_SOURCES})
-target_include_directories(mcp-event PUBLIC 
+# Create Gopher MCP Event library
+add_library(gopher-mcp-event STATIC ${MCP_EVENT_SOURCES})
+target_include_directories(gopher-mcp-event PUBLIC 
     ${CMAKE_SOURCE_DIR}/include
     ${LIBEVENT_INCLUDE_DIRS}
 )
-target_link_libraries(mcp-event PUBLIC 
-    mcp-sdk
+target_link_libraries(gopher-mcp-event PUBLIC 
+    gopher-mcp
     Threads::Threads
 )
 
 if(LIBEVENT_FOUND)
     if(LIBEVENT_LIBRARY_DIRS)
-        target_link_directories(mcp-event PUBLIC ${LIBEVENT_LIBRARY_DIRS})
+        target_link_directories(gopher-mcp-event PUBLIC ${LIBEVENT_LIBRARY_DIRS})
     endif()
-    target_link_libraries(mcp-event PUBLIC ${LIBEVENT_LIBRARIES})
+    target_link_libraries(gopher-mcp-event PUBLIC ${LIBEVENT_LIBRARIES})
 endif()
 
 # Enable testing
@@ -376,8 +376,8 @@ option(BUILD_EXAMPLES "Build example programs" ON)
 if(BUILD_EXAMPLES)
     add_executable(event_loop_example examples/event_loop_example.cc)
     target_link_libraries(event_loop_example 
-        mcp-event 
-        mcp-sdk 
+        gopher-mcp-event 
+        gopher-mcp 
         Threads::Threads
     )
     
@@ -385,7 +385,7 @@ if(BUILD_EXAMPLES)
     
     add_executable(test_echo_integration examples/test_echo_integration.cc)
     target_link_libraries(test_echo_integration
-        mcp-sdk
+        gopher-mcp
         Threads::Threads
     )
     

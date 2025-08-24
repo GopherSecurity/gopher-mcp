@@ -1,0 +1,18 @@
+@PACKAGE_INIT @
+
+    include(CMakeFindDependencyMacro)
+
+#Find required dependencies
+        find_dependency(Threads) find_dependency(OpenSSL)
+
+#Include the targets file
+            include("${CMAKE_CURRENT_LIST_DIR}/GopherMCPTargets.cmake")
+
+#Check that all required components are available
+                check_required_components(GopherMCP)
+
+#Provide library paths for convenience
+                    set(GOPHER_MCP_LIBRARIES GopherMCP::gopher_mcp_c)
+                        set(GOPHER_MCP_STATIC_LIBRARIES GopherMCP::gopher_mcp_c_static)
+                            set(GOPHER_MCP_INCLUDE_DIRS
+                                "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")

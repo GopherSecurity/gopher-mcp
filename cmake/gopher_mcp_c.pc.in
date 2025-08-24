@@ -3,11 +3,11 @@ exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
-Name: MCP C API
-Description: C API bindings for Model Context Protocol SDK
+Name: Gopher MCP C API
+Description: C API bindings for Gopher Model Context Protocol library
 Version: @PROJECT_VERSION@
 Requires: 
-Libs: -L${libdir} -lmcp_c
+Libs: -L${libdir} -lgopher_mcp_c
 Cflags: -I${
   includedir
 }

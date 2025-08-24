@@ -16,32 +16,32 @@ add_executable(stdio_echo_client_basic
 
 # Link libraries for server (using new advanced echo library with transport abstraction)
 target_link_libraries(stdio_echo_server_advanced
-    mcp-echo-advanced
-    mcp-sdk
+    gopher-mcp-echo-advanced
+    gopher-mcp
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
 
 # Link libraries for client (using new advanced echo library with transport abstraction)
 target_link_libraries(stdio_echo_client_advanced
-    mcp-echo-advanced
-    mcp-sdk
+    gopher-mcp-echo-advanced
+    gopher-mcp
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
 
 # Link libraries for basic server (using existing basic echo functionality)
 target_link_libraries(stdio_echo_server_basic
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
 
 # Link libraries for basic client (using existing basic echo functionality)
 target_link_libraries(stdio_echo_client_basic
-    mcp-event
-    mcp-sdk
+    gopher-mcp-event
+    gopher-mcp
     Threads::Threads
     nlohmann_json::nlohmann_json
 )

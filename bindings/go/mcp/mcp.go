@@ -1,4 +1,4 @@
-// Package mcp provides Go bindings for the MCP C++ SDK
+// Package mcp provides Go bindings for the Gopher MCP library
 //
 // This package demonstrates how to create Go bindings using CGO.
 // The C API provides a stable ABI that Go can call through CGO.
@@ -17,7 +17,7 @@
 package mcp
 
     // #cgo CFLAGS: -I../../include
-    // #cgo LDFLAGS: -L../../build -lmcp_c -lmcp_cpp -levent
+    // #cgo LDFLAGS: -L../../build -lgopher_mcp_c -lgopher_mcp -levent
     // #include "mcp/c_api/mcp_c_api.h"
     // #include <stdlib.h>
     //

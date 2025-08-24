@@ -4,8 +4,8 @@
 add_executable(tcp_ssl_http_example tcp_ssl_http_example.cc)
 
 target_link_libraries(tcp_ssl_http_example
-    mcp-sdk
-    mcp-event
+    gopher-mcp
+    gopher-mcp-event
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto
