@@ -125,6 +125,57 @@ private:
 #endif
 
 /* ============================================================================
+ * Performance and Debugging Utilities (Forward Declarations)
+ * ============================================================================ */
+
+// Forward declare raii_config for use in constructors
+template<typename T>
+struct raii_config {
+    // Default vector capacity for AllocationTransaction
+    static constexpr size_t default_transaction_capacity = 8;
+    
+    // Enable resource tracking in debug mode
+    static constexpr bool enable_resource_tracking = 
+#ifdef MCP_RAII_DEBUG_MODE
+        true;
+#else
+        false;
+#endif
+};
+
+// Forward declare raii_stats for use in constructors
+namespace internal {
+    void increment_guards_created() noexcept;
+    void increment_guards_destroyed() noexcept;
+    void increment_resources_tracked() noexcept;
+    void increment_resources_released() noexcept;
+    void increment_exceptions_in_destructors() noexcept;
+} // namespace internal
+
+class raii_stats {
+public:
+    static void increment_guard_created() noexcept {
+        internal::increment_guards_created();
+    }
+    
+    static void increment_guard_destroyed() noexcept {
+        internal::increment_guards_destroyed();
+    }
+    
+    static void increment_resource_tracked() noexcept {
+        internal::increment_resources_tracked();
+    }
+    
+    static void increment_resource_released() noexcept {
+        internal::increment_resources_released();
+    }
+    
+    static void increment_exception_in_destructor() noexcept {
+        internal::increment_exceptions_in_destructors();
+    }
+};
+
+/* ============================================================================
  * Compatibility and Feature Detection
  * ============================================================================ */
 
@@ -296,6 +347,13 @@ public:
 #endif
         }
         ptr_ = new_ptr;
+        
+        // Update deleter to use default c_deleter for the new resource
+        if (new_ptr) {
+            deleter_ = [](T* p) { c_deleter<T>{}(p); };
+        } else {
+            deleter_ = [](T*){};  // no-op for null
+        }
         
 #ifdef MCP_RAII_DEBUG_MODE
         if (new_ptr) {
@@ -644,62 +702,7 @@ MCP_RAII_NODISCARD ScopedCleanup make_scoped_cleanup(Func&& func) {
  * ============================================================================ */
 
 // Internal statistics tracking for production monitoring
-namespace internal {
-    void increment_guards_created() noexcept;
-    void increment_guards_destroyed() noexcept;
-    void increment_resources_tracked() noexcept;
-    void increment_resources_released() noexcept;
-    void increment_exceptions_in_destructors() noexcept;
-} // namespace internal
-
-/* ============================================================================
- * Performance and Debugging Utilities
- * ============================================================================ */
-
-/**
- * RAII performance configuration
- * Can be specialized for specific types to optimize performance
- */
-template<typename T>
-struct raii_config {
-    // Default vector capacity for AllocationTransaction
-    static constexpr size_t default_transaction_capacity = 8;
-    
-    // Enable resource tracking in debug mode
-    static constexpr bool enable_resource_tracking = 
-#ifdef MCP_RAII_DEBUG_MODE
-        true;
-#else
-        false;
-#endif
-};
-
-/**
- * RAII statistics and monitoring
- * Thread-safe counters for production monitoring
- */
-class raii_stats {
-public:
-    static void increment_guard_created() noexcept {
-        internal::increment_guards_created();
-    }
-    
-    static void increment_guard_destroyed() noexcept {
-        internal::increment_guards_destroyed();
-    }
-    
-    static void increment_resource_tracked() noexcept {
-        internal::increment_resources_tracked();
-    }
-    
-    static void increment_resource_released() noexcept {
-        internal::increment_resources_released();
-    }
-    
-    static void increment_exception_in_destructor() noexcept {
-        internal::increment_exceptions_in_destructors();
-    }
-};
+// (Implementations are provided in the .cc file)
 
 } // namespace raii
 } // namespace mcp
