@@ -1565,7 +1565,7 @@ void mcp_empty_result_free(mcp_empty_result_t* result);
 void mcp_completion_free(mcp_completion_t* completion);
 void mcp_paginated_request_free(mcp_paginated_request_t* req);
 void mcp_paginated_result_free(mcp_paginated_result_t* result);
-void mcp_resource_template_free(mcp_resource_template_t* template);
+void mcp_resource_template_free(mcp_resource_template_t* tmpl);
 void mcp_tool_parameter_free(mcp_tool_parameter_t* param);
 
 /* Deep copy functions */
