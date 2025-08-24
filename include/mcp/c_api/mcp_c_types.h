@@ -20,13 +20,55 @@
 #ifndef MCP_C_TYPES_H
 #define MCP_C_TYPES_H
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ============================================================================
+ * Compiler and Platform Detection for FFI
+ * ============================================================================
+ */
+
+#if defined(_MSC_VER)
+  #define MCP_EXPORT __declspec(dllexport)
+  #define MCP_IMPORT __declspec(dllimport)
+  #define MCP_PACKED_STRUCT(name) __pragma(pack(push, 1)) struct name
+  #define MCP_PACKED_STRUCT_END __pragma(pack(pop))
+#elif defined(__GNUC__) || defined(__clang__)
+  #define MCP_EXPORT __attribute__((visibility("default")))
+  #define MCP_IMPORT
+  #define MCP_PACKED_STRUCT(name) struct __attribute__((packed)) name
+  #define MCP_PACKED_STRUCT_END
+#else
+  #define MCP_EXPORT
+  #define MCP_IMPORT
+  #define MCP_PACKED_STRUCT(name) struct name
+  #define MCP_PACKED_STRUCT_END
+#endif
+
+/* Calling convention for callbacks */
+#ifdef _WIN32
+  #define MCP_CALLBACK __stdcall
+#else
+  #define MCP_CALLBACK
+#endif
+
+/* ============================================================================
+ * FFI-Safe Boolean Type
+ * ============================================================================
+ */
+
+/**
+ * FFI-safe boolean type using fixed-size uint8_t
+ * This ensures consistent size and representation across all platforms
+ */
+typedef uint8_t mcp_bool_t;
+
+#define MCP_TRUE  ((mcp_bool_t)1)
+#define MCP_FALSE ((mcp_bool_t)0)
 
 /* ============================================================================
  * Forward Declarations
@@ -103,7 +145,7 @@ typedef struct mcp_buffer {
  * Optional value wrapper
  */
 typedef struct mcp_optional {
-  bool has_value;
+  mcp_bool_t has_value;
   void* value;
 } mcp_optional_t;
 
@@ -185,7 +227,7 @@ typedef enum mcp_role { MCP_ROLE_USER, MCP_ROLE_ASSISTANT } mcp_role_t;
  */
 typedef struct mcp_call_tool_result {
   mcp_list_t content; /* List of content blocks */
-  bool is_error;
+  mcp_bool_t is_error;
 } mcp_call_tool_result_t;
 
 /**
@@ -250,7 +292,7 @@ typedef struct mcp_resource_template {
 typedef struct mcp_prompt_argument {
   mcp_string_t name;
   mcp_optional_t description;
-  bool required;
+  mcp_bool_t required;
 } mcp_prompt_argument_t;
 
 /**
@@ -346,10 +388,10 @@ typedef struct mcp_address {
  * Socket options
  */
 typedef struct mcp_socket_options {
-  bool reuse_addr;
-  bool reuse_port;
-  bool keep_alive;
-  bool tcp_nodelay;
+  mcp_bool_t reuse_addr;
+  mcp_bool_t reuse_port;
+  mcp_bool_t keep_alive;
+  mcp_bool_t tcp_nodelay;
   uint32_t send_buffer_size;
   uint32_t recv_buffer_size;
   uint32_t connect_timeout_ms;
@@ -362,7 +404,7 @@ typedef struct mcp_ssl_config {
   mcp_string_t cert_file;
   mcp_string_t key_file;
   mcp_string_t ca_file;
-  bool verify_peer;
+  mcp_bool_t verify_peer;
   mcp_string_t cipher_list;
   mcp_list_t alpn_protocols; /* List of strings */
 } mcp_ssl_config_t;
@@ -602,7 +644,7 @@ typedef struct mcp_tool_parameter {
   mcp_string_t name;
   mcp_string_t type;
   mcp_optional_t description;
-  bool required;
+  mcp_bool_t required;
 } mcp_tool_parameter_t;
 
 /**
@@ -956,7 +998,7 @@ typedef struct mcp_create_message_result {
 typedef struct mcp_completion {
   mcp_list_t values;    /* List of strings */
   mcp_optional_t total; /* double */
-  bool has_more;
+  mcp_bool_t has_more;
 } mcp_completion_t;
 
 typedef struct mcp_complete_result {
@@ -991,7 +1033,7 @@ typedef struct mcp_elicit_result {
   union {
     mcp_string_t string_value;
     double number_value;
-    bool boolean_value;
+    mcp_bool_t boolean_value;
   } value;
 } mcp_elicit_result_t;
 
@@ -1079,7 +1121,7 @@ typedef enum mcp_error_data_type {
 typedef struct mcp_error_data {
   mcp_error_data_type_t type;
   union {
-    bool bool_value;
+    mcp_bool_t bool_value;
     int64_t int_value;
     double double_value;
     mcp_string_t string_value;
@@ -1109,7 +1151,7 @@ typedef enum mcp_response_result_type {
 typedef struct mcp_response_result {
   mcp_response_result_type_t type;
   union {
-    bool bool_value;
+    mcp_bool_t bool_value;
     int64_t int_value;
     double double_value;
     mcp_string_t string_value;
@@ -1188,7 +1230,7 @@ mcp_tool_t* mcp_tool_with_schema(const char* name, mcp_json_value_t schema);
 mcp_tool_t* mcp_tool_add_parameter(mcp_tool_t* tool,
                                    const char* param_name,
                                    const char* param_type,
-                                   bool required);
+                                   mcp_bool_t required);
 
 mcp_prompt_t* mcp_prompt_create(const char* name);
 mcp_prompt_t* mcp_prompt_with_description(const char* name,
@@ -1196,7 +1238,7 @@ mcp_prompt_t* mcp_prompt_with_description(const char* name,
 mcp_prompt_t* mcp_prompt_add_argument(mcp_prompt_t* prompt,
                                       const char* arg_name,
                                       const char* description,
-                                      bool required);
+                                      mcp_bool_t required);
 
 /* Message builders */
 mcp_message_t* mcp_message_create(mcp_role_t role,
@@ -1229,12 +1271,12 @@ mcp_client_capabilities_t* mcp_client_capabilities_with_roots(
     mcp_roots_capability_t* roots);
 
 mcp_server_capabilities_t* mcp_server_capabilities_create(void);
-mcp_server_capabilities_t* mcp_server_capabilities_with_tools(bool enabled);
-mcp_server_capabilities_t* mcp_server_capabilities_with_prompts(bool enabled);
-mcp_server_capabilities_t* mcp_server_capabilities_with_resources(bool enabled);
+mcp_server_capabilities_t* mcp_server_capabilities_with_tools(mcp_bool_t enabled);
+mcp_server_capabilities_t* mcp_server_capabilities_with_prompts(mcp_bool_t enabled);
+mcp_server_capabilities_t* mcp_server_capabilities_with_resources(mcp_bool_t enabled);
 mcp_server_capabilities_t* mcp_server_capabilities_with_resources_advanced(
     mcp_resources_capability_t* resources);
-mcp_server_capabilities_t* mcp_server_capabilities_with_logging(bool enabled);
+mcp_server_capabilities_t* mcp_server_capabilities_with_logging(mcp_bool_t enabled);
 
 /* Request builders */
 mcp_initialize_request_t* mcp_initialize_request_create(
@@ -1277,7 +1319,7 @@ mcp_call_tool_result_t* mcp_call_tool_result_add_content(
 mcp_call_tool_result_t* mcp_call_tool_result_add_text(
     mcp_call_tool_result_t* result, const char* text);
 mcp_call_tool_result_t* mcp_call_tool_result_set_error(
-    mcp_call_tool_result_t* result, bool is_error);
+    mcp_call_tool_result_t* result, mcp_bool_t is_error);
 
 /* Notification builders */
 mcp_progress_notification_t* mcp_progress_notification_create(
@@ -1376,19 +1418,19 @@ mcp_jsonrpc_notification_t* mcp_jsonrpc_notification_from_json(
  */
 
 /* Type checking utilities */
-bool mcp_request_id_is_string(const mcp_request_id_t* id);
-bool mcp_request_id_is_number(const mcp_request_id_t* id);
-bool mcp_progress_token_is_string(const mcp_progress_token_t* token);
-bool mcp_progress_token_is_number(const mcp_progress_token_t* token);
-bool mcp_content_block_is_text(const mcp_content_block_t* block);
-bool mcp_content_block_is_image(const mcp_content_block_t* block);
-bool mcp_content_block_is_audio(const mcp_content_block_t* block);
-bool mcp_content_block_is_resource(const mcp_content_block_t* block);
+mcp_bool_t mcp_request_id_is_string(const mcp_request_id_t* id);
+mcp_bool_t mcp_request_id_is_number(const mcp_request_id_t* id);
+mcp_bool_t mcp_progress_token_is_string(const mcp_progress_token_t* token);
+mcp_bool_t mcp_progress_token_is_number(const mcp_progress_token_t* token);
+mcp_bool_t mcp_content_block_is_text(const mcp_content_block_t* block);
+mcp_bool_t mcp_content_block_is_image(const mcp_content_block_t* block);
+mcp_bool_t mcp_content_block_is_audio(const mcp_content_block_t* block);
+mcp_bool_t mcp_content_block_is_resource(const mcp_content_block_t* block);
 
 /* Comparison utilities */
-bool mcp_string_equals(mcp_string_t a, mcp_string_t b);
-bool mcp_string_equals_cstr(mcp_string_t str, const char* cstr);
-bool mcp_request_id_equals(const mcp_request_id_t* a,
+mcp_bool_t mcp_string_equals(mcp_string_t a, mcp_string_t b);
+mcp_bool_t mcp_string_equals_cstr(mcp_string_t str, const char* cstr);
+mcp_bool_t mcp_request_id_equals(const mcp_request_id_t* a,
                            const mcp_request_id_t* b);
 int mcp_string_compare(mcp_string_t a, mcp_string_t b);
 
@@ -1408,25 +1450,25 @@ mcp_result_t mcp_list_remove(mcp_list_t* list, size_t index);
 void mcp_list_clear(mcp_list_t* list);
 void mcp_list_free(mcp_list_t* list);
 size_t mcp_list_size(const mcp_list_t* list);
-bool mcp_list_is_empty(const mcp_list_t* list);
+mcp_bool_t mcp_list_is_empty(const mcp_list_t* list);
 
 /* Map operations */
 mcp_map_t* mcp_map_create(size_t initial_capacity);
 mcp_result_t mcp_map_set(mcp_map_t* map, const char* key, void* value);
 void* mcp_map_get(const mcp_map_t* map, const char* key);
-bool mcp_map_has(const mcp_map_t* map, const char* key);
+mcp_bool_t mcp_map_has(const mcp_map_t* map, const char* key);
 mcp_result_t mcp_map_remove(mcp_map_t* map, const char* key);
 void mcp_map_clear(mcp_map_t* map);
 void mcp_map_free(mcp_map_t* map);
 size_t mcp_map_size(const mcp_map_t* map);
-bool mcp_map_is_empty(const mcp_map_t* map);
+mcp_bool_t mcp_map_is_empty(const mcp_map_t* map);
 mcp_list_t* mcp_map_keys(const mcp_map_t* map);
 mcp_list_t* mcp_map_values(const mcp_map_t* map);
 
 /* Optional operations */
 mcp_optional_t* mcp_optional_create(void* value);
 mcp_optional_t* mcp_optional_empty(void);
-bool mcp_optional_has_value(const mcp_optional_t* opt);
+mcp_bool_t mcp_optional_has_value(const mcp_optional_t* opt);
 void* mcp_optional_get_value(const mcp_optional_t* opt);
 void mcp_optional_set_value(mcp_optional_t* opt, void* value);
 void mcp_optional_clear(mcp_optional_t* opt);
@@ -1543,6 +1585,52 @@ mcp_memory_pool_t* mcp_memory_pool_create(size_t initial_size);
 void* mcp_memory_pool_alloc(mcp_memory_pool_t* pool, size_t size);
 void mcp_memory_pool_reset(mcp_memory_pool_t* pool);
 void mcp_memory_pool_destroy(mcp_memory_pool_t* pool);
+
+/* ============================================================================
+ * FFI Safety and ABI Stability Functions
+ * ============================================================================
+ */
+
+/**
+ * ABI version info for compatibility checking
+ */
+#define MCP_C_API_VERSION_MAJOR 1
+#define MCP_C_API_VERSION_MINOR 0
+#define MCP_C_API_VERSION_PATCH 0
+
+typedef struct mcp_abi_version {
+  uint32_t major;
+  uint32_t minor;
+  uint32_t patch;
+  uint32_t reserved;
+} mcp_abi_version_t;
+
+MCP_EXPORT mcp_abi_version_t mcp_get_abi_version(void);
+MCP_EXPORT mcp_bool_t mcp_check_abi_compatibility(uint32_t major, uint32_t minor);
+
+/**
+ * Thread-safe error handling for FFI
+ */
+MCP_EXPORT const char* mcp_get_last_error(void);
+MCP_EXPORT void mcp_set_last_error(const char* error);
+MCP_EXPORT void mcp_clear_last_error(void);
+
+/**
+ * Safe memory allocation with error checking
+ */
+MCP_EXPORT void* mcp_malloc_safe(size_t size);
+MCP_EXPORT void* mcp_calloc_safe(size_t count, size_t size);
+MCP_EXPORT void* mcp_realloc_safe(void* ptr, size_t new_size);
+MCP_EXPORT void mcp_free_safe(void* ptr);
+MCP_EXPORT char* mcp_strdup_safe(const char* str);
+MCP_EXPORT char* mcp_strndup_safe(const char* str, size_t max_len);
+
+/**
+ * FFI initialization and cleanup
+ */
+MCP_EXPORT mcp_result_t mcp_ffi_initialize(void);
+MCP_EXPORT void mcp_ffi_cleanup(void);
+MCP_EXPORT mcp_bool_t mcp_ffi_is_initialized(void);
 
 #ifdef __cplusplus
 }
