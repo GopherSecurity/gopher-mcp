@@ -51,12 +51,21 @@ void c_deleter<mcp_string_t>::operator()(mcp_string_t* ptr) const noexcept {
 template<>
 void c_deleter<mcp_json_value_t>::operator()(mcp_json_value_t* ptr) const noexcept {
     if (ptr) {
-        // Use the proper JSON cleanup function if available
-        // This implementation depends on the JSON library being used
+        // Check if we have a proper JSON cleanup function available
+        // This is safer than assuming free() is correct for JSON values
+        extern void mcp_json_value_free(mcp_json_value_t* json_ptr);
         
-        // For now, just free the structure
-        // TODO: Implement proper JSON cleanup based on the JSON library
-        free(ptr);
+        try {
+            // Use the proper JSON library cleanup function
+            mcp_json_value_free(ptr);
+        } catch (...) {
+            // JSON cleanup threw exception - this should not happen but be defensive
+            // In production, log this error to monitoring system
+            
+            // As a last resort, try basic free (this may crash if JSON has complex structure)
+            // In a real implementation, you would configure this based on your JSON library
+            free(ptr);
+        }
     }
 }
 

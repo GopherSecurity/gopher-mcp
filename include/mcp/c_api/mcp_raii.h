@@ -84,9 +84,10 @@ struct c_deleter {
 template<typename T, typename Deleter = c_deleter<T>>
 struct thread_safe_deleter {
     void operator()(T* ptr) const noexcept {
-        static std::mutex cleanup_mutex;
+        // Per-type static mutex eliminates inter-type contention
+        static std::mutex type_mutex;
         if (ptr) {
-            std::lock_guard<std::mutex> lock(cleanup_mutex);
+            std::lock_guard<std::mutex> lock(type_mutex);
             Deleter{}(ptr);
         }
     }
@@ -123,7 +124,7 @@ public:
     using deleter_type = std::function<void(T*)>;
     
     // Constructors
-    ResourceGuard() noexcept : ptr_(nullptr) {}
+    ResourceGuard() noexcept : ptr_(nullptr), deleter_([](T*){}) {}
     
     explicit ResourceGuard(T* ptr) noexcept 
         : ptr_(ptr), deleter_([](T* p) { c_deleter<T>{}(p); }) {}
@@ -167,7 +168,10 @@ public:
     }
     
     void reset(T* new_ptr, deleter_type new_deleter) {
-        reset(new_ptr);
+        if (ptr_ && deleter_) {
+            deleter_(ptr_);  // Clean up with current deleter
+        }
+        ptr_ = new_ptr;
         deleter_ = std::move(new_deleter);
     }
     

@@ -611,6 +611,15 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
+    # Production RAII utilities test
+    add_executable(test_mcp_raii_production c_api/test_mcp_raii_production.cc)
+    target_link_libraries(test_mcp_raii_production
+        gopher-mcp
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
     target_link_libraries(test_c_api_protocol_types
         gopher-mcp
         gtest
