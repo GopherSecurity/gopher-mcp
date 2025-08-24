@@ -245,6 +245,9 @@ public:
     // Write flows through filters in reverse order
     // JSON-RPC -> SSE -> HTTP
     
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite called with " << data.length() 
+              << " bytes, is_server=" << is_server_ << ", is_sse_mode=" << is_sse_mode_ << std::endl;
+    
     // In SSE mode for server, handle headers + data properly
     // Design: Use boolean flag to track if HTTP headers have been sent
     // This is safe because:
@@ -264,6 +267,7 @@ public:
       }
       
       if (is_first_write) {
+        std::cerr << "[DEBUG] First SSE write, adding HTTP headers" << std::endl;
         
         // Build complete HTTP response with SSE headers and first event
         std::ostringstream response;
@@ -285,13 +289,14 @@ public:
         
         // Replace buffer with complete response
         std::string response_str = response.str();
-        data.add(response_str);
+        data.add(response_str.c_str(), response_str.length());
         
         // Mark that headers have been written for this SSE connection
         // This is connection-scoped, not global
         sse_headers_written_ = true;
       } else {
         // Subsequent SSE events - just format as SSE without HTTP headers
+        std::cerr << "[DEBUG] Subsequent SSE write with " << data.length() << " bytes" << std::endl;
         if (data.length() > 0) {
           size_t data_len = data.length();
           std::string json_data(static_cast<const char*>(data.linearize(data_len)), data_len);
@@ -302,9 +307,10 @@ public:
           sse_event << "data: " << json_data << "\n\n";
           std::string event_str = sse_event.str();
           
+          std::cerr << "[DEBUG] Formatted SSE event: " << event_str.length() << " bytes" << std::endl;
           
           // Replace buffer contents with SSE-formatted data
-          data.add(event_str);
+          data.add(event_str.c_str(), event_str.length());
         }
       }
       // Let the formatted data flow to transport
@@ -351,6 +357,12 @@ public:
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
     
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onHeaders called, is_server=" 
+              << is_server_ << std::endl;
+    for (const auto& h : headers) {
+      std::cerr << "[DEBUG]   " << h.first << ": " << h.second << std::endl;
+    }
+    
     // Determine transport mode based on headers
     if (is_server_) {
       // Server: check Accept header for SSE
@@ -358,11 +370,13 @@ public:
       if (accept != headers.end() && 
           accept->second.find("text/event-stream") != std::string::npos) {
         is_sse_mode_ = true;
+        std::cerr << "[DEBUG] Server detected SSE mode from Accept header" << std::endl;
         // Headers will be sent with first data in onWrite()
         // This avoids calling connection().write() from onHeaders()
         sse_filter_->startEventStream();
       } else {
         is_sse_mode_ = false;
+        std::cerr << "[DEBUG] Server using normal HTTP mode" << std::endl;
       }
     } else {
       // Client: check Content-Type for SSE
@@ -510,6 +524,8 @@ public:
   
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
     
+    std::cerr << "[DEBUG] sendResponseThroughFilter called, is_sse_mode=" << is_sse_mode_ << std::endl;
+    
     // Check if we have write callbacks to send data
     if (!write_callbacks_) {
       std::cerr << "[ERROR] No write callbacks available in filter!" << std::endl;
@@ -519,10 +535,12 @@ public:
     // Send response through proper channel
     if (is_server_) {
       if (is_sse_mode_) {
-        // For SSE mode, headers were already sent when SSE mode started
-        // Now just send the data as an SSE event
+        // In SSE mode, send JSON-RPC response as SSE event
+        // Headers will be added by onWrite() on first write
         auto json_val = json::to_json(response);
         std::string json_str = json_val.toString();
+        
+        std::cerr << "[DEBUG] Sending SSE response: " << json_str.length() << " bytes" << std::endl;
         
         // Format as SSE event (just the data, no HTTP headers)
         std::ostringstream sse_event;
