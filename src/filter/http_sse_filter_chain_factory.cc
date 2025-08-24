@@ -522,59 +522,23 @@ public:
     }
   }
   
+  /*
+  1. McpServer receives request and calls conn_manager->sendResponse(response)
+  2. McpConnectionManager::sendResponse converts to JSON and calls sendJsonMessage
+  3. sendJsonMessage calls active_connection_->write(*buffer, false)
+  4. This goes through the filter chain's onWrite() methods
+  5. The filter should format the data in onWrite(), not initiate writes
+  */
   void sendResponseThroughFilter(const jsonrpc::Response& response) {
-    
-    std::cerr << "[DEBUG] sendResponseThroughFilter called, is_sse_mode=" << is_sse_mode_ << std::endl;
-    
-    // Check if we have write callbacks to send data
-    if (!write_callbacks_) {
-      std::cerr << "[ERROR] No write callbacks available in filter!" << std::endl;
-      return;
-    }
-    
-    // Send response through proper channel
-    if (is_server_) {
-      if (is_sse_mode_) {
-        // In SSE mode, send JSON-RPC response as SSE event
-        // Headers will be added by onWrite() on first write
-        auto json_val = json::to_json(response);
-        std::string json_str = json_val.toString();
-        
-        std::cerr << "[DEBUG] Sending SSE response: " << json_str.length() << " bytes" << std::endl;
-        
-        // Format as SSE event (just the data, no HTTP headers)
-        std::ostringstream sse_event;
-        sse_event << "data: " << json_str << "\n\n";
-        std::string event_str = sse_event.str();
-        
-        // Send the SSE event data directly (headers already sent)
-        OwnedBuffer buffer;
-        buffer.add(event_str);
-        write_callbacks_->connection().write(buffer, false);
-        
-      } else {
-        // For JSON-RPC over HTTP, use routing filter to send HTTP response
-        // This maintains proper separation of concerns
-        auto json_val = json::to_json(response);
-        std::string json_str = json_val.toString();
-        
-        // Create HTTP response and send through routing filter
-        if (routing_filter_) {
-          HttpRoutingFilter::Response http_resp;
-          http_resp.status_code = 200;
-          http_resp.headers["content-type"] = "application/json";
-          http_resp.headers["content-length"] = std::to_string(json_str.length());
-          http_resp.headers["cache-control"] = "no-cache";
-          http_resp.body = json_str;
-          
-          // Send through routing filter which will handle HTTP formatting
-          routing_filter_->sendResponse(http_resp);
-        }
-      }
-    } else {
-      // Client mode: just encode the JSON-RPC response
-      jsonrpcEncoder().encodeResponse(response);
-    }
+    // DEAD CODE - This method is never called!
+    // RequestStream::sendResponse is never invoked by anyone.
+    // The actual response flow is:
+    // 1. McpServer calls current_connection_->write() directly
+    // 2. This triggers onWrite() which formats the data
+    // 3. The formatted data is written to the socket
+    //
+    // This entire RequestStream mechanism is unused and should be removed.
+    std::cerr << "[WARNING] sendResponseThroughFilter called - this is dead code!" << std::endl;
   }
   
 private:
