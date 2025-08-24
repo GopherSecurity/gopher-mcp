@@ -117,6 +117,9 @@ VoidResult McpClient::connect(const std::string& uri) {
     main_dispatcher_->run(RunType::Block);
   });
   
+  // Give dispatcher thread time to start
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
   // Get socket interface after dispatcher is created
   socket_interface_ = std::make_unique<SocketInterfaceImpl>();
   
