@@ -27,8 +27,15 @@ short toLibeventEvents(uint32_t events, FileTriggerType trigger) {
   if (trigger == FileTriggerType::Edge) {
 #ifdef EV_ET
     result |= EV_ET;  // Edge-triggered (Linux epoll)
-#endif
     result |= EV_PERSIST;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    // macOS/BSD: EV_CLEAR provides edge-triggered behavior for kqueue
+    // EV_CLEAR: Clear the event state after reporting (edge-triggered)
+    // Don't use EV_PERSIST with EV_CLEAR
+    result |= EV_CLEAR;
+#else
+    result |= EV_PERSIST;
+#endif
   } else if (trigger == FileTriggerType::EmulatedEdge) {
     // EmulatedEdge: do not use EV_PERSIST, re-add event after each trigger
     // This simulates edge-triggered behavior on platforms without native support
@@ -498,6 +505,14 @@ void LibeventDispatcher::FileEventImpl::eventCallback(int fd,
     }
   } else if (ready_events != 0) {
     file_event->cb_(ready_events);
+    
+#if defined(__APPLE__) || defined(__FreeBSD__)
+    // On macOS/BSD with EV_CLEAR, we need to re-add the event after it fires
+    // This is necessary for edge-triggered behavior with kqueue
+    if (file_event->trigger_ == FileTriggerType::Edge && file_event->enabled_events_ != 0) {
+      file_event->assignEvents(file_event->enabled_events_);
+    }
+#endif
   }
 
   // Touch watchdog after callback
