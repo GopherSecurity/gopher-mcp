@@ -4,9 +4,11 @@
  */
 
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
-#include "mcp/buffer.h"
-#include <sys/socket.h>
+
 #include <netinet/tcp.h>
+#include <sys/socket.h>
+
+#include "mcp/buffer.h"
 
 namespace mcp {
 namespace transport {
@@ -22,11 +24,10 @@ TcpTransportSocketStateMachine::TcpTransportSocketStateMachine(
     : TransportSocketStateMachine(dispatcher, config),
       connection_(&connection),
       tcp_config_(std::move(config)) {
-  
   // Initialize buffers
   pending_read_data_ = createBuffer();
   pending_write_data_ = createBuffer();
-  
+
   // Configure TCP options
   configureTcpOptions();
 }
@@ -38,14 +39,13 @@ TcpTransportSocketStateMachine::TcpTransportSocketStateMachine(
     : TransportSocketStateMachine(dispatcher, config),
       socket_(&socket),
       tcp_config_(std::move(config)) {
-  
   // Initialize buffers
   pending_read_data_ = createBuffer();
   pending_write_data_ = createBuffer();
-  
+
   // Don't assume connection state - let the user set it appropriately
   // The state will remain Uninitialized until explicitly connected
-  
+
   // Configure TCP options
   configureTcpOptions();
 }
@@ -59,25 +59,25 @@ TcpTransportSocketStateMachine::~TcpTransportSocketStateMachine() {
 
 TransportIoResult TcpTransportSocketStateMachine::doRead(Buffer& buffer) {
   assertInDispatcherThread();
-  
+
   // Check state
   if (current_state_ != TransportSocketState::Connected &&
       current_state_ != TransportSocketState::Reading) {
     return TransportIoResult::stop();
   }
-  
+
   // Transition to reading state
   if (current_state_ == TransportSocketState::Connected) {
     transitionTo(TransportSocketState::Reading, "Read requested", nullptr);
   }
-  
+
   return handleRead(buffer);
 }
 
-TransportIoResult TcpTransportSocketStateMachine::doWrite(
-    Buffer& buffer, bool end_stream) {
+TransportIoResult TcpTransportSocketStateMachine::doWrite(Buffer& buffer,
+                                                          bool end_stream) {
   assertInDispatcherThread();
-  
+
   // Check state
   if (current_state_ != TransportSocketState::Connected &&
       current_state_ != TransportSocketState::Writing) {
@@ -85,70 +85,70 @@ TransportIoResult TcpTransportSocketStateMachine::doWrite(
     pending_write_data_->add(buffer);
     return TransportIoResult::stop();
   }
-  
+
   // Transition to writing state
   if (current_state_ == TransportSocketState::Connected) {
     transitionTo(TransportSocketState::Writing, "Write requested", nullptr);
   }
-  
+
   return handleWrite(buffer, end_stream);
 }
 
 VoidResult TcpTransportSocketStateMachine::connect(network::Socket& socket) {
   assertInDispatcherThread();
-  
+
   // If uninitialized, first transition to initialized
   if (current_state_ == TransportSocketState::Uninitialized) {
-    auto init_result = transitionTo(TransportSocketState::Initialized, 
-                                   "Socket initialized", nullptr);
+    auto init_result = transitionTo(TransportSocketState::Initialized,
+                                    "Socket initialized", nullptr);
     if (!init_result.success) {
       return VoidResult(Error{-1, init_result.error_message});
     }
   }
-  
+
   // Now transition to connecting
-  auto result = transitionTo(TransportSocketState::Connecting, 
-                            "Connect initiated", nullptr);
+  auto result = transitionTo(TransportSocketState::Connecting,
+                             "Connect initiated", nullptr);
   if (!result.success) {
     return VoidResult(Error{-1, result.error_message});
   }
-  
+
   // Actual connection would happen here
   // For now, just return success
   return makeVoidSuccess();
 }
 
-void TcpTransportSocketStateMachine::closeSocket(network::ConnectionEvent event) {
+void TcpTransportSocketStateMachine::closeSocket(
+    network::ConnectionEvent event) {
   assertInDispatcherThread();
-  
+
   // Transition to shutdown
-  transitionTo(TransportSocketState::ShuttingDown, 
-              "Close requested: " + std::to_string(static_cast<int>(event)),
-              [this](bool) {
-                // After shutdown entry, transition to closed
-                transitionTo(TransportSocketState::Closed, "Shutdown complete", nullptr);
-              });
+  transitionTo(TransportSocketState::ShuttingDown,
+               "Close requested: " + std::to_string(static_cast<int>(event)),
+               [this](bool) {
+                 // After shutdown entry, transition to closed
+                 transitionTo(TransportSocketState::Closed, "Shutdown complete",
+                              nullptr);
+               });
 }
 
 void TcpTransportSocketStateMachine::onConnected() {
   assertInDispatcherThread();
-  
+
   // Handle connection established
   handleConnectionResult(true);
-  
+
   // For TCP, go directly to connected (no handshake)
   transitionTo(TransportSocketState::Connected, "TCP connected", nullptr);
-  
+
   metrics_.connections++;
 }
 
-void TcpTransportSocketStateMachine::onStateEnter(
-    TransportSocketState state,
-    CompletionCallback callback) {
-  
+void TcpTransportSocketStateMachine::onStateEnter(TransportSocketState state,
+                                                  CompletionCallback callback) {
   // Call base implementation first
   TransportSocketStateMachine::onStateEnter(state, callback);
-  
+
   // TCP-specific state entry actions
   switch (state) {
     case TransportSocketState::Connected:
@@ -157,48 +157,46 @@ void TcpTransportSocketStateMachine::onStateEnter(
         handleWrite(*pending_write_data_, false);
       }
       break;
-      
+
     case TransportSocketState::Error:
       // Maybe initiate reconnection
-      if (tcp_config_.enable_auto_reconnect && 
+      if (tcp_config_.enable_auto_reconnect &&
           reconnect_attempts_ < tcp_config_.max_reconnect_attempts) {
         initiateReconnection();
       }
       break;
-      
+
     default:
       break;
   }
 }
 
-void TcpTransportSocketStateMachine::onStateExit(
-    TransportSocketState state,
-    CompletionCallback callback) {
-  
+void TcpTransportSocketStateMachine::onStateExit(TransportSocketState state,
+                                                 CompletionCallback callback) {
   // TCP-specific state exit actions
   updateMetrics();
-  
+
   // Call base implementation
   TransportSocketStateMachine::onStateExit(state, callback);
 }
 
-std::unordered_set<TransportSocketState> 
+std::unordered_set<TransportSocketState>
 TcpTransportSocketStateMachine::getValidTransitions(
     TransportSocketState from) const {
-  
   // Start with base transitions
   auto valid = TransportSocketStateMachine::getValidTransitions(from);
-  
+
   // Add TCP-specific transitions
   // (TCP doesn't need handshake states)
   if (from == TransportSocketState::TcpConnected) {
     valid.insert(TransportSocketState::Connected);
   }
-  
+
   return valid;
 }
 
-void TcpTransportSocketStateMachine::onStateTimeout(TransportSocketState state) {
+void TcpTransportSocketStateMachine::onStateTimeout(
+    TransportSocketState state) {
   // Handle TCP-specific timeouts
   TransportSocketStateMachine::onStateTimeout(state);
 }
@@ -207,34 +205,34 @@ void TcpTransportSocketStateMachine::configureTcpOptions() {
   if (!socket_) {
     return;
   }
-  
+
   // TCP_NODELAY
   if (tcp_config_.tcp_nodelay) {
     int val = 1;
     socket_->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
   }
-  
+
   // Keep-alive
   if (tcp_config_.keep_alive) {
     int val = 1;
     socket_->setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val));
-    
+
 #ifdef TCP_KEEPIDLE
-    socket_->setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE, 
-                            &tcp_config_.keep_alive_idle, 
-                            sizeof(tcp_config_.keep_alive_idle));
+    socket_->setSocketOption(IPPROTO_TCP, TCP_KEEPIDLE,
+                             &tcp_config_.keep_alive_idle,
+                             sizeof(tcp_config_.keep_alive_idle));
 #endif
-    
+
 #ifdef TCP_KEEPINTVL
     socket_->setSocketOption(IPPROTO_TCP, TCP_KEEPINTVL,
-                            &tcp_config_.keep_alive_interval,
-                            sizeof(tcp_config_.keep_alive_interval));
+                             &tcp_config_.keep_alive_interval,
+                             sizeof(tcp_config_.keep_alive_interval));
 #endif
-    
+
 #ifdef TCP_KEEPCNT
     socket_->setSocketOption(IPPROTO_TCP, TCP_KEEPCNT,
-                            &tcp_config_.keep_alive_count,
-                            sizeof(tcp_config_.keep_alive_count));
+                             &tcp_config_.keep_alive_count,
+                             sizeof(tcp_config_.keep_alive_count));
 #endif
   }
 }
@@ -243,41 +241,41 @@ TransportIoResult TcpTransportSocketStateMachine::handleRead(Buffer& buffer) {
   // In real implementation, this would read from socket
   // For now, just return success
   metrics_.bytes_read += buffer.length();
-  
+
   transitionTo(TransportSocketState::Connected, "Read complete", nullptr);
   return TransportIoResult::success(0);
 }
 
-TransportIoResult TcpTransportSocketStateMachine::handleWrite(
-    Buffer& buffer, bool end_stream) {
-  
+TransportIoResult TcpTransportSocketStateMachine::handleWrite(Buffer& buffer,
+                                                              bool end_stream) {
   // In real implementation, this would write to socket
   // For now, just return success
   metrics_.bytes_written += buffer.length();
-  
+
   if (end_stream) {
     transitionTo(TransportSocketState::ShuttingDown, "End stream", nullptr);
   } else {
     transitionTo(TransportSocketState::Connected, "Write complete", nullptr);
   }
-  
+
   return TransportIoResult::success(buffer.length());
 }
 
 void TcpTransportSocketStateMachine::initiateReconnection() {
   reconnect_attempts_++;
   metrics_.reconnections++;
-  
+
   // Schedule reconnection after delay
   reconnect_timer_ = dispatcher_.createTimer([this]() {
     // Transition back to initialized for retry
-    transitionTo(TransportSocketState::Initialized, 
-                "Reconnection attempt " + std::to_string(reconnect_attempts_),
-                nullptr);
+    transitionTo(TransportSocketState::Initialized,
+                 "Reconnection attempt " + std::to_string(reconnect_attempts_),
+                 nullptr);
   });
-  
+
   // Exponential backoff
-  auto delay = tcp_config_.reconnect_delay * (1 << std::min(reconnect_attempts_, 5u));
+  auto delay =
+      tcp_config_.reconnect_delay * (1 << std::min(reconnect_attempts_, 5u));
   reconnect_timer_->enableTimer(delay);
 }
 
@@ -289,11 +287,9 @@ void TcpTransportSocketStateMachine::updateMetrics() {
 // TcpTransportSocketStateMachineFactory Implementation
 // =================================================================
 
-std::unique_ptr<TransportSocketStateMachine> 
+std::unique_ptr<TransportSocketStateMachine>
 TcpTransportSocketStateMachineFactory::createStateMachine(
-    event::Dispatcher& dispatcher,
-    StateMachineConfig config) {
-  
+    event::Dispatcher& dispatcher, StateMachineConfig config) {
   // Create TCP-specific config from base config
   TcpStateMachineConfig tcp_config;
   tcp_config.mode = config.mode;
@@ -306,7 +302,7 @@ TcpTransportSocketStateMachineFactory::createStateMachine(
   tcp_config.max_error_recoveries = config.max_error_recoveries;
   tcp_config.state_change_callback = config.state_change_callback;
   tcp_config.error_callback = config.error_callback;
-  
+
   // TCP defaults from our config
   tcp_config.tcp_nodelay = config_.tcp_nodelay;
   tcp_config.keep_alive = config_.keep_alive;
@@ -318,7 +314,7 @@ TcpTransportSocketStateMachineFactory::createStateMachine(
   tcp_config.enable_auto_reconnect = config_.enable_auto_reconnect;
   tcp_config.reconnect_delay = config_.reconnect_delay;
   tcp_config.max_reconnect_attempts = config_.max_reconnect_attempts;
-  
+
   // Can't create standalone state machine without connection
   // This would normally be created with a connection
   return nullptr;

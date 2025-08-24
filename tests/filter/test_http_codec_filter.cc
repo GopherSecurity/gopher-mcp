@@ -15,10 +15,10 @@
 #include <gtest/gtest.h>
 
 #include "mcp/filter/http_codec_filter.h"
+#include "mcp/network/address.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/socket_impl.h"
-#include "mcp/network/address.h"
 
 #include "../integration/real_io_test_base.h"
 
@@ -209,7 +209,7 @@ class TestWriteFilterCallbacks : public network::WriteFilterCallbacks {
 };
 #endif
 
-// Obsolete - using real connections now  
+// Obsolete - using real connections now
 #if 0
 class StubReadFilterCallbacks : public network::ReadFilterCallbacks {
  public:
@@ -259,39 +259,36 @@ class HttpCodecFilterRealIoTest : public test::RealIoTestBase,
     executeInDispatcher([this]() {
       // Create socket pair for real I/O
       auto socket_pair = createSocketPair();
-      
+
       // Create server connection (where we'll add the filter)
       auto server_socket = std::make_unique<network::ConnectionSocketImpl>(
           std::move(socket_pair.second),
           network::Address::pipeAddress("server"),
           network::Address::pipeAddress("client"));
-      
+
       server_connection_ = std::make_unique<network::ConnectionImpl>(
-          *dispatcher_,
-          std::move(server_socket),
+          *dispatcher_, std::move(server_socket),
           network::TransportSocketPtr(nullptr),
-          true); // connected
-      
+          true);  // connected
+
       // Create client connection (for sending test data)
       auto client_socket = std::make_unique<network::ConnectionSocketImpl>(
-          std::move(socket_pair.first),
-          network::Address::pipeAddress("client"),
+          std::move(socket_pair.first), network::Address::pipeAddress("client"),
           network::Address::pipeAddress("server"));
-      
+
       client_connection_ = std::make_unique<network::ConnectionImpl>(
-          *dispatcher_,
-          std::move(client_socket),
+          *dispatcher_, std::move(client_socket),
           network::TransportSocketPtr(nullptr),
-          true); // connected
-      
+          true);  // connected
+
       // Add connection callbacks
       server_connection_->addConnectionCallbacks(*this);
       client_connection_->addConnectionCallbacks(*this);
-      
+
       // Create and add filter to server connection
-      filter_ = std::make_shared<HttpCodecFilter>(*request_callbacks_,
-                                                  *dispatcher_, true); // server mode
-      
+      filter_ = std::make_shared<HttpCodecFilter>(
+          *request_callbacks_, *dispatcher_, true);  // server mode
+
       server_connection_->filterManager().addReadFilter(filter_);
       server_connection_->filterManager().addWriteFilter(filter_);
       server_connection_->filterManager().initializeReadFilters();
@@ -307,7 +304,7 @@ class HttpCodecFilterRealIoTest : public test::RealIoTestBase,
       if (server_connection_) {
         server_connection_->close(network::ConnectionCloseType::NoFlush);
       }
-      
+
       filter_.reset();
       client_connection_.reset();
       server_connection_.reset();
@@ -316,7 +313,7 @@ class HttpCodecFilterRealIoTest : public test::RealIoTestBase,
     request_callbacks_.reset();
     test::RealIoTestBase::TearDown();
   }
-  
+
   // ConnectionCallbacks
   void onEvent(network::ConnectionEvent event) override {}
   void onAboveWriteBufferHighWatermark() override {}
@@ -493,21 +490,21 @@ TEST_F(HttpCodecFilterRealIoTest, SimpleResponse) {
   // First send a request so the server knows HTTP version
   auto request = createHttpRequest("GET", "/test", {{"Host", "example.com"}});
   processHttpRequest(request);
-  
+
   // Wait for request to be processed
   ASSERT_TRUE(request_callbacks_->waitForComplete());
-  
+
   // Now test server writing a response
   executeInDispatcher([this]() {
     // Server writes JSON response through filter
     OwnedBuffer response_buffer;
     std::string json = "{\"status\":\"ok\"}";
     response_buffer.add(json.c_str(), json.length());
-    
+
     // This goes through the HttpCodecFilter which wraps it in HTTP
     server_connection_->write(response_buffer, false);
   });
-  
+
   // The response is sent to client, but we'd need a client filter to parse it
   // For now, just verify no crash and filter processed it
   std::this_thread::sleep_for(50ms);
@@ -515,22 +512,21 @@ TEST_F(HttpCodecFilterRealIoTest, SimpleResponse) {
 
 TEST_F(HttpCodecFilterRealIoTest, ResponseWithBody) {
   // First send a request
-  auto request = createHttpRequest("POST", "/test", 
-                                  {{"Host", "example.com"}},
-                                  "request_body");
+  auto request = createHttpRequest("POST", "/test", {{"Host", "example.com"}},
+                                   "request_body");
   processHttpRequest(request);
-  
+
   ASSERT_TRUE(request_callbacks_->waitForComplete());
-  
+
   std::string response_body = "{\"status\": \"success\"}";
-  
+
   // Server sends response with body
   executeInDispatcher([this, &response_body]() {
     OwnedBuffer response_buffer;
     response_buffer.add(response_body.c_str(), response_body.length());
     server_connection_->write(response_buffer, false);
   });
-  
+
   // Response is sent to client
   std::this_thread::sleep_for(50ms);
 }

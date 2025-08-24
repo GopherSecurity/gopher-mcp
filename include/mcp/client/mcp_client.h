@@ -46,9 +46,9 @@ namespace mcp {
 namespace client {
 
 // Import JSON-RPC types
-using ::mcp::jsonrpc::Response;
-using ::mcp::jsonrpc::Request;
 using ::mcp::jsonrpc::Notification;
+using ::mcp::jsonrpc::Request;
+using ::mcp::jsonrpc::Response;
 
 // Forward declarations
 class RequestTracker;
@@ -96,7 +96,7 @@ struct McpClientConfig : public application::ApplicationBase::Config {
 
   // Capabilities
   ClientCapabilities capabilities;
-  
+
   // Protocol state machine configuration
   std::chrono::milliseconds protocol_initialization_timeout{30000};
   std::chrono::milliseconds protocol_connection_timeout{10000};
@@ -150,7 +150,7 @@ struct RequestContext {
   size_t retry_count{0};
   bool is_batch{false};
   optional<ProgressToken> progress_token;
-  
+
   // Timer-based timeout management
   event::TimerPtr timeout_timer;
   bool timeout_enabled{false};
@@ -158,7 +158,7 @@ struct RequestContext {
 
   RequestContext(const RequestId& id, const std::string& method)
       : id(id), method(method), start_time(std::chrono::steady_clock::now()) {}
-  
+
   ~RequestContext() {
     // Ensure timer is cleaned up
     if (timeout_timer && timeout_enabled) {
@@ -433,8 +433,8 @@ class McpClient : public application::ApplicationBase {
   std::future<InitializeResult> initializeProtocol();
 
   // Request methods with future-based async API
-  std::future<Response> sendRequest(
-      const std::string& method, const optional<Metadata>& params = nullopt);
+  std::future<Response> sendRequest(const std::string& method,
+                                    const optional<Metadata>& params = nullopt);
 
   // Batch processing - sends multiple requests efficiently
   std::vector<std::future<Response>> sendBatch(
@@ -526,7 +526,7 @@ class McpClient : public application::ApplicationBase {
   void sendRequestInternal(std::shared_ptr<RequestContext> context);
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
-  
+
   // Timer-based timeout management following production patterns
   void enableRequestTimeout(std::shared_ptr<RequestContext> context);
   void disableRequestTimeout(std::shared_ptr<RequestContext> context);
@@ -592,7 +592,7 @@ class McpClient : public application::ApplicationBase {
   // Protocol state
   bool initialized_{false};
   ServerCapabilities server_capabilities_;
-  
+
   // Protocol state machine for managing MCP protocol lifecycle
   std::unique_ptr<protocol::McpProtocolStateMachine> protocol_state_machine_;
 
@@ -603,10 +603,11 @@ class McpClient : public application::ApplicationBase {
   // Timer handles for periodic tasks
   event::TimerPtr timeout_timer_;
   event::TimerPtr retry_timer_;
-  
+
   // Protocol state coordination
   void coordinateProtocolState();
-  void handleProtocolStateChange(const protocol::ProtocolStateTransitionContext& context);
+  void handleProtocolStateChange(
+      const protocol::ProtocolStateTransitionContext& context);
 };
 
 /**

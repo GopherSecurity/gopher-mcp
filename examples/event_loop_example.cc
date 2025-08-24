@@ -1,14 +1,16 @@
+#include <atomic>
+#include <chrono>
+#include <fcntl.h>
+#include <iostream>
+#include <thread>
+#include <unistd.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 #include "mcp/event/event_loop.h"
 #include "mcp/event/libevent_dispatcher.h"
-#include <iostream>
-#include <chrono>
-#include <thread>
-#include <atomic>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 using namespace mcp::event;
 using namespace std::chrono_literals;
@@ -17,7 +19,7 @@ using namespace std::chrono_literals;
  * Simple echo server example using the MCP event loop
  */
 class EchoServer {
-public:
+ public:
   EchoServer(Dispatcher& dispatcher, int port)
       : dispatcher_(dispatcher), port_(port) {}
 
@@ -31,7 +33,8 @@ public:
 
     // Set socket options
     int opt = 1;
-    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) <
+        0) {
       std::cerr << "Failed to set socket options\n";
       return false;
     }
@@ -60,11 +63,8 @@ public:
 
     // Create file event for accepting connections
     accept_event_ = dispatcher_.createFileEvent(
-        server_fd_,
-        [this](uint32_t events) { handleAccept(events); },
-        FileTriggerType::Level,
-        static_cast<uint32_t>(FileReadyType::Read)
-    );
+        server_fd_, [this](uint32_t events) { handleAccept(events); },
+        FileTriggerType::Level, static_cast<uint32_t>(FileReadyType::Read));
 
     return true;
   }
@@ -78,7 +78,7 @@ public:
     }
   }
 
-private:
+ private:
   struct Connection {
     int fd;
     FileEventPtr event;
@@ -93,11 +93,12 @@ private:
     while (true) {
       struct sockaddr_in client_addr;
       socklen_t client_len = sizeof(client_addr);
-      
-      int client_fd = accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
+
+      int client_fd =
+          accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
       if (client_fd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-          break; // No more connections
+          break;  // No more connections
         }
         std::cerr << "Accept failed\n";
         break;
@@ -106,21 +107,19 @@ private:
       // Make non-blocking
       fcntl(client_fd, F_SETFL, O_NONBLOCK);
 
-      std::cout << "New connection from " 
-                << inet_ntoa(client_addr.sin_addr) 
+      std::cout << "New connection from " << inet_ntoa(client_addr.sin_addr)
                 << ":" << ntohs(client_addr.sin_port) << "\n";
 
       // Create connection object
       auto conn = std::make_shared<Connection>();
       conn->fd = client_fd;
-      
+
       // Create file event for this connection
       conn->event = dispatcher_.createFileEvent(
           client_fd,
           [this, conn](uint32_t events) { handleConnection(conn, events); },
           FileTriggerType::Level,
-          static_cast<uint32_t>(FileReadyType::Read | FileReadyType::Write)
-      );
+          static_cast<uint32_t>(FileReadyType::Read | FileReadyType::Write));
 
       connections_[client_fd] = conn;
     }
@@ -142,7 +141,7 @@ private:
           return;
         } else {
           if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break; // No more data
+            break;  // No more data
           }
           // Error
           std::cerr << "Read error\n";
@@ -153,14 +152,15 @@ private:
       }
     }
 
-    if (events & static_cast<uint32_t>(FileReadyType::Write) && !conn->buffer.empty()) {
+    if (events & static_cast<uint32_t>(FileReadyType::Write) &&
+        !conn->buffer.empty()) {
       while (!conn->buffer.empty()) {
         ssize_t n = write(conn->fd, conn->buffer.data(), conn->buffer.size());
         if (n > 0) {
           conn->buffer.erase(0, n);
         } else {
           if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break; // Can't write more now
+            break;  // Can't write more now
           }
           // Error
           std::cerr << "Write error\n";
@@ -188,7 +188,7 @@ int main(int argc, char* argv[]) {
   // Parse command line
   int port = 8080;
   int num_workers = 4;
-  
+
   if (argc > 1) {
     port = std::atoi(argv[1]);
   }
@@ -211,14 +211,14 @@ int main(int argc, char* argv[]) {
   for (size_t i = 0; i < thread_pool->size(); ++i) {
     auto& worker = thread_pool->getWorker(i);
     auto server = std::make_unique<EchoServer>(worker.dispatcher(), port + i);
-    
+
     // Start server in worker thread
     worker.dispatcher().post([&server]() {
       if (!server->start()) {
         std::cerr << "Failed to start server\n";
       }
     });
-    
+
     servers.push_back(std::move(server));
   }
 

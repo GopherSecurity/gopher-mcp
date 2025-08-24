@@ -1,12 +1,13 @@
-#include "mcp/network/filter.h"
-#include "mcp/network/filter_chain_state_machine.h"
+#include <algorithm>
+#include <iostream>
+#include <list>
+
+#include "mcp/buffer.h"
+#include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/connection_impl.h"
-#include "mcp/event/event_loop.h"
-#include "mcp/buffer.h"
-#include <algorithm>
-#include <list>
-#include <iostream>
+#include "mcp/network/filter.h"
+#include "mcp/network/filter_chain_state_machine.h"
 
 namespace mcp {
 namespace network {
@@ -55,15 +56,15 @@ bool FilterManagerImpl::initializeReadFilters() {
   // This ensures we're in the dispatcher thread when creating the state machine
   if (!state_machine_ && dispatcher_) {
     FilterChainConfig config;
-    config.state_change_callback = [this](FilterChainState from, FilterChainState to, 
-                                          const std::string& reason) {
-      onStateChanged(from, to);
-    };
-    
+    config.state_change_callback =
+        [this](FilterChainState from, FilterChainState to,
+               const std::string& reason) { onStateChanged(from, to); };
+
     // Cast FilterManagerConnection to Connection
     Connection* conn = dynamic_cast<Connection*>(&connection_);
     if (conn) {
-      state_machine_ = std::make_unique<FilterChainStateMachine>(*dispatcher_, *conn, config);
+      state_machine_ = std::make_unique<FilterChainStateMachine>(*dispatcher_,
+                                                                 *conn, config);
       configureStateMachine();
       state_machine_->initialize();
     }
@@ -76,7 +77,7 @@ bool FilterManagerImpl::initializeReadFilters() {
       state_machine_->addReadFilter(filter, "read_filter");
     }
   }
-  
+
   for (auto it = write_filters_.rbegin(); it != write_filters_.rend(); ++it) {
     (*it)->initializeWriteFilterCallbacks(*this);
     // Add filter to state machine
@@ -86,7 +87,7 @@ bool FilterManagerImpl::initializeReadFilters() {
   }
 
   initialized_ = true;
-  
+
   // Start the filter chain - transitions to Active state
   if (state_machine_) {
     state_machine_->start();
@@ -100,23 +101,26 @@ void FilterManagerImpl::onRead() {
   }
 
   // Transition to Processing state when reading starts
-  // if (state_machine_ && state_machine_->getCurrentState() == FilterChainState::Idle) {
+  // if (state_machine_ && state_machine_->getCurrentState() ==
+  // FilterChainState::Idle) {
   //   state_machine_->transition(FilterChainState::Processing);
   // }
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
-  
+
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);
-  
+
   // Return to Idle state after processing
-  // if (state_machine_ && state_machine_->getCurrentState() == FilterChainState::Processing) {
+  // if (state_machine_ && state_machine_->getCurrentState() ==
+  // FilterChainState::Processing) {
   //   state_machine_->transition(FilterChainState::Idle);
   // }
 }
 
-FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer, bool end_stream) {
+FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer,
+                                                  bool end_stream) {
   if (current_read_filter_ == read_filters_.end()) {
     return FilterStatus::StopIteration;
   }
@@ -156,26 +160,27 @@ FilterStatus FilterManagerImpl::onWrite() {
   // the buffer being processed during write() call
   Buffer* current_buffer = connection_.currentWriteBuffer();
   bool end_stream = connection_.currentWriteEndStream();
-  
+
   if (!current_buffer) {
     return FilterStatus::Continue;
   }
-  
+
   // Process through write filters
   current_write_filter_ = write_filters_.begin();
   FilterStatus status = onContinueWriting(*current_buffer, end_stream);
-  
-  
+
   return status;
 }
 
-FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer, bool end_stream) {
+FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer,
+                                                  bool end_stream) {
   if (current_write_filter_ == write_filters_.end()) {
     return FilterStatus::Continue;
   }
 
-  // No buffered data needed - we're processing the current write buffer directly
-  
+  // No buffered data needed - we're processing the current write buffer
+  // directly
+
   std::vector<WriteFilterSharedPtr>::iterator entry = current_write_filter_;
   current_write_filter_ = write_filters_.end();
 
@@ -197,25 +202,28 @@ void FilterManagerImpl::onConnectionEvent(ConnectionEvent event) {
     return;
   }
 
-  if (event == ConnectionEvent::Connected || event == ConnectionEvent::ConnectedZeroRtt) {
+  if (event == ConnectionEvent::Connected ||
+      event == ConnectionEvent::ConnectedZeroRtt) {
     upstream_filters_initialized_ = false;
     callOnConnectionEvent(event);
-  } else if (event == ConnectionEvent::RemoteClose || event == ConnectionEvent::LocalClose) {
+  } else if (event == ConnectionEvent::RemoteClose ||
+             event == ConnectionEvent::LocalClose) {
     callOnConnectionEvent(event);
   }
 }
 
 void FilterManagerImpl::callOnConnectionEvent(ConnectionEvent event) {
   for (auto& filter : read_filters_) {
-    if (event == ConnectionEvent::Connected || event == ConnectionEvent::ConnectedZeroRtt) {
+    if (event == ConnectionEvent::Connected ||
+        event == ConnectionEvent::ConnectedZeroRtt) {
       filter->onNewConnection();
     }
   }
 }
 
 Connection& FilterManagerImpl::connection() {
-  // The connection_ member is a FilterManagerConnection& which is actually a Connection&
-  // since Connection inherits from FilterManagerConnection
+  // The connection_ member is a FilterManagerConnection& which is actually a
+  // Connection& since Connection inherits from FilterManagerConnection
   return dynamic_cast<Connection&>(connection_);
 }
 
@@ -229,46 +237,50 @@ bool FilterManagerImpl::shouldContinueFilterChain() {
   return current_read_filter_ != read_filters_.end();
 }
 
-void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data, bool end_stream) {
+void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data,
+                                                     bool end_stream) {
   // This method is deprecated in favor of the production pattern
   // where connection sets current_write_buffer_ and calls onWrite()
   // Keeping stub for interface compatibility
-  std::cerr << "[DEBUG] injectWriteDataToFilterChain called (deprecated)" << std::endl;
+  std::cerr << "[DEBUG] injectWriteDataToFilterChain called (deprecated)"
+            << std::endl;
 }
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {
-  return connection_.writeBuffer().length() > 1024 * 1024; // 1MB default
+  return connection_.writeBuffer().length() > 1024 * 1024;  // 1MB default
 }
 
-void FilterManagerImpl::onStateChanged(FilterChainState old_state, FilterChainState new_state) {
+void FilterManagerImpl::onStateChanged(FilterChainState old_state,
+                                       FilterChainState new_state) {
   // Handle state transitions
   // This method will be called by the state machine on state changes
-  
+
   // Log state transitions for debugging
   // TODO: Add proper logging
-  // CONN_LOG(debug, "Filter chain state transition: {} -> {}", 
-  //               connection_, FilterChainStateMachine::getStateName(old_state),
+  // CONN_LOG(debug, "Filter chain state transition: {} -> {}",
+  //               connection_,
+  //               FilterChainStateMachine::getStateName(old_state),
   //               FilterChainStateMachine::getStateName(new_state));
-  
+
   // Handle specific state transitions
   switch (new_state) {
     case FilterChainState::Active:
       // Filter chain is now active and processing
       break;
-      
+
     case FilterChainState::Paused:
       // Filter chain is paused, possibly due to backpressure
       break;
-      
+
     case FilterChainState::Failed:
       // Handle error state
       // connection_.close(ConnectionCloseType::NoFlush);
       break;
-      
+
     case FilterChainState::Aborting:
       // Clean up resources after abort
       break;
-      
+
     default:
       break;
   }
@@ -277,12 +289,12 @@ void FilterManagerImpl::onStateChanged(FilterChainState old_state, FilterChainSt
 void FilterManagerImpl::configureStateMachine() {
   // Configure state machine behavior
   // This would be called during initialization
-  
+
   // Set up entry/exit actions for states if needed
   // state_machine_->setEntryAction(FilterChainState::Active, [this]() {
   //   // Actions when entering Active state
   // });
-  
+
   // state_machine_->setExitAction(FilterChainState::Processing, [this]() {
   //   // Actions when exiting Processing state
   // });
@@ -290,7 +302,8 @@ void FilterManagerImpl::configureStateMachine() {
 
 // FilterChainFactoryImpl implementation
 
-bool FilterChainFactoryImpl::createFilterChain(FilterManager& filter_manager) const {
+bool FilterChainFactoryImpl::createFilterChain(
+    FilterManager& filter_manager) const {
   return createNetworkFilterChain(filter_manager, filter_factories_);
 }
 
@@ -307,11 +320,12 @@ bool FilterChainFactoryImpl::createNetworkFilterChain(
   return true;
 }
 
-bool FilterChainFactoryImpl::createListenerFilterChain(FilterManager& filter_manager) const {
+bool FilterChainFactoryImpl::createListenerFilterChain(
+    FilterManager& filter_manager) const {
   // Listener filters would be added here
-  (void)filter_manager; // Suppress unused parameter warning
+  (void)filter_manager;  // Suppress unused parameter warning
   return true;
 }
 
-} // namespace network
-} // namespace mcp
+}  // namespace network
+}  // namespace mcp

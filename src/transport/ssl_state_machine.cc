@@ -1,7 +1,7 @@
 /**
  * @file ssl_state_machine.cc
  * @brief Async-only SSL/TLS state machine implementation
- * 
+ *
  * Lock-free implementation that runs entirely in dispatcher thread.
  * No mutexes needed - uses event loop serialization for thread safety.
  */
@@ -14,10 +14,10 @@
 // For ASSERT macro in debug builds
 #ifdef DEBUG
 #define ASSERT(condition) \
-  do { \
-    if (!(condition)) { \
-      abort(); \
-    } \
+  do {                    \
+    if (!(condition)) {   \
+      abort();            \
+    }                     \
   } while (0)
 #endif
 
@@ -28,19 +28,19 @@ namespace transport {
 // SslStateMachine Implementation
 // =============================================================================
 
-SslStateMachine::SslStateMachine(SslSocketMode mode, event::Dispatcher& dispatcher)
-    : mode_(mode), 
+SslStateMachine::SslStateMachine(SslSocketMode mode,
+                                 event::Dispatcher& dispatcher)
+    : mode_(mode),
       dispatcher_(dispatcher),
       current_state_(SslSocketState::Uninitialized),
       state_entry_time_(std::chrono::steady_clock::now()) {
-  
   // Initialize valid transitions based on mode
   if (mode_ == SslSocketMode::Client) {
     initializeClientTransitions();
   } else {
     initializeServerTransitions();
   }
-  
+
   // Record initial state
   recordStateTransition(current_state_);
 }
@@ -54,28 +54,29 @@ SslStateMachine::~SslStateMachine() {
 
 // getCurrentState() is defined inline in header
 
-bool SslStateMachine::canTransition(SslSocketState from, SslSocketState to) const {
+bool SslStateMachine::canTransition(SslSocketState from,
+                                    SslSocketState to) const {
   assertInDispatcherThread();
-  
+
   // Check basic transition map
   if (!isValidTransition(from, to)) {
     return false;
   }
-  
+
   // Apply custom validators
   for (const auto& validator : custom_validators_) {
     if (!validator(from, to)) {
       return false;
     }
   }
-  
+
   return true;
 }
 
 void SslStateMachine::transition(SslSocketState new_state,
-                                TransitionCompleteCallback callback) {
+                                 TransitionCompleteCallback callback) {
   assertInDispatcherThread();
-  
+
   // Prevent reentrancy during async operations
   if (transition_in_progress_) {
     if (callback) {
@@ -83,43 +84,43 @@ void SslStateMachine::transition(SslSocketState new_state,
     }
     return;
   }
-  
+
   SslSocketState old_state = current_state_;
-  
+
   // Validate transition
   if (!canTransition(old_state, new_state)) {
     std::stringstream ss;
-    ss << "Invalid transition from " << getStateName(old_state) 
-       << " to " << getStateName(new_state) 
-       << " in " << (mode_ == SslSocketMode::Client ? "client" : "server") << " mode";
-    
+    ss << "Invalid transition from " << getStateName(old_state) << " to "
+       << getStateName(new_state) << " in "
+       << (mode_ == SslSocketMode::Client ? "client" : "server") << " mode";
+
     if (callback) {
       callback(false, ss.str());
     }
     return;
   }
-  
+
   // Set transition in progress flag
   transition_in_progress_ = true;
-  
+
   // Execute async exit action for current state
   executeExitAction(old_state, [this, old_state, new_state, callback]() {
     // After exit action completes, update state
     current_state_ = new_state;
     state_entry_time_ = std::chrono::steady_clock::now();
     recordStateTransition(new_state);
-    
+
     // Cancel any existing state timeout
     cancelStateTimeout();
-    
+
     // Execute async entry action for new state
     executeEntryAction(new_state, [this, old_state, new_state, callback]() {
       // After entry action completes, notify observers
       notifyStateChange(old_state, new_state);
-      
+
       // Clear transition in progress flag
       transition_in_progress_ = false;
-      
+
       // Invoke completion callback
       if (callback) {
         callback(true, "");
@@ -130,21 +131,21 @@ void SslStateMachine::transition(SslSocketState new_state,
 
 void SslStateMachine::forceTransition(SslSocketState new_state) {
   assertInDispatcherThread();
-  
+
   // Force transition bypasses validation but still uses async flow
   transition_in_progress_ = true;
   SslSocketState old_state = current_state_;
-  
+
   // Execute async exit action
   executeExitAction(old_state, [this, old_state, new_state]() {
     // Force state change
     current_state_ = new_state;
     state_entry_time_ = std::chrono::steady_clock::now();
     recordStateTransition(new_state);
-    
+
     // Cancel any existing state timeout
     cancelStateTimeout();
-    
+
     // Execute async entry action
     executeEntryAction(new_state, [this, old_state, new_state]() {
       // Notify observers
@@ -166,46 +167,83 @@ void SslStateMachine::removeStateChangeListener(uint32_t listener_id) {
   state_listeners_.erase(listener_id);
 }
 
-// setEntryAction, setExitAction, and addTransitionValidator are defined inline in header
+// setEntryAction, setExitAction, and addTransitionValidator are defined inline
+// in header
 
 std::string SslStateMachine::getStateName(SslSocketState state) {
   switch (state) {
-    case SslSocketState::Uninitialized: return "Uninitialized";
-    case SslSocketState::Initialized: return "Initialized";
-    case SslSocketState::Connecting: return "Connecting";
-    case SslSocketState::TcpConnected: return "TcpConnected";
-    case SslSocketState::ClientHandshakeInit: return "ClientHandshakeInit";
-    case SslSocketState::ClientHelloSent: return "ClientHelloSent";
-    case SslSocketState::ServerHelloReceived: return "ServerHelloReceived";
-    case SslSocketState::ClientCertRequested: return "ClientCertRequested";
-    case SslSocketState::ClientCertSent: return "ClientCertSent";
-    case SslSocketState::ClientKeyExchange: return "ClientKeyExchange";
-    case SslSocketState::ClientChangeCipherSpec: return "ClientChangeCipherSpec";
-    case SslSocketState::ClientFinished: return "ClientFinished";
-    case SslSocketState::ServerHandshakeInit: return "ServerHandshakeInit";
-    case SslSocketState::ClientHelloReceived: return "ClientHelloReceived";
-    case SslSocketState::ServerHelloSent: return "ServerHelloSent";
-    case SslSocketState::ServerCertSent: return "ServerCertSent";
-    case SslSocketState::ServerKeyExchange: return "ServerKeyExchange";
-    case SslSocketState::ServerCertRequest: return "ServerCertRequest";
-    case SslSocketState::ServerHelloDone: return "ServerHelloDone";
-    case SslSocketState::ClientCertReceived: return "ClientCertReceived";
-    case SslSocketState::ServerChangeCipherSpec: return "ServerChangeCipherSpec";
-    case SslSocketState::ServerFinished: return "ServerFinished";
-    case SslSocketState::HandshakeWantRead: return "HandshakeWantRead";
-    case SslSocketState::HandshakeWantWrite: return "HandshakeWantWrite";
-    case SslSocketState::HandshakeWantAsync: return "HandshakeWantAsync";
-    case SslSocketState::CertificateValidating: return "CertificateValidating";
-    case SslSocketState::Connected: return "Connected";
-    case SslSocketState::RenegotiationRequested: return "RenegotiationRequested";
-    case SslSocketState::RenegotiationInProgress: return "RenegotiationInProgress";
-    case SslSocketState::ShutdownInitiated: return "ShutdownInitiated";
-    case SslSocketState::ShutdownSent: return "ShutdownSent";
-    case SslSocketState::ShutdownReceived: return "ShutdownReceived";
-    case SslSocketState::ShutdownComplete: return "ShutdownComplete";
-    case SslSocketState::Closed: return "Closed";
-    case SslSocketState::Error: return "Error";
-    default: return "Unknown";
+    case SslSocketState::Uninitialized:
+      return "Uninitialized";
+    case SslSocketState::Initialized:
+      return "Initialized";
+    case SslSocketState::Connecting:
+      return "Connecting";
+    case SslSocketState::TcpConnected:
+      return "TcpConnected";
+    case SslSocketState::ClientHandshakeInit:
+      return "ClientHandshakeInit";
+    case SslSocketState::ClientHelloSent:
+      return "ClientHelloSent";
+    case SslSocketState::ServerHelloReceived:
+      return "ServerHelloReceived";
+    case SslSocketState::ClientCertRequested:
+      return "ClientCertRequested";
+    case SslSocketState::ClientCertSent:
+      return "ClientCertSent";
+    case SslSocketState::ClientKeyExchange:
+      return "ClientKeyExchange";
+    case SslSocketState::ClientChangeCipherSpec:
+      return "ClientChangeCipherSpec";
+    case SslSocketState::ClientFinished:
+      return "ClientFinished";
+    case SslSocketState::ServerHandshakeInit:
+      return "ServerHandshakeInit";
+    case SslSocketState::ClientHelloReceived:
+      return "ClientHelloReceived";
+    case SslSocketState::ServerHelloSent:
+      return "ServerHelloSent";
+    case SslSocketState::ServerCertSent:
+      return "ServerCertSent";
+    case SslSocketState::ServerKeyExchange:
+      return "ServerKeyExchange";
+    case SslSocketState::ServerCertRequest:
+      return "ServerCertRequest";
+    case SslSocketState::ServerHelloDone:
+      return "ServerHelloDone";
+    case SslSocketState::ClientCertReceived:
+      return "ClientCertReceived";
+    case SslSocketState::ServerChangeCipherSpec:
+      return "ServerChangeCipherSpec";
+    case SslSocketState::ServerFinished:
+      return "ServerFinished";
+    case SslSocketState::HandshakeWantRead:
+      return "HandshakeWantRead";
+    case SslSocketState::HandshakeWantWrite:
+      return "HandshakeWantWrite";
+    case SslSocketState::HandshakeWantAsync:
+      return "HandshakeWantAsync";
+    case SslSocketState::CertificateValidating:
+      return "CertificateValidating";
+    case SslSocketState::Connected:
+      return "Connected";
+    case SslSocketState::RenegotiationRequested:
+      return "RenegotiationRequested";
+    case SslSocketState::RenegotiationInProgress:
+      return "RenegotiationInProgress";
+    case SslSocketState::ShutdownInitiated:
+      return "ShutdownInitiated";
+    case SslSocketState::ShutdownSent:
+      return "ShutdownSent";
+    case SslSocketState::ShutdownReceived:
+      return "ShutdownReceived";
+    case SslSocketState::ShutdownComplete:
+      return "ShutdownComplete";
+    case SslSocketState::Closed:
+      return "Closed";
+    case SslSocketState::Error:
+      return "Error";
+    default:
+      return "Unknown";
   }
 }
 
@@ -226,176 +264,128 @@ bool SslStateMachine::isWaitingForIo() const {
 std::chrono::milliseconds SslStateMachine::getTimeInCurrentState() const {
   assertInDispatcherThread();
   auto now = std::chrono::steady_clock::now();
-  return std::chrono::duration_cast<std::chrono::milliseconds>(now - state_entry_time_);
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      now - state_entry_time_);
 }
 
-std::vector<std::pair<SslSocketState, std::chrono::steady_clock::time_point>> 
+std::vector<std::pair<SslSocketState, std::chrono::steady_clock::time_point>>
 SslStateMachine::getStateHistory(size_t max_entries) const {
   assertInDispatcherThread();
-  
+
   size_t start = 0;
   if (state_history_.size() > max_entries) {
     start = state_history_.size() - max_entries;
   }
-  
-  return std::vector<std::pair<SslSocketState, std::chrono::steady_clock::time_point>>(
+
+  return std::vector<
+      std::pair<SslSocketState, std::chrono::steady_clock::time_point>>(
       state_history_.begin() + start, state_history_.end());
 }
 
 void SslStateMachine::initializeClientTransitions() {
   // Initial transitions
   valid_transitions_[SslSocketState::Uninitialized] = {
-    SslSocketState::Initialized,
-    SslSocketState::Error
-  };
-  
-  valid_transitions_[SslSocketState::Initialized] = {
-    SslSocketState::Connecting,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Initialized, SslSocketState::Error};
+
+  valid_transitions_[SslSocketState::Initialized] = {SslSocketState::Connecting,
+                                                     SslSocketState::Closed,
+                                                     SslSocketState::Error};
+
   // Connection transitions
   valid_transitions_[SslSocketState::Connecting] = {
-    SslSocketState::TcpConnected,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::TcpConnected, SslSocketState::Closed,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::TcpConnected] = {
-    SslSocketState::ClientHandshakeInit,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHandshakeInit, SslSocketState::Closed,
+      SslSocketState::Error};
+
   // Client handshake transitions
   valid_transitions_[SslSocketState::ClientHandshakeInit] = {
-    SslSocketState::ClientHelloSent,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHelloSent, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientHelloSent] = {
-    SslSocketState::ServerHelloReceived,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHelloReceived, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerHelloReceived] = {
-    SslSocketState::ClientCertRequested,
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::CertificateValidating,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientCertRequested, SslSocketState::ClientKeyExchange,
+      SslSocketState::CertificateValidating, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientCertRequested] = {
-    SslSocketState::ClientCertSent,
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::HandshakeWantAsync,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientCertSent, SslSocketState::ClientKeyExchange,
+      SslSocketState::HandshakeWantAsync, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientCertSent] = {
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientKeyExchange, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientKeyExchange] = {
-    SslSocketState::ClientChangeCipherSpec,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientChangeCipherSpec,
+      SslSocketState::HandshakeWantWrite, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientChangeCipherSpec] = {
-    SslSocketState::ClientFinished,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientFinished, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientFinished] = {
-    SslSocketState::Connected,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Connected, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   // Async handshake states
   valid_transitions_[SslSocketState::HandshakeWantRead] = {
-    SslSocketState::ClientHelloSent,
-    SslSocketState::ServerHelloReceived,
-    SslSocketState::ClientFinished,
-    SslSocketState::Connected,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHelloSent, SslSocketState::ServerHelloReceived,
+      SslSocketState::ClientFinished, SslSocketState::Connected,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::HandshakeWantWrite] = {
-    SslSocketState::ClientHandshakeInit,
-    SslSocketState::ClientCertSent,
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::ClientChangeCipherSpec,
-    SslSocketState::ClientFinished,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHandshakeInit,
+      SslSocketState::ClientCertSent,
+      SslSocketState::ClientKeyExchange,
+      SslSocketState::ClientChangeCipherSpec,
+      SslSocketState::ClientFinished,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::HandshakeWantAsync] = {
-    SslSocketState::ClientCertSent,
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientCertSent, SslSocketState::ClientKeyExchange,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::CertificateValidating] = {
-    SslSocketState::ClientKeyExchange,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientKeyExchange, SslSocketState::Error};
+
   // Connected state transitions
   valid_transitions_[SslSocketState::Connected] = {
-    SslSocketState::RenegotiationRequested,  // TLS 1.2 only
-    SslSocketState::ShutdownInitiated,
-    SslSocketState::ShutdownReceived,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::RenegotiationRequested,  // TLS 1.2 only
+      SslSocketState::ShutdownInitiated, SslSocketState::ShutdownReceived,
+      SslSocketState::Error};
+
   // Renegotiation transitions (TLS 1.2)
   valid_transitions_[SslSocketState::RenegotiationRequested] = {
-    SslSocketState::RenegotiationInProgress,
-    SslSocketState::Connected,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::RenegotiationInProgress, SslSocketState::Connected,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::RenegotiationInProgress] = {
-    SslSocketState::Connected,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Connected, SslSocketState::HandshakeWantRead,
+      SslSocketState::HandshakeWantWrite, SslSocketState::Error};
+
   // Shutdown transitions
   valid_transitions_[SslSocketState::ShutdownInitiated] = {
-    SslSocketState::ShutdownSent,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownSent, SslSocketState::Closed,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownSent] = {
-    SslSocketState::ShutdownReceived,
-    SslSocketState::ShutdownComplete,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownReceived, SslSocketState::ShutdownComplete,
+      SslSocketState::Closed, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownReceived] = {
-    SslSocketState::ShutdownSent,
-    SslSocketState::ShutdownComplete,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownSent, SslSocketState::ShutdownComplete,
+      SslSocketState::Closed, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownComplete] = {
-    SslSocketState::Closed
-  };
-  
+      SslSocketState::Closed};
+
   // Terminal states have no valid transitions
   valid_transitions_[SslSocketState::Closed] = {};
   valid_transitions_[SslSocketState::Error] = {};
@@ -404,171 +394,120 @@ void SslStateMachine::initializeClientTransitions() {
 void SslStateMachine::initializeServerTransitions() {
   // Initial transitions
   valid_transitions_[SslSocketState::Uninitialized] = {
-    SslSocketState::Initialized,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Initialized, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::Initialized] = {
-    SslSocketState::TcpConnected,  // Server accepts connection
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::TcpConnected,  // Server accepts connection
+      SslSocketState::Closed, SslSocketState::Error};
+
   // Connection transitions
   valid_transitions_[SslSocketState::TcpConnected] = {
-    SslSocketState::ServerHandshakeInit,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHandshakeInit, SslSocketState::Closed,
+      SslSocketState::Error};
+
   // Server handshake transitions
   valid_transitions_[SslSocketState::ServerHandshakeInit] = {
-    SslSocketState::ClientHelloReceived,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHelloReceived, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientHelloReceived] = {
-    SslSocketState::ServerHelloSent,
-    SslSocketState::HandshakeWantAsync,  // Certificate selection
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHelloSent,
+      SslSocketState::HandshakeWantAsync,  // Certificate selection
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerHelloSent] = {
-    SslSocketState::ServerCertSent,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerCertSent, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerCertSent] = {
-    SslSocketState::ServerKeyExchange,
-    SslSocketState::ServerCertRequest,
-    SslSocketState::ServerHelloDone,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerKeyExchange, SslSocketState::ServerCertRequest,
+      SslSocketState::ServerHelloDone, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerKeyExchange] = {
-    SslSocketState::ServerCertRequest,
-    SslSocketState::ServerHelloDone,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerCertRequest, SslSocketState::ServerHelloDone,
+      SslSocketState::HandshakeWantWrite, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerCertRequest] = {
-    SslSocketState::ServerHelloDone,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHelloDone, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerHelloDone] = {
-    SslSocketState::ClientCertReceived,
-    SslSocketState::ServerChangeCipherSpec,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientCertReceived,
+      SslSocketState::ServerChangeCipherSpec, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ClientCertReceived] = {
-    SslSocketState::CertificateValidating,
-    SslSocketState::ServerChangeCipherSpec,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::CertificateValidating,
+      SslSocketState::ServerChangeCipherSpec, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerChangeCipherSpec] = {
-    SslSocketState::ServerFinished,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerFinished, SslSocketState::HandshakeWantRead,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ServerFinished] = {
-    SslSocketState::Connected,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Connected, SslSocketState::HandshakeWantWrite,
+      SslSocketState::Error};
+
   // Async handshake states
   valid_transitions_[SslSocketState::HandshakeWantRead] = {
-    SslSocketState::ClientHelloReceived,
-    SslSocketState::ClientCertReceived,
-    SslSocketState::ServerChangeCipherSpec,
-    SslSocketState::Connected,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ClientHelloReceived, SslSocketState::ClientCertReceived,
+      SslSocketState::ServerChangeCipherSpec, SslSocketState::Connected,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::HandshakeWantWrite] = {
-    SslSocketState::ServerHelloSent,
-    SslSocketState::ServerCertSent,
-    SslSocketState::ServerKeyExchange,
-    SslSocketState::ServerCertRequest,
-    SslSocketState::ServerHelloDone,
-    SslSocketState::ServerFinished,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHelloSent,
+      SslSocketState::ServerCertSent,
+      SslSocketState::ServerKeyExchange,
+      SslSocketState::ServerCertRequest,
+      SslSocketState::ServerHelloDone,
+      SslSocketState::ServerFinished,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::HandshakeWantAsync] = {
-    SslSocketState::ServerHelloSent,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerHelloSent, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::CertificateValidating] = {
-    SslSocketState::ServerChangeCipherSpec,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ServerChangeCipherSpec, SslSocketState::Error};
+
   // Connected state transitions (same as client)
   valid_transitions_[SslSocketState::Connected] = {
-    SslSocketState::RenegotiationRequested,
-    SslSocketState::ShutdownInitiated,
-    SslSocketState::ShutdownReceived,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::RenegotiationRequested, SslSocketState::ShutdownInitiated,
+      SslSocketState::ShutdownReceived, SslSocketState::Error};
+
   // Renegotiation transitions
   valid_transitions_[SslSocketState::RenegotiationRequested] = {
-    SslSocketState::RenegotiationInProgress,
-    SslSocketState::Connected,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::RenegotiationInProgress, SslSocketState::Connected,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::RenegotiationInProgress] = {
-    SslSocketState::Connected,
-    SslSocketState::HandshakeWantRead,
-    SslSocketState::HandshakeWantWrite,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::Connected, SslSocketState::HandshakeWantRead,
+      SslSocketState::HandshakeWantWrite, SslSocketState::Error};
+
   // Shutdown transitions (same as client)
   valid_transitions_[SslSocketState::ShutdownInitiated] = {
-    SslSocketState::ShutdownSent,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownSent, SslSocketState::Closed,
+      SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownSent] = {
-    SslSocketState::ShutdownReceived,
-    SslSocketState::ShutdownComplete,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownReceived, SslSocketState::ShutdownComplete,
+      SslSocketState::Closed, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownReceived] = {
-    SslSocketState::ShutdownSent,
-    SslSocketState::ShutdownComplete,
-    SslSocketState::Closed,
-    SslSocketState::Error
-  };
-  
+      SslSocketState::ShutdownSent, SslSocketState::ShutdownComplete,
+      SslSocketState::Closed, SslSocketState::Error};
+
   valid_transitions_[SslSocketState::ShutdownComplete] = {
-    SslSocketState::Closed
-  };
-  
+      SslSocketState::Closed};
+
   // Terminal states
   valid_transitions_[SslSocketState::Closed] = {};
   valid_transitions_[SslSocketState::Error] = {};
 }
 
-void SslStateMachine::executeEntryAction(SslSocketState state, std::function<void()> done) {
+void SslStateMachine::executeEntryAction(SslSocketState state,
+                                         std::function<void()> done) {
   auto it = entry_actions_.find(state);
   if (it != entry_actions_.end() && it->second) {
     // Execute async action with completion callback
@@ -579,7 +518,8 @@ void SslStateMachine::executeEntryAction(SslSocketState state, std::function<voi
   }
 }
 
-void SslStateMachine::executeExitAction(SslSocketState state, std::function<void()> done) {
+void SslStateMachine::executeExitAction(SslSocketState state,
+                                        std::function<void()> done) {
   auto it = exit_actions_.find(state);
   if (it != exit_actions_.end() && it->second) {
     // Execute async action with completion callback
@@ -590,7 +530,8 @@ void SslStateMachine::executeExitAction(SslSocketState state, std::function<void
   }
 }
 
-void SslStateMachine::notifyStateChange(SslSocketState old_state, SslSocketState new_state) {
+void SslStateMachine::notifyStateChange(SslSocketState old_state,
+                                        SslSocketState new_state) {
   // Already in dispatcher thread, no locking needed
   for (const auto& [id, callback] : state_listeners_) {
     callback(old_state, new_state);
@@ -599,19 +540,20 @@ void SslStateMachine::notifyStateChange(SslSocketState old_state, SslSocketState
 
 void SslStateMachine::recordStateTransition(SslSocketState state) {
   state_history_.push_back({state, std::chrono::steady_clock::now()});
-  
+
   // Limit history size
   if (state_history_.size() > kMaxHistorySize) {
     state_history_.erase(state_history_.begin());
   }
 }
 
-bool SslStateMachine::isValidTransition(SslSocketState from, SslSocketState to) const {
+bool SslStateMachine::isValidTransition(SslSocketState from,
+                                        SslSocketState to) const {
   auto it = valid_transitions_.find(from);
   if (it == valid_transitions_.end()) {
     return false;
   }
-  
+
   return it->second.find(to) != it->second.end();
 }
 
@@ -622,12 +564,13 @@ void SslStateMachine::handleIoReady(bool readable, bool writable) {
 
 void SslStateMachine::handleSslResult(int ssl_result, int ssl_error) {
   assertInDispatcherThread();
-  
+
   if (ssl_result > 0) {
     // Success - determine next state based on current state
     if (isHandshaking()) {
       // Move to next handshake state or Connected
-      auto next = SslStatePatterns::getNextHandshakeState(current_state_, mode_);
+      auto next =
+          SslStatePatterns::getNextHandshakeState(current_state_, mode_);
       if (next.has_value()) {
         scheduleTransition(next.value());
       }
@@ -641,16 +584,17 @@ void SslStateMachine::handleSslResult(int ssl_result, int ssl_error) {
   }
 }
 
-void SslStateMachine::handleAsyncComplete(uint32_t operation_id, bool success,
-                                         const std::string& error) {
+void SslStateMachine::handleAsyncComplete(uint32_t operation_id,
+                                          bool success,
+                                          const std::string& error) {
   assertInDispatcherThread();
-  
+
   auto it = pending_operations_.find(operation_id);
   if (it != pending_operations_.end()) {
     const auto& op = it->second;
     SslSocketState next_state = success ? op.success_state : op.failure_state;
     pending_operations_.erase(it);
-    
+
     scheduleTransition(next_state);
   }
 }
@@ -658,7 +602,7 @@ void SslStateMachine::handleAsyncComplete(uint32_t operation_id, bool success,
 uint32_t SslStateMachine::startAsyncOperation(SslSocketState success_state,
                                               SslSocketState failure_state) {
   assertInDispatcherThread();
-  
+
   uint32_t id = next_operation_id_++;
   pending_operations_[id] = {success_state, failure_state};
   return id;
@@ -667,10 +611,10 @@ uint32_t SslStateMachine::startAsyncOperation(SslSocketState success_state,
 void SslStateMachine::setStateTimeout(std::chrono::milliseconds timeout,
                                       SslSocketState timeout_state) {
   assertInDispatcherThread();
-  
+
   // Cancel existing timeout
   cancelStateTimeout();
-  
+
   // Create new timeout timer
   timeout_state_ = timeout_state;
   state_timeout_timer_ = dispatcher_.createTimer([this, timeout_state]() {
@@ -682,7 +626,7 @@ void SslStateMachine::setStateTimeout(std::chrono::milliseconds timeout,
 
 void SslStateMachine::cancelStateTimeout() {
   assertInDispatcherThread();
-  
+
   if (state_timeout_timer_) {
     state_timeout_timer_->disableTimer();
     state_timeout_timer_.reset();
@@ -721,49 +665,53 @@ SslSocketState SslStateMachine::mapSslErrorToState(int ssl_error) const {
 // SslStateMachineFactory Implementation
 // =============================================================================
 
-std::unique_ptr<SslStateMachine> SslStateMachineFactory::createClientStateMachine(
+std::unique_ptr<SslStateMachine>
+SslStateMachineFactory::createClientStateMachine(
     event::Dispatcher& dispatcher) {
-  auto machine = std::make_unique<SslStateMachine>(SslSocketMode::Client, dispatcher);
-  
+  auto machine =
+      std::make_unique<SslStateMachine>(SslSocketMode::Client, dispatcher);
+
   // Set up standard client entry/exit actions
-  machine->setEntryAction(SslSocketState::ClientHandshakeInit, 
-                         [](SslSocketState, std::function<void()> done) {
-                           // Initialize SSL handshake
-                           done();
-                         });
-  
+  machine->setEntryAction(SslSocketState::ClientHandshakeInit,
+                          [](SslSocketState, std::function<void()> done) {
+                            // Initialize SSL handshake
+                            done();
+                          });
+
   machine->setEntryAction(SslSocketState::Connected,
+                          [](SslSocketState, std::function<void()> done) {
+                            // Connection established
+                            done();
+                          });
+
+  machine->setExitAction(SslSocketState::Connected,
                          [](SslSocketState, std::function<void()> done) {
-                           // Connection established
+                           // Cleanup before disconnect
                            done();
                          });
-  
-  machine->setExitAction(SslSocketState::Connected,
-                        [](SslSocketState, std::function<void()> done) {
-                          // Cleanup before disconnect
-                          done();
-                        });
-  
+
   return machine;
 }
 
-std::unique_ptr<SslStateMachine> SslStateMachineFactory::createServerStateMachine(
+std::unique_ptr<SslStateMachine>
+SslStateMachineFactory::createServerStateMachine(
     event::Dispatcher& dispatcher) {
-  auto machine = std::make_unique<SslStateMachine>(SslSocketMode::Server, dispatcher);
-  
+  auto machine =
+      std::make_unique<SslStateMachine>(SslSocketMode::Server, dispatcher);
+
   // Set up standard server entry/exit actions
   machine->setEntryAction(SslSocketState::ServerHandshakeInit,
-                         [](SslSocketState, std::function<void()> done) {
-                           // Prepare for client hello
-                           done();
-                         });
-  
+                          [](SslSocketState, std::function<void()> done) {
+                            // Prepare for client hello
+                            done();
+                          });
+
   machine->setEntryAction(SslSocketState::Connected,
-                         [](SslSocketState, std::function<void()> done) {
-                           // Connection established
-                           done();
-                         });
-  
+                          [](SslSocketState, std::function<void()> done) {
+                            // Connection established
+                            done();
+                          });
+
   return machine;
 }
 
@@ -773,100 +721,98 @@ std::unique_ptr<SslStateMachine> SslStateMachineFactory::createServerStateMachin
 // SslTransitionCoordinator Implementation
 // =============================================================================
 
-void SslTransitionCoordinator::executeHandshake(std::function<void(bool)> callback) {
+void SslTransitionCoordinator::executeHandshake(
+    std::function<void(bool)> callback) {
   // Determine handshake sequence based on mode
   std::vector<SslSocketState> sequence;
-  
+
   if (machine_.getMode() == SslSocketMode::Client) {
-    sequence = {
-      SslSocketState::ClientHandshakeInit,
-      SslSocketState::ClientHelloSent,
-      SslSocketState::ServerHelloReceived,
-      SslSocketState::ClientKeyExchange,
-      SslSocketState::ClientChangeCipherSpec,
-      SslSocketState::ClientFinished,
-      SslSocketState::Connected
-    };
+    sequence = {SslSocketState::ClientHandshakeInit,
+                SslSocketState::ClientHelloSent,
+                SslSocketState::ServerHelloReceived,
+                SslSocketState::ClientKeyExchange,
+                SslSocketState::ClientChangeCipherSpec,
+                SslSocketState::ClientFinished,
+                SslSocketState::Connected};
   } else {
-    sequence = {
-      SslSocketState::ServerHandshakeInit,
-      SslSocketState::ClientHelloReceived,
-      SslSocketState::ServerHelloSent,
-      SslSocketState::ServerCertSent,
-      SslSocketState::ServerHelloDone,
-      SslSocketState::ServerChangeCipherSpec,
-      SslSocketState::ServerFinished,
-      SslSocketState::Connected
-    };
+    sequence = {SslSocketState::ServerHandshakeInit,
+                SslSocketState::ClientHelloReceived,
+                SslSocketState::ServerHelloSent,
+                SslSocketState::ServerCertSent,
+                SslSocketState::ServerHelloDone,
+                SslSocketState::ServerChangeCipherSpec,
+                SslSocketState::ServerFinished,
+                SslSocketState::Connected};
   }
-  
+
   executeSequence(sequence, 0, callback);
 }
 
-void SslTransitionCoordinator::executeShutdown(std::function<void(bool)> callback) {
+void SslTransitionCoordinator::executeShutdown(
+    std::function<void(bool)> callback) {
   std::vector<SslSocketState> sequence = {
-    SslSocketState::ShutdownInitiated,
-    SslSocketState::ShutdownSent,
-    SslSocketState::ShutdownComplete,
-    SslSocketState::Closed
-  };
-  
+      SslSocketState::ShutdownInitiated, SslSocketState::ShutdownSent,
+      SslSocketState::ShutdownComplete, SslSocketState::Closed};
+
   executeSequence(sequence, 0, callback);
 }
 
-void SslTransitionCoordinator::executeRenegotiation(std::function<void(bool)> callback) {
+void SslTransitionCoordinator::executeRenegotiation(
+    std::function<void(bool)> callback) {
   // Start renegotiation
-  machine_.transition(SslSocketState::RenegotiationRequested,
-                     [this, callback](bool success, const std::string& error) {
-    if (!success) {
-      callback(false);
-      return;
-    }
-    
-    // Move to renegotiation in progress
-    machine_.transition(SslSocketState::RenegotiationInProgress,
-                       [this, callback](bool success, const std::string& error) {
-      if (!success) {
-        callback(false);
-        return;
-      }
-      
-      // Execute handshake sequence for renegotiation
-      executeHandshake(callback);
-    });
-  });
+  machine_.transition(
+      SslSocketState::RenegotiationRequested,
+      [this, callback](bool success, const std::string& error) {
+        if (!success) {
+          callback(false);
+          return;
+        }
+
+        // Move to renegotiation in progress
+        machine_.transition(
+            SslSocketState::RenegotiationInProgress,
+            [this, callback](bool success, const std::string& error) {
+              if (!success) {
+                callback(false);
+                return;
+              }
+
+              // Execute handshake sequence for renegotiation
+              executeHandshake(callback);
+            });
+      });
 }
 
 void SslTransitionCoordinator::executeSequence(
     const std::vector<SslSocketState>& states,
     size_t index,
     std::function<void(bool)> callback) {
-  
   // Check if sequence is complete
   if (index >= states.size()) {
     callback(true);
     return;
   }
-  
+
   // Check if already in target state (can skip)
   if (machine_.getCurrentState() == states[index]) {
     // Move to next state in sequence
     executeSequence(states, index + 1, callback);
     return;
   }
-  
+
   // Transition to next state in sequence
-  machine_.transition(states[index],
-                     [this, states, index, callback](bool success, const std::string& error) {
-    if (!success) {
-      // Sequence failed
-      callback(false);
-      return;
-    }
-    
-    // Continue with next state
-    executeSequence(states, index + 1, callback);
-  });
+  machine_.transition(
+      states[index],
+      [this, states, index, callback](bool success, const std::string& error) {
+        if (!success) {
+          // Sequence failed
+          callback(false);
+          return;
+        }
+
+        // Continue with next state
+        executeSequence(states, index + 1, callback);
+      });
 }
 
 // =============================================================================

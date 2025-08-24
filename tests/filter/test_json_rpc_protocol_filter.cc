@@ -51,9 +51,9 @@ class JsonRpcProtocolFilterTest : public test::RealIoTestBase {
 
     // Create filter in dispatcher thread
     executeInDispatcher([this]() {
-      filter_ =
-          std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
-                                             false);  // client mode by default
+      filter_ = std::make_unique<JsonRpcProtocolFilter>(
+          *callbacks_, *dispatcher_,
+          false);  // client mode by default
     });
   }
 
@@ -75,7 +75,8 @@ class JsonRpcProtocolFilterTest : public test::RealIoTestBase {
   }
 
   // Helper to test encoder
-  void testEncoder(std::function<void(JsonRpcProtocolFilter::Encoder&)> test_func) {
+  void testEncoder(
+      std::function<void(JsonRpcProtocolFilter::Encoder&)> test_func) {
     executeInDispatcher([this, test_func]() { test_func(filter_->encoder()); });
   }
 
@@ -111,7 +112,7 @@ TEST_F(JsonRpcProtocolFilterTest, ParseNotification) {
   // Create filter in server mode
   executeInDispatcher([this]() {
     filter_ = std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
-                                                 true);  // server mode
+                                                      true);  // server mode
   });
 
   // Expect onNotification to be called
@@ -236,7 +237,7 @@ TEST_F(JsonRpcProtocolFilterTest, MultipleMessages) {
   // Create filter in server mode
   executeInDispatcher([this]() {
     filter_ = std::make_unique<JsonRpcProtocolFilter>(*callbacks_, *dispatcher_,
-                                                 true);  // server mode
+                                                      true);  // server mode
   });
 
   // Expect two requests

@@ -101,13 +101,15 @@ int main(int argc, char* argv[]) {
   if (argc > 1 && std::string(argv[1]) == "--http") {
     std::cout << "Using plain HTTP transport (no SSL)" << std::endl;
     config.server_address = "localhost:8080";
-    config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
   }
   // Example 2: HTTPS with SSL
   else if (argc > 1 && std::string(argv[1]) == "--https") {
     std::cout << "Using HTTPS transport with SSL" << std::endl;
     config.server_address = "localhost:8443";
-    config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
     config.ssl_config->verify_peer = true;
 
@@ -130,7 +132,8 @@ int main(int argc, char* argv[]) {
 
     HttpSseTransportSocketConfig http_config;
     http_config.server_address = "api.example.com:80";
-    http_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    http_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
     auto http_factory =
         std::make_unique<HttpsSseTransportFactory>(http_config, *dispatcher);
     std::cout << "http://api.example.com → " << http_factory->name()
@@ -139,7 +142,8 @@ int main(int argc, char* argv[]) {
 
     HttpSseTransportSocketConfig https_config;
     https_config.server_address = "api.example.com:443";
-    https_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    https_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     https_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
     auto https_factory =
         std::make_unique<HttpsSseTransportFactory>(https_config, *dispatcher);
@@ -151,8 +155,8 @@ int main(int argc, char* argv[]) {
   }
 
   // Configure common settings
-  // Note: These settings are now handled by the filter chain in the new architecture
-  // config.preferred_version = http::HttpVersion::HTTP_1_1;
+  // Note: These settings are now handled by the filter chain in the new
+  // architecture config.preferred_version = http::HttpVersion::HTTP_1_1;
   // config.auto_reconnect = true;
   // config.reconnect_delay = std::chrono::milliseconds(3000);
   // config.request_timeout = std::chrono::milliseconds(30000);
@@ -201,7 +205,8 @@ int main(int argc, char* argv[]) {
     // - HTTP+SSE transport (top layer)
 
     std::cout << std::endl << "=== Transport Stack ===" << std::endl;
-    if (config.underlying_transport == HttpSseTransportSocketConfig::UnderlyingTransport::SSL) {
+    if (config.underlying_transport ==
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL) {
       std::cout << "Layer 3: HTTP+SSE (Application Protocol)" << std::endl;
       std::cout << "Layer 2: SSL/TLS (Encryption)" << std::endl;
       std::cout << "Layer 1: TCP (Network Transport)" << std::endl;

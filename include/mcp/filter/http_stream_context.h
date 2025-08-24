@@ -35,11 +35,11 @@ class HttpStreamContext {
   std::map<std::string, std::string> headers;
   std::string body;
   bool keep_alive = true;
-  
+
   // Response data
-  std::string status;  // Response status for client mode
+  std::string status;         // Response status for client mode
   std::string accept_header;  // Accept header for content negotiation
-  
+
   // HTTP version from request (for transparent response formatting)
   uint8_t http_major = 1;
   uint8_t http_minor = 1;

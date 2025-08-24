@@ -130,8 +130,8 @@ TEST_F(StdioFilterChainFactoryTest, FilterLifetimeManagement) {
     {
       // Create factory in a scope
       StdioFilterChainFactory factory(*dispatcher_, *message_callbacks_,
-                                         false,  // client mode
-                                         true);  // use framing
+                                      false,  // client mode
+                                      true);  // use framing
 
       // Create connection
       // Create a test file descriptor

@@ -158,10 +158,8 @@ TEST(BuildersTest, CallToolRequestBuilder) {
 }
 
 TEST(BuildersTest, CallToolResultBuilder) {
-  auto result = make<CallToolResult>()
-                    .addText("Result: 42")
-                    .isError(false)
-                    .build();
+  auto result =
+      make<CallToolResult>().addText("Result: 42").isError(false).build();
 
   EXPECT_EQ(result.content.size(), 1);
   EXPECT_FALSE(result.isError);
@@ -212,7 +210,7 @@ TEST(BuildersTest, CreateMessageResultBuilder) {
 TEST(BuildersTest, ListResourcesResultBuilder) {
   auto resource1 = make<Resource>("file:///1.txt").name("file1").build();
   auto resource2 = make<Resource>("file:///2.txt").name("file2").build();
-  
+
   auto result = make<ListResourcesResult>()
                     .add(resource1)
                     .add(resource2)
@@ -229,11 +227,8 @@ TEST(BuildersTest, ListResourcesResultBuilder) {
 TEST(BuildersTest, ListToolsResultBuilder) {
   auto tool1 = make<Tool>("tool1").build();
   auto tool2 = make<Tool>("tool2").build();
-  
-  auto result = make<ListToolsResult>()
-                    .add(tool1)
-                    .add(tool2)
-                    .build();
+
+  auto result = make<ListToolsResult>().add(tool1).add(tool2).build();
 
   EXPECT_EQ(result.tools.size(), 2);
   EXPECT_EQ(result.tools[0].name, "tool1");
@@ -283,10 +278,11 @@ TEST(BuildersTest, CompleteResultBuilder) {
 }
 
 TEST(BuildersTest, LoggingMessageNotificationBuilder) {
-  auto notification = make<LoggingMessageNotification>(enums::LoggingLevel::INFO)
-                          .logger("test-logger")
-                          .data("Log message")
-                          .build();
+  auto notification =
+      make<LoggingMessageNotification>(enums::LoggingLevel::INFO)
+          .logger("test-logger")
+          .data("Log message")
+          .build();
 
   EXPECT_EQ(notification.level, enums::LoggingLevel::INFO);
   ASSERT_TRUE(notification.logger.has_value());
@@ -297,9 +293,8 @@ TEST(BuildersTest, LoggingMessageNotificationBuilder) {
 }
 
 TEST(BuildersTest, ProgressNotificationBuilder) {
-  auto notification = make<ProgressNotification>("token-123", 0.5)
-                          .total(1.0)
-                          .build();
+  auto notification =
+      make<ProgressNotification>("token-123", 0.5).total(1.0).build();
 
   auto* stringToken = mcp::get_if<std::string>(&notification.progressToken);
   ASSERT_NE(stringToken, nullptr);
@@ -347,9 +342,7 @@ TEST(BuildersTest, NumberSchemaBuilder) {
 }
 
 TEST(BuildersTest, BooleanSchemaBuilder) {
-  auto schema = make<BooleanSchema>()
-                    .description("A boolean field")
-                    .build();
+  auto schema = make<BooleanSchema>().description("A boolean field").build();
 
   ASSERT_TRUE(schema.description.has_value());
   EXPECT_EQ(schema.description.value(), "A boolean field");
@@ -392,9 +385,7 @@ TEST(BuildersTest, BuilderImplicitConversion) {
   TextContent content = make<TextContent>("Hello").build();
   EXPECT_EQ(content.text, "Hello");
 
-  Resource resource = make<Resource>("file:///test.txt")
-                          .name("test")
-                          .build();
+  Resource resource = make<Resource>("file:///test.txt").name("test").build();
   EXPECT_EQ(resource.uri, "file:///test.txt");
   EXPECT_EQ(resource.name, "test");
 }
@@ -402,9 +393,9 @@ TEST(BuildersTest, BuilderImplicitConversion) {
 TEST(BuildersTest, BuilderMoveSemantics) {
   auto builder = make<Resource>("file:///test.txt");
   builder.name("test").description("A test file");
-  
+
   Resource resource = std::move(builder).build();
-  
+
   EXPECT_EQ(resource.uri, "file:///test.txt");
   EXPECT_EQ(resource.name, "test");
   ASSERT_TRUE(resource.description.has_value());
@@ -414,10 +405,10 @@ TEST(BuildersTest, BuilderMoveSemantics) {
 TEST(BuildersTest, BuilderCopySemantics) {
   auto builder = make<Resource>("file:///test.txt");
   builder.name("test");
-  
+
   Resource resource1 = builder.build();
   Resource resource2 = builder.build();
-  
+
   EXPECT_EQ(resource1.uri, resource2.uri);
   EXPECT_EQ(resource1.name, resource2.name);
 }
@@ -428,7 +419,7 @@ TEST(BuildersTest, SamplingParamsBuilder) {
                     .maxTokens(100)
                     .stopSequence("\\n")
                     .build();
-  
+
   ASSERT_TRUE(params.temperature.has_value());
   EXPECT_EQ(params.temperature.value(), 0.7);
   ASSERT_TRUE(params.maxTokens.has_value());
@@ -446,7 +437,7 @@ TEST(BuildersTest, ModelPreferencesBuilder) {
                    .speed_priority(0.5)
                    .intelligence_priority(0.2)
                    .build();
-  
+
   ASSERT_TRUE(prefs.hints.has_value());
   EXPECT_EQ(prefs.hints->size(), 2);
   ASSERT_TRUE(prefs.costPriority.has_value());
@@ -458,11 +449,8 @@ TEST(BuildersTest, ModelPreferencesBuilder) {
 }
 
 TEST(BuildersTest, ClientCapabilitiesBuilder) {
-  auto caps = make<ClientCapabilities>()
-                  .resources(true)
-                  .tools(true)
-                  .build();
-  
+  auto caps = make<ClientCapabilities>().resources(true).tools(true).build();
+
   ASSERT_TRUE(caps.experimental.has_value());
 }
 
@@ -473,7 +461,7 @@ TEST(BuildersTest, ServerCapabilitiesBuilder) {
                   .prompts(true)
                   .logging(false)
                   .build();
-  
+
   ASSERT_TRUE(caps.resources.has_value());
   ASSERT_TRUE(caps.tools.has_value());
   EXPECT_TRUE(caps.tools.value());
@@ -488,7 +476,7 @@ TEST(BuildersTest, AnnotationsBuilder) {
                          .audience({enums::Role::USER, enums::Role::ASSISTANT})
                          .priority(0.9)
                          .build();
-  
+
   ASSERT_TRUE(annotations.audience.has_value());
   EXPECT_EQ(annotations.audience->size(), 2);
   ASSERT_TRUE(annotations.priority.has_value());
@@ -500,7 +488,7 @@ TEST(BuildersTest, ToolParameterBuilder) {
                    .description("Input parameter")
                    .required(true)
                    .build();
-  
+
   EXPECT_EQ(param.name, "input");
   EXPECT_EQ(param.type, "string");
   ASSERT_TRUE(param.description.has_value());
@@ -513,7 +501,7 @@ TEST(BuildersTest, ResourceLinkBuilder) {
                   .description("A linked file")
                   .mimeType("text/plain")
                   .build();
-  
+
   EXPECT_EQ(link.uri, "file:///path/to/file");
   EXPECT_EQ(link.name, "my-file");
   ASSERT_TRUE(link.description.has_value());
@@ -524,7 +512,7 @@ TEST(BuildersTest, ResourceLinkBuilder) {
 
 TEST(BuildersTest, ModelHintBuilder) {
   auto hint = make<ModelHint>("gpt-4").build();
-  
+
   EXPECT_EQ(hint.name, "gpt-4");
 }
 
@@ -533,7 +521,7 @@ TEST(BuildersTest, TextResourceContentsBuilder) {
                       .text("File contents")
                       .mimeType("text/plain")
                       .build();
-  
+
   EXPECT_EQ(contents.uri, "file:///test.txt");
   EXPECT_EQ(contents.text, "File contents");
   ASSERT_TRUE(contents.mimeType.has_value());
@@ -545,7 +533,7 @@ TEST(BuildersTest, BlobResourceContentsBuilder) {
                       .blob("binary data")
                       .mimeType("application/octet-stream")
                       .build();
-  
+
   EXPECT_EQ(contents.uri, "file:///binary.dat");
   EXPECT_EQ(contents.blob, "binary data");
   ASSERT_TRUE(contents.mimeType.has_value());
@@ -553,10 +541,8 @@ TEST(BuildersTest, BlobResourceContentsBuilder) {
 }
 
 TEST(BuildersTest, PingRequestBuilder) {
-  auto request = make<PingRequest>()
-                     .id("ping-123")
-                     .build();
-  
+  auto request = make<PingRequest>().id("ping-123").build();
+
   EXPECT_EQ(request.method, "ping");
   auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
@@ -564,11 +550,9 @@ TEST(BuildersTest, PingRequestBuilder) {
 }
 
 TEST(BuildersTest, ListResourcesRequestBuilder) {
-  auto request = make<ListResourcesRequest>()
-                     .id("req-123")
-                     .cursor("next-page")
-                     .build();
-  
+  auto request =
+      make<ListResourcesRequest>().id("req-123").cursor("next-page").build();
+
   EXPECT_EQ(request.method, "resources/list");
   auto* stringId = mcp::get_if<std::string>(&request.id);
   ASSERT_NE(stringId, nullptr);
@@ -578,10 +562,9 @@ TEST(BuildersTest, ListResourcesRequestBuilder) {
 }
 
 TEST(BuildersTest, ReadResourceRequestBuilder) {
-  auto request = make<ReadResourceRequest>("file:///test.txt")
-                     .id("read-123")
-                     .build();
-  
+  auto request =
+      make<ReadResourceRequest>("file:///test.txt").id("read-123").build();
+
   EXPECT_EQ(request.method, "resources/read");
   EXPECT_EQ(request.uri, "file:///test.txt");
   auto* stringId = mcp::get_if<std::string>(&request.id);
@@ -590,10 +573,9 @@ TEST(BuildersTest, ReadResourceRequestBuilder) {
 }
 
 TEST(BuildersTest, SubscribeRequestBuilder) {
-  auto request = make<SubscribeRequest>("file:///monitored.txt")
-                     .id("sub-123")
-                     .build();
-  
+  auto request =
+      make<SubscribeRequest>("file:///monitored.txt").id("sub-123").build();
+
   EXPECT_EQ(request.method, "resources/subscribe");
   EXPECT_EQ(request.uri, "file:///monitored.txt");
   auto* stringId = mcp::get_if<std::string>(&request.id);
@@ -602,10 +584,9 @@ TEST(BuildersTest, SubscribeRequestBuilder) {
 }
 
 TEST(BuildersTest, SetLevelRequestBuilder) {
-  auto request = make<SetLevelRequest>(enums::LoggingLevel::DEBUG)
-                     .id("log-123")
-                     .build();
-  
+  auto request =
+      make<SetLevelRequest>(enums::LoggingLevel::DEBUG).id("log-123").build();
+
   EXPECT_EQ(request.method, "logging/setLevel");
   EXPECT_EQ(request.level, enums::LoggingLevel::DEBUG);
   auto* stringId = mcp::get_if<std::string>(&request.id);
@@ -615,7 +596,7 @@ TEST(BuildersTest, SetLevelRequestBuilder) {
 
 TEST(BuildersTest, EmptyResultBuilder) {
   auto result = make<EmptyResult>().build();
-  
+
   // EmptyResult has no fields to test, just ensure it compiles
   (void)result;
 }
@@ -627,10 +608,8 @@ TEST(BuildersTest, EmptyResultBuilder) {
 // Test complex nested object building
 TEST(ExtensiveBuildersTest, ComplexNestedInitializeRequest) {
   // Build a complex InitializeRequest with nested capabilities
-  auto clientCaps = make<ClientCapabilities>()
-                        .resources(true)
-                        .tools(true)
-                        .build();
+  auto clientCaps =
+      make<ClientCapabilities>().resources(true).tools(true).build();
 
   auto request = make<InitializeRequest>("2.0", clientCaps)
                      .clientInfo("test-client", "1.0.0")
@@ -689,8 +668,7 @@ TEST(ExtensiveBuildersTest, RecursiveResourceBuilding) {
                           .mimeType("text/plain")
                           .build();
 
-  auto embeddedResource1 = make<EmbeddedResource>(baseResource)
-                               .build();
+  auto embeddedResource1 = make<EmbeddedResource>(baseResource).build();
 
   // Create a resource with a link to another resource
   auto linkedResource = make<ResourceLink>("file:///linked.txt", "linked-file")
@@ -713,7 +691,8 @@ TEST(ExtensiveBuildersTest, ComplexToolWithNestedSchemas) {
                           .multipleOf(5)
                           .build();
 
-  auto enumSchema = make<EnumSchema>(std::vector<std::string>{"option1", "option2", "option3"})
+  auto enumSchema = make<EnumSchema>(std::vector<std::string>{
+                                         "option1", "option2", "option3"})
                         .description("Select an option")
                         .addValue("option4")
                         .build();
@@ -726,13 +705,14 @@ TEST(ExtensiveBuildersTest, ComplexToolWithNestedSchemas) {
                           .build();
 
   // Create tool with complex parameter structure
-  auto tool = make<Tool>("complex-calculator")
-                  .description("A calculator with multiple parameter types")
-                  .parameter("number_input", "number", "A numeric input", true)
-                  .parameter("string_input", "string", "A text input", true)
-                  .parameter("enum_input", "string", "Select from options", false)
-                  .parameter("optional_param", "boolean", "Optional boolean", false)
-                  .build();
+  auto tool =
+      make<Tool>("complex-calculator")
+          .description("A calculator with multiple parameter types")
+          .parameter("number_input", "number", "A numeric input", true)
+          .parameter("string_input", "string", "A text input", true)
+          .parameter("enum_input", "string", "Select from options", false)
+          .parameter("optional_param", "boolean", "Optional boolean", false)
+          .build();
 
   EXPECT_EQ(tool.name, "complex-calculator");
   ASSERT_TRUE(tool.description.has_value());
@@ -763,13 +743,14 @@ TEST(ExtensiveBuildersTest, ComplexPromptWithMultipleMessages) {
 
 TEST(ExtensiveBuildersTest, ComplexGetPromptResult) {
   // Build complex GetPromptResult with multiple messages
-  auto result = make<GetPromptResult>()
-                    .description("Multi-turn conversation prompt")
-                    .addUserMessage("Hello, I need help with a complex task")
-                    .addAssistantMessage("I'll help you with that. What specific aspect?")
-                    .addUserMessage("I need to process multiple files")
-                    .addAssistantMessage("Let me help you with file processing")
-                    .build();
+  auto result =
+      make<GetPromptResult>()
+          .description("Multi-turn conversation prompt")
+          .addUserMessage("Hello, I need help with a complex task")
+          .addAssistantMessage("I'll help you with that. What specific aspect?")
+          .addUserMessage("I need to process multiple files")
+          .addAssistantMessage("Let me help you with file processing")
+          .build();
 
   ASSERT_TRUE(result.description.has_value());
   EXPECT_EQ(result.description.value(), "Multi-turn conversation prompt");
@@ -782,28 +763,27 @@ TEST(ExtensiveBuildersTest, ComplexListResourcesResult) {
   // Build complex paginated result with multiple resources
   std::vector<Resource> resources;
   for (int i = 0; i < 10; ++i) {
-    auto resource = make<Resource>(
-                        "file:///resource" + std::to_string(i) + ".txt",
-                        "resource-" + std::to_string(i))
-                        .description("Resource #" + std::to_string(i))
-                        .mimeType(i % 2 == 0 ? "text/plain" : "application/json")
-                        .build();
+    auto resource =
+        make<Resource>("file:///resource" + std::to_string(i) + ".txt",
+                       "resource-" + std::to_string(i))
+            .description("Resource #" + std::to_string(i))
+            .mimeType(i % 2 == 0 ? "text/plain" : "application/json")
+            .build();
     resources.push_back(resource);
   }
 
-  auto result = make<ListResourcesResult>()
-                    .nextCursor("page-2-token");
-  
+  auto result = make<ListResourcesResult>().nextCursor("page-2-token");
+
   for (const auto& res : resources) {
     result.add(res);
   }
-  
+
   auto finalResult = result.build();
 
   EXPECT_EQ(finalResult.resources.size(), 10);
   ASSERT_TRUE(finalResult.nextCursor.has_value());
   EXPECT_EQ(finalResult.nextCursor.value(), "page-2-token");
-  
+
   // Verify alternating mime types
   for (size_t i = 0; i < finalResult.resources.size(); ++i) {
     ASSERT_TRUE(finalResult.resources[i].mimeType.has_value());
@@ -856,14 +836,16 @@ TEST(ExtensiveBuildersTest, ComplexReadResourceResult) {
 
   // Verify first 3 are text
   for (int i = 0; i < 3; ++i) {
-    auto* textContent = mcp::get_if<TextResourceContents>(&finalResult.contents[i]);
+    auto* textContent =
+        mcp::get_if<TextResourceContents>(&finalResult.contents[i]);
     ASSERT_NE(textContent, nullptr);
     EXPECT_EQ(textContent->text, "Text content #" + std::to_string(i));
   }
 
   // Verify last 2 are blobs
   for (int i = 0; i < 2; ++i) {
-    auto* blobContent = mcp::get_if<BlobResourceContents>(&finalResult.contents[3 + i]);
+    auto* blobContent =
+        mcp::get_if<BlobResourceContents>(&finalResult.contents[3 + i]);
     ASSERT_NE(blobContent, nullptr);
     EXPECT_EQ(blobContent->blob, "Binary data #" + std::to_string(i));
   }
@@ -872,17 +854,10 @@ TEST(ExtensiveBuildersTest, ComplexReadResourceResult) {
 TEST(ExtensiveBuildersTest, ComplexCompleteResult) {
   // Build complex completion result with many options
   std::vector<std::string> completions = {
-      "completion_option_1",
-      "completion_option_2",
-      "completion_option_3",
-      "advanced_option_1",
-      "advanced_option_2",
-      "super_advanced_option"
-  };
+      "completion_option_1", "completion_option_2", "completion_option_3",
+      "advanced_option_1",   "advanced_option_2",   "super_advanced_option"};
 
-  auto result = make<CompleteResult>()
-                    .total(100.0)
-                    .hasMore(true);
+  auto result = make<CompleteResult>().total(100.0).hasMore(true);
 
   for (const auto& completion : completions) {
     result.addValue(completion);
@@ -910,19 +885,21 @@ TEST(ExtensiveBuildersTest, ComplexInitializeResult) {
                         .logging(true)
                         .build();
 
-  auto result = make<InitializeResult>("2.0", serverCaps)
-                    .serverInfo("super-server", "3.0.0")
-                    .instructions("Welcome to Super Server! Available commands: /help, /status")
-                    .build();
+  auto result =
+      make<InitializeResult>("2.0", serverCaps)
+          .serverInfo("super-server", "3.0.0")
+          .instructions(
+              "Welcome to Super Server! Available commands: /help, /status")
+          .build();
 
   EXPECT_EQ(result.protocolVersion, "2.0");
   ASSERT_TRUE(result.serverInfo.has_value());
   EXPECT_EQ(result.serverInfo->name, "super-server");
   EXPECT_EQ(result.serverInfo->version, "3.0.0");
   ASSERT_TRUE(result.instructions.has_value());
-  EXPECT_EQ(result.instructions.value(), 
+  EXPECT_EQ(result.instructions.value(),
             "Welcome to Super Server! Available commands: /help, /status");
-  
+
   // Verify capabilities
   ASSERT_TRUE(result.capabilities.resources.has_value());
   ASSERT_TRUE(result.capabilities.tools.has_value());
@@ -933,8 +910,7 @@ TEST(ExtensiveBuildersTest, ComplexInitializeResult) {
 TEST(ExtensiveBuildersTest, ComplexNestedAnnotations) {
   // Build complex content with nested annotations
   auto annotations = make<Annotations>()
-                         .audience({enums::Role::USER, 
-                                   enums::Role::ASSISTANT})
+                         .audience({enums::Role::USER, enums::Role::ASSISTANT})
                          .priority(0.95)
                          .build();
 
@@ -952,11 +928,11 @@ TEST(ExtensiveBuildersTest, ComplexNestedAnnotations) {
 
 TEST(ExtensiveBuildersTest, ComplexResourceTemplate) {
   // Build complex resource template with all fields
-  auto tmpl = make<ResourceTemplate>("file:///template/{param}", 
-                                     "template-{param}")
-                  .description("A parameterized resource template")
-                  .mimeType("text/plain")
-                  .build();
+  auto tmpl =
+      make<ResourceTemplate>("file:///template/{param}", "template-{param}")
+          .description("A parameterized resource template")
+          .mimeType("text/plain")
+          .build();
 
   EXPECT_EQ(tmpl.uriTemplate, "file:///template/{param}");
   EXPECT_EQ(tmpl.name, "template-{param}");
@@ -979,9 +955,7 @@ TEST(ExtensiveBuildersTest, ComplexListPromptsResult) {
                      .argument("name", "User's name", true)
                      .build();
 
-  auto prompt3 = make<Prompt>("help")
-                     .description("Help prompt")
-                     .build();
+  auto prompt3 = make<Prompt>("help").description("Help prompt").build();
 
   auto result = make<ListPromptsResult>()
                     .add(prompt1)
@@ -1007,23 +981,24 @@ TEST(ExtensiveBuildersTest, ComplexLogMessage) {
   logData["severity"] = 0.8;
   logData["error"] = false;
 
-  auto notification = make<LoggingMessageNotification>(enums::LoggingLevel::ERROR)
-                          .logger("system.core")
-                          .data(logData)
-                          .build();
+  auto notification =
+      make<LoggingMessageNotification>(enums::LoggingLevel::ERROR)
+          .logger("system.core")
+          .data(logData)
+          .build();
 
   EXPECT_EQ(notification.level, enums::LoggingLevel::ERROR);
   ASSERT_TRUE(notification.logger.has_value());
   EXPECT_EQ(notification.logger.value(), "system.core");
-  
+
   auto* metadata = mcp::get_if<Metadata>(&notification.data);
   ASSERT_NE(metadata, nullptr);
   EXPECT_EQ(metadata->size(), 5);
-  
+
   auto* timestamp = mcp::get_if<std::string>(&(*metadata)["timestamp"]);
   ASSERT_NE(timestamp, nullptr);
   EXPECT_EQ(*timestamp, "2024-01-01T12:00:00Z");
-  
+
   auto* line = mcp::get_if<int64_t>(&(*metadata)["line"]);
   ASSERT_NE(line, nullptr);
   EXPECT_EQ(*line, 42);
@@ -1031,9 +1006,8 @@ TEST(ExtensiveBuildersTest, ComplexLogMessage) {
 
 TEST(ExtensiveBuildersTest, ComplexProgressNotification) {
   // Build complex progress notification
-  auto notification = make<ProgressNotification>("task-12345", 0.75)
-                          .total(1.0)
-                          .build();
+  auto notification =
+      make<ProgressNotification>("task-12345", 0.75).total(1.0).build();
 
   auto* token = mcp::get_if<std::string>(&notification.progressToken);
   ASSERT_NE(token, nullptr);
@@ -1051,8 +1025,7 @@ TEST(ExtensiveBuildersTest, ComplexElicitRequest) {
           .minLength(5)
           .maxLength(100)
           .pattern("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
-          .build()
-  );
+          .build());
 
   auto request = make<ElicitRequest>("email-input", schema)
                      .prompt("Please enter your email address:")
@@ -1061,7 +1034,7 @@ TEST(ExtensiveBuildersTest, ComplexElicitRequest) {
   EXPECT_EQ(request.name, "email-input");
   ASSERT_TRUE(request.prompt.has_value());
   EXPECT_EQ(request.prompt.value(), "Please enter your email address:");
-  
+
   auto* stringSchema = mcp::get_if<StringSchema>(&request.schema);
   ASSERT_NE(stringSchema, nullptr);
   ASSERT_TRUE(stringSchema->pattern.has_value());
@@ -1086,41 +1059,42 @@ TEST(ExtensiveBuildersTest, ChainedBuilderOperations) {
   EXPECT_EQ(tool.name, "mega-tool");
   ASSERT_TRUE(tool.parameters.has_value());
   EXPECT_EQ(tool.parameters->size(), 10);
-  
+
   // Count required vs optional
   int requiredCount = 0;
   for (const auto& param : *tool.parameters) {
-    if (param.required) requiredCount++;
+    if (param.required)
+      requiredCount++;
   }
-  EXPECT_EQ(requiredCount, 4); // p1, p2, p6, p9 are required
+  EXPECT_EQ(requiredCount, 4);  // p1, p2, p6, p9 are required
 }
 
 TEST(ExtensiveBuildersTest, BuilderCopyAndMoveSemantics) {
   // Test that builders properly handle copy and move semantics
   auto builder1 = make<Resource>("file:///test.txt", "test");
   builder1.description("Original description");
-  
+
   // Copy builder
   auto builder2 = builder1;
   builder2.description("Modified description");
-  
+
   // Build from both
   auto resource1 = builder1.build();
   auto resource2 = builder2.build();
-  
+
   // Original should keep its description
   ASSERT_TRUE(resource1.description.has_value());
   EXPECT_EQ(resource1.description.value(), "Original description");
-  
+
   // Copy should have modified description
   ASSERT_TRUE(resource2.description.has_value());
   EXPECT_EQ(resource2.description.value(), "Modified description");
-  
+
   // Test move semantics
   auto builder3 = make<Tool>("tool1");
   builder3.description("Tool description")
-           .parameter("param1", "string", "Parameter 1", true);
-  
+      .parameter("param1", "string", "Parameter 1", true);
+
   auto tool = std::move(builder3).build();
   EXPECT_EQ(tool.name, "tool1");
   ASSERT_TRUE(tool.description.has_value());
@@ -1138,12 +1112,11 @@ TEST(ExtensiveBuildersTest, MaximallyComplexMessage) {
                          .annotations(annotations)
                          .build();
 
-  auto message = make<Message>(enums::Role::ASSISTANT)
-                     .content(textContent)
-                     .build();
+  auto message =
+      make<Message>(enums::Role::ASSISTANT).content(textContent).build();
 
   EXPECT_EQ(message.role, enums::Role::ASSISTANT);
-  
+
   auto* text = mcp::get_if<TextContent>(&message.content);
   ASSERT_NE(text, nullptr);
   EXPECT_EQ(text->text, "Complex message with all features");

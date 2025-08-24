@@ -105,8 +105,8 @@ class JsonRpcProtocolFilter : public network::Filter {
    * @param is_server True for server mode, false for client mode
    */
   JsonRpcProtocolFilter(MessageHandler& handler,
-                   event::Dispatcher& dispatcher,
-                   bool is_server);
+                        event::Dispatcher& dispatcher,
+                        bool is_server);
 
   ~JsonRpcProtocolFilter()
       override;  // Defined in .cc to avoid incomplete type issues

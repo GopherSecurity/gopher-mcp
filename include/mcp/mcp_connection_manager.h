@@ -41,7 +41,7 @@ struct McpConnectionConfig {
 
   // Message framing
   bool use_message_framing{true};  // Add message length prefix
-  
+
   // Protocol detection
   bool use_protocol_detection{false};  // Enable automatic protocol detection
 };

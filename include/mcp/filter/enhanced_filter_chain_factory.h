@@ -73,9 +73,9 @@ class EnhancedFilterChainFactory : public network::FilterChainFactory {
    * @param config Configuration for enterprise filters
    */
   EnhancedFilterChainFactory(event::Dispatcher& dispatcher,
-                                McpProtocolCallbacks& message_callbacks,
-                                bool is_server = true,
-                                const Config& config = Config())
+                             McpProtocolCallbacks& message_callbacks,
+                             bool is_server = true,
+                             const Config& config = Config())
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
         is_server_(is_server),

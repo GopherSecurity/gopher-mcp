@@ -18,12 +18,13 @@
 namespace mcp {
 namespace http {
 
-// Note: The specialized factory classes LLHttp10ParserFactory and LLHttp11ParserFactory
-// are now declared in llhttp_parser.h to solve the issue where parsers need to report
-// their version immediately after creation. The HttpParserSelector knows which version
-// it wants, but the generic factory interface doesn't pass version information. 
-// By creating version-specific factories, each parser is created with the correct 
-// version hint from the start.
+// Note: The specialized factory classes LLHttp10ParserFactory and
+// LLHttp11ParserFactory are now declared in llhttp_parser.h to solve the issue
+// where parsers need to report their version immediately after creation. The
+// HttpParserSelector knows which version it wants, but the generic factory
+// interface doesn't pass version information. By creating version-specific
+// factories, each parser is created with the correct version hint from the
+// start.
 
 namespace {
 
@@ -41,17 +42,17 @@ class HttpHeadersImpl : public HttpHeaders {
  public:
   HttpHeadersImpl() = default;
   ~HttpHeadersImpl() override = default;
-  
+
   void add(const std::string& name, const std::string& value) override {
     std::string lower_name = toLower(name);
     headers_[lower_name].push_back(value);
     ordered_headers_.push_back({name, value});
     byte_size_ += name.size() + value.size() + 4;  // ": " and "\r\n"
   }
-  
+
   void set(const std::string& name, const std::string& value) override {
     std::string lower_name = toLower(name);
-    
+
     // Remove existing headers
     auto it = headers_.find(lower_name);
     if (it != headers_.end()) {
@@ -61,22 +62,22 @@ class HttpHeadersImpl : public HttpHeaders {
       }
       headers_.erase(it);
     }
-    
+
     // Remove from ordered list
     ordered_headers_.erase(
         std::remove_if(ordered_headers_.begin(), ordered_headers_.end(),
-                      [&lower_name](const auto& pair) {
-                        return toLower(pair.first) == lower_name;
-                      }),
+                       [&lower_name](const auto& pair) {
+                         return toLower(pair.first) == lower_name;
+                       }),
         ordered_headers_.end());
-    
+
     // Add new value
     add(name, value);
   }
-  
+
   void remove(const std::string& name) override {
     std::string lower_name = toLower(name);
-    
+
     // Remove from map
     auto it = headers_.find(lower_name);
     if (it != headers_.end()) {
@@ -86,16 +87,16 @@ class HttpHeadersImpl : public HttpHeaders {
       }
       headers_.erase(it);
     }
-    
+
     // Remove from ordered list
     ordered_headers_.erase(
         std::remove_if(ordered_headers_.begin(), ordered_headers_.end(),
-                      [&lower_name](const auto& pair) {
-                        return toLower(pair.first) == lower_name;
-                      }),
+                       [&lower_name](const auto& pair) {
+                         return toLower(pair.first) == lower_name;
+                       }),
         ordered_headers_.end());
   }
-  
+
   optional<std::string> get(const std::string& name) const override {
     std::string lower_name = toLower(name);
     auto it = headers_.find(lower_name);
@@ -105,7 +106,7 @@ class HttpHeadersImpl : public HttpHeaders {
     }
     return nullopt;
   }
-  
+
   std::vector<std::string> getAll(const std::string& name) const override {
     std::string lower_name = toLower(name);
     auto it = headers_.find(lower_name);
@@ -114,18 +115,18 @@ class HttpHeadersImpl : public HttpHeaders {
     }
     return {};
   }
-  
+
   bool has(const std::string& name) const override {
     std::string lower_name = toLower(name);
     return headers_.find(lower_name) != headers_.end();
   }
-  
+
   void clear() override {
     headers_.clear();
     ordered_headers_.clear();
     byte_size_ = 0;
   }
-  
+
   HttpHeaderMap getMap() const override {
     HttpHeaderMap result;
     for (const auto& [name, values] : headers_) {
@@ -133,7 +134,8 @@ class HttpHeadersImpl : public HttpHeaders {
         // Join multiple values with comma
         std::string joined;
         for (size_t i = 0; i < values.size(); ++i) {
-          if (i > 0) joined += ", ";
+          if (i > 0)
+            joined += ", ";
           joined += values[i];
         }
         result[name] = joined;
@@ -141,24 +143,23 @@ class HttpHeadersImpl : public HttpHeaders {
     }
     return result;
   }
-  
-  void forEach(std::function<void(const std::string&, const std::string&)> cb) const override {
+
+  void forEach(std::function<void(const std::string&, const std::string&)> cb)
+      const override {
     for (const auto& [name, value] : ordered_headers_) {
       cb(name, value);
     }
   }
-  
-  size_t byteSize() const override {
-    return byte_size_;
-  }
-  
+
+  size_t byteSize() const override { return byte_size_; }
+
  private:
   // Case-insensitive map of headers (lowercase name -> values)
   std::unordered_map<std::string, std::vector<std::string>> headers_;
-  
+
   // Ordered list of headers as added (preserves case and order)
   std::vector<std::pair<std::string, std::string>> ordered_headers_;
-  
+
   // Total byte size
   size_t byte_size_{0};
 };
@@ -166,7 +167,7 @@ class HttpHeadersImpl : public HttpHeaders {
 // HttpMessage implementation
 class HttpMessageImpl : public HttpMessage {
  public:
-  HttpMessageImpl(bool is_request) 
+  HttpMessageImpl(bool is_request)
       : is_request_(is_request),
         method_(HttpMethod::GET),
         status_code_(HttpStatusCode::OK),
@@ -176,20 +177,22 @@ class HttpMessageImpl : public HttpMessage {
         trailers_(std::make_unique<HttpHeadersImpl>()),
         chunked_(false),
         has_trailers_(false) {}
-  
+
   ~HttpMessageImpl() override = default;
-  
+
   // Request methods
   HttpMethod method() const override { return method_; }
-  std::string methodString() const override { return httpMethodToString(method_); }
+  std::string methodString() const override {
+    return httpMethodToString(method_);
+  }
   std::string uri() const override { return uri_; }
   std::string path() const override { return path_; }
   std::string query() const override { return query_; }
-  
+
   // Response methods
   HttpStatusCode statusCode() const override { return status_code_; }
   std::string statusText() const override { return status_text_; }
-  
+
   // Common methods
   HttpVersion version() const override { return version_; }
   HttpHeaders& headers() override { return *headers_; }
@@ -200,7 +203,7 @@ class HttpMessageImpl : public HttpMessage {
   bool hasTrailers() const override { return has_trailers_; }
   HttpHeaders& trailers() override { return *trailers_; }
   const HttpHeaders& trailers() const override { return *trailers_; }
-  
+
   // Setters for parser
   void setMethod(HttpMethod method) { method_ = method; }
   void setUri(const std::string& uri) {
@@ -220,20 +223,20 @@ class HttpMessageImpl : public HttpMessage {
   void setVersion(HttpVersion version) { version_ = version; }
   void setChunked(bool chunked) { chunked_ = chunked; }
   void setHasTrailers(bool has) { has_trailers_ = has; }
-  
+
  private:
   bool is_request_;
-  
+
   // Request fields
   HttpMethod method_;
   std::string uri_;
   std::string path_;
   std::string query_;
-  
+
   // Response fields
   HttpStatusCode status_code_;
   std::string status_text_;
-  
+
   // Common fields
   HttpVersion version_;
   std::unique_ptr<HttpHeaders> headers_;
@@ -248,14 +251,14 @@ class HttpParserSelectorImpl : public HttpParserSelector {
  public:
   HttpParserSelectorImpl() = default;
   ~HttpParserSelectorImpl() override = default;
-  
+
   void registerFactory(const std::vector<HttpVersion>& versions,
-                      HttpParserFactorySharedPtr factory) override {
+                       HttpParserFactorySharedPtr factory) override {
     for (auto version : versions) {
       factories_[version] = factory;
     }
   }
-  
+
   HttpParserPtr createParser(HttpVersion version,
                              HttpParserType type,
                              HttpParserCallbacks* callbacks) override {
@@ -265,7 +268,7 @@ class HttpParserSelectorImpl : public HttpParserSelector {
     }
     return nullptr;
   }
-  
+
   HttpParserPtr detectAndCreateParser(const char* data,
                                       size_t length,
                                       HttpParserType type,
@@ -274,44 +277,40 @@ class HttpParserSelectorImpl : public HttpParserSelector {
     // "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
     const char* http2_preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
     size_t preface_len = 24;
-    
-    if (length >= preface_len && 
+
+    if (length >= preface_len &&
         std::memcmp(data, http2_preface, preface_len) == 0) {
       // This is HTTP/2
       return createParser(HttpVersion::HTTP_2, type, callbacks);
     }
-    
+
     // Check for HTTP/1.x in first line
     if (length >= 8) {
       std::string first_line(data, std::min(length, size_t(100)));
-      
+
       // Look for HTTP version string
       if (first_line.find("HTTP/1.1") != std::string::npos) {
         return createParser(HttpVersion::HTTP_1_1, type, callbacks);
       } else if (first_line.find("HTTP/1.0") != std::string::npos) {
         return createParser(HttpVersion::HTTP_1_0, type, callbacks);
       }
-      
+
       // Check if it looks like an HTTP/1.x request
       // (starts with a method like GET, POST, etc.)
-      if (first_line.find("GET ") == 0 || 
-          first_line.find("POST ") == 0 ||
-          first_line.find("PUT ") == 0 ||
-          first_line.find("DELETE ") == 0 ||
-          first_line.find("HEAD ") == 0 ||
-          first_line.find("OPTIONS ") == 0 ||
-          first_line.find("PATCH ") == 0 ||
-          first_line.find("CONNECT ") == 0 ||
+      if (first_line.find("GET ") == 0 || first_line.find("POST ") == 0 ||
+          first_line.find("PUT ") == 0 || first_line.find("DELETE ") == 0 ||
+          first_line.find("HEAD ") == 0 || first_line.find("OPTIONS ") == 0 ||
+          first_line.find("PATCH ") == 0 || first_line.find("CONNECT ") == 0 ||
           first_line.find("TRACE ") == 0) {
         // Default to HTTP/1.1 for requests
         return createParser(HttpVersion::HTTP_1_1, type, callbacks);
       }
     }
-    
+
     // Default to HTTP/1.1
     return createParser(HttpVersion::HTTP_1_1, type, callbacks);
   }
-  
+
   HttpParserPtr createParserFromAlpn(const std::string& alpn_protocol,
                                      HttpParserType type,
                                      HttpParserCallbacks* callbacks) override {
@@ -323,14 +322,14 @@ class HttpParserSelectorImpl : public HttpParserSelector {
     } else if (alpn_protocol == "http/1.0") {
       return createParser(HttpVersion::HTTP_1_0, type, callbacks);
     }
-    
+
     // Default to HTTP/1.1
     return createParser(HttpVersion::HTTP_1_1, type, callbacks);
   }
-  
+
   std::vector<std::string> getSupportedAlpnProtocols() const override {
     std::vector<std::string> protocols;
-    
+
     // Add protocols based on available parsers
     if (factories_.find(HttpVersion::HTTP_2) != factories_.end()) {
       protocols.push_back("h2");
@@ -341,10 +340,10 @@ class HttpParserSelectorImpl : public HttpParserSelector {
     if (factories_.find(HttpVersion::HTTP_1_0) != factories_.end()) {
       protocols.push_back("http/1.0");
     }
-    
+
     return protocols;
   }
-  
+
  private:
   std::unordered_map<HttpVersion, HttpParserFactorySharedPtr> factories_;
 };
@@ -365,8 +364,7 @@ HttpMessagePtr createHttpRequest(HttpMethod method,
   return std::move(msg);
 }
 
-HttpMessagePtr createHttpResponse(HttpStatusCode code,
-                                  HttpVersion version) {
+HttpMessagePtr createHttpResponse(HttpStatusCode code, HttpVersion version) {
   auto msg = std::make_unique<HttpMessageImpl>(false);
   msg->setStatusCode(code);
   msg->setStatusText(httpStatusCodeToString(code));
@@ -376,26 +374,27 @@ HttpMessagePtr createHttpResponse(HttpStatusCode code,
 
 HttpParserSelectorPtr createHttpParserSelector() {
   auto selector = std::make_unique<HttpParserSelectorImpl>();
-  
+
   // Auto-register available parsers based on compile-time flags
 #if MCP_HAS_LLHTTP
   // Note: Register separate factories for HTTP/1.0 and HTTP/1.1
-  // Instead of one factory handling both versions, we use version-specific factories
-  // This ensures parsers report the correct HTTP version immediately after creation,
-  // not just after parsing data. The tests expect parser->httpVersion() to return
-  // the requested version right after createParser(version, ...) is called.
-  selector->registerFactory({HttpVersion::HTTP_1_0}, 
-                           std::make_shared<http::LLHttp10ParserFactory>());
-  selector->registerFactory({HttpVersion::HTTP_1_1}, 
-                           std::make_shared<http::LLHttp11ParserFactory>());
+  // Instead of one factory handling both versions, we use version-specific
+  // factories This ensures parsers report the correct HTTP version immediately
+  // after creation, not just after parsing data. The tests expect
+  // parser->httpVersion() to return the requested version right after
+  // createParser(version, ...) is called.
+  selector->registerFactory({HttpVersion::HTTP_1_0},
+                            std::make_shared<http::LLHttp10ParserFactory>());
+  selector->registerFactory({HttpVersion::HTTP_1_1},
+                            std::make_shared<http::LLHttp11ParserFactory>());
 #endif
-  
+
 #if MCP_HAS_NGHTTP2
   // Register nghttp2 for HTTP/2
   auto nghttp2_factory = std::make_shared<http::Nghttp2ParserFactory>();
   selector->registerFactory({HttpVersion::HTTP_2}, nghttp2_factory);
 #endif
-  
+
   return selector;
 }
 
@@ -427,15 +426,24 @@ const char* httpMethodToString(HttpMethod method) {
 }
 
 HttpMethod httpMethodFromString(const std::string& method) {
-  if (method == "GET") return HttpMethod::GET;
-  if (method == "POST") return HttpMethod::POST;
-  if (method == "PUT") return HttpMethod::PUT;
-  if (method == "DELETE") return HttpMethod::DELETE;
-  if (method == "HEAD") return HttpMethod::HEAD;
-  if (method == "OPTIONS") return HttpMethod::OPTIONS;
-  if (method == "PATCH") return HttpMethod::PATCH;
-  if (method == "CONNECT") return HttpMethod::CONNECT;
-  if (method == "TRACE") return HttpMethod::TRACE;
+  if (method == "GET")
+    return HttpMethod::GET;
+  if (method == "POST")
+    return HttpMethod::POST;
+  if (method == "PUT")
+    return HttpMethod::PUT;
+  if (method == "DELETE")
+    return HttpMethod::DELETE;
+  if (method == "HEAD")
+    return HttpMethod::HEAD;
+  if (method == "OPTIONS")
+    return HttpMethod::OPTIONS;
+  if (method == "PATCH")
+    return HttpMethod::PATCH;
+  if (method == "CONNECT")
+    return HttpMethod::CONNECT;
+  if (method == "TRACE")
+    return HttpMethod::TRACE;
   return HttpMethod::UNKNOWN;
 }
 
@@ -452,8 +460,9 @@ const char* httpVersionToString(HttpVersion version) {
     case HttpVersion::UNKNOWN:
     default:
       // Note: Return "UNKNOWN" instead of "HTTP/1.1" for unknown versions
-      // The test expects httpVersionToString(HttpVersion::UNKNOWN) to return "UNKNOWN"
-      // This ensures proper error reporting and debugging when version detection fails
+      // The test expects httpVersionToString(HttpVersion::UNKNOWN) to return
+      // "UNKNOWN" This ensures proper error reporting and debugging when
+      // version detection fails
       return "UNKNOWN";
   }
 }

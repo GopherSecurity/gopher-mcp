@@ -17,7 +17,8 @@ HttpsSseTransportFactory::HttpsSseTransportFactory(
     const HttpSseTransportSocketConfig& config, event::Dispatcher& dispatcher)
     : config_(config), dispatcher_(&dispatcher) {
   // Check if SSL should be used based on configuration
-  use_ssl_ = (config_.underlying_transport == HttpSseTransportSocketConfig::UnderlyingTransport::SSL);
+  use_ssl_ = (config_.underlying_transport ==
+              HttpSseTransportSocketConfig::UnderlyingTransport::SSL);
 
   // If using SSL and ssl_config is not set, create default SSL config
   if (use_ssl_ && !config_.ssl_config.has_value()) {
@@ -27,8 +28,10 @@ HttpsSseTransportFactory::HttpsSseTransportFactory(
 
   // Set SNI hostname if not provided but we have a server address
   if (use_ssl_ && config_.ssl_config.has_value()) {
-    auto& ssl_config = const_cast<HttpSseTransportSocketConfig::SslConfig&>(config_.ssl_config.value());
-    if (!ssl_config.sni_hostname.has_value() && !config_.server_address.empty()) {
+    auto& ssl_config = const_cast<HttpSseTransportSocketConfig::SslConfig&>(
+        config_.ssl_config.value());
+    if (!ssl_config.sni_hostname.has_value() &&
+        !config_.server_address.empty()) {
       ssl_config.sni_hostname = extractHostname(config_.server_address);
     }
 
@@ -54,12 +57,12 @@ network::TransportSocketPtr HttpsSseTransportFactory::createTransportSocket(
 }
 
 bool HttpsSseTransportFactory::supportsAlpn() const {
-  return use_ssl_ && config_.ssl_config.has_value() && 
+  return use_ssl_ && config_.ssl_config.has_value() &&
          config_.ssl_config.value().alpn_protocols.has_value();
 }
 
 std::string HttpsSseTransportFactory::defaultServerNameIndication() const {
-  if (!use_ssl_ || !config_.ssl_config.has_value() || 
+  if (!use_ssl_ || !config_.ssl_config.has_value() ||
       !config_.ssl_config.value().sni_hostname.has_value()) {
     return "";
   }
@@ -129,7 +132,6 @@ network::TransportSocketPtr HttpsSseTransportFactory::createServerTransport()
   return http_sse_socket;
 }
 
-
 Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
     bool is_client) const {
   std::lock_guard<std::mutex> lock(ssl_context_mutex_);
@@ -149,7 +151,7 @@ Result<SslContextSharedPtr> HttpsSseTransportFactory::createSslContext(
   // Set certificates and keys from SSL config
   if (config_.ssl_config.has_value()) {
     const auto& ssl = config_.ssl_config.value();
-    
+
     if (ssl.client_cert_path.has_value()) {
       ssl_config.cert_chain_file = ssl.client_cert_path.value();
     }
@@ -250,7 +252,7 @@ std::string HttpsSseTransportFactory::extractHostname(
     const std::string& address) const {
   // Extract hostname from server address
   // Format: "hostname:port" or "127.0.0.1:8080"
-  
+
   if (address.empty()) {
     return "";
   }

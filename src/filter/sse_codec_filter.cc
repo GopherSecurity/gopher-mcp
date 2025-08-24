@@ -1,6 +1,6 @@
 /**
  * SSE Codec Filter Implementation
- * 
+ *
  * Following production architecture:
  * - Handles Server-Sent Events protocol
  * - Works on top of HTTP layer
@@ -9,48 +9,49 @@
  */
 
 #include "mcp/filter/sse_codec_filter.h"
-#include "mcp/network/connection.h"
+
 #include <sstream>
+
+#include "mcp/network/connection.h"
 
 namespace mcp {
 namespace filter {
 
 // Constructor
-SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks, 
+SseCodecFilter::SseCodecFilter(EventCallbacks& callbacks,
                                event::Dispatcher& dispatcher,
                                bool is_server)
     : event_callbacks_(callbacks),
       dispatcher_(dispatcher),
       is_server_(is_server) {
-  
   if (!is_server_) {
     // Client mode - create SSE parser
     parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
     parser_ = std::make_unique<http::SseParser>(parser_callbacks_.get());
   }
-  
+
   // Create event encoder
   event_encoder_ = std::make_unique<EventEncoderImpl>(*this);
-  
+
   // Initialize SSE codec state machine
   SseCodecStateMachineConfig config;
-  config.keep_alive_interval = std::chrono::milliseconds(30000);  // 30s keep-alive
-  config.event_timeout = std::chrono::milliseconds(5000);         // 5s event timeout
+  config.keep_alive_interval =
+      std::chrono::milliseconds(30000);                    // 30s keep-alive
+  config.event_timeout = std::chrono::milliseconds(5000);  // 5s event timeout
   config.enable_keep_alive = true;
-  config.state_change_callback = [this](const SseCodecStateTransitionContext& ctx) {
-    onCodecStateChange(ctx);
-  };
+  config.state_change_callback =
+      [this](const SseCodecStateTransitionContext& ctx) {
+        onCodecStateChange(ctx);
+      };
   config.error_callback = [this](const std::string& error) {
     onCodecError(error);
   };
-  
+
   if (is_server_) {
     // Server mode - configure keep-alive callback
-    config.keep_alive_callback = [this]() {
-      sendKeepAliveComment();
-    };
+    config.keep_alive_callback = [this]() { sendKeepAliveComment(); };
   }
-  
+
   state_machine_ = std::make_unique<SseCodecStateMachine>(dispatcher_, config);
 }
 
@@ -67,16 +68,16 @@ network::FilterStatus SseCodecFilter::onData(Buffer& data, bool end_stream) {
     // Not in SSE streaming mode yet, pass through
     return network::FilterStatus::Continue;
   }
-  
+
   if (!is_server_) {
     // Client mode - parse SSE events
     dispatch(data);
   }
-  
+
   if (end_stream) {
     state_machine_->handleEvent(SseCodecEvent::CloseStream);
   }
-  
+
   return network::FilterStatus::Continue;
 }
 
@@ -86,27 +87,28 @@ network::FilterStatus SseCodecFilter::onWrite(Buffer& data, bool end_stream) {
   if (is_server_ && data.length() > 0) {
     // The data contains JSON-RPC response that needs SSE formatting
     size_t data_len = data.length();
-    std::string json_data(static_cast<const char*>(data.linearize(data_len)), data_len);
-    
+    std::string json_data(static_cast<const char*>(data.linearize(data_len)),
+                          data_len);
+
     // Clear the buffer
     data.drain(data_len);
-    
+
     // Format as SSE event
     // Using "message" event type for JSON-RPC messages
     std::string sse_event = "event: message\n";
     sse_event += "data: " + json_data + "\n\n";
-    
+
     // Add formatted SSE event back to buffer
     data.add(sse_event.c_str(), sse_event.length());
   }
-  
+
   // Pass through (formatted) SSE data
   return network::FilterStatus::Continue;
 }
 
 void SseCodecFilter::startEventStream() {
   state_machine_->handleEvent(SseCodecEvent::StartStream);
-  
+
   if (is_server_) {
     // Server mode - start keep-alive timer managed by state machine
     state_machine_->startKeepAliveTimer();
@@ -118,18 +120,18 @@ void SseCodecFilter::dispatch(Buffer& data) {
   if (!parser_) {
     return;
   }
-  
+
   size_t data_len = data.length();
   if (data_len == 0) {
     return;
   }
-  
+
   // Get linearized data for parsing
   const char* raw_data = static_cast<const char*>(data.linearize(data_len));
-  
+
   // Parse SSE data
   size_t consumed = parser_->parse(raw_data, data_len);
-  
+
   // Drain consumed data from buffer
   data.drain(consumed);
 }
@@ -137,7 +139,7 @@ void SseCodecFilter::dispatch(Buffer& data) {
 void SseCodecFilter::sendEventData(Buffer& data) {
   if (write_callbacks_) {
     // Write directly to connection following production pattern
-    // This replaces the deprecated injectWriteDataToFilterChain method  
+    // This replaces the deprecated injectWriteDataToFilterChain method
     write_callbacks_->connection().write(data, false);
   }
 }
@@ -173,60 +175,63 @@ void SseCodecFilter::ParserCallbacks::onSseError(const std::string& error) {
 }
 
 // EventEncoderImpl implementation
-void SseCodecFilter::EventEncoderImpl::encodeEvent(const std::string& event,
-                                                   const std::string& data,
-                                                   const optional<std::string>& id) {
+void SseCodecFilter::EventEncoderImpl::encodeEvent(
+    const std::string& event,
+    const std::string& data,
+    const optional<std::string>& id) {
   // Trigger send event in state machine
   parent_.state_machine_->handleEvent(SseCodecEvent::SendEvent);
-  
+
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
-  
+
   // Format SSE event
   if (!event.empty()) {
     SseCodecFilter::formatSseField(parent_.event_buffer_, "event", event);
   }
-  
+
   if (id.has_value()) {
     SseCodecFilter::formatSseField(parent_.event_buffer_, "id", id.value());
   }
-  
+
   SseCodecFilter::formatSseField(parent_.event_buffer_, "data", data);
-  
+
   // End of event
   parent_.event_buffer_.add("\n", 1);
-  
+
   // Send event
   parent_.sendEventData(parent_.event_buffer_);
-  
+
   // Mark event as sent
   parent_.state_machine_->handleEvent(SseCodecEvent::EventSent);
 }
 
-void SseCodecFilter::EventEncoderImpl::encodeComment(const std::string& comment) {
+void SseCodecFilter::EventEncoderImpl::encodeComment(
+    const std::string& comment) {
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
-  
+
   // Format SSE comment
   parent_.event_buffer_.add(": ", 2);
   parent_.event_buffer_.add(comment.c_str(), comment.length());
   parent_.event_buffer_.add("\n\n", 2);
-  
+
   // Send comment
   parent_.sendEventData(parent_.event_buffer_);
 }
 
 void SseCodecFilter::EventEncoderImpl::encodeRetry(uint32_t retry_ms) {
   parent_.event_buffer_.drain(parent_.event_buffer_.length());
-  
+
   // Format retry directive
   std::string retry_str = "retry: " + std::to_string(retry_ms) + "\n\n";
   parent_.event_buffer_.add(retry_str.c_str(), retry_str.length());
-  
+
   // Send retry
   parent_.sendEventData(parent_.event_buffer_);
 }
 
 // State machine callback handlers
-void SseCodecFilter::onCodecStateChange(const SseCodecStateTransitionContext& context) {
+void SseCodecFilter::onCodecStateChange(
+    const SseCodecStateTransitionContext& context) {
   // Handle state changes as needed
   // For example, logging, metrics, or connection management
 }
@@ -241,5 +246,5 @@ void SseCodecFilter::sendKeepAliveComment() {
   event_encoder_->encodeComment("keep-alive");
 }
 
-} // namespace filter
-} // namespace mcp
+}  // namespace filter
+}  // namespace mcp

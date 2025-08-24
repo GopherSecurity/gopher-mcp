@@ -837,7 +837,8 @@ TEST_F(MCPTypeHelpersTest, ContentBlockFactories) {
   Resource res("file:///test.txt", "test.txt");
   auto resource = make_resource_content(res);
   EXPECT_TRUE(mcp::holds_alternative<ResourceContent>(resource));
-  EXPECT_EQ(mcp::get<ResourceContent>(resource).resource.uri, "file:///test.txt");
+  EXPECT_EQ(mcp::get<ResourceContent>(resource).resource.uri,
+            "file:///test.txt");
 }
 
 // Test enum helpers
@@ -928,7 +929,8 @@ TEST_F(MCPTypeHelpersTest, MCPTypeFactories) {
   ASSERT_TRUE(params.stopSequences.has_value());
   EXPECT_EQ(params.stopSequences->size(), 2u);
   ASSERT_TRUE(params.metadata.has_value());
-  EXPECT_TRUE(mcp::holds_alternative<std::string>(params.metadata->at("model")));
+  EXPECT_TRUE(
+      mcp::holds_alternative<std::string>(params.metadata->at("model")));
   EXPECT_TRUE(mcp::holds_alternative<bool>(params.metadata->at("stream")));
 }
 
@@ -979,7 +981,8 @@ TEST_F(MCPTypeHelpersTest, ProtocolMessageFactories) {
   ASSERT_TRUE(init_params.clientName.has_value());
   EXPECT_EQ(init_params.clientName.value(), "test-client");
   ASSERT_TRUE(init_params.capabilities.has_value());
-  EXPECT_TRUE(mcp::holds_alternative<bool>(init_params.capabilities->at("tools")));
+  EXPECT_TRUE(
+      mcp::holds_alternative<bool>(init_params.capabilities->at("tools")));
 
   // Test tool call
   auto call1 = make_tool_call("calculator");
@@ -1029,5 +1032,6 @@ TEST_F(MCPTypeHelpersTest, IntegrationCompleteRequest) {
   EXPECT_FALSE(response.error.has_value());
 
   // Check that result contains vector of ContentBlocks
-  EXPECT_TRUE(mcp::holds_alternative<std::vector<ContentBlock>>(*response.result));
+  EXPECT_TRUE(
+      mcp::holds_alternative<std::vector<ContentBlock>>(*response.result));
 }

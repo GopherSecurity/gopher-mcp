@@ -5,11 +5,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <iostream>
 #include <unistd.h>
 
 #include <netinet/tcp.h>
 #include <sys/socket.h>
-#include <iostream>
 
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
@@ -64,23 +64,25 @@ TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
       overload_state_(overload_state) {
   // Create file event for accept but don't enable yet
   // Only if we're actually bound to a port
-  std::cerr << "[DEBUG] TcpListenerImpl constructor: bind_to_port=" << bind_to_port_ 
-            << " socket=" << (socket_ ? "YES" : "NO") << std::endl;
-  
+  std::cerr << "[DEBUG] TcpListenerImpl constructor: bind_to_port="
+            << bind_to_port_ << " socket=" << (socket_ ? "YES" : "NO")
+            << std::endl;
+
   if (bind_to_port_ && socket_) {
     int fd = socket_->ioHandle().fd();
-    std::cerr << "[DEBUG] Creating file event for listener fd: " << fd << std::endl;
-    
+    std::cerr << "[DEBUG] Creating file event for listener fd: " << fd
+              << std::endl;
+
     file_event_ = dispatcher_.createFileEvent(
-        fd,
-        [this](uint32_t events) { onSocketEvent(events); },
+        fd, [this](uint32_t events) { onSocketEvent(events); },
         event::PlatformDefaultTriggerType,  // Use platform-specific default
         static_cast<uint32_t>(event::FileReadyType::Read));
-    
-    std::cerr << "[DEBUG] Listener file event created: " 
+
+    std::cerr << "[DEBUG] Listener file event created: "
               << (file_event_ ? "SUCCESS" : "FAILED") << std::endl;
   } else {
-    std::cerr << "[DEBUG] Skipping file event creation for listener" << std::endl;
+    std::cerr << "[DEBUG] Skipping file event creation for listener"
+              << std::endl;
   }
 }
 
@@ -105,16 +107,16 @@ void TcpListenerImpl::disable() {
 }
 
 void TcpListenerImpl::enable() {
-  std::cerr << "[DEBUG] TcpListenerImpl::enable() called, already enabled: " 
+  std::cerr << "[DEBUG] TcpListenerImpl::enable() called, already enabled: "
             << enabled_ << std::endl;
-  
+
   if (enabled_) {
     return;
   }
 
   enabled_ = true;
   if (file_event_) {
-    std::cerr << "[DEBUG] Enabling file event for listener fd: " 
+    std::cerr << "[DEBUG] Enabling file event for listener fd: "
               << socket_->ioHandle().fd() << std::endl;
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
   } else {
@@ -304,13 +306,15 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
       parent_cb_(parent_cb),
       random_(std::random_device{}()),
       listener_tag_(next_listener_tag_++) {
-  std::cerr << "[DEBUG] TcpActiveListener constructor: address=" 
+  std::cerr << "[DEBUG] TcpActiveListener constructor: address="
             << (config_.address ? config_.address->asString() : "null")
-            << " socket=" << (config_.socket ? "PROVIDED" : "NULL") << std::endl;
-  
+            << " socket=" << (config_.socket ? "PROVIDED" : "NULL")
+            << std::endl;
+
   // Create socket if not provided
   if (!config_.socket && config_.address) {
-    std::cerr << "[DEBUG] Creating listen socket for " << config_.address->asString() << std::endl;
+    std::cerr << "[DEBUG] Creating listen socket for "
+              << config_.address->asString() << std::endl;
     std::cerr << "[DEBUG] About to call createListenSocket..." << std::endl;
     // Create and bind socket
     auto socket_result = createListenSocket(
@@ -318,18 +322,20 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
         SocketCreationOptions{
             .non_blocking = true, .close_on_exec = true, .reuse_address = true},
         config_.bind_to_port);
-    std::cerr << "[DEBUG] createListenSocket returned: " << (socket_result ? "SUCCESS" : "NULL") << std::endl;
+    std::cerr << "[DEBUG] createListenSocket returned: "
+              << (socket_result ? "SUCCESS" : "NULL") << std::endl;
 
     if (socket_result) {
       config_.socket = std::move(socket_result);
-      std::cerr << "[DEBUG] Socket created successfully, fd=" 
+      std::cerr << "[DEBUG] Socket created successfully, fd="
                 << config_.socket->ioHandle().fd() << std::endl;
 
       // Listen on the socket
       if (config_.bind_to_port) {
         static_cast<ListenSocketImpl*>(config_.socket.get())
             ->listen(config_.backlog);
-        std::cerr << "[DEBUG] Socket listening with backlog=" << config_.backlog << std::endl;
+        std::cerr << "[DEBUG] Socket listening with backlog=" << config_.backlog
+                  << std::endl;
       }
     } else {
       std::cerr << "[ERROR] Failed to create listen socket!" << std::endl;
@@ -351,7 +357,8 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
     listener_->setRejectFraction(UnitFloat(config_.initial_reject_fraction));
     std::cerr << "[DEBUG] TcpListenerImpl created successfully" << std::endl;
   } else {
-    std::cerr << "[ERROR] No socket available, listener not created!" << std::endl;
+    std::cerr << "[ERROR] No socket available, listener not created!"
+              << std::endl;
   }
 }
 
@@ -472,25 +479,29 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
     connection->setBufferLimits(config_.per_connection_buffer_limit);
 
     // Apply filter chain if configured
-    // Following production pattern: filter chain factory adds filters to connection
+    // Following production pattern: filter chain factory adds filters to
+    // connection
     if (config_.filter_chain_factory) {
       // Get filter manager from connection
       auto* conn_impl = dynamic_cast<ConnectionImpl*>(connection.get());
       if (conn_impl) {
-        std::cerr << "[DEBUG] Creating filter chain for connection" << std::endl;
+        std::cerr << "[DEBUG] Creating filter chain for connection"
+                  << std::endl;
         // Create filter chain via filter manager
-        bool success = config_.filter_chain_factory->createFilterChain(conn_impl->filterManager());
+        bool success = config_.filter_chain_factory->createFilterChain(
+            conn_impl->filterManager());
         if (success) {
           std::cerr << "[DEBUG] Filter chain created successfully" << std::endl;
         } else {
           std::cerr << "[ERROR] Failed to create filter chain" << std::endl;
         }
-        
+
         // Initialize read filters after they've been added
         conn_impl->initializeReadFilters();
         std::cerr << "[DEBUG] Read filters initialized" << std::endl;
       } else {
-        std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl" << std::endl;
+        std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl"
+                  << std::endl;
       }
     } else {
       std::cerr << "[WARNING] No filter chain factory configured" << std::endl;

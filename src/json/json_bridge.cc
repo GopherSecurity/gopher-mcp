@@ -1,25 +1,27 @@
 #include "mcp/json/json_bridge.h"
-#include <nlohmann/json.hpp>
+
 #include <sstream>
+
+#include <nlohmann/json.hpp>
 
 namespace mcp {
 namespace json {
 
 // Implementation class that wraps nlohmann::json
 class JsonValueImpl {
-public:
+ public:
   nlohmann::json json_;
-  
+
   JsonValueImpl() : json_(nullptr) {}
   explicit JsonValueImpl(const nlohmann::json& j) : json_(j) {}
   explicit JsonValueImpl(nlohmann::json&& j) : json_(std::move(j)) {}
 };
 
-
 // JsonValue constructors
 JsonValue::JsonValue() : impl_(std::make_unique<JsonValueImpl>()) {}
 
-JsonValue::JsonValue(std::nullptr_t) : impl_(std::make_unique<JsonValueImpl>()) {
+JsonValue::JsonValue(std::nullptr_t)
+    : impl_(std::make_unique<JsonValueImpl>()) {
   impl_->json_ = nullptr;
 }
 
@@ -39,15 +41,17 @@ JsonValue::JsonValue(double value) : impl_(std::make_unique<JsonValueImpl>()) {
   impl_->json_ = value;
 }
 
-JsonValue::JsonValue(const std::string& value) : impl_(std::make_unique<JsonValueImpl>()) {
+JsonValue::JsonValue(const std::string& value)
+    : impl_(std::make_unique<JsonValueImpl>()) {
   impl_->json_ = value;
 }
 
-JsonValue::JsonValue(const char* value) : impl_(std::make_unique<JsonValueImpl>()) {
+JsonValue::JsonValue(const char* value)
+    : impl_(std::make_unique<JsonValueImpl>()) {
   impl_->json_ = std::string(value);
 }
 
-JsonValue::JsonValue(const JsonValue& other) 
+JsonValue::JsonValue(const JsonValue& other)
     : impl_(std::make_unique<JsonValueImpl>(other.impl_->json_)) {}
 
 JsonValue::JsonValue(JsonValue&& other) noexcept = default;
@@ -65,13 +69,20 @@ JsonValue::~JsonValue() = default;
 
 // Type checking
 JsonType JsonValue::type() const {
-  if (impl_->json_.is_null()) return JsonType::Null;
-  if (impl_->json_.is_boolean()) return JsonType::Boolean;
-  if (impl_->json_.is_number_integer()) return JsonType::Integer;
-  if (impl_->json_.is_number_float()) return JsonType::Float;
-  if (impl_->json_.is_string()) return JsonType::String;
-  if (impl_->json_.is_array()) return JsonType::Array;
-  if (impl_->json_.is_object()) return JsonType::Object;
+  if (impl_->json_.is_null())
+    return JsonType::Null;
+  if (impl_->json_.is_boolean())
+    return JsonType::Boolean;
+  if (impl_->json_.is_number_integer())
+    return JsonType::Integer;
+  if (impl_->json_.is_number_float())
+    return JsonType::Float;
+  if (impl_->json_.is_string())
+    return JsonType::String;
+  if (impl_->json_.is_array())
+    return JsonType::Array;
+  if (impl_->json_.is_object())
+    return JsonType::Object;
   return JsonType::Null;
 }
 
@@ -130,7 +141,8 @@ int JsonValue::getInt(int defaultValue) const {
 }
 
 int64_t JsonValue::getInt64(int64_t defaultValue) const {
-  return (isInteger() || isFloat()) ? impl_->json_.get<int64_t>() : defaultValue;
+  return (isInteger() || isFloat()) ? impl_->json_.get<int64_t>()
+                                    : defaultValue;
 }
 
 double JsonValue::getFloat(double defaultValue) const {
@@ -198,13 +210,13 @@ JsonValue& JsonValue::operator[](const std::string& key) {
       throw JsonException("Value is not an object");
     }
   }
-  
-  // Simple approach: when a value is assigned through operator[], 
+
+  // Simple approach: when a value is assigned through operator[],
   // we need to handle it in the assignment operator
   // For now, let's use a different approach in JsonObjectBuilder
-  
+
   static thread_local std::map<std::string, JsonValue> temp_map;
-  if (temp_map.find(key) == temp_map.end() || 
+  if (temp_map.find(key) == temp_map.end() ||
       &temp_map[key].impl_->json_ != &impl_->json_[key]) {
     temp_map[key] = JsonValue();
     temp_map[key].impl_->json_ = impl_->json_[key];
@@ -217,7 +229,7 @@ const JsonValue& JsonValue::operator[](const std::string& key) const {
     throw JsonException("Value is not an object");
   }
   static thread_local std::map<std::string, JsonValue> temp_map;
-  if (temp_map.find(key) == temp_map.end() || 
+  if (temp_map.find(key) == temp_map.end() ||
       &temp_map[key].impl_->json_ != &impl_->json_[key]) {
     temp_map[key] = JsonValue();
     temp_map[key].impl_->json_ = impl_->json_[key];
@@ -277,16 +289,17 @@ std::vector<std::string> JsonValue::keys() const {
 
 // ObjectIterator implementation
 class ObjectIteratorImpl {
-public:
+ public:
   nlohmann::json::iterator iter_;
   nlohmann::json::iterator end_;
-  
-  ObjectIteratorImpl(nlohmann::json& j, bool is_end) 
+
+  ObjectIteratorImpl(nlohmann::json& j, bool is_end)
       : iter_(is_end ? j.end() : j.begin()), end_(j.end()) {}
 };
 
-JsonValue::ObjectIterator::ObjectIterator(void* impl, bool is_end) : impl_(impl) {
-    (void)is_end; // Suppress unused parameter warning
+JsonValue::ObjectIterator::ObjectIterator(void* impl, bool is_end)
+    : impl_(impl) {
+  (void)is_end;  // Suppress unused parameter warning
 }
 
 JsonValue::ObjectIterator::~ObjectIterator() {
@@ -337,9 +350,7 @@ std::string JsonValue::toString(bool pretty) const {
 }
 
 // Static factory methods
-JsonValue JsonValue::null() {
-  return JsonValue(nullptr);
-}
+JsonValue JsonValue::null() { return JsonValue(nullptr); }
 
 JsonValue JsonValue::array() {
   JsonValue val;

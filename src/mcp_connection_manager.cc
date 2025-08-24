@@ -1,13 +1,14 @@
 #include "mcp/mcp_connection_manager.h"
-#include <netinet/tcp.h>  // For TCP_NODELAY
 
 #include <iostream>
 #include <sstream>
 
+#include <netinet/tcp.h>  // For TCP_NODELAY
+
 #include "mcp/core/result.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
-#include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/filter/protocol_detection_filter_chain_factory.h"
+#include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/connection_impl.h"
@@ -169,7 +170,7 @@ VoidResult McpConnectionManager::connect() {
     std::string host = "127.0.0.1";
     uint32_t port = 8080;
 
-    // Extract host and port from server_address  
+    // Extract host and port from server_address
     // Support format: host:port or IP:port
     size_t colon_pos = server_address.rfind(':');
     if (colon_pos != std::string::npos) {
@@ -186,7 +187,7 @@ VoidResult McpConnectionManager::connect() {
       // No port specified, use entire string as host
       host = server_address;
     }
-    
+
     // Convert localhost to IP
     if (host == "localhost") {
       host = "127.0.0.1";
@@ -239,11 +240,12 @@ VoidResult McpConnectionManager::connect() {
 
     // Set socket to non-blocking mode for async I/O
     socket_wrapper->ioHandle().setBlocking(false);
-    
+
     // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
     // This ensures data is sent immediately rather than being buffered
     int nodelay = 1;
-    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                                    sizeof(nodelay));
 
     // Create HTTP/SSE transport socket wrapper
     auto transport_factory = createTransportSocketFactory();
@@ -562,7 +564,7 @@ void McpConnectionManager::onNewConnection(
     if (active_connection_->transportSocket().protocol() != "") {
       active_connection_->transportSocket().onConnected();
     }
-    
+
     // Connection should now be ready to receive data
     // The file events are already registered and should fire when data arrives
   }
@@ -598,7 +600,7 @@ std::shared_ptr<network::FilterChainFactory>
 McpConnectionManager::createFilterChainFactory() {
   // Create filter chain based on transport requirements
   // Architecture principle: Each filter handles exactly one protocol layer
-  
+
   // Check if protocol detection is enabled
   if (config_.use_protocol_detection) {
     // Use protocol detection to automatically determine HTTP vs native MCP
@@ -610,25 +612,25 @@ McpConnectionManager::createFilterChainFactory() {
         true   // enable_native_mcp
     );
   }
-  
+
   if (config_.transport_type == TransportType::HttpSse) {
     // Complex protocol stack for HTTP+SSE:
     // [TCP] → [Combined HTTP+SSE+JSON-RPC Filter] → [Application]
-    // 
+    //
     // The combined filter internally manages the protocol layers:
     // - HTTP codec for request/response
     // - SSE codec for event streams
     // - JSON-RPC for message protocol
-    
+
     return std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_);
-    
+
   } else {
     // Simple direct transport (stdio, websocket):
     // [Transport] → [JSON-RPC Filter] → [Application]
-    // 
+    //
     // No protocol stack needed - just JSON-RPC message handling
-    
+
     return std::make_shared<filter::StdioFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.use_message_framing);
   }
@@ -643,10 +645,11 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // - This method: JSON serialization only
   // - Filters: Protocol formatting (HTTP, SSE, framing)
   // - Transport: Raw I/O only
-  
+
   // For direct transports without framing, add newline delimiter
   // NOTE: HTTP+SSE transport doesn't need this as protocol layers handle it
-  if (!config_.use_message_framing && config_.transport_type == TransportType::Stdio) {
+  if (!config_.use_message_framing &&
+      config_.transport_type == TransportType::Stdio) {
     json_str += "\n";
   }
 
@@ -654,10 +657,9 @@ VoidResult McpConnectionManager::sendJsonMessage(
   auto buffer = std::make_unique<OwnedBuffer>();
   buffer->add(json_str);
 
-
   // Write through filter chain - each filter handles its protocol layer:
   // - JSON-RPC filter: message framing if configured
-  // - SSE filter: SSE event formatting if applicable  
+  // - SSE filter: SSE event formatting if applicable
   // - HTTP filter: HTTP request/response formatting if applicable
   // - Transport socket: raw I/O only
   active_connection_->write(*buffer, false);
