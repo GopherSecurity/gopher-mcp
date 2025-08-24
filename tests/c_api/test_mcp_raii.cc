@@ -922,6 +922,7 @@ TEST_F(EnhancedTransactionTest, EmptyTransactionOperations) {
     AllocationTransaction txn;
     
     EXPECT_EQ(0, txn.resource_count());
+    EXPECT_TRUE(txn.empty());
     EXPECT_FALSE(txn.is_committed());
     
     // Operations on empty transaction should be safe
@@ -930,6 +931,189 @@ TEST_F(EnhancedTransactionTest, EmptyTransactionOperations) {
     
     txn.commit(); // Should be safe (already committed)
     EXPECT_TRUE(txn.is_committed());
+}
+
+TEST_F(EnhancedTransactionTest, ReserveCapacityOptimization) {
+    AllocationTransaction txn;
+    
+    // Test reserve functionality
+    txn.reserve(100);
+    
+    // Add resources and verify no performance degradation
+    std::vector<MockResource*> resources;
+    for (int i = 0; i < 50; ++i) {
+        auto* resource = new MockResource(i);
+        resources.push_back(resource);
+        txn.track(resource);
+    }
+    
+    EXPECT_EQ(50, txn.resource_count());
+    EXPECT_FALSE(txn.empty());
+    
+    txn.commit();
+    
+    // Manual cleanup since transaction was committed
+    for (auto* resource : resources) {
+        delete resource;
+    }
+}
+
+/* ============================================================================
+ * New API Feature Tests
+ * ============================================================================ */
+
+class NewAPIFeatureTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        MockResource::reset_counters();
+        mcp_raii_reset_stats();
+    }
+    
+    void TearDown() override {
+        EXPECT_TRUE(MockResource::is_balanced());
+    }
+};
+
+TEST_F(NewAPIFeatureTest, ComparisonOperators) {
+    auto* resource1 = new MockResource(100);
+    auto* resource2 = new MockResource(200);
+    
+    ResourceGuard<MockResource> guard1(resource1);
+    ResourceGuard<MockResource> guard2(resource2);
+    ResourceGuard<MockResource> empty_guard;
+    
+    // Test equality/inequality between guards
+    EXPECT_NE(guard1, guard2);
+    EXPECT_EQ(guard1, guard1);
+    
+    // Test null comparisons
+    EXPECT_EQ(empty_guard, nullptr);
+    EXPECT_NE(guard1, nullptr);
+    EXPECT_EQ(nullptr, empty_guard);
+    EXPECT_NE(nullptr, guard1);
+}
+
+TEST_F(NewAPIFeatureTest, GetDeleterAccess) {
+    bool custom_deleter_called = false;
+    
+    std::function<void(MockResource*)> custom_deleter = [&](MockResource* p) {
+        custom_deleter_called = true;
+        delete p;
+    };
+    
+    {
+        ResourceGuard<MockResource> guard(new MockResource(42), custom_deleter);
+        
+        // Test get_deleter access (const and non-const)
+        const auto& const_guard = guard;
+        const auto& const_deleter = const_guard.get_deleter();
+        auto& deleter = guard.get_deleter();
+        
+        // Verify we have access to the deleter
+        EXPECT_FALSE(custom_deleter_called);
+    }
+    
+    EXPECT_TRUE(custom_deleter_called);
+}
+
+TEST_F(NewAPIFeatureTest, TransactionSwapFunctionality) {
+    auto* resource1 = new MockResource(111);
+    auto* resource2 = new MockResource(222);
+    auto* resource3 = new MockResource(333);
+    auto* resource4 = new MockResource(444);
+    
+    AllocationTransaction txn1, txn2;
+    
+    txn1.track(resource1);
+    txn1.track(resource2);
+    
+    txn2.track(resource3);
+    txn2.track(resource4);
+    
+    EXPECT_EQ(2, txn1.resource_count());
+    EXPECT_EQ(2, txn2.resource_count());
+    
+    // Test member swap
+    txn1.swap(txn2);
+    
+    EXPECT_EQ(2, txn1.resource_count());
+    EXPECT_EQ(2, txn2.resource_count());
+    
+    // Test non-member swap
+    swap(txn1, txn2);
+    
+    EXPECT_EQ(2, txn1.resource_count());
+    EXPECT_EQ(2, txn2.resource_count());
+    
+    // Commit both to prevent cleanup
+    txn1.commit();
+    txn2.commit();
+    
+    // Manual cleanup
+    delete resource1; delete resource2; delete resource3; delete resource4;
+}
+
+TEST_F(NewAPIFeatureTest, ResourceGuardSwapFunctionality) {
+    auto* resource1 = new MockResource(555);
+    auto* resource2 = new MockResource(666);
+    
+    ResourceGuard<MockResource> guard1(resource1);
+    ResourceGuard<MockResource> guard2(resource2);
+    
+    EXPECT_EQ(resource1, guard1.get());
+    EXPECT_EQ(resource2, guard2.get());
+    
+    // Test member swap
+    guard1.swap(guard2);
+    
+    EXPECT_EQ(resource2, guard1.get());
+    EXPECT_EQ(resource1, guard2.get());
+    
+    // Test non-member swap
+    swap(guard1, guard2);
+    
+    EXPECT_EQ(resource1, guard1.get());
+    EXPECT_EQ(resource2, guard2.get());
+}
+
+TEST_F(NewAPIFeatureTest, StatisticsTracking) {
+    uint64_t initial_guards_created, initial_guards_destroyed;
+    uint64_t initial_resources_tracked, initial_resources_released;
+    uint64_t initial_exceptions;
+    
+    mcp_raii_get_stats(&initial_guards_created, &initial_guards_destroyed,
+                      &initial_resources_tracked, &initial_resources_released,
+                      &initial_exceptions);
+    
+    {
+        // Create multiple guards to test statistics
+        auto guard1 = make_resource_guard(new MockResource(1));
+        auto guard2 = make_resource_guard(new MockResource(2));
+        auto guard3 = make_resource_guard(new MockResource(3));
+        
+        uint64_t current_guards_created, current_guards_destroyed;
+        uint64_t current_resources_tracked, current_resources_released;
+        uint64_t current_exceptions;
+        
+        mcp_raii_get_stats(&current_guards_created, &current_guards_destroyed,
+                          &current_resources_tracked, &current_resources_released,
+                          &current_exceptions);
+        
+        // Verify statistics increased
+        EXPECT_GE(current_guards_created, initial_guards_created + 3);
+        EXPECT_GE(current_guards_destroyed, initial_guards_destroyed);
+    }
+    
+    // After destruction, destroyed count should increase
+    uint64_t final_guards_created, final_guards_destroyed;
+    uint64_t final_resources_tracked, final_resources_released;
+    uint64_t final_exceptions;
+    
+    mcp_raii_get_stats(&final_guards_created, &final_guards_destroyed,
+                      &final_resources_tracked, &final_resources_released,
+                      &final_exceptions);
+    
+    EXPECT_GE(final_guards_destroyed, initial_guards_destroyed + 3);
 }
 
 } // anonymous namespace
