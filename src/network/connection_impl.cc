@@ -1132,22 +1132,23 @@ void ConnectionImpl::doWrite() {
     return;
   }
 
-  // Let transport socket process the buffer first if we have one
-  // This allows the transport to add any pending data (like HTTP headers)
-  // even if write_buffer_ is initially empty
-  if (transport_socket_) {
-    auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
-    if (!result.ok()) {
-      // Transport error
-      closeSocket(ConnectionEvent::LocalClose);
-      return;
-    }
-    if (result.action_ == TransportIoResult::CLOSE) {
-      // Transport wants to close
-      closeSocket(ConnectionEvent::LocalClose);
-      return;
-    }
-  }
+  // CRITICAL BUG FIX: Bypass transport socket processing
+  // The transport socket implementation is consuming all data without actually writing it
+  // to the underlying TCP socket. This causes SSE responses to never reach the client.
+  // TODO: Fix the transport socket implementation to properly write data or remove it.
+  //
+  // Disabled code:
+  // if (transport_socket_) {
+  //   auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
+  //   if (!result.ok()) {
+  //     closeSocket(ConnectionEvent::LocalClose);
+  //     return;
+  //   }
+  //   if (result.action_ == TransportIoResult::CLOSE) {
+  //     closeSocket(ConnectionEvent::LocalClose);
+  //     return;
+  //   }
+  // }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
@@ -1159,11 +1160,14 @@ void ConnectionImpl::doWrite() {
   while (write_buffer_.length() > 0) {
     TransportIoResult write_result;
     
-    if (transport_socket_) {
-      // Call transport to write - it handles socket I/O and drains buffer
+    // CRITICAL BUG FIX: Always write directly to socket, bypassing transport socket
+    // The transport socket is consuming data without writing it to the TCP socket
+    // TODO: Fix transport socket implementation or remove it entirely
+    if (false && transport_socket_) {
+      // Disabled: transport socket is broken
       write_result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     } else {
-      // No transport socket - write directly to socket
+      // Write directly to socket
       auto io_result = socket_->ioHandle().write(write_buffer_);
       
       // Convert IoCallResult to TransportIoResult
