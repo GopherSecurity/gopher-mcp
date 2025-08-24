@@ -21,6 +21,8 @@
 #include <cstring>
 #include <memory>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace mcp {
 namespace c_api {
@@ -38,11 +40,18 @@ template<typename T>
 struct c_deleter {
   void operator()(T* ptr) const {
     if (ptr) {
-      // Free any owned string members
-      if constexpr (std::is_same_v<T, mcp_string_t>) {
-        if (ptr->data) {
-          free(const_cast<char*>(ptr->data));
-        }
+      free(ptr);
+    }
+  }
+};
+
+// Specialized deleter for mcp_string_t
+template<>
+struct c_deleter<mcp_string_t> {
+  void operator()(mcp_string_t* ptr) const {
+    if (ptr) {
+      if (ptr->data) {
+        free(const_cast<char*>(ptr->data));
       }
       free(ptr);
     }
@@ -52,6 +61,87 @@ struct c_deleter {
 template<typename T>
 using c_unique_ptr = std::unique_ptr<T, c_deleter<T>>;
 
+/**
+ * RAII Guard for automatic resource cleanup
+ * Provides move semantics and deterministic destruction
+ */
+template<typename T>
+class ResourceGuard {
+public:
+  using Deleter = void(*)(T*);
+  
+  ResourceGuard() noexcept : ptr_(nullptr), deleter_(nullptr) {}
+  explicit ResourceGuard(T* ptr, Deleter deleter) noexcept
+      : ptr_(ptr), deleter_(deleter) {}
+  
+  ~ResourceGuard() {
+    if (ptr_ && deleter_) {
+      deleter_(ptr_);
+    }
+  }
+  
+  // Move-only semantics for safety
+  ResourceGuard(const ResourceGuard&) = delete;
+  ResourceGuard& operator=(const ResourceGuard&) = delete;
+  ResourceGuard(ResourceGuard&& other) noexcept
+      : ptr_(std::exchange(other.ptr_, nullptr)),
+        deleter_(std::exchange(other.deleter_, nullptr)) {}
+  
+  ResourceGuard& operator=(ResourceGuard&& other) noexcept {
+    if (this != &other) {
+      if (ptr_ && deleter_) deleter_(ptr_);
+      ptr_ = std::exchange(other.ptr_, nullptr);
+      deleter_ = std::exchange(other.deleter_, nullptr);
+    }
+    return *this;
+  }
+  
+  T* get() const noexcept { return ptr_; }
+  T* release() noexcept { return std::exchange(ptr_, nullptr); }
+  explicit operator bool() const noexcept { return ptr_ != nullptr; }
+  
+private:
+  T* ptr_;
+  Deleter deleter_;
+};
+
+/**
+ * Transaction-based resource manager for exception safety
+ * Ensures all-or-nothing semantics for resource allocation
+ */
+class AllocationTransaction {
+public:
+  AllocationTransaction() = default;
+  ~AllocationTransaction() {
+    if (!committed_) rollback();
+  }
+  
+  // Track allocated resources for cleanup
+  void track(void* resource, void(*deleter)(void*)) {
+    if (resource) {
+      resources_.emplace_back(resource, deleter);
+    }
+  }
+  
+  // Commit transaction - resources won't be freed
+  void commit() { 
+    resources_.clear();
+    committed_ = true;
+  }
+  
+  // Rollback transaction - free all tracked resources
+  void rollback() {
+    for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
+      if (it->second) it->second(it->first);
+    }
+    resources_.clear();
+  }
+  
+private:
+  std::vector<std::pair<void*, void(*)(void*)>> resources_;
+  bool committed_ = false;
+};
+
 /* ============================================================================
  * Ownership Annotations and Documentation
  * ============================================================================
@@ -59,7 +149,11 @@ using c_unique_ptr = std::unique_ptr<T, c_deleter<T>>;
 
 // Ownership macros for clear API documentation
 #define MCP_BORROWED /* Returns borrowed reference - do not free */
+#if __cplusplus >= 201703L
 #define MCP_OWNED [[nodiscard]] /* Returns owned memory - caller must free */
+#else
+#define MCP_OWNED /* Returns owned memory - caller must free */
+#endif
 
 /* ============================================================================
  * String Conversions
@@ -98,6 +192,7 @@ MCP_BORROWED inline mcp_string_t to_c_string(const std::string& str) {
  * Convert C++ string to owned C string (unsafe - use to_c_string_copy_safe)
  * @deprecated Use to_c_string_copy_safe for proper error handling
  */
+[[deprecated("Use to_c_string_copy_safe for proper error handling")]]
 inline mcp_string_t to_c_string_copy(const std::string& str) {
   mcp_string_t result;
   char* data = static_cast<char*>(malloc(str.length() + 1));
@@ -135,19 +230,21 @@ inline mcp_result_t to_c_string_copy_safe(const std::string& str, mcp_string_t* 
 }
 
 /**
- * Convert C++ string to owned C string pointer
+ * Convert C++ string to owned C string pointer with RAII
  * @return Owned pointer - caller must free with mcp_string_free
  */
 MCP_OWNED inline mcp_string_t* to_c_string_owned(const std::string& str) {
-  auto result = static_cast<mcp_string_t*>(malloc(sizeof(mcp_string_t)));
-  if (!result) return nullptr;
+  ResourceGuard<mcp_string_t> guard(
+      static_cast<mcp_string_t*>(malloc(sizeof(mcp_string_t))),
+      [](mcp_string_t* s) { free(s); });
   
-  if (to_c_string_copy_safe(str, result) != MCP_OK) {
-    free(result);
+  if (!guard) return nullptr;
+  
+  if (to_c_string_copy_safe(str, guard.get()) != MCP_OK) {
     return nullptr;
   }
   
-  return result;
+  return guard.release();  // Transfer ownership to caller
 }
 
 /* ============================================================================
@@ -159,7 +256,7 @@ MCP_OWNED inline mcp_string_t* to_c_string_owned(const std::string& str) {
  * Convert C RequestId to C++ RequestId
  */
 inline RequestId to_cpp_request_id(const mcp_request_id_t& id) {
-  if (id.type == MCP_REQUEST_ID_STRING) {
+  if (id.type == mcp_request_id::MCP_REQUEST_ID_STRING) {
     return RequestId(to_cpp_string(id.value.string_value));
   } else {
     return RequestId(static_cast<int>(id.value.number_value));
@@ -172,10 +269,10 @@ inline RequestId to_cpp_request_id(const mcp_request_id_t& id) {
 inline mcp_request_id_t to_c_request_id(const RequestId& id) {
   mcp_request_id_t result;
   if (mcp::holds_alternative<std::string>(id)) {
-    result.type = MCP_REQUEST_ID_STRING;
+    result.type = mcp_request_id::MCP_REQUEST_ID_STRING;
     result.value.string_value = to_c_string(mcp::get<std::string>(id));
   } else {
-    result.type = MCP_REQUEST_ID_NUMBER;
+    result.type = mcp_request_id::MCP_REQUEST_ID_NUMBER;
     result.value.number_value = mcp::get<int>(id);
   }
   return result;
@@ -190,7 +287,7 @@ inline mcp_request_id_t to_c_request_id(const RequestId& id) {
  * Convert C ProgressToken to C++ ProgressToken
  */
 inline ProgressToken to_cpp_progress_token(const mcp_progress_token_t& token) {
-  if (token.type == MCP_PROGRESS_TOKEN_STRING) {
+  if (token.type == mcp_progress_token::MCP_PROGRESS_TOKEN_STRING) {
     return ProgressToken(to_cpp_string(token.value.string_value));
   } else {
     return ProgressToken(static_cast<int>(token.value.number_value));
@@ -203,10 +300,10 @@ inline ProgressToken to_cpp_progress_token(const mcp_progress_token_t& token) {
 inline mcp_progress_token_t to_c_progress_token(const ProgressToken& token) {
   mcp_progress_token_t result;
   if (mcp::holds_alternative<std::string>(token)) {
-    result.type = MCP_PROGRESS_TOKEN_STRING;
+    result.type = mcp_progress_token::MCP_PROGRESS_TOKEN_STRING;
     result.value.string_value = to_c_string(mcp::get<std::string>(token));
   } else {
-    result.type = MCP_PROGRESS_TOKEN_NUMBER;
+    result.type = mcp_progress_token::MCP_PROGRESS_TOKEN_NUMBER;
     result.value.number_value = mcp::get<int>(token);
   }
   return result;
@@ -266,26 +363,31 @@ inline TextContent to_cpp_text_content(const mcp_text_content_t& content) {
 }
 
 /**
- * Convert C++ TextContent to C TextContent
+ * Convert C++ TextContent to C TextContent with RAII
  */
 MCP_OWNED inline mcp_text_content_t* to_c_text_content(const TextContent& content) {
   auto result = c_unique_ptr<mcp_text_content_t>(
       static_cast<mcp_text_content_t*>(malloc(sizeof(mcp_text_content_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t type_str, text_str;
   if (to_c_string_copy_safe("text", &type_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(type_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(content.text, &text_str) != MCP_OK) {
-    // Clean up type_str
-    free(const_cast<char*>(type_str.data));
-    return nullptr;
+    return nullptr;  // Transaction will auto-cleanup type_str
   }
+  txn.track(const_cast<char*>(text_str.data), [](void* p) { free(p); });
   
   result->type = type_str;
   result->text = text_str;
+  
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
@@ -300,31 +402,37 @@ inline ImageContent to_cpp_image_content(const mcp_image_content_t& content) {
 }
 
 /**
- * Convert C++ ImageContent to C ImageContent
+ * Convert C++ ImageContent to C ImageContent with RAII
  */
 MCP_OWNED inline mcp_image_content_t* to_c_image_content(const ImageContent& content) {
   auto result = c_unique_ptr<mcp_image_content_t>(
       static_cast<mcp_image_content_t*>(malloc(sizeof(mcp_image_content_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy with cleanup on failure
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t type_str, data_str, mime_str;
   if (to_c_string_copy_safe("image", &type_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(type_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(content.data, &data_str) != MCP_OK) {
-    free(const_cast<char*>(type_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(data_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(content.mimeType, &mime_str) != MCP_OK) {
-    free(const_cast<char*>(type_str.data));
-    free(const_cast<char*>(data_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(mime_str.data), [](void* p) { free(p); });
   
   result->type = type_str;
   result->data = data_str;
   result->mime_type = mime_str;
+  
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
@@ -339,31 +447,37 @@ inline AudioContent to_cpp_audio_content(const mcp_audio_content_t& content) {
 }
 
 /**
- * Convert C++ AudioContent to C AudioContent
+ * Convert C++ AudioContent to C AudioContent with RAII
  */
 MCP_OWNED inline mcp_audio_content_t* to_c_audio_content(const AudioContent& content) {
   auto result = c_unique_ptr<mcp_audio_content_t>(
       static_cast<mcp_audio_content_t*>(malloc(sizeof(mcp_audio_content_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy with cleanup on failure
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t type_str, data_str, mime_str;
   if (to_c_string_copy_safe("audio", &type_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(type_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(content.data, &data_str) != MCP_OK) {
-    free(const_cast<char*>(type_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(data_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(content.mimeType, &mime_str) != MCP_OK) {
-    free(const_cast<char*>(type_str.data));
-    free(const_cast<char*>(data_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(mime_str.data), [](void* p) { free(p); });
   
   result->type = type_str;
   result->data = data_str;
   result->mime_type = mime_str;
+  
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
@@ -393,60 +507,67 @@ inline Resource to_cpp_resource(const mcp_resource_t& resource) {
 }
 
 /**
- * Convert C++ Resource to C Resource
+ * Convert C++ Resource to C Resource with RAII
  */
 MCP_OWNED inline mcp_resource_t* to_c_resource(const Resource& resource) {
   auto result = c_unique_ptr<mcp_resource_t>(
       static_cast<mcp_resource_t*>(malloc(sizeof(mcp_resource_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy with cleanup on failure
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t uri_str, name_str;
   if (to_c_string_copy_safe(resource.uri, &uri_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(uri_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(resource.name, &name_str) != MCP_OK) {
-    free(const_cast<char*>(uri_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(name_str.data), [](void* p) { free(p); });
   
   result->uri = uri_str;
   result->name = name_str;
   
-  // Handle optional description
+  // Handle optional description with RAII
   if (resource.description) {
     auto desc = static_cast<mcp_string_t*>(malloc(sizeof(mcp_string_t)));
-    if (!desc || to_c_string_copy_safe(*resource.description, desc) != MCP_OK) {
-      free(const_cast<char*>(uri_str.data));
-      free(const_cast<char*>(name_str.data));
-      free(desc);
+    if (!desc) return nullptr;
+    txn.track(desc, [](void* p) { free(p); });
+    
+    if (to_c_string_copy_safe(*resource.description, desc) != MCP_OK) {
       return nullptr;
     }
+    txn.track(const_cast<char*>(desc->data), [](void* p) { free(p); });
+    
     result->description = mcp_optional_create(desc);
+    if (!result->description) return nullptr;
+    txn.track(result->description, [](void* p) { mcp_optional_free(static_cast<mcp_optional_t*>(p)); });
   } else {
     result->description = nullptr;
   }
   
-  // Handle optional mime type
+  // Handle optional mime type with RAII
   if (resource.mimeType) {
     auto mime = static_cast<mcp_string_t*>(malloc(sizeof(mcp_string_t)));
-    if (!mime || to_c_string_copy_safe(*resource.mimeType, mime) != MCP_OK) {
-      free(const_cast<char*>(uri_str.data));
-      free(const_cast<char*>(name_str.data));
-      if (result->description) {
-        auto* desc = static_cast<mcp_string_t*>(mcp_optional_get_value(result->description));
-        if (desc && desc->data) free(const_cast<char*>(desc->data));
-        free(desc);
-        mcp_optional_free(result->description);
-      }
-      free(mime);
+    if (!mime) return nullptr;
+    txn.track(mime, [](void* p) { free(p); });
+    
+    if (to_c_string_copy_safe(*resource.mimeType, mime) != MCP_OK) {
       return nullptr;
     }
+    txn.track(const_cast<char*>(mime->data), [](void* p) { free(p); });
+    
     result->mime_type = mcp_optional_create(mime);
+    if (!result->mime_type) return nullptr;
+    txn.track(result->mime_type, [](void* p) { mcp_optional_free(static_cast<mcp_optional_t*>(p)); });
   } else {
     result->mime_type = nullptr;
   }
   
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
@@ -482,9 +603,9 @@ inline ContentBlock to_cpp_content_block(const mcp_content_block_t& block) {
       }
       break;
     case MCP_CONTENT_AUDIO:
-      if (block.content.audio) {
-        return ContentBlock(to_cpp_audio_content(*block.content.audio));
-      }
+      // AudioContent is not in ContentBlock, return empty text as fallback
+      // Note: Consider using ExtendedContentBlock if AudioContent is needed
+      return ContentBlock(TextContent(""));
       break;
     case MCP_CONTENT_RESOURCE_LINK:
       // Handle resource link if needed
@@ -500,6 +621,7 @@ inline ContentBlock to_cpp_content_block(const mcp_content_block_t& block) {
  * Convert C++ ContentBlock to C ContentBlock (unsafe - use to_c_content_block_safe)
  * @deprecated Use to_c_content_block_safe for proper error handling
  */
+[[deprecated("Use to_c_content_block_safe for proper error handling")]]
 inline mcp_content_block_t* to_c_content_block(const ContentBlock& block) {
   auto result = c_unique_ptr<mcp_content_block_t>(
       static_cast<mcp_content_block_t*>(malloc(sizeof(mcp_content_block_t))));
@@ -585,8 +707,8 @@ inline Tool to_cpp_tool(const mcp_tool_t& tool) {
   Tool result;
   result.name = to_cpp_string(tool.name);
   
-  if (tool.description && mcp_optional_has_value(&tool.description)) {
-    auto* str = static_cast<mcp_string_t*>(mcp_optional_get_value(&tool.description));
+  if (tool.description.has_value) {
+    auto* str = static_cast<mcp_string_t*>(tool.description.value);
     if (str) {
       result.description = mcp::make_optional(to_cpp_string(*str));
     }
@@ -598,35 +720,48 @@ inline Tool to_cpp_tool(const mcp_tool_t& tool) {
 }
 
 /**
- * Convert C++ Tool to C Tool
+ * Convert C++ Tool to C Tool with RAII
  */
 MCP_OWNED inline mcp_tool_t* to_c_tool(const Tool& tool) {
   auto result = c_unique_ptr<mcp_tool_t>(
       static_cast<mcp_tool_t*>(malloc(sizeof(mcp_tool_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t name_str;
   if (to_c_string_copy_safe(tool.name, &name_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(name_str.data), [](void* p) { free(p); });
   result->name = name_str;
   
   if (tool.description) {
     auto desc = static_cast<mcp_string_t*>(malloc(sizeof(mcp_string_t)));
-    if (!desc || to_c_string_copy_safe(*tool.description, desc) != MCP_OK) {
-      free(const_cast<char*>(name_str.data));
-      free(desc);
+    if (!desc) return nullptr;
+    txn.track(desc, [](void* p) { free(p); });
+    
+    if (to_c_string_copy_safe(*tool.description, desc) != MCP_OK) {
       return nullptr;
     }
-    result->description = *mcp_optional_create(desc);
+    txn.track(const_cast<char*>(desc->data), [](void* p) { free(p); });
+    
+    auto opt = mcp_optional_create(desc);
+    if (!opt) return nullptr;
+    result->description = *opt;
+    free(opt);  // Free wrapper, content is copied
   } else {
-    result->description = *mcp_optional_empty();
+    auto opt = mcp_optional_empty();
+    if (!opt) return nullptr;
+    result->description = *opt;
+    free(opt);  // Free wrapper
   }
   
   // TODO: Convert inputSchema to mcp_json_value_t
   result->input_schema = nullptr;
   
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
@@ -637,8 +772,8 @@ inline Prompt to_cpp_prompt(const mcp_prompt_t& prompt) {
   Prompt result;
   result.name = to_cpp_string(prompt.name);
   
-  if (prompt.description && mcp_optional_has_value(&prompt.description)) {
-    auto* str = static_cast<mcp_string_t*>(mcp_optional_get_value(&prompt.description));
+  if (prompt.description.has_value) {
+    auto* str = static_cast<mcp_string_t*>(prompt.description.value);
     if (str) {
       result.description = mcp::make_optional(to_cpp_string(*str));
     }
@@ -897,25 +1032,31 @@ inline Implementation to_cpp_implementation(const mcp_implementation_t& impl) {
 }
 
 /**
- * Convert C++ Implementation to C Implementation
+ * Convert C++ Implementation to C Implementation with RAII
  */
 MCP_OWNED inline mcp_implementation_t* to_c_implementation(const Implementation& impl) {
   auto result = c_unique_ptr<mcp_implementation_t>(
       static_cast<mcp_implementation_t*>(malloc(sizeof(mcp_implementation_t))));
   if (!result) return nullptr;
   
-  // Use safe string copy with cleanup on failure
+  // Use transaction for atomic allocation
+  AllocationTransaction txn;
+  
   mcp_string_t name_str, version_str;
   if (to_c_string_copy_safe(impl.name, &name_str) != MCP_OK) {
     return nullptr;
   }
+  txn.track(const_cast<char*>(name_str.data), [](void* p) { free(p); });
+  
   if (to_c_string_copy_safe(impl.version, &version_str) != MCP_OK) {
-    free(const_cast<char*>(name_str.data));
     return nullptr;
   }
+  txn.track(const_cast<char*>(version_str.data), [](void* p) { free(p); });
   
   result->name = name_str;
   result->version = version_str;
+  
+  txn.commit();  // Success - prevent cleanup
   return result.release();
 }
 
