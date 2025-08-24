@@ -369,6 +369,11 @@ public:
       auto content_type = headers.find("content-type");
       is_sse_mode_ = content_type != headers.end() &&
                      content_type->second.find("text/event-stream") != std::string::npos;
+      
+      if (is_sse_mode_) {
+        // Client entering SSE mode - start event stream parser
+        sse_filter_->startEventStream();
+      }
     }
   }
   
@@ -387,10 +392,11 @@ public:
       // Client mode: parse based on content type
       if (is_sse_mode_) {
         // In SSE mode, body contains event stream
-        // Forward to SSE filter for parsing
-        auto buffer = std::make_unique<OwnedBuffer>();
-        buffer->add(data);
-        sse_filter_->onData(*buffer, end_stream);
+        // SSE events can span multiple chunks, accumulate in buffer
+        pending_sse_data_.add(data);
+        // Parse SSE events - the parser will handle partial events
+        sse_filter_->onData(pending_sse_data_, end_stream);
+        // SSE filter drains what it consumes, keeping partial events
       } else {
         // In RPC mode, body contains JSON-RPC
         // Accumulate and forward to JSON-RPC filter
@@ -633,6 +639,7 @@ private:
   
   // Buffered data
   OwnedBuffer pending_json_data_;
+  OwnedBuffer pending_sse_data_;  // For accumulating SSE event stream data
 };
 
 // RequestStream method implementation (after HttpSseJsonRpcProtocolFilter definition)
