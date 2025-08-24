@@ -222,8 +222,9 @@ std::unique_ptr<ClientConnection> ConnectionImpl::createClientConnection(
 
 // Null transport socket for raw TCP connections
 class RawTransportSocket : public TransportSocket {
-public:
-  void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override {
+ public:
+  void setTransportSocketCallbacks(
+      TransportSocketCallbacks& callbacks) override {
     callbacks_ = &callbacks;
   }
   std::string protocol() const override { return "raw"; }
@@ -243,7 +244,8 @@ public:
       return TransportIoResult::error(Error{result.error_code(), "Read error"});
     }
     size_t bytes = *result;
-    return bytes == 0 ? TransportIoResult::close() : TransportIoResult::success(bytes);
+    return bytes == 0 ? TransportIoResult::close()
+                      : TransportIoResult::success(bytes);
   }
   TransportIoResult doWrite(Buffer& buffer, bool) override {
     if (!callbacks_) {
@@ -254,7 +256,8 @@ public:
       if (result.wouldBlock()) {
         return TransportIoResult::stop();
       }
-      return TransportIoResult::error(Error{result.error_code(), "Write error"});
+      return TransportIoResult::error(
+          Error{result.error_code(), "Write error"});
     }
     return TransportIoResult::success(*result);
   }
@@ -265,8 +268,8 @@ public:
   VoidResult connect(Socket&) override { return makeVoidSuccess(); }
   SslConnectionInfoConstSharedPtr ssl() const override { return nullptr; }
   bool startSecureTransport() override { return false; }
-  
-private:
+
+ private:
   TransportSocketCallbacks* callbacks_{nullptr};
 };
 
@@ -274,10 +277,11 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
                                SocketPtr&& socket,
                                TransportSocketPtr&& transport_socket,
                                bool connected)
-    : ConnectionImplBase(
-          dispatcher, std::move(socket), 
-          transport_socket ? std::move(transport_socket) 
-                          : std::make_unique<RawTransportSocket>()) {
+    : ConnectionImplBase(dispatcher,
+                         std::move(socket),
+                         transport_socket
+                             ? std::move(transport_socket)
+                             : std::make_unique<RawTransportSocket>()) {
   // Set initial state
   connected_ = connected;
   connecting_ = !connected;
@@ -287,11 +291,12 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   if (transport_socket_) {
     transport_socket_->setTransportSocketCallbacks(
         static_cast<TransportSocketCallbacks&>(*this));
-    
-    // CRITICAL: For server connections, notify transport socket that connection is established
-    // Server connections are already connected when created (socket was accepted)
-    // Without this, HTTP+SSE transport won't initialize properly for server mode
-    // Flow: Accept socket → Create connection (connected=true) → Notify transport
+
+    // CRITICAL: For server connections, notify transport socket that connection
+    // is established Server connections are already connected when created
+    // (socket was accepted) Without this, HTTP+SSE transport won't initialize
+    // properly for server mode Flow: Accept socket → Create connection
+    // (connected=true) → Notify transport
     if (connected) {
       transport_socket_->onConnected();
     }
@@ -322,30 +327,31 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         // Edge-triggered only fires on state transitions, not continuously
         auto trigger_type = event::PlatformDefaultTriggerType;
 
-
         // Set initial events based on connection state
-        // Server connections (connected=true): Start with Read to receive requests
-        // Client connections (connecting=true): Start with Write to detect connection completion
-        // This follows the reference pattern for event initialization
-        
+        // Server connections (connected=true): Start with Read to receive
+        // requests Client connections (connecting=true): Start with Write to
+        // detect connection completion This follows the reference pattern for
+        // event initialization
+
         uint32_t initial_events;
         if (connected) {
           // Server connection - enable read and write
           initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
-                          static_cast<uint32_t>(event::FileReadyType::Write);
+                           static_cast<uint32_t>(event::FileReadyType::Write);
         } else if (connecting_) {
           // Client connecting - enable write to detect connection completion
           initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
         } else {
-          // Not connected and not connecting - shouldn't happen but handle safely
+          // Not connected and not connecting - shouldn't happen but handle
+          // safely
           initial_events = 0;
         }
-        
+
         file_event_ = dispatcher_.createFileEvent(
             socket_->ioHandle().fd(),
             [this](uint32_t events) { onFileEvent(events); }, trigger_type,
             initial_events);
-        
+
         // Track which events are enabled
         file_event_state_ = initial_events;
       }
@@ -440,12 +446,12 @@ void ConnectionImpl::noDelay(bool enable) {
   if (!socket_->isOpen()) {
     return;
   }
-  
+
   // Don't set NODELAY for non-IP sockets (Unix domain, etc.)
   if (socket_->addressType() != Address::Type::Ip) {
     return;
   }
-  
+
   int val = enable ? 1 : 0;
   socket_->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
 }
@@ -453,16 +459,16 @@ void ConnectionImpl::noDelay(bool enable) {
 ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
   if (disable) {
     read_disable_count_++;
-    
+
     if (state_ != ConnectionState::Open) {
       return ReadDisableStatus::NoTransition;
     }
-    
+
     if (read_disable_count_ > 1) {
       // Already disabled
       return ReadDisableStatus::StillReadDisabled;
     }
-    
+
     // First disable - keep Write enabled, disable Read
     // Following reference pattern: always keep Write enabled
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
@@ -471,29 +477,30 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
     if (read_disable_count_ == 0) {
       return ReadDisableStatus::NoTransition;
     }
-    
+
     read_disable_count_--;
-    
+
     if (state_ != ConnectionState::Open) {
       return ReadDisableStatus::NoTransition;
     }
-    
+
     if (read_disable_count_ == 0) {
       // Re-enable both Read and Write
       // Following reference pattern: enable both when resuming reads
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                      static_cast<uint32_t>(event::FileReadyType::Write));
-      
+                       static_cast<uint32_t>(event::FileReadyType::Write));
+
       // Check if we need to resume reading (reference pattern)
       if (read_buffer_.length() > 0 || transport_wants_read_) {
         // Activate read event to process buffered data or transport requests
         if (file_event_) {
-          file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
+          file_event_->activate(
+              static_cast<uint32_t>(event::FileReadyType::Read));
         }
       }
       return ReadDisableStatus::TransitionedToReadEnabled;
     }
-    
+
     return ReadDisableStatus::StillReadDisabled;
   }
 }
@@ -501,8 +508,10 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
 bool ConnectionImpl::readEnabled() const {
   // Follow reference pattern: assert connection is open
   // Calls to readEnabled on closed socket are an error
-  assert(state() == ConnectionState::Open && "readEnabled called on non-open connection");
-  assert(dispatcher_.isThreadSafe() && "readEnabled must be called from dispatcher thread");
+  assert(state() == ConnectionState::Open &&
+         "readEnabled called on non-open connection");
+  assert(dispatcher_.isThreadSafe() &&
+         "readEnabled must be called from dispatcher thread");
   return read_disable_count_ == 0;
 }
 
@@ -524,10 +533,11 @@ std::string ConnectionImpl::requestedServerName() const {
 void ConnectionImpl::write(Buffer& data, bool end_stream) {
   /**
    * PUBLIC WRITE INTERFACE - Application entry point for sending data
-   * 
+   *
    * Complete flow:
    * 1. Application calls write() with data buffer
-   * 2. FilterManager::onWrite() processes through write filter chain (REVERSE order):
+   * 2. FilterManager::onWrite() processes through write filter chain (REVERSE
+   * order):
    *    - HttpSseJsonRpcProtocolFilter::onWrite() handles SSE/HTTP formatting
    *    - JsonRpcProtocolFilter::onWrite() adds JSON-RPC framing
    *    - HttpCodecFilter::onWrite() adds HTTP headers
@@ -535,14 +545,15 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
    * 4. Move processed data to write_buffer_
    * 5. Enable write events and trigger doWrite() if socket ready
    * 6. doWrite() writes to socket, continues until buffer empty or EAGAIN
-   * 
+   *
    * Thread safety: All operations must be in dispatcher thread
    * Buffer ownership: data is moved to write_buffer_ after processing
    */
-  
+
   // Thread safety: all writes must happen in dispatcher thread
-  assert(dispatcher_.isThreadSafe() && "write() must be called from dispatcher thread");
-  
+  assert(dispatcher_.isThreadSafe() &&
+         "write() must be called from dispatcher thread");
+
   if (state_ != ConnectionState::Open || write_half_closed_) {
     return;
   }
@@ -551,19 +562,18 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     write_half_closed_ = true;
   }
 
-
   // Set current write context for filter chain processing
   // This is safe because we're in the dispatcher thread
   current_write_buffer_ = &data;
   current_write_end_stream_ = end_stream;
-  
+
   // Process through write filters - they modify data in-place
   FilterStatus status = filter_manager_.onWrite();
-  
+
   // Clear current write context
   current_write_buffer_ = nullptr;
   current_write_end_stream_ = false;
-  
+
   if (status == FilterStatus::StopIteration) {
     return;
   }
@@ -587,7 +597,7 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
   if (write_buffer_.length() > 0) {
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
-    
+
     // If socket is already write-ready, write immediately
     // Otherwise onWriteReady will be called when socket becomes ready
     // Following reference pattern: always write immediately when possible
@@ -595,7 +605,7 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
       // Socket is ready, write now
       doWrite();
     }
-    // Note: No else clause needed - if not write_ready_, onWriteReady() 
+    // Note: No else clause needed - if not write_ready_, onWriteReady()
     // will be called by event loop when socket becomes writable
   }
 }
@@ -640,7 +650,7 @@ void ConnectionImpl::setTransportSocketIsReadable() {
   // Remember that transport requested read resumption
   // This follows the reference pattern for handling transport read requests
   transport_wants_read_ = true;
-  
+
   // Only activate read if not read disabled
   if (read_disable_count_ == 0 && file_event_) {
     file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
@@ -706,19 +716,20 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Handle file events
   /**
    * FILE EVENT HANDLER - Core of async I/O
-   * 
-   * Called by dispatcher when socket has events (read ready, write ready, error)
-   * Flow: epoll/kqueue/select → Dispatcher → FileEventImpl → onFileEvent()
-   * 
-   * All callbacks are invoked in dispatcher thread context - thread-safe by design
-   * 
+   *
+   * Called by dispatcher when socket has events (read ready, write ready,
+   * error) Flow: epoll/kqueue/select → Dispatcher → FileEventImpl →
+   * onFileEvent()
+   *
+   * All callbacks are invoked in dispatcher thread context - thread-safe by
+   * design
+   *
    * Event types:
    * - Read: Socket has data available → onReadReady() → doRead()
    * - Write: Socket buffer has space → onWriteReady() → doWrite()
    * - Closed: Socket closed/error → closeSocket()
    */
-  
-  
+
   // Check for immediate error first (following reference pattern)
   if (immediate_error_event_ == ConnectionEvent::LocalClose ||
       immediate_error_event_ == ConnectionEvent::RemoteClose) {
@@ -738,7 +749,8 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   }
 
   // Check if socket is still open after write handling
-  if (socket_->isOpen() && (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
+  if (socket_->isOpen() &&
+      (events & static_cast<uint32_t>(event::FileReadyType::Read))) {
     // Process read event
     onReadReady();
   }
@@ -747,17 +759,18 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
 void ConnectionImpl::onReadReady() {
   /**
    * READ READY HANDLER
-   * 
+   *
    * Socket has data available for reading
-   * Flow: onFileEvent(Read) → onReadReady() → doRead() → filter_manager_.onData()
-   * 
+   * Flow: onFileEvent(Read) → onReadReady() → doRead() →
+   * filter_manager_.onData()
+   *
    * Steps:
    * 1. Read from socket into read_buffer_
    * 2. Pass data through read filter chain
    * 3. Filters parse protocols (HTTP, SSE, JSON-RPC)
    * 4. Callbacks deliver parsed messages to application
    */
-  
+
   // Notify state machine of read ready event
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::ReadReady);
@@ -768,10 +781,10 @@ void ConnectionImpl::onReadReady() {
 void ConnectionImpl::onWriteReady() {
   /**
    * WRITE READY HANDLER
-   * 
+   *
    * Socket buffer has space, can write data
    * Flow: onFileEvent(Write) → onWriteReady() → doWrite()
-   * 
+   *
    * Two cases:
    * 1. Connection in progress: Complete connection, enable read/write events
    * 2. Connected: Flush any pending data in write_buffer_ to socket
@@ -798,22 +811,22 @@ void ConnectionImpl::onWriteReady() {
     onConnected();
 
     raiseConnectionEvent(ConnectionEvent::Connected);
-    
+
     // Flush any pending write data (reference pattern)
     // Transport may have queued data during handshake
     flushWriteBuffer();
 
     // Enable BOTH read and write events following production pattern
-    // Even though we may not have data to write immediately, keeping both enabled
-    // avoids race conditions from event reassignment
+    // Even though we may not have data to write immediately, keeping both
+    // enabled avoids race conditions from event reassignment
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                    static_cast<uint32_t>(event::FileReadyType::Write));
+                     static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     doWrite();
     // Ensure both Read and Write events are enabled after writing
     // This follows production pattern of keeping both events enabled
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                    static_cast<uint32_t>(event::FileReadyType::Write));
+                     static_cast<uint32_t>(event::FileReadyType::Write));
   }
 }
 
@@ -821,36 +834,38 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
   if (state_ == ConnectionState::Closed) {
     return;
   }
-  
+
   // Process any pending data in read buffer before closing
   // This ensures filters see all data before connection close
   if (read_buffer_.length() > 0) {
     processReadBuffer();
   }
-  
+
   // CRITICAL: Use deferred deletion pattern to prevent use-after-free
   // Problem: When EOF is detected in doRead(), calling closeSocket() directly
-  //          can cause the ConnectionImpl (managed by unique_ptr) to be destroyed
-  //          while still executing doRead(), causing segfault on return.
+  //          can cause the ConnectionImpl (managed by unique_ptr) to be
+  //          destroyed while still executing doRead(), causing segfault on
+  //          return.
   // Solution: Defer the actual close to the next event loop iteration using a
   //          0-delay timer. This ensures the object remains valid throughout
   //          the current call stack.
-  // Flow: EOF detected → closeThroughFilterManager → disable events → 
+  // Flow: EOF detected → closeThroughFilterManager → disable events →
   //       schedule timer → return safely → timer fires → closeSocket
   if (!deferred_delete_) {
     deferred_delete_ = true;
-    
+
     // Step 1: Disable file events immediately to prevent further I/O events
-    // This stops new read/write events from being processed while close is pending
+    // This stops new read/write events from being processed while close is
+    // pending
     if (file_event_) {
       file_event_->setEnabled(0);
     }
-    
+
     // Step 2: Schedule the actual close for the next event loop iteration
-    // The timer with 0 delay ensures closeSocket runs after current stack unwinds
-    auto close_timer = dispatcher_.createTimer([this, close_type]() {
-      closeSocket(close_type);
-    });
+    // The timer with 0 delay ensures closeSocket runs after current stack
+    // unwinds
+    auto close_timer = dispatcher_.createTimer(
+        [this, close_type]() { closeSocket(close_type); });
     close_timer->enableTimer(std::chrono::milliseconds(0));
   }
 }
@@ -883,7 +898,7 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   if (transport_socket_) {
     transport_socket_->closeSocket(close_type);
   }
-  
+
   // Drain buffers (reference pattern)
   // This prevents buffer fragments from outliving the connection
   write_buffer_.drain(write_buffer_.length());
@@ -916,7 +931,8 @@ void ConnectionImpl::doConnect() {
       immediate_error_event_ = ConnectionEvent::LocalClose;
       // Activate write event to trigger error handling on next loop
       if (file_event_) {
-        file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Write));
+        file_event_->activate(
+            static_cast<uint32_t>(event::FileReadyType::Write));
       }
       return;
     }
@@ -937,14 +953,14 @@ void ConnectionImpl::doConnect() {
     write_ready_ = true;  // Socket is immediately ready for writing
 
     // We're already in the dispatcher thread, just call directly
-    
+
     // Notify transport socket (must be before raising event)
     onConnected();
-    
+
     raiseConnectionEvent(ConnectionEvent::Connected);
     // Enable both read and write events
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                    static_cast<uint32_t>(event::FileReadyType::Write));
+                     static_cast<uint32_t>(event::FileReadyType::Write));
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
@@ -990,17 +1006,17 @@ void ConnectionImpl::onConnected() {
 void ConnectionImpl::doRead() {
   /**
    * CORE READ FUNCTION - Reads data from socket and processes through filters
-   * 
+   *
    * Flow:
    * 1. doReadFromSocket() - Read from socket/transport into read_buffer_
    * 2. processReadBuffer() - Pass through filter chain (HTTP, SSE, JSON-RPC)
    * 3. Filters invoke callbacks to deliver parsed messages to application
-   * 
+   *
    * Continues reading in loop until:
    * - Socket buffer is empty (EAGAIN)
    * - EOF detected (connection closed)
    * - Error occurs
-   * 
+   *
    * Thread safety: All operations in dispatcher thread
    */
 
@@ -1008,7 +1024,7 @@ void ConnectionImpl::doRead() {
     // Don't clear transport_wants_read_ when returning early
     return;
   }
-  
+
   // Clear transport wants read just before reading (reference pattern)
   transport_wants_read_ = false;
 
@@ -1040,7 +1056,7 @@ void ConnectionImpl::doRead() {
         // EOF detected - the remote end has closed the connection
         read_half_closed_ = true;
         detected_close_type_ = DetectedCloseType::RemoteReset;
-        
+
         // SAFETY: Must use closeThroughFilterManager instead of closeSocket
         // to avoid use-after-free when ConnectionImpl is destroyed during close
         closeThroughFilterManager(ConnectionEvent::RemoteClose);
@@ -1051,10 +1067,10 @@ void ConnectionImpl::doRead() {
       // The event loop will trigger another read when data is available
       break;
     }
-    
+
     // Update stats
     updateReadBufferStats(result.bytes_processed_, read_buffer_.length());
-    
+
     // Process through filter chain
     processReadBuffer();
 
@@ -1067,45 +1083,45 @@ void ConnectionImpl::doRead() {
 
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
-  
-  // CRITICAL BUG FIX: Always read directly from socket, bypassing transport socket
-  // The transport socket is broken and doesn't properly read data
+
+  // CRITICAL BUG FIX: Always read directly from socket, bypassing transport
+  // socket The transport socket is broken and doesn't properly read data
   if (false && transport_socket_) {
     // Disabled: transport socket is broken
     auto result = transport_socket_->doRead(read_buffer_);
     return result;
   }
-  
+
   // Read directly from socket (working path)
-  
+
   // Read from socket (IoHandle will manage buffer space)
   auto io_result = socket_->ioHandle().read(read_buffer_);
-  
-  
+
   // Convert IoCallResult to TransportIoResult
   if (!io_result.ok()) {
     // Socket error
-    
+
     // Check if it's just EAGAIN/EWOULDBLOCK
     if (io_result.wouldBlock()) {
       // No data available right now, not an error
       return TransportIoResult::stop();
     }
-    
+
     Error err;
     err.code = io_result.error_code();
-    err.message = io_result.error_info ? io_result.error_info->message : "Socket read error";
+    err.message = io_result.error_info ? io_result.error_info->message
+                                       : "Socket read error";
     return TransportIoResult::error(err);
   }
-  
+
   size_t bytes_read = *io_result;
-  
+
   // Check for EOF
   if (bytes_read == 0) {
     // EOF - connection closed
     return TransportIoResult::close();
   }
-  
+
   return TransportIoResult::success(bytes_read);
 }
 
@@ -1118,16 +1134,16 @@ void ConnectionImpl::processReadBuffer() {
 void ConnectionImpl::doWrite() {
   /**
    * CORE WRITE FUNCTION - Writes data from write_buffer_ to socket
-   * 
+   *
    * Flow:
    * 1. Check transport socket for any pending data (e.g., TLS handshake)
    * 2. Write from write_buffer_ to socket
    * 3. Continue writing until buffer empty or socket buffer full (EAGAIN)
-   * 
+   *
    * Called from:
    * - onWriteReady() when socket becomes writable
    * - write() when new data is added and socket is ready
-   * 
+   *
    * Thread safety: All operations in dispatcher thread
    */
   if (state_ != ConnectionState::Open) {
@@ -1135,14 +1151,16 @@ void ConnectionImpl::doWrite() {
   }
 
   // CRITICAL BUG FIX: Bypass transport socket processing
-  // The transport socket implementation is consuming all data without actually writing it
-  // to the underlying TCP socket. This causes SSE responses to never reach the client.
-  // TODO: Fix the transport socket implementation to properly write data or remove it.
+  // The transport socket implementation is consuming all data without actually
+  // writing it to the underlying TCP socket. This causes SSE responses to never
+  // reach the client.
+  // TODO: Fix the transport socket implementation to properly write data or
+  // remove it.
   //
   // Disabled code:
   // if (transport_socket_) {
-  //   auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
-  //   if (!result.ok()) {
+  //   auto result = transport_socket_->doWrite(write_buffer_,
+  //   write_half_closed_); if (!result.ok()) {
   //     closeSocket(ConnectionEvent::LocalClose);
   //     return;
   //   }
@@ -1161,17 +1179,19 @@ void ConnectionImpl::doWrite() {
   // Keep writing while buffer has data
   while (write_buffer_.length() > 0) {
     TransportIoResult write_result;
-    
-    // CRITICAL BUG FIX: Always write directly to socket, bypassing transport socket
-    // The transport socket is consuming data without writing it to the TCP socket
+
+    // CRITICAL BUG FIX: Always write directly to socket, bypassing transport
+    // socket The transport socket is consuming data without writing it to the
+    // TCP socket
     // TODO: Fix transport socket implementation or remove it entirely
     if (false && transport_socket_) {
       // Disabled: transport socket is broken
-      write_result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
+      write_result =
+          transport_socket_->doWrite(write_buffer_, write_half_closed_);
     } else {
       // Write directly to socket
       auto io_result = socket_->ioHandle().write(write_buffer_);
-      
+
       // Convert IoCallResult to TransportIoResult
       if (!io_result.ok()) {
         // Socket error
@@ -1181,7 +1201,8 @@ void ConnectionImpl::doWrite() {
         } else {
           Error err;
           err.code = io_result.error_code();
-          err.message = io_result.error_info ? io_result.error_info->message : "Socket write error";
+          err.message = io_result.error_info ? io_result.error_info->message
+                                             : "Socket write error";
           write_result = TransportIoResult::error(err);
         }
       } else {
@@ -1233,11 +1254,12 @@ void ConnectionImpl::doWrite() {
   if (write_buffer_.length() == 0) {
     // Finished writing current data - ensure both events are enabled
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                    static_cast<uint32_t>(event::FileReadyType::Write));
-    
+                     static_cast<uint32_t>(event::FileReadyType::Write));
+
     // CRITICAL: Handle edge-triggered race condition
-    // With edge-triggered events, if data arrives while we're in the process of 
-    // enabling Read events, we miss the edge and never get a Read event notification.
+    // With edge-triggered events, if data arrives while we're in the process of
+    // enabling Read events, we miss the edge and never get a Read event
+    // notification.
     //
     // The problem is a race condition with two possible scenarios:
     //
@@ -1255,8 +1277,8 @@ void ConnectionImpl::doWrite() {
     // 4. Client enables Read events
     // 5. No edge because data was already there
     //
-    // Solution: Activate a read event to check for any data that may have arrived
-    // This forces the event loop to check the socket for available data
+    // Solution: Activate a read event to check for any data that may have
+    // arrived This forces the event loop to check the socket for available data
     if (file_event_ && !is_server_connection_) {
       // Activate read to check for any data that may have arrived
       file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));

@@ -113,13 +113,15 @@ class MetricsTrackingFilter : public network::NetworkFilterBase {
 };
 
 /**
- * Common adapter from McpProtocolCallbacks to JsonRpcProtocolFilter::MessageHandler
+ * Common adapter from McpProtocolCallbacks to
+ * JsonRpcProtocolFilter::MessageHandler
  *
  * This adapter bridges the MCP protocol callback interface to the JSON-RPC
  * filter message handler interface, allowing ApplicationBase-derived classes to
  * use the unified JsonRpcProtocolFilter.
  */
-class McpToJsonRpcAdapter : public filter::JsonRpcProtocolFilter::MessageHandler {
+class McpToJsonRpcAdapter
+    : public filter::JsonRpcProtocolFilter::MessageHandler {
  public:
   explicit McpToJsonRpcAdapter(McpProtocolCallbacks& callbacks)
       : callbacks_(callbacks) {}

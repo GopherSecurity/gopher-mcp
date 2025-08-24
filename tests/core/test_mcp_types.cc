@@ -180,9 +180,9 @@ TEST_F(MCPTypesTest, CreateMessageRequest) {
                  .add_assistant_message("2+2 equals 4.")
                  .add_user_message("What about 3+3?")
                  .modelPreferences(make<ModelPreferences>()
-                                        .add_hint("gpt-4")
-                                        .intelligence_priority(0.8)
-                                        .build())
+                                       .add_hint("gpt-4")
+                                       .intelligence_priority(0.8)
+                                       .build())
                  .temperature(0.7)
                  .maxTokens(150)
                  .stopSequence("\\n\\n")
@@ -610,23 +610,27 @@ TEST_F(MCPTypesTest, ErrorConstructionExtensive) {
 
   // Test with data field - using simplified ErrorData type
   Error errWithData(500, "Server error");
-  errWithData.data = mcp::make_optional(ErrorData(std::string("Additional error info")));
+  errWithData.data =
+      mcp::make_optional(ErrorData(std::string("Additional error info")));
   ASSERT_TRUE(errWithData.data.has_value());
   EXPECT_TRUE(mcp::holds_alternative<std::string>(*errWithData.data));
-  
+
   // Test vector data
   Error errWithVector(501, "Vector error");
   std::vector<std::string> vecData = {"error1", "error2"};
   errWithVector.data = mcp::make_optional(ErrorData(vecData));
   ASSERT_TRUE(errWithVector.data.has_value());
-  EXPECT_TRUE(mcp::holds_alternative<std::vector<std::string>>(*errWithVector.data));
-  
+  EXPECT_TRUE(
+      mcp::holds_alternative<std::vector<std::string>>(*errWithVector.data));
+
   // Test map data
   Error errWithMap(502, "Map error");
-  std::map<std::string, std::string> mapData = {{"key1", "value1"}, {"key2", "value2"}};
+  std::map<std::string, std::string> mapData = {{"key1", "value1"},
+                                                {"key2", "value2"}};
   errWithMap.data = mcp::make_optional(ErrorData(mapData));
   ASSERT_TRUE(errWithMap.data.has_value());
-  EXPECT_TRUE((mcp::holds_alternative<std::map<std::string, std::string>>(*errWithMap.data)));
+  EXPECT_TRUE((mcp::holds_alternative<std::map<std::string, std::string>>(
+      *errWithMap.data)));
 }
 
 // Test Implementation info
@@ -1259,8 +1263,9 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(tool.inputSchema.value()["type"].getString(), "object");
   EXPECT_TRUE(tool.inputSchema.value().contains("properties"));
   EXPECT_TRUE(tool.inputSchema.value()["properties"].contains("expression"));
-  EXPECT_EQ(tool.inputSchema.value()["properties"]["expression"]["type"].getString(),
-            "string");
+  EXPECT_EQ(
+      tool.inputSchema.value()["properties"]["expression"]["type"].getString(),
+      "string");
 
   // Note: tool.parameters is not set by the builder, only inputSchema
   EXPECT_FALSE(tool.parameters.has_value());
@@ -1299,8 +1304,10 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
   EXPECT_EQ(embedded_resource.type, "embedded");
   EXPECT_EQ(embedded_resource.resource.uri, "file:///complex.pdf");
   EXPECT_EQ(embedded_resource.content.size(), 4u);
-  EXPECT_TRUE(mcp::holds_alternative<TextContent>(embedded_resource.content[0]));
-  EXPECT_TRUE(mcp::holds_alternative<ImageContent>(embedded_resource.content[2]));
+  EXPECT_TRUE(
+      mcp::holds_alternative<TextContent>(embedded_resource.content[0]));
+  EXPECT_TRUE(
+      mcp::holds_alternative<ImageContent>(embedded_resource.content[2]));
 }
 
 // Test edge cases and boundary values
@@ -1342,8 +1349,8 @@ TEST_F(MCPTypesTest, EdgeCasesAndBoundaryValues) {
 
   // Error with data - using simplified ErrorData type
   Error error_with_data(400, "Bad request");
-  error_with_data.data = mcp::make_optional(
-      ErrorData(std::string("Additional error info")));
+  error_with_data.data =
+      mcp::make_optional(ErrorData(std::string("Additional error info")));
 
   ASSERT_TRUE(error_with_data.data.has_value());
   EXPECT_TRUE(mcp::holds_alternative<std::string>(*error_with_data.data));

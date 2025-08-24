@@ -34,9 +34,9 @@ class StdioFilterChainFactory : public network::FilterChainFactory {
    * @param use_framing Whether to use length-prefixed framing
    */
   StdioFilterChainFactory(event::Dispatcher& dispatcher,
-                             McpProtocolCallbacks& message_callbacks,
-                             bool is_server,
-                             bool use_framing = true)
+                          McpProtocolCallbacks& message_callbacks,
+                          bool is_server,
+                          bool use_framing = true)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
         is_server_(is_server),

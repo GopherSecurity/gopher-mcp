@@ -37,12 +37,12 @@ class FullStackTransportTest : public test::RealListenerTestBase {
     // HTTP+SSE configuration for testing with new architecture
     config_.server_address = "localhost:8080";
     config_.mode = HttpSseTransportSocketConfig::Mode::CLIENT;
-    config_.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
-    // Note: These fields are now handled by the filter chain in the new architecture
-    // config_.auto_reconnect = true;
-    // config_.reconnect_delay = std::chrono::milliseconds(3000);
-    // config_.request_timeout = std::chrono::milliseconds(30000);
-    // config_.sse_endpoint_path = "/events";
+    config_.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    // Note: These fields are now handled by the filter chain in the new
+    // architecture config_.auto_reconnect = true; config_.reconnect_delay =
+    // std::chrono::milliseconds(3000); config_.request_timeout =
+    // std::chrono::milliseconds(30000); config_.sse_endpoint_path = "/events";
     // config_.request_endpoint_path = "/rpc";
   }
 
@@ -64,7 +64,8 @@ class FullStackTransportTest : public test::RealListenerTestBase {
     executeInDispatcher([this, use_ssl]() {
       if (use_ssl) {
         config_.server_address = "localhost:8443";
-        config_.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        config_.underlying_transport =
+            HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
         config_.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
         config_.ssl_config->verify_peer = false;  // For testing
         // For testing, we'd need to set up test certificates
@@ -196,7 +197,8 @@ TEST_F(FullStackTransportTest, FactoryConfiguration) {
     // Test with different configurations
     HttpSseTransportSocketConfig test_config;
     test_config.server_address = "api.example.com:443";
-    test_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    test_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     test_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
     test_config.ssl_config->verify_peer = true;
     // Note: auto_reconnect and HTTP version are now handled by filter chain
@@ -218,7 +220,8 @@ TEST_F(FullStackTransportTest, SSLConfiguration) {
     // Test SSL configuration
     HttpSseTransportSocketConfig https_config;
     https_config.server_address = "secure.example.com:443";
-    https_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    https_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     https_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
 
     auto https_factory =
@@ -228,7 +231,8 @@ TEST_F(FullStackTransportTest, SSLConfiguration) {
     // Test TCP (non-SSL) configuration
     HttpSseTransportSocketConfig http_config;
     http_config.server_address = "plain.example.com:80";
-    http_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    http_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
     auto http_factory =
         std::make_unique<HttpsSseTransportFactory>(http_config, *dispatcher_);
@@ -268,7 +272,8 @@ TEST_F(FullStackTransportTest, VerifyTCPLayerCreation) {
     // Directly test that TCP socket is created by the factory
     HttpSseTransportSocketConfig test_config;
     test_config.server_address = "test.example.com:80";
-    test_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    test_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
     HttpsSseTransportFactory factory(test_config, *dispatcher_);
 
@@ -291,9 +296,11 @@ TEST_F(FullStackTransportTest, ALPNConfiguration) {
     // Test ALPN configuration with SSL
     HttpSseTransportSocketConfig ssl_config;
     ssl_config.server_address = "h2.example.com:443";
-    ssl_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    ssl_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     ssl_config.ssl_config = HttpSseTransportSocketConfig::SslConfig{};
-    ssl_config.ssl_config->alpn_protocols = std::vector<std::string>{"h2", "http/1.1"};
+    ssl_config.ssl_config->alpn_protocols =
+        std::vector<std::string>{"h2", "http/1.1"};
 
     auto ssl_factory =
         std::make_unique<HttpsSseTransportFactory>(ssl_config, *dispatcher_);
@@ -302,7 +309,8 @@ TEST_F(FullStackTransportTest, ALPNConfiguration) {
     // Test without SSL (no ALPN)
     HttpSseTransportSocketConfig tcp_config;
     tcp_config.server_address = "example.com:80";
-    tcp_config.underlying_transport = HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
+    tcp_config.underlying_transport =
+        HttpSseTransportSocketConfig::UnderlyingTransport::TCP;
 
     auto tcp_factory =
         std::make_unique<HttpsSseTransportFactory>(tcp_config, *dispatcher_);

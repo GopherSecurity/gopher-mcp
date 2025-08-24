@@ -31,7 +31,7 @@ bool SocketOptionImpl::setOption(Socket& socket) const {
   if (!isSupported()) {
     return false;
   }
-  
+
   auto result = socket.setSocketOption(optname_.level, optname_.option,
                                        value_.data(), value_.size());
   return result.ok();
@@ -47,7 +47,7 @@ void SocketOptionImpl::hashKey(std::vector<uint8_t>& key) const {
   // Add option name
   key.push_back(static_cast<uint8_t>(optname_.level));
   key.push_back(static_cast<uint8_t>(optname_.option));
-  
+
   // Add option value
   key.insert(key.end(), value_.begin(), value_.end());
 }
@@ -55,7 +55,7 @@ void SocketOptionImpl::hashKey(std::vector<uint8_t>& key) const {
 std::string SocketOptionImpl::toString() const {
   std::stringstream ss;
   ss << optname_.name << "=";
-  
+
   // Format value based on size
   if (value_.size() == sizeof(int)) {
     int val;
@@ -64,13 +64,13 @@ std::string SocketOptionImpl::toString() const {
   } else {
     ss << "<" << value_.size() << " bytes>";
   }
-  
+
   return ss.str();
 }
 
 bool SocketOptionImpl::isSupported() const {
-  return optname_.hasValue() && 
-         socketInterface().supportsSocketOption(optname_.level, optname_.option);
+  return optname_.hasValue() && socketInterface().supportsSocketOption(
+                                    optname_.level, optname_.option);
 }
 
 // ===== IP Transparent Socket Option =====
@@ -82,26 +82,26 @@ bool IpTransparentSocketOption::setOption(Socket& socket) const {
   if (!isSupported()) {
     return false;
   }
-  
+
   // Set both IPv4 and IPv6 transparent options if applicable
   bool success = true;
-  
+
   // IPv4 transparent
   if (SOCKET_IP_TRANSPARENT.hasValue()) {
     success &= BoolSocketOption::setOption(socket);
   }
-  
+
   // IPv6 transparent
-  if (SOCKET_IPV6_TRANSPARENT.hasValue() && 
+  if (SOCKET_IPV6_TRANSPARENT.hasValue() &&
       socket.addressType() == Address::Type::Ip &&
       socket.ipVersion() == Address::IpVersion::v6) {
     int value = value_[0] ? 1 : 0;
     auto result = socket.setSocketOption(SOCKET_IPV6_TRANSPARENT.level,
-                                         SOCKET_IPV6_TRANSPARENT.option,
-                                         &value, sizeof(value));
+                                         SOCKET_IPV6_TRANSPARENT.option, &value,
+                                         sizeof(value));
     success &= result.ok();
   }
-  
+
   return success;
 }
 
@@ -124,10 +124,9 @@ bool ReusePortSocketOption::setOptionForListen(Socket& socket) const {
   // Apply BPF program after listen on Linux
 #ifdef SO_ATTACH_REUSEPORT_CBPF
   if (!bpf_program_.empty() && MCP_SO_ATTACH_REUSEPORT_CBPF.hasValue()) {
-    auto result = socket.setSocketOption(MCP_SO_ATTACH_REUSEPORT_CBPF.level,
-                                         MCP_SO_ATTACH_REUSEPORT_CBPF.option,
-                                         bpf_program_.data(),
-                                         bpf_program_.size());
+    auto result = socket.setSocketOption(
+        MCP_SO_ATTACH_REUSEPORT_CBPF.level, MCP_SO_ATTACH_REUSEPORT_CBPF.option,
+        bpf_program_.data(), bpf_program_.size());
     return result.ok();
   }
 #else
@@ -140,59 +139,59 @@ bool ReusePortSocketOption::setOptionForListen(Socket& socket) const {
 
 bool TcpKeepaliveSocketOption::setOption(Socket& socket) const {
   bool success = true;
-  
+
   // Enable/disable keepalive
   if (settings_.enabled.has_value() && SOCKET_SO_KEEPALIVE.hasValue()) {
     int value = *settings_.enabled ? 1 : 0;
     auto result = socket.setSocketOption(SOCKET_SO_KEEPALIVE.level,
-                                         SOCKET_SO_KEEPALIVE.option,
-                                         &value, sizeof(value));
+                                         SOCKET_SO_KEEPALIVE.option, &value,
+                                         sizeof(value));
     success &= result.ok();
   }
-  
+
   // Set keepalive parameters (only if enabled)
   if (!settings_.enabled.has_value() || *settings_.enabled) {
 #ifdef TCP_KEEPIDLE
     if (settings_.idle_time_s.has_value() && SOCKET_TCP_KEEPIDLE.hasValue()) {
       int value = *settings_.idle_time_s;
       auto result = socket.setSocketOption(SOCKET_TCP_KEEPIDLE.level,
-                                           SOCKET_TCP_KEEPIDLE.option,
-                                           &value, sizeof(value));
+                                           SOCKET_TCP_KEEPIDLE.option, &value,
+                                           sizeof(value));
       success &= result.ok();
     }
 #endif
-    
+
 #ifdef TCP_KEEPINTVL
     if (settings_.interval_s.has_value() && SOCKET_TCP_KEEPINTVL.hasValue()) {
       int value = *settings_.interval_s;
       auto result = socket.setSocketOption(SOCKET_TCP_KEEPINTVL.level,
-                                           SOCKET_TCP_KEEPINTVL.option,
-                                           &value, sizeof(value));
+                                           SOCKET_TCP_KEEPINTVL.option, &value,
+                                           sizeof(value));
       success &= result.ok();
     }
 #endif
-    
+
 #ifdef TCP_KEEPCNT
     if (settings_.probes.has_value() && SOCKET_TCP_KEEPCNT.hasValue()) {
       int value = *settings_.probes;
       auto result = socket.setSocketOption(SOCKET_TCP_KEEPCNT.level,
-                                           SOCKET_TCP_KEEPCNT.option,
-                                           &value, sizeof(value));
+                                           SOCKET_TCP_KEEPCNT.option, &value,
+                                           sizeof(value));
       success &= result.ok();
     }
 #endif
   }
-  
+
   return success;
 }
 
 void TcpKeepaliveSocketOption::hashKey(std::vector<uint8_t>& key) const {
   key.push_back('K');  // Keepalive marker
-  
+
   if (settings_.enabled.has_value()) {
     key.push_back(*settings_.enabled ? 1 : 0);
   }
-  
+
   auto addInt = [&key](const optional<int>& val) {
     if (val.has_value()) {
       int v = *val;
@@ -204,7 +203,7 @@ void TcpKeepaliveSocketOption::hashKey(std::vector<uint8_t>& key) const {
       key.push_back(0xFF);  // Marker for not set
     }
   };
-  
+
   addInt(settings_.idle_time_s);
   addInt(settings_.interval_s);
   addInt(settings_.probes);
@@ -213,23 +212,23 @@ void TcpKeepaliveSocketOption::hashKey(std::vector<uint8_t>& key) const {
 std::string TcpKeepaliveSocketOption::toString() const {
   std::stringstream ss;
   ss << "TCP_KEEPALIVE{";
-  
+
   if (settings_.enabled.has_value()) {
     ss << "enabled=" << (*settings_.enabled ? "true" : "false");
   }
-  
+
   if (settings_.idle_time_s.has_value()) {
     ss << ",idle=" << *settings_.idle_time_s << "s";
   }
-  
+
   if (settings_.interval_s.has_value()) {
     ss << ",interval=" << *settings_.interval_s << "s";
   }
-  
+
   if (settings_.probes.has_value()) {
     ss << ",probes=" << *settings_.probes;
   }
-  
+
   ss << "}";
   return ss.str();
 }
@@ -242,7 +241,8 @@ bool TcpKeepaliveSocketOption::isSupported() const {
 // ===== Buffer Size Socket Option =====
 
 BufferSizeSocketOption::BufferSizeSocketOption(BufferType type, int size)
-    : IntSocketOption(type == Receive ? SOCKET_SO_RCVBUF : SOCKET_SO_SNDBUF, size) {}
+    : IntSocketOption(type == Receive ? SOCKET_SO_RCVBUF : SOCKET_SO_SNDBUF,
+                      size) {}
 
 // ===== Mark Socket Option =====
 
@@ -253,27 +253,31 @@ MarkSocketOption::MarkSocketOption(uint32_t mark)
 
 bool TosSocketOption::setOption(Socket& socket) const {
   bool success = true;
-  
+
   // Set IPv4 TOS
   if (socket.addressType() == Address::Type::Ip) {
-    if (socket.ipVersion() == Address::IpVersion::v4 || !socket.ipVersion().has_value()) {
+    if (socket.ipVersion() == Address::IpVersion::v4 ||
+        !socket.ipVersion().has_value()) {
 #ifdef IP_TOS
       int value = tos_;
-      auto result = socket.setSocketOption(IPPROTO_IP, IP_TOS, &value, sizeof(value));
+      auto result =
+          socket.setSocketOption(IPPROTO_IP, IP_TOS, &value, sizeof(value));
       success &= result.ok();
 #endif
     }
-    
+
     // Set IPv6 Traffic Class
-    if (socket.ipVersion() == Address::IpVersion::v6 || !socket.ipVersion().has_value()) {
+    if (socket.ipVersion() == Address::IpVersion::v6 ||
+        !socket.ipVersion().has_value()) {
 #ifdef IPV6_TCLASS
       int value = tos_;
-      auto result = socket.setSocketOption(IPPROTO_IPV6, IPV6_TCLASS, &value, sizeof(value));
+      auto result = socket.setSocketOption(IPPROTO_IPV6, IPV6_TCLASS, &value,
+                                           sizeof(value));
       success &= result.ok();
 #endif
     }
   }
-  
+
   return success;
 }
 
@@ -298,80 +302,76 @@ bool TosSocketOption::isSupported() const {
 
 // ===== Socket Option Factory =====
 
-SocketOptionsSharedPtr buildSocketOptions(const SocketCreationOptions& options) {
-  auto socket_options = std::make_shared<std::vector<SocketOptionConstSharedPtr>>();
-  
+SocketOptionsSharedPtr buildSocketOptions(
+    const SocketCreationOptions& options) {
+  auto socket_options =
+      std::make_shared<std::vector<SocketOptionConstSharedPtr>>();
+
   // SO_REUSEADDR
   if (options.reuse_address) {
     socket_options->push_back(
         std::make_shared<BoolSocketOption>(SOCKET_SO_REUSEADDR, true));
   }
-  
+
   // SO_REUSEPORT
   if (options.reuse_port) {
-    socket_options->push_back(
-        std::make_shared<ReusePortSocketOption>(true));
+    socket_options->push_back(std::make_shared<ReusePortSocketOption>(true));
   }
-  
+
   // IPV6_V6ONLY
   if (options.v6_only) {
     socket_options->push_back(
         std::make_shared<BoolSocketOption>(SOCKET_IPV6_V6ONLY, true));
   }
-  
+
   // Buffer sizes
   if (options.send_buffer_size.has_value()) {
-    socket_options->push_back(
-        std::make_shared<BufferSizeSocketOption>(
-            BufferSizeSocketOption::Send, *options.send_buffer_size));
+    socket_options->push_back(std::make_shared<BufferSizeSocketOption>(
+        BufferSizeSocketOption::Send, *options.send_buffer_size));
   }
-  
+
   if (options.receive_buffer_size.has_value()) {
-    socket_options->push_back(
-        std::make_shared<BufferSizeSocketOption>(
-            BufferSizeSocketOption::Receive, *options.receive_buffer_size));
+    socket_options->push_back(std::make_shared<BufferSizeSocketOption>(
+        BufferSizeSocketOption::Receive, *options.receive_buffer_size));
   }
-  
+
   // Type of Service
   if (options.type_of_service.has_value()) {
-    socket_options->push_back(
-        std::make_shared<TosSocketOption>(
-            static_cast<uint8_t>(*options.type_of_service)));
+    socket_options->push_back(std::make_shared<TosSocketOption>(
+        static_cast<uint8_t>(*options.type_of_service)));
   }
-  
+
   // TCP options
   if (options.tcp_nodelay.has_value()) {
-    socket_options->push_back(
-        std::make_shared<BoolSocketOption>(SOCKET_TCP_NODELAY, *options.tcp_nodelay));
+    socket_options->push_back(std::make_shared<BoolSocketOption>(
+        SOCKET_TCP_NODELAY, *options.tcp_nodelay));
   }
-  
+
   // TCP keepalive
-  if (options.tcp_keepalive.has_value() ||
-      options.tcp_keepidle.has_value() ||
-      options.tcp_keepintvl.has_value() ||
-      options.tcp_keepcnt.has_value()) {
+  if (options.tcp_keepalive.has_value() || options.tcp_keepidle.has_value() ||
+      options.tcp_keepintvl.has_value() || options.tcp_keepcnt.has_value()) {
     TcpKeepaliveSocketOption::KeepaliveSettings settings;
     settings.enabled = options.tcp_keepalive;
     settings.idle_time_s = options.tcp_keepidle;
     settings.interval_s = options.tcp_keepintvl;
     settings.probes = options.tcp_keepcnt;
-    
+
     socket_options->push_back(
         std::make_shared<TcpKeepaliveSocketOption>(settings));
   }
-  
+
   // IP transparent
   if (options.ip_transparent.has_value()) {
     socket_options->push_back(
         std::make_shared<IpTransparentSocketOption>(*options.ip_transparent));
   }
-  
+
   // IP freebind
   if (options.ip_freebind.has_value()) {
     socket_options->push_back(
         std::make_shared<IpFreebindSocketOption>(*options.ip_freebind));
   }
-  
+
   return socket_options;
 }
 
@@ -379,49 +379,49 @@ SocketOptionsSharedPtr buildSocketOptions(const SocketCreationOptions& options) 
 
 // Standard socket options
 #ifdef SO_REUSEADDR
-const SocketOptionName SOCKET_SO_REUSEADDR = 
+const SocketOptionName SOCKET_SO_REUSEADDR =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEADDR);
 #else
 const SocketOptionName SOCKET_SO_REUSEADDR;
 #endif
 
 #ifdef SO_REUSEPORT
-const SocketOptionName SOCKET_SO_REUSEPORT = 
+const SocketOptionName SOCKET_SO_REUSEPORT =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_REUSEPORT);
 #else
 const SocketOptionName SOCKET_SO_REUSEPORT;
 #endif
 
 #ifdef SO_KEEPALIVE
-const SocketOptionName SOCKET_SO_KEEPALIVE = 
+const SocketOptionName SOCKET_SO_KEEPALIVE =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_KEEPALIVE);
 #else
 const SocketOptionName SOCKET_SO_KEEPALIVE;
 #endif
 
 #ifdef TCP_NODELAY
-const SocketOptionName SOCKET_TCP_NODELAY = 
+const SocketOptionName SOCKET_TCP_NODELAY =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_NODELAY);
 #else
 const SocketOptionName SOCKET_TCP_NODELAY;
 #endif
 
 #ifdef IP_TRANSPARENT
-const SocketOptionName SOCKET_IP_TRANSPARENT = 
+const SocketOptionName SOCKET_IP_TRANSPARENT =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_TRANSPARENT);
 #else
 const SocketOptionName SOCKET_IP_TRANSPARENT;
 #endif
 
 #ifdef IPV6_V6ONLY
-const SocketOptionName SOCKET_IPV6_V6ONLY = 
+const SocketOptionName SOCKET_IPV6_V6ONLY =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IPV6, IPV6_V6ONLY);
 #else
 const SocketOptionName SOCKET_IPV6_V6ONLY;
 #endif
 
 #ifdef SO_MARK
-const SocketOptionName SOCKET_SO_MARK = 
+const SocketOptionName SOCKET_SO_MARK =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_MARK);
 #else
 const SocketOptionName SOCKET_SO_MARK;
@@ -429,21 +429,21 @@ const SocketOptionName SOCKET_SO_MARK;
 
 // TCP keepalive constants
 #ifdef TCP_KEEPIDLE
-const SocketOptionName SOCKET_TCP_KEEPIDLE = 
+const SocketOptionName SOCKET_TCP_KEEPIDLE =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPIDLE);
 #else
 const SocketOptionName SOCKET_TCP_KEEPIDLE;
 #endif
 
 #ifdef TCP_KEEPINTVL
-const SocketOptionName SOCKET_TCP_KEEPINTVL = 
+const SocketOptionName SOCKET_TCP_KEEPINTVL =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPINTVL);
 #else
 const SocketOptionName SOCKET_TCP_KEEPINTVL;
 #endif
 
 #ifdef TCP_KEEPCNT
-const SocketOptionName SOCKET_TCP_KEEPCNT = 
+const SocketOptionName SOCKET_TCP_KEEPCNT =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_TCP, TCP_KEEPCNT);
 #else
 const SocketOptionName SOCKET_TCP_KEEPCNT;
@@ -462,15 +462,15 @@ const SocketOptionName MCP_SO_ATTACH_REUSEPORT_CBPF = MCP_ATTACH_REUSEPORT_CBPF;
 
 // IPv6 transparent option
 #ifdef IPV6_TRANSPARENT
-const SocketOptionName SOCKET_IPV6_TRANSPARENT = 
+const SocketOptionName SOCKET_IPV6_TRANSPARENT =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IPV6, IPV6_TRANSPARENT);
 #else
 const SocketOptionName SOCKET_IPV6_TRANSPARENT;
 #endif
 
-// IP_FREEBIND option  
+// IP_FREEBIND option
 #ifdef IP_FREEBIND
-const SocketOptionName SOCKET_IP_FREEBIND = 
+const SocketOptionName SOCKET_IP_FREEBIND =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_FREEBIND);
 #else
 const SocketOptionName SOCKET_IP_FREEBIND;
@@ -478,7 +478,7 @@ const SocketOptionName SOCKET_IP_FREEBIND;
 
 // IP_TOS option
 #ifdef IP_TOS
-const SocketOptionName SOCKET_IP_TOS = 
+const SocketOptionName SOCKET_IP_TOS =
     MCP_MAKE_SOCKET_OPTION_NAME(IPPROTO_IP, IP_TOS);
 #else
 const SocketOptionName SOCKET_IP_TOS;
@@ -486,14 +486,14 @@ const SocketOptionName SOCKET_IP_TOS;
 
 // SO_RCVBUF and SO_SNDBUF
 #ifdef SO_RCVBUF
-const SocketOptionName SOCKET_SO_RCVBUF = 
+const SocketOptionName SOCKET_SO_RCVBUF =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_RCVBUF);
 #else
 const SocketOptionName SOCKET_SO_RCVBUF;
 #endif
 
 #ifdef SO_SNDBUF
-const SocketOptionName SOCKET_SO_SNDBUF = 
+const SocketOptionName SOCKET_SO_SNDBUF =
     MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_SNDBUF);
 #else
 const SocketOptionName SOCKET_SO_SNDBUF;

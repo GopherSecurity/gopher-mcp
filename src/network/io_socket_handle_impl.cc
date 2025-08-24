@@ -4,19 +4,20 @@
 #include <cstring>
 
 #ifdef _WIN32
-#include <winsock2.h>
 #include <mswsock.h>
+#include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
 #else
-#include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-#include <errno.h>
 #endif
 
 #include "mcp/network/address_impl.h"
@@ -52,7 +53,8 @@ constexpr size_t MAX_IOV = 1024;
 
 }  // namespace
 
-IoSocketHandleImpl::IoSocketHandleImpl(os_fd_t fd, bool socket_v6only,
+IoSocketHandleImpl::IoSocketHandleImpl(os_fd_t fd,
+                                       bool socket_v6only,
                                        optional<int> domain)
     : fd_(fd), socket_v6only_(socket_v6only), domain_(domain) {
   if (fd_ != INVALID_SOCKET_FD) {
@@ -79,7 +81,8 @@ void IoSocketHandleImpl::setNonBlocking() {
 #endif
 }
 
-IoCallResult IoSocketHandleImpl::readv(size_t max_length, RawSlice* slices,
+IoCallResult IoSocketHandleImpl::readv(size_t max_length,
+                                       RawSlice* slices,
                                        size_t num_slices) {
   if (!isOpen()) {
     return IoCallResult::error(EBADF);
@@ -107,12 +110,13 @@ IoCallResult IoSocketHandleImpl::readv(size_t max_length, RawSlice* slices,
     buffers[i].buf = static_cast<char*>(slices[i].mem_);
     buffers[i].len = static_cast<ULONG>(slices[i].len_);
   }
-  
+
   DWORD bytes_received = 0;
   DWORD flags = 0;
-  int result = ::WSARecv(fd_, buffers.data(), static_cast<DWORD>(num_slices_to_read),
-                         &bytes_received, &flags, nullptr, nullptr);
-  
+  int result =
+      ::WSARecv(fd_, buffers.data(), static_cast<DWORD>(num_slices_to_read),
+                &bytes_received, &flags, nullptr, nullptr);
+
   if (result == 0) {
     return IoCallResult::success(bytes_received);
   } else {
@@ -141,7 +145,8 @@ IoCallResult IoSocketHandleImpl::readv(size_t max_length, RawSlice* slices,
     iov[i].iov_len = slices[i].len_;
   }
 
-  ssize_t result = ::readv(fd_, iov.data(), static_cast<int>(num_slices_to_read));
+  ssize_t result =
+      ::readv(fd_, iov.data(), static_cast<int>(num_slices_to_read));
   if (result >= 0) {
     return IoCallResult::success(static_cast<size_t>(result));
   } else {
@@ -155,18 +160,18 @@ IoCallResult IoSocketHandleImpl::read(Buffer& buffer,
   // Reserve space in buffer
   size_t length_to_read = max_length.value_or(16384);  // Default 16KB
   auto reservation = buffer.reserveForRead();
-  
+
   // Read into reservation slices
   size_t total_read = 0;
   RawSlice* slices = reservation->slices();
   size_t num_slices = reservation->numSlices();
-  
+
   auto result = readv(length_to_read, slices, num_slices);
   if (result.ok()) {
     total_read = *result;
     reservation->commit(total_read);
   }
-  
+
   return result;
 }
 
@@ -187,14 +192,15 @@ IoCallResult IoSocketHandleImpl::writev(const ConstRawSlice* slices,
   // Windows doesn't have writev, use WSASend
   std::vector<WSABUF> buffers(num_slices);
   for (size_t i = 0; i < num_slices; ++i) {
-    buffers[i].buf = const_cast<char*>(static_cast<const char*>(slices[i].mem_));
+    buffers[i].buf =
+        const_cast<char*>(static_cast<const char*>(slices[i].mem_));
     buffers[i].len = static_cast<ULONG>(slices[i].len_);
   }
-  
+
   DWORD bytes_sent = 0;
   int result = ::WSASend(fd_, buffers.data(), static_cast<DWORD>(num_slices),
                          &bytes_sent, 0, nullptr, nullptr);
-  
+
   if (result == 0) {
     return IoCallResult::success(bytes_sent);
   } else {
@@ -237,19 +243,21 @@ IoCallResult IoSocketHandleImpl::write(Buffer& buffer) {
   // Get slices from buffer
   ConstRawSlice slices[MAX_IOV];
   size_t num_slices = buffer.getRawSlices(slices, MAX_IOV);
-  
+
   auto result = writev(slices, num_slices);
   if (result.ok() && *result > 0) {
     buffer.drain(*result);
   }
-  
+
   return result;
 }
 
-IoCallResult IoSocketHandleImpl::sendmsg(const ConstRawSlice* slices,
-                                         size_t num_slices, int flags,
-                                         const Address::Ip* self_ip,
-                                         const Address::Instance& peer_address) {
+IoCallResult IoSocketHandleImpl::sendmsg(
+    const ConstRawSlice* slices,
+    size_t num_slices,
+    int flags,
+    const Address::Ip* self_ip,
+    const Address::Instance& peer_address) {
   if (!isOpen()) {
     return IoCallResult::error(EBADF);
   }
@@ -258,15 +266,16 @@ IoCallResult IoSocketHandleImpl::sendmsg(const ConstRawSlice* slices,
   // Windows doesn't have sendmsg, use WSASendTo
   std::vector<WSABUF> buffers(num_slices);
   for (size_t i = 0; i < num_slices; ++i) {
-    buffers[i].buf = const_cast<char*>(static_cast<const char*>(slices[i].mem_));
+    buffers[i].buf =
+        const_cast<char*>(static_cast<const char*>(slices[i].mem_));
     buffers[i].len = static_cast<ULONG>(slices[i].len_);
   }
-  
+
   DWORD bytes_sent = 0;
   int result = ::WSASendTo(fd_, buffers.data(), static_cast<DWORD>(num_slices),
                            &bytes_sent, flags, peer_address.sockAddr(),
                            peer_address.sockAddrLen(), nullptr, nullptr);
-  
+
   if (result == 0) {
     return IoCallResult::success(bytes_sent);
   } else {
@@ -293,7 +302,7 @@ IoCallResult IoSocketHandleImpl::sendmsg(const ConstRawSlice* slices,
   if (self_ip) {
     msg.msg_control = control_buffer;
     msg.msg_controllen = sizeof(control_buffer);
-    
+
     // TODO: Add IP_PKTINFO/IPV6_PKTINFO control message
     // This requires platform-specific implementation
   }
@@ -307,10 +316,12 @@ IoCallResult IoSocketHandleImpl::sendmsg(const ConstRawSlice* slices,
 #endif
 }
 
-IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
-                                         uint32_t self_port,
-                                         const UdpSaveCmsgConfig& save_cmsg_config,
-                                         RecvMsgOutput& output) {
+IoCallResult IoSocketHandleImpl::recvmsg(
+    RawSlice* slices,
+    size_t num_slices,
+    uint32_t self_port,
+    const UdpSaveCmsgConfig& save_cmsg_config,
+    RecvMsgOutput& output) {
   if (!isOpen()) {
     return IoCallResult::error(EBADF);
   }
@@ -326,20 +337,20 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
     buffers[i].len = static_cast<ULONG>(slices[i].len_);
     total_buffer_size += slices[i].len_;
   }
-  
+
   sockaddr_storage peer_addr;
   int peer_addr_len = sizeof(peer_addr);
   DWORD bytes_received = 0;
   DWORD flags = 0;
-  
-  int result = ::WSARecvFrom(fd_, buffers.data(), static_cast<DWORD>(num_slices),
-                             &bytes_received, &flags,
-                             reinterpret_cast<sockaddr*>(&peer_addr),
+
+  int result = ::WSARecvFrom(fd_, buffers.data(),
+                             static_cast<DWORD>(num_slices), &bytes_received,
+                             &flags, reinterpret_cast<sockaddr*>(&peer_addr),
                              &peer_addr_len, nullptr, nullptr);
-  
+
   if (result == 0) {
     RecvMsgOutput::ReceivedMessage msg;
-    
+
     // Copy data to buffer
     size_t bytes_copied = 0;
     for (size_t i = 0; i < num_slices && bytes_copied < bytes_received; ++i) {
@@ -347,13 +358,14 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
       msg.data.add(slices[i].mem_, to_copy);
       bytes_copied += to_copy;
     }
-    
+
     // Set peer address
-    msg.peer_address = addressFromSockAddr(peer_addr, peer_addr_len, socket_v6only_);
-    
+    msg.peer_address =
+        addressFromSockAddr(peer_addr, peer_addr_len, socket_v6only_);
+
     // Windows doesn't provide local address in recvfrom
     msg.truncated = (flags & MSG_PARTIAL) != 0;
-    
+
     output.messages.push_back(std::move(msg));
     return IoCallResult::success(1);
   } else {
@@ -378,7 +390,8 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
 
   // Control message buffer
   alignas(alignof(cmsghdr)) char control_buffer[512];
-  if (save_cmsg_config.save_local_address || save_cmsg_config.save_packet_info) {
+  if (save_cmsg_config.save_local_address ||
+      save_cmsg_config.save_packet_info) {
     msg.msg_control = control_buffer;
     msg.msg_controllen = sizeof(control_buffer);
   }
@@ -390,18 +403,21 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
 
   // Create received message
   RecvMsgOutput::ReceivedMessage received_msg;
-  
+
   // Copy data to buffer
   size_t bytes_copied = 0;
-  for (size_t i = 0; i < num_slices && bytes_copied < static_cast<size_t>(result); ++i) {
-    size_t to_copy = std::min(slices[i].len_, static_cast<size_t>(result) - bytes_copied);
+  for (size_t i = 0;
+       i < num_slices && bytes_copied < static_cast<size_t>(result); ++i) {
+    size_t to_copy =
+        std::min(slices[i].len_, static_cast<size_t>(result) - bytes_copied);
     received_msg.data.add(slices[i].mem_, to_copy);
     bytes_copied += to_copy;
   }
 
   // Set peer address
-  received_msg.peer_address = Address::addressFromSockAddr(peer_addr, msg.msg_namelen, socket_v6only_);
-  
+  received_msg.peer_address =
+      Address::addressFromSockAddr(peer_addr, msg.msg_namelen, socket_v6only_);
+
   // Check if message was truncated
   received_msg.truncated = (msg.msg_flags & MSG_TRUNC) != 0;
 
@@ -413,30 +429,35 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
       if (save_cmsg_config.save_local_address) {
 #ifdef IP_PKTINFO
         if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
-          const in_pktinfo* pktinfo = reinterpret_cast<const in_pktinfo*>(CMSG_DATA(cmsg));
+          const in_pktinfo* pktinfo =
+              reinterpret_cast<const in_pktinfo*>(CMSG_DATA(cmsg));
           sockaddr_in local_addr;
           std::memset(&local_addr, 0, sizeof(local_addr));
           local_addr.sin_family = AF_INET;
           local_addr.sin_addr = pktinfo->ipi_addr;
           local_addr.sin_port = htons(self_port);
           received_msg.local_address = Address::addressFromSockAddr(
-              *reinterpret_cast<sockaddr_storage*>(&local_addr), sizeof(local_addr), false);
+              *reinterpret_cast<sockaddr_storage*>(&local_addr),
+              sizeof(local_addr), false);
         }
 #endif
 #ifdef IPV6_PKTINFO
-        if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
-          const in6_pktinfo* pktinfo = reinterpret_cast<const in6_pktinfo*>(CMSG_DATA(cmsg));
+        if (cmsg->cmsg_level == IPPROTO_IPV6 &&
+            cmsg->cmsg_type == IPV6_PKTINFO) {
+          const in6_pktinfo* pktinfo =
+              reinterpret_cast<const in6_pktinfo*>(CMSG_DATA(cmsg));
           sockaddr_in6 local_addr;
           std::memset(&local_addr, 0, sizeof(local_addr));
           local_addr.sin6_family = AF_INET6;
           local_addr.sin6_addr = pktinfo->ipi6_addr;
           local_addr.sin6_port = htons(self_port);
           received_msg.local_address = Address::addressFromSockAddr(
-              *reinterpret_cast<sockaddr_storage*>(&local_addr), sizeof(local_addr), socket_v6only_);
+              *reinterpret_cast<sockaddr_storage*>(&local_addr),
+              sizeof(local_addr), socket_v6only_);
         }
 #endif
       }
-      
+
       // TODO: Handle other control messages (timestamps, packet drops, etc.)
     }
   }
@@ -446,16 +467,17 @@ IoCallResult IoSocketHandleImpl::recvmsg(RawSlice* slices, size_t num_slices,
 #endif
 }
 
-IoCallResult IoSocketHandleImpl::recvmmsg(std::vector<RawSlice>& slices,
-                                          uint32_t self_port,
-                                          const UdpSaveCmsgConfig& save_cmsg_config,
-                                          RecvMsgOutput& output) {
+IoCallResult IoSocketHandleImpl::recvmmsg(
+    std::vector<RawSlice>& slices,
+    uint32_t self_port,
+    const UdpSaveCmsgConfig& save_cmsg_config,
+    RecvMsgOutput& output) {
 #ifdef __linux__
   // Linux has recvmmsg for batch receiving
   // TODO: Implement recvmmsg support
   // For now, fall back to single recvmsg
 #endif
-  
+
   // Fall back to single recvmsg
   if (!slices.empty()) {
     return recvmsg(&slices[0], 1, self_port, save_cmsg_config, output);
@@ -478,7 +500,7 @@ IoVoidResult IoSocketHandleImpl::close() {
 #endif
 
   fd_ = INVALID_SOCKET_FD;
-  
+
   if (result == 0) {
     return IoVoidResult::success();
   } else {
@@ -486,7 +508,8 @@ IoVoidResult IoSocketHandleImpl::close() {
   }
 }
 
-IoResult<int> IoSocketHandleImpl::bind(const Address::InstanceConstSharedPtr& address) {
+IoResult<int> IoSocketHandleImpl::bind(
+    const Address::InstanceConstSharedPtr& address) {
   if (!isOpen()) {
     return IoResult<int>::error(EBADF);
   }
@@ -519,7 +542,7 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
 
   sockaddr_storage addr;
   socklen_t addr_len = sizeof(addr);
-  
+
 #ifdef _WIN32
   SOCKET new_fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (new_fd != INVALID_SOCKET) {
@@ -554,7 +577,7 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
     ::fcntl(new_fd, F_SETFD, FD_CLOEXEC);
   }
 #endif
-  
+
   if (new_fd != -1) {
     return IoResult<IoHandlePtr>::success(
         std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_));
@@ -564,7 +587,8 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
   return IoResult<IoHandlePtr>::error(getLastSocketError());
 }
 
-IoResult<int> IoSocketHandleImpl::connect(const Address::InstanceConstSharedPtr& address) {
+IoResult<int> IoSocketHandleImpl::connect(
+    const Address::InstanceConstSharedPtr& address) {
   if (!isOpen()) {
     return IoResult<int>::error(EBADF);
   }
@@ -595,8 +619,10 @@ IoResult<int> IoSocketHandleImpl::shutdown(int how) {
   }
 }
 
-IoResult<int> IoSocketHandleImpl::setSocketOption(int level, int optname,
-                                                  const void* optval, socklen_t optlen) {
+IoResult<int> IoSocketHandleImpl::setSocketOption(int level,
+                                                  int optname,
+                                                  const void* optval,
+                                                  socklen_t optlen) {
   if (!isOpen()) {
     return IoResult<int>::error(EBADF);
   }
@@ -615,15 +641,17 @@ IoResult<int> IoSocketHandleImpl::setSocketOption(int level, int optname,
   }
 }
 
-IoResult<int> IoSocketHandleImpl::getSocketOption(int level, int optname,
-                                                  void* optval, socklen_t* optlen) const {
+IoResult<int> IoSocketHandleImpl::getSocketOption(int level,
+                                                  int optname,
+                                                  void* optval,
+                                                  socklen_t* optlen) const {
   if (!isOpen()) {
     return IoResult<int>::error(EBADF);
   }
 
 #ifdef _WIN32
-  int result = ::getsockopt(fd_, level, optname,
-                            static_cast<char*>(optval), optlen);
+  int result =
+      ::getsockopt(fd_, level, optname, static_cast<char*>(optval), optlen);
 #else
   int result = ::getsockopt(fd_, level, optname, optval, optlen);
 #endif
@@ -676,41 +704,45 @@ void IoSocketHandleImpl::enableFileEvents(uint32_t events) {
   }
 }
 
-void IoSocketHandleImpl::resetFileEvents() {
-  file_event_.reset();
-}
+void IoSocketHandleImpl::resetFileEvents() { file_event_.reset(); }
 
-IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::localAddress() const {
+IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::localAddress()
+    const {
   if (!isOpen()) {
     return IoResult<Address::InstanceConstSharedPtr>::error(EBADF);
   }
 
   sockaddr_storage addr;
   socklen_t addr_len = sizeof(addr);
-  
-  int result = ::getsockname(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
+
+  int result =
+      ::getsockname(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (result == 0) {
     return IoResult<Address::InstanceConstSharedPtr>::success(
         Address::addressFromSockAddr(addr, addr_len, socket_v6only_));
   } else {
-    return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
+    return IoResult<Address::InstanceConstSharedPtr>::error(
+        getLastSocketError());
   }
 }
 
-IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::peerAddress() const {
+IoResult<Address::InstanceConstSharedPtr> IoSocketHandleImpl::peerAddress()
+    const {
   if (!isOpen()) {
     return IoResult<Address::InstanceConstSharedPtr>::error(EBADF);
   }
 
   sockaddr_storage addr;
   socklen_t addr_len = sizeof(addr);
-  
-  int result = ::getpeername(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
+
+  int result =
+      ::getpeername(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (result == 0) {
     return IoResult<Address::InstanceConstSharedPtr>::success(
         Address::addressFromSockAddr(addr, addr_len, socket_v6only_));
   } else {
-    return IoResult<Address::InstanceConstSharedPtr>::error(getLastSocketError());
+    return IoResult<Address::InstanceConstSharedPtr>::error(
+        getLastSocketError());
   }
 }
 
@@ -738,13 +770,13 @@ IoResult<int> IoSocketHandleImpl::setBlocking(bool blocking) {
   if (flags == -1) {
     return IoResult<int>::error(errno);
   }
-  
+
   if (blocking) {
     flags &= ~O_NONBLOCK;
   } else {
     flags |= O_NONBLOCK;
   }
-  
+
   int result = ::fcntl(fd_, F_SETFL, flags);
   if (result == 0) {
     return IoResult<int>::success(0);
@@ -754,16 +786,17 @@ IoResult<int> IoSocketHandleImpl::setBlocking(bool blocking) {
 #endif
 }
 
-optional<std::chrono::milliseconds> IoSocketHandleImpl::lastRoundTripTime() const {
+optional<std::chrono::milliseconds> IoSocketHandleImpl::lastRoundTripTime()
+    const {
 #ifdef TCP_INFO
-  if (!isOpen() || !domain_.has_value() || 
+  if (!isOpen() || !domain_.has_value() ||
       (*domain_ != AF_INET && *domain_ != AF_INET6)) {
     return nullopt;
   }
 
   tcp_info info;
   socklen_t info_len = sizeof(info);
-  
+
   int result = ::getsockopt(fd_, IPPROTO_TCP, TCP_INFO, &info, &info_len);
   if (result == 0 && info_len == sizeof(info)) {
     // RTT is in microseconds
@@ -774,8 +807,7 @@ optional<std::chrono::milliseconds> IoSocketHandleImpl::lastRoundTripTime() cons
 }
 
 void IoSocketHandleImpl::configureInitialCongestionWindow(
-    uint64_t bandwidth_bits_per_sec,
-    std::chrono::microseconds rtt) {
+    uint64_t bandwidth_bits_per_sec, std::chrono::microseconds rtt) {
   // TODO: Implement TCP congestion window configuration
   // This requires platform-specific TCP tuning
   (void)bandwidth_bits_per_sec;
@@ -786,10 +818,12 @@ IoHandlePtr IoSocketHandleImpl::duplicate() {
 #ifdef _WIN32
   WSAPROTOCOL_INFO info;
   if (::WSADuplicateSocket(fd_, ::GetCurrentProcessId(), &info) == 0) {
-    SOCKET new_fd = ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
-                                FROM_PROTOCOL_INFO, &info, 0, WSA_FLAG_OVERLAPPED);
+    SOCKET new_fd =
+        ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
+                    &info, 0, WSA_FLAG_OVERLAPPED);
     if (new_fd != INVALID_SOCKET) {
-      return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_);
+      return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
+                                                  domain_);
     }
   }
 #else
@@ -801,15 +835,18 @@ IoHandlePtr IoSocketHandleImpl::duplicate() {
       ::fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
     }
     ::fcntl(new_fd, F_SETFD, FD_CLOEXEC);
-    
-    return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_);
+
+    return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
+                                                domain_);
   }
 #endif
   return nullptr;
 }
 
 // Factory function
-IoHandlePtr createIoSocketHandle(os_fd_t fd, bool socket_v6only, optional<int> domain) {
+IoHandlePtr createIoSocketHandle(os_fd_t fd,
+                                 bool socket_v6only,
+                                 optional<int> domain) {
   return std::make_unique<IoSocketHandleImpl>(fd, socket_v6only, domain);
 }
 

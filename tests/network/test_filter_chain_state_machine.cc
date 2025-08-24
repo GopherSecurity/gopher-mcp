@@ -107,9 +107,7 @@ class TestWriteFilter : public Filter {
     return FilterStatus::Continue;
   }
 
-  FilterStatus onNewConnection() override {
-    return FilterStatus::Continue;
-  }
+  FilterStatus onNewConnection() override { return FilterStatus::Continue; }
 
   void initializeReadFilterCallbacks(ReadFilterCallbacks& callbacks) override {
     // Not used
@@ -177,12 +175,12 @@ class FilterChainStateMachineTest : public ::testing::Test {
     connection_.reset();
     dispatcher_.reset();
   }
-  
+
   void createStateMachine() {
     // Create dispatcher and connection for this test
     dispatcher_ =
         event::createLibeventDispatcherFactory()->createDispatcher("test");
-    
+
     // Create a test connection with real components
     auto address = std::make_shared<Address::Ipv4Instance>("127.0.0.1", 0);
     auto io_handle = std::make_unique<IoSocketHandleImpl>();
@@ -193,7 +191,7 @@ class FilterChainStateMachineTest : public ::testing::Test {
                                          nullptr,  // no transport socket
                                          false     // not connected yet
         );
-    
+
     // Create state machine directly - it's thread-safe
     state_machine_ = std::make_unique<FilterChainStateMachine>(
         *dispatcher_, *connection_, config_);
@@ -207,7 +205,6 @@ class FilterChainStateMachineTest : public ::testing::Test {
   WriteFilterSharedPtr createWriteFilter(const std::string& name = "write") {
     return std::make_shared<TestWriteFilter>(name);
   }
-  
 
  protected:
   std::unique_ptr<event::Dispatcher> dispatcher_;
@@ -274,12 +271,12 @@ TEST_F(FilterChainStateMachineTest, StartWithFilters) {
 
 TEST_F(FilterChainStateMachineTest, AddRemoveFilters) {
   createStateMachine();
-  
+
   auto read_filter = createReadFilter();
   auto write_filter = createWriteFilter();
 
   state_machine_->initialize();
-  
+
   // Add filters
   EXPECT_TRUE(state_machine_->addReadFilter(read_filter, "read1"));
   EXPECT_TRUE(state_machine_->addWriteFilter(write_filter, "write1"));
@@ -370,8 +367,9 @@ TEST_F(FilterChainStateMachineTest, WatermarkFlowControl) {
 
   state_machine_->initialize();
   state_machine_->start();
-  
-  // Pause the filter chain to enable buffering (watermarks only apply to buffered data)
+
+  // Pause the filter chain to enable buffering (watermarks only apply to
+  // buffered data)
   state_machine_->pause();
   EXPECT_EQ(FilterChainState::Paused, state_machine_->currentState());
 
@@ -380,10 +378,11 @@ TEST_F(FilterChainStateMachineTest, WatermarkFlowControl) {
   std::string large_data(60, 'x');
   data1.add(large_data.data(), large_data.size());
 
-  // When paused, onData buffers the data and returns StopIteration (successful buffering)
+  // When paused, onData buffers the data and returns StopIteration (successful
+  // buffering)
   auto status = state_machine_->onData(data1, false);
   EXPECT_EQ(status, FilterStatus::StopIteration);
-  
+
   // Should transition to Buffering state after first data
   EXPECT_EQ(FilterChainState::Buffering, state_machine_->currentState());
 
@@ -395,7 +394,8 @@ TEST_F(FilterChainStateMachineTest, WatermarkFlowControl) {
   EXPECT_EQ(status, FilterStatus::StopIteration);
 
   // Should be above high watermark now (60 + 60 = 120 > 100)
-  EXPECT_EQ(FilterChainState::AboveHighWatermark, state_machine_->currentState());
+  EXPECT_EQ(FilterChainState::AboveHighWatermark,
+            state_machine_->currentState());
 }
 
 // ===== Error Handling Tests =====
@@ -410,9 +410,7 @@ TEST_F(FilterChainStateMachineTest, HandleFilterError) {
       // Stop iteration simulates a filter issue
       return FilterStatus::StopIteration;
     }
-    FilterStatus onNewConnection() override {
-      return FilterStatus::Continue;
-    }
+    FilterStatus onNewConnection() override { return FilterStatus::Continue; }
     void initializeReadFilterCallbacks(ReadFilterCallbacks&) override {}
     FilterStatus onWrite(Buffer&, bool) override {
       return FilterStatus::Continue;

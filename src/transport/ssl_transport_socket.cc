@@ -1,7 +1,7 @@
 /**
  * @file ssl_transport_socket.cc
  * @brief Production-grade SSL/TLS transport socket implementation
- * 
+ *
  * Design principles for production-grade SSL implementation:
  * - Thread confinement: All operations in dispatcher thread (no locks)
  * - State machine driven: Clear state transitions with validation
@@ -9,7 +9,7 @@
  * - Observable: Comprehensive metrics and error tracking
  * - Performant: Optimized buffer management and I/O operations
  * - Resilient: Robust error handling and recovery
- * 
+ *
  * Key architectural improvements:
  * - PostIoAction pattern for consistent I/O result handling
  * - Comprehensive error queue drainage
@@ -20,14 +20,14 @@
 
 #include "mcp/transport/ssl_transport_socket.h"
 
+#include <algorithm>
+#include <sstream>
+
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
-
-#include <algorithm>
-#include <sstream>
 
 using mcp::TransportIoResult;
 
@@ -65,26 +65,24 @@ constexpr int kBioBufferSize = 0;
 std::string drainOpenSSLErrorQueue() {
   std::string error_details;
   bool first = true;
-  
+
   // Drain all errors from the queue for comprehensive diagnostics
   while (uint64_t err = ERR_get_error()) {
     if (!first) {
       error_details += " | ";
     }
     first = false;
-    
+
     char buf[256];
     ERR_error_string_n(err, buf, sizeof(buf));
-    
+
     // Include library, function, and reason for debugging
     std::stringstream ss;
-    ss << "err=" << err
-       << " lib=" << ERR_lib_error_string(err)
-       << " func=" << ERR_func_error_string(err)
-       << " reason=" << buf;
+    ss << "err=" << err << " lib=" << ERR_lib_error_string(err)
+       << " func=" << ERR_func_error_string(err) << " reason=" << buf;
     error_details += ss.str();
   }
-  
+
   return error_details.empty() ? "No OpenSSL errors in queue" : error_details;
 }
 
@@ -95,7 +93,7 @@ std::string drainOpenSSLErrorQueue() {
 std::string getSslErrorDetails(SSL* ssl, int ret) {
   int ssl_error = SSL_get_error(ssl, ret);
   std::string base_error;
-  
+
   switch (ssl_error) {
     case SSL_ERROR_NONE:
       base_error = "No error";
@@ -127,13 +125,13 @@ std::string getSslErrorDetails(SSL* ssl, int ret) {
     default:
       base_error = "Unknown SSL error: " + std::to_string(ssl_error);
   }
-  
+
   // Append any queued errors for complete picture
   std::string queue_errors = drainOpenSSLErrorQueue();
   if (!queue_errors.empty() && queue_errors != "No OpenSSL errors in queue") {
     base_error += " [" + queue_errors + "]";
   }
-  
+
   return base_error;
 }
 
@@ -145,9 +143,10 @@ std::string getVerifyResultString(long verify_result) {
   if (verify_result == X509_V_OK) {
     return "OK";
   }
-  
+
   const char* reason = X509_verify_cert_error_string(verify_result);
-  return reason ? std::string(reason) : "Unknown verify error: " + std::to_string(verify_result);
+  return reason ? std::string(reason)
+                : "Unknown verify error: " + std::to_string(verify_result);
 }
 
 }  // namespace
@@ -162,26 +161,26 @@ struct SslTransportSocket::Stats {
   uint64_t handshakes_completed{0};
   uint64_t handshakes_failed{0};
   uint64_t handshake_timeouts{0};
-  
+
   // Session statistics
   uint64_t sessions_reused{0};
   uint64_t sessions_new{0};
-  
+
   // Certificate statistics
   uint64_t cert_verify_failed{0};
   uint64_t no_certificate{0};
   uint64_t cert_validation_failed{0};
-  
+
   // I/O statistics
   uint64_t bytes_encrypted{0};
   uint64_t bytes_decrypted{0};
   uint64_t read_errors{0};
   uint64_t write_errors{0};
-  
+
   // Protocol statistics
   uint64_t alpn_negotiated{0};
   uint64_t alpn_fallback{0};
-  
+
   // Performance statistics
   std::chrono::milliseconds total_handshake_time{0};
   std::chrono::milliseconds last_handshake_time{0};
@@ -191,17 +190,15 @@ struct SslTransportSocket::Stats {
 // SslTransportSocket Implementation
 // ============================================================================
 
-SslTransportSocket::SslTransportSocket(
-    network::TransportSocketPtr inner_socket,
-    SslContextSharedPtr ssl_context,
-    InitialRole role,
-    event::Dispatcher& dispatcher)
+SslTransportSocket::SslTransportSocket(network::TransportSocketPtr inner_socket,
+                                       SslContextSharedPtr ssl_context,
+                                       InitialRole role,
+                                       event::Dispatcher& dispatcher)
     : inner_socket_(std::move(inner_socket)),
       ssl_context_(ssl_context),
       initial_role_(role),
       dispatcher_(dispatcher),
       stats_(std::make_unique<Stats>()) {
-  
   /**
    * Initialization Flow:
    * 1. Create optimized I/O buffers
@@ -210,32 +207,33 @@ SslTransportSocket::SslTransportSocket(
    * 4. Configure state machine with actions
    * 5. Initialize handshake timer
    */
-  
+
   // Initialize buffers with reserve for performance
   read_buffer_ = std::make_unique<OwnedBuffer>();
   write_buffer_ = std::make_unique<OwnedBuffer>();
-  
+
   // Buffers will grow as needed during handshake
-  
+
   // Create state machine based on role
   if (initial_role_ == InitialRole::Client) {
-    state_machine_ = SslStateMachineFactory::createClientStateMachine(dispatcher_);
+    state_machine_ =
+        SslStateMachineFactory::createClientStateMachine(dispatcher_);
     configureClientStateMachine();
   } else {
-    state_machine_ = SslStateMachineFactory::createServerStateMachine(dispatcher_);
+    state_machine_ =
+        SslStateMachineFactory::createServerStateMachine(dispatcher_);
     configureServerStateMachine();
   }
-  
+
   // Register for state change notifications
   state_listener_id_ = state_machine_->addStateChangeListener(
       [this](SslSocketState old_state, SslSocketState new_state) {
         onStateChanged(old_state, new_state);
       });
-  
+
   // Create handshake timer (but don't start yet)
-  handshake_timer_ = dispatcher_.createTimer([this]() {
-    onHandshakeTimeout();
-  });
+  handshake_timer_ =
+      dispatcher_.createTimer([this]() { onHandshakeTimeout(); });
 }
 
 SslTransportSocket::~SslTransportSocket() {
@@ -246,29 +244,29 @@ SslTransportSocket::~SslTransportSocket() {
    * 3. Clean up SSL resources
    * 4. Log final statistics
    */
-  
+
   // Cancel pending timers
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
   }
-  
+
   // Unregister state listener
   if (state_listener_id_ && state_machine_) {
     state_machine_->removeStateChangeListener(state_listener_id_);
   }
-  
+
   // Clean up SSL resources
   if (ssl_) {
     // Ensure graceful shutdown if still connected
     if (state_machine_->isConnected() && !shutdown_sent_) {
       SSL_shutdown(ssl_);
     }
-    
+
     // Free SSL object (also frees BIOs)
     SSL_free(ssl_);
     ssl_ = nullptr;
   }
-  
+
   // Log final statistics for debugging
   logFinalStatistics();
 }
@@ -280,7 +278,7 @@ SslTransportSocket::~SslTransportSocket() {
 void SslTransportSocket::setTransportSocketCallbacks(
     network::TransportSocketCallbacks& callbacks) {
   transport_callbacks_ = &callbacks;
-  
+
   // Pass callbacks through to inner socket
   if (inner_socket_) {
     inner_socket_->setTransportSocketCallbacks(callbacks);
@@ -292,13 +290,13 @@ std::string SslTransportSocket::protocol() const {
   if (!negotiated_protocol_.empty()) {
     return negotiated_protocol_;
   }
-  
+
   // Return SSL/TLS version if connected
   if (ssl_ && state_machine_->isConnected()) {
     const char* version = SSL_get_version(ssl_);
     return version ? std::string(version) : "TLS";
   }
-  
+
   return "TLS";
 }
 
@@ -325,19 +323,20 @@ VoidResult SslTransportSocket::connect(network::Socket& socket) {
    * 3. Transition states
    * 4. Delegate to inner socket
    */
-  
+
   // Validate state
   if (state_machine_->getCurrentState() != SslSocketState::Uninitialized) {
-    return makeVoidError(Error{0, "SSL socket already connected or connecting"});
+    return makeVoidError(
+        Error{0, "SSL socket already connected or connecting"});
   }
-  
+
   // Update statistics
   stats_->handshakes_started++;
-  
+
   // State transitions
   state_machine_->transition(SslSocketState::Initialized);
   state_machine_->transition(SslSocketState::Connecting);
-  
+
   // Delegate TCP connection to inner socket
   auto result = inner_socket_->connect(socket);
   if (holds_alternative<Error>(result)) {
@@ -346,7 +345,7 @@ VoidResult SslTransportSocket::connect(network::Socket& socket) {
     state_machine_->transition(SslSocketState::Error);
     return result;
   }
-  
+
   return makeVoidSuccess();
 }
 
@@ -358,9 +357,9 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
    * 3. Update statistics
    * 4. Close inner socket
    */
-  
+
   auto state = state_machine_->getCurrentState();
-  
+
   if (state == SslSocketState::Connected) {
     // Attempt graceful SSL shutdown
     initiateShutdown();
@@ -372,7 +371,7 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
     // Direct close
     state_machine_->transition(SslSocketState::Closed);
   }
-  
+
   // Close inner socket
   if (inner_socket_) {
     inner_socket_->closeSocket(event);
@@ -387,20 +386,20 @@ void SslTransportSocket::onConnected() {
    * 3. Start handshake timer
    * 4. Begin handshake process
    */
-  
+
   // Transition state
   state_machine_->transition(SslSocketState::TcpConnected);
-  
+
   // Initialize SSL connection
   auto result = initializeSsl();
   if (holds_alternative<Error>(result)) {
     handleSslError(get<Error>(result).message);
     return;
   }
-  
+
   // Start handshake timer for timeout protection
   handshake_timer_->enableTimer(kHandshakeTimeout);
-  
+
   // Start handshake in next event loop iteration
   dispatcher_.post([this]() {
     if (initial_role_ == InitialRole::Client) {
@@ -419,9 +418,9 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
    * 3. Update statistics
    * 4. Handle errors
    */
-  
+
   auto state = state_machine_->getCurrentState();
-  
+
   if (state != SslSocketState::Connected) {
     if (state_machine_->isHandshaking()) {
       // Still handshaking
@@ -430,7 +429,7 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
     // Connection closed or error
     return TransportIoResult::close();
   }
-  
+
   // Perform optimized SSL read
   return performOptimizedSslRead(buffer);
 }
@@ -443,9 +442,9 @@ TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
    * 3. Perform optimized SSL write
    * 4. Handle end_stream
    */
-  
+
   auto state = state_machine_->getCurrentState();
-  
+
   if (state != SslSocketState::Connected) {
     if (state_machine_->isHandshaking()) {
       // Buffer data during handshake
@@ -456,15 +455,15 @@ TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
     // Connection closed or error
     return TransportIoResult::close();
   }
-  
+
   // Perform optimized SSL write
   auto result = performOptimizedSslWrite(buffer, end_stream);
-  
+
   // Handle end_stream
   if (end_stream && buffer.length() == 0) {
     initiateShutdown();
   }
-  
+
   return result;
 }
 
@@ -481,23 +480,26 @@ VoidResult SslTransportSocket::initializeSsl() {
    * 4. Set up info callback for debugging
    * 5. Configure based on role
    */
-  
+
   // Create SSL connection object
   ssl_ = ssl_context_->newSsl();
   if (!ssl_) {
-    return makeVoidError(Error{0, "Failed to create SSL object: " + drainOpenSSLErrorQueue()});
+    return makeVoidError(
+        Error{0, "Failed to create SSL object: " + drainOpenSSLErrorQueue()});
   }
-  
+
   // Create BIO pair with specified buffer size
-  if (!BIO_new_bio_pair(&internal_bio_, kBioBufferSize, &network_bio_, kBioBufferSize)) {
+  if (!BIO_new_bio_pair(&internal_bio_, kBioBufferSize, &network_bio_,
+                        kBioBufferSize)) {
     SSL_free(ssl_);
     ssl_ = nullptr;
-    return makeVoidError(Error{0, "Failed to create BIO pair: " + drainOpenSSLErrorQueue()});
+    return makeVoidError(
+        Error{0, "Failed to create BIO pair: " + drainOpenSSLErrorQueue()});
   }
-  
+
   // Attach BIOs to SSL
   SSL_set_bio(ssl_, internal_bio_, internal_bio_);
-  
+
   // Set SSL info callback for debugging
   SSL_set_info_callback(ssl_, [](const SSL* ssl, int where, int ret) {
     // Log SSL state changes for debugging
@@ -507,18 +509,18 @@ VoidResult SslTransportSocket::initializeSsl() {
       // Handshake completed
     }
   });
-  
+
   // Configure based on role
   if (initial_role_ == InitialRole::Client) {
     configureClientSsl();
   } else {
     configureServerSsl();
   }
-  
+
   // Record handshake start
   handshake_start_ = std::chrono::steady_clock::now();
   handshake_attempts_ = 0;
-  
+
   return makeVoidSuccess();
 }
 
@@ -530,20 +532,21 @@ void SslTransportSocket::configureClientSsl() {
    * 3. Enable session resumption
    * 4. Set ALPN protocols
    */
-  
+
   // Set client mode
   SSL_set_connect_state(ssl_);
-  
+
   const auto& config = ssl_context_->getConfig();
-  
+
   // Configure SNI
   if (!config.sni_hostname.empty()) {
     SSL_set_tlsext_host_name(ssl_, config.sni_hostname.c_str());
   }
-  
+
   // Enable session resumption
-  SSL_set_session(ssl_, nullptr);  // Will attempt to resume if context has cached session
-  
+  SSL_set_session(
+      ssl_, nullptr);  // Will attempt to resume if context has cached session
+
   // Set ALPN protocols if configured
   if (!config.alpn_protocols.empty()) {
     std::string alpn_protocols;
@@ -551,9 +554,9 @@ void SslTransportSocket::configureClientSsl() {
       alpn_protocols.push_back(static_cast<char>(protocol.size()));
       alpn_protocols.append(protocol);
     }
-    SSL_set_alpn_protos(ssl_, 
-                        reinterpret_cast<const unsigned char*>(alpn_protocols.data()),
-                        alpn_protocols.size());
+    SSL_set_alpn_protos(
+        ssl_, reinterpret_cast<const unsigned char*>(alpn_protocols.data()),
+        alpn_protocols.size());
   }
 }
 
@@ -565,17 +568,18 @@ void SslTransportSocket::configureServerSsl() {
    * 3. Set ALPN protocols
    * 4. Configure session tickets
    */
-  
+
   // Set server mode
   SSL_set_accept_state(ssl_);
-  
+
   const auto& config = ssl_context_->getConfig();
-  
+
   // Request client certificate if configured
   if (config.verify_peer) {
-    SSL_set_verify(ssl_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+    SSL_set_verify(ssl_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                   nullptr);
   }
-  
+
   // Set ALPN protocols if configured
   if (!config.alpn_protocols.empty()) {
     // Server ALPN configuration handled at context level
@@ -590,23 +594,26 @@ void SslTransportSocket::configureClientStateMachine() {
   /**
    * Configure client state machine
    */
-  
+
   // Entry action for ClientHandshakeInit
-  state_machine_->setEntryAction(SslSocketState::ClientHandshakeInit,
+  state_machine_->setEntryAction(
+      SslSocketState::ClientHandshakeInit,
       [this](SslSocketState state, std::function<void()> done) {
         performHandshakeStep();
         done();
       });
-  
+
   // Entry action for HandshakeWantRead
-  state_machine_->setEntryAction(SslSocketState::HandshakeWantRead,
+  state_machine_->setEntryAction(
+      SslSocketState::HandshakeWantRead,
       [this](SslSocketState state, std::function<void()> done) {
         scheduleIoWait(true, false);
         done();
       });
-  
+
   // Entry action for HandshakeWantWrite
-  state_machine_->setEntryAction(SslSocketState::HandshakeWantWrite,
+  state_machine_->setEntryAction(
+      SslSocketState::HandshakeWantWrite,
       [this](SslSocketState state, std::function<void()> done) {
         scheduleIoWait(false, true);
         done();
@@ -617,23 +624,26 @@ void SslTransportSocket::configureServerStateMachine() {
   /**
    * Configure server state machine
    */
-  
+
   // Entry action for ServerHandshakeInit
-  state_machine_->setEntryAction(SslSocketState::ServerHandshakeInit,
+  state_machine_->setEntryAction(
+      SslSocketState::ServerHandshakeInit,
       [this](SslSocketState state, std::function<void()> done) {
         performHandshakeStep();
         done();
       });
-  
+
   // Entry action for HandshakeWantRead
-  state_machine_->setEntryAction(SslSocketState::HandshakeWantRead,
+  state_machine_->setEntryAction(
+      SslSocketState::HandshakeWantRead,
       [this](SslSocketState state, std::function<void()> done) {
         scheduleIoWait(true, false);
         done();
       });
-  
+
   // Entry action for HandshakeWantWrite
-  state_machine_->setEntryAction(SslSocketState::HandshakeWantWrite,
+  state_machine_->setEntryAction(
+      SslSocketState::HandshakeWantWrite,
       [this](SslSocketState state, std::function<void()> done) {
         scheduleIoWait(false, true);
         done();
@@ -645,7 +655,8 @@ void SslTransportSocket::configureServerStateMachine() {
 // ============================================================================
 
 void SslTransportSocket::initiateClientHandshake() {
-  state_machine_->transition(SslSocketState::ClientHandshakeInit,
+  state_machine_->transition(
+      SslSocketState::ClientHandshakeInit,
       [this](bool success, const std::string& error) {
         if (!success) {
           handleSslError("Failed to initiate client handshake: " + error);
@@ -654,7 +665,8 @@ void SslTransportSocket::initiateClientHandshake() {
 }
 
 void SslTransportSocket::initiateServerHandshake() {
-  state_machine_->transition(SslSocketState::ServerHandshakeInit,
+  state_machine_->transition(
+      SslSocketState::ServerHandshakeInit,
       [this](bool success, const std::string& error) {
         if (!success) {
           handleSslError("Failed to initiate server handshake: " + error);
@@ -670,60 +682,62 @@ void SslTransportSocket::performHandshakeStep() {
    * 3. Perform handshake
    * 4. Handle result with action pattern
    */
-  
+
   handshake_attempts_++;
-  
+
   // Prevent infinite handshake attempts
   if (handshake_attempts_ > kMaxHandshakeAttempts) {
-    handleSslError("Handshake exceeded maximum attempts: " + std::to_string(kMaxHandshakeAttempts));
+    handleSslError("Handshake exceeded maximum attempts: " +
+                   std::to_string(kMaxHandshakeAttempts));
     return;
   }
-  
+
   // Move data between socket and BIOs
   moveToBio();
-  
+
   // Perform handshake
   int ret = SSL_do_handshake(ssl_);
-  
+
   // Move generated data to socket
   moveFromBio();
-  
+
   if (ret == 1) {
     // Handshake complete
     onHandshakeComplete();
     return;
   }
-  
+
   // Check error and determine next action
   int ssl_error = SSL_get_error(ssl_, ret);
   auto action = handleHandshakeResult(ssl_error);
-  
+
   // Handle PostIoAction result
   if (action == TransportIoResult::PostIoAction::CLOSE) {
     handleSslError(getSslErrorDetails(ssl_, ret));
   }
 }
 
-TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(int ssl_error) {
+TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(
+    int ssl_error) {
   /**
    * Handle handshake result with PostIoAction pattern
    */
-  
+
   switch (ssl_error) {
     case SSL_ERROR_WANT_READ:
       state_machine_->transition(SslSocketState::HandshakeWantRead);
       return TransportIoResult::PostIoAction::CONTINUE;
-      
+
     case SSL_ERROR_WANT_WRITE:
       state_machine_->transition(SslSocketState::HandshakeWantWrite);
       return TransportIoResult::PostIoAction::CONTINUE;
-      
+
     case SSL_ERROR_WANT_X509_LOOKUP:
       // Async certificate validation needed
       state_machine_->transition(SslSocketState::CertificateValidating);
       // TODO: Implement async certificate validation
       return TransportIoResult::PostIoAction::CLOSE;
-      
+
     default:
       // Handshake failed
       stats_->handshakes_failed++;
@@ -741,50 +755,52 @@ void SslTransportSocket::onHandshakeComplete() {
    * 5. Transition to connected
    * 6. Flush buffered writes
    */
-  
+
   handshake_complete_ = true;
-  
+
   // Cancel handshake timer
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
   }
-  
+
   // Update statistics
   auto handshake_duration = std::chrono::steady_clock::now() - handshake_start_;
   stats_->handshakes_completed++;
-  stats_->last_handshake_time = std::chrono::duration_cast<std::chrono::milliseconds>(handshake_duration);
+  stats_->last_handshake_time =
+      std::chrono::duration_cast<std::chrono::milliseconds>(handshake_duration);
   stats_->total_handshake_time += stats_->last_handshake_time;
-  
+
   // Check if session was reused
   if (SSL_session_reused(ssl_)) {
     stats_->sessions_reused++;
   } else {
     stats_->sessions_new++;
   }
-  
+
   // Extract connection information
   extractConnectionInfo();
-  
+
   // Verify peer certificate
   if (ssl_context_->getConfig().verify_peer) {
     if (!verifyPeerCertificate()) {
       return;  // Error already handled
     }
   }
-  
+
   // Transition to connected
-  state_machine_->transition(SslSocketState::Connected,
+  state_machine_->transition(
+      SslSocketState::Connected,
       [this](bool success, const std::string& error) {
         if (!success) {
           handleSslError("Failed to transition to Connected: " + error);
           return;
         }
-        
+
         // Notify callbacks
         if (handshake_callbacks_) {
           handshake_callbacks_->onSslHandshakeComplete();
         }
-        
+
         // Flush buffered writes
         flushBufferedWrites();
       });
@@ -794,40 +810,42 @@ void SslTransportSocket::extractConnectionInfo() {
   /**
    * Extract comprehensive connection information
    */
-  
+
   // Get peer certificate
   X509* peer_cert = SSL_get_peer_certificate(ssl_);
   if (peer_cert) {
     // Extract subject
     char subject[256];
-    X509_NAME_oneline(X509_get_subject_name(peer_cert), subject, sizeof(subject));
+    X509_NAME_oneline(X509_get_subject_name(peer_cert), subject,
+                      sizeof(subject));
     peer_cert_info_ = std::string(subject);
-    
+
     // Extract SAN (Subject Alternative Names)
     extractSubjectAltNames(peer_cert);
-    
+
     X509_free(peer_cert);
   } else {
     stats_->no_certificate++;
   }
-  
+
   // Get negotiated ALPN protocol
   const unsigned char* alpn_data = nullptr;
   unsigned int alpn_len = 0;
   SSL_get0_alpn_selected(ssl_, &alpn_data, &alpn_len);
   if (alpn_data && alpn_len > 0) {
-    negotiated_protocol_ = std::string(reinterpret_cast<const char*>(alpn_data), alpn_len);
+    negotiated_protocol_ =
+        std::string(reinterpret_cast<const char*>(alpn_data), alpn_len);
     stats_->alpn_negotiated++;
   } else {
     stats_->alpn_fallback++;
   }
-  
+
   // Get cipher suite
   const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl_);
   if (cipher) {
     cipher_suite_ = SSL_CIPHER_get_name(cipher);
   }
-  
+
   // Get TLS version
   tls_version_ = SSL_get_version(ssl_);
 }
@@ -836,12 +854,12 @@ void SslTransportSocket::extractSubjectAltNames(X509* cert) {
   /**
    * Extract SANs from certificate for validation
    */
-  
+
   subject_alt_names_.clear();
-  
+
   GENERAL_NAMES* san_names = static_cast<GENERAL_NAMES*>(
       X509_get_ext_d2i(cert, NID_subject_alt_name, nullptr, nullptr));
-  
+
   if (san_names) {
     int san_count = sk_GENERAL_NAME_num(san_names);
     for (int i = 0; i < san_count; ++i) {
@@ -849,8 +867,9 @@ void SslTransportSocket::extractSubjectAltNames(X509* cert) {
       if (san->type == GEN_DNS) {
         ASN1_STRING* dns_name = san->d.dNSName;
         if (dns_name) {
-          std::string name(reinterpret_cast<const char*>(ASN1_STRING_get0_data(dns_name)),
-                          ASN1_STRING_length(dns_name));
+          std::string name(
+              reinterpret_cast<const char*>(ASN1_STRING_get0_data(dns_name)),
+              ASN1_STRING_length(dns_name));
           subject_alt_names_.push_back(name);
         }
       }
@@ -863,20 +882,20 @@ bool SslTransportSocket::verifyPeerCertificate() {
   /**
    * Enhanced peer verification
    */
-  
+
   // Get verification result
   long verify_result = SSL_get_verify_result(ssl_);
-  
+
   if (verify_result != X509_V_OK) {
     stats_->cert_verify_failed++;
     std::string error_reason = getVerifyResultString(verify_result);
     handleSslError("Peer certificate verification failed: " + error_reason);
     return false;
   }
-  
+
   // Additional validation can be added here
   // e.g., hostname validation, certificate pinning, etc.
-  
+
   return true;
 }
 
@@ -884,7 +903,7 @@ void SslTransportSocket::onHandshakeTimeout() {
   /**
    * Handle handshake timeout
    */
-  
+
   stats_->handshake_timeouts++;
   handleSslError("SSL handshake timeout");
 }
@@ -893,13 +912,13 @@ void SslTransportSocket::cancelHandshake() {
   /**
    * Cancel ongoing handshake
    */
-  
+
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
   }
-  
+
   state_machine_->transition(SslSocketState::Closed);
-  
+
   if (handshake_callbacks_) {
     handshake_callbacks_->onSslHandshakeFailed("Handshake cancelled");
   }
@@ -917,35 +936,35 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
    * 3. Handle partial reads and errors
    * 4. Update statistics
    */
-  
+
   // Move encrypted data from socket to BIO
   moveToBio();
-  
+
   size_t total_bytes_read = 0;
   bool keep_reading = true;
   bool eof = false;
-  
+
   while (keep_reading) {
     // Prepare buffer slice for read
     RawSlice slice;
     size_t slice_size = kSslMaxReadChunk;
-    
+
     if (slice_size == 0) {
       // Buffer full
       break;
     }
-    
+
     void* data = buffer.reserveSingleSlice(slice_size, slice);
-    
+
     // Read from SSL
     int ret = SSL_read(ssl_, data, slice.len_);
-    
+
     if (ret > 0) {
       // Data read successfully
       buffer.commit(slice, ret);
       total_bytes_read += ret;
       stats_->bytes_decrypted += ret;
-      
+
       // Check if more data is immediately available (optimization)
       if (SSL_pending(ssl_) == 0) {
         keep_reading = false;
@@ -953,13 +972,13 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
     } else {
       // Check error
       int ssl_error = SSL_get_error(ssl_, ret);
-      
+
       switch (ssl_error) {
         case SSL_ERROR_WANT_READ:
           // Need more data from socket
           keep_reading = false;
           break;
-          
+
         case SSL_ERROR_ZERO_RETURN:
           // SSL connection closed cleanly
           eof = true;
@@ -967,7 +986,7 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
           state_machine_->transition(SslSocketState::ShutdownReceived);
           keep_reading = false;
           break;
-          
+
         default:
           // Error occurred
           stats_->read_errors++;
@@ -977,17 +996,17 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
       }
     }
   }
-  
+
   if (eof) {
     return TransportIoResult::endStream(total_bytes_read);
   }
-  
-  return total_bytes_read > 0 ? 
-         TransportIoResult::success(total_bytes_read) : 
-         TransportIoResult::stop();
+
+  return total_bytes_read > 0 ? TransportIoResult::success(total_bytes_read)
+                              : TransportIoResult::stop();
 }
 
-TransportIoResult SslTransportSocket::performOptimizedSslWrite(Buffer& buffer, bool end_stream) {
+TransportIoResult SslTransportSocket::performOptimizedSslWrite(
+    Buffer& buffer, bool end_stream) {
   /**
    * Optimized SSL Write:
    * 1. Write in chunks for better performance
@@ -995,58 +1014,58 @@ TransportIoResult SslTransportSocket::performOptimizedSslWrite(Buffer& buffer, b
    * 3. Flush encrypted data to socket
    * 4. Update statistics
    */
-  
+
   size_t total_bytes_written = 0;
-  
+
   while (buffer.length() > 0) {
     // Get data to write (chunk for performance)
     size_t write_size = std::min(buffer.length(), kSslMaxWriteChunk);
-    
+
     // Get slices from buffer
     constexpr size_t max_slices = 16;
     RawSlice slices[max_slices];
     size_t num_slices = buffer.getRawSlices(slices, max_slices);
-    
+
     if (num_slices == 0) {
       break;
     }
-    
+
     // Calculate actual write size from first slice
     size_t actual_write = std::min(write_size, slices[0].len_);
-    
+
     // Write to SSL
     int ret = SSL_write(ssl_, slices[0].mem_, actual_write);
-    
+
     if (ret > 0) {
       // Data written successfully
       buffer.drain(ret);
       total_bytes_written += ret;
       stats_->bytes_encrypted += ret;
-      
+
       // Flush encrypted data to socket immediately
       moveFromBio();
     } else {
       // Check error
       int ssl_error = SSL_get_error(ssl_, ret);
-      
+
       switch (ssl_error) {
         case SSL_ERROR_WANT_WRITE:
           // BIO buffer full, flush and retry
           moveFromBio();
-          
+
           // If we've written something, return success
           if (total_bytes_written > 0) {
             return TransportIoResult::success(total_bytes_written);
           }
           return TransportIoResult::stop();
-          
+
         case SSL_ERROR_WANT_READ:
           // Renegotiation requested (unusual during write)
           if (total_bytes_written > 0) {
             return TransportIoResult::success(total_bytes_written);
           }
           return TransportIoResult::stop();
-          
+
         default:
           // Error occurred
           stats_->write_errors++;
@@ -1056,10 +1075,10 @@ TransportIoResult SslTransportSocket::performOptimizedSslWrite(Buffer& buffer, b
       }
     }
   }
-  
+
   // Final flush of encrypted data
   moveFromBio();
-  
+
   return TransportIoResult::success(total_bytes_written);
 }
 
@@ -1067,21 +1086,21 @@ size_t SslTransportSocket::moveToBio() {
   /**
    * Move data from socket to BIO (optimized)
    */
-  
+
   // Read from inner socket
   OwnedBuffer temp_buffer;
   auto result = inner_socket_->doRead(temp_buffer);
-  
+
   if (temp_buffer.length() == 0) {
     return 0;
   }
-  
+
   // Write to network BIO
   size_t total_written = 0;
   constexpr size_t max_slices = 16;
   RawSlice slices[max_slices];
   size_t num_slices = temp_buffer.getRawSlices(slices, max_slices);
-  
+
   for (size_t i = 0; i < num_slices; ++i) {
     int written = BIO_write(network_bio_, slices[i].mem_, slices[i].len_);
     if (written > 0) {
@@ -1091,7 +1110,7 @@ size_t SslTransportSocket::moveToBio() {
       break;
     }
   }
-  
+
   return total_written;
 }
 
@@ -1099,28 +1118,28 @@ size_t SslTransportSocket::moveFromBio() {
   /**
    * Move data from BIO to socket (optimized)
    */
-  
+
   // Check pending data
   size_t pending = BIO_ctrl_pending(network_bio_);
   if (pending == 0) {
     return 0;
   }
-  
+
   // Read from BIO
   OwnedBuffer temp_buffer;
   RawSlice slice;
   void* data = temp_buffer.reserveSingleSlice(pending, slice);
   int read = BIO_read(network_bio_, data, slice.len_);
-  
+
   if (read <= 0) {
     return 0;
   }
-  
+
   temp_buffer.commit(slice, read);
-  
+
   // Write to inner socket
   auto result = inner_socket_->doWrite(temp_buffer, false);
-  
+
   return result.bytes_processed_;
 }
 
@@ -1132,24 +1151,24 @@ void SslTransportSocket::initiateShutdown() {
   /**
    * Initiate SSL shutdown
    */
-  
+
   if (!ssl_ || shutdown_sent_) {
     return;
   }
-  
+
   state_machine_->transition(SslSocketState::ShutdownInitiated);
-  
+
   // Send close_notify
   int ret = SSL_shutdown(ssl_);
-  
+
   if (ret == 0) {
     // close_notify sent
     shutdown_sent_ = true;
     state_machine_->transition(SslSocketState::ShutdownSent);
-    
+
     // Flush data
     moveFromBio();
-    
+
     // Schedule check for peer's close_notify
     scheduleShutdownCheck();
   } else if (ret == 1) {
@@ -1171,7 +1190,7 @@ void SslTransportSocket::scheduleShutdownCheck() {
   /**
    * Schedule periodic check for shutdown completion
    */
-  
+
   dispatcher_.post([this]() {
     auto state = state_machine_->getCurrentState();
     if (state == SslSocketState::ShutdownSent) {
@@ -1192,41 +1211,43 @@ void SslTransportSocket::scheduleShutdownCheck() {
 // Event Handling and Callbacks
 // ============================================================================
 
-void SslTransportSocket::onStateChanged(SslSocketState old_state, SslSocketState new_state) {
+void SslTransportSocket::onStateChanged(SslSocketState old_state,
+                                        SslSocketState new_state) {
   /**
    * Handle state changes
    */
-  
+
   switch (new_state) {
     case SslSocketState::Connected:
       if (transport_callbacks_) {
         transport_callbacks_->raiseEvent(network::ConnectionEvent::Connected);
       }
       break;
-      
+
     case SslSocketState::HandshakeWantRead:
     case SslSocketState::HandshakeWantWrite:
       scheduleHandshakeRetry();
       break;
-      
+
     case SslSocketState::Error:
       if (transport_callbacks_) {
         transport_callbacks_->raiseEvent(network::ConnectionEvent::RemoteClose);
       }
       break;
-      
+
     case SslSocketState::Closed:
       if (transport_callbacks_) {
         transport_callbacks_->raiseEvent(network::ConnectionEvent::LocalClose);
       }
       break;
-      
+
     default:
       break;
   }
 }
 
-void SslTransportSocket::scheduleIoWait(bool wait_for_read, bool wait_for_write) {
+void SslTransportSocket::scheduleIoWait(bool wait_for_read,
+                                        bool wait_for_write) {
   /**
    * Schedule I/O wait (should use file events in production)
    */
@@ -1237,18 +1258,17 @@ void SslTransportSocket::scheduleHandshakeRetry() {
   /**
    * Schedule handshake retry with exponential backoff
    */
-  
+
   if (!handshake_retry_timer_) {
-    handshake_retry_timer_ = dispatcher_.createTimer([this]() {
-      performHandshakeStep();
-    });
+    handshake_retry_timer_ =
+        dispatcher_.createTimer([this]() { performHandshakeStep(); });
   }
-  
+
   // Use exponential backoff
   auto delay = std::min(std::chrono::milliseconds(10) * (1 << retry_count_),
                         std::chrono::milliseconds(1000));
   retry_count_++;
-  
+
   handshake_retry_timer_->enableTimer(delay);
 }
 
@@ -1256,9 +1276,9 @@ void SslTransportSocket::handleSslError(const std::string& reason) {
   /**
    * Handle SSL error
    */
-  
+
   failure_reason_ = reason;
-  
+
   // Cancel timers
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
@@ -1266,15 +1286,15 @@ void SslTransportSocket::handleSslError(const std::string& reason) {
   if (handshake_retry_timer_) {
     handshake_retry_timer_->disableTimer();
   }
-  
+
   // Update statistics
   if (!handshake_complete_) {
     stats_->handshakes_failed++;
   }
-  
+
   // Transition to error state
   state_machine_->transition(SslSocketState::Error);
-  
+
   // Notify callbacks
   if (handshake_callbacks_ && !handshake_complete_) {
     handshake_callbacks_->onSslHandshakeFailed(reason);
@@ -1285,7 +1305,7 @@ void SslTransportSocket::flushBufferedWrites() {
   /**
    * Flush buffered writes after handshake
    */
-  
+
   if (write_buffer_->length() > 0) {
     dispatcher_.post([this]() {
       if (state_machine_->isConnected() && write_buffer_->length() > 0) {
@@ -1302,7 +1322,7 @@ void SslTransportSocket::logFinalStatistics() {
   /**
    * Log final statistics for debugging
    */
-  
+
   // In production, this would integrate with stats/metrics system
   // For now, we could log to debug output if enabled
 }
@@ -1329,13 +1349,9 @@ std::vector<std::string> SslTransportSocket::getSubjectAltNames() const {
   return subject_alt_names_;
 }
 
-std::string SslTransportSocket::getCipherSuite() const {
-  return cipher_suite_;
-}
+std::string SslTransportSocket::getCipherSuite() const { return cipher_suite_; }
 
-std::string SslTransportSocket::getTlsVersion() const {
-  return tls_version_;
-}
+std::string SslTransportSocket::getTlsVersion() const { return tls_version_; }
 
 SslTransportSocket::SslStats SslTransportSocket::getStatistics() const {
   SslStats stats;
@@ -1356,37 +1372,34 @@ SslTransportSocketFactory::SslTransportSocketFactory(
     std::unique_ptr<network::TransportSocketFactoryBase> inner_factory,
     const SslContextConfig& ssl_config,
     event::Dispatcher& dispatcher)
-    : inner_factory_(std::move(inner_factory)),
-      dispatcher_(dispatcher) {
-  
+    : inner_factory_(std::move(inner_factory)), dispatcher_(dispatcher) {
   // Create SSL context with caching
   auto result = SslContextManager::getInstance().getOrCreateContext(ssl_config);
   if (holds_alternative<Error>(result)) {
-    throw std::runtime_error("Failed to create SSL context: " + get<Error>(result).message);
+    throw std::runtime_error("Failed to create SSL context: " +
+                             get<Error>(result).message);
   }
   ssl_context_ = get<SslContextSharedPtr>(result);
-  
+
   // Determine role
-  role_ = ssl_config.is_client ? 
-          SslTransportSocket::InitialRole::Client :
-          SslTransportSocket::InitialRole::Server;
+  role_ = ssl_config.is_client ? SslTransportSocket::InitialRole::Client
+                               : SslTransportSocket::InitialRole::Server;
 }
 
 network::TransportSocketPtr SslTransportSocketFactory::createTransportSocket(
     network::TransportSocketOptionsSharedPtr options) const {
   // Create inner transport socket
-  auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(inner_factory_.get());
+  auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
+      inner_factory_.get());
   if (!client_factory) {
-    throw std::runtime_error("Inner factory must be a ClientTransportSocketFactory");
+    throw std::runtime_error(
+        "Inner factory must be a ClientTransportSocketFactory");
   }
   auto inner_socket = client_factory->createTransportSocket(options);
-  
+
   // Wrap with SSL
-  return std::make_unique<SslTransportSocket>(
-      std::move(inner_socket),
-      ssl_context_,
-      role_,
-      dispatcher_);
+  return std::make_unique<SslTransportSocket>(std::move(inner_socket),
+                                              ssl_context_, role_, dispatcher_);
 }
 
 }  // namespace transport

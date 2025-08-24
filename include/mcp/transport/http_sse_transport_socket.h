@@ -19,27 +19,28 @@
  * CURRENT USAGE STATUS (as of 2024):
  * ====================================
  * HttpSseTransportSocket is NOT actively used in the main production path.
- * 
+ *
  * Current Architecture:
  * - McpConnectionManager uses RawBufferTransportSocketFactory for HTTP+SSE
- * - Protocol handling is done through filter chains (HttpCodecFilter, HttpSseFilter)
+ * - Protocol handling is done through filter chains (HttpCodecFilter,
+ * HttpSseFilter)
  * - Transport socket only handles raw buffer I/O
- * 
+ *
  * Active Users:
  * 1. C API (mcp_c_api_connection.cc) - Direct instantiation for C bindings
  * 2. HttpsSseTransportFactory - Wraps with SSL for HTTPS+SSE
  * 3. Test files - Various integration and unit tests
- * 
+ *
  * Production Path (McpConnectionManager):
  * - Case TransportType::HttpSse → RawBufferTransportSocketFactory
  * - Filter chain handles all HTTP/SSE protocol logic
  * - Transport socket is just a raw I/O layer
- * 
+ *
  * This follows the production pattern where:
  * - Transport sockets handle only I/O operations
  * - Filters handle all protocol-specific logic
  * - Better separation of concerns and modularity
- * 
+ *
  * Call Stack for processFilterManagerRead (when used):
  * 1. Event Loop → Dispatcher → ConnectionImpl::onFileEvent(Read)
  * 2. ConnectionImpl::onReadReady() → doRead()

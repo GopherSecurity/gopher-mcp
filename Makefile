@@ -62,13 +62,13 @@ verbose:
 # Format all source files
 format:
 	@echo "Formatting all source files with clang-format..."
-	@find include tests -name "*.h" -o -name "*.cpp" | xargs clang-format -i
+	@find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i
 	@echo "Formatting complete."
 
 # Check formatting without modifying files
 check-format:
 	@echo "Checking source file formatting..."
-	@find include tests -name "*.h" -o -name "*.cpp" | xargs clang-format --dry-run --Werror
+	@find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format --dry-run --Werror
 
 # Help
 help:

@@ -82,7 +82,7 @@ class LibeventDispatcher : public Dispatcher {
  private:
   // Forward declaration for FileEventImpl
   class SchedulableCallbackImpl;
-  
+
   // Libevent file event implementation
   class FileEventImpl : public FileEvent {
    public:
@@ -110,7 +110,7 @@ class LibeventDispatcher : public Dispatcher {
     FileTriggerType trigger_;
     libevent_event* event_;
     uint32_t enabled_events_;
-    
+
     // For EmulatedEdge support
     uint32_t injected_activation_events_{0};
     std::unique_ptr<SchedulableCallbackImpl> activation_cb_;

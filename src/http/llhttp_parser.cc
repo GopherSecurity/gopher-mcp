@@ -63,8 +63,9 @@ static HttpStatusCode fromLibHttpStatus(unsigned int status) {
   return static_cast<HttpStatusCode>(status);
 }
 
-LLHttpParser::LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
-                          HttpVersion version_hint)
+LLHttpParser::LLHttpParser(HttpParserType type,
+                           HttpParserCallbacks* callbacks,
+                           HttpVersion version_hint)
     : callbacks_(callbacks),
       type_(type),
       status_(ParserStatus::Ok),
@@ -73,19 +74,19 @@ LLHttpParser::LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
       cached_status_(HttpStatusCode::OK),
       status_cached_(false),
       // Note: Initialize cached_version_ with version_hint instead of UNKNOWN
-      // This allows the parser to report the correct version immediately after creation
-      // The actual version will be updated when parsing begins, but having a hint
-      // satisfies tests that expect version info before any data is parsed
+      // This allows the parser to report the correct version immediately after
+      // creation The actual version will be updated when parsing begins, but
+      // having a hint satisfies tests that expect version info before any data
+      // is parsed
       cached_version_(version_hint),
       version_cached_(false) {
-  
   // Allocate parser and settings
   parser_ = std::make_unique<llhttp_t>();
   settings_ = std::make_unique<llhttp_settings_t>();
-  
+
   // Initialize settings
   llhttp_settings_init(settings_.get());
-  
+
   // Set up callbacks - all callbacks use the parser's data pointer
   // which we set to 'this' to access the LLHttpParser instance
   settings_->on_message_begin = &LLHttpParser::onMessageBegin;
@@ -98,7 +99,7 @@ LLHttpParser::LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
   settings_->on_message_complete = &LLHttpParser::onMessageComplete;
   settings_->on_chunk_header = &LLHttpParser::onChunkHeader;
   settings_->on_chunk_complete = &LLHttpParser::onChunkComplete;
-  
+
   // Initialize parser based on type
   llhttp_type_t llhttp_type;
   switch (type) {
@@ -114,9 +115,9 @@ LLHttpParser::LLHttpParser(HttpParserType type, HttpParserCallbacks* callbacks,
     default:
       llhttp_type = HTTP_BOTH;
   }
-  
+
   llhttp_init(parser_.get(), llhttp_type, settings_.get());
-  
+
   // Store 'this' in parser data for callbacks
   parser_->data = this;
 }
@@ -127,15 +128,15 @@ size_t LLHttpParser::execute(const char* data, size_t length) {
   if (status_ == ParserStatus::Error) {
     return 0;
   }
-  
+
   // Clear caches when executing new data
   method_cached_ = false;
   status_cached_ = false;
   version_cached_ = false;
-  
+
   // Execute parser
   llhttp_errno_t err = llhttp_execute(parser_.get(), data, length);
-  
+
   if (err == HPE_OK) {
     status_ = ParserStatus::Ok;
     return length;
@@ -164,17 +165,13 @@ ParserCallbackResult LLHttpParser::pause() {
   return ParserCallbackResult::Pause;
 }
 
-ParserStatus LLHttpParser::getStatus() const {
-  return status_;
-}
+ParserStatus LLHttpParser::getStatus() const { return status_; }
 
 bool LLHttpParser::shouldKeepAlive() const {
   return llhttp_should_keep_alive(parser_.get()) != 0;
 }
 
-bool LLHttpParser::isUpgrade() const {
-  return parser_->upgrade != 0;
-}
+bool LLHttpParser::isUpgrade() const { return parser_->upgrade != 0; }
 
 HttpVersion LLHttpParser::httpVersion() const {
   // Note: If we haven't parsed any data yet (major/minor are 0),
@@ -184,7 +181,7 @@ HttpVersion LLHttpParser::httpVersion() const {
   if (!version_cached_) {
     uint8_t major = parser_->http_major;
     uint8_t minor = parser_->http_minor;
-    
+
     // If parser hasn't seen any data yet (major and minor are 0),
     // keep the version hint we were given at construction
     if (major == 0 && minor == 0) {
@@ -192,7 +189,7 @@ HttpVersion LLHttpParser::httpVersion() const {
       version_cached_ = false;  // Keep checking until we parse actual data
       return cached_version_;
     }
-    
+
     // Parser has seen data, update version based on what was parsed
     if (major == 1 && minor == 0) {
       cached_version_ = HttpVersion::HTTP_1_0;
@@ -212,7 +209,8 @@ HttpVersion LLHttpParser::httpVersion() const {
 
 HttpMethod LLHttpParser::httpMethod() const {
   if (!method_cached_) {
-    cached_method_ = fromLibHttpMethod(static_cast<llhttp_method_t>(parser_->method));
+    cached_method_ =
+        fromLibHttpMethod(static_cast<llhttp_method_t>(parser_->method));
     method_cached_ = true;
   }
   return cached_method_;
@@ -237,7 +235,7 @@ void LLHttpParser::reset() {
   // Reset parser state
   llhttp_reset(parser_.get());
   parser_->data = this;
-  
+
   // Reset internal state
   status_ = ParserStatus::Ok;
   method_cached_ = false;
@@ -245,9 +243,7 @@ void LLHttpParser::reset() {
   version_cached_ = false;
 }
 
-void LLHttpParser::finish() {
-  llhttp_finish(parser_.get());
-}
+void LLHttpParser::finish() { llhttp_finish(parser_.get()); }
 
 // Static callback implementations
 
@@ -275,7 +271,9 @@ int LLHttpParser::onStatus(llhttp_t* parser, const char* data, size_t length) {
   return 0;
 }
 
-int LLHttpParser::onHeaderField(llhttp_t* parser, const char* data, size_t length) {
+int LLHttpParser::onHeaderField(llhttp_t* parser,
+                                const char* data,
+                                size_t length) {
   auto* self = static_cast<LLHttpParser*>(parser->data);
   if (self && self->callbacks_) {
     return toCallbackResult(self->callbacks_->onHeaderField(data, length));
@@ -283,7 +281,9 @@ int LLHttpParser::onHeaderField(llhttp_t* parser, const char* data, size_t lengt
   return 0;
 }
 
-int LLHttpParser::onHeaderValue(llhttp_t* parser, const char* data, size_t length) {
+int LLHttpParser::onHeaderValue(llhttp_t* parser,
+                                const char* data,
+                                size_t length) {
   auto* self = static_cast<LLHttpParser*>(parser->data);
   if (self && self->callbacks_) {
     return toCallbackResult(self->callbacks_->onHeaderValue(data, length));
@@ -319,8 +319,8 @@ int LLHttpParser::onChunkHeader(llhttp_t* parser) {
   auto* self = static_cast<LLHttpParser*>(parser->data);
   if (self && self->callbacks_) {
     // Use the content_length field from the parser
-    return toCallbackResult(self->callbacks_->onChunkHeader(
-        parser->content_length));
+    return toCallbackResult(
+        self->callbacks_->onChunkHeader(parser->content_length));
   }
   return 0;
 }
@@ -352,8 +352,8 @@ int LLHttpParser::toCallbackResult(ParserCallbackResult result) {
 
 // LLHttpParserFactory implementation
 
-HttpParserPtr LLHttpParserFactory::createParser(HttpParserType type,
-                                                HttpParserCallbacks* callbacks) {
+HttpParserPtr LLHttpParserFactory::createParser(
+    HttpParserType type, HttpParserCallbacks* callbacks) {
   // Note: Default to HTTP/1.1 for the generic factory
   // This factory is used when version detection happens from parsed data
   // HTTP/1.1 is the most common default for HTTP/1.x traffic
@@ -366,8 +366,8 @@ std::vector<HttpVersion> LLHttpParserFactory::supportedVersions() const {
 
 // LLHttp10ParserFactory implementation
 
-HttpParserPtr LLHttp10ParserFactory::createParser(HttpParserType type,
-                                                  HttpParserCallbacks* callbacks) {
+HttpParserPtr LLHttp10ParserFactory::createParser(
+    HttpParserType type, HttpParserCallbacks* callbacks) {
   // Always create parser with HTTP/1.0 hint since this factory
   // is only registered for HTTP/1.0 in the selector
   return std::make_unique<LLHttpParser>(type, callbacks, HttpVersion::HTTP_1_0);
@@ -379,8 +379,8 @@ std::vector<HttpVersion> LLHttp10ParserFactory::supportedVersions() const {
 
 // LLHttp11ParserFactory implementation
 
-HttpParserPtr LLHttp11ParserFactory::createParser(HttpParserType type,
-                                                  HttpParserCallbacks* callbacks) {
+HttpParserPtr LLHttp11ParserFactory::createParser(
+    HttpParserType type, HttpParserCallbacks* callbacks) {
   // Always create parser with HTTP/1.1 hint since this factory
   // is only registered for HTTP/1.1 in the selector
   return std::make_unique<LLHttpParser>(type, callbacks, HttpVersion::HTTP_1_1);

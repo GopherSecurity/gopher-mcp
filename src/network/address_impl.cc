@@ -52,7 +52,7 @@ Ipv4Instance::Ipv4Instance(const std::string& address, uint16_t port) {
   std::memset(&addr_, 0, sizeof(addr_));
   addr_.sin_family = AF_INET;
   addr_.sin_port = htons(port);
-  
+
   if (::inet_pton(AF_INET, address.c_str(), &addr_.sin_addr) != 1) {
     throw std::runtime_error("Invalid IPv4 address: " + address);
   }
@@ -64,7 +64,8 @@ std::string Ipv4Instance::asString() const {
 
 std::string Ipv4Instance::addressAsString() const {
   char buffer[INET_ADDRSTRLEN];
-  if (::inet_ntop(AF_INET, &addr_.sin_addr, buffer, sizeof(buffer)) != nullptr) {
+  if (::inet_ntop(AF_INET, &addr_.sin_addr, buffer, sizeof(buffer)) !=
+      nullptr) {
     return buffer;
   }
   return "";
@@ -74,15 +75,14 @@ bool Ipv4Instance::operator==(const Instance& rhs) const {
   if (rhs.type() != Type::Ip) {
     return false;
   }
-  
+
   const Ip* other_ip = rhs.ip();
   if (!other_ip || other_ip->version() != IpVersion::v4) {
     return false;
   }
-  
+
   auto other_v4 = other_ip->ipv4();
-  return other_v4.has_value() && 
-         addr_.sin_addr.s_addr == *other_v4 &&
+  return other_v4.has_value() && addr_.sin_addr.s_addr == *other_v4 &&
          addr_.sin_port == htons(other_ip->port());
 }
 
@@ -111,7 +111,7 @@ Ipv6Instance::Ipv6Instance(const std::string& address, uint16_t port) {
   std::memset(&addr_, 0, sizeof(addr_));
   addr_.sin6_family = AF_INET6;
   addr_.sin6_port = htons(port);
-  
+
   if (::inet_pton(AF_INET6, address.c_str(), &addr_.sin6_addr) != 1) {
     throw std::runtime_error("Invalid IPv6 address: " + address);
   }
@@ -133,18 +133,19 @@ bool Ipv6Instance::operator==(const Instance& rhs) const {
   if (rhs.type() != Type::Ip) {
     return false;
   }
-  
+
   const Ip* other_ip = rhs.ip();
   if (!other_ip || other_ip->version() != IpVersion::v6) {
     return false;
   }
-  
+
   auto other_v6 = other_ip->ipv6();
   if (!other_v6.has_value()) {
     return false;
   }
-  
-  return std::memcmp(&addr_.sin6_addr, other_v6->data(), sizeof(in6_addr)) == 0 &&
+
+  return std::memcmp(&addr_.sin6_addr, other_v6->data(), sizeof(in6_addr)) ==
+             0 &&
          addr_.sin6_port == htons(other_ip->port());
 }
 
@@ -172,10 +173,12 @@ optional<std::array<uint8_t, 16>> Ipv6Instance::ipv6() const {
 PipeInstance::PipeInstance(const sockaddr_un* address, socklen_t addr_len)
     : addr_len_(addr_len), mode_(0) {
   std::memset(&addr_, 0, sizeof(addr_));
-  std::memcpy(&addr_, address, std::min(addr_len, static_cast<socklen_t>(sizeof(addr_))));
-  
+  std::memcpy(&addr_, address,
+              std::min(addr_len, static_cast<socklen_t>(sizeof(addr_))));
+
   // Extract path from sockaddr_un
-  if (addr_.sun_family == AF_UNIX && addr_len > offsetof(sockaddr_un, sun_path)) {
+  if (addr_.sun_family == AF_UNIX &&
+      addr_len > offsetof(sockaddr_un, sun_path)) {
     size_t path_len = addr_len - offsetof(sockaddr_un, sun_path);
     if (addr_.sun_path[0] == '\0') {
       // Abstract socket (Linux)
@@ -191,11 +194,11 @@ PipeInstance::PipeInstance(const std::string& path, mode_t mode)
     : path_(path), mode_(mode) {
   std::memset(&addr_, 0, sizeof(addr_));
   addr_.sun_family = AF_UNIX;
-  
+
   if (path.length() >= sizeof(addr_.sun_path)) {
     throw std::runtime_error("Unix socket path too long: " + path);
   }
-  
+
   if (!path.empty() && path[0] == '\0') {
     // Abstract socket
     std::memcpy(addr_.sun_path, path.data(), path.length());
@@ -219,7 +222,7 @@ bool PipeInstance::operator==(const Instance& rhs) const {
   if (rhs.type() != Type::Pipe) {
     return false;
   }
-  
+
   const auto* other = dynamic_cast<const PipeInstance*>(&rhs);
   return other != nullptr && path_ == other->path_;
 }
@@ -227,7 +230,8 @@ bool PipeInstance::operator==(const Instance& rhs) const {
 
 // ===== Factory Functions =====
 
-InstanceConstSharedPtr parseInternetAddress(const std::string& address, uint16_t default_port) {
+InstanceConstSharedPtr parseInternetAddress(const std::string& address,
+                                            uint16_t default_port) {
   // Check if it has a port
   size_t last_colon = address.rfind(':');
   if (last_colon != std::string::npos) {
@@ -262,13 +266,14 @@ InstanceConstSharedPtr parseInternetAddress(const std::string& address, uint16_t
       }
     }
   }
-  
+
   // No port specified, try to parse as is
   return parseInternetAddressNoPort(address, default_port);
 }
 
 InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
-                                                  uint16_t port, bool v6only) {
+                                                  uint16_t port,
+                                                  bool v6only) {
   (void)v6only;  // Currently unused
   // Try IPv4 first
   try {
@@ -276,19 +281,20 @@ InstanceConstSharedPtr parseInternetAddressNoPort(const std::string& address,
   } catch (...) {
     // Not IPv4
   }
-  
+
   // Try IPv6
   try {
     return std::make_shared<Ipv6Instance>(address, port);
   } catch (...) {
     // Not IPv6
   }
-  
+
   return nullptr;
 }
 
 InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
-                                          socklen_t len, bool v6only) {
+                                           socklen_t len,
+                                           bool v6only) {
   switch (addr.ss_family) {
     case AF_INET:
       if (len >= sizeof(sockaddr_in)) {
@@ -296,11 +302,11 @@ InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
             reinterpret_cast<const sockaddr_in*>(&addr));
       }
       break;
-      
+
     case AF_INET6:
       if (len >= sizeof(sockaddr_in6)) {
         const auto* addr6 = reinterpret_cast<const sockaddr_in6*>(&addr);
-        
+
         // Check for IPv4-mapped IPv6 address
         if (!v6only && IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
           // Convert to IPv4
@@ -311,11 +317,11 @@ InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
           std::memcpy(&addr4.sin_addr, &addr6->sin6_addr.s6_addr[12], 4);
           return std::make_shared<Ipv4Instance>(&addr4);
         }
-        
+
         return std::make_shared<Ipv6Instance>(addr6);
       }
       break;
-      
+
 #ifndef _WIN32
     case AF_UNIX:
       if (len >= offsetof(sockaddr_un, sun_path)) {
@@ -325,7 +331,7 @@ InstanceConstSharedPtr addressFromSockAddr(const sockaddr_storage& addr,
       break;
 #endif
   }
-  
+
   return nullptr;
 }
 
@@ -364,10 +370,10 @@ optional<CidrRange> CidrRange::parse(const std::string& range) {
   if (slash_pos == std::string::npos) {
     return nullopt;
   }
-  
+
   std::string addr_part = range.substr(0, slash_pos);
   std::string prefix_part = range.substr(slash_pos + 1);
-  
+
   try {
     uint32_t prefix_len = static_cast<uint32_t>(std::stoi(prefix_part));
     auto address = parseInternetAddressNoPort(addr_part);
@@ -377,7 +383,7 @@ optional<CidrRange> CidrRange::parse(const std::string& range) {
   } catch (...) {
     // Invalid prefix length
   }
-  
+
   return nullopt;
 }
 
@@ -386,14 +392,14 @@ CidrRange::CidrRange(const InstanceConstSharedPtr& address, uint32_t prefix_len)
   if (!address_ || address_->type() != Type::Ip) {
     throw std::invalid_argument("CidrRange requires IP address");
   }
-  
+
   const Ip* ip = address_->ip();
   if (ip->version() == IpVersion::v4 && prefix_len > 32) {
     throw std::invalid_argument("IPv4 prefix length must be <= 32");
   } else if (ip->version() == IpVersion::v6 && prefix_len > 128) {
     throw std::invalid_argument("IPv6 prefix length must be <= 128");
   }
-  
+
   // Calculate and cache network bits
   if (ip->version() == IpVersion::v4) {
     uint32_t addr = *ip->ipv4();
@@ -404,11 +410,11 @@ CidrRange::CidrRange(const InstanceConstSharedPtr& address, uint32_t prefix_len)
   } else {
     auto addr_bytes = *ip->ipv6();
     network_bits_ = std::vector<uint8_t>(addr_bytes.begin(), addr_bytes.end());
-    
+
     // Apply prefix mask
     size_t full_bytes = prefix_len / 8;
     size_t remaining_bits = prefix_len % 8;
-    
+
     if (full_bytes < 16) {
       if (remaining_bits > 0) {
         uint8_t mask = static_cast<uint8_t>(0xFF << (8 - remaining_bits));
@@ -425,14 +431,14 @@ bool CidrRange::contains(const Instance& address) const {
   if (address.type() != Type::Ip) {
     return false;
   }
-  
+
   const Ip* ip = address.ip();
   const Ip* range_ip = address_->ip();
-  
+
   if (!ip || !range_ip || ip->version() != range_ip->version()) {
     return false;
   }
-  
+
   if (ip->version() == IpVersion::v4) {
     uint32_t addr = *ip->ipv4();
     uint32_t network = *reinterpret_cast<const uint32_t*>(network_bits_.data());
@@ -440,24 +446,25 @@ bool CidrRange::contains(const Instance& address) const {
     return (ntohl(addr) & mask) == ntohl(network);
   } else {
     auto addr_bytes = *ip->ipv6();
-    
+
     // Compare prefix bits
     size_t full_bytes = prefix_len_ / 8;
     size_t remaining_bits = prefix_len_ % 8;
-    
+
     // Compare full bytes
     if (std::memcmp(addr_bytes.data(), network_bits_.data(), full_bytes) != 0) {
       return false;
     }
-    
+
     // Compare remaining bits
     if (remaining_bits > 0 && full_bytes < 16) {
       uint8_t mask = static_cast<uint8_t>(0xFF << (8 - remaining_bits));
-      if ((addr_bytes[full_bytes] & mask) != (network_bits_[full_bytes] & mask)) {
+      if ((addr_bytes[full_bytes] & mask) !=
+          (network_bits_[full_bytes] & mask)) {
         return false;
       }
     }
-    
+
     return true;
   }
 }

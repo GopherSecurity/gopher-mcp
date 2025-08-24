@@ -140,14 +140,12 @@ class HttpCodecFilter : public network::Filter {
    * Client mode: request encoder
    */
   MessageEncoder& messageEncoder() { return *message_encoder_; }
-  
+
   /**
    * Get and clear the message buffer
    * Used after encodeHeaders/encodeData to get the built message
    */
-  void getMessageBuffer(Buffer& buffer) {
-    buffer.move(message_buffer_);
-  }
+  void getMessageBuffer(Buffer& buffer) { buffer.move(message_buffer_); }
 
  private:
   // Inner class implementing MessageEncoder
@@ -235,7 +233,7 @@ class HttpCodecFilter : public network::Filter {
   // Per-request state is stored in HttpStreamContext, not in the filter
   HttpStreamContextManager stream_manager_;
   HttpStreamContextPtr current_stream_;  // Current stream being processed
-  
+
   // Message buffering (connection-level, not per-request)
   OwnedBuffer message_buffer_;
 };

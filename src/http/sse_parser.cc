@@ -60,10 +60,10 @@ size_t SseParser::parse(const char* data, size_t length) {
     }
     bom_checked_ = true;
   }
-  
+
   for (size_t i = start; i < length; ++i) {
     char ch = data[i];
-    
+
     // Handle line endings
     if (ch == kCR) {
       // Check for CRLF
@@ -85,7 +85,7 @@ size_t SseParser::parse(const char* data, size_t length) {
       line_buffer_ += ch;
     }
   }
-  
+
   // Note: Always return the full length as all bytes were consumed
   // Previously, we only updated 'consumed' when a line ending was found,
   // returning 0 for chunks without line endings. This broke chunked parsing
@@ -103,19 +103,19 @@ size_t SseParser::parse(Buffer& buffer) {
   if (length == 0) {
     return 0;
   }
-  
+
   // Create temporary buffer for parsing
   std::vector<char> data(length);
   buffer.copyOut(0, length, data.data());
-  
+
   // Parse the data
   size_t consumed = parse(data.data(), length);
-  
+
   // Drain consumed bytes from buffer
   if (consumed > 0) {
     buffer.drain(consumed);
   }
-  
+
   return consumed;
 }
 
@@ -127,9 +127,9 @@ void SseParser::reset() {
   field_value_.clear();
   // Note: Clear the last event ID on reset
   // The SSE spec states that the last event ID is persistent across events
-  // to support resumption, but when the parser is reset (e.g., for a new connection),
-  // we should clear it. The test expects reset() to clear all state including
-  // the last event ID so subsequent events don't inherit it.
+  // to support resumption, but when the parser is reset (e.g., for a new
+  // connection), we should clear it. The test expects reset() to clear all
+  // state including the last event ID so subsequent events don't inherit it.
   last_event_id_.clear();
   // Note: Reset BOM check flag
   // When parser is reset for a new stream, we need to check for BOM again
@@ -142,7 +142,7 @@ void SseParser::flush() {
     processLine(line_buffer_);
     line_buffer_.clear();
   }
-  
+
   // Dispatch any pending event
   if (current_event_.hasContent()) {
     dispatchEvent();
@@ -157,7 +157,7 @@ void SseParser::processLine(const std::string& line) {
     }
     return;
   }
-  
+
   // Comment line starts with colon
   if (line[0] == kColon) {
     if (callbacks_) {
@@ -165,10 +165,10 @@ void SseParser::processLine(const std::string& line) {
     }
     return;
   }
-  
+
   // Find colon separator
   size_t colon_pos = line.find(kColon);
-  
+
   if (colon_pos == std::string::npos) {
     // No colon - treat entire line as field name with empty value
     processField(line, "");
@@ -176,44 +176,45 @@ void SseParser::processLine(const std::string& line) {
     // Extract field name and value
     std::string field = line.substr(0, colon_pos);
     std::string value;
-    
+
     // Skip optional space after colon
     size_t value_start = colon_pos + 1;
     if (value_start < line.length() && line[value_start] == kSpace) {
       value_start++;
     }
-    
+
     if (value_start < line.length()) {
       value = line.substr(value_start);
     }
-    
+
     processField(field, value);
   }
 }
 
-void SseParser::processField(const std::string& name, const std::string& value) {
+void SseParser::processField(const std::string& name,
+                             const std::string& value) {
   if (name == kDataField) {
     // Note: Mark that we've seen a data field (even if value is empty)
     // This ensures events with "data:" (empty data) are still dispatched
     current_event_.hasDataField = true;
-    
+
     // Append data with newline if not first data field
     if (!current_event_.data.empty()) {
       current_event_.data += '\n';
     }
     current_event_.data += value;
-    
+
   } else if (name == kEventField) {
     // Set event type
     current_event_.event = value;
-    
+
   } else if (name == kIdField) {
     // Set event ID and update last event ID
     current_event_.id = value;
     if (!value.empty()) {
       last_event_id_ = value;
     }
-    
+
   } else if (name == kRetryField) {
     // Set retry time if value is all digits
     if (isAllDigits(value)) {
@@ -236,12 +237,12 @@ void SseParser::dispatchEvent() {
     if (!current_event_.id.has_value() && !last_event_id_.empty()) {
       current_event_.id = last_event_id_;
     }
-    
+
     if (callbacks_) {
       callbacks_->onSseEvent(current_event_);
     }
   }
-  
+
   // Clear current event for next one
   current_event_.clear();
 }
@@ -250,22 +251,22 @@ void SseParser::dispatchEvent() {
 
 std::string SseEventBuilder::serialize() const {
   std::ostringstream oss;
-  
+
   // Write id field
   if (event_.id.has_value()) {
     oss << "id: " << event_.id.value() << "\n";
   }
-  
+
   // Write event field
   if (event_.event.has_value()) {
     oss << "event: " << event_.event.value() << "\n";
   }
-  
+
   // Write retry field
   if (event_.retry.has_value()) {
     oss << "retry: " << event_.retry.value() << "\n";
   }
-  
+
   // Write data field(s) - split on newlines
   if (!event_.data.empty()) {
     std::istringstream data_stream(event_.data);
@@ -274,10 +275,10 @@ std::string SseEventBuilder::serialize() const {
       oss << "data: " << line << "\n";
     }
   }
-  
+
   // End with empty line
   oss << "\n";
-  
+
   return oss.str();
 }
 
@@ -294,19 +295,19 @@ void SseStreamWriter::writeEvent(const SseEvent& event) {
     std::string field = "id: " + event.id.value() + "\n";
     buffer_.add(field.data(), field.length());
   }
-  
+
   // Write event field
   if (event.event.has_value()) {
     std::string field = "event: " + event.event.value() + "\n";
     buffer_.add(field.data(), field.length());
   }
-  
+
   // Write retry field
   if (event.retry.has_value()) {
     std::string field = "retry: " + std::to_string(event.retry.value()) + "\n";
     buffer_.add(field.data(), field.length());
   }
-  
+
   // Write data field(s) - split on newlines
   if (!event.data.empty()) {
     std::istringstream data_stream(event.data);
@@ -316,7 +317,7 @@ void SseStreamWriter::writeEvent(const SseEvent& event) {
       buffer_.add(field.data(), field.length());
     }
   }
-  
+
   // End with empty line
   buffer_.add("\n", 1);
 }

@@ -564,7 +564,10 @@ class MockFileEvent : public FileEvent {
  public:
   MOCK_METHOD(void, activate, (uint32_t events), (override));
   MOCK_METHOD(void, setEnabled, (uint32_t events), (override));
-  MOCK_METHOD(void, unregisterEventIfEmulatedEdge, (uint32_t event), (override));
+  MOCK_METHOD(void,
+              unregisterEventIfEmulatedEdge,
+              (uint32_t event),
+              (override));
   MOCK_METHOD(void, registerEventIfEmulatedEdge, (uint32_t event), (override));
 };
 

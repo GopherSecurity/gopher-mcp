@@ -1,6 +1,6 @@
 /**
  * JSON-RPC Protocol Filter Implementation
- * 
+ *
  * Following production architecture patterns:
  * - Pure protocol processing, no I/O or transport concerns
  * - Clean separation between protocol layers
@@ -8,33 +8,36 @@
  */
 
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/network/connection.h"
-#include "mcp/json/json_serialization.h"
+
 #include <iostream>
+
+#include "mcp/json/json_serialization.h"
+#include "mcp/network/connection.h"
 
 namespace mcp {
 namespace filter {
 
 // EncoderImpl - Internal implementation of the encoder interface
 // Forward declare to access write_callbacks_
-class JsonRpcProtocolFilter::EncoderImpl : public JsonRpcProtocolFilter::Encoder {
-public:
+class JsonRpcProtocolFilter::EncoderImpl
+    : public JsonRpcProtocolFilter::Encoder {
+ public:
   EncoderImpl(JsonRpcProtocolFilter& parent) : parent_(parent) {}
-  
+
   VoidResult encodeRequest(const jsonrpc::Request& request) override {
     // Convert request to JSON
     auto json_val = json::to_json(request);
     std::string json_str = json_val.toString();
-    
+
     // Add framing or delimiter based on configuration
     if (!parent_.use_framing_) {
       json_str += "\n";
     }
-    
+
     // Create buffer and write through filter chain
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(json_str);
-    
+
     // Trigger write through filter manager
     // This will flow through the filter chain in reverse order
     // Write directly to connection following production pattern
@@ -42,64 +45,65 @@ public:
     if (parent_.write_callbacks_) {
       parent_.write_callbacks_->connection().write(*buffer, false);
     }
-    
+
     return makeVoidSuccess();
   }
-  
-  VoidResult encodeNotification(const jsonrpc::Notification& notification) override {
+
+  VoidResult encodeNotification(
+      const jsonrpc::Notification& notification) override {
     // Convert notification to JSON
     auto json_val = json::to_json(notification);
     std::string json_str = json_val.toString();
-    
+
     // Add framing or delimiter
     if (!parent_.use_framing_) {
       json_str += "\n";
     }
-    
+
     // Create buffer and write through filter chain
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(json_str);
-    
+
     // Write directly to connection following production pattern
     // This replaces the deprecated injectWriteDataToFilterChain method
     if (parent_.write_callbacks_) {
       parent_.write_callbacks_->connection().write(*buffer, false);
     }
-    
+
     return makeVoidSuccess();
   }
-  
+
   VoidResult encodeResponse(const jsonrpc::Response& response) override {
     // Convert response to JSON
     auto json_val = json::to_json(response);
     std::string json_str = json_val.toString();
-    
+
     // Add framing or delimiter
     if (!parent_.use_framing_) {
       json_str += "\n";
     }
-    
+
     // Create buffer and write through filter chain
     auto buffer = std::make_unique<OwnedBuffer>();
     buffer->add(json_str);
-    
+
     // Write directly to connection following production pattern
     // This replaces the deprecated injectWriteDataToFilterChain method
     if (parent_.write_callbacks_) {
       parent_.write_callbacks_->connection().write(*buffer, false);
     }
-    
+
     return makeVoidSuccess();
   }
-  
-private:
+
+ private:
   JsonRpcProtocolFilter& parent_;
 };
 
 // JsonRpcProtocolFilter implementation
 
 JsonRpcProtocolFilter::JsonRpcProtocolFilter(MessageHandler& handler,
-                                   event::Dispatcher& dispatcher,
+                                             event::Dispatcher& dispatcher,
                                              bool is_server)
     : handler_(handler),
       dispatcher_(dispatcher),
@@ -127,18 +131,20 @@ void JsonRpcProtocolFilter::initializeWriteFilterCallbacks(
   write_callbacks_ = &callbacks;
 }
 
-network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data, bool end_stream) {
+network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
+                                                    bool end_stream) {
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);
-  
-  // If end_stream and we have partial data, try to parse it as a complete message
-  // This handles HTTP requests where the body doesn't end with a newline
+
+  // If end_stream and we have partial data, try to parse it as a complete
+  // message This handles HTTP requests where the body doesn't end with a
+  // newline
   if (end_stream && !partial_message_.empty() && !use_framing_) {
     parseMessage(partial_message_);
     partial_message_.clear();
   }
-  
+
   return network::FilterStatus::Continue;
 }
 
@@ -149,18 +155,19 @@ network::FilterStatus JsonRpcProtocolFilter::onNewConnection() {
   responses_received_ = 0;
   notifications_received_ = 0;
   protocol_errors_ = 0;
-  
+
   return network::FilterStatus::Continue;
 }
 
-network::FilterStatus JsonRpcProtocolFilter::onWrite(Buffer& data, bool end_stream) {
+network::FilterStatus JsonRpcProtocolFilter::onWrite(Buffer& data,
+                                                     bool end_stream) {
   (void)end_stream;
-  
+
   // Frame outgoing messages if configured
   if (use_framing_) {
     frameMessage(data);
   }
-  
+
   return network::FilterStatus::Continue;
 }
 
@@ -168,10 +175,10 @@ void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
   // Convert buffer to string and drain it
   std::string buffer_str = buffer.toString();
   buffer.drain(buffer.length());
-  
+
   // Add to partial message buffer
   partial_message_ += buffer_str;
-  
+
   if (use_framing_) {
     // Parse with message framing (4-byte length prefix, big-endian)
     while (partial_message_.length() >= 4) {
@@ -181,16 +188,16 @@ void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
       msg_len |= (static_cast<uint8_t>(partial_message_[1]) << 16);
       msg_len |= (static_cast<uint8_t>(partial_message_[2]) << 8);
       msg_len |= static_cast<uint8_t>(partial_message_[3]);
-      
+
       if (partial_message_.length() < 4 + msg_len) {
         // Not enough data yet, wait for more
         break;
       }
-      
+
       // Extract complete message
       std::string json_str = partial_message_.substr(4, msg_len);
       partial_message_.erase(0, 4 + msg_len);
-      
+
       // Parse the JSON-RPC message
       parseMessage(json_str);
     }
@@ -200,7 +207,7 @@ void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
     while ((pos = partial_message_.find('\n')) != std::string::npos) {
       std::string line = partial_message_.substr(0, pos);
       partial_message_.erase(0, pos + 1);
-      
+
       if (!line.empty()) {
         parseMessage(line);
       }
@@ -212,7 +219,7 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
-    
+
     // Determine message type and dispatch to callbacks
     if (json_val.contains("method")) {
       if (json_val.contains("id")) {
@@ -222,7 +229,8 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
         handler_.onRequest(request);
       } else {
         // JSON-RPC Notification
-        jsonrpc::Notification notification = json::from_json<jsonrpc::Notification>(json_val);
+        jsonrpc::Notification notification =
+            json::from_json<jsonrpc::Notification>(json_val);
         notifications_received_++;
         handler_.onNotification(notification);
       }
@@ -240,9 +248,9 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
       handler_.onProtocolError(error);
       return false;
     }
-    
+
     return true;
-    
+
   } catch (const json::JsonException& e) {
     // JSON parse error
     Error error;
@@ -251,7 +259,7 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
     protocol_errors_++;
     handler_.onProtocolError(error);
     return false;
-    
+
   } catch (const std::exception& e) {
     // Other errors
     Error error;
@@ -267,28 +275,28 @@ void JsonRpcProtocolFilter::frameMessage(Buffer& data) {
   if (!use_framing_ || data.length() == 0) {
     return;
   }
-  
+
   // Get message content
   std::string message_content = data.toString();
   size_t msg_len = message_content.length();
-  
+
   // Create new buffer with length prefix
   auto framed_buffer = std::make_unique<OwnedBuffer>();
-  
+
   // Add 4-byte length prefix (big-endian)
   uint8_t len_bytes[4];
   len_bytes[0] = (msg_len >> 24) & 0xFF;
   len_bytes[1] = (msg_len >> 16) & 0xFF;
   len_bytes[2] = (msg_len >> 8) & 0xFF;
   len_bytes[3] = msg_len & 0xFF;
-  
+
   framed_buffer->add(len_bytes, 4);
   framed_buffer->add(message_content);
-  
+
   // Replace original buffer content
   data.drain(data.length());
   framed_buffer->move(data);
 }
 
-} // namespace filter
-} // namespace mcp
+}  // namespace filter
+}  // namespace mcp

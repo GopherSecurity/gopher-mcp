@@ -8,13 +8,12 @@
 
 #include <algorithm>
 #include <future>
-
-#include "mcp/filter/json_rpc_filter_factory.h"
-#include "mcp/filter/http_sse_filter_chain_factory.h"
-#include "mcp/filter/json_rpc_protocol_filter.h"
 #include <iostream>
 #include <sstream>
 
+#include "mcp/filter/http_sse_filter_chain_factory.h"
+#include "mcp/filter/json_rpc_filter_factory.h"
+#include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
 // to avoid conflicts with existing connection management in
@@ -62,12 +61,12 @@ VoidResult McpServer::listen(const std::string& address) {
   // Initialize the application if not already done
   if (!initialized_) {
     initialize();  // Create dispatchers and workers (including main dispatcher)
-    
+
     // Verify main dispatcher was created
     if (!main_dispatcher_) {
       std::cerr << "[ERROR] Failed to create main dispatcher" << std::endl;
-      return makeVoidError(Error(jsonrpc::INTERNAL_ERROR,
-                                 "Dispatcher initialization failed"));
+      return makeVoidError(
+          Error(jsonrpc::INTERNAL_ERROR, "Dispatcher initialization failed"));
     }
   }
 
@@ -166,28 +165,29 @@ void McpServer::performListen() {
       tcp_config.address = tcp_address;
       tcp_config.bind_to_port = true;
       tcp_config.enable_reuse_port = false;  // Single process listener
-      
+
       // Following production architecture: Transport sockets handle ONLY I/O
       // Protocol processing happens in filters, not transport sockets
-      // Flow: TCP Socket → RawBufferSocket (I/O) → HTTP Filter → SSE Filter → App
-      
+      // Flow: TCP Socket → RawBufferSocket (I/O) → HTTP Filter → SSE Filter →
+      // App
+
       // Use RawBufferTransportSocketFactory for pure I/O
-      // This follows production pattern where transport sockets don't know protocols
-      tcp_config.transport_socket_factory = 
+      // This follows production pattern where transport sockets don't know
+      // protocols
+      tcp_config.transport_socket_factory =
           std::make_shared<network::RawBufferTransportSocketFactory>();
-      
+
       // Create filter chain factory that implements the protocol stack
       // Following production pattern: Filters handle ALL protocol logic
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
-      tcp_config.filter_chain_factory = 
+      tcp_config.filter_chain_factory =
           std::make_shared<filter::HttpSseFilterChainFactory>(
               *main_dispatcher_, *protocol_callbacks_);
-      
+
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
       tcp_config.max_connections_per_event =
           10;  // Process up to 10 accepts per event
-
 
       // Create TcpActiveListener with this server as callbacks
       // Following production pattern: listener owns socket, manages accepts,
@@ -270,7 +270,7 @@ void McpServer::run() {
 
   // Run one iteration to establish thread ID
   main_dispatcher_->run(event::RunType::NonBlock);
-  
+
   // Now we can safely perform listen in the dispatcher thread
   if (need_perform_listen_) {
     // Directly call performListen since we're now in the dispatcher thread
@@ -315,7 +315,7 @@ void McpServer::shutdown() {
 
       // Clear all sessions
       // Session cleanup will happen automatically
-      
+
       // Exit the blocking dispatch loop
       main_dispatcher_->exit();
     });
@@ -402,17 +402,18 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
   ApplicationBase::setupFilterChain(builder);
 
   // Add MCP-specific filters
-  
+
   // Create JSON-RPC filter using the simplified helper
   // Servers typically use framing for all transports
   // TODO: Make framing configurable based on actual transport endpoints
   bool use_framing = true;
   // Use the dispatcher from the builder
-  auto filter_bundle = createJsonRpcFilter(*protocol_callbacks_, builder.getDispatcher(), true, use_framing);
-  
+  auto filter_bundle = createJsonRpcFilter(
+      *protocol_callbacks_, builder.getDispatcher(), true, use_framing);
+
   // Add the filter instance
   builder.addFilterInstance(filter_bundle->filter);
-  
+
   // Keep the bundle alive through a lambda capture
   builder.addFilter([filter_bundle]() -> network::FilterSharedPtr {
     // This lambda keeps filter_bundle alive for the connection lifetime
@@ -458,8 +459,9 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
 
 // McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
-  std::cerr << "[DEBUG] McpServer::onRequest called with method: " << request.method << std::endl;
-  
+  std::cerr << "[DEBUG] McpServer::onRequest called with method: "
+            << request.method << std::endl;
+
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
 
@@ -467,13 +469,13 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   auto pending_req = std::make_shared<PendingRequest>();
   pending_req->id = request.id;
   pending_req->start_time = std::chrono::steady_clock::now();
-  
+
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(request.id) 
-        ? get<std::string>(request.id) 
-        : std::to_string(get<int>(request.id));
+    std::string key = holds_alternative<std::string>(request.id)
+                          ? get<std::string>(request.id)
+                          : std::to_string(get<int>(request.id));
     pending_requests_[key] = pending_req;
   }
 
@@ -484,11 +486,11 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Create new session for this connection
     session = session_manager_->createSession(current_connection_);
   }
-  
+
   if (session) {
     pending_req->session_id = session->getId();
   }
-  
+
   if (!session) {
     // Max sessions reached
     server_stats_.requests_failed++;
@@ -498,18 +500,19 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Send response through appropriate mechanism
     // For HTTP connections, use filter chain; for stdio, use connection manager
     std::cerr << "[DEBUG] Sending error response for max sessions" << std::endl;
-    
+
     // Send response through the current connection (for TCP/HTTP connections)
     // Following production pattern: thread-local connection context
     if (current_connection_) {
-      filter::HttpSseFilterChainFactory::sendHttpResponse(response, 
+      filter::HttpSseFilterChainFactory::sendHttpResponse(response,
                                                           *current_connection_);
     }
-    
+
     // Also try connection managers (for stdio connections)
     for (auto& conn_manager : connection_managers_) {
       if (conn_manager->isConnected()) {
-        std::cerr << "[DEBUG] Found connected manager, sending response" << std::endl;
+        std::cerr << "[DEBUG] Found connected manager, sending response"
+                  << std::endl;
         conn_manager->sendResponse(response);
         break;
       }
@@ -568,12 +571,14 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   }
 
   // Send response through appropriate channel
-  // Following proper architecture: use filter chain for HTTP, connection manager for stdio
-  std::cerr << "[DEBUG] Sending response for request id: " 
-            << (holds_alternative<std::string>(request.id) ? 
-                get<std::string>(request.id) : 
-                std::to_string(get<int>(request.id))) << std::endl;
-  
+  // Following proper architecture: use filter chain for HTTP, connection
+  // manager for stdio
+  std::cerr << "[DEBUG] Sending response for request id: "
+            << (holds_alternative<std::string>(request.id)
+                    ? get<std::string>(request.id)
+                    : std::to_string(get<int>(request.id)))
+            << std::endl;
+
   // Send response through the current connection (for TCP/HTTP connections)
   // Following production pattern: server sends JSON-RPC, filter handles HTTP
   if (current_connection_) {
@@ -581,16 +586,14 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // The filter chain will handle HTTP protocol wrapping
     auto json_val = json::to_json(response);
     std::string json_str = json_val.toString();
-    
+
     OwnedBuffer response_buffer;
     response_buffer.add(json_str);
-    
-    
+
     // Write JSON-RPC response - HTTP filter will wrap it
     current_connection_->write(response_buffer, false);
-    
   }
-  
+
   // Also try connection managers (for stdio transport)
   // This is the legacy path for non-HTTP transports
   for (auto& conn_manager : connection_managers_) {
@@ -599,14 +602,14 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
       break;
     }
   }
-  
+
   // Remove request from pending list
   {
     std::lock_guard<std::mutex> lock(pending_requests_mutex_);
     // Convert RequestId to string key
-    std::string key = holds_alternative<std::string>(request.id) 
-        ? get<std::string>(request.id) 
-        : std::to_string(get<int>(request.id));
+    std::string key = holds_alternative<std::string>(request.id)
+                          ? get<std::string>(request.id)
+                          : std::to_string(get<int>(request.id));
     pending_requests_.erase(key);
   }
 }
@@ -653,7 +656,8 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
       auto req_id_it = params.find("requestId");
       if (req_id_it != params.end()) {
         // Mark the request as cancelled
-        // The value in params is a MetadataValue which could be string or int64_t
+        // The value in params is a MetadataValue which could be string or
+        // int64_t
         std::string key_to_cancel;
         if (holds_alternative<std::string>(req_id_it->second)) {
           key_to_cancel = get<std::string>(req_id_it->second);
@@ -663,15 +667,15 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
           // Not a valid request ID type
           return;
         }
-        
+
         // Find and mark the request as cancelled
         {
           std::lock_guard<std::mutex> lock(pending_requests_mutex_);
           auto it = pending_requests_.find(key_to_cancel);
           if (it != pending_requests_.end()) {
             it->second->cancelled = true;
-            std::cerr << "[INFO] Request marked as cancelled: " 
-                      << key_to_cancel << std::endl;
+            std::cerr << "[INFO] Request marked as cancelled: " << key_to_cancel
+                      << std::endl;
           }
         }
       }
@@ -700,7 +704,7 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
       if (session_manager_ && current_connection_) {
         // Remove session associated with the closed connection
         session_manager_->removeSessionByConnection(current_connection_);
-        
+
         // Remove from connection-session mapping
         // Following production pattern: use lock since this map may be accessed
         // from multiple dispatcher threads
@@ -708,16 +712,18 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
           std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
           connection_sessions_.erase(current_connection_);
         }
-        
+
         // Remove connection from active list
-        // Following production pattern: all in dispatcher thread, no mutex needed
-        active_connections_.remove_if([this](const network::ConnectionPtr& conn) {
-          return conn.get() == current_connection_;
-        });
-        
+        // Following production pattern: all in dispatcher thread, no mutex
+        // needed
+        active_connections_.remove_if(
+            [this](const network::ConnectionPtr& conn) {
+              return conn.get() == current_connection_;
+            });
+
         // Clear the current connection
         current_connection_ = nullptr;
-        
+
         // Decrement connection count
         num_connections_--;
       }
@@ -765,28 +771,30 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   // Convert InitializeResult to Metadata for ResponseResult
   // Since ResponseResult doesn't directly support InitializeResult,
   // we need to convert it to a simplified Metadata object
-  // TODO: This is a temporary workaround until proper serialization is implemented
-  auto builder = make<Metadata>()
-                     .add("protocolVersion", result.protocolVersion);
-  
+  // TODO: This is a temporary workaround until proper serialization is
+  // implemented
+  auto builder =
+      make<Metadata>().add("protocolVersion", result.protocolVersion);
+
   // Add server info if present (flattened)
   if (result.serverInfo.has_value()) {
     builder.add("serverInfo.name", result.serverInfo->name)
-           .add("serverInfo.version", result.serverInfo->version);
+        .add("serverInfo.version", result.serverInfo->version);
   }
-  
+
   // Add capabilities (flattened)
   if (result.capabilities.resources.has_value()) {
     if (holds_alternative<bool>(result.capabilities.resources.value())) {
-      builder.add("capabilities.resources", get<bool>(result.capabilities.resources.value()));
+      builder.add("capabilities.resources",
+                  get<bool>(result.capabilities.resources.value()));
     } else {
       // Handle ResourcesCapability struct
       builder.add("capabilities.resources", true)
-             .add("capabilities.resources.subscribe", true)
-             .add("capabilities.resources.listChanged", true);
+          .add("capabilities.resources.subscribe", true)
+          .add("capabilities.resources.listChanged", true);
     }
   }
-  
+
   if (result.capabilities.tools.has_value()) {
     builder.add("capabilities.tools", result.capabilities.tools.value());
   }
@@ -796,14 +804,14 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   if (result.capabilities.logging.has_value()) {
     builder.add("capabilities.logging", result.capabilities.logging.value());
   }
-  
+
   // Add instructions if present
   if (result.instructions.has_value()) {
     builder.add("instructions", result.instructions.value());
   }
-  
+
   auto response_metadata = builder.build();
-  
+
   return jsonrpc::Response::success(request.id,
                                     jsonrpc::ResponseResult(response_metadata));
 }
@@ -969,13 +977,14 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
 
   // Extract optional arguments
   // The MCP protocol expects arguments to be nested under "arguments" field
-  // Since MetadataValue doesn't support nested maps, we need to handle this specially
+  // Since MetadataValue doesn't support nested maps, we need to handle this
+  // specially
   optional<Metadata> arguments;
   auto args_it = params.find("arguments");
-  
+
   if (args_it != params.end()) {
-    // The arguments field contains a JSON string representation of the nested object
-    // We need to parse it back to extract the actual arguments
+    // The arguments field contains a JSON string representation of the nested
+    // object We need to parse it back to extract the actual arguments
     if (holds_alternative<std::string>(args_it->second)) {
       // The nested object was stringified during deserialization
       // Parse it back to get the actual arguments
@@ -1011,7 +1020,8 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   // Build response metadata with actual result
   auto response_metadata =
       make<Metadata>()
-          .add("content", content_text.empty() ? std::string("No result") : content_text)
+          .add("content",
+               content_text.empty() ? std::string("No result") : content_text)
           .add("isError", result.isError)
           .build();
 
@@ -1163,10 +1173,11 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // processing
 
   // CRITICAL FIX: Take ownership of the connection
-  // The connection is passed by rvalue reference, meaning we must take ownership
-  // or it will be destroyed when this function returns, closing the connection!
+  // The connection is passed by rvalue reference, meaning we must take
+  // ownership or it will be destroyed when this function returns, closing the
+  // connection!
   network::Connection* conn_ptr = connection.get();
-  
+
   // Create session for this connection
   auto session = session_manager_->createSession(conn_ptr);
 
@@ -1179,20 +1190,20 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Add ourselves as connection callbacks to track lifecycle
   // This allows us to clean up session when connection closes
   connection->addConnectionCallbacks(*this);
-  
+
   // Store connection-to-session mapping
   // Following production pattern: listener owns connections
   {
     std::lock_guard<std::mutex> lock(connection_sessions_mutex_);
     connection_sessions_[conn_ptr] = session;
   }
-  
+
   // Set current connection for request processing context
   current_connection_ = conn_ptr;
-  
+
   // Update connection count
   ++num_connections_;
-  
+
   // Store the connection to keep it alive
   // Following production pattern: server owns connections in dispatcher thread
   // No mutex needed - all operations happen in dispatcher thread
