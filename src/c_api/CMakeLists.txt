@@ -1,27 +1,25 @@
-#CMake configuration for Gopher MCP C API bindings
+# CMake configuration for Gopher MCP C API bindings
 cmake_minimum_required(VERSION 3.14)
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#C API Library
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# C API Library
+# ============================================================================
 
-#Collect C API source files
+# Collect C API source files
 set(MCP_C_API_SOURCES
     mcp_c_api_core.cc
     mcp_c_api_connection.cc
-#mcp_c_api_client.cc #TODO : Fix compilation issues
-#mcp_c_api_server.cc #TODO : Fix compilation issues
-#mcp_c_api_json.cc #TODO : Fix compilation issues
+    # mcp_c_api_client.cc # TODO: Fix compilation issues
+    # mcp_c_api_server.cc # TODO: Fix compilation issues
+    # mcp_c_api_json.cc # TODO: Fix compilation issues
     mcp_c_api_builders.cc
     mcp_c_api_utils.cc
 )
 
-#Create shared library for C bindings
+# Create shared library for C bindings
 add_library(gopher_mcp_c SHARED ${MCP_C_API_SOURCES})
 
-#Set library properties
+# Set library properties
 set_target_properties(gopher_mcp_c PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -31,41 +29,38 @@ set_target_properties(gopher_mcp_c PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
-#Export only C API symbols
+# Export only C API symbols
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-#Windows : Use.def file or __declspec(dllexport)
+    # Windows: Use .def file or __declspec(dllexport)
     set_target_properties(gopher_mcp_c PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS OFF
     )
     target_compile_definitions(gopher_mcp_c PRIVATE GOPHER_MCP_C_API_EXPORTS)
 else()
-#Unix / Linux / macOS : Use visibility attributes
+    # Unix/Linux/macOS: Use visibility attributes
     target_compile_options(gopher_mcp_c PRIVATE -fvisibility=hidden)
 
-#Generate export map
+    # Generate export map
     set(EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.map")
-    file(WRITE ${
-  EXPORT_MAP} "{\n  global:\n")
-    file(APPEND ${
-  EXPORT_MAP} "    gopher_mcp_*;\n")  # Export all gopher_mcp_* symbols
-    file(APPEND ${
-  EXPORT_MAP} "  local:\n    *;\n};\n")
+    file(WRITE ${EXPORT_MAP} "{\n  global:\n")
+    file(APPEND ${EXPORT_MAP} "    mcp_*;\n")  # Export all mcp_* symbols
+    file(APPEND ${EXPORT_MAP} "  local:\n    *;\n};\n")
     
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_target_properties(gopher_mcp_c PROPERTIES
             LINK_FLAGS "-Wl,--version-script=${EXPORT_MAP}"
         )
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-#macOS uses different linker flags
+        # macOS uses different linker flags
         set_target_properties(gopher_mcp_c PROPERTIES
             LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols"
         )
-#Generate symbols list for macOS
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_gopher_mcp_*\n")
+        # Generate symbols list for macOS
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_mcp_*\n")
     endif()
 endif()
 
-#Include directories
+# Include directories
 target_include_directories(gopher_mcp_c
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -74,7 +69,7 @@ target_include_directories(gopher_mcp_c
         ${CMAKE_SOURCE_DIR}/src
 )
 
-#Link with the main Gopher MCP C++ library
+# Link with the main Gopher MCP C++ library
 target_link_libraries(gopher_mcp_c
     PRIVATE
         gopher-mcp
@@ -84,14 +79,12 @@ target_link_libraries(gopher_mcp_c
         OpenSSL::Crypto
 )
 
-#Compile features
+# Compile features
 target_compile_features(gopher_mcp_c PRIVATE cxx_std_17)
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Static library option
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Static library option
+# ============================================================================
 
 option(BUILD_C_API_STATIC "Build static C API library" ON)
 
@@ -123,20 +116,16 @@ if(BUILD_C_API_STATIC)
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
 endif()
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Installation(disabled for now to avoid export issues)
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Installation (disabled for now to avoid export issues)
+# ============================================================================
 
-#TODO : Fix export configuration to properly handle gopher-mcp and gopher-mcp-event dependencies
-#For now, we'll just build the libraries without installation support
+# TODO: Fix export configuration to properly handle gopher-mcp and gopher-mcp-event dependencies
+# For now, we'll just build the libraries without installation support
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#pkg - config support(simplified)
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# pkg-config support (simplified)
+# ============================================================================
 
 if(FALSE)  # Disabled for now
     configure_file(
@@ -146,13 +135,11 @@ if(FALSE)  # Disabled for now
     )
 endif()
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Language binding support files
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Language binding support files
+# ============================================================================
 
-#Install binding examples and build files
+# Install binding examples and build files
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/
     DESTINATION share/gopher-mcp/bindings
@@ -161,21 +148,17 @@ install(
     PATTERN "__pycache__" EXCLUDE
 )
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Testing
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Testing
+# ============================================================================
 
 if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Documentation
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Documentation
+# ============================================================================
 
 if(BUILD_DOCS)
     find_package(Doxygen)
@@ -201,11 +184,9 @@ if(BUILD_DOCS)
     endif()
 endif()
 
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
-#Print configuration summary
-#== == == == == == == == == == == == == == == == == == == == == == == == == == \
-    == == == == == == == == == == == ==
+# ============================================================================
+# Print configuration summary
+# ============================================================================
 
 message(STATUS "Gopher MCP C API Configuration:")
 message(STATUS "  Shared library: ${BUILD_SHARED_LIBS}")
