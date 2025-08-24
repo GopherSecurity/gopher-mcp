@@ -10,6 +10,8 @@
 #include <cstring>
 #include <memory>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 #include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_c_types.h"
@@ -752,6 +754,170 @@ void mcp_string_free(mcp_string_t* str) {
     str->data = nullptr;
     str->length = 0;
   }
+}
+
+/* ============================================================================
+ * FFI Safety Implementation
+ * ============================================================================
+ */
+
+// Thread-local error storage
+static thread_local char g_last_error[1024] = {0};
+
+const char* mcp_get_last_error(void) {
+  return g_last_error[0] ? g_last_error : nullptr;
+}
+
+void mcp_set_last_error(const char* error) {
+  if (error) {
+    std::strncpy(g_last_error, error, sizeof(g_last_error) - 1);
+    g_last_error[sizeof(g_last_error) - 1] = '\0';
+  } else {
+    g_last_error[0] = '\0';
+  }
+}
+
+void mcp_clear_last_error(void) {
+  g_last_error[0] = '\0';
+}
+
+// ABI version management
+mcp_abi_version_t mcp_get_abi_version(void) {
+  mcp_abi_version_t version = {
+    MCP_C_API_VERSION_MAJOR,
+    MCP_C_API_VERSION_MINOR,
+    MCP_C_API_VERSION_PATCH,
+    0 /* reserved */
+  };
+  return version;
+}
+
+mcp_bool_t mcp_check_abi_compatibility(uint32_t major, uint32_t minor) {
+  // Major version must match exactly
+  if (major != MCP_C_API_VERSION_MAJOR) {
+    return MCP_FALSE;
+  }
+  
+  // Minor version must be less than or equal to current
+  if (minor > MCP_C_API_VERSION_MINOR) {
+    return MCP_FALSE;
+  }
+  
+  return MCP_TRUE;
+}
+
+// Safe memory functions
+void* mcp_malloc_safe(size_t size) {
+  if (size == 0) {
+    mcp_set_last_error("Cannot allocate 0 bytes");
+    return nullptr;
+  }
+  
+  void* ptr = std::malloc(size);
+  if (!ptr) {
+    char error[256];
+    std::snprintf(error, sizeof(error), "Failed to allocate %zu bytes", size);
+    mcp_set_last_error(error);
+  }
+  return ptr;
+}
+
+void* mcp_calloc_safe(size_t count, size_t size) {
+  if (count == 0 || size == 0) {
+    mcp_set_last_error("Cannot allocate 0 bytes");
+    return nullptr;
+  }
+  
+  // Check for overflow
+  if (count > SIZE_MAX / size) {
+    mcp_set_last_error("Allocation size overflow");
+    return nullptr;
+  }
+  
+  void* ptr = std::calloc(count, size);
+  if (!ptr) {
+    char error[256];
+    std::snprintf(error, sizeof(error), "Failed to allocate %zu x %zu bytes", count, size);
+    mcp_set_last_error(error);
+  }
+  return ptr;
+}
+
+void* mcp_realloc_safe(void* ptr, size_t new_size) {
+  if (new_size == 0) {
+    std::free(ptr);
+    return nullptr;
+  }
+  
+  void* new_ptr = std::realloc(ptr, new_size);
+  if (!new_ptr && new_size > 0) {
+    char error[256];
+    std::snprintf(error, sizeof(error), "Failed to reallocate to %zu bytes", new_size);
+    mcp_set_last_error(error);
+  }
+  return new_ptr;
+}
+
+void mcp_free_safe(void* ptr) {
+  std::free(ptr);
+}
+
+char* mcp_strdup_safe(const char* str) {
+  if (!str) {
+    return nullptr;
+  }
+  
+  size_t len = std::strlen(str);
+  char* copy = static_cast<char*>(mcp_malloc_safe(len + 1));
+  if (copy) {
+    std::memcpy(copy, str, len + 1);
+  }
+  return copy;
+}
+
+char* mcp_strndup_safe(const char* str, size_t max_len) {
+  if (!str) {
+    return nullptr;
+  }
+  
+  size_t len = std::strnlen(str, max_len);
+  char* copy = static_cast<char*>(mcp_malloc_safe(len + 1));
+  if (copy) {
+    std::memcpy(copy, str, len);
+    copy[len] = '\0';
+  }
+  return copy;
+}
+
+// FFI initialization
+static std::atomic<bool> g_ffi_initialized{false};
+
+mcp_result_t mcp_ffi_initialize(void) {
+  bool expected = false;
+  if (!g_ffi_initialized.compare_exchange_strong(expected, true)) {
+    // Already initialized
+    return MCP_OK;
+  }
+  
+  // Perform any one-time initialization here
+  mcp_clear_last_error();
+  
+  return MCP_OK;
+}
+
+void mcp_ffi_cleanup(void) {
+  bool expected = true;
+  if (!g_ffi_initialized.compare_exchange_strong(expected, false)) {
+    // Not initialized or already cleaned up
+    return;
+  }
+  
+  // Perform cleanup here
+  mcp_clear_last_error();
+}
+
+mcp_bool_t mcp_ffi_is_initialized(void) {
+  return g_ffi_initialized.load() ? MCP_TRUE : MCP_FALSE;
 }
 
 }  // extern "C"
