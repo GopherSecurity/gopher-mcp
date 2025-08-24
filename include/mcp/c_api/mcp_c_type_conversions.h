@@ -17,130 +17,29 @@
 #define MCP_C_TYPE_CONVERSIONS_H
 
 #include "mcp/c_api/mcp_c_types.h"
+#include "mcp/c_api/mcp_raii.h"
 #include "mcp/types.h"
 #include <cstring>
 #include <memory>
 #include <type_traits>
-#include <utility>
-#include <vector>
 
 namespace mcp {
 namespace c_api {
 
 /* ============================================================================
- * RAII Wrapper for C Allocations
+ * RAII Aliases for Type Conversions
  * ============================================================================
  */
 
-/**
- * Custom deleter for C allocated memory
- * Ensures proper cleanup through RAII
- */
+// Import RAII utilities for use in type conversions
+using mcp::raii::ResourceGuard;
+using mcp::raii::AllocationTransaction;
+using mcp::raii::c_unique_ptr;
+using mcp::raii::make_resource_guard;
+
+// Legacy aliases for backward compatibility
 template<typename T>
-struct c_deleter {
-  void operator()(T* ptr) const {
-    if (ptr) {
-      free(ptr);
-    }
-  }
-};
-
-// Specialized deleter for mcp_string_t
-template<>
-struct c_deleter<mcp_string_t> {
-  void operator()(mcp_string_t* ptr) const {
-    if (ptr) {
-      if (ptr->data) {
-        free(const_cast<char*>(ptr->data));
-      }
-      free(ptr);
-    }
-  }
-};
-
-template<typename T>
-using c_unique_ptr = std::unique_ptr<T, c_deleter<T>>;
-
-/**
- * RAII Guard for automatic resource cleanup
- * Provides move semantics and deterministic destruction
- */
-template<typename T>
-class ResourceGuard {
-public:
-  using Deleter = void(*)(T*);
-  
-  ResourceGuard() noexcept : ptr_(nullptr), deleter_(nullptr) {}
-  explicit ResourceGuard(T* ptr, Deleter deleter) noexcept
-      : ptr_(ptr), deleter_(deleter) {}
-  
-  ~ResourceGuard() {
-    if (ptr_ && deleter_) {
-      deleter_(ptr_);
-    }
-  }
-  
-  // Move-only semantics for safety
-  ResourceGuard(const ResourceGuard&) = delete;
-  ResourceGuard& operator=(const ResourceGuard&) = delete;
-  ResourceGuard(ResourceGuard&& other) noexcept
-      : ptr_(std::exchange(other.ptr_, nullptr)),
-        deleter_(std::exchange(other.deleter_, nullptr)) {}
-  
-  ResourceGuard& operator=(ResourceGuard&& other) noexcept {
-    if (this != &other) {
-      if (ptr_ && deleter_) deleter_(ptr_);
-      ptr_ = std::exchange(other.ptr_, nullptr);
-      deleter_ = std::exchange(other.deleter_, nullptr);
-    }
-    return *this;
-  }
-  
-  T* get() const noexcept { return ptr_; }
-  T* release() noexcept { return std::exchange(ptr_, nullptr); }
-  explicit operator bool() const noexcept { return ptr_ != nullptr; }
-  
-private:
-  T* ptr_;
-  Deleter deleter_;
-};
-
-/**
- * Transaction-based resource manager for exception safety
- * Ensures all-or-nothing semantics for resource allocation
- */
-class AllocationTransaction {
-public:
-  AllocationTransaction() = default;
-  ~AllocationTransaction() {
-    if (!committed_) rollback();
-  }
-  
-  // Track allocated resources for cleanup
-  void track(void* resource, void(*deleter)(void*)) {
-    if (resource) {
-      resources_.emplace_back(resource, deleter);
-    }
-  }
-  
-  // Commit transaction - resources won't be freed
-  void commit() { 
-    resources_.clear();
-    committed_ = true;
-  }
-  
-  // Rollback transaction - free all tracked resources
-  void rollback() {
-    for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
-      if (it->second) it->second(it->first);
-    }
-    resources_.clear();
-  }
-  
-private:
-  std::vector<std::pair<void*, void(*)(void*)>> resources_;
-  bool committed_ = false;
-};
+using c_deleter = mcp::raii::c_deleter<T>;
 
 /* ============================================================================
  * Ownership Annotations and Documentation

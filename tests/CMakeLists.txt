@@ -578,13 +578,6 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
-    target_link_libraries(test_c_api_types_simple
-        gopher-mcp
-        gopher_mcp_c
-        gtest
-        gtest_main
-        Threads::Threads
-    )
     
     target_link_libraries(test_c_api_builders
         gopher-mcp
@@ -594,6 +587,15 @@ if(BUILD_C_API)
     )
     
     target_link_libraries(test_c_api_type_helpers
+        gopher-mcp
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    # RAII utilities test (simplified)
+    add_executable(test_mcp_raii_simple c_api/test_mcp_raii_simple.cc)
+    target_link_libraries(test_mcp_raii_simple
         gopher-mcp
         gtest
         gtest_main

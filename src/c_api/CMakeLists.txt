@@ -14,6 +14,7 @@ set(MCP_C_API_SOURCES
     # mcp_c_api_json.cc # TODO: Fix compilation issues
     mcp_c_api_builders.cc
     mcp_c_api_utils.cc
+    mcp_raii.cc
 )
 
 # Create shared library for C bindings
@@ -152,9 +153,7 @@ install(
 # Testing
 # ============================================================================
 
-if(BUILD_TESTS)
-    add_subdirectory(tests)
-endif()
+# Tests are handled at the top level CMakeLists.txt
 
 # ============================================================================
 # Documentation
