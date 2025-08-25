@@ -1137,6 +1137,395 @@ TEST_F(NewAPIFeatureTest, StatisticsTracking) {
     EXPECT_GE(final_guards_destroyed, initial_guards_destroyed + 3);
 }
 
+/* ============================================================================
+ * ResourceTracker Tests (Debug Mode Only) - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+#ifdef MCP_RAII_DEBUG_MODE
+
+class ResourceTrackerTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // Clear any existing tracked resources
+        ResourceTracker::instance().clear();
+    }
+    
+    void TearDown() override {
+        ResourceTracker::instance().clear();
+    }
+};
+
+TEST_F(ResourceTrackerTest, TrackAndUntrackResources) {
+    int dummy_resource = 42;
+    void* resource_ptr = &dummy_resource;
+    
+    // Track a resource
+    ResourceTracker::instance().track_resource(resource_ptr, "TestResource", __FILE__, __LINE__);
+    
+    // Verify it's tracked
+    EXPECT_EQ(1, ResourceTracker::instance().active_count());
+    
+    // Untrack the resource
+    ResourceTracker::instance().untrack_resource(resource_ptr);
+    
+    // Verify it's no longer tracked
+    EXPECT_EQ(0, ResourceTracker::instance().active_count());
+}
+
+TEST_F(ResourceTrackerTest, DetectLeakedResources) {
+    int dummy1 = 1, dummy2 = 2, dummy3 = 3;
+    
+    ResourceTracker::instance().track_resource(&dummy1, "Resource1");
+    ResourceTracker::instance().track_resource(&dummy2, "Resource2");
+    ResourceTracker::instance().track_resource(&dummy3, "Resource3");
+    
+    EXPECT_EQ(3, ResourceTracker::instance().active_count());
+    
+    // Only untrack two resources
+    ResourceTracker::instance().untrack_resource(&dummy1);
+    ResourceTracker::instance().untrack_resource(&dummy2);
+    
+    // One resource should still be tracked (leaked)
+    EXPECT_EQ(1, ResourceTracker::instance().active_count());
+    
+    auto leaked = ResourceTracker::instance().get_leaked_resources();
+    EXPECT_EQ(1, leaked.size());
+    if (!leaked.empty()) {
+        EXPECT_EQ(&dummy3, leaked[0].resource);
+        EXPECT_EQ("Resource3", leaked[0].type_name);
+    }
+    
+    // Clean up for test
+    ResourceTracker::instance().untrack_resource(&dummy3);
+}
+
+TEST_F(ResourceTrackerTest, ReportLeaks) {
+    int dummy = 42;
+    ResourceTracker::instance().track_resource(&dummy, "LeakedResource");
+    
+    // Capture the report output
+    testing::internal::CaptureStderr();
+    ResourceTracker::instance().report_leaks();
+    std::string output = testing::internal::GetCapturedStderr();
+    
+    // Report should mention the leak
+    EXPECT_NE(std::string::npos, output.find("LeakedResource"));
+    
+    // Clean up
+    ResourceTracker::instance().untrack_resource(&dummy);
+}
+
+#endif // MCP_RAII_DEBUG_MODE
+
+/* ============================================================================
+ * Additional Exception Handling Tests - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+// Custom deleter that throws (for testing exception handling)
+struct ThrowingDeleter {
+    mutable bool should_throw = true;
+    mutable int call_count = 0;
+    
+    void operator()(void* ptr) const {
+        ++call_count;
+        if (should_throw && ptr) {
+            throw std::runtime_error("Deleter exception");
+        }
+        free(ptr);
+    }
+};
+
+TEST_F(EdgeCaseTest, ResourceGuardDestructorNoThrow) {
+    // ResourceGuard destructor should not throw even if deleter throws
+    ThrowingDeleter deleter;
+    
+    {
+        ResourceGuard<void> guard(malloc(10), deleter);
+        EXPECT_TRUE(guard);
+        // Destructor will be called here - should not throw
+    }
+    
+    // Deleter should have been called despite throwing
+    EXPECT_EQ(1, deleter.call_count);
+}
+
+TEST_F(EdgeCaseTest, AllocationTransactionRollbackNoThrow) {
+    ThrowingDeleter deleter1, deleter2;
+    
+    {
+        AllocationTransaction txn;
+        txn.track(malloc(10), deleter1);
+        txn.track(malloc(20), deleter2);
+        
+        // Rollback will call deleters which throw - should not propagate
+        // Destructor implicitly calls rollback if not committed
+    }
+    
+    // Both deleters should have been called
+    EXPECT_EQ(1, deleter1.call_count);
+    EXPECT_EQ(1, deleter2.call_count);
+}
+
+/* ============================================================================
+ * Resource Recycling Pattern Tests - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+class ResourceRecyclingTest : public RAIITest {};
+
+TEST_F(ResourceRecyclingTest, ReusableResourceGuard) {
+    // Test pattern for reusing a ResourceGuard with different resources
+    ResourceGuard<void> guard;
+    
+    // First resource
+    void* resource1 = malloc(100);
+    guard.reset(resource1, free);
+    EXPECT_EQ(resource1, guard.get());
+    
+    // Second resource (first one gets freed)
+    void* resource2 = malloc(200);
+    guard.reset(resource2, free);
+    EXPECT_EQ(resource2, guard.get());
+    
+    // Third resource
+    void* resource3 = malloc(300);
+    guard.reset(resource3, free);
+    EXPECT_EQ(resource3, guard.get());
+    
+    // Release last resource for manual management
+    void* released = guard.release();
+    EXPECT_EQ(resource3, released);
+    EXPECT_FALSE(guard);
+    
+    free(released);
+}
+
+TEST_F(ResourceRecyclingTest, TransactionReusePattern) {
+    // Test pattern for reusing a transaction
+    AllocationTransaction txn;
+    
+    // First batch of resources
+    void* batch1[] = {malloc(10), malloc(20), malloc(30)};
+    for (auto* resource : batch1) {
+        txn.track(resource, free);
+    }
+    EXPECT_EQ(3, txn.resource_count());
+    
+    // Rollback first batch
+    txn.rollback();
+    EXPECT_TRUE(txn.is_committed());
+    EXPECT_EQ(0, txn.resource_count());
+    
+    // Can't reuse a committed transaction - need a new one
+    AllocationTransaction txn2;
+    
+    // Second batch of resources
+    void* batch2[] = {malloc(40), malloc(50)};
+    for (auto* resource : batch2) {
+        txn2.track(resource, free);
+    }
+    EXPECT_EQ(2, txn2.resource_count());
+    
+    // Commit second batch
+    txn2.commit();
+    
+    // Manual cleanup since we committed
+    for (auto* resource : batch2) {
+        free(resource);
+    }
+}
+
+/* ============================================================================
+ * Advanced Deleter Tests - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+// Stateful deleter with context
+class StatefulDeleter {
+    std::string context_;
+    mutable int delete_count_ = 0;
+    
+public:
+    explicit StatefulDeleter(const std::string& context) : context_(context) {}
+    
+    void operator()(void* ptr) const {
+        ++delete_count_;
+        free(ptr);
+    }
+    
+    const std::string& context() const { return context_; }
+    int delete_count() const { return delete_count_; }
+};
+
+TEST_F(EdgeCaseTest, StatefulCustomDeleter) {
+    StatefulDeleter deleter("test_context");
+    
+    {
+        ResourceGuard<void> guard(malloc(50), deleter);
+        EXPECT_TRUE(guard);
+        
+        // Access deleter through guard
+        const auto& guard_deleter = guard.get_deleter();
+        EXPECT_EQ("test_context", guard_deleter.context());
+    }
+    
+    // Deleter should have been called
+    EXPECT_EQ(1, deleter.delete_count());
+}
+
+TEST_F(EdgeCaseTest, LambdaWithCapture) {
+    int cleanup_count = 0;
+    std::string cleanup_message;
+    
+    {
+        auto deleter = [&cleanup_count, &cleanup_message](void* ptr) {
+            ++cleanup_count;
+            cleanup_message = "Cleaned up resource";
+            free(ptr);
+        };
+        
+        ResourceGuard<void> guard(malloc(100), deleter);
+        EXPECT_TRUE(guard);
+    }
+    
+    EXPECT_EQ(1, cleanup_count);
+    EXPECT_EQ("Cleaned up resource", cleanup_message);
+}
+
+/* ============================================================================
+ * Nested Transaction Tests - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+class NestedTransactionTest : public RAIITest {};
+
+TEST_F(NestedTransactionTest, TransactionWithResourceGuards) {
+    // Pattern: Using ResourceGuards within a transaction scope
+    AllocationTransaction txn;
+    
+    // Create resources with guards
+    auto guard1 = make_resource_guard(malloc(100), free);
+    auto guard2 = make_resource_guard(malloc(200), free);
+    
+    // Track guard-managed resources in transaction
+    txn.track(guard1.get(), [](void*) {}); // No-op since guard manages it
+    txn.track(guard2.get(), [](void*) {}); 
+    
+    // Commit transaction - guards still manage the resources
+    txn.commit();
+    
+    // Guards will clean up when they go out of scope
+}
+
+TEST_F(NestedTransactionTest, MultiLevelResourceManagement) {
+    // Outer transaction
+    AllocationTransaction outer_txn;
+    
+    void* resource1 = malloc(50);
+    outer_txn.track(resource1, free);
+    
+    {
+        // Inner transaction
+        AllocationTransaction inner_txn;
+        
+        void* resource2 = malloc(100);
+        inner_txn.track(resource2, free);
+        
+        // Inner rollback - resource2 freed
+        inner_txn.rollback();
+    }
+    
+    // Outer still has resource1
+    EXPECT_EQ(1, outer_txn.resource_count());
+    
+    // Let outer auto-rollback
+}
+
+/* ============================================================================
+ * Memory Pool Tests (Future Implementation) - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+class MemoryPoolTest : public RAIITest {};
+
+TEST_F(MemoryPoolTest, DISABLED_BasicMemoryPoolOperations) {
+    // Test for future memory pool implementation
+    // Currently disabled as feature is not yet implemented
+    
+    // Expected API:
+    // MemoryPool pool(1024 * 1024); // 1MB pool
+    // auto* block = pool.allocate(256);
+    // EXPECT_NE(nullptr, block);
+    // pool.deallocate(block);
+}
+
+TEST_F(MemoryPoolTest, DISABLED_PoolWithResourceGuard) {
+    // Test for future integration of memory pool with ResourceGuard
+    // Currently disabled as feature is not yet implemented
+    
+    // Expected usage:
+    // MemoryPool pool(1024 * 1024);
+    // auto guard = make_resource_guard(
+    //     pool.allocate(512),
+    //     [&pool](void* ptr) { pool.deallocate(ptr); }
+    // );
+}
+
+/* ============================================================================
+ * Performance Stress Tests - From test_mcp_raii_missing.cc
+ * ============================================================================ */
+
+class PerformanceStressTest : public RAIITest {};
+
+TEST_F(PerformanceStressTest, MassiveAllocationTransaction) {
+    // Stress test with large number of resources
+    constexpr int resource_count = 10000;
+    
+    AllocationTransaction txn;
+    txn.reserve(resource_count);
+    
+    std::vector<void*> resources;
+    resources.reserve(resource_count);
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    for (int i = 0; i < resource_count; ++i) {
+        void* resource = malloc(10);
+        resources.push_back(resource);
+        txn.track(resource, free);
+    }
+    
+    EXPECT_EQ(resource_count, txn.resource_count());
+    
+    // Measure rollback performance
+    auto rollback_start = std::chrono::high_resolution_clock::now();
+    txn.rollback();
+    auto rollback_end = std::chrono::high_resolution_clock::now();
+    
+    auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        rollback_end - start);
+    auto rollback_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        rollback_end - rollback_start);
+    
+    // Performance expectations
+    EXPECT_LT(total_duration.count(), 1000); // Less than 1 second total
+    EXPECT_LT(rollback_duration.count(), 100); // Less than 100ms for rollback
+}
+
+TEST_F(PerformanceStressTest, RapidResourceGuardCreation) {
+    // Stress test rapid creation/destruction
+    constexpr int iterations = 100000;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    for (int i = 0; i < iterations; ++i) {
+        auto guard = make_resource_guard(malloc(1), free);
+        // Immediate destruction
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    // Should complete in reasonable time
+    EXPECT_LT(duration.count(), 5000); // Less than 5 seconds
+}
+
 } // anonymous namespace
 
 /* ============================================================================
