@@ -186,6 +186,56 @@ MCP_API const char* mcp_initialize_response_get_protocol_version(mcp_initialize_
 MCP_API const char* mcp_initialize_response_get_server_name(mcp_initialize_response_t response) MCP_NOEXCEPT;
 MCP_API const char* mcp_initialize_response_get_server_version(mcp_initialize_response_t response) MCP_NOEXCEPT;
 
+/* Implementation/Server Info Functions */
+MCP_API mcp_implementation_t mcp_implementation_create(const char* name, const char* version) MCP_NOEXCEPT;
+MCP_API void mcp_implementation_free(mcp_implementation_t impl) MCP_NOEXCEPT;
+MCP_API const char* mcp_implementation_get_name(mcp_implementation_t impl) MCP_NOEXCEPT;
+MCP_API const char* mcp_implementation_get_version(mcp_implementation_t impl) MCP_NOEXCEPT;
+MCP_API void mcp_implementation_set_title(mcp_implementation_t impl, const char* title) MCP_NOEXCEPT;
+MCP_API const char* mcp_implementation_get_title(mcp_implementation_t impl) MCP_NOEXCEPT;
+
+/* Client Capabilities Functions */
+MCP_API mcp_client_capabilities_t mcp_client_capabilities_create(void) MCP_NOEXCEPT;
+MCP_API void mcp_client_capabilities_free(mcp_client_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_client_capabilities_has_roots(mcp_client_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_client_capabilities_set_roots(mcp_client_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_client_capabilities_has_sampling(mcp_client_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_client_capabilities_set_sampling(mcp_client_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+
+/* Server Capabilities Functions */
+MCP_API mcp_server_capabilities_t mcp_server_capabilities_create(void) MCP_NOEXCEPT;
+MCP_API void mcp_server_capabilities_free(mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_server_capabilities_has_tools(mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_server_capabilities_set_tools(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_server_capabilities_has_prompts(mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_server_capabilities_set_prompts(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_server_capabilities_has_resources(mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_server_capabilities_set_resources(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_server_capabilities_has_logging(mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API void mcp_server_capabilities_set_logging(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT;
+
+/* Initialize Result Functions */
+MCP_API mcp_initialize_result_t mcp_initialize_result_create(const char* protocol_version) MCP_NOEXCEPT;
+MCP_API void mcp_initialize_result_free(mcp_initialize_result_t result) MCP_NOEXCEPT;
+MCP_API const char* mcp_initialize_result_get_protocol_version(mcp_initialize_result_t result) MCP_NOEXCEPT;
+MCP_API void mcp_initialize_result_set_server_info(mcp_initialize_result_t result, mcp_implementation_t info) MCP_NOEXCEPT;
+MCP_API mcp_implementation_t mcp_initialize_result_get_server_info(mcp_initialize_result_t result) MCP_NOEXCEPT;
+MCP_API void mcp_initialize_result_set_capabilities(mcp_initialize_result_t result, mcp_server_capabilities_t caps) MCP_NOEXCEPT;
+MCP_API mcp_server_capabilities_t mcp_initialize_result_get_capabilities(mcp_initialize_result_t result) MCP_NOEXCEPT;
+
+/* JSON-RPC Notification Functions */
+MCP_API mcp_jsonrpc_notification_t mcp_jsonrpc_notification_create(const char* jsonrpc, const char* method) MCP_NOEXCEPT;
+MCP_API void mcp_jsonrpc_notification_free(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT;
+MCP_API const char* mcp_jsonrpc_notification_get_jsonrpc(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT;
+MCP_API const char* mcp_jsonrpc_notification_get_method(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT;
+MCP_API void mcp_jsonrpc_notification_set_params(mcp_jsonrpc_notification_t notification, const char* json_params) MCP_NOEXCEPT;
+MCP_API const char* mcp_jsonrpc_notification_get_params(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT;
+
+/* Additional JSON-RPC Functions */
+MCP_API mcp_request_id_t mcp_jsonrpc_request_get_id(mcp_jsonrpc_request_t request) MCP_NOEXCEPT;
+MCP_API const char* mcp_jsonrpc_request_get_params(mcp_jsonrpc_request_t request) MCP_NOEXCEPT;
+MCP_API mcp_request_id_t mcp_jsonrpc_response_get_id(mcp_jsonrpc_response_t response) MCP_NOEXCEPT;
+
 /* Add more protocol message functions as needed... */
 
 #ifdef __cplusplus
