@@ -49,9 +49,9 @@ const char* mcp_get_version(void);
 
 /**
  * Get last error message for current thread
- * @return Error message (do not free)
+ * @return Error message (defined in mcp_c_types.h)
  */
-const char* mcp_get_last_error(void);
+/* const mcp_error_info_t* mcp_get_last_error(void) - defined in mcp_c_types.h */
 
 /* ============================================================================
  * Event Loop & Dispatcher
@@ -820,63 +820,22 @@ mcp_result_t mcp_buffer_append(mcp_buffer_t* buffer,
 void mcp_buffer_free(mcp_buffer_t* buffer);
 
 /**
- * Create list
- * @param capacity Initial capacity
- * @return List or NULL
+ * List functions - defined in mcp_c_types.h
+ * The new API uses opaque handles instead of pointers to opaque types
  */
-mcp_list_t* mcp_list_create(size_t capacity);
+/* mcp_list_t mcp_list_create(mcp_type_id_t element_type) - defined in mcp_c_types.h */
+/* mcp_result_t mcp_list_append(mcp_list_t list, void* item) - defined in mcp_c_types.h */
+/* void* mcp_list_get(mcp_list_t list, size_t index) - defined in mcp_c_types.h */
+/* void mcp_list_free(mcp_list_t list) - defined in mcp_c_types.h */
 
 /**
- * Add item to list
- * @param list List
- * @param item Item to add
- * @return MCP_OK on success
+ * Map functions - defined in mcp_c_types.h
+ * The new API uses opaque handles instead of pointers to opaque types
  */
-mcp_result_t mcp_list_append(mcp_list_t* list, void* item);
-
-/**
- * Get list item
- * @param list List
- * @param index Item index
- * @return Item or NULL
- */
-void* mcp_list_get(const mcp_list_t* list, size_t index);
-
-/**
- * Free list (does not free items)
- * @param list List
- */
-void mcp_list_free(mcp_list_t* list);
-
-/**
- * Create map
- * @param capacity Initial capacity
- * @return Map or NULL
- */
-mcp_map_t* mcp_map_create(size_t capacity);
-
-/**
- * Set map entry
- * @param map Map
- * @param key Entry key
- * @param value Entry value
- * @return MCP_OK on success
- */
-mcp_result_t mcp_map_set(mcp_map_t* map, const char* key, void* value);
-
-/**
- * Get map entry
- * @param map Map
- * @param key Entry key
- * @return Entry value or NULL
- */
-void* mcp_map_get(const mcp_map_t* map, const char* key);
-
-/**
- * Free map (does not free values)
- * @param map Map
- */
-void mcp_map_free(mcp_map_t* map);
+/* mcp_map_t mcp_map_create(mcp_type_id_t value_type) - defined in mcp_c_types.h */
+/* mcp_result_t mcp_map_set(mcp_map_t map, const char* key, void* value) - defined in mcp_c_types.h */
+/* void* mcp_map_get(mcp_map_t map, const char* key) - defined in mcp_c_types.h */
+/* void mcp_map_free(mcp_map_t map) - defined in mcp_c_types.h */
 
 #ifdef __cplusplus
 }

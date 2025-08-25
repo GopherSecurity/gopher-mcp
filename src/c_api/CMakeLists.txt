@@ -15,9 +15,8 @@ set(MCP_C_API_SOURCES
     mcp_c_api_builders.cc
     mcp_c_api_utils.cc
     mcp_raii.cc
-    # New improved FFI-safe implementations
-    mcp_ffi_core.cc
-    mcp_types_improved.cc
+    # New overhauled FFI-safe implementation
+    mcp_c_types_impl.cc
 )
 
 # Create shared library for C bindings
