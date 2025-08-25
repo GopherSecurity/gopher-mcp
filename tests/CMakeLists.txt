@@ -628,6 +628,16 @@ if(BUILD_C_API)
         gtest_main
         Threads::Threads
     )
+    
+    # Simple test for overhauled C API types
+    add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
+    target_link_libraries(test_c_api_types_simple
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
 endif()
 
 # Link libraries for new tests
