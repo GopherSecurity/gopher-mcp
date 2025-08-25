@@ -88,7 +88,6 @@ add_executable(test_builders core/test_builders.cc)
 if(BUILD_C_API)
     # Tests using new opaque handle API
     add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
-    add_executable(test_mcp_raii_simple c_api/test_mcp_raii_simple.cc)
     add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
     
     # Old tests removed - they used obsolete struct-based API:
@@ -579,16 +578,7 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
-    # RAII utilities test (simplified)
-    target_link_libraries(test_mcp_raii_simple
-        gopher-mcp
-        gopher_mcp_c
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    # RAII utilities test (comprehensive)
+    # RAII utilities test (comprehensive with all edge cases)
     target_link_libraries(test_mcp_raii
         gopher-mcp
         gopher_mcp_c
