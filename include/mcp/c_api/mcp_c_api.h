@@ -632,14 +632,10 @@ mcp_json_value_t mcp_json_string(mcp_string_t value);
  */
 mcp_json_value_t mcp_json_array(void);
 
-/**
- * Add item to JSON array
- * @param array Array handle
- * @param value Value to add
- * @return MCP_OK on success
- */
+/* Commented out - defined in mcp_c_collections.h with MCP_NOEXCEPT
 mcp_result_t mcp_json_array_append(mcp_json_value_t array,
                                    mcp_json_value_t value);
+*/
 
 /**
  * Create JSON object
@@ -647,16 +643,11 @@ mcp_result_t mcp_json_array_append(mcp_json_value_t array,
  */
 mcp_json_value_t mcp_json_object(void);
 
-/**
- * Set object property
- * @param object Object handle
- * @param key Property key
- * @param value Property value
- * @return MCP_OK on success
- */
+/* Commented out - conflicts with mcp_c_collections.h which uses const char* for key
 mcp_result_t mcp_json_object_set(mcp_json_value_t object,
                                  mcp_string_t key,
                                  mcp_json_value_t value);
+*/
 
 /**
  * Parse JSON from string
@@ -673,67 +664,35 @@ mcp_json_value_t mcp_json_parse(mcp_string_t json);
  */
 mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value, bool pretty);
 
-/**
- * Get JSON value type
- * @param value JSON value
- * @return Value type
- */
-typedef enum {
-  MCP_JSON_NULL,
-  MCP_JSON_BOOL,
-  MCP_JSON_NUMBER,
-  MCP_JSON_STRING,
-  MCP_JSON_ARRAY,
-  MCP_JSON_OBJECT
-} mcp_json_type_t;
+/* mcp_json_type_t is defined in mcp_c_types.h */
 
+/* Commented out - function defined in mcp_c_collections.h with MCP_NOEXCEPT
 mcp_json_type_t mcp_json_get_type(mcp_json_value_t value);
+*/
 
-/**
- * Get boolean value
- * @param value JSON value
- * @param out Output value
- * @return MCP_OK if value is boolean
- */
+/* Commented out - conflicts with mcp_c_collections.h which returns bool directly
 mcp_result_t mcp_json_get_bool(mcp_json_value_t value, bool* out);
+*/
 
-/**
- * Get number value
- * @param value JSON value
- * @param out Output value
- * @return MCP_OK if value is number
- */
+/* Commented out - conflicts with mcp_c_collections.h which returns double directly
 mcp_result_t mcp_json_get_number(mcp_json_value_t value, double* out);
+*/
 
-/**
- * Get string value
- * @param value JSON value
- * @return String value or empty string
- */
+/* Commented out - conflicts with mcp_c_collections.h which returns const char*
 mcp_string_t mcp_json_get_string(mcp_json_value_t value);
+*/
 
-/**
- * Get array size
- * @param value JSON array
- * @return Array size or 0
- */
+/* Commented out - defined in mcp_c_collections.h with MCP_NOEXCEPT
 size_t mcp_json_array_size(mcp_json_value_t value);
+*/
 
-/**
- * Get array item
- * @param value JSON array
- * @param index Item index
- * @return Item value or NULL
- */
+/* Commented out - defined in mcp_c_collections.h with MCP_NOEXCEPT
 mcp_json_value_t mcp_json_array_get(mcp_json_value_t value, size_t index);
+*/
 
-/**
- * Get object property
- * @param value JSON object
- * @param key Property key
- * @return Property value or NULL
- */
+/* Commented out - conflicts with mcp_c_collections.h which uses const char*
 mcp_json_value_t mcp_json_object_get(mcp_json_value_t value, mcp_string_t key);
+*/
 
 /**
  * Iterate object properties
