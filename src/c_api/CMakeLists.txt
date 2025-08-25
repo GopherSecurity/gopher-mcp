@@ -18,7 +18,7 @@ set(MCP_C_API_SOURCES
     mcp_c_collections_impl.cc   # Collections and JSON
     
     # TODO: Update these to use new opaque handle API
-    # mcp_c_api_json.cc  # Needs more work to implement all missing functions
+    mcp_c_api_json.cc  # JSON conversion functions
     # mcp_c_api_client.cc
     # mcp_c_api_server.cc
 )
