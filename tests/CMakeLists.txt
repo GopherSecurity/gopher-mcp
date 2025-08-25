@@ -89,6 +89,9 @@ if(BUILD_C_API)
     # Tests using new opaque handle API
     add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
     add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
+    add_executable(test_c_types_impl c_api/test_c_types_impl.cc)
+    add_executable(test_c_memory_impl c_api/test_c_memory_impl.cc)
+    add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -581,6 +584,31 @@ if(BUILD_C_API)
     # RAII utilities test (comprehensive with all edge cases)
     # Disable atexit leak checker for tests since some tests intentionally leave resources tracked
     target_compile_definitions(test_mcp_raii PRIVATE MCP_RAII_DISABLE_ATEXIT)
+    
+    # New comprehensive implementation tests
+    target_link_libraries(test_c_types_impl
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_memory_impl
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_collections_impl
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
     target_link_libraries(test_mcp_raii
         gopher-mcp
         gopher_mcp_c_static  # Use static library for access to internal symbols
