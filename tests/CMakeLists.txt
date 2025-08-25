@@ -581,7 +581,7 @@ if(BUILD_C_API)
     # RAII utilities test (comprehensive with all edge cases)
     target_link_libraries(test_mcp_raii
         gopher-mcp
-        gopher_mcp_c
+        gopher_mcp_c  # Use shared library
         gtest
         gtest_main
         Threads::Threads

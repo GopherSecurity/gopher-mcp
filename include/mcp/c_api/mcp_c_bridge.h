@@ -302,10 +302,9 @@ class ConnectionCallbackBridge : public mcp::network::ConnectionCallbacks {
     }
 
     if (new_state != impl_->current_state && impl_->state_callback) {
-      mcp_connection_state_t old_state = impl_->current_state;
       impl_->current_state = new_state;
       impl_->state_callback(reinterpret_cast<mcp_connection_t>(impl_),
-                            old_state, new_state, impl_->callback_user_data);
+                            static_cast<int>(new_state), impl_->callback_user_data);
     }
   }
 

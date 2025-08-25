@@ -38,7 +38,7 @@ mcp_connection_t mcp_connection_create_client_ex(
     if (!transport_config) {
       // TODO: Get default configuration from MCP capabilities
       // Note: These defaults should come from MCP protocol negotiation
-      default_config.type = MCP_TRANSPORT_TCP;
+      default_config.type = MCP_TRANSPORT_HTTP_SSE;
       default_config.connect_timeout_ms = 30000;
       default_config.idle_timeout_ms = 0;
       default_config.enable_keepalive = true;
@@ -49,11 +49,21 @@ mcp_connection_t mcp_connection_create_client_ex(
     std::unique_ptr<mcp::network::TransportSocket> transport_socket;
 
     switch (transport_config->type) {
-      case MCP_TRANSPORT_TCP: {
-        // TODO: Implement TCP transport socket wrapper
-        // Note: For plain TCP, we need a passthrough transport socket
-        // that directly forwards data without additional protocol handling
-        transport_socket = nullptr;  // Will be handled by ConnectionImpl
+      case MCP_TRANSPORT_HTTP_SSE: {
+        // TODO: Full implementation of HTTP+SSE configuration
+        // Note: Use configuration from transport_config
+        mcp::transport::HttpSseTransportSocketConfig http_config;
+        if (transport_config->config.http_sse.http_headers) {
+          // TODO: Parse and set HTTP headers
+        }
+        if (transport_config->config.http_sse.retry_delay_ms > 0) {
+          // TODO: Set retry delay
+        }
+        transport_socket =
+            std::make_unique<mcp::transport::HttpSseTransportSocket>(
+                http_config, *dispatcher_impl->dispatcher,
+                nullptr  // no filter manager for now
+            );
         break;
       }
 
@@ -73,30 +83,10 @@ mcp_connection_t mcp_connection_create_client_ex(
         break;
       }
 
-      case MCP_TRANSPORT_SSL: {
-        // TODO: Implement SSL transport with proper context from configuration
-        // Note: SSL context should be provided through ssl_config parameter
-        // and created based on MCP client/server capabilities
-        // Needs: SslContext creation, certificate validation, cipher selection
+      case MCP_TRANSPORT_PIPE: {
+        // TODO: Implement PIPE transport socket wrapper
+        // Note: PIPE transport needs proper platform-specific handling
         transport_socket = nullptr;
-        break;
-      }
-
-      case MCP_TRANSPORT_HTTP_SSE: {
-        // TODO: Full implementation of HTTP+SSE configuration
-        // Note: Use configuration from transport_config
-        mcp::transport::HttpSseTransportSocketConfig http_config;
-        if (transport_config->config.http_sse.http_headers) {
-          // TODO: Parse and set HTTP headers
-        }
-        if (transport_config->config.http_sse.retry_delay_ms > 0) {
-          // TODO: Set retry delay
-        }
-        transport_socket =
-            std::make_unique<mcp::transport::HttpSseTransportSocket>(
-                http_config, *dispatcher_impl->dispatcher,
-                false  // client mode
-            );
         break;
       }
 
@@ -136,17 +126,17 @@ mcp_connection_t mcp_connection_create_client(mcp_dispatcher_t dispatcher,
 
   // Set transport-specific defaults
   switch (transport) {
-    case MCP_TRANSPORT_TCP:
-      config.config.tcp.use_tls = false;
+    case MCP_TRANSPORT_HTTP_SSE:
+      config.config.http_sse.retry_delay_ms = 1000;
+      config.config.http_sse.max_retries = 3;
       break;
     case MCP_TRANSPORT_STDIO:
       config.config.stdio.stdin_fd = -1;   // Use default
       config.config.stdio.stdout_fd = -1;  // Use default
       config.config.stdio.stderr_fd = -1;  // Use default
       break;
-    case MCP_TRANSPORT_HTTP_SSE:
-      config.config.http_sse.retry_delay_ms = 1000;
-      config.config.http_sse.max_retries = 3;
+    case MCP_TRANSPORT_PIPE:
+      // Pipe transport defaults
       break;
     default:
       break;
@@ -313,7 +303,7 @@ mcp_result_t mcp_connection_close(mcp_connection_t connection, bool flush) {
   TRY_CATCH({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
-    impl->current_state = MCP_CONNECTION_STATE_DISCONNECTING;
+    impl->current_state = MCP_CONNECTION_STATE_CLOSING;
 
     if (!mcp_dispatcher_is_thread(
             reinterpret_cast<mcp_dispatcher_t>(impl->dispatcher))) {
@@ -397,9 +387,8 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
 
     // Create listener based on transport type
     switch (transport) {
-      case MCP_TRANSPORT_TCP:
-      case MCP_TRANSPORT_SSL: {
-        // TODO: Create TCP listener with proper socket
+      case MCP_TRANSPORT_HTTP_SSE: {
+        // TODO: Create HTTP/SSE listener with proper socket
         // Note: Socket is abstract, need platform-specific implementation
         // The actual listener and socket should be created when configured with
         // address
@@ -511,7 +500,7 @@ mcp_result_t mcp_listener_start(mcp_listener_t listener, int backlog) {
       if (mcp::holds_alternative<mcp::Error>(result)) {
         auto& error = mcp::get<mcp::Error>(result);
         ErrorManager::set_error(error.message);
-        return MCP_ERROR;
+        return MCP_ERROR_UNKNOWN;
       }
     }
 

@@ -47,9 +47,10 @@ namespace {
 
 extern "C" {
 
-MCP_API const mcp_error_info_t* mcp_get_last_error(void) MCP_NOEXCEPT {
-    return g_has_error ? &g_last_error : nullptr;
-}
+// Implemented in mcp_c_memory_impl.cc
+// MCP_API const mcp_error_info_t* mcp_get_last_error(void) MCP_NOEXCEPT {
+//     return g_has_error ? &g_last_error : nullptr;
+// }
 
 /* ============================================================================
  * Request ID Implementation (variant<string, int64_t>)
@@ -728,9 +729,10 @@ MCP_API const char* mcp_initialize_response_get_server_version(mcp_initialize_re
 }
 
 /* ============================================================================
- * Collection Implementations
+ * Collection Implementations - Moved to mcp_c_collections_impl.cc
  * ============================================================================ */
 
+#if 0  // Moved to mcp_c_collections_impl.cc
 struct mcp_list_impl {
     mcp_type_id_t element_type;
     std::vector<void*> items;
@@ -959,5 +961,7 @@ MCP_API mcp_json_value_t mcp_metadata_to_json(mcp_metadata_t metadata) MCP_NOEXC
     // Simplified - would need proper JSON serialization
     return nullptr;
 }
+
+#endif  // End of moved collection/JSON implementations
 
 } // extern "C"
