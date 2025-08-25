@@ -86,12 +86,19 @@ add_executable(test_builders core/test_builders.cc)
 
 # C API tests
 if(BUILD_C_API)
-    add_executable(test_c_api_basic c_api/test_c_api_basic.cc)
-    add_executable(test_c_api_types c_api/test_c_api_types.cc)
-    add_executable(test_c_api_builders c_api/test_c_api_builders.cc)
-    add_executable(test_c_api_type_helpers c_api/test_c_api_type_helpers.cc)
-    add_executable(test_c_api_protocol_types c_api/test_c_api_protocol_types.cc)
-    add_executable(test_c_api_memory c_api/test_c_api_memory.cc)
+    # Tests using new opaque handle API
+    add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
+    add_executable(test_mcp_raii_simple c_api/test_mcp_raii_simple.cc)
+    add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
+    
+    # Old tests removed - they used obsolete struct-based API:
+    # - test_c_api_basic.cc
+    # - test_c_api_types.cc  
+    # - test_c_api_builders.cc
+    # - test_c_api_type_helpers.cc
+    # - test_c_api_protocol_types.cc
+    # - test_c_api_memory.cc
+    # - test_ffi_improvements.cc (used archived headers)
 endif()
 
 # Network tests for recent fixes
@@ -563,7 +570,8 @@ target_link_libraries(test_builders
 
 # Link libraries for C API tests
 if(BUILD_C_API)
-    target_link_libraries(test_c_api_basic
+    # Test for new opaque handle C API types
+    target_link_libraries(test_c_api_types_simple
         gopher-mcp
         gopher_mcp_c
         gtest
@@ -571,30 +579,7 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
-    target_link_libraries(test_c_api_types
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    
-    target_link_libraries(test_c_api_builders
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    target_link_libraries(test_c_api_type_helpers
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
     # RAII utilities test (simplified)
-    add_executable(test_mcp_raii_simple c_api/test_mcp_raii_simple.cc)
     target_link_libraries(test_mcp_raii_simple
         gopher-mcp
         gopher_mcp_c
@@ -604,34 +589,7 @@ if(BUILD_C_API)
     )
     
     # RAII utilities test (comprehensive)
-    add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
     target_link_libraries(test_mcp_raii
-        gopher-mcp
-        gopher_mcp_c
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    # Production RAII utilities test
-    
-    target_link_libraries(test_c_api_protocol_types
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    target_link_libraries(test_c_api_memory
-        gopher-mcp
-        gtest
-        gtest_main
-        Threads::Threads
-    )
-    
-    # Simple test for overhauled C API types
-    add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
-    target_link_libraries(test_c_api_types_simple
         gopher-mcp
         gopher_mcp_c
         gtest
