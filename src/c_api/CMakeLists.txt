@@ -15,6 +15,9 @@ set(MCP_C_API_SOURCES
     mcp_c_api_builders.cc
     mcp_c_api_utils.cc
     mcp_raii.cc
+    # New improved FFI-safe implementations
+    mcp_ffi_core.cc
+    mcp_types_improved.cc
 )
 
 # Create shared library for C bindings
@@ -36,10 +39,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set_target_properties(gopher_mcp_c PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS OFF
     )
-    target_compile_definitions(gopher_mcp_c PRIVATE GOPHER_MCP_C_API_EXPORTS)
+    target_compile_definitions(gopher_mcp_c PRIVATE GOPHER_MCP_C_API_EXPORTS MCP_BUILD_LIBRARY MCP_BUILD_SHARED)
 else()
     # Unix/Linux/macOS: Use visibility attributes
     target_compile_options(gopher_mcp_c PRIVATE -fvisibility=hidden)
+    target_compile_definitions(gopher_mcp_c PRIVATE MCP_BUILD_LIBRARY MCP_BUILD_SHARED)
 
     # Generate export map
     set(EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.map")
