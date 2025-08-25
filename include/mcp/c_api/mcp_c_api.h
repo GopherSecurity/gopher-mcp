@@ -51,7 +51,8 @@ const char* mcp_get_version(void);
  * Get last error message for current thread
  * @return Error message (defined in mcp_c_types.h)
  */
-/* const mcp_error_info_t* mcp_get_last_error(void) - defined in mcp_c_types.h */
+/* const mcp_error_info_t* mcp_get_last_error(void) - defined in mcp_c_types.h
+ */
 
 /* ============================================================================
  * Event Loop & Dispatcher
@@ -643,9 +644,8 @@ mcp_result_t mcp_json_array_append(mcp_json_value_t array,
  */
 mcp_json_value_t mcp_json_object(void);
 
-/* Commented out - conflicts with mcp_c_collections.h which uses const char* for key
-mcp_result_t mcp_json_object_set(mcp_json_value_t object,
-                                 mcp_string_t key,
+/* Commented out - conflicts with mcp_c_collections.h which uses const char* for
+key mcp_result_t mcp_json_object_set(mcp_json_value_t object, mcp_string_t key,
                                  mcp_json_value_t value);
 */
 
@@ -670,12 +670,12 @@ mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value, bool pretty);
 mcp_json_type_t mcp_json_get_type(mcp_json_value_t value);
 */
 
-/* Commented out - conflicts with mcp_c_collections.h which returns bool directly
-mcp_result_t mcp_json_get_bool(mcp_json_value_t value, bool* out);
+/* Commented out - conflicts with mcp_c_collections.h which returns bool
+directly mcp_result_t mcp_json_get_bool(mcp_json_value_t value, bool* out);
 */
 
-/* Commented out - conflicts with mcp_c_collections.h which returns double directly
-mcp_result_t mcp_json_get_number(mcp_json_value_t value, double* out);
+/* Commented out - conflicts with mcp_c_collections.h which returns double
+directly mcp_result_t mcp_json_get_number(mcp_json_value_t value, double* out);
 */
 
 /* Commented out - conflicts with mcp_c_collections.h which returns const char*
@@ -782,18 +782,24 @@ void mcp_buffer_free(mcp_buffer_t* buffer);
  * List functions - defined in mcp_c_types.h
  * The new API uses opaque handles instead of pointers to opaque types
  */
-/* mcp_list_t mcp_list_create(mcp_type_id_t element_type) - defined in mcp_c_types.h */
-/* mcp_result_t mcp_list_append(mcp_list_t list, void* item) - defined in mcp_c_types.h */
-/* void* mcp_list_get(mcp_list_t list, size_t index) - defined in mcp_c_types.h */
+/* mcp_list_t mcp_list_create(mcp_type_id_t element_type) - defined in
+ * mcp_c_types.h */
+/* mcp_result_t mcp_list_append(mcp_list_t list, void* item) - defined in
+ * mcp_c_types.h */
+/* void* mcp_list_get(mcp_list_t list, size_t index) - defined in mcp_c_types.h
+ */
 /* void mcp_list_free(mcp_list_t list) - defined in mcp_c_types.h */
 
 /**
  * Map functions - defined in mcp_c_types.h
  * The new API uses opaque handles instead of pointers to opaque types
  */
-/* mcp_map_t mcp_map_create(mcp_type_id_t value_type) - defined in mcp_c_types.h */
-/* mcp_result_t mcp_map_set(mcp_map_t map, const char* key, void* value) - defined in mcp_c_types.h */
-/* void* mcp_map_get(mcp_map_t map, const char* key) - defined in mcp_c_types.h */
+/* mcp_map_t mcp_map_create(mcp_type_id_t value_type) - defined in mcp_c_types.h
+ */
+/* mcp_result_t mcp_map_set(mcp_map_t map, const char* key, void* value) -
+ * defined in mcp_c_types.h */
+/* void* mcp_map_get(mcp_map_t map, const char* key) - defined in mcp_c_types.h
+ */
 /* void mcp_map_free(mcp_map_t map) - defined in mcp_c_types.h */
 
 #ifdef __cplusplus

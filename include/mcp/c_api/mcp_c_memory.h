@@ -17,14 +17,16 @@ extern "C" {
 
 /* ============================================================================
  * Library Initialization
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Initialize the FFI system with custom allocator
  * @param allocator Custom memory allocator (NULL for default)
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator) MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator)
+    MCP_NOEXCEPT;
 
 /**
  * Shutdown the FFI system and release all resources
@@ -39,7 +41,8 @@ MCP_API mcp_bool_t mcp_ffi_is_initialized(void) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Error Handling
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Get last error information (thread-local)
@@ -57,12 +60,15 @@ MCP_API void mcp_clear_last_error(void) MCP_NOEXCEPT;
  * @param handler Error handler function
  * @param user_data User data passed to handler
  */
-typedef void (*mcp_error_handler_t)(const mcp_error_info_t* error, void* user_data);
-MCP_API void mcp_set_error_handler(mcp_error_handler_t handler, void* user_data) MCP_NOEXCEPT;
+typedef void (*mcp_error_handler_t)(const mcp_error_info_t* error,
+                                    void* user_data);
+MCP_API void mcp_set_error_handler(mcp_error_handler_t handler,
+                                   void* user_data) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Memory Pool Management
- * ============================================================================ */
+ * ============================================================================
+ */
 
 typedef struct mcp_memory_pool_impl* mcp_memory_pool_t;
 
@@ -71,7 +77,8 @@ typedef struct mcp_memory_pool_impl* mcp_memory_pool_t;
  * @param initial_size Initial pool size in bytes
  * @return Memory pool handle or NULL on error
  */
-MCP_API mcp_memory_pool_t mcp_memory_pool_create(size_t initial_size) MCP_NOEXCEPT;
+MCP_API mcp_memory_pool_t mcp_memory_pool_create(size_t initial_size)
+    MCP_NOEXCEPT;
 
 /**
  * Destroy memory pool and free all allocations
@@ -85,7 +92,8 @@ MCP_API void mcp_memory_pool_destroy(mcp_memory_pool_t pool) MCP_NOEXCEPT;
  * @param size Size to allocate
  * @return Allocated memory or NULL
  */
-MCP_API void* mcp_memory_pool_alloc(mcp_memory_pool_t pool, size_t size) MCP_NOEXCEPT;
+MCP_API void* mcp_memory_pool_alloc(mcp_memory_pool_t pool,
+                                    size_t size) MCP_NOEXCEPT;
 
 /**
  * Reset pool (free all allocations but keep pool)
@@ -107,22 +115,23 @@ MCP_API void mcp_memory_pool_stats(mcp_memory_pool_t pool,
 
 /* ============================================================================
  * Batch Operations
- * ============================================================================ */
+ * ============================================================================
+ */
 
 typedef enum {
-    MCP_BATCH_OP_CREATE,
-    MCP_BATCH_OP_FREE,
-    MCP_BATCH_OP_SET,
-    MCP_BATCH_OP_GET
+  MCP_BATCH_OP_CREATE,
+  MCP_BATCH_OP_FREE,
+  MCP_BATCH_OP_SET,
+  MCP_BATCH_OP_GET
 } mcp_batch_op_type_t;
 
 typedef struct {
-    mcp_batch_op_type_t type;
-    mcp_type_id_t target_type;
-    void* target;
-    void* param1;
-    void* param2;
-    mcp_result_t result;
+  mcp_batch_op_type_t type;
+  mcp_type_id_t target_type;
+  void* target;
+  void* param1;
+  void* param2;
+  mcp_result_t result;
 } mcp_batch_operation_t;
 
 /**
@@ -131,11 +140,13 @@ typedef struct {
  * @param count Number of operations
  * @return MCP_OK if all operations succeed
  */
-MCP_API mcp_result_t mcp_batch_execute(const mcp_batch_operation_t* operations, size_t count) MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_batch_execute(const mcp_batch_operation_t* operations,
+                                       size_t count) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Resource Tracking (Debug Mode)
- * ============================================================================ */
+ * ============================================================================
+ */
 
 #ifdef MCP_DEBUG
 
@@ -167,7 +178,8 @@ MCP_API mcp_bool_t mcp_check_leaks(void) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Memory Utilities
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Duplicate a string using MCP allocator
