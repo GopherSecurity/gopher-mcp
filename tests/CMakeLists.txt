@@ -93,6 +93,7 @@ if(BUILD_C_API)
     add_executable(test_c_memory_impl c_api/test_c_memory_impl.cc)
     add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     add_executable(test_c_api_json_simple c_api/test_c_api_json_simple.cc)
+    add_executable(test_c_api_json c_api/test_c_api_json.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -612,6 +613,14 @@ if(BUILD_C_API)
     )
     
     target_link_libraries(test_c_api_json_simple
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_c_api_json
         gopher-mcp
         gopher_mcp_c
         gtest
