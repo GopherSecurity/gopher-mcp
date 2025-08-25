@@ -15,6 +15,9 @@
 
 #include "mcp_c_api.h"
 #include "mcp_c_types.h"
+#include "mcp_c_types_api.h"
+#include "mcp_c_collections.h"
+#include "mcp_c_memory.h"
 
 // C++ headers
 #include <functional>
@@ -231,22 +234,18 @@ inline mcp::optional<T> to_cpp_optional(const mcp_optional_t& opt) {
  * Convert MCP RequestId between C and C++
  */
 inline mcp_request_id_t to_c_request_id(const mcp::RequestId& id) {
-  mcp_request_id_t result;
   if (mcp::holds_alternative<std::string>(id)) {
-    result.type = mcp_request_id::MCP_REQUEST_ID_STRING;
-    result.value.string_value = to_c_string_temp(mcp::get<std::string>(id));
+    return mcp_request_id_create_string(mcp::get<std::string>(id).c_str());
   } else {
-    result.type = mcp_request_id::MCP_REQUEST_ID_NUMBER;
-    result.value.number_value = mcp::get<int>(id);
+    return mcp_request_id_create_number(mcp::get<int>(id));
   }
-  return result;
 }
 
-inline mcp::RequestId to_cpp_request_id(const mcp_request_id_t& id) {
-  if (id.type == mcp_request_id::MCP_REQUEST_ID_STRING) {
-    return mcp::RequestId(to_cpp_string(id.value.string_value));
+inline mcp::RequestId to_cpp_request_id(mcp_request_id_t id) {
+  if (mcp_request_id_is_string(id)) {
+    return mcp::RequestId(std::string(mcp_request_id_get_string(id)));
   } else {
-    return mcp::RequestId(id.value.number_value);
+    return mcp::RequestId(static_cast<int>(mcp_request_id_get_number(id)));
   }
 }
 
@@ -333,16 +332,12 @@ class MCPClientCallbackBridge {
     if (!impl_ || !impl_->request_callback)
       return;
 
-    mcp_request_id_t id = to_c_request_id(request.id);
-    mcp_string_t method = to_c_string_temp(request.method);
+    // TODO: Create proper mcp_request_t from jsonrpc::Request
+    // This should convert the request to the C API format
+    mcp_request_t c_request = nullptr;  // Placeholder
 
-    // TODO: Convert params to JSON value properly
-    // Note: Should use json_bridge to convert mcp::json::Value to C API format
-    // This conversion should preserve all JSON types and structure
-    mcp_json_value_impl* params_impl = nullptr;
-
-    impl_->request_callback(id, method,
-                            reinterpret_cast<mcp_json_value_t>(params_impl),
+    impl_->request_callback(reinterpret_cast<mcp_client_t>(impl_),
+                            c_request,
                             impl_->callback_user_data);
   }
 
@@ -350,37 +345,26 @@ class MCPClientCallbackBridge {
     if (!impl_ || !impl_->response_callback)
       return;
 
-    mcp_request_id_t id = to_c_request_id(response.id);
+    // TODO: Create proper mcp_response_t from jsonrpc::Response
+    // This should convert the response to the C API format
+    mcp_response_t c_response = nullptr;  // Placeholder
 
-    if (response.error.has_value()) {
-      mcp_jsonrpc_error_t error;
-      error.code = response.error.value().code;
-      error.message = to_c_string_temp(response.error.value().message);
-      // TODO: error.data = to_c_optional(response.error.value().data);
-
-      impl_->response_callback(id, nullptr, &error, impl_->callback_user_data);
-    } else if (response.result.has_value()) {
-      // TODO: Convert result to JSON value properly
-      mcp_json_value_impl* result_impl = nullptr;
-
-      impl_->response_callback(id,
-                               reinterpret_cast<mcp_json_value_t>(result_impl),
-                               nullptr, impl_->callback_user_data);
-    }
+    impl_->response_callback(reinterpret_cast<mcp_client_t>(impl_),
+                            c_response,
+                            impl_->callback_user_data);
   }
 
   void onNotification(const mcp::jsonrpc::Notification& notification) {
     if (!impl_ || !impl_->notification_callback)
       return;
 
-    mcp_string_t method = to_c_string_temp(notification.method);
+    // TODO: Create proper mcp_notification_t from jsonrpc::Notification
+    // This should convert the notification to the C API format
+    mcp_notification_t c_notification = nullptr;  // Placeholder
 
-    // TODO: Convert params to JSON value properly
-    mcp_json_value_impl* params_impl = nullptr;
-
-    impl_->notification_callback(
-        method, reinterpret_cast<mcp_json_value_t>(params_impl),
-        impl_->callback_user_data);
+    impl_->notification_callback(reinterpret_cast<mcp_client_t>(impl_),
+                                c_notification,
+                                impl_->callback_user_data);
   }
 
  private:
