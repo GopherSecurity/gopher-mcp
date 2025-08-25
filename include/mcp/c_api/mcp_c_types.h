@@ -19,13 +19,101 @@
 #ifndef MCP_C_TYPES_H
 #define MCP_C_TYPES_H
 
-#include "mcp_ffi_core.h"  /* Core FFI types and utilities */
 #include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ============================================================================
+ * Platform and Compiler Configuration
+ * ============================================================================ */
+
+/* Export/Import macros for shared library support */
+#if defined(_MSC_VER)
+  #define MCP_API_EXPORT __declspec(dllexport)
+  #define MCP_API_IMPORT __declspec(dllimport)
+  #define MCP_CALLBACK __stdcall
+  #define MCP_NOEXCEPT
+#elif defined(__GNUC__) || defined(__clang__)
+  #define MCP_API_EXPORT __attribute__((visibility("default")))
+  #define MCP_API_IMPORT
+  #define MCP_CALLBACK
+  #define MCP_NOEXCEPT __attribute__((nothrow))
+#else
+  #define MCP_API_EXPORT
+  #define MCP_API_IMPORT
+  #define MCP_CALLBACK
+  #define MCP_NOEXCEPT
+#endif
+
+/* API decoration based on build configuration */
+#ifdef MCP_BUILD_SHARED
+  #ifdef MCP_BUILD_LIBRARY
+    #define MCP_API MCP_API_EXPORT
+  #else
+    #define MCP_API MCP_API_IMPORT
+  #endif
+#else
+  #define MCP_API
+#endif
+
+/* ============================================================================
+ * FFI-Safe Primitive Types
+ * ============================================================================ */
+
+/* FFI-safe boolean type (guaranteed 1 byte) */
+typedef uint8_t mcp_bool_t;
+#define MCP_TRUE  ((mcp_bool_t)1)
+#define MCP_FALSE ((mcp_bool_t)0)
+
+/* Result codes for all API operations */
+typedef enum {
+    MCP_OK = 0,
+    MCP_ERROR_INVALID_ARGUMENT = -1,
+    MCP_ERROR_NULL_POINTER = -2,
+    MCP_ERROR_OUT_OF_MEMORY = -3,
+    MCP_ERROR_NOT_FOUND = -4,
+    MCP_ERROR_ALREADY_EXISTS = -5,
+    MCP_ERROR_PERMISSION_DENIED = -6,
+    MCP_ERROR_IO_ERROR = -7,
+    MCP_ERROR_TIMEOUT = -8,
+    MCP_ERROR_CANCELLED = -9,
+    MCP_ERROR_NOT_IMPLEMENTED = -10,
+    MCP_ERROR_INVALID_STATE = -11,
+    MCP_ERROR_BUFFER_TOO_SMALL = -12,
+    MCP_ERROR_PROTOCOL_ERROR = -13,
+    MCP_ERROR_CONNECTION_FAILED = -14,
+    MCP_ERROR_CONNECTION_CLOSED = -15,
+    MCP_ERROR_ALREADY_INITIALIZED = -16,
+    MCP_ERROR_NOT_INITIALIZED = -17,
+    MCP_ERROR_RESOURCE_EXHAUSTED = -18,
+    MCP_ERROR_INVALID_FORMAT = -19,
+    MCP_ERROR_UNKNOWN = -999
+} mcp_result_t;
+
+/* String reference for zero-copy string passing */
+typedef struct mcp_string_ref {
+    const char* data;
+    size_t length;
+} mcp_string_ref;
+
+/* Error information structure */
+typedef struct mcp_error_info {
+    mcp_result_t code;
+    char message[256];
+    char file[256];
+    int line;
+} mcp_error_info_t;
+
+/* Memory allocator callbacks */
+typedef struct mcp_allocator {
+    void* (*alloc)(size_t size, void* user_data);
+    void* (*realloc)(void* ptr, size_t new_size, void* user_data);
+    void (*free)(void* ptr, void* user_data);
+    void* user_data;
+} mcp_allocator_t;
 
 /* ============================================================================
  * Forward Declarations - Opaque Handle Types
@@ -238,6 +326,12 @@ typedef struct mcp_json_value_impl* mcp_json_value_t;
 /* Collections */
 typedef struct mcp_list_impl* mcp_list_t;
 typedef struct mcp_map_impl* mcp_map_t;
+
+/* Optional type for nullable values */
+typedef struct mcp_optional {
+    mcp_bool_t has_value;
+    void* value;
+} mcp_optional_t;
 
 /* Buffer types */
 typedef struct mcp_buffer_impl* mcp_buffer_t;
@@ -632,6 +726,13 @@ MCP_API mcp_bool_t mcp_map_has(mcp_map_t map, const char* key) MCP_NOEXCEPT;
 MCP_API mcp_result_t mcp_map_remove(mcp_map_t map, const char* key) MCP_NOEXCEPT;
 MCP_API size_t mcp_map_size(mcp_map_t map) MCP_NOEXCEPT;
 MCP_API mcp_result_t mcp_map_clear(mcp_map_t map) MCP_NOEXCEPT;
+
+/* ============================================================================
+ * Error Handling
+ * ============================================================================ */
+
+/* Get last error information (thread-local) */
+MCP_API const mcp_error_info_t* mcp_get_last_error(void) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Callback Types
