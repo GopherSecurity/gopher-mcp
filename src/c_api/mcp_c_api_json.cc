@@ -10,6 +10,7 @@
 #include "mcp/c_api/mcp_c_types.h"
 #include "mcp/c_api/mcp_c_types_api.h"
 #include "mcp/c_api/mcp_c_collections.h"
+#include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_raii.h"
 #include <cstring>
 #include <string>
@@ -26,7 +27,7 @@ std::string safe_string(const char* str) {
 // Helper to allocate and copy string
 char* alloc_string(const std::string& str) {
     if (str.empty()) return nullptr;
-    char* result = static_cast<char*>(std::malloc(str.size() + 1));
+    char* result = static_cast<char*>(mcp_malloc(str.size() + 1));
     if (result) {
         std::strcpy(result, str.c_str());
     }
@@ -121,10 +122,10 @@ MCP_API mcp_request_id_t* mcp_request_id_from_json(mcp_json_value_t json) MCP_NO
         const char* str = mcp_json_get_string(json);
         mcp_request_id_t id = mcp_request_id_create_string(str ? str : "");
         if (id) {
-            result = static_cast<mcp_request_id_t*>(std::malloc(sizeof(mcp_request_id_t)));
+            result = static_cast<mcp_request_id_t*>(mcp_malloc(sizeof(mcp_request_id_t)));
             if (result) {
                 *result = id;
-            } else {
+                    } else {
                 mcp_request_id_free(id);
             }
         }
@@ -132,10 +133,10 @@ MCP_API mcp_request_id_t* mcp_request_id_from_json(mcp_json_value_t json) MCP_NO
         double num = mcp_json_get_number(json);
         mcp_request_id_t id = mcp_request_id_create_number(static_cast<int64_t>(num));
         if (id) {
-            result = static_cast<mcp_request_id_t*>(std::malloc(sizeof(mcp_request_id_t)));
+            result = static_cast<mcp_request_id_t*>(mcp_malloc(sizeof(mcp_request_id_t)));
             if (result) {
                 *result = id;
-            } else {
+                    } else {
                 mcp_request_id_free(id);
             }
         }
@@ -176,10 +177,10 @@ MCP_API mcp_progress_token_t* mcp_progress_token_from_json(mcp_json_value_t json
         const char* str = mcp_json_get_string(json);
         mcp_progress_token_t token = mcp_progress_token_create_string(str ? str : "");
         if (token) {
-            result = static_cast<mcp_progress_token_t*>(std::malloc(sizeof(mcp_progress_token_t)));
+            result = static_cast<mcp_progress_token_t*>(mcp_malloc(sizeof(mcp_progress_token_t)));
             if (result) {
                 *result = token;
-            } else {
+                    } else {
                 mcp_progress_token_free(token);
             }
         }
@@ -187,10 +188,10 @@ MCP_API mcp_progress_token_t* mcp_progress_token_from_json(mcp_json_value_t json
         double num = mcp_json_get_number(json);
         mcp_progress_token_t token = mcp_progress_token_create_number(static_cast<int64_t>(num));
         if (token) {
-            result = static_cast<mcp_progress_token_t*>(std::malloc(sizeof(mcp_progress_token_t)));
+            result = static_cast<mcp_progress_token_t*>(mcp_malloc(sizeof(mcp_progress_token_t)));
             if (result) {
                 *result = token;
-            } else {
+                    } else {
                 mcp_progress_token_free(token);
             }
         }
@@ -260,10 +261,10 @@ MCP_API mcp_content_block_t* mcp_content_block_from_json(mcp_json_value_t json) 
     }
     
     if (block) {
-        result = static_cast<mcp_content_block_t*>(std::malloc(sizeof(mcp_content_block_t)));
+        result = static_cast<mcp_content_block_t*>(mcp_malloc(sizeof(mcp_content_block_t)));
         if (result) {
             *result = block;
-        } else {
+            } else {
             mcp_content_block_free(block);
         }
     }
@@ -310,7 +311,7 @@ MCP_API mcp_tool_t* mcp_tool_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
     mcp_tool_t tool = mcp_tool_create(name, description);
     if (!tool) return nullptr;
     
-    mcp_tool_t* result = static_cast<mcp_tool_t*>(std::malloc(sizeof(mcp_tool_t)));
+    mcp_tool_t* result = static_cast<mcp_tool_t*>(mcp_malloc(sizeof(mcp_tool_t)));
     if (result) {
         *result = tool;
     } else {
@@ -385,7 +386,7 @@ MCP_API mcp_prompt_t* mcp_prompt_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
         }
     }
     
-    mcp_prompt_t* result = static_cast<mcp_prompt_t*>(std::malloc(sizeof(mcp_prompt_t)));
+    mcp_prompt_t* result = static_cast<mcp_prompt_t*>(mcp_malloc(sizeof(mcp_prompt_t)));
     if (result) {
         *result = prompt;
     } else {
@@ -442,12 +443,12 @@ MCP_API mcp_message_t* mcp_message_from_json(mcp_json_value_t json) MCP_NOEXCEPT
             if (block) {
                 mcp_message_add_content(message, *block);
                 mcp_content_block_free(*block);
-                std::free(block);
+                mcp_free(block);
             }
         }
     }
     
-    mcp_message_t* result = static_cast<mcp_message_t*>(std::malloc(sizeof(mcp_message_t)));
+    mcp_message_t* result = static_cast<mcp_message_t*>(mcp_malloc(sizeof(mcp_message_t)));
     if (result) {
         *result = message;
     } else {
@@ -508,12 +509,12 @@ MCP_API mcp_jsonrpc_error_t* mcp_jsonrpc_error_from_json(mcp_json_value_t json) 
         char* data_str = mcp_json_stringify(data_val);
         if (data_str) {
             mcp_error_set_data(error, data_str);
-            std::free(data_str);
+            mcp_free(data_str);
         }
     }
     
     mcp_jsonrpc_error_t* result = static_cast<mcp_jsonrpc_error_t*>(
-        std::malloc(sizeof(mcp_jsonrpc_error_t)));
+        mcp_malloc(sizeof(mcp_jsonrpc_error_t)));
     if (result) {
         *result = error;
     } else {
@@ -584,7 +585,7 @@ MCP_API mcp_jsonrpc_request_t* mcp_jsonrpc_request_from_json(mcp_json_value_t js
         if (id) {
             mcp_jsonrpc_request_set_id(request, *id);
             // Note: request takes ownership of *id
-            std::free(id);  // Only free the wrapper, not the id itself
+            mcp_free(id);  // Only free the wrapper, not the id itself
         }
     }
     
@@ -594,12 +595,12 @@ MCP_API mcp_jsonrpc_request_t* mcp_jsonrpc_request_from_json(mcp_json_value_t js
         char* params_str = mcp_json_stringify(params_val);
         if (params_str) {
             mcp_jsonrpc_request_set_params(request, params_str);
-            std::free(params_str);
+            mcp_free(params_str);
         }
     }
     
     mcp_jsonrpc_request_t* result = static_cast<mcp_jsonrpc_request_t*>(
-        std::malloc(sizeof(mcp_jsonrpc_request_t)));
+        mcp_malloc(sizeof(mcp_jsonrpc_request_t)));
     if (result) {
         *result = request;
     } else {
@@ -664,7 +665,7 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
         if (id) {
             mcp_jsonrpc_response_set_id(response, *id);
             // Note: response takes ownership of *id
-            std::free(id);  // Only free the wrapper, not the id itself
+            mcp_free(id);  // Only free the wrapper, not the id itself
         }
     }
     
@@ -675,7 +676,7 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
         if (error) {
             mcp_jsonrpc_response_set_error(response, *error);
             // Note: response takes ownership of *error
-            std::free(error);  // Only free the wrapper, not the error itself
+            mcp_free(error);  // Only free the wrapper, not the error itself
         }
     } else {
         mcp_json_value_t result_val = mcp_json_object_get(json, "result");
@@ -683,13 +684,13 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
             char* result_str = mcp_json_stringify(result_val);
             if (result_str) {
                 mcp_jsonrpc_response_set_result(response, result_str);
-                std::free(result_str);
+                mcp_free(result_str);
             }
         }
     }
     
     mcp_jsonrpc_response_t* result = static_cast<mcp_jsonrpc_response_t*>(
-        std::malloc(sizeof(mcp_jsonrpc_response_t)));
+        mcp_malloc(sizeof(mcp_jsonrpc_response_t)));
     if (result) {
         *result = response;
     } else {
@@ -745,12 +746,12 @@ MCP_API mcp_jsonrpc_notification_t* mcp_jsonrpc_notification_from_json(mcp_json_
         char* params_str = mcp_json_stringify(params_val);
         if (params_str) {
             mcp_jsonrpc_notification_set_params(notification, params_str);
-            std::free(params_str);
+            mcp_free(params_str);
         }
     }
     
     mcp_jsonrpc_notification_t* result = static_cast<mcp_jsonrpc_notification_t*>(
-        std::malloc(sizeof(mcp_jsonrpc_notification_t)));
+        mcp_malloc(sizeof(mcp_jsonrpc_notification_t)));
     if (result) {
         *result = notification;
     } else {
@@ -830,7 +831,7 @@ MCP_API mcp_initialize_request_t* mcp_initialize_request_from_json(mcp_json_valu
     // This would need to be added to the type implementation if needed
     
     mcp_initialize_request_t* result = static_cast<mcp_initialize_request_t*>(
-        std::malloc(sizeof(mcp_initialize_request_t)));
+        mcp_malloc(sizeof(mcp_initialize_request_t)));
     if (result) {
         *result = request;
     } else {
@@ -891,7 +892,7 @@ MCP_API mcp_initialize_result_t* mcp_initialize_result_from_json(mcp_json_value_
         if (impl) {
             mcp_initialize_result_set_server_info(init_result, *impl);
             mcp_implementation_free(*impl);  // server_info doesn't take ownership, need to free
-            std::free(impl);
+            mcp_free(impl);
         }
     }
     
@@ -902,12 +903,12 @@ MCP_API mcp_initialize_result_t* mcp_initialize_result_from_json(mcp_json_value_
         if (caps) {
             mcp_initialize_result_set_capabilities(init_result, *caps);
             mcp_server_capabilities_free(*caps);  // capabilities doesn't take ownership, need to free
-            std::free(caps);
+            mcp_free(caps);
         }
     }
     
     mcp_initialize_result_t* result_ptr = static_cast<mcp_initialize_result_t*>(
-        std::malloc(sizeof(mcp_initialize_result_t)));
+        mcp_malloc(sizeof(mcp_initialize_result_t)));
     if (result_ptr) {
         *result_ptr = init_result;
     } else {
@@ -1024,7 +1025,7 @@ MCP_API mcp_resource_t* mcp_resource_from_json(mcp_json_value_t json) MCP_NOEXCE
     }
     
     mcp_resource_t* result = static_cast<mcp_resource_t*>(
-        std::malloc(sizeof(mcp_resource_t)));
+        mcp_malloc(sizeof(mcp_resource_t)));
     if (result) {
         *result = resource;
     } else {
@@ -1066,7 +1067,7 @@ MCP_API mcp_implementation_t* mcp_implementation_from_json(mcp_json_value_t json
     if (!impl) return nullptr;
     
     mcp_implementation_t* result = static_cast<mcp_implementation_t*>(
-        std::malloc(sizeof(mcp_implementation_t)));
+        mcp_malloc(sizeof(mcp_implementation_t)));
     if (result) {
         *result = impl;
     } else {
@@ -1117,7 +1118,7 @@ MCP_API mcp_client_capabilities_t* mcp_client_capabilities_from_json(mcp_json_va
     }
     
     mcp_client_capabilities_t* result = static_cast<mcp_client_capabilities_t*>(
-        std::malloc(sizeof(mcp_client_capabilities_t)));
+        mcp_malloc(sizeof(mcp_client_capabilities_t)));
     if (result) {
         *result = caps;
     } else {
@@ -1195,7 +1196,7 @@ MCP_API mcp_server_capabilities_t* mcp_server_capabilities_from_json(mcp_json_va
     }
     
     mcp_server_capabilities_t* result = static_cast<mcp_server_capabilities_t*>(
-        std::malloc(sizeof(mcp_server_capabilities_t)));
+        mcp_malloc(sizeof(mcp_server_capabilities_t)));
     if (result) {
         *result = caps;
     } else {
