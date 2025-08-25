@@ -257,13 +257,13 @@ inline mcp::network::Address::InstanceConstSharedPtr to_cpp_address(
   if (!addr)
     return nullptr;
 
-  if (addr->family == MCP_AF_INET) {
+  if (addr->family == mcp_address::MCP_AF_INET) {
     return std::make_shared<mcp::network::Address::Ipv4Instance>(
         std::string(addr->addr.inet.host), addr->addr.inet.port);
-  } else if (addr->family == MCP_AF_INET6) {
+  } else if (addr->family == mcp_address::MCP_AF_INET6) {
     return std::make_shared<mcp::network::Address::Ipv6Instance>(
         std::string(addr->addr.inet.host), addr->addr.inet.port);
-  } else if (addr->family == MCP_AF_UNIX) {
+  } else if (addr->family == mcp_address::MCP_AF_UNIX) {
     return std::make_shared<mcp::network::Address::PipeInstance>(
         std::string(addr->addr.unix.path));
   }
@@ -397,21 +397,21 @@ class GlobalAllocator {
 
   void* alloc(size_t size) {
     if (has_custom_) {
-      return allocator_.alloc(size, allocator_.context);
+      return allocator_.alloc(size, allocator_.user_data);
     }
     return std::malloc(size);
   }
 
   void* realloc(void* ptr, size_t size) {
     if (has_custom_) {
-      return allocator_.realloc(ptr, size, allocator_.context);
+      return allocator_.realloc(ptr, size, allocator_.user_data);
     }
     return std::realloc(ptr, size);
   }
 
   void free(void* ptr) {
     if (has_custom_) {
-      allocator_.free(ptr, allocator_.context);
+      allocator_.free(ptr, allocator_.user_data);
     } else {
       std::free(ptr);
     }
@@ -470,10 +470,10 @@ class ErrorManager {
     code                                      \
   } catch (const std::exception& e) {         \
     ErrorManager::set_error(e.what());        \
-    return MCP_ERROR;                         \
+    return MCP_ERROR_UNKNOWN;                \
   } catch (...) {                             \
     ErrorManager::set_error("Unknown error"); \
-    return MCP_ERROR;                         \
+    return MCP_ERROR_UNKNOWN;                \
   }
 
 #define TRY_CATCH_NULL(code)                  \

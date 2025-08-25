@@ -93,7 +93,7 @@ MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator) MCP_NO
         g_state.allocator.free = [](void* ptr, void*) {
             std::free(ptr);
         };
-        g_state.allocator.context = nullptr;
+        g_state.allocator.user_data = nullptr;
         g_state.custom_allocator = false;
     }
     
@@ -307,7 +307,7 @@ MCP_API void* mcp_malloc(size_t size) MCP_NOEXCEPT {
         return std::malloc(size);
     }
     
-    return g_state.allocator.alloc(size, g_state.allocator.context);
+    return g_state.allocator.alloc(size, g_state.allocator.user_data);
 }
 
 MCP_API void* mcp_realloc(void* ptr, size_t new_size) MCP_NOEXCEPT {
@@ -316,7 +316,7 @@ MCP_API void* mcp_realloc(void* ptr, size_t new_size) MCP_NOEXCEPT {
         return std::realloc(ptr, new_size);
     }
     
-    return g_state.allocator.realloc(ptr, new_size, g_state.allocator.context);
+    return g_state.allocator.realloc(ptr, new_size, g_state.allocator.user_data);
 }
 
 MCP_API void mcp_free(void* ptr) MCP_NOEXCEPT {
@@ -330,7 +330,7 @@ MCP_API void mcp_free(void* ptr) MCP_NOEXCEPT {
         return;
     }
     
-    g_state.allocator.free(ptr, g_state.allocator.context);
+    g_state.allocator.free(ptr, g_state.allocator.user_data);
 }
 
 } // extern "C"
