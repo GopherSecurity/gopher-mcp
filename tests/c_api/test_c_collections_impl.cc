@@ -51,7 +51,7 @@ TEST_F(MCPCollectionsTest, ListCreateDestroy) {
     mcp_list_free(list);
     
     // Test with capacity
-    list = mcp_list_create_with_capacity(MCP_TYPE_JSON_VALUE, 100);
+    list = mcp_list_create_with_capacity(MCP_TYPE_JSON, 100);
     ASSERT_NE(list, nullptr);
     EXPECT_GE(mcp_list_capacity(list), 100);
     EXPECT_EQ(mcp_list_size(list), 0);
@@ -222,7 +222,7 @@ TEST_F(MCPCollectionsTest, MapCreateDestroy) {
     mcp_map_free(map);
     
     // Test with capacity
-    map = mcp_map_create_with_capacity(MCP_TYPE_JSON_VALUE, 100);
+    map = mcp_map_create_with_capacity(MCP_TYPE_JSON, 100);
     ASSERT_NE(map, nullptr);
     EXPECT_EQ(mcp_map_size(map), 0);
     mcp_map_free(map);
@@ -348,12 +348,17 @@ TEST_F(MCPCollectionsTest, MapIterator) {
     std::sort(keys.begin(), keys.end());
     EXPECT_EQ(found_keys, keys);
     
-    // Reset and iterate values
-    mcp_map_iterator_reset(iter);
+    // Create new iterator for values  
+    mcp_map_iterator_free(iter);
+    iter = mcp_map_iterator_create(map);
+    ASSERT_NE(iter, nullptr);
+    
     int count = 0;
     while (mcp_map_iterator_has_next(iter)) {
         void* value = mcp_map_iterator_next_value(iter);
-        ASSERT_NE(value, nullptr);
+        // Value can be nullptr (0) since we store small integers as pointers
+        EXPECT_GE((intptr_t)value, 0);
+        EXPECT_LT((intptr_t)value, 5);
         count++;
     }
     EXPECT_EQ(count, 5);
@@ -760,7 +765,7 @@ TEST_F(MCPCollectionsTest, ListThreadSafety) {
     
     // Launch threads
     for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([&lists, i, ops_per_thread]() {
+        threads.emplace_back([&lists, i]() {
             mcp_list_t list = lists[i];
             
             // Perform operations
@@ -810,7 +815,7 @@ TEST_F(MCPCollectionsTest, MapThreadSafety) {
     
     // Launch threads
     for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([&maps, i, ops_per_thread]() {
+        threads.emplace_back([&maps, i]() {
             mcp_map_t map = maps[i];
             
             // Perform operations
@@ -854,7 +859,7 @@ TEST_F(MCPCollectionsTest, JSONThreadSafety) {
     
     // Launch threads
     for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([&jsons, i, ops_per_thread]() {
+        threads.emplace_back([&jsons, i]() {
             // Each thread creates its own JSON structure
             mcp_json_value_t root = mcp_json_create_object();
             
