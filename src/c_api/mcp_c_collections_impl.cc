@@ -4,11 +4,13 @@
  *
  * This file implements lists, maps, iterators, and JSON value operations
  * for the MCP C API using C++ internally but exposing pure C interface.
+ * Uses RAII for memory safety.
  */
 
 #include "mcp/c_api/mcp_c_collections.h"
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_c_types.h"
+#include "mcp/c_api/mcp_raii.h"
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -98,7 +100,8 @@ extern "C" {
 
 MCP_API mcp_list_t mcp_list_create(mcp_type_id_t element_type) MCP_NOEXCEPT {
     try {
-        return new mcp_list_impl(element_type);
+        auto list = std::make_unique<mcp_list_impl>(element_type);
+        return list.release();
     } catch (...) {
         return nullptr;
     }
@@ -106,9 +109,9 @@ MCP_API mcp_list_t mcp_list_create(mcp_type_id_t element_type) MCP_NOEXCEPT {
 
 MCP_API mcp_list_t mcp_list_create_with_capacity(mcp_type_id_t element_type, size_t capacity) MCP_NOEXCEPT {
     try {
-        auto* list = new mcp_list_impl(element_type);
+        auto list = std::make_unique<mcp_list_impl>(element_type);
         list->elements.reserve(capacity);
-        return list;
+        return list.release();
     } catch (...) {
         return nullptr;
     }
@@ -200,7 +203,8 @@ MCP_API mcp_list_iterator_t mcp_list_iterator_create(mcp_list_t list) MCP_NOEXCE
         return nullptr;
     }
     try {
-        return new mcp_list_iterator_impl(list);
+        auto iter = std::make_unique<mcp_list_iterator_impl>(list);
+        return iter.release();
     } catch (...) {
         return nullptr;
     }
@@ -236,7 +240,8 @@ MCP_API void mcp_list_iterator_reset(mcp_list_iterator_t iter) MCP_NOEXCEPT {
 
 MCP_API mcp_map_t mcp_map_create(mcp_type_id_t value_type) MCP_NOEXCEPT {
     try {
-        return new mcp_map_impl(value_type);
+        auto map = std::make_unique<mcp_map_impl>(value_type);
+        return map.release();
     } catch (...) {
         return nullptr;
     }
@@ -244,9 +249,9 @@ MCP_API mcp_map_t mcp_map_create(mcp_type_id_t value_type) MCP_NOEXCEPT {
 
 MCP_API mcp_map_t mcp_map_create_with_capacity(mcp_type_id_t value_type, size_t capacity) MCP_NOEXCEPT {
     try {
-        auto* map = new mcp_map_impl(value_type);
+        auto map = std::make_unique<mcp_map_impl>(value_type);
         map->entries.reserve(capacity);
-        return map;
+        return map.release();
     } catch (...) {
         return nullptr;
     }
@@ -323,7 +328,8 @@ MCP_API mcp_map_iterator_t mcp_map_iterator_create(mcp_map_t map) MCP_NOEXCEPT {
         return nullptr;
     }
     try {
-        return new mcp_map_iterator_impl(map);
+        auto iter = std::make_unique<mcp_map_iterator_impl>(map);
+        return iter.release();
     } catch (...) {
         return nullptr;
     }
@@ -371,7 +377,8 @@ MCP_API void mcp_map_iterator_reset(mcp_map_iterator_t iter) MCP_NOEXCEPT {
 
 MCP_API mcp_json_value_t mcp_json_create_null(void) MCP_NOEXCEPT {
     try {
-        return new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
+        return json.release();
     } catch (...) {
         return nullptr;
     }
@@ -379,10 +386,10 @@ MCP_API mcp_json_value_t mcp_json_create_null(void) MCP_NOEXCEPT {
 
 MCP_API mcp_json_value_t mcp_json_create_bool(mcp_bool_t value) MCP_NOEXCEPT {
     try {
-        auto* json = new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
         json->type = MCP_JSON_BOOL;
         json->value = (value == MCP_TRUE);
-        return json;
+        return json.release();
     } catch (...) {
         return nullptr;
     }
@@ -390,10 +397,10 @@ MCP_API mcp_json_value_t mcp_json_create_bool(mcp_bool_t value) MCP_NOEXCEPT {
 
 MCP_API mcp_json_value_t mcp_json_create_number(double value) MCP_NOEXCEPT {
     try {
-        auto* json = new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
         json->type = MCP_JSON_NUMBER;
         json->value = value;
-        return json;
+        return json.release();
     } catch (...) {
         return nullptr;
     }
@@ -405,10 +412,10 @@ MCP_API mcp_json_value_t mcp_json_create_string(const char* value) MCP_NOEXCEPT 
     }
     
     try {
-        auto* json = new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
         json->type = MCP_JSON_STRING;
         json->value = std::string(value);
-        return json;
+        return json.release();
     } catch (...) {
         return nullptr;
     }
@@ -416,10 +423,10 @@ MCP_API mcp_json_value_t mcp_json_create_string(const char* value) MCP_NOEXCEPT 
 
 MCP_API mcp_json_value_t mcp_json_create_array(void) MCP_NOEXCEPT {
     try {
-        auto* json = new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
         json->type = MCP_JSON_ARRAY;
         json->value = std::vector<mcp_json_value_t>();
-        return json;
+        return json.release();
     } catch (...) {
         return nullptr;
     }
@@ -427,10 +434,10 @@ MCP_API mcp_json_value_t mcp_json_create_array(void) MCP_NOEXCEPT {
 
 MCP_API mcp_json_value_t mcp_json_create_object(void) MCP_NOEXCEPT {
     try {
-        auto* json = new mcp_json_value_impl();
+        auto json = std::make_unique<mcp_json_value_impl>();
         json->type = MCP_JSON_OBJECT;
         json->value = std::unordered_map<std::string, mcp_json_value_t>();
-        return json;
+        return json.release();
     } catch (...) {
         return nullptr;
     }

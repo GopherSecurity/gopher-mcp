@@ -1,12 +1,14 @@
 /**
  * @file mcp_c_api_core.cc
  * @brief Core C API implementation - Library initialization and dispatcher
+ * Uses RAII for memory safety.
  */
 
 #include <atomic>
 #include <mutex>
 
 #include "mcp/c_api/mcp_c_bridge.h"
+#include "mcp/c_api/mcp_raii.h"
 #include "mcp/event/libevent_dispatcher.h"
 
 namespace mcp {
