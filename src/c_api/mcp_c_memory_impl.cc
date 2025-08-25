@@ -4,10 +4,12 @@
  *
  * This file implements memory management utilities, error handling,
  * and resource tracking for the MCP C API.
+ * Uses RAII for memory safety.
  */
 
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_c_types.h"
+#include "mcp/c_api/mcp_raii.h"
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -157,9 +159,9 @@ struct mcp_memory_pool_impl {
 
 MCP_API mcp_memory_pool_t mcp_memory_pool_create(size_t initial_size) MCP_NOEXCEPT {
     try {
-        auto* pool = new mcp_memory_pool_impl;
+        auto pool = std::make_unique<mcp_memory_pool_impl>();
         pool->buffer.reserve(initial_size);
-        return pool;
+        return pool.release();
     } catch (...) {
         set_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to create memory pool");
         return nullptr;

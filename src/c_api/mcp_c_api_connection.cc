@@ -1,9 +1,11 @@
 /**
  * @file mcp_c_api_connection.cc
  * @brief Connection management C API implementation
+ * Uses RAII for memory safety.
  */
 
 #include "mcp/c_api/mcp_c_bridge.h"
+#include "mcp/c_api/mcp_raii.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"
@@ -28,7 +30,7 @@ mcp_connection_t mcp_connection_create_client_ex(
   TRY_CATCH_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto conn_impl = new mcp::c_api::mcp_connection_impl();
+    auto conn_impl = std::make_unique<mcp::c_api::mcp_connection_impl>();
     conn_impl->dispatcher = dispatcher_impl;
 
     // Use default configuration if not provided
@@ -100,7 +102,6 @@ mcp_connection_t mcp_connection_create_client_ex(
 
       default:
         ErrorManager::set_error("Unsupported transport type");
-        delete conn_impl;
         return nullptr;
     }
 
@@ -120,7 +121,7 @@ mcp_connection_t mcp_connection_create_client_ex(
         false  // Not connected yet
     );
 
-    return reinterpret_cast<mcp_connection_t>(conn_impl);
+    return reinterpret_cast<mcp_connection_t>(conn_impl.release());
   });
 }
 
@@ -391,7 +392,7 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
   TRY_CATCH_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto listener_impl = new mcp::c_api::mcp_listener_impl();
+    auto listener_impl = std::make_unique<mcp::c_api::mcp_listener_impl>();
     listener_impl->dispatcher = dispatcher_impl;
 
     // Create listener based on transport type
@@ -415,11 +416,10 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
 
       default:
         ErrorManager::set_error("Unsupported transport type for listener");
-        delete listener_impl;
         return nullptr;
     }
 
-    return reinterpret_cast<mcp_listener_t>(listener_impl);
+    return reinterpret_cast<mcp_listener_t>(listener_impl.release());
   });
 }
 
