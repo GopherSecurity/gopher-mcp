@@ -31,46 +31,15 @@ using namespace mcp::c_api;
 
 extern "C" {
 
-mcp_result_t mcp_init(const mcp_allocator_t* allocator) {
-  std::lock_guard<std::mutex> lock(g_init_mutex);
-
-  if (g_initialized.load()) {
-    return MCP_OK;  // Already initialized
-  }
-
-  try {
-    // Set custom allocator if provided
-    if (allocator) {
-      GlobalAllocator::instance().set_allocator(allocator);
-    }
-
-    // Initialize any global resources here
-    // For now, we just mark as initialized
-    g_initialized.store(true);
-
-    return MCP_OK;
-  } catch (const std::exception& e) {
-    ErrorManager::set_error(e.what());
-    return MCP_ERROR;
-  }
-}
-
-void mcp_shutdown(void) {
-  std::lock_guard<std::mutex> lock(g_init_mutex);
-
-  if (!g_initialized.load()) {
-    return;  // Not initialized
-  }
-
-  // Clean up global resources
-  g_initialized.store(false);
-}
+// Removed - now use mcp_ffi_initialize() and mcp_ffi_shutdown() from mcp_c_memory_impl.cc
+// mcp_init and mcp_shutdown are replaced by the new FFI-safe functions
 
 const char* mcp_get_version(void) {
   return "1.0.0";  // TODO: Use actual version from build system
 }
 
-const char* mcp_get_last_error(void) { return ErrorManager::get_error(); }
+// Removed - now implemented in mcp_c_memory_impl.cc with mcp_error_info_t*
+// const char* mcp_get_last_error(void) { return ErrorManager::get_error(); }
 
 /* ============================================================================
  * Event Loop & Dispatcher

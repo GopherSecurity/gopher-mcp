@@ -7,18 +7,20 @@ cmake_minimum_required(VERSION 3.14)
 
 # Collect C API source files
 set(MCP_C_API_SOURCES
-    mcp_c_api_core.cc
-    mcp_c_api_connection.cc
-    # mcp_c_api_client.cc # TODO: Fix compilation issues
-    # mcp_c_api_server.cc # TODO: Fix compilation issues
-    # mcp_c_api_json.cc # TODO: Fix compilation issues
-    mcp_c_api_builders.cc
-    mcp_c_api_utils.cc
-    mcp_raii.cc
-    # New overhauled FFI-safe implementation
-    mcp_c_types_impl.cc
-    mcp_c_memory_impl.cc
-    mcp_c_collections_impl.cc
+    # Core functionality
+    mcp_c_api_core.cc          # Library init/shutdown, dispatcher
+    mcp_c_api_connection.cc     # Connection management
+    mcp_raii.cc                 # RAII utilities
+    
+    # New FFI-safe implementation with opaque handles
+    mcp_c_types_impl.cc         # Type implementations
+    mcp_c_memory_impl.cc        # Memory management
+    mcp_c_collections_impl.cc   # Collections and JSON
+    
+    # TODO: Update these to use new opaque handle API
+    # mcp_c_api_client.cc
+    # mcp_c_api_server.cc
+    # mcp_c_api_json.cc
 )
 
 # Create shared library for C bindings
