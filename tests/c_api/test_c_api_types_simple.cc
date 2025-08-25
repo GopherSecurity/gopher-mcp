@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mcp/c_api/mcp_c_types.h"
+#include "mcp/c_api/mcp_c_types_api.h"
 #include <cstring>
 
 class CApiTypesSimpleTest : public ::testing::Test {
