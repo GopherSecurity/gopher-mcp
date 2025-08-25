@@ -122,6 +122,11 @@ if(BUILD_C_API_STATIC)
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
+    # Add compile definitions for tests
+    target_compile_definitions(gopher_mcp_c_static PRIVATE 
+        $<$<CONFIG:Debug>:MCP_RAII_DEBUG_MODE>
+        MCP_RAII_DISABLE_ATEXIT  # Disable atexit handler for tests
+    )
 endif()
 
 # ============================================================================
