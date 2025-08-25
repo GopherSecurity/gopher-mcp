@@ -579,9 +579,11 @@ if(BUILD_C_API)
     )
     
     # RAII utilities test (comprehensive with all edge cases)
+    # Disable atexit leak checker for tests since some tests intentionally leave resources tracked
+    target_compile_definitions(test_mcp_raii PRIVATE MCP_RAII_DISABLE_ATEXIT)
     target_link_libraries(test_mcp_raii
         gopher-mcp
-        gopher_mcp_c  # Use shared library
+        gopher_mcp_c_static  # Use static library for access to internal symbols
         gtest
         gtest_main
         Threads::Threads

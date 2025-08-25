@@ -113,12 +113,15 @@ namespace {
             global_tracker = std::make_unique<ResourceTracker>();
             
             // Register cleanup at program termination
+            // Disable for unit tests to avoid assertions on intentional test leaks
+#ifndef MCP_RAII_DISABLE_ATEXIT
             std::atexit([]() {
                 if (global_tracker) {
                     global_tracker->report_leaks();
                     global_tracker.reset();
                 }
             });
+#endif
         });
     }
 }
