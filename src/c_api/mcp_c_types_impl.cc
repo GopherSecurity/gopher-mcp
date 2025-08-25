@@ -964,4 +964,343 @@ MCP_API mcp_json_value_t mcp_metadata_to_json(mcp_metadata_t metadata) MCP_NOEXC
 
 #endif  // End of moved collection/JSON implementations
 
+/* ============================================================================
+ * Resource Implementation
+ * ============================================================================ */
+
+struct mcp_resource_impl {
+    std::string uri;
+    std::string name;
+    std::string description;
+    std::string mime_type;
+    
+    mcp_resource_impl(const char* u, const char* n) 
+        : uri(u ? u : ""), name(n ? n : "") {}
+};
+
+MCP_API mcp_resource_t mcp_resource_create(const char* uri, const char* name) MCP_NOEXCEPT {
+    if (!uri || !name) {
+        set_last_error(MCP_ERROR_INVALID_ARGUMENT, "URI and name are required");
+        return nullptr;
+    }
+    try {
+        return new mcp_resource_impl(uri, name);
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate resource");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_resource_free(mcp_resource_t resource) MCP_NOEXCEPT {
+    delete resource;
+}
+
+MCP_API const char* mcp_resource_get_uri(mcp_resource_t resource) MCP_NOEXCEPT {
+    if (!resource) return nullptr;
+    return resource->uri.c_str();
+}
+
+MCP_API const char* mcp_resource_get_name(mcp_resource_t resource) MCP_NOEXCEPT {
+    if (!resource) return nullptr;
+    return resource->name.c_str();
+}
+
+MCP_API void mcp_resource_set_description(mcp_resource_t resource, const char* description) MCP_NOEXCEPT {
+    if (!resource) return;
+    resource->description = description ? description : "";
+}
+
+MCP_API const char* mcp_resource_get_description(mcp_resource_t resource) MCP_NOEXCEPT {
+    if (!resource) return nullptr;
+    return resource->description.empty() ? nullptr : resource->description.c_str();
+}
+
+MCP_API void mcp_resource_set_mime_type(mcp_resource_t resource, const char* mime_type) MCP_NOEXCEPT {
+    if (!resource) return;
+    resource->mime_type = mime_type ? mime_type : "";
+}
+
+MCP_API const char* mcp_resource_get_mime_type(mcp_resource_t resource) MCP_NOEXCEPT {
+    if (!resource) return nullptr;
+    return resource->mime_type.empty() ? nullptr : resource->mime_type.c_str();
+}
+
+/* ============================================================================
+ * Implementation (Server/Client Info) Implementation
+ * ============================================================================ */
+
+struct mcp_implementation_impl {
+    std::string name;
+    std::string title;
+    std::string version;
+    
+    mcp_implementation_impl(const char* n, const char* v) 
+        : name(n ? n : ""), version(v ? v : "") {}
+};
+
+MCP_API mcp_implementation_t mcp_implementation_create(const char* name, const char* version) MCP_NOEXCEPT {
+    if (!name || !version) {
+        set_last_error(MCP_ERROR_INVALID_ARGUMENT, "Name and version are required");
+        return nullptr;
+    }
+    try {
+        return new mcp_implementation_impl(name, version);
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate implementation");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_implementation_free(mcp_implementation_t impl) MCP_NOEXCEPT {
+    delete impl;
+}
+
+MCP_API const char* mcp_implementation_get_name(mcp_implementation_t impl) MCP_NOEXCEPT {
+    if (!impl) return nullptr;
+    return impl->name.c_str();
+}
+
+MCP_API const char* mcp_implementation_get_version(mcp_implementation_t impl) MCP_NOEXCEPT {
+    if (!impl) return nullptr;
+    return impl->version.c_str();
+}
+
+MCP_API void mcp_implementation_set_title(mcp_implementation_t impl, const char* title) MCP_NOEXCEPT {
+    if (!impl) return;
+    impl->title = title ? title : "";
+}
+
+MCP_API const char* mcp_implementation_get_title(mcp_implementation_t impl) MCP_NOEXCEPT {
+    if (!impl) return nullptr;
+    return impl->title.empty() ? nullptr : impl->title.c_str();
+}
+
+/* ============================================================================
+ * Capabilities Implementation
+ * ============================================================================ */
+
+struct mcp_client_capabilities_impl {
+    bool has_roots = false;
+    bool has_sampling = false;
+    bool roots_list_changed = false;
+    // Add more capabilities as needed
+};
+
+MCP_API mcp_client_capabilities_t mcp_client_capabilities_create(void) MCP_NOEXCEPT {
+    try {
+        return new mcp_client_capabilities_impl();
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate client capabilities");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_client_capabilities_free(mcp_client_capabilities_t caps) MCP_NOEXCEPT {
+    delete caps;
+}
+
+MCP_API mcp_bool_t mcp_client_capabilities_has_roots(mcp_client_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_roots ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_client_capabilities_set_roots(mcp_client_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_roots = (enabled == MCP_TRUE);
+}
+
+MCP_API mcp_bool_t mcp_client_capabilities_has_sampling(mcp_client_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_sampling ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_client_capabilities_set_sampling(mcp_client_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_sampling = (enabled == MCP_TRUE);
+}
+
+struct mcp_server_capabilities_impl {
+    bool has_tools = false;
+    bool has_prompts = false;
+    bool has_resources = false;
+    bool has_logging = false;
+    bool tools_list_changed = false;
+    bool prompts_list_changed = false;
+    bool resources_subscribe = false;
+    bool resources_list_changed = false;
+};
+
+MCP_API mcp_server_capabilities_t mcp_server_capabilities_create(void) MCP_NOEXCEPT {
+    try {
+        return new mcp_server_capabilities_impl();
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate server capabilities");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_server_capabilities_free(mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    delete caps;
+}
+
+MCP_API mcp_bool_t mcp_server_capabilities_has_tools(mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_tools ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_server_capabilities_set_tools(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_tools = (enabled == MCP_TRUE);
+}
+
+MCP_API mcp_bool_t mcp_server_capabilities_has_prompts(mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_prompts ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_server_capabilities_set_prompts(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_prompts = (enabled == MCP_TRUE);
+}
+
+MCP_API mcp_bool_t mcp_server_capabilities_has_resources(mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_resources ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_server_capabilities_set_resources(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_resources = (enabled == MCP_TRUE);
+}
+
+MCP_API mcp_bool_t mcp_server_capabilities_has_logging(mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    if (!caps) return MCP_FALSE;
+    return caps->has_logging ? MCP_TRUE : MCP_FALSE;
+}
+
+MCP_API void mcp_server_capabilities_set_logging(mcp_server_capabilities_t caps, mcp_bool_t enabled) MCP_NOEXCEPT {
+    if (!caps) return;
+    caps->has_logging = (enabled == MCP_TRUE);
+}
+
+/* ============================================================================
+ * Initialize Result Implementation
+ * ============================================================================ */
+
+struct mcp_initialize_result_impl {
+    std::string protocol_version;
+    std::unique_ptr<mcp_implementation_impl> server_info;
+    std::unique_ptr<mcp_server_capabilities_impl> capabilities;
+    
+    mcp_initialize_result_impl(const char* version) 
+        : protocol_version(version ? version : "1.0") {}
+};
+
+MCP_API mcp_initialize_result_t mcp_initialize_result_create(const char* protocol_version) MCP_NOEXCEPT {
+    try {
+        return new mcp_initialize_result_impl(protocol_version);
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate initialize result");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_initialize_result_free(mcp_initialize_result_t result) MCP_NOEXCEPT {
+    delete result;
+}
+
+MCP_API const char* mcp_initialize_result_get_protocol_version(mcp_initialize_result_t result) MCP_NOEXCEPT {
+    if (!result) return nullptr;
+    return result->protocol_version.c_str();
+}
+
+MCP_API void mcp_initialize_result_set_server_info(mcp_initialize_result_t result, mcp_implementation_t info) MCP_NOEXCEPT {
+    if (!result || !info) return;
+    result->server_info.reset(new mcp_implementation_impl(*info));
+}
+
+MCP_API mcp_implementation_t mcp_initialize_result_get_server_info(mcp_initialize_result_t result) MCP_NOEXCEPT {
+    if (!result || !result->server_info) return nullptr;
+    return result->server_info.get();
+}
+
+MCP_API void mcp_initialize_result_set_capabilities(mcp_initialize_result_t result, mcp_server_capabilities_t caps) MCP_NOEXCEPT {
+    if (!result || !caps) return;
+    result->capabilities.reset(new mcp_server_capabilities_impl(*caps));
+}
+
+MCP_API mcp_server_capabilities_t mcp_initialize_result_get_capabilities(mcp_initialize_result_t result) MCP_NOEXCEPT {
+    if (!result || !result->capabilities) return nullptr;
+    return result->capabilities.get();
+}
+
+/* ============================================================================
+ * JSON-RPC Notification Implementation
+ * ============================================================================ */
+
+struct mcp_jsonrpc_notification_impl {
+    std::string jsonrpc;
+    std::string method;
+    std::string params_json;
+    
+    mcp_jsonrpc_notification_impl(const char* rpc, const char* m) 
+        : jsonrpc(rpc ? rpc : "2.0"), method(m ? m : "") {}
+};
+
+MCP_API mcp_jsonrpc_notification_t mcp_jsonrpc_notification_create(const char* jsonrpc, const char* method) MCP_NOEXCEPT {
+    if (!method) {
+        set_last_error(MCP_ERROR_INVALID_ARGUMENT, "Method is required");
+        return nullptr;
+    }
+    try {
+        return new mcp_jsonrpc_notification_impl(jsonrpc, method);
+    } catch (...) {
+        set_last_error(MCP_ERROR_OUT_OF_MEMORY, "Failed to allocate notification");
+        return nullptr;
+    }
+}
+
+MCP_API void mcp_jsonrpc_notification_free(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT {
+    delete notification;
+}
+
+MCP_API const char* mcp_jsonrpc_notification_get_jsonrpc(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT {
+    if (!notification) return nullptr;
+    return notification->jsonrpc.c_str();
+}
+
+MCP_API const char* mcp_jsonrpc_notification_get_method(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT {
+    if (!notification) return nullptr;
+    return notification->method.c_str();
+}
+
+MCP_API void mcp_jsonrpc_notification_set_params(mcp_jsonrpc_notification_t notification, const char* json_params) MCP_NOEXCEPT {
+    if (!notification) return;
+    notification->params_json = json_params ? json_params : "";
+}
+
+MCP_API const char* mcp_jsonrpc_notification_get_params(mcp_jsonrpc_notification_t notification) MCP_NOEXCEPT {
+    if (!notification || notification->params_json.empty()) return nullptr;
+    return notification->params_json.c_str();
+}
+
+/* ============================================================================
+ * Additional JSON-RPC Request/Response Functions
+ * ============================================================================ */
+
+MCP_API mcp_request_id_t mcp_jsonrpc_request_get_id(mcp_jsonrpc_request_t request) MCP_NOEXCEPT {
+    if (!request || !request->id) return nullptr;
+    return request->id.get();
+}
+
+MCP_API const char* mcp_jsonrpc_request_get_params(mcp_jsonrpc_request_t request) MCP_NOEXCEPT {
+    if (!request || request->params.empty()) return nullptr;
+    return request->params.c_str();
+}
+
+MCP_API mcp_request_id_t mcp_jsonrpc_response_get_id(mcp_jsonrpc_response_t response) MCP_NOEXCEPT {
+    if (!response || !response->id) return nullptr;
+    return response->id.get();
+}
+
 } // extern "C"

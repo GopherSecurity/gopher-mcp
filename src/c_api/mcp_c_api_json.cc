@@ -100,6 +100,8 @@ MCP_API mcp_json_value_t mcp_request_id_to_json(const mcp_request_id_t* id) MCP_
     
     if (type == MCP_REQUEST_ID_TYPE_STRING) {
         const char* str = mcp_request_id_get_string(*id);
+        // Debug: print the string value
+        // fprintf(stderr, "DEBUG: request_id string value: '%s'\n", str ? str : "(null)");
         return mcp_json_create_string(str ? str : "");
     } else if (type == MCP_REQUEST_ID_TYPE_NUMBER) {
         int64_t num = mcp_request_id_get_number(*id);
@@ -540,25 +542,23 @@ MCP_API mcp_json_value_t mcp_jsonrpc_request_to_json(const mcp_jsonrpc_request_t
         mcp_json_object_set(obj, "method", mcp_json_create_string(method));
     }
     
-    // TODO: mcp_jsonrpc_request_get_id not implemented yet
     // Add id
-    // mcp_request_id_t id = mcp_jsonrpc_request_get_id(*req);
-    // if (id) {
-    //     mcp_json_value_t id_json = mcp_request_id_to_json(&id);
-    //     if (id_json) {
-    //         mcp_json_object_set(obj, "id", id_json);
-    //     }
-    // }
+    mcp_request_id_t id = mcp_jsonrpc_request_get_id(*req);
+    if (id) {
+        mcp_json_value_t id_json = mcp_request_id_to_json(&id);
+        if (id_json) {
+            mcp_json_object_set(obj, "id", id_json);
+        }
+    }
     
-    // TODO: mcp_jsonrpc_request_get_params not implemented yet
     // Add params if present  
-    // const char* params_json = mcp_jsonrpc_request_get_params(*req);
-    // if (params_json) {
-    //     mcp_json_value_t params = mcp_json_parse(params_json);
-    //     if (params) {
-    //         mcp_json_object_set(obj, "params", params);
-    //     }
-    // }
+    const char* params_json = mcp_jsonrpc_request_get_params(*req);
+    if (params_json) {
+        mcp_json_value_t params = mcp_json_parse(params_json);
+        if (params) {
+            mcp_json_object_set(obj, "params", params);
+        }
+    }
     
     return obj;
 }
@@ -583,8 +583,8 @@ MCP_API mcp_jsonrpc_request_t* mcp_jsonrpc_request_from_json(mcp_json_value_t js
         mcp_request_id_t* id = mcp_request_id_from_json(id_val);
         if (id) {
             mcp_jsonrpc_request_set_id(request, *id);
-            mcp_request_id_free(*id);
-            std::free(id);
+            // Note: request takes ownership of *id
+            std::free(id);  // Only free the wrapper, not the id itself
         }
     }
     
@@ -618,15 +618,14 @@ MCP_API mcp_json_value_t mcp_jsonrpc_response_to_json(const mcp_jsonrpc_response
     
     mcp_json_object_set(obj, "jsonrpc", mcp_json_create_string("2.0"));
     
-    // TODO: mcp_jsonrpc_response_get_id not implemented yet
     // Add id
-    // mcp_request_id_t id = mcp_jsonrpc_response_get_id(*resp);
-    // if (id) {
-    //     mcp_json_value_t id_json = mcp_request_id_to_json(&id);
-    //     if (id_json) {
-    //         mcp_json_object_set(obj, "id", id_json);
-    //     }
-    // }
+    mcp_request_id_t id = mcp_jsonrpc_response_get_id(*resp);
+    if (id) {
+        mcp_json_value_t id_json = mcp_request_id_to_json(&id);
+        if (id_json) {
+            mcp_json_object_set(obj, "id", id_json);
+        }
+    }
     
     // Add result or error
     mcp_error_t error = mcp_jsonrpc_response_get_error(*resp);
@@ -664,8 +663,8 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
         mcp_request_id_t* id = mcp_request_id_from_json(id_val);
         if (id) {
             mcp_jsonrpc_response_set_id(response, *id);
-            mcp_request_id_free(*id);
-            std::free(id);
+            // Note: response takes ownership of *id
+            std::free(id);  // Only free the wrapper, not the id itself
         }
     }
     
@@ -675,8 +674,8 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
         mcp_jsonrpc_error_t* error = mcp_jsonrpc_error_from_json(error_val);
         if (error) {
             mcp_jsonrpc_response_set_error(response, *error);
-            mcp_error_free(*error);
-            std::free(error);
+            // Note: response takes ownership of *error
+            std::free(error);  // Only free the wrapper, not the error itself
         }
     } else {
         mcp_json_value_t result_val = mcp_json_object_get(json, "result");
@@ -700,15 +699,65 @@ MCP_API mcp_jsonrpc_response_t* mcp_jsonrpc_response_from_json(mcp_json_value_t 
     return result;
 }
 
-// TODO: Notification type functions not yet available in the API
 MCP_API mcp_json_value_t mcp_jsonrpc_notification_to_json(const mcp_jsonrpc_notification_t* notif) MCP_NOEXCEPT {
-    // Not implemented - API functions for notification type don't exist yet
-    return nullptr;
+    if (!notif) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    mcp_json_object_set(obj, "jsonrpc", mcp_json_create_string("2.0"));
+    
+    // Add method
+    const char* method = mcp_jsonrpc_notification_get_method(*notif);
+    if (method) {
+        mcp_json_object_set(obj, "method", mcp_json_create_string(method));
+    }
+    
+    // Add params if present  
+    const char* params_json = mcp_jsonrpc_notification_get_params(*notif);
+    if (params_json) {
+        mcp_json_value_t params = mcp_json_parse(params_json);
+        if (params) {
+            mcp_json_object_set(obj, "params", params);
+        }
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_jsonrpc_notification_t* mcp_jsonrpc_notification_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for notification type don't exist yet
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    // Get jsonrpc version (default to 2.0)
+    mcp_json_value_t jsonrpc_val = mcp_json_object_get(json, "jsonrpc");
+    const char* jsonrpc = jsonrpc_val ? mcp_json_get_string(jsonrpc_val) : "2.0";
+    
+    // Get method
+    mcp_json_value_t method_val = mcp_json_object_get(json, "method");
+    const char* method = method_val ? mcp_json_get_string(method_val) : "";
+    
+    mcp_jsonrpc_notification_t notification = mcp_jsonrpc_notification_create(jsonrpc, method);
+    if (!notification) return nullptr;
+    
+    // Set params if present
+    mcp_json_value_t params_val = mcp_json_object_get(json, "params");
+    if (params_val) {
+        char* params_str = mcp_json_stringify(params_val);
+        if (params_str) {
+            mcp_jsonrpc_notification_set_params(notification, params_str);
+            std::free(params_str);
+        }
+    }
+    
+    mcp_jsonrpc_notification_t* result = static_cast<mcp_jsonrpc_notification_t*>(
+        std::malloc(sizeof(mcp_jsonrpc_notification_t)));
+    if (result) {
+        *result = notification;
+    } else {
+        mcp_jsonrpc_notification_free(notification);
+    }
+    
+    return result;
 }
 
 // ============================================================================
@@ -791,15 +840,81 @@ MCP_API mcp_initialize_request_t* mcp_initialize_request_from_json(mcp_json_valu
     return result;
 }
 
-// TODO: Initialize result type functions not yet available in the API
 MCP_API mcp_json_value_t mcp_initialize_result_to_json(const mcp_initialize_result_t* result) MCP_NOEXCEPT {
-    // Not implemented - API functions for Initialize result type don't exist yet
-    return nullptr;
+    if (!result) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    // Add protocol version
+    const char* version = mcp_initialize_result_get_protocol_version(*result);
+    if (version) {
+        mcp_json_object_set(obj, "protocolVersion", mcp_json_create_string(version));
+    }
+    
+    // Add server info if present
+    mcp_implementation_t server_info = mcp_initialize_result_get_server_info(*result);
+    if (server_info) {
+        mcp_json_value_t info_json = mcp_implementation_to_json(&server_info);
+        if (info_json) {
+            mcp_json_object_set(obj, "serverInfo", info_json);
+        }
+    }
+    
+    // Add capabilities if present
+    mcp_server_capabilities_t caps = mcp_initialize_result_get_capabilities(*result);
+    if (caps) {
+        mcp_json_value_t caps_json = mcp_server_capabilities_to_json(&caps);
+        if (caps_json) {
+            mcp_json_object_set(obj, "capabilities", caps_json);
+        }
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_initialize_result_t* mcp_initialize_result_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for Initialize result type don't exist yet
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    // Get protocol version
+    mcp_json_value_t version_val = mcp_json_object_get(json, "protocolVersion");
+    const char* protocol_version = version_val ? mcp_json_get_string(version_val) : "1.0";
+    
+    // Create the result with protocol version
+    mcp_initialize_result_t init_result = mcp_initialize_result_create(protocol_version);
+    if (!init_result) return nullptr;
+    
+    // Set server info if present
+    mcp_json_value_t info_val = mcp_json_object_get(json, "serverInfo");
+    if (info_val && mcp_json_get_type(info_val) == MCP_JSON_TYPE_OBJECT) {
+        mcp_implementation_t* impl = mcp_implementation_from_json(info_val);
+        if (impl) {
+            mcp_initialize_result_set_server_info(init_result, *impl);
+            mcp_implementation_free(*impl);  // server_info doesn't take ownership, need to free
+            std::free(impl);
+        }
+    }
+    
+    // Set capabilities if present
+    mcp_json_value_t caps_val = mcp_json_object_get(json, "capabilities");
+    if (caps_val) {
+        mcp_server_capabilities_t* caps = mcp_server_capabilities_from_json(caps_val);
+        if (caps) {
+            mcp_initialize_result_set_capabilities(init_result, *caps);
+            mcp_server_capabilities_free(*caps);  // capabilities doesn't take ownership, need to free
+            std::free(caps);
+        }
+    }
+    
+    mcp_initialize_result_t* result_ptr = static_cast<mcp_initialize_result_t*>(
+        std::malloc(sizeof(mcp_initialize_result_t)));
+    if (result_ptr) {
+        *result_ptr = init_result;
+    } else {
+        mcp_initialize_result_free(init_result);
+    }
+    
+    return result_ptr;
 }
 
 // ============================================================================
@@ -856,48 +971,238 @@ MCP_API mcp_logging_level_t mcp_logging_level_from_json(mcp_json_value_t json) M
     return MCP_LOG_INFO;
 }
 
-// TODO: Resource type functions not yet available in the API
 MCP_API mcp_json_value_t mcp_resource_to_json(const mcp_resource_t* resource) MCP_NOEXCEPT {
-    // Not implemented - API functions for resource type don't exist yet
-    return nullptr;
+    if (!resource) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    const char* uri = mcp_resource_get_uri(*resource);
+    const char* name = mcp_resource_get_name(*resource);
+    const char* description = mcp_resource_get_description(*resource);
+    const char* mime_type = mcp_resource_get_mime_type(*resource);
+    
+    if (uri) {
+        mcp_json_object_set(obj, "uri", mcp_json_create_string(uri));
+    }
+    if (name) {
+        mcp_json_object_set(obj, "name", mcp_json_create_string(name));
+    }
+    if (description) {
+        mcp_json_object_set(obj, "description", mcp_json_create_string(description));
+    }
+    if (mime_type) {
+        mcp_json_object_set(obj, "mimeType", mcp_json_create_string(mime_type));
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_resource_t* mcp_resource_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for resource type don't exist yet
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    mcp_json_value_t uri_val = mcp_json_object_get(json, "uri");
+    mcp_json_value_t name_val = mcp_json_object_get(json, "name");
+    
+    const char* uri = uri_val ? mcp_json_get_string(uri_val) : "";
+    const char* name = name_val ? mcp_json_get_string(name_val) : "";
+    
+    mcp_resource_t resource = mcp_resource_create(uri, name);
+    if (!resource) return nullptr;
+    
+    // Set optional fields
+    mcp_json_value_t desc_val = mcp_json_object_get(json, "description");
+    if (desc_val) {
+        const char* desc = mcp_json_get_string(desc_val);
+        if (desc) mcp_resource_set_description(resource, desc);
+    }
+    
+    mcp_json_value_t mime_val = mcp_json_object_get(json, "mimeType");
+    if (mime_val) {
+        const char* mime = mcp_json_get_string(mime_val);
+        if (mime) mcp_resource_set_mime_type(resource, mime);
+    }
+    
+    mcp_resource_t* result = static_cast<mcp_resource_t*>(
+        std::malloc(sizeof(mcp_resource_t)));
+    if (result) {
+        *result = resource;
+    } else {
+        mcp_resource_free(resource);
+    }
+    
+    return result;
 }
 
-// TODO: Implementation type functions not yet available in the API
-// These would need name, title (optional), and version fields
 MCP_API mcp_json_value_t mcp_implementation_to_json(const mcp_implementation_t* impl) MCP_NOEXCEPT {
-    // Not implemented - API functions for Implementation type don't exist yet
-    return nullptr;
+    if (!impl) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    const char* name = mcp_implementation_get_name(*impl);
+    const char* version = mcp_implementation_get_version(*impl);
+    
+    if (name) {
+        mcp_json_object_set(obj, "name", mcp_json_create_string(name));
+    }
+    if (version) {
+        mcp_json_object_set(obj, "version", mcp_json_create_string(version));
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_implementation_t* mcp_implementation_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for Implementation type don't exist yet  
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    mcp_json_value_t name_val = mcp_json_object_get(json, "name");
+    mcp_json_value_t version_val = mcp_json_object_get(json, "version");
+    
+    const char* name = name_val ? mcp_json_get_string(name_val) : "";
+    const char* version = version_val ? mcp_json_get_string(version_val) : "1.0.0";
+    
+    mcp_implementation_t impl = mcp_implementation_create(name, version);
+    if (!impl) return nullptr;
+    
+    mcp_implementation_t* result = static_cast<mcp_implementation_t*>(
+        std::malloc(sizeof(mcp_implementation_t)));
+    if (result) {
+        *result = impl;
+    } else {
+        mcp_implementation_free(impl);
+    }
+    
+    return result;
 }
 
-// TODO: Capabilities type functions not yet available in the API
 MCP_API mcp_json_value_t mcp_client_capabilities_to_json(const mcp_client_capabilities_t* caps) MCP_NOEXCEPT {
-    // Not implemented - API functions for client capabilities don't exist yet
-    return nullptr;
+    if (!caps) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    // Add roots capability
+    if (mcp_client_capabilities_has_roots(*caps)) {
+        mcp_json_value_t roots_obj = mcp_json_create_object();
+        mcp_json_object_set(roots_obj, "listChanged", mcp_json_create_bool(true));
+        mcp_json_object_set(obj, "roots", roots_obj);
+    }
+    
+    // Add sampling capability
+    if (mcp_client_capabilities_has_sampling(*caps)) {
+        mcp_json_value_t sampling_obj = mcp_json_create_object();
+        mcp_json_object_set(obj, "sampling", sampling_obj);
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_client_capabilities_t* mcp_client_capabilities_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for client capabilities don't exist yet
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    mcp_client_capabilities_t caps = mcp_client_capabilities_create();
+    if (!caps) return nullptr;
+    
+    // Check for roots
+    mcp_json_value_t roots_val = mcp_json_object_get(json, "roots");
+    if (roots_val) {
+        mcp_client_capabilities_set_roots(caps, true);
+    }
+    
+    // Check for sampling
+    mcp_json_value_t sampling_val = mcp_json_object_get(json, "sampling");
+    if (sampling_val) {
+        mcp_client_capabilities_set_sampling(caps, true);
+    }
+    
+    mcp_client_capabilities_t* result = static_cast<mcp_client_capabilities_t*>(
+        std::malloc(sizeof(mcp_client_capabilities_t)));
+    if (result) {
+        *result = caps;
+    } else {
+        mcp_client_capabilities_free(caps);
+    }
+    
+    return result;
 }
 
 MCP_API mcp_json_value_t mcp_server_capabilities_to_json(const mcp_server_capabilities_t* caps) MCP_NOEXCEPT {
-    // Not implemented - API functions for server capabilities don't exist yet
-    return nullptr;
+    if (!caps) return nullptr;
+    
+    mcp_json_value_t obj = mcp_json_create_object();
+    if (!obj) return nullptr;
+    
+    // Add logging capability
+    if (mcp_server_capabilities_has_logging(*caps)) {
+        mcp_json_value_t logging_obj = mcp_json_create_object();
+        mcp_json_object_set(obj, "logging", logging_obj);
+    }
+    
+    // Add prompts capability
+    if (mcp_server_capabilities_has_prompts(*caps)) {
+        mcp_json_value_t prompts_obj = mcp_json_create_object();
+        mcp_json_object_set(prompts_obj, "listChanged", mcp_json_create_bool(true));
+        mcp_json_object_set(obj, "prompts", prompts_obj);
+    }
+    
+    // Add resources capability
+    if (mcp_server_capabilities_has_resources(*caps)) {
+        mcp_json_value_t resources_obj = mcp_json_create_object();
+        mcp_json_object_set(resources_obj, "subscribe", mcp_json_create_bool(true));
+        mcp_json_object_set(resources_obj, "listChanged", mcp_json_create_bool(true));
+        mcp_json_object_set(obj, "resources", resources_obj);
+    }
+    
+    // Add tools capability
+    if (mcp_server_capabilities_has_tools(*caps)) {
+        mcp_json_value_t tools_obj = mcp_json_create_object();
+        mcp_json_object_set(tools_obj, "listChanged", mcp_json_create_bool(true));
+        mcp_json_object_set(obj, "tools", tools_obj);
+    }
+    
+    return obj;
 }
 
 MCP_API mcp_server_capabilities_t* mcp_server_capabilities_from_json(mcp_json_value_t json) MCP_NOEXCEPT {
-    // Not implemented - API functions for server capabilities don't exist yet
-    return nullptr;
+    if (!json || mcp_json_get_type(json) != MCP_JSON_TYPE_OBJECT) return nullptr;
+    
+    mcp_server_capabilities_t caps = mcp_server_capabilities_create();
+    if (!caps) return nullptr;
+    
+    // Check for logging
+    mcp_json_value_t logging_val = mcp_json_object_get(json, "logging");
+    if (logging_val) {
+        mcp_server_capabilities_set_logging(caps, true);
+    }
+    
+    // Check for prompts
+    mcp_json_value_t prompts_val = mcp_json_object_get(json, "prompts");
+    if (prompts_val) {
+        mcp_server_capabilities_set_prompts(caps, true);
+    }
+    
+    // Check for resources
+    mcp_json_value_t resources_val = mcp_json_object_get(json, "resources");
+    if (resources_val) {
+        mcp_server_capabilities_set_resources(caps, true);
+    }
+    
+    // Check for tools
+    mcp_json_value_t tools_val = mcp_json_object_get(json, "tools");
+    if (tools_val) {
+        mcp_server_capabilities_set_tools(caps, true);
+    }
+    
+    mcp_server_capabilities_t* result = static_cast<mcp_server_capabilities_t*>(
+        std::malloc(sizeof(mcp_server_capabilities_t)));
+    if (result) {
+        *result = caps;
+    } else {
+        mcp_server_capabilities_free(caps);
+    }
+    
+    return result;
 }
 
 MCP_API mcp_json_value_t mcp_string_to_json(mcp_string_t str) MCP_NOEXCEPT {
