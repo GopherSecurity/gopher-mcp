@@ -18,8 +18,6 @@
 #include <variant>
 #include <cstring>
 
-namespace {
-
 /* ============================================================================
  * JSON Value Implementation
  * ============================================================================ */
@@ -35,7 +33,7 @@ struct mcp_json_value_impl {
         std::unordered_map<std::string, mcp_json_value_t> // object
     > value;
     
-    mcp_json_value_impl() : type(MCP_JSON_NULL), value(std::monostate{}) {}
+    mcp_json_value_impl() : type(MCP_JSON_TYPE_NULL), value(std::monostate{}) {}
 };
 
 /* ============================================================================
@@ -89,8 +87,6 @@ struct mcp_metadata_impl {
     
     mcp_metadata_impl() : data(nullptr) {}
 };
-
-} // anonymous namespace
 
 extern "C" {
 
@@ -387,7 +383,7 @@ MCP_API mcp_json_value_t mcp_json_create_null(void) MCP_NOEXCEPT {
 MCP_API mcp_json_value_t mcp_json_create_bool(mcp_bool_t value) MCP_NOEXCEPT {
     try {
         auto json = std::make_unique<mcp_json_value_impl>();
-        json->type = MCP_JSON_BOOL;
+        json->type = MCP_JSON_TYPE_BOOL;
         json->value = (value == MCP_TRUE);
         return json.release();
     } catch (...) {
@@ -398,7 +394,7 @@ MCP_API mcp_json_value_t mcp_json_create_bool(mcp_bool_t value) MCP_NOEXCEPT {
 MCP_API mcp_json_value_t mcp_json_create_number(double value) MCP_NOEXCEPT {
     try {
         auto json = std::make_unique<mcp_json_value_impl>();
-        json->type = MCP_JSON_NUMBER;
+        json->type = MCP_JSON_TYPE_NUMBER;
         json->value = value;
         return json.release();
     } catch (...) {
@@ -413,7 +409,7 @@ MCP_API mcp_json_value_t mcp_json_create_string(const char* value) MCP_NOEXCEPT 
     
     try {
         auto json = std::make_unique<mcp_json_value_impl>();
-        json->type = MCP_JSON_STRING;
+        json->type = MCP_JSON_TYPE_STRING;
         json->value = std::string(value);
         return json.release();
     } catch (...) {
@@ -424,7 +420,7 @@ MCP_API mcp_json_value_t mcp_json_create_string(const char* value) MCP_NOEXCEPT 
 MCP_API mcp_json_value_t mcp_json_create_array(void) MCP_NOEXCEPT {
     try {
         auto json = std::make_unique<mcp_json_value_impl>();
-        json->type = MCP_JSON_ARRAY;
+        json->type = MCP_JSON_TYPE_ARRAY;
         json->value = std::vector<mcp_json_value_t>();
         return json.release();
     } catch (...) {
@@ -435,7 +431,7 @@ MCP_API mcp_json_value_t mcp_json_create_array(void) MCP_NOEXCEPT {
 MCP_API mcp_json_value_t mcp_json_create_object(void) MCP_NOEXCEPT {
     try {
         auto json = std::make_unique<mcp_json_value_impl>();
-        json->type = MCP_JSON_OBJECT;
+        json->type = MCP_JSON_TYPE_OBJECT;
         json->value = std::unordered_map<std::string, mcp_json_value_t>();
         return json.release();
     } catch (...) {
@@ -449,12 +445,12 @@ MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT {
     }
     
     // Recursively free nested values
-    if (json->type == MCP_JSON_ARRAY) {
+    if (json->type == MCP_JSON_TYPE_ARRAY) {
         auto& array = std::get<std::vector<mcp_json_value_t>>(json->value);
         for (auto& item : array) {
             mcp_json_free(item);
         }
-    } else if (json->type == MCP_JSON_OBJECT) {
+    } else if (json->type == MCP_JSON_TYPE_OBJECT) {
         auto& object = std::get<std::unordered_map<std::string, mcp_json_value_t>>(json->value);
         for (auto& [key, value] : object) {
             mcp_json_free(value);
@@ -465,39 +461,39 @@ MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT {
 }
 
 MCP_API mcp_json_type_t mcp_json_get_type(mcp_json_value_t json) MCP_NOEXCEPT {
-    return json ? json->type : MCP_JSON_NULL;
+    return json ? json->type : MCP_JSON_TYPE_NULL;
 }
 
 MCP_API mcp_bool_t mcp_json_get_bool(mcp_json_value_t json) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_BOOL) {
+    if (!json || json->type != MCP_JSON_TYPE_BOOL) {
         return MCP_FALSE;
     }
     return std::get<bool>(json->value) ? MCP_TRUE : MCP_FALSE;
 }
 
 MCP_API double mcp_json_get_number(mcp_json_value_t json) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_NUMBER) {
+    if (!json || json->type != MCP_JSON_TYPE_NUMBER) {
         return 0.0;
     }
     return std::get<double>(json->value);
 }
 
 MCP_API const char* mcp_json_get_string(mcp_json_value_t json) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_STRING) {
+    if (!json || json->type != MCP_JSON_TYPE_STRING) {
         return nullptr;
     }
     return std::get<std::string>(json->value).c_str();
 }
 
 MCP_API size_t mcp_json_array_size(mcp_json_value_t json) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_ARRAY) {
+    if (!json || json->type != MCP_JSON_TYPE_ARRAY) {
         return 0;
     }
     return std::get<std::vector<mcp_json_value_t>>(json->value).size();
 }
 
 MCP_API mcp_json_value_t mcp_json_array_get(mcp_json_value_t json, size_t index) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_ARRAY) {
+    if (!json || json->type != MCP_JSON_TYPE_ARRAY) {
         return nullptr;
     }
     
@@ -509,7 +505,7 @@ MCP_API mcp_json_value_t mcp_json_array_get(mcp_json_value_t json, size_t index)
 }
 
 MCP_API mcp_result_t mcp_json_array_append(mcp_json_value_t json, mcp_json_value_t value) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_ARRAY || !value) {
+    if (!json || json->type != MCP_JSON_TYPE_ARRAY || !value) {
         return MCP_ERROR_INVALID_ARGUMENT;
     }
     
@@ -523,7 +519,7 @@ MCP_API mcp_result_t mcp_json_array_append(mcp_json_value_t json, mcp_json_value
 }
 
 MCP_API mcp_result_t mcp_json_object_set(mcp_json_value_t json, const char* key, mcp_json_value_t value) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_OBJECT || !key || !value) {
+    if (!json || json->type != MCP_JSON_TYPE_OBJECT || !key || !value) {
         return MCP_ERROR_INVALID_ARGUMENT;
     }
     
@@ -544,7 +540,7 @@ MCP_API mcp_result_t mcp_json_object_set(mcp_json_value_t json, const char* key,
 }
 
 MCP_API mcp_json_value_t mcp_json_object_get(mcp_json_value_t json, const char* key) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_OBJECT || !key) {
+    if (!json || json->type != MCP_JSON_TYPE_OBJECT || !key) {
         return nullptr;
     }
     
@@ -554,7 +550,7 @@ MCP_API mcp_json_value_t mcp_json_object_get(mcp_json_value_t json, const char* 
 }
 
 MCP_API mcp_bool_t mcp_json_object_has(mcp_json_value_t json, const char* key) MCP_NOEXCEPT {
-    if (!json || json->type != MCP_JSON_OBJECT || !key) {
+    if (!json || json->type != MCP_JSON_TYPE_OBJECT || !key) {
         return MCP_FALSE;
     }
     

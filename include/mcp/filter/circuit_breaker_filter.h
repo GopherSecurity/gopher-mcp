@@ -160,9 +160,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       error_response.jsonrpc = "2.0";
       error_response.id = request.id;
       Error error(jsonrpc::INTERNAL_ERROR, "Circuit breaker is open");
-      error.data = make_optional(ErrorData(
+      error.data = mcp::make_optional(ErrorData(
           std::map<std::string, std::string>{{"circuit_state", "open"}}));
-      error_response.error = make_optional(error);
+      error_response.error = mcp::make_optional(error);
 
       // Would need write callbacks to send this
       // For now, just block the request
