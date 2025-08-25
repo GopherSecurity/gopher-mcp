@@ -14,10 +14,10 @@
 #define MCP_C_BRIDGE_H
 
 #include "mcp_c_api.h"
-#include "mcp_c_types.h"
-#include "mcp_c_types_api.h"
 #include "mcp_c_collections.h"
 #include "mcp_c_memory.h"
+#include "mcp_c_types.h"
+#include "mcp_c_types_api.h"
 
 // C++ headers
 #include <functional>
@@ -304,7 +304,8 @@ class ConnectionCallbackBridge : public mcp::network::ConnectionCallbacks {
     if (new_state != impl_->current_state && impl_->state_callback) {
       impl_->current_state = new_state;
       impl_->state_callback(reinterpret_cast<mcp_connection_t>(impl_),
-                            static_cast<int>(new_state), impl_->callback_user_data);
+                            static_cast<int>(new_state),
+                            impl_->callback_user_data);
     }
   }
 
@@ -335,8 +336,7 @@ class MCPClientCallbackBridge {
     // This should convert the request to the C API format
     mcp_request_t c_request = nullptr;  // Placeholder
 
-    impl_->request_callback(reinterpret_cast<mcp_client_t>(impl_),
-                            c_request,
+    impl_->request_callback(reinterpret_cast<mcp_client_t>(impl_), c_request,
                             impl_->callback_user_data);
   }
 
@@ -348,9 +348,8 @@ class MCPClientCallbackBridge {
     // This should convert the response to the C API format
     mcp_response_t c_response = nullptr;  // Placeholder
 
-    impl_->response_callback(reinterpret_cast<mcp_client_t>(impl_),
-                            c_response,
-                            impl_->callback_user_data);
+    impl_->response_callback(reinterpret_cast<mcp_client_t>(impl_), c_response,
+                             impl_->callback_user_data);
   }
 
   void onNotification(const mcp::jsonrpc::Notification& notification) {
@@ -362,8 +361,7 @@ class MCPClientCallbackBridge {
     mcp_notification_t c_notification = nullptr;  // Placeholder
 
     impl_->notification_callback(reinterpret_cast<mcp_client_t>(impl_),
-                                c_notification,
-                                impl_->callback_user_data);
+                                 c_notification, impl_->callback_user_data);
   }
 
  private:
@@ -469,10 +467,10 @@ class ErrorManager {
     code                                      \
   } catch (const std::exception& e) {         \
     ErrorManager::set_error(e.what());        \
-    return MCP_ERROR_UNKNOWN;                \
+    return MCP_ERROR_UNKNOWN;                 \
   } catch (...) {                             \
     ErrorManager::set_error("Unknown error"); \
-    return MCP_ERROR_UNKNOWN;                \
+    return MCP_ERROR_UNKNOWN;                 \
   }
 
 #define TRY_CATCH_NULL(code)                  \

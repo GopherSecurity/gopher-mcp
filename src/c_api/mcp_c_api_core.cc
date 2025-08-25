@@ -33,8 +33,9 @@ using namespace mcp::c_api;
 
 extern "C" {
 
-// Removed - now use mcp_ffi_initialize() and mcp_ffi_shutdown() from mcp_c_memory_impl.cc
-// mcp_init and mcp_shutdown are replaced by the new FFI-safe functions
+// Removed - now use mcp_ffi_initialize() and mcp_ffi_shutdown() from
+// mcp_c_memory_impl.cc mcp_init and mcp_shutdown are replaced by the new
+// FFI-safe functions
 
 const char* mcp_get_version(void) {
   return "1.0.0";  // TODO: Use actual version from build system

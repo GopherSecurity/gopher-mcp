@@ -2,8 +2,9 @@
  * @file mcp_raii.cc
  * @brief Production implementation of specialized RAII deleters and utilities
  *
- * This file contains safe, production-ready implementations of specialized deleters
- * for MCP C API types with proper error handling and resource management.
+ * This file contains safe, production-ready implementations of specialized
+ * deleters for MCP C API types with proper error handling and resource
+ * management.
  *
  * @copyright Copyright (c) 2025 MCP Project
  * @license MIT License
@@ -17,14 +18,14 @@ extern "C" {
 #include "mcp/c_api/mcp_c_types.h"
 }
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
-#include <atomic>
 #include <mutex>
 
 #ifdef MCP_RAII_DEBUG_MODE
-#include <memory>
 #include <chrono>
+#include <memory>
 #endif
 
 namespace mcp {
@@ -32,224 +33,241 @@ namespace raii {
 
 /* ============================================================================
  * Specialized Deleter Implementations
- * ============================================================================ */
+ * ============================================================================
+ */
 
 /**
  * Safe deleter specialization for mcp_string_t
  * Handles nested pointer cleanup with null checks
  */
-template<>
+template <>
 void c_deleter<mcp_string_t>::operator()(mcp_string_t* ptr) const noexcept {
-    if (!ptr) return;
-    
-    try {
-        // Free string data first if it exists
-        if (ptr->data) {
-            // Cast away const for free() - data was allocated as non-const
-            free(const_cast<char*>(ptr->data));
-            ptr->data = nullptr; // Prevent double-free
-        }
-        
-        // Reset length for debugging
-        ptr->length = 0;
-        
-        // Untrack before freeing
-        MCP_RAII_UNTRACK_RESOURCE(ptr);
-        
-        // Free the structure itself
-        free(ptr);
-        
-    } catch (...) {
-        // This should never happen with standard free(), but be defensive
-        // In production, log this error to monitoring system
-        MCP_RAII_ASSERT(false && "Exception in mcp_string_t deleter");
-        
-        // Still attempt to free the structure to prevent leaks
-        try {
-            free(ptr);
-        } catch (...) {
-            // Complete failure - nothing more we can do
-        }
+  if (!ptr)
+    return;
+
+  try {
+    // Free string data first if it exists
+    if (ptr->data) {
+      // Cast away const for free() - data was allocated as non-const
+      free(const_cast<char*>(ptr->data));
+      ptr->data = nullptr;  // Prevent double-free
     }
+
+    // Reset length for debugging
+    ptr->length = 0;
+
+    // Untrack before freeing
+    MCP_RAII_UNTRACK_RESOURCE(ptr);
+
+    // Free the structure itself
+    free(ptr);
+
+  } catch (...) {
+    // This should never happen with standard free(), but be defensive
+    // In production, log this error to monitoring system
+    MCP_RAII_ASSERT(false && "Exception in mcp_string_t deleter");
+
+    // Still attempt to free the structure to prevent leaks
+    try {
+      free(ptr);
+    } catch (...) {
+      // Complete failure - nothing more we can do
+    }
+  }
 }
 
 /**
  * Safe deleter specialization for mcp_json_value_t
- * 
+ *
  * Note: This implementation assumes mcp_json_value_t is managed by the
  * JSON library's proper cleanup functions. If using a specific JSON library
  * (e.g., nlohmann::json, rapidjson, etc.), replace this with the appropriate
  * cleanup call.
  */
-template<>
-void c_deleter<mcp_json_value_t>::operator()(mcp_json_value_t* ptr) const noexcept {
-    if (!ptr) return;
-    
-    try {
-        // For testing purposes, use simple free()
-        // In production, this should be replaced with proper JSON cleanup
-        MCP_RAII_UNTRACK_RESOURCE(ptr);
-        free(ptr);
-        
-    } catch (...) {
-        // Cleanup threw exception - log error but continue
-        MCP_RAII_ASSERT(false && "Exception in mcp_json_value_t deleter");
-    }
+template <>
+void c_deleter<mcp_json_value_t>::operator()(
+    mcp_json_value_t* ptr) const noexcept {
+  if (!ptr)
+    return;
+
+  try {
+    // For testing purposes, use simple free()
+    // In production, this should be replaced with proper JSON cleanup
+    MCP_RAII_UNTRACK_RESOURCE(ptr);
+    free(ptr);
+
+  } catch (...) {
+    // Cleanup threw exception - log error but continue
+    MCP_RAII_ASSERT(false && "Exception in mcp_json_value_t deleter");
+  }
 }
 
 /* ============================================================================
  * Production Resource Tracking Implementation
- * ============================================================================ */
+ * ============================================================================
+ */
 
 #ifdef MCP_RAII_DEBUG_MODE
 
 // Global resource tracker instance management
 namespace {
-    std::once_flag tracker_init_flag;
-    std::unique_ptr<ResourceTracker> global_tracker;
-    
-    void ensure_tracker_initialized() {
-        std::call_once(tracker_init_flag, []() {
-            global_tracker = std::make_unique<ResourceTracker>();
-            
-            // Register cleanup at program termination
-            // Disable for unit tests to avoid assertions on intentional test leaks
+std::once_flag tracker_init_flag;
+std::unique_ptr<ResourceTracker> global_tracker;
+
+void ensure_tracker_initialized() {
+  std::call_once(tracker_init_flag, []() {
+    global_tracker = std::make_unique<ResourceTracker>();
+
+    // Register cleanup at program termination
+    // Disable for unit tests to avoid assertions on intentional test leaks
 #ifndef MCP_RAII_DISABLE_ATEXIT
-            std::atexit([]() {
-                if (global_tracker) {
-                    global_tracker->report_leaks();
-                    global_tracker.reset();
-                }
-            });
+    std::atexit([]() {
+      if (global_tracker) {
+        global_tracker->report_leaks();
+        global_tracker.reset();
+      }
+    });
 #endif
-        });
-    }
+  });
 }
+}  // namespace
 
 ResourceTracker& ResourceTracker::instance() {
-    ensure_tracker_initialized();
-    return *global_tracker;
+  ensure_tracker_initialized();
+  return *global_tracker;
 }
 
 void ResourceTracker::report_leaks() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (resources_.empty()) {
-        // No leaks detected - log success in debug mode
-        return;
-    }
-    
-    // Report leaks to appropriate logging system
-    // In a real implementation, this would integrate with your logging framework
-    size_t leak_count = resources_.size();
-    
-    // Example logging (replace with actual logging system):
-    // logger::error("Resource leak detected: {} leaked resources", leak_count);
-    
-    for (const auto& pair : resources_) {
-        const auto& info = pair.second;
-        auto duration = std::chrono::steady_clock::now() - info.allocated_at;
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        
-        // Example detailed leak reporting:
-        // logger::error("  Leaked {} resource at {} allocated at {}:{} ({} ms ago)",
-        //               info.type_name, pair.first, info.file, info.line, duration_ms.count());
-    }
-    
-    // In debug builds, assert to catch leaks during development
-    MCP_RAII_ASSERT(false && "Resource leaks detected - see log for details");
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  if (resources_.empty()) {
+    // No leaks detected - log success in debug mode
+    return;
+  }
+
+  // Report leaks to appropriate logging system
+  // In a real implementation, this would integrate with your logging framework
+  size_t leak_count = resources_.size();
+
+  // Example logging (replace with actual logging system):
+  // logger::error("Resource leak detected: {} leaked resources", leak_count);
+
+  for (const auto& pair : resources_) {
+    const auto& info = pair.second;
+    auto duration = std::chrono::steady_clock::now() - info.allocated_at;
+    auto duration_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+
+    // Example detailed leak reporting:
+    // logger::error("  Leaked {} resource at {} allocated at {}:{} ({} ms
+    // ago)",
+    //               info.type_name, pair.first, info.file, info.line,
+    //               duration_ms.count());
+  }
+
+  // In debug builds, assert to catch leaks during development
+  MCP_RAII_ASSERT(false && "Resource leaks detected - see log for details");
 }
 
-#endif // MCP_RAII_DEBUG_MODE
+#endif  // MCP_RAII_DEBUG_MODE
 
 /* ============================================================================
  * Global Statistics and Monitoring
- * ============================================================================ */
+ * ============================================================================
+ */
 
 // Thread-safe global statistics for production monitoring
 namespace {
-    struct GlobalStats {
-        std::atomic<uint64_t> total_guards_created{0};
-        std::atomic<uint64_t> total_guards_destroyed{0};
-        std::atomic<uint64_t> total_resources_tracked{0};
-        std::atomic<uint64_t> total_resources_released{0};
-        std::atomic<uint64_t> total_exceptions_in_destructors{0};
-    };
-    
-    GlobalStats& get_global_stats() {
-        static GlobalStats stats;
-        return stats;
-    }
+struct GlobalStats {
+  std::atomic<uint64_t> total_guards_created{0};
+  std::atomic<uint64_t> total_guards_destroyed{0};
+  std::atomic<uint64_t> total_resources_tracked{0};
+  std::atomic<uint64_t> total_resources_released{0};
+  std::atomic<uint64_t> total_exceptions_in_destructors{0};
+};
+
+GlobalStats& get_global_stats() {
+  static GlobalStats stats;
+  return stats;
 }
+}  // namespace
 
 // Internal statistics tracking functions
 namespace internal {
 
 void increment_guards_created() noexcept {
-    mcp::raii::get_global_stats().total_guards_created.fetch_add(1, std::memory_order_relaxed);
+  mcp::raii::get_global_stats().total_guards_created.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
 void increment_guards_destroyed() noexcept {
-    mcp::raii::get_global_stats().total_guards_destroyed.fetch_add(1, std::memory_order_relaxed);
+  mcp::raii::get_global_stats().total_guards_destroyed.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
 void increment_resources_tracked() noexcept {
-    mcp::raii::get_global_stats().total_resources_tracked.fetch_add(1, std::memory_order_relaxed);
+  mcp::raii::get_global_stats().total_resources_tracked.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
 void increment_resources_released() noexcept {
-    mcp::raii::get_global_stats().total_resources_released.fetch_add(1, std::memory_order_relaxed);
+  mcp::raii::get_global_stats().total_resources_released.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
 void increment_exceptions_in_destructors() noexcept {
-    mcp::raii::get_global_stats().total_exceptions_in_destructors.fetch_add(1, std::memory_order_relaxed);
+  mcp::raii::get_global_stats().total_exceptions_in_destructors.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
-} // namespace internal
+}  // namespace internal
 
-} // namespace raii
-} // namespace mcp
+}  // namespace raii
+}  // namespace mcp
 
 /* ============================================================================
  * C API for External Monitoring
- * ============================================================================ */
+ * ============================================================================
+ */
 
 extern "C" {
-    
+
 /**
  * Get current resource statistics for monitoring
  * Thread-safe and can be called from monitoring/metrics systems
  */
-void mcp_raii_get_stats(
-    uint64_t* guards_created,
-    uint64_t* guards_destroyed,
-    uint64_t* resources_tracked,
-    uint64_t* resources_released,
-    uint64_t* exceptions_in_destructors
-) {
-    if (!guards_created || !guards_destroyed || !resources_tracked || 
-        !resources_released || !exceptions_in_destructors) {
-        return; // Invalid parameters
-    }
-    
-    auto& stats = mcp::raii::get_global_stats();
-    *guards_created = stats.total_guards_created.load(std::memory_order_relaxed);
-    *guards_destroyed = stats.total_guards_destroyed.load(std::memory_order_relaxed);
-    *resources_tracked = stats.total_resources_tracked.load(std::memory_order_relaxed);
-    *resources_released = stats.total_resources_released.load(std::memory_order_relaxed);
-    *exceptions_in_destructors = stats.total_exceptions_in_destructors.load(std::memory_order_relaxed);
+void mcp_raii_get_stats(uint64_t* guards_created,
+                        uint64_t* guards_destroyed,
+                        uint64_t* resources_tracked,
+                        uint64_t* resources_released,
+                        uint64_t* exceptions_in_destructors) {
+  if (!guards_created || !guards_destroyed || !resources_tracked ||
+      !resources_released || !exceptions_in_destructors) {
+    return;  // Invalid parameters
+  }
+
+  auto& stats = mcp::raii::get_global_stats();
+  *guards_created = stats.total_guards_created.load(std::memory_order_relaxed);
+  *guards_destroyed =
+      stats.total_guards_destroyed.load(std::memory_order_relaxed);
+  *resources_tracked =
+      stats.total_resources_tracked.load(std::memory_order_relaxed);
+  *resources_released =
+      stats.total_resources_released.load(std::memory_order_relaxed);
+  *exceptions_in_destructors =
+      stats.total_exceptions_in_destructors.load(std::memory_order_relaxed);
 }
 
 /**
  * Reset statistics counters (useful for testing or periodic resets)
  */
 void mcp_raii_reset_stats() {
-    auto& stats = mcp::raii::get_global_stats();
-    stats.total_guards_created.store(0, std::memory_order_relaxed);
-    stats.total_guards_destroyed.store(0, std::memory_order_relaxed);
-    stats.total_resources_tracked.store(0, std::memory_order_relaxed);
-    stats.total_resources_released.store(0, std::memory_order_relaxed);
-    stats.total_exceptions_in_destructors.store(0, std::memory_order_relaxed);
+  auto& stats = mcp::raii::get_global_stats();
+  stats.total_guards_created.store(0, std::memory_order_relaxed);
+  stats.total_guards_destroyed.store(0, std::memory_order_relaxed);
+  stats.total_resources_tracked.store(0, std::memory_order_relaxed);
+  stats.total_resources_released.store(0, std::memory_order_relaxed);
+  stats.total_exceptions_in_destructors.store(0, std::memory_order_relaxed);
 }
 
 /**
@@ -258,10 +276,10 @@ void mcp_raii_reset_stats() {
  */
 size_t mcp_raii_active_resources() {
 #ifdef MCP_RAII_DEBUG_MODE
-    return mcp::raii::ResourceTracker::instance().active_resources();
+  return mcp::raii::ResourceTracker::instance().active_resources();
 #else
-    return 0; // Not available in release builds
+  return 0;  // Not available in release builds
 #endif
 }
 
-} // extern "C"
+}  // extern "C"
