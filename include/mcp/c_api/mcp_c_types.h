@@ -225,7 +225,8 @@ typedef enum {
 typedef struct mcp_dispatcher_impl* mcp_dispatcher_t;
 typedef struct mcp_connection_impl* mcp_connection_t;
 typedef struct mcp_listener_impl* mcp_listener_t;
-typedef struct mcp_filter_impl* mcp_filter_t;
+// Use opaque handle for FFI safety and RAII enforcement
+typedef uint64_t mcp_filter_t;
 typedef struct mcp_client_impl* mcp_client_t;
 typedef struct mcp_server_impl* mcp_server_t;
 typedef struct mcp_transport_socket_impl* mcp_transport_socket_t;

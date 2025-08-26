@@ -18,6 +18,7 @@
 
 #include "mcp_c_types.h"
 #include "mcp_c_memory.h"
+#include "mcp_filter_api.h"
 
 #ifdef __cplusplus
 extern "C" {
