@@ -34,6 +34,426 @@
 namespace {
 
 // ============================================================================
+// RAII Wrappers for Resource Management
+// ============================================================================
+
+/**
+ * RAII wrapper for mcp_filter_t
+ * Ensures automatic cleanup of filter resources
+ */
+class FilterGuard {
+public:
+    explicit FilterGuard(mcp_filter_t filter = nullptr) : filter_(filter) {}
+    
+    FilterGuard(mcp_dispatcher_t dispatcher, const std::string& name,
+                mcp_protocol_layer_t layer = MCP_PROTOCOL_LAYER_7_APPLICATION,
+                mcp_memory_pool_t memory_pool = nullptr) {
+        mcp_filter_config_t config = {};
+        config.name = name.c_str();
+        config.type = MCP_FILTER_CUSTOM;
+        config.layer = layer;
+        config.memory_pool = memory_pool;
+        filter_ = mcp_filter_create(dispatcher, &config);
+    }
+    
+    ~FilterGuard() {
+        if (filter_) {
+            mcp_filter_release(filter_);
+        }
+    }
+    
+    // Move constructor
+    FilterGuard(FilterGuard&& other) noexcept : filter_(other.filter_) {
+        other.filter_ = nullptr;
+    }
+    
+    // Move assignment
+    FilterGuard& operator=(FilterGuard&& other) noexcept {
+        if (this != &other) {
+            if (filter_) {
+                mcp_filter_release(filter_);
+            }
+            filter_ = other.filter_;
+            other.filter_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    FilterGuard(const FilterGuard&) = delete;
+    FilterGuard& operator=(const FilterGuard&) = delete;
+    
+    mcp_filter_t get() const { return filter_; }
+    mcp_filter_t release() {
+        mcp_filter_t temp = filter_;
+        filter_ = nullptr;
+        return temp;
+    }
+    
+    operator mcp_filter_t() const { return filter_; }
+    
+private:
+    mcp_filter_t filter_;
+};
+
+/**
+ * RAII wrapper for mcp_filter_chain_t
+ */
+class FilterChainGuard {
+public:
+    explicit FilterChainGuard(mcp_filter_chain_t chain = 0) : chain_(chain) {}
+    
+    ~FilterChainGuard() {
+        if (chain_) {
+            mcp_filter_chain_release(chain_);
+        }
+    }
+    
+    // Move constructor
+    FilterChainGuard(FilterChainGuard&& other) noexcept : chain_(other.chain_) {
+        other.chain_ = 0;
+    }
+    
+    // Move assignment
+    FilterChainGuard& operator=(FilterChainGuard&& other) noexcept {
+        if (this != &other) {
+            if (chain_) {
+                mcp_filter_chain_release(chain_);
+            }
+            chain_ = other.chain_;
+            other.chain_ = 0;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    FilterChainGuard(const FilterChainGuard&) = delete;
+    FilterChainGuard& operator=(const FilterChainGuard&) = delete;
+    
+    mcp_filter_chain_t get() const { return chain_; }
+    mcp_filter_chain_t release() {
+        mcp_filter_chain_t temp = chain_;
+        chain_ = 0;
+        return temp;
+    }
+    
+    operator mcp_filter_chain_t() const { return chain_; }
+    
+private:
+    mcp_filter_chain_t chain_;
+};
+
+/**
+ * RAII wrapper for mcp_buffer_handle_t
+ */
+class BufferGuard {
+public:
+    explicit BufferGuard(mcp_buffer_handle_t buffer = 0) : buffer_(buffer) {}
+    
+    BufferGuard(const uint8_t* data, size_t size, uint32_t flags)
+        : buffer_(mcp_filter_buffer_create(data, size, flags)) {}
+    
+    ~BufferGuard() {
+        if (buffer_) {
+            mcp_filter_buffer_release(buffer_);
+        }
+    }
+    
+    // Move constructor
+    BufferGuard(BufferGuard&& other) noexcept : buffer_(other.buffer_) {
+        other.buffer_ = 0;
+    }
+    
+    // Move assignment
+    BufferGuard& operator=(BufferGuard&& other) noexcept {
+        if (this != &other) {
+            if (buffer_) {
+                mcp_filter_buffer_release(buffer_);
+            }
+            buffer_ = other.buffer_;
+            other.buffer_ = 0;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    BufferGuard(const BufferGuard&) = delete;
+    BufferGuard& operator=(const BufferGuard&) = delete;
+    
+    mcp_buffer_handle_t get() const { return buffer_; }
+    mcp_buffer_handle_t release() {
+        mcp_buffer_handle_t temp = buffer_;
+        buffer_ = 0;
+        return temp;
+    }
+    
+    operator mcp_buffer_handle_t() const { return buffer_; }
+    
+private:
+    mcp_buffer_handle_t buffer_;
+};
+
+/**
+ * RAII wrapper for mcp_filter_chain_builder_t
+ */
+class FilterChainBuilderGuard {
+public:
+    explicit FilterChainBuilderGuard(mcp_dispatcher_t dispatcher)
+        : builder_(mcp_filter_chain_builder_create(dispatcher)) {}
+    
+    ~FilterChainBuilderGuard() {
+        if (builder_) {
+            mcp_filter_chain_builder_destroy(builder_);
+        }
+    }
+    
+    // Move constructor
+    FilterChainBuilderGuard(FilterChainBuilderGuard&& other) noexcept : builder_(other.builder_) {
+        other.builder_ = nullptr;
+    }
+    
+    // Move assignment
+    FilterChainBuilderGuard& operator=(FilterChainBuilderGuard&& other) noexcept {
+        if (this != &other) {
+            if (builder_) {
+                mcp_filter_chain_builder_destroy(builder_);
+            }
+            builder_ = other.builder_;
+            other.builder_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    FilterChainBuilderGuard(const FilterChainBuilderGuard&) = delete;
+    FilterChainBuilderGuard& operator=(const FilterChainBuilderGuard&) = delete;
+    
+    mcp_filter_chain_builder_t get() const { return builder_; }
+    operator mcp_filter_chain_builder_t() const { return builder_; }
+    
+private:
+    mcp_filter_chain_builder_t builder_;
+};
+
+/**
+ * RAII wrapper for mcp_buffer_pool_t
+ */
+class BufferPoolGuard {
+public:
+    BufferPoolGuard(size_t buffer_size, size_t max_buffers)
+        : pool_(mcp_buffer_pool_create(buffer_size, max_buffers)) {}
+    
+    ~BufferPoolGuard() {
+        if (pool_) {
+            mcp_buffer_pool_destroy(pool_);
+        }
+    }
+    
+    // Move constructor
+    BufferPoolGuard(BufferPoolGuard&& other) noexcept : pool_(other.pool_) {
+        other.pool_ = nullptr;
+    }
+    
+    // Move assignment
+    BufferPoolGuard& operator=(BufferPoolGuard&& other) noexcept {
+        if (this != &other) {
+            if (pool_) {
+                mcp_buffer_pool_destroy(pool_);
+            }
+            pool_ = other.pool_;
+            other.pool_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    BufferPoolGuard(const BufferPoolGuard&) = delete;
+    BufferPoolGuard& operator=(const BufferPoolGuard&) = delete;
+    
+    mcp_buffer_pool_t get() const { return pool_; }
+    operator mcp_buffer_pool_t() const { return pool_; }
+    
+    // Helper to acquire buffer (returns guarded buffer)
+    BufferGuard acquire() {
+        return BufferGuard(mcp_buffer_pool_acquire(pool_));
+    }
+    
+    // Release buffer back to pool
+    void release(mcp_buffer_handle_t buffer) {
+        mcp_buffer_pool_release(pool_, buffer);
+    }
+    
+private:
+    mcp_buffer_pool_t pool_;
+};
+
+/**
+ * RAII wrapper for mcp_filter_manager_t
+ */
+class FilterManagerGuard {
+public:
+    FilterManagerGuard(mcp_connection_t connection, mcp_dispatcher_t dispatcher)
+        : manager_(mcp_filter_manager_create(connection, dispatcher)) {}
+    
+    ~FilterManagerGuard() {
+        if (manager_) {
+            mcp_filter_manager_release(manager_);
+        }
+    }
+    
+    // Move constructor
+    FilterManagerGuard(FilterManagerGuard&& other) noexcept : manager_(other.manager_) {
+        other.manager_ = 0;
+    }
+    
+    // Move assignment
+    FilterManagerGuard& operator=(FilterManagerGuard&& other) noexcept {
+        if (this != &other) {
+            if (manager_) {
+                mcp_filter_manager_release(manager_);
+            }
+            manager_ = other.manager_;
+            other.manager_ = 0;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    FilterManagerGuard(const FilterManagerGuard&) = delete;
+    FilterManagerGuard& operator=(const FilterManagerGuard&) = delete;
+    
+    mcp_filter_manager_t get() const { return manager_; }
+    operator mcp_filter_manager_t() const { return manager_; }
+    
+private:
+    mcp_filter_manager_t manager_;
+};
+
+/**
+ * RAII wrapper for mcp_dispatcher_t
+ */
+class DispatcherGuard {
+public:
+    DispatcherGuard() : dispatcher_(mcp_dispatcher_create()) {}
+    
+    ~DispatcherGuard() {
+        if (dispatcher_) {
+            mcp_dispatcher_destroy(dispatcher_);
+        }
+    }
+    
+    // Move constructor
+    DispatcherGuard(DispatcherGuard&& other) noexcept : dispatcher_(other.dispatcher_) {
+        other.dispatcher_ = nullptr;
+    }
+    
+    // Move assignment
+    DispatcherGuard& operator=(DispatcherGuard&& other) noexcept {
+        if (this != &other) {
+            if (dispatcher_) {
+                mcp_dispatcher_destroy(dispatcher_);
+            }
+            dispatcher_ = other.dispatcher_;
+            other.dispatcher_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    DispatcherGuard(const DispatcherGuard&) = delete;
+    DispatcherGuard& operator=(const DispatcherGuard&) = delete;
+    
+    mcp_dispatcher_t get() const { return dispatcher_; }
+    operator mcp_dispatcher_t() const { return dispatcher_; }
+    
+private:
+    mcp_dispatcher_t dispatcher_;
+};
+
+/**
+ * RAII wrapper for mcp_memory_pool_t
+ */
+class MemoryPoolGuard {
+public:
+    explicit MemoryPoolGuard(size_t size) : pool_(mcp_memory_pool_create(size)) {}
+    
+    ~MemoryPoolGuard() {
+        if (pool_) {
+            mcp_memory_pool_destroy(pool_);
+        }
+    }
+    
+    // Move constructor
+    MemoryPoolGuard(MemoryPoolGuard&& other) noexcept : pool_(other.pool_) {
+        other.pool_ = nullptr;
+    }
+    
+    // Move assignment
+    MemoryPoolGuard& operator=(MemoryPoolGuard&& other) noexcept {
+        if (this != &other) {
+            if (pool_) {
+                mcp_memory_pool_destroy(pool_);
+            }
+            pool_ = other.pool_;
+            other.pool_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    MemoryPoolGuard(const MemoryPoolGuard&) = delete;
+    MemoryPoolGuard& operator=(const MemoryPoolGuard&) = delete;
+    
+    mcp_memory_pool_t get() const { return pool_; }
+    operator mcp_memory_pool_t() const { return pool_; }
+    
+private:
+    mcp_memory_pool_t pool_;
+};
+
+/**
+ * RAII wrapper for mcp_json_value_t
+ */
+class JsonValueGuard {
+public:
+    JsonValueGuard() : value_(mcp_json_create_object()) {}
+    explicit JsonValueGuard(mcp_json_value_t value) : value_(value) {}
+    
+    ~JsonValueGuard() {
+        if (value_) {
+            mcp_json_release(value_);
+        }
+    }
+    
+    // Move constructor
+    JsonValueGuard(JsonValueGuard&& other) noexcept : value_(other.value_) {
+        other.value_ = nullptr;
+    }
+    
+    // Move assignment
+    JsonValueGuard& operator=(JsonValueGuard&& other) noexcept {
+        if (this != &other) {
+            if (value_) {
+                mcp_json_release(value_);
+            }
+            value_ = other.value_;
+            other.value_ = nullptr;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    JsonValueGuard(const JsonValueGuard&) = delete;
+    JsonValueGuard& operator=(const JsonValueGuard&) = delete;
+    
+    mcp_json_value_t get() const { return value_; }
+    operator mcp_json_value_t() const { return value_; }
+    
+private:
+    mcp_json_value_t value_;
+};
+
+// ============================================================================
 // Test Utilities
 // ============================================================================
 
@@ -110,82 +530,44 @@ protected:
         // Initialize MCP
         ASSERT_EQ(mcp_init(nullptr), MCP_OK);
         
-        // Create dispatcher
-        dispatcher_ = mcp_dispatcher_create();
-        ASSERT_NE(dispatcher_, nullptr) << "Failed to create dispatcher";
+        // Create dispatcher using RAII
+        dispatcher_ = std::make_unique<DispatcherGuard>();
+        ASSERT_TRUE(dispatcher_->get() != 0) << "Failed to create dispatcher";
         
-        // Create memory pool for testing
-        memory_pool_ = mcp_memory_pool_create(1024 * 1024); // 1MB pool
-        ASSERT_NE(memory_pool_, nullptr) << "Failed to create memory pool";
+        // Create memory pool for testing using RAII
+        memory_pool_ = std::make_unique<MemoryPoolGuard>(1024 * 1024); // 1MB pool
+        ASSERT_TRUE(memory_pool_->get() != 0) << "Failed to create memory pool";
         
         // Reset callback tracker
         callback_tracker_.reset();
     }
     
     void TearDown() override {
-        // Clean up any remaining filters
-        for (auto filter : test_filters_) {
-            if (filter) {
-                mcp_filter_release(filter);
-            }
-        }
-        test_filters_.clear();
-        
-        // Clean up filter chains
-        for (auto chain : test_chains_) {
-            if (chain) {
-                mcp_filter_chain_release(chain);
-            }
-        }
-        test_chains_.clear();
-        
-        // Destroy memory pool
-        if (memory_pool_) {
-            mcp_memory_pool_destroy(memory_pool_);
-        }
-        
-        // Destroy dispatcher
-        if (dispatcher_) {
-            mcp_dispatcher_destroy(dispatcher_);
-        }
+        // RAII handles all cleanup automatically
+        // Clear smart pointers in reverse order of creation
+        memory_pool_.reset();
+        dispatcher_.reset();
         
         // Shutdown MCP
         mcp_shutdown();
     }
     
-    // Helper to create and track a filter
-    mcp_filter_t createTestFilter(const std::string& name, 
-                                  mcp_protocol_layer_t layer = MCP_PROTOCOL_LAYER_7_APPLICATION) {
-        mcp_filter_config_t config = {};
-        config.name = name.c_str();
-        config.type = MCP_FILTER_CUSTOM;
-        config.layer = layer;
-        config.memory_pool = memory_pool_;
-        
-        mcp_filter_t filter = mcp_filter_create(dispatcher_, &config);
-        if (filter != nullptr) {
-            test_filters_.push_back(filter);
-        }
-        return filter;
+    // Helper to create a filter using RAII
+    FilterGuard createTestFilter(const std::string& name, 
+                                 mcp_protocol_layer_t layer = MCP_PROTOCOL_LAYER_7_APPLICATION) {
+        return FilterGuard(dispatcher_->get(), name, layer, memory_pool_->get());
     }
     
-    // Helper to create builtin filter
-    mcp_filter_t createBuiltinFilter(mcp_builtin_filter_type_t type) {
-        mcp_json_value_t config = mcp_json_create_object();
-        mcp_filter_t filter = mcp_filter_create_builtin(dispatcher_, type, config);
-        mcp_json_release(config);
-        
-        if (filter != nullptr) {
-            test_filters_.push_back(filter);
-        }
-        return filter;
+    // Helper to create builtin filter using RAII
+    FilterGuard createBuiltinFilter(mcp_builtin_filter_type_t type) {
+        JsonValueGuard config;
+        mcp_filter_t filter = mcp_filter_create_builtin(dispatcher_->get(), type, config);
+        return FilterGuard(filter);
     }
     
 protected:
-    mcp_dispatcher_t dispatcher_ = nullptr;
-    mcp_memory_pool_t memory_pool_ = nullptr;
-    std::vector<mcp_filter_t> test_filters_;
-    std::vector<mcp_filter_chain_t> test_chains_;
+    std::unique_ptr<DispatcherGuard> dispatcher_;
+    std::unique_ptr<MemoryPoolGuard> memory_pool_;
     CallbackTracker callback_tracker_;
 };
 
@@ -194,22 +576,20 @@ protected:
 // ============================================================================
 
 TEST_F(McpFilterApiTest, CreateAndDestroyFilter) {
-    // Test basic filter creation and destruction
-    mcp_filter_t filter = createTestFilter("lifecycle_test");
-    ASSERT_NE(filter, nullptr) << "Failed to create filter";
+    // Test basic filter creation and destruction using RAII
+    FilterGuard filter = createTestFilter("lifecycle_test");
+    ASSERT_TRUE(filter.get() != nullptr) << "Failed to create filter";
     
     // Verify filter exists
     mcp_filter_stats_t stats = {};
     EXPECT_EQ(mcp_filter_get_stats(filter, &stats), MCP_OK);
     
-    // Release filter
-    mcp_filter_release(filter);
-    test_filters_.pop_back(); // Remove from tracking
+    // Filter automatically cleaned up by RAII
 }
 
 TEST_F(McpFilterApiTest, FilterReferenceCountingTest) {
-    mcp_filter_t filter = createTestFilter("refcount_test");
-    ASSERT_NE(filter, nullptr);
+    FilterGuard filter = createTestFilter("refcount_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Retain multiple times
     mcp_filter_retain(filter);
@@ -259,9 +639,12 @@ TEST_F(McpFilterApiTest, CreateAllBuiltinFilterTypes) {
         {MCP_FILTER_LOAD_BALANCER, "Load Balancer"},
     };
     
+    // Store filters in vector to ensure proper RAII cleanup
+    std::vector<FilterGuard> filters;
     for (const auto& test : filter_types) {
-        mcp_filter_t filter = createBuiltinFilter(test.type);
-        ASSERT_NE(filter, nullptr) << "Failed to create " << test.description << " filter";
+        FilterGuard filter = createBuiltinFilter(test.type);
+        ASSERT_TRUE(filter.get() != nullptr) << "Failed to create " << test.description << " filter";
+        filters.push_back(std::move(filter));
     }
 }
 
@@ -277,9 +660,9 @@ static mcp_filter_status_t test_data_callback(mcp_buffer_handle_t buffer,
     tracker->recordCallback("on_data");
     
     // Verify buffer is valid
-    EXPECT_NE(buffer, nullptr);
+    EXPECT_NE(buffer, 0u);
     size_t length = mcp_filter_buffer_length(buffer);
-    EXPECT_GT(length, 0);
+    EXPECT_GT(length, 0u);
     
     return MCP_FILTER_CONTINUE;
 }
@@ -292,7 +675,7 @@ static mcp_filter_status_t test_write_callback(mcp_buffer_handle_t buffer,
     return MCP_FILTER_CONTINUE;
 }
 
-static mcp_filter_status_t test_event_callback(mcp_connection_t connection,
+static mcp_filter_status_t test_event_callback(mcp_connection_state_t state,
                                               void* user_data) {
     auto* tracker = static_cast<CallbackTracker*>(user_data);
     tracker->recordCallback("on_event");
@@ -308,8 +691,8 @@ static void test_error_callback(mcp_filter_t filter,
 }
 
 TEST_F(McpFilterApiTest, SetAndTriggerCallbacks) {
-    mcp_filter_t filter = createTestFilter("callback_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("callback_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Set up callbacks
     mcp_filter_callbacks_t callbacks = {};
@@ -321,16 +704,15 @@ TEST_F(McpFilterApiTest, SetAndTriggerCallbacks) {
     
     ASSERT_EQ(mcp_filter_set_callbacks(filter, &callbacks), MCP_OK);
     
-    // Create test data
+    // Create test data using RAII
     std::vector<uint8_t> test_data = TestDataGenerator::generateRandomData(1024);
-    mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-        test_data.data(), test_data.size(), MCP_BUFFER_FLAG_READONLY);
-    ASSERT_NE(buffer, 0);
+    BufferGuard buffer(test_data.data(), test_data.size(), MCP_BUFFER_FLAG_READONLY);
+    ASSERT_NE(buffer.get(), 0u);
     
     // Trigger callbacks would normally happen through filter chain processing
     // Here we verify the setup was successful
     
-    mcp_filter_buffer_release(buffer);
+    // Buffer automatically released by RAII
 }
 
 // ============================================================================
@@ -338,8 +720,8 @@ TEST_F(McpFilterApiTest, SetAndTriggerCallbacks) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, SetAndGetProtocolMetadata) {
-    mcp_filter_t filter = createTestFilter("metadata_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("metadata_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Test L3 metadata
     {
@@ -401,48 +783,45 @@ TEST_F(McpFilterApiTest, SetAndGetProtocolMetadata) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, CreateAndBuildFilterChain) {
-    // Create chain builder
-    mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_);
-    ASSERT_NE(builder, nullptr);
+    // Create chain builder using RAII
+    FilterChainBuilderGuard builder(dispatcher_->get());
+    ASSERT_TRUE(builder.get() != 0);
     
-    // Create filters for chain
-    mcp_filter_t filter1 = createTestFilter("filter1");
-    mcp_filter_t filter2 = createTestFilter("filter2");
-    mcp_filter_t filter3 = createTestFilter("filter3");
+    // Create filters for chain using RAII
+    FilterGuard filter1 = createTestFilter("filter1");
+    FilterGuard filter2 = createTestFilter("filter2");
+    FilterGuard filter3 = createTestFilter("filter3");
     
-    ASSERT_NE(filter1, 0);
-    ASSERT_NE(filter2, 0);
-    ASSERT_NE(filter3, 0);
+    ASSERT_TRUE(filter1.get() != 0);
+    ASSERT_TRUE(filter2.get() != 0);
+    ASSERT_TRUE(filter3.get() != 0);
     
     // Add filters to chain in different positions
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, filter1, MCP_FILTER_POSITION_FIRST, 0), MCP_OK);
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, filter2, MCP_FILTER_POSITION_LAST, 0), MCP_OK);
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, filter3, MCP_FILTER_POSITION_AFTER, filter1), MCP_OK);
     
-    // Build the chain
-    mcp_filter_chain_t chain = mcp_filter_chain_build(builder);
-    ASSERT_NE(chain, 0);
-    test_chains_.push_back(chain);
-    
-    // Destroy builder
-    mcp_filter_chain_builder_destroy(builder);
+    // Build the chain using RAII
+    FilterChainGuard chain(mcp_filter_chain_build(builder));
+    ASSERT_TRUE(chain.get() != 0u);
     
     // Chain should still be valid
     mcp_filter_chain_retain(chain);
     mcp_filter_chain_release(chain);
+    
+    // All resources automatically cleaned up by RAII
 }
 
 TEST_F(McpFilterApiTest, FilterChainPositioning) {
-    mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_);
-    ASSERT_NE(builder, nullptr);
+    FilterChainBuilderGuard builder(dispatcher_->get());
+    ASSERT_TRUE(builder.get() != 0);
     
-    // Create multiple filters
-    std::vector<mcp_filter_t> filters;
+    // Create multiple filters using RAII
+    std::vector<FilterGuard> filters;
     for (int i = 0; i < 5; ++i) {
         std::string name = "chain_filter_" + std::to_string(i);
-        mcp_filter_t filter = createTestFilter(name);
-        ASSERT_NE(filter, 0);
-        filters.push_back(filter);
+        filters.push_back(createTestFilter(name));
+        ASSERT_TRUE(filters.back().get() != nullptr);
     }
     
     // Test different positioning strategies
@@ -452,12 +831,11 @@ TEST_F(McpFilterApiTest, FilterChainPositioning) {
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, filters[3], MCP_FILTER_POSITION_AFTER, filters[0]), MCP_OK);
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, filters[4], MCP_FILTER_POSITION_LAST, 0), MCP_OK);
     
-    // Build and verify chain
-    mcp_filter_chain_t chain = mcp_filter_chain_build(builder);
-    ASSERT_NE(chain, 0);
-    test_chains_.push_back(chain);
+    // Build and verify chain using RAII
+    FilterChainGuard chain(mcp_filter_chain_build(builder));
+    ASSERT_TRUE(chain.get() != 0u);
     
-    mcp_filter_chain_builder_destroy(builder);
+    // All resources automatically cleaned up by RAII
 }
 
 // ============================================================================
@@ -467,23 +845,21 @@ TEST_F(McpFilterApiTest, FilterChainPositioning) {
 TEST_F(McpFilterApiTest, CreateAndReleaseBuffer) {
     std::vector<uint8_t> data = TestDataGenerator::generateRandomData(1024);
     
-    mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-        data.data(), data.size(), MCP_BUFFER_FLAG_READONLY);
-    ASSERT_NE(buffer, 0);
+    BufferGuard buffer(data.data(), data.size(), MCP_BUFFER_FLAG_READONLY);
+    ASSERT_TRUE(buffer.get() != 0u);
     
     // Verify buffer properties
     size_t length = mcp_filter_buffer_length(buffer);
     EXPECT_EQ(length, data.size());
     
-    mcp_filter_buffer_release(buffer);
+    // Buffer automatically released by RAII
 }
 
 TEST_F(McpFilterApiTest, BufferSliceOperations) {
     std::vector<uint8_t> data = TestDataGenerator::generateRandomData(4096);
     
-    mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-        data.data(), data.size(), MCP_BUFFER_FLAG_READONLY);
-    ASSERT_NE(buffer, 0);
+    BufferGuard buffer(data.data(), data.size(), MCP_BUFFER_FLAG_READONLY);
+    ASSERT_TRUE(buffer.get() != 0u);
     
     // Get buffer slices
     mcp_buffer_slice_t slices[10];
@@ -495,20 +871,19 @@ TEST_F(McpFilterApiTest, BufferSliceOperations) {
     // Verify slices
     size_t total_length = 0;
     for (size_t i = 0; i < slice_count; ++i) {
-        EXPECT_NE(slices[i].data, nullptr);
+        EXPECT_TRUE(slices[i].data != 0);
         EXPECT_GT(slices[i].length, 0);
         total_length += slices[i].length;
     }
     EXPECT_EQ(total_length, data.size());
     
-    mcp_filter_buffer_release(buffer);
+    // Buffer automatically released by RAII
 }
 
 TEST_F(McpFilterApiTest, BufferReserveAndCommit) {
-    // Create writable buffer
-    mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-        nullptr, 0, MCP_BUFFER_FLAG_OWNED);
-    ASSERT_NE(buffer, 0);
+    // Create writable buffer using RAII
+    BufferGuard buffer(nullptr, 0, MCP_BUFFER_FLAG_OWNED);
+    ASSERT_TRUE(buffer.get() != 0u);
     
     // Reserve space
     size_t reserve_size = 1024;
@@ -516,7 +891,7 @@ TEST_F(McpFilterApiTest, BufferReserveAndCommit) {
     ASSERT_EQ(mcp_filter_reserve_buffer(buffer, reserve_size, &slice), MCP_OK);
     
     // Verify reserved space
-    EXPECT_NE(slice.data, nullptr);
+    EXPECT_TRUE(slice.data != 0);
     EXPECT_GE(slice.length, reserve_size);
     
     // Write data to reserved space
@@ -530,17 +905,16 @@ TEST_F(McpFilterApiTest, BufferReserveAndCommit) {
     // Verify buffer length
     EXPECT_EQ(mcp_filter_buffer_length(buffer), write_size);
     
-    mcp_filter_buffer_release(buffer);
+    // Buffer automatically released by RAII
 }
 
 TEST_F(McpFilterApiTest, ZeroCopyBufferOperations) {
     // Create source data
     std::vector<uint8_t> data = TestDataGenerator::generateRandomData(8192);
     
-    // Create zero-copy buffer
-    mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-        data.data(), data.size(), MCP_BUFFER_FLAG_ZERO_COPY | MCP_BUFFER_FLAG_EXTERNAL);
-    ASSERT_NE(buffer, 0);
+    // Create zero-copy buffer using RAII
+    BufferGuard buffer(data.data(), data.size(), MCP_BUFFER_FLAG_ZERO_COPY | MCP_BUFFER_FLAG_EXTERNAL);
+    ASSERT_TRUE(buffer.get() != 0u);
     
     // Get slices for zero-copy access
     mcp_buffer_slice_t slices[1];
@@ -554,7 +928,7 @@ TEST_F(McpFilterApiTest, ZeroCopyBufferOperations) {
     EXPECT_EQ(slices[0].length, data.size());
     EXPECT_TRUE(slices[0].flags & MCP_BUFFER_FLAG_ZERO_COPY);
     
-    mcp_filter_buffer_release(buffer);
+    // Buffer automatically released by RAII
 }
 
 // ============================================================================
@@ -562,46 +936,46 @@ TEST_F(McpFilterApiTest, ZeroCopyBufferOperations) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, BufferPoolOperations) {
-    // Create buffer pool
+    // Create buffer pool using RAII
     size_t buffer_size = 4096;
     size_t max_buffers = 10;
-    mcp_buffer_pool_t pool = mcp_buffer_pool_create(buffer_size, max_buffers);
-    ASSERT_NE(pool, nullptr);
+    BufferPoolGuard pool(buffer_size, max_buffers);
+    ASSERT_TRUE(pool.get() != 0);
     
-    // Acquire buffers
-    std::vector<mcp_buffer_handle_t> buffers;
+    // Acquire buffers using RAII
+    std::vector<BufferGuard> buffers;
     for (size_t i = 0; i < max_buffers; ++i) {
-        mcp_buffer_handle_t buffer = mcp_buffer_pool_acquire(pool);
-        ASSERT_NE(buffer, 0) << "Failed to acquire buffer " << i;
-        buffers.push_back(buffer);
+        BufferGuard buffer = pool.acquire();
+        ASSERT_TRUE(buffer.get() != 0u) << "Failed to acquire buffer " << i;
         
         // Verify buffer size
         EXPECT_GE(mcp_filter_buffer_length(buffer), 0);
+        
+        buffers.push_back(std::move(buffer));
     }
     
     // Pool should be exhausted
-    mcp_buffer_handle_t exhausted = mcp_buffer_pool_acquire(pool);
-    EXPECT_EQ(exhausted, 0) << "Pool should be exhausted";
+    BufferGuard exhausted = pool.acquire();
+    EXPECT_EQ(exhausted.get(), 0u) << "Pool should be exhausted";
     
     // Release one buffer back to pool
-    mcp_buffer_pool_release(pool, buffers[0]);
-    buffers[0] = 0;
+    pool.release(buffers[0].release());
     
     // Should be able to acquire again
-    mcp_buffer_handle_t recycled = mcp_buffer_pool_acquire(pool);
-    EXPECT_NE(recycled, 0) << "Should acquire recycled buffer";
+    BufferGuard recycled = pool.acquire();
+    EXPECT_TRUE(recycled.get() != 0) << "Should acquire recycled buffer";
     
-    // Clean up
-    for (auto buffer : buffers) {
-        if (buffer) {
-            mcp_buffer_pool_release(pool, buffer);
+    // Release remaining buffers properly
+    for (size_t i = 1; i < buffers.size(); ++i) {
+        if (buffers[i].get()) {
+            pool.release(buffers[i].release());
         }
     }
-    if (recycled) {
-        mcp_buffer_pool_release(pool, recycled);
+    if (recycled.get()) {
+        pool.release(recycled.release());
     }
     
-    mcp_buffer_pool_destroy(pool);
+    // Pool automatically destroyed by RAII
 }
 
 // ============================================================================
@@ -612,32 +986,29 @@ TEST_F(McpFilterApiTest, FilterManagerOperations) {
     // Create a mock connection (would need actual connection in real test)
     mcp_connection_t connection = 0; // Placeholder
     
-    // Create filter manager
-    mcp_filter_manager_t manager = mcp_filter_manager_create(connection, dispatcher_);
-    ASSERT_NE(manager, 0);
+    // Create filter manager using RAII
+    FilterManagerGuard manager(connection, dispatcher_->get());
+    ASSERT_TRUE(manager.get() != 0);
     
-    // Create and add filters
-    mcp_filter_t filter1 = createTestFilter("manager_filter1");
-    mcp_filter_t filter2 = createTestFilter("manager_filter2");
+    // Create and add filters using RAII
+    FilterGuard filter1 = createTestFilter("manager_filter1");
+    FilterGuard filter2 = createTestFilter("manager_filter2");
     
     ASSERT_EQ(mcp_filter_manager_add_filter(manager, filter1), MCP_OK);
     ASSERT_EQ(mcp_filter_manager_add_filter(manager, filter2), MCP_OK);
     
-    // Create and add filter chain
-    mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_);
-    mcp_filter_t chain_filter = createTestFilter("chain_filter");
+    // Create and add filter chain using RAII
+    FilterChainBuilderGuard builder(dispatcher_->get());
+    FilterGuard chain_filter = createTestFilter("chain_filter");
     mcp_filter_chain_add_filter(builder, chain_filter, MCP_FILTER_POSITION_LAST, 0);
-    mcp_filter_chain_t chain = mcp_filter_chain_build(builder);
-    mcp_filter_chain_builder_destroy(builder);
+    FilterChainGuard chain(mcp_filter_chain_build(builder));
     
     ASSERT_EQ(mcp_filter_manager_add_chain(manager, chain), MCP_OK);
-    test_chains_.push_back(chain);
     
     // Initialize manager
     ASSERT_EQ(mcp_filter_manager_initialize(manager), MCP_OK);
     
-    // Clean up
-    mcp_filter_manager_release(manager);
+    // All resources automatically cleaned up by RAII
 }
 
 // ============================================================================
@@ -645,8 +1016,8 @@ TEST_F(McpFilterApiTest, FilterManagerOperations) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, ThreadSafeFilterOperations) {
-    mcp_filter_t filter = createTestFilter("thread_safe_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("thread_safe_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     std::atomic<int> counter{0};
     std::vector<std::thread> threads;
@@ -684,8 +1055,8 @@ TEST_F(McpFilterApiTest, ThreadSafeFilterOperations) {
 }
 
 TEST_F(McpFilterApiTest, ConcurrentPostData) {
-    mcp_filter_t filter = createTestFilter("concurrent_post_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("concurrent_post_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     std::atomic<int> completed{0};
     
@@ -740,8 +1111,8 @@ TEST_F(McpFilterApiTest, ConcurrentPostData) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, FilterStatistics) {
-    mcp_filter_t filter = createTestFilter("stats_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("stats_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Get initial stats
     mcp_filter_stats_t stats = {};
@@ -774,34 +1145,34 @@ TEST_F(McpFilterApiTest, InvalidParameterHandling) {
     mcp_filter_config_t config = {};
     config.name = "test";
     config.type = MCP_FILTER_CUSTOM;
-    mcp_filter_t filter = mcp_filter_create(0, &config);
-    EXPECT_EQ(filter, 0);
+    mcp_filter_t filter = mcp_filter_create(nullptr, &config);
+    EXPECT_EQ(filter, nullptr);
     
     // Test null config
-    filter = mcp_filter_create(dispatcher_, nullptr);
-    EXPECT_EQ(filter, 0);
+    filter = mcp_filter_create(dispatcher_->get(), nullptr);
+    EXPECT_EQ(filter, nullptr);
     
     // Test invalid filter handle
     mcp_filter_stats_t stats = {};
-    EXPECT_NE(mcp_filter_get_stats(0, &stats), MCP_OK);
+    EXPECT_NE(mcp_filter_get_stats(nullptr, &stats), MCP_OK);
     
     // Test null callbacks
-    filter = createTestFilter("error_test");
-    ASSERT_NE(filter, 0);
-    EXPECT_NE(mcp_filter_set_callbacks(filter, nullptr), MCP_OK);
+    FilterGuard test_filter = createTestFilter("error_test");
+    ASSERT_TRUE(test_filter.get() != nullptr);
+    EXPECT_NE(mcp_filter_set_callbacks(test_filter, nullptr), MCP_OK);
     
     // Test invalid buffer operations
-    EXPECT_EQ(mcp_filter_buffer_length(0), 0);
+    EXPECT_EQ(mcp_filter_buffer_length(0), 0u);
     mcp_filter_buffer_release(0); // Should not crash
     
     // Test invalid chain operations
-    EXPECT_EQ(mcp_filter_chain_build(nullptr), 0);
+    EXPECT_EQ(mcp_filter_chain_build(nullptr), 0u);
     mcp_filter_chain_release(0); // Should not crash
 }
 
 TEST_F(McpFilterApiTest, ErrorCallbackTrigger) {
-    mcp_filter_t filter = createTestFilter("error_callback_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("error_callback_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Set up error callback
     mcp_filter_callbacks_t callbacks = {};
@@ -820,44 +1191,45 @@ TEST_F(McpFilterApiTest, ErrorCallbackTrigger) {
 
 TEST_F(McpFilterApiTest, ResourceGuardManagement) {
     // Create resource guard
-    mcp_filter_resource_guard_t* guard = mcp_filter_guard_create(dispatcher_);
-    ASSERT_NE(guard, nullptr);
+    mcp_filter_resource_guard_t* guard = mcp_filter_guard_create(dispatcher_->get());
+    ASSERT_TRUE(guard != nullptr);
     
-    // Create filters and add to guard
+    // Create filters and add to guard using RAII
+    std::vector<FilterGuard> filters;
     for (int i = 0; i < 5; ++i) {
         std::string name = "guarded_filter_" + std::to_string(i);
-        mcp_filter_t filter = createTestFilter(name);
-        ASSERT_NE(filter, 0);
+        filters.push_back(createTestFilter(name));
+        ASSERT_TRUE(filters.back().get() != nullptr);
         
-        ASSERT_EQ(mcp_filter_guard_add_filter(guard, filter), MCP_OK);
+        // Release to guard ownership
+        ASSERT_EQ(mcp_filter_guard_add_filter(guard, filters.back().release()), MCP_OK);
     }
     
     // Release guard - should clean up all tracked filters
     mcp_filter_guard_release(guard);
     
-    // Guard handles cleanup, so remove from our tracking
-    test_filters_.clear();
+    // Guard handles cleanup of released filters
 }
 
 TEST_F(McpFilterApiTest, ResourceGuardMultipleGuards) {
     // Create multiple guards
-    mcp_filter_resource_guard_t* guard1 = mcp_filter_guard_create(dispatcher_);
-    mcp_filter_resource_guard_t* guard2 = mcp_filter_guard_create(dispatcher_);
-    ASSERT_NE(guard1, nullptr);
-    ASSERT_NE(guard2, nullptr);
+    mcp_filter_resource_guard_t* guard1 = mcp_filter_guard_create(dispatcher_->get());
+    mcp_filter_resource_guard_t* guard2 = mcp_filter_guard_create(dispatcher_->get());
+    ASSERT_TRUE(guard1 != 0);
+    ASSERT_TRUE(guard2 != 0);
     
-    // Add filters to different guards
-    mcp_filter_t filter1 = createTestFilter("guard1_filter");
-    mcp_filter_t filter2 = createTestFilter("guard2_filter");
+    // Add filters to different guards using RAII
+    FilterGuard filter1 = createTestFilter("guard1_filter");
+    FilterGuard filter2 = createTestFilter("guard2_filter");
     
-    ASSERT_EQ(mcp_filter_guard_add_filter(guard1, filter1), MCP_OK);
-    ASSERT_EQ(mcp_filter_guard_add_filter(guard2, filter2), MCP_OK);
+    ASSERT_EQ(mcp_filter_guard_add_filter(guard1, filter1.release()), MCP_OK);
+    ASSERT_EQ(mcp_filter_guard_add_filter(guard2, filter2.release()), MCP_OK);
     
     // Release guards independently
     mcp_filter_guard_release(guard1);
     mcp_filter_guard_release(guard2);
     
-    test_filters_.clear();
+    // Guards handle cleanup of released filters
 }
 
 // ============================================================================
@@ -865,8 +1237,8 @@ TEST_F(McpFilterApiTest, ResourceGuardMultipleGuards) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, Layer6PresentationMetadata) {
-    mcp_filter_t filter = createTestFilter("l6_test", MCP_PROTOCOL_LAYER_6_PRESENTATION);
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("l6_test", MCP_PROTOCOL_LAYER_6_PRESENTATION);
+    ASSERT_TRUE(filter.get() != nullptr);
     
     // Test L6 presentation layer metadata
     mcp_protocol_metadata_t metadata = {};
@@ -907,9 +1279,8 @@ TEST_F(McpFilterApiTest, BufferFlagCombinations) {
     std::vector<uint8_t> data = TestDataGenerator::generateRandomData(256);
     
     for (const auto& test : flag_tests) {
-        mcp_buffer_handle_t buffer = mcp_filter_buffer_create(
-            data.data(), data.size(), test.flags);
-        ASSERT_NE(buffer, 0) << "Failed to create buffer with flags: " << test.description;
+        BufferGuard buffer(data.data(), data.size(), test.flags);
+        ASSERT_TRUE(buffer.get() != 0u) << "Failed to create buffer with flags: " << test.description;
         
         // Verify buffer is valid
         size_t length = mcp_filter_buffer_length(buffer);
@@ -925,7 +1296,7 @@ TEST_F(McpFilterApiTest, BufferFlagCombinations) {
             EXPECT_TRUE(slice.flags & MCP_BUFFER_FLAG_ZERO_COPY);
         }
         
-        mcp_filter_buffer_release(buffer);
+        // Buffer automatically released by RAII
     }
 }
 
@@ -934,26 +1305,27 @@ TEST_F(McpFilterApiTest, BufferFlagCombinations) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, ConnectionEventTypes) {
-    mcp_filter_t filter = createTestFilter("event_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("event_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
-    // Test different connection events
-    std::vector<mcp_connection_event_t> events = {
-        MCP_EVENT_CONNECTED,
-        MCP_EVENT_DISCONNECTED,
-        MCP_EVENT_LOCAL_CLOSE,
-        MCP_EVENT_REMOTE_CLOSE,
-        MCP_EVENT_ERROR
+    // Test different connection states
+    std::vector<mcp_connection_state_t> states = {
+        MCP_CONNECTION_STATE_IDLE,
+        MCP_CONNECTION_STATE_CONNECTING,
+        MCP_CONNECTION_STATE_CONNECTED,
+        MCP_CONNECTION_STATE_CLOSING,
+        MCP_CONNECTION_STATE_DISCONNECTED,
+        MCP_CONNECTION_STATE_ERROR
     };
     
     int event_count = 0;
-    auto event_callback = [](mcp_connection_event_t event, void* user_data) -> mcp_filter_status_t {
+    auto event_callback = [](mcp_connection_state_t state, void* user_data) -> mcp_filter_status_t {
         int* count = static_cast<int*>(user_data);
         (*count)++;
         
-        // Verify event is valid
-        EXPECT_GE(event, MCP_EVENT_CONNECTED);
-        EXPECT_LE(event, MCP_EVENT_ERROR);
+        // Verify state is valid
+        EXPECT_GE(state, MCP_CONNECTION_STATE_IDLE);
+        EXPECT_LE(state, MCP_CONNECTION_STATE_ERROR);
         
         return MCP_FILTER_CONTINUE;
     };
@@ -972,8 +1344,8 @@ TEST_F(McpFilterApiTest, ConnectionEventTypes) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, SpecificErrorScenarios) {
-    mcp_filter_t filter = createTestFilter("error_scenario_test");
-    ASSERT_NE(filter, 0);
+    FilterGuard filter = createTestFilter("error_scenario_test");
+    ASSERT_TRUE(filter.get() != nullptr);
     
     struct ErrorTest {
         mcp_filter_error_t error;
@@ -1017,16 +1389,16 @@ TEST_F(McpFilterApiTest, SpecificErrorScenarios) {
 // ============================================================================
 
 TEST_F(McpFilterApiTest, CompleteFilterPipeline) {
-    // Create a complete filter pipeline
+    // Create a complete filter pipeline using RAII
     
     // 1. Create filters for different layers
-    mcp_filter_t l4_filter = createTestFilter("l4_tcp", MCP_PROTOCOL_LAYER_4_TRANSPORT);
-    mcp_filter_t l5_filter = createTestFilter("l5_tls", MCP_PROTOCOL_LAYER_5_SESSION);
-    mcp_filter_t l7_filter = createTestFilter("l7_http", MCP_PROTOCOL_LAYER_7_APPLICATION);
+    FilterGuard l4_filter = createTestFilter("l4_tcp", MCP_PROTOCOL_LAYER_4_TRANSPORT);
+    FilterGuard l5_filter = createTestFilter("l5_tls", MCP_PROTOCOL_LAYER_5_SESSION);
+    FilterGuard l7_filter = createTestFilter("l7_http", MCP_PROTOCOL_LAYER_7_APPLICATION);
     
-    ASSERT_NE(l4_filter, 0);
-    ASSERT_NE(l5_filter, 0);
-    ASSERT_NE(l7_filter, 0);
+    ASSERT_TRUE(l4_filter.get() != nullptr);
+    ASSERT_TRUE(l5_filter.get() != nullptr);
+    ASSERT_TRUE(l7_filter.get() != nullptr);
     
     // 2. Set protocol metadata for each
     mcp_protocol_metadata_t l4_meta = {};
@@ -1049,27 +1421,24 @@ TEST_F(McpFilterApiTest, CompleteFilterPipeline) {
     l7_meta.data.l7.path = "/";
     ASSERT_EQ(mcp_filter_set_protocol_metadata(l7_filter, &l7_meta), MCP_OK);
     
-    // 3. Build filter chain
-    mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_);
-    ASSERT_NE(builder, nullptr);
+    // 3. Build filter chain using RAII
+    FilterChainBuilderGuard builder(dispatcher_->get());
+    ASSERT_TRUE(builder.get() != 0);
     
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, l4_filter, MCP_FILTER_POSITION_FIRST, 0), MCP_OK);
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, l5_filter, MCP_FILTER_POSITION_LAST, 0), MCP_OK);
     ASSERT_EQ(mcp_filter_chain_add_filter(builder, l7_filter, MCP_FILTER_POSITION_LAST, 0), MCP_OK);
     
-    mcp_filter_chain_t chain = mcp_filter_chain_build(builder);
-    ASSERT_NE(chain, 0);
-    test_chains_.push_back(chain);
+    FilterChainGuard chain(mcp_filter_chain_build(builder));
+    ASSERT_TRUE(chain.get() != 0u);
     
-    mcp_filter_chain_builder_destroy(builder);
+    // 4. Create buffer pool for processing using RAII
+    BufferPoolGuard pool(8192, 5);
+    ASSERT_TRUE(pool.get() != 0);
     
-    // 4. Create buffer pool for processing
-    mcp_buffer_pool_t pool = mcp_buffer_pool_create(8192, 5);
-    ASSERT_NE(pool, nullptr);
-    
-    // 5. Simulate data processing
-    mcp_buffer_handle_t buffer = mcp_buffer_pool_acquire(pool);
-    ASSERT_NE(buffer, 0);
+    // 5. Simulate data processing using RAII
+    BufferGuard buffer = pool.acquire();
+    ASSERT_TRUE(buffer.get() != 0u);
     
     // Write test data
     const char* http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
@@ -1080,9 +1449,10 @@ TEST_F(McpFilterApiTest, CompleteFilterPipeline) {
     memcpy(const_cast<uint8_t*>(slice.data), http_request, request_len);
     ASSERT_EQ(mcp_filter_commit_buffer(buffer, request_len), MCP_OK);
     
-    // Clean up
-    mcp_buffer_pool_release(pool, buffer);
-    mcp_buffer_pool_destroy(pool);
+    // Return buffer to pool
+    pool.release(buffer.release());
+    
+    // All resources automatically cleaned up by RAII
 }
 
 // ============================================================================
@@ -1097,9 +1467,9 @@ TEST_F(McpFilterApiTest, FilterCreationPerformance) {
     
     for (int i = 0; i < filter_count; ++i) {
         std::string name = "perf_filter_" + std::to_string(i);
-        mcp_filter_t filter = createTestFilter(name);
-        ASSERT_NE(filter, 0);
-        filters.push_back(filter);
+        FilterGuard filter = createTestFilter(name);
+        ASSERT_TRUE(filter.get() != nullptr);
+        filters.push_back(filter.release());
     }
     
     auto end = std::chrono::high_resolution_clock::now();
@@ -1112,7 +1482,6 @@ TEST_F(McpFilterApiTest, FilterCreationPerformance) {
     for (auto filter : filters) {
         mcp_filter_release(filter);
     }
-    test_filters_.clear();
 }
 
 TEST_F(McpFilterApiTest, BufferOperationPerformance) {
@@ -1153,8 +1522,8 @@ TEST_F(McpFilterApiTest, NoMemoryLeakOnRepeatedOperations) {
     
     for (int iteration = 0; iteration < 100; ++iteration) {
         // Create and destroy filters
-        mcp_filter_t filter = createTestFilter("leak_test");
-        ASSERT_NE(filter, 0);
+        FilterGuard filter = createTestFilter("leak_test");
+        ASSERT_TRUE(filter.get() != nullptr);
         
         // Set callbacks
         mcp_filter_callbacks_t callbacks = {};
@@ -1168,15 +1537,13 @@ TEST_F(McpFilterApiTest, NoMemoryLeakOnRepeatedOperations) {
         mcp_filter_buffer_release(buffer);
         
         // Create and destroy chain
-        mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_);
+        mcp_filter_chain_builder_t builder = mcp_filter_chain_builder_create(dispatcher_->get());
         mcp_filter_chain_add_filter(builder, filter, MCP_FILTER_POSITION_LAST, 0);
         mcp_filter_chain_t chain = mcp_filter_chain_build(builder);
         mcp_filter_chain_builder_destroy(builder);
         mcp_filter_chain_release(chain);
         
-        // Release filter
-        mcp_filter_release(filter);
-        test_filters_.pop_back();
+        // Filter is automatically released by RAII
     }
 }
 

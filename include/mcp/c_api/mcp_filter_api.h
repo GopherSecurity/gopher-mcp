@@ -34,7 +34,7 @@ extern "C" {
  * ============================================================================ */
 
 // Opaque handles for FFI safety
-typedef uint64_t mcp_filter_t;
+// Note: mcp_filter_t is already defined in mcp_c_types.h
 typedef uint64_t mcp_filter_chain_t;
 typedef uint64_t mcp_filter_manager_t;
 typedef uint64_t mcp_buffer_handle_t;
@@ -214,7 +214,7 @@ typedef mcp_filter_status_t (*mcp_filter_write_cb)(
 
 // Connection event callback
 typedef mcp_filter_status_t (*mcp_filter_event_cb)(
-    mcp_connection_event_t event,
+    mcp_connection_state_t state,
     void* user_data
 );
 
