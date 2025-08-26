@@ -1279,10 +1279,14 @@ void ConnectionImpl::doWrite() {
     //
     // Solution: Activate a read event to check for any data that may have
     // arrived This forces the event loop to check the socket for available data
+    // NOTE: Disabled for level-triggered events on macOS to avoid race conditions
+    // Level-triggered events will naturally fire when data is available
+    #ifdef __linux__
     if (file_event_ && !is_server_connection_) {
       // Activate read to check for any data that may have arrived
       file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
     }
+    #endif
   }
 
   if (write_buffer_.length() == 0 && write_half_closed_) {
