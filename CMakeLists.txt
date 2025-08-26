@@ -119,6 +119,13 @@ endif()
 
 #Dependencies via FetchContent
 include(FetchContent)
+message(STATUS "")
+message(STATUS "==================================================")
+message(STATUS "Checking and downloading dependencies if needed...")
+message(STATUS "This may take several minutes on first build.")
+message(STATUS "Subsequent builds will use cached downloads.")
+message(STATUS "==================================================")
+message(STATUS "")
 
 #llhttp - High - performance HTTP parser
 #Option to enable / disable llhttp(can be disabled if build issues)
@@ -133,7 +140,9 @@ if(MCP_USE_LLHTTP)
     
     FetchContent_GetProperties(llhttp)
     if(NOT llhttp_POPULATED)
+        message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
         FetchContent_Populate(llhttp)
+        message(STATUS "llhttp download complete.")
 
 #Build llhttp as a simple static library
 #The release archive contains pre - generated C files
@@ -148,7 +157,7 @@ if(MCP_USE_LLHTTP)
         endif()
         
         set(LLHTTP_FOUND TRUE)
-        message(STATUS "llhttp will be built from source")
+        message(STATUS "llhttp successfully configured for build from source")
     endif()
 else()
     set(LLHTTP_FOUND FALSE)
@@ -161,6 +170,7 @@ option(MCP_USE_NGHTTP2 "Use nghttp2 for HTTP/2 parsing" ON)
 
 if(MCP_USE_NGHTTP2)
     # Try to find system nghttp2 first
+    message(STATUS "Looking for system nghttp2...")
     find_package(PkgConfig)
     if(PkgConfig_FOUND)
         pkg_check_modules(NGHTTP2 libnghttp2)
@@ -187,7 +197,10 @@ if(MCP_USE_NGHTTP2)
         set(ENABLE_WERROR OFF CACHE BOOL "Disable -Werror")
         set(ENABLE_DEBUG OFF CACHE BOOL "Disable debug output")
         
+        message(STATUS "Downloading nghttp2... This may take a few minutes depending on your connection speed.")
+        message(STATUS "nghttp2 is a larger dependency and requires compilation. Please be patient.")
         FetchContent_MakeAvailable(nghttp2)
+        message(STATUS "nghttp2 download and configuration complete.")
         
         set(NGHTTP2_FOUND TRUE)
         set(NGHTTP2_INCLUDE_DIRS 
@@ -195,7 +208,7 @@ if(MCP_USE_NGHTTP2)
             ${nghttp2_BINARY_DIR}/lib/includes)
         set(NGHTTP2_LIBRARIES nghttp2_static)
         
-        message(STATUS "nghttp2 will be built from source")
+        message(STATUS "nghttp2 successfully configured for build from source")
     else()
         message(STATUS "Found system nghttp2")
     endif()
@@ -210,7 +223,9 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG v3.11.3
 )
+message(STATUS "Downloading nlohmann/json... This may take a moment depending on your connection speed.")
 FetchContent_MakeAvailable(nlohmann_json)
+message(STATUS "nlohmann/json download complete.")
 
 # Google Test
 FetchContent_Declare(
@@ -220,7 +235,15 @@ FetchContent_Declare(
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+message(STATUS "Downloading Google Test... This may take a moment depending on your connection speed.")
 FetchContent_MakeAvailable(googletest)
+message(STATUS "Google Test download complete.")
+
+message(STATUS "")
+message(STATUS "==================================================")
+message(STATUS "All dependencies ready. Configuring build...")
+message(STATUS "==================================================")
+message(STATUS "")
 
 # Source files
 set(MCP_SDK_SOURCES
