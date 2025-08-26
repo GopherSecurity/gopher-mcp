@@ -1,6 +1,25 @@
 /**
  * @file test_filter_api.cc
  * @brief Comprehensive tests for MCP Filter C API
+ * 
+ * Dependencies from mcp_c_api.h:
+ * 
+ * 2. **Event Loop & Dispatcher:**
+ *    - mcp_dispatcher_t mcp_dispatcher_create(void);
+ *    - void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher);
+ *    
+ * **Functions being used:**
+ * - mcp_init(nullptr) - Initialize for each test
+ * - mcp_dispatcher_create() - Create dispatcher for testing
+ * - mcp_dispatcher_destroy() - Cleanup after tests
+ * - mcp_shutdown() - Shutdown after tests
+ * 
+ * **Type Dependencies:**
+ * - mcp_dispatcher_t - Used throughout filter API as handle type
+ * - mcp_result_t - Return codes for all filter operations
+ * - mcp_json_value_t - JSON configuration for filters
+ * - mcp_connection_t - Connection handles for filter managers
+ * - mcp_client_t / mcp_server_t - Client/server integration
  */
 
 #include <gtest/gtest.h>
