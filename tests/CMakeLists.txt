@@ -94,6 +94,7 @@ if(BUILD_C_API)
     add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     add_executable(test_c_api_json_simple c_api/test_c_api_json_simple.cc)
     add_executable(test_c_api_json c_api/test_c_api_json.cc)
+    add_executable(test_mcp_filter_api c_api/test_mcp_filter_api.cc)
     add_executable(test_mcp_filter_chain c_api/test_mcp_filter_chain.cc)
     add_executable(test_mcp_filter_buffer c_api/test_mcp_filter_buffer.cc)
     
@@ -626,6 +627,17 @@ if(BUILD_C_API)
         gopher-mcp
         gopher_mcp_c
         gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_mcp_filter_api
+        gopher-mcp
+        gopher_mcp_c_static
+        gopher-mcp-event
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gmock
         gtest_main
         Threads::Threads
     )
