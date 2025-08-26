@@ -94,6 +94,8 @@ if(BUILD_C_API)
     add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     add_executable(test_c_api_json_simple c_api/test_c_api_json_simple.cc)
     add_executable(test_c_api_json c_api/test_c_api_json.cc)
+    add_executable(test_mcp_filter_chain c_api/test_mcp_filter_chain.cc)
+    add_executable(test_mcp_filter_buffer c_api/test_mcp_filter_buffer.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -627,6 +629,29 @@ if(BUILD_C_API)
         gtest_main
         Threads::Threads
     )
+    
+    target_link_libraries(test_mcp_filter_chain
+        gopher-mcp
+        gopher_mcp_c_static
+        gopher-mcp-event
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gmock
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_mcp_filter_buffer
+        gopher-mcp
+        gopher_mcp_c_static
+        gopher-mcp-event
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gmock
+        gtest_main
+        Threads::Threads
+    )
+    
     target_link_libraries(test_mcp_raii
         gopher-mcp
         gopher_mcp_c_static  # Use static library for access to internal symbols
