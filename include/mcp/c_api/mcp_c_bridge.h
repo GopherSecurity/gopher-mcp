@@ -38,6 +38,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 /* MCP C++ headers */
@@ -217,7 +218,7 @@ private:
 
 struct mcp_dispatcher_impl : public HandleBase {
   mcp_dispatcher_impl() : HandleBase(MCP_TYPE_UNKNOWN) {
-    dispatcher = std::make_unique<mcp::event::Dispatcher>();
+    /* Dispatcher will be created by mcp_dispatcher_create() */
   }
   
   ~mcp_dispatcher_impl() override {
@@ -386,7 +387,7 @@ struct mcp_listener_impl : public HandleBase {
 
 struct mcp_client_impl : public HandleBase {
   mcp_client_impl(mcp_dispatcher_impl* disp)
-      : HandleBase(MCP_TYPE_CLIENT), dispatcher(disp) {
+      : HandleBase(MCP_TYPE_UNKNOWN), dispatcher(disp) {
     if (dispatcher) {
       dispatcher->AddRef();
     }
@@ -835,16 +836,13 @@ public:
   }
   
   struct Stats {
-    std::atomic<size_t> total_created{0};
-    std::atomic<size_t> total_destroyed{0};
+    size_t total_created{0};
+    size_t total_destroyed{0};
   };
   
   Stats GetStats() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    Stats s = stats_;
-    s.total_created = stats_.total_created.load();
-    s.total_destroyed = stats_.total_destroyed.load();
-    return s;
+    return stats_;
   }
   
   size_t GetActiveCount() const {
@@ -963,8 +961,7 @@ inline void mcp_transaction_impl::DestroyHandle(void* handle,
   }
 }
 
-/* Thread-local storage definition */
-thread_local mcp_error_info_t ErrorManager::thread_local_error_ = {};
+/* Thread-local storage definition is in implementation file */
 
 }  // namespace c_api
 }  // namespace mcp
