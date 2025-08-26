@@ -28,6 +28,10 @@ set(GOPHER_MCP_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 14)
 endif()
+# When used as submodule, inherit parent's C++ standard
+if(GOPHER_MCP_IS_SUBMODULE)
+    message(STATUS "gopher-mcp: Inheriting parent C++ standard: ${CMAKE_CXX_STANDARD}")
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 

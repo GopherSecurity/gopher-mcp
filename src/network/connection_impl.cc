@@ -926,7 +926,7 @@ void ConnectionImpl::doConnect() {
     auto transport_result = transport_socket_->connect(*socket_);
     // Check if transport rejected the connection (returns Error instead of
     // nullptr) VoidResult is variant<nullptr_t, Error> where nullptr = success
-    if (!holds_alternative<std::nullptr_t>(transport_result)) {
+    if (!mcp::holds_alternative<std::nullptr_t>(transport_result)) {
       // Transport socket rejected the connection - abort
       immediate_error_event_ = ConnectionEvent::LocalClose;
       // Activate write event to trigger error handling on next loop
