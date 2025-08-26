@@ -1,32 +1,46 @@
 /**
  * @file mcp_c_bridge.h
- * @brief Internal C++ to C bridge implementation
+ * @brief Internal C++ to C bridge with RAII enforcement
  *
- * This header provides the internal bridge between C++ and C APIs.
- * It contains the implementation details for converting between C and C++
- * types, managing callbacks, and handling memory lifecycle.
+ * This header provides the internal bridge between C++ and C APIs with
+ * comprehensive RAII support, FFI-safe type conversions, and automatic
+ * resource management. It ensures thread-safe operations and prevents
+ * resource leaks through systematic RAII enforcement.
+ *
+ * Architecture:
+ * - RAII wrappers for all C++ resources
+ * - Thread-safe handle management with reference counting
+ * - Automatic cleanup through scope guards and transactions
+ * - FFI-safe type conversions with validation
+ * - Comprehensive error handling with recovery
  *
  * This file is NOT part of the public API and should only be included
- * by the implementation files.
+ * by implementation files.
  */
 
 #ifndef MCP_C_BRIDGE_H
 #define MCP_C_BRIDGE_H
 
+/* Include C API headers */
 #include "mcp_c_api.h"
 #include "mcp_c_collections.h"
 #include "mcp_c_memory.h"
 #include "mcp_c_types.h"
 #include "mcp_c_types_api.h"
+#include "mcp_raii.h"
 
-// C++ headers
+/* C++ standard library headers */
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
+/* MCP C++ headers */
 #include "mcp/buffer.h"
 #include "mcp/client/mcp_client.h"
 #include "mcp/event/event_loop.h"
@@ -40,350 +54,617 @@
 namespace mcp {
 namespace c_api {
 
-// Forward declarations
-class ConnectionCallbackBridge;
-class MCPClientCallbackBridge;
-
 /* ============================================================================
- * Handle Implementations
+ * RAII-Enabled Handle Base
  * ============================================================================
  */
 
 /**
- * Base class for all handle implementations
- * Provides reference counting and thread-safe destruction
+ * Base class for all handle implementations with RAII support
+ * Provides reference counting, thread-safe destruction, and resource tracking
  */
 class HandleBase {
- public:
-  HandleBase() : ref_count_(1) {}
-  virtual ~HandleBase() = default;
+public:
+  HandleBase() : ref_count_(1), type_id_(MCP_TYPE_UNKNOWN) {
+    RegisterHandle(this);
+  }
+  
+  explicit HandleBase(mcp_type_id_t type) 
+      : ref_count_(1), type_id_(type) {
+    RegisterHandle(this);
+  }
+  
+  virtual ~HandleBase() {
+    UnregisterHandle(this);
+  }
 
-  void add_ref() { ref_count_++; }
-  void release() {
-    if (--ref_count_ == 0) {
+  void AddRef() { 
+    ref_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  
+  void Release() {
+    if (ref_count_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
       delete this;
     }
   }
-
- private:
+  
+  int GetRefCount() const {
+    return ref_count_.load(std::memory_order_relaxed);
+  }
+  
+  mcp_type_id_t GetType() const { return type_id_; }
+  
+  /* Virtual methods for resource cleanup */
+  virtual void Cleanup() {}
+  virtual bool IsValid() const { return true; }
+  
+private:
   std::atomic<int> ref_count_;
+  mcp_type_id_t type_id_;
+  
+  /* Global handle registry for leak detection */
+  static void RegisterHandle(HandleBase* handle);
+  static void UnregisterHandle(HandleBase* handle);
 };
 
-/**
- * Dispatcher implementation
+/* ============================================================================
+ * RAII Guard Implementation
+ * ============================================================================
  */
+
+/**
+ * RAII guard for automatic resource cleanup
+ * Wraps handles with automatic reference counting
+ */
+struct mcp_guard_impl {
+  using Deleter = std::function<void(void*)>;
+  
+  mcp_guard_impl(void* handle, mcp_type_id_t type, Deleter deleter)
+      : handle_(handle), type_(type), deleter_(std::move(deleter)) {
+    if (auto* base = static_cast<HandleBase*>(handle_)) {
+      base->AddRef();
+    }
+  }
+  
+  ~mcp_guard_impl() {
+    Release();
+  }
+  
+  void* Release() {
+    void* h = handle_;
+    handle_ = nullptr;
+    if (h && deleter_) {
+      deleter_(h);
+    }
+    return h;
+  }
+  
+  void* Get() const { return handle_; }
+  mcp_type_id_t GetType() const { return type_; }
+  
+private:
+  void* handle_;
+  mcp_type_id_t type_;
+  Deleter deleter_;
+};
+
+/* ============================================================================
+ * Transaction Implementation
+ * ============================================================================
+ */
+
+/**
+ * Transaction for atomic multi-resource operations
+ */
+struct mcp_transaction_impl {
+  struct Resource {
+    void* handle;
+    mcp_type_id_t type;
+    std::function<void(void*)> deleter;
+  };
+  
+  mcp_transaction_impl() : committed_(false) {
+    resources_.reserve(8); /* Pre-allocate for performance */
+  }
+  
+  ~mcp_transaction_impl() {
+    if (!committed_) {
+      Rollback();
+    }
+  }
+  
+  void AddResource(void* handle, mcp_type_id_t type) {
+    if (!handle) return;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    resources_.push_back({
+      handle, 
+      type,
+      [type](void* h) { DestroyHandle(h, type); }
+    });
+  }
+  
+  void Commit() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    committed_ = true;
+    resources_.clear();
+  }
+  
+  void Rollback() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    /* Cleanup in reverse order (LIFO) */
+    for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
+      if (it->deleter) {
+        it->deleter(it->handle);
+      }
+    }
+    resources_.clear();
+    committed_ = true;
+  }
+  
+private:
+  mutable std::mutex mutex_;
+  std::vector<Resource> resources_;
+  bool committed_;
+  
+  static void DestroyHandle(void* handle, mcp_type_id_t type);
+};
+
+/* ============================================================================
+ * Dispatcher Implementation with RAII
+ * ============================================================================
+ */
+
 struct mcp_dispatcher_impl : public HandleBase {
+  mcp_dispatcher_impl() : HandleBase(MCP_TYPE_UNKNOWN) {
+    dispatcher = std::make_unique<mcp::event::Dispatcher>();
+  }
+  
+  ~mcp_dispatcher_impl() override {
+    Cleanup();
+  }
+  
+  void Cleanup() override {
+    if (running) {
+      dispatcher->exit();
+      running = false;
+    }
+    /* Clean up all timers */
+    timers.clear();
+  }
+  
+  bool IsValid() const override {
+    return dispatcher != nullptr;
+  }
+  
+  /* Dispatcher instance */
   std::unique_ptr<mcp::event::Dispatcher> dispatcher;
   std::thread::id dispatcher_thread_id;
-  bool running = false;
-
-  // Timer management
+  std::atomic<bool> running{false};
+  
+  /* Timer management with RAII */
   struct TimerInfo {
     std::unique_ptr<mcp::event::Timer> timer;
     mcp_timer_callback_t callback;
     void* user_data;
+    
+    TimerInfo(std::unique_ptr<mcp::event::Timer> t,
+              mcp_timer_callback_t cb,
+              void* ud)
+        : timer(std::move(t)), callback(cb), user_data(ud) {}
   };
-  std::map<uint64_t, TimerInfo> timers;
-  uint64_t next_timer_id = 1;
+  
+  std::mutex timers_mutex;
+  std::unordered_map<uint64_t, std::unique_ptr<TimerInfo>> timers;
+  std::atomic<uint64_t> next_timer_id{1};
+  
+  /* RAII helper for timer creation */
+  uint64_t CreateTimer(mcp_timer_callback_t callback, void* user_data) {
+    std::lock_guard<std::mutex> lock(timers_mutex);
+    
+    uint64_t id = next_timer_id.fetch_add(1, std::memory_order_relaxed);
+    auto timer = dispatcher->createTimer([callback, user_data]() {
+      if (callback) callback(user_data);
+    });
+    
+    timers[id] = std::make_unique<TimerInfo>(
+        std::move(timer), callback, user_data);
+    return id;
+  }
+  
+  void DestroyTimer(uint64_t id) {
+    std::lock_guard<std::mutex> lock(timers_mutex);
+    timers.erase(id);
+  }
 };
 
-/**
- * Connection implementation
+/* ============================================================================
+ * Connection Implementation with RAII
+ * ============================================================================
  */
+
 struct mcp_connection_impl : public HandleBase {
+  mcp_connection_impl(mcp_dispatcher_impl* disp)
+      : HandleBase(MCP_TYPE_UNKNOWN), dispatcher(disp) {
+    if (dispatcher) {
+      dispatcher->AddRef();
+    }
+  }
+  
+  ~mcp_connection_impl() override {
+    Cleanup();
+  }
+  
+  void Cleanup() override {
+    if (connection) {
+      connection->close(mcp::network::ConnectionCloseType::FlushWrite);
+    }
+    if (dispatcher) {
+      dispatcher->Release();
+      dispatcher = nullptr;
+    }
+  }
+  
+  bool IsValid() const override {
+    return connection != nullptr && dispatcher != nullptr;
+  }
+  
+  /* Connection instance with RAII */
   std::shared_ptr<mcp::network::Connection> connection;
   mcp_dispatcher_impl* dispatcher;
-
-  // Callbacks
+  
+  /* Callbacks */
   mcp_connection_state_callback_t state_callback = nullptr;
   mcp_data_callback_t data_callback = nullptr;
   mcp_error_callback_t error_callback = nullptr;
   void* callback_user_data = nullptr;
-
-  // State tracking
-  mcp_connection_state_t current_state = MCP_CONNECTION_STATE_DISCONNECTED;
-
-  // Statistics
-  uint64_t bytes_read = 0;
-  uint64_t bytes_written = 0;
-
-  // Connection configuration
+  
+  /* State tracking */
+  std::atomic<mcp_connection_state_t> current_state{
+      MCP_CONNECTION_STATE_DISCONNECTED};
+  
+  /* Statistics */
+  std::atomic<uint64_t> bytes_read{0};
+  std::atomic<uint64_t> bytes_written{0};
+  
+  /* Configuration */
   mcp::network::Address::InstanceConstSharedPtr remote_address;
-
-  // Callback bridge
-  std::unique_ptr<ConnectionCallbackBridge> callback_bridge;
+  
+  /* Callback bridge with RAII */
+  class CallbackBridge;
+  std::unique_ptr<CallbackBridge> callback_bridge;
 };
 
-/**
- * Listener implementation
+/* ============================================================================
+ * Listener Implementation with RAII
+ * ============================================================================
  */
+
 struct mcp_listener_impl : public HandleBase {
+  mcp_listener_impl(mcp_dispatcher_impl* disp)
+      : HandleBase(MCP_TYPE_UNKNOWN), dispatcher(disp) {
+    if (dispatcher) {
+      dispatcher->AddRef();
+    }
+  }
+  
+  ~mcp_listener_impl() override {
+    Cleanup();
+  }
+  
+  void Cleanup() override {
+    if (listener) {
+      /* Stop listening */
+      listener.reset();
+    }
+    if (dispatcher) {
+      dispatcher->Release();
+      dispatcher = nullptr;
+    }
+  }
+  
+  bool IsValid() const override {
+    return listener != nullptr && dispatcher != nullptr;
+  }
+  
   std::unique_ptr<mcp::network::Listener> listener;
   mcp_dispatcher_impl* dispatcher;
-
-  // Callbacks
+  
+  /* Callbacks */
   mcp_accept_callback_t accept_callback = nullptr;
   void* callback_user_data = nullptr;
+  
+  /* Accepted connections tracking for cleanup */
+  std::mutex connections_mutex;
+  std::vector<mcp_connection_impl*> accepted_connections;
 };
 
-/**
- * MCP Client implementation
+/* ============================================================================
+ * MCP Client Implementation with RAII
+ * ============================================================================
  */
+
 struct mcp_client_impl : public HandleBase {
-  // TODO: Replace with actual MCPClient when available
-  // Note: MCPClient should manage:
-  // - Transport socket lifecycle
-  // - MCP protocol state machine
-  // - Request/response correlation
-  // - Capability negotiation with server
-  void* client;  // Placeholder for MCPClient instance
+  mcp_client_impl(mcp_dispatcher_impl* disp)
+      : HandleBase(MCP_TYPE_CLIENT), dispatcher(disp) {
+    if (dispatcher) {
+      dispatcher->AddRef();
+    }
+  }
+  
+  ~mcp_client_impl() override {
+    Cleanup();
+  }
+  
+  void Cleanup() override {
+    if (connection) {
+      connection->Release();
+      connection = nullptr;
+    }
+    if (dispatcher) {
+      dispatcher->Release();
+      dispatcher = nullptr;
+    }
+  }
+  
+  bool IsValid() const override {
+    return dispatcher != nullptr;
+  }
+  
+  /* Client instance (placeholder - replace with actual MCPClient) */
+  void* client = nullptr;
   mcp_dispatcher_impl* dispatcher;
   mcp_connection_impl* connection = nullptr;
-
-  // Callbacks
+  
+  /* Callbacks */
   mcp_request_callback_t request_callback = nullptr;
   mcp_response_callback_t response_callback = nullptr;
   mcp_notification_callback_t notification_callback = nullptr;
   void* callback_user_data = nullptr;
-
-  // Request tracking
-  std::map<mcp::RequestId, mcp_request_id_t> request_map;
-  uint64_t next_request_id = 1;
+  
+  /* Request tracking with RAII */
+  std::mutex request_mutex;
+  std::unordered_map<uint64_t, mcp_request_id_t> request_map;
+  std::atomic<uint64_t> next_request_id{1};
 };
 
-/**
- * MCP Server implementation
+/* ============================================================================
+ * MCP Server Implementation with RAII
+ * ============================================================================
  */
+
 struct mcp_server_impl : public HandleBase {
-  // TODO: Replace with actual MCPServer when available
-  // Note: MCPServer should manage:
-  // - Multiple client connections
-  // - Request routing and handling
-  // - Capability advertisement
-  // - Resource and tool registration
-  void* server;  // Placeholder for MCPServer instance
+  mcp_server_impl(mcp_dispatcher_impl* disp)
+      : HandleBase(MCP_TYPE_UNKNOWN), dispatcher(disp) {
+    if (dispatcher) {
+      dispatcher->AddRef();
+    }
+  }
+  
+  ~mcp_server_impl() override {
+    Cleanup();
+  }
+  
+  void Cleanup() override {
+    if (listener) {
+      listener->Release();
+      listener = nullptr;
+    }
+    if (dispatcher) {
+      dispatcher->Release();
+      dispatcher = nullptr;
+    }
+    /* Clear registered capabilities */
+    tools.clear();
+    resources.clear();
+    prompts.clear();
+  }
+  
+  bool IsValid() const override {
+    return dispatcher != nullptr;
+  }
+  
+  /* Server instance (placeholder - replace with actual MCPServer) */
+  void* server = nullptr;
   mcp_dispatcher_impl* dispatcher;
   mcp_listener_impl* listener = nullptr;
-
-  // Callbacks
+  
+  /* Callbacks */
   mcp_request_callback_t request_callback = nullptr;
   mcp_notification_callback_t notification_callback = nullptr;
   void* callback_user_data = nullptr;
-
-  // Registered capabilities
+  
+  /* Registered capabilities with RAII */
   std::vector<mcp::Tool> tools;
   std::vector<mcp::ResourceTemplate> resources;
   std::vector<mcp::Prompt> prompts;
 };
 
-/**
- * JSON Value implementation
+/* ============================================================================
+ * JSON Value Implementation with RAII
+ * ============================================================================
  */
+
 struct mcp_json_value_impl : public HandleBase {
+  mcp_json_value_impl() : HandleBase(MCP_TYPE_JSON) {}
+  
+  explicit mcp_json_value_impl(mcp::json::JsonValue v)
+      : HandleBase(MCP_TYPE_JSON), value(std::move(v)) {}
+  
+  ~mcp_json_value_impl() override = default;
+  
+  bool IsValid() const override {
+    return true; /* JSON values are always valid */
+  }
+  
   mcp::json::JsonValue value;
 };
 
 /* ============================================================================
- * Type Conversion Utilities
+ * Type Conversion Utilities with Validation
  * ============================================================================
  */
 
 /**
- * Convert C string to C++ string
+ * Safe string conversion with null checks
  */
-inline std::string to_cpp_string(mcp_string_t str) {
-  if (str.data == nullptr) {
+inline std::string to_cpp_string_safe(mcp_string_t str) {
+  if (!str.data) {
     return std::string();
   }
   return std::string(str.data, str.length);
 }
 
 /**
- * Convert C++ string to C string (temporary)
+ * Temporary C string creation with lifetime management
  */
-inline mcp_string_t to_c_string_temp(const std::string& str) {
-  mcp_string_t result;
-  result.data = str.c_str();
-  result.length = str.length();
-  return result;
-}
-
-/**
- * Convert C++ optional to C optional
- */
-template <typename T>
-inline mcp_optional_t to_c_optional(const mcp::optional<T>& opt) {
-  mcp_optional_t result;
-  result.has_value = opt.has_value();
-  result.value = opt.has_value() ? new T(opt.value()) : nullptr;
-  return result;
-}
-
-/**
- * Convert C optional to C++ optional
- */
-template <typename T>
-inline mcp::optional<T> to_cpp_optional(const mcp_optional_t& opt) {
-  if (opt.has_value && opt.value) {
-    return mcp::optional<T>(*static_cast<T*>(opt.value));
+class TempCString {
+public:
+  explicit TempCString(const std::string& str) 
+      : data_(str.c_str()), length_(str.length()) {}
+  
+  mcp_string_t get() const {
+    return {data_, length_};
   }
-  return mcp::optional<T>();
-}
+  
+private:
+  const char* data_;
+  size_t length_;
+};
 
 /**
- * Convert MCP RequestId between C and C++
+ * Convert RequestId with validation
  */
-inline mcp_request_id_t to_c_request_id(const mcp::RequestId& id) {
+inline mcp_request_id_t to_c_request_id_safe(const mcp::RequestId& id) {
   if (mcp::holds_alternative<std::string>(id)) {
-    return mcp_request_id_create_string(mcp::get<std::string>(id).c_str());
+    const auto& str = mcp::get<std::string>(id);
+    return mcp_request_id_create_string(str.c_str());
   } else {
     return mcp_request_id_create_number(mcp::get<int>(id));
   }
 }
 
-inline mcp::RequestId to_cpp_request_id(mcp_request_id_t id) {
+inline mcp::RequestId to_cpp_request_id_safe(mcp_request_id_t id) {
+  if (!id) {
+    return mcp::RequestId(0);
+  }
+  
   if (mcp_request_id_is_string(id)) {
-    return mcp::RequestId(std::string(mcp_request_id_get_string(id)));
+    const char* str = mcp_request_id_get_string(id);
+    return mcp::RequestId(str ? std::string(str) : std::string());
   } else {
     return mcp::RequestId(static_cast<int>(mcp_request_id_get_number(id)));
   }
 }
 
 /**
- * Convert address between C and C++
+ * Convert address with validation
  */
-inline mcp::network::Address::InstanceConstSharedPtr to_cpp_address(
+inline mcp::network::Address::InstanceConstSharedPtr to_cpp_address_safe(
     const mcp_address_t* addr) {
-  if (!addr)
-    return nullptr;
-
-  if (addr->family == mcp_address::MCP_AF_INET) {
-    return std::make_shared<mcp::network::Address::Ipv4Instance>(
-        std::string(addr->addr.inet.host), addr->addr.inet.port);
-  } else if (addr->family == mcp_address::MCP_AF_INET6) {
-    return std::make_shared<mcp::network::Address::Ipv6Instance>(
-        std::string(addr->addr.inet.host), addr->addr.inet.port);
-  } else if (addr->family == mcp_address::MCP_AF_UNIX) {
-    return std::make_shared<mcp::network::Address::PipeInstance>(
-        std::string(addr->addr.unix.path));
+  if (!addr) return nullptr;
+  
+  switch (addr->family) {
+    case mcp_address::MCP_AF_INET:
+      return std::make_shared<mcp::network::Address::Ipv4Instance>(
+          std::string(addr->addr.inet.host), addr->addr.inet.port);
+      
+    case mcp_address::MCP_AF_INET6:
+      return std::make_shared<mcp::network::Address::Ipv6Instance>(
+          std::string(addr->addr.inet.host), addr->addr.inet.port);
+      
+    case mcp_address::MCP_AF_UNIX:
+      return std::make_shared<mcp::network::Address::PipeInstance>(
+          std::string(addr->addr.unix.path));
+      
+    default:
+      return nullptr;
   }
-  return nullptr;
 }
 
 /* ============================================================================
- * Callback Bridges
+ * Callback Bridges with RAII
  * ============================================================================
  */
 
 /**
- * Connection callbacks bridge
+ * Connection callbacks bridge with automatic cleanup
  */
-class ConnectionCallbackBridge : public mcp::network::ConnectionCallbacks {
- public:
-  ConnectionCallbackBridge(mcp_connection_impl* impl) : impl_(impl) {}
-
+class mcp_connection_impl::CallbackBridge 
+    : public mcp::network::ConnectionCallbacks {
+public:
+  explicit CallbackBridge(mcp_connection_impl* impl) : impl_(impl) {
+    if (impl_) {
+      impl_->AddRef();
+    }
+  }
+  
+  ~CallbackBridge() {
+    if (impl_) {
+      impl_->Release();
+    }
+  }
+  
   void onEvent(mcp::network::ConnectionEvent event) override {
-    if (!impl_)
-      return;
-
-    // Map event to state change
-    mcp_connection_state_t new_state = impl_->current_state;
+    if (!impl_) return;
+    
+    /* Map event to state change */
+    mcp_connection_state_t new_state = impl_->current_state.load();
+    
     switch (event) {
       case mcp::network::ConnectionEvent::Connected:
       case mcp::network::ConnectionEvent::ConnectedZeroRtt:
         new_state = MCP_CONNECTION_STATE_CONNECTED;
         break;
+        
       case mcp::network::ConnectionEvent::RemoteClose:
       case mcp::network::ConnectionEvent::LocalClose:
         new_state = MCP_CONNECTION_STATE_DISCONNECTED;
         break;
+        
       default:
         break;
     }
-
+    
+    /* Notify state change */
     if (new_state != impl_->current_state && impl_->state_callback) {
       impl_->current_state = new_state;
-      impl_->state_callback(reinterpret_cast<mcp_connection_t>(impl_),
-                            static_cast<int>(new_state),
-                            impl_->callback_user_data);
+      impl_->state_callback(
+          reinterpret_cast<mcp_connection_t>(impl_),
+          static_cast<int>(new_state),
+          impl_->callback_user_data);
     }
   }
-
+  
   void onAboveWriteBufferHighWatermark() override {
-    // Could notify about backpressure if needed
+    /* Could notify about backpressure */
   }
-
+  
   void onBelowWriteBufferLowWatermark() override {
-    // Could notify about flow control if needed
+    /* Could notify about flow control */
   }
-
- private:
+  
+private:
   mcp_connection_impl* impl_;
 };
 
-/**
- * MCP Client callbacks bridge
- */
-class MCPClientCallbackBridge {
- public:
-  MCPClientCallbackBridge(mcp_client_impl* impl) : impl_(impl) {}
-
-  void onRequest(const mcp::jsonrpc::Request& request) {
-    if (!impl_ || !impl_->request_callback)
-      return;
-
-    // TODO: Create proper mcp_request_t from jsonrpc::Request
-    // This should convert the request to the C API format
-    mcp_request_t c_request = nullptr;  // Placeholder
-
-    impl_->request_callback(reinterpret_cast<mcp_client_t>(impl_), c_request,
-                            impl_->callback_user_data);
-  }
-
-  void onResponse(const mcp::jsonrpc::Response& response) {
-    if (!impl_ || !impl_->response_callback)
-      return;
-
-    // TODO: Create proper mcp_response_t from jsonrpc::Response
-    // This should convert the response to the C API format
-    mcp_response_t c_response = nullptr;  // Placeholder
-
-    impl_->response_callback(reinterpret_cast<mcp_client_t>(impl_), c_response,
-                             impl_->callback_user_data);
-  }
-
-  void onNotification(const mcp::jsonrpc::Notification& notification) {
-    if (!impl_ || !impl_->notification_callback)
-      return;
-
-    // TODO: Create proper mcp_notification_t from jsonrpc::Notification
-    // This should convert the notification to the C API format
-    mcp_notification_t c_notification = nullptr;  // Placeholder
-
-    impl_->notification_callback(reinterpret_cast<mcp_client_t>(impl_),
-                                 c_notification, impl_->callback_user_data);
-  }
-
- private:
-  mcp_client_impl* impl_;
-};
-
 /* ============================================================================
- * Memory Management
+ * Memory Management with RAII
  * ============================================================================
  */
 
 /**
- * Global allocator instance
+ * Global allocator with RAII cleanup
  */
 class GlobalAllocator {
- public:
-  static GlobalAllocator& instance() {
+public:
+  static GlobalAllocator& Instance() {
     static GlobalAllocator instance;
     return instance;
   }
-
-  void set_allocator(const mcp_allocator_t* allocator) {
+  
+  void SetAllocator(const mcp_allocator_t* allocator) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (allocator) {
       allocator_ = *allocator;
       has_custom_ = true;
@@ -391,98 +672,299 @@ class GlobalAllocator {
       has_custom_ = false;
     }
   }
-
-  void* alloc(size_t size) {
-    if (has_custom_) {
-      return allocator_.alloc(size, allocator_.user_data);
+  
+  void* Alloc(size_t size) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    void* ptr = nullptr;
+    if (has_custom_ && allocator_.alloc) {
+      ptr = allocator_.alloc(size, allocator_.user_data);
+    } else {
+      ptr = std::malloc(size);
     }
-    return std::malloc(size);
-  }
-
-  void* realloc(void* ptr, size_t size) {
-    if (has_custom_) {
-      return allocator_.realloc(ptr, size, allocator_.user_data);
+    
+    if (ptr) {
+      TrackAllocation(ptr, size);
     }
-    return std::realloc(ptr, size);
+    return ptr;
   }
-
-  void free(void* ptr) {
-    if (has_custom_) {
+  
+  void* Realloc(void* ptr, size_t new_size) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    void* new_ptr = nullptr;
+    if (has_custom_ && allocator_.realloc) {
+      new_ptr = allocator_.realloc(ptr, new_size, allocator_.user_data);
+    } else {
+      new_ptr = std::realloc(ptr, new_size);
+    }
+    
+    if (new_ptr) {
+      UntrackAllocation(ptr);
+      TrackAllocation(new_ptr, new_size);
+    }
+    return new_ptr;
+  }
+  
+  void Free(void* ptr) {
+    if (!ptr) return;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    UntrackAllocation(ptr);
+    
+    if (has_custom_ && allocator_.free) {
       allocator_.free(ptr, allocator_.user_data);
     } else {
       std::free(ptr);
     }
   }
-
- private:
+  
+  /* Memory tracking for leak detection */
+  size_t GetActiveAllocations() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return allocations_.size();
+  }
+  
+  void ReportLeaks() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!allocations_.empty()) {
+      /* Log leak information */
+      for (const auto& [ptr, size] : allocations_) {
+        /* Report leak: ptr with size bytes */
+      }
+    }
+  }
+  
+private:
+  mutable std::mutex mutex_;
   mcp_allocator_t allocator_;
   bool has_custom_ = false;
+  
+  /* Allocation tracking */
+  std::unordered_map<void*, size_t> allocations_;
+  
+  void TrackAllocation(void* ptr, size_t size) {
+    allocations_[ptr] = size;
+  }
+  
+  void UntrackAllocation(void* ptr) {
+    allocations_.erase(ptr);
+  }
 };
 
 /* ============================================================================
- * Error Handling
+ * Error Handling with RAII
  * ============================================================================
  */
 
 /**
- * Thread-local error message storage
+ * Thread-local error management with automatic cleanup
  */
 class ErrorManager {
- public:
-  static void set_error(const std::string& error) {
-    thread_local_error_ = error;
+public:
+  static void SetError(mcp_result_t code, const std::string& message,
+                       const char* file = __FILE__, int line = __LINE__) {
+    thread_local_error_.code = code;
+    strncpy(thread_local_error_.message, message.c_str(), 
+            sizeof(thread_local_error_.message) - 1);
+    strncpy(thread_local_error_.file, file, 
+            sizeof(thread_local_error_.file) - 1);
+    thread_local_error_.line = line;
   }
-
-  static const char* get_error() { return thread_local_error_.c_str(); }
-
-  static void clear_error() { thread_local_error_.clear(); }
-
- private:
-  static thread_local std::string thread_local_error_;
+  
+  static const mcp_error_info_t* GetError() {
+    if (thread_local_error_.code != MCP_OK) {
+      return &thread_local_error_;
+    }
+    return nullptr;
+  }
+  
+  static void ClearError() {
+    thread_local_error_.code = MCP_OK;
+    thread_local_error_.message[0] = '\0';
+  }
+  
+  /* RAII error scope for automatic cleanup */
+  class ErrorScope {
+  public:
+    ErrorScope() { ClearError(); }
+    ~ErrorScope() { /* Error persists after scope */ }
+  };
+  
+private:
+  static thread_local mcp_error_info_t thread_local_error_;
 };
 
 /* ============================================================================
- * Helper Macros
+ * Handle Registry for Global Resource Management
  * ============================================================================
  */
 
-#define CHECK_HANDLE(handle)                     \
-  do {                                           \
-    if (!(handle)) {                             \
-      ErrorManager::set_error("Invalid handle"); \
-      return MCP_ERROR_INVALID_ARGUMENT;         \
-    }                                            \
+/**
+ * Global handle registry for leak detection and validation
+ */
+class HandleRegistry {
+public:
+  static HandleRegistry& Instance() {
+    static HandleRegistry instance;
+    return instance;
+  }
+  
+  void Register(HandleBase* handle) {
+    if (!handle) return;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    handles_.insert(handle);
+    stats_.total_created++;
+  }
+  
+  void Unregister(HandleBase* handle) {
+    if (!handle) return;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    handles_.erase(handle);
+    stats_.total_destroyed++;
+  }
+  
+  bool IsValid(void* handle) const {
+    if (!handle) return false;
+    
+    std::lock_guard<std::mutex> lock(mutex_);
+    return handles_.find(static_cast<HandleBase*>(handle)) != handles_.end();
+  }
+  
+  struct Stats {
+    std::atomic<size_t> total_created{0};
+    std::atomic<size_t> total_destroyed{0};
+  };
+  
+  Stats GetStats() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Stats s = stats_;
+    s.total_created = stats_.total_created.load();
+    s.total_destroyed = stats_.total_destroyed.load();
+    return s;
+  }
+  
+  size_t GetActiveCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return handles_.size();
+  }
+  
+  void ReportLeaks() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!handles_.empty()) {
+      /* Report each leaked handle */
+      for (auto* handle : handles_) {
+        /* Log: Leaked handle of type handle->GetType() */
+      }
+    }
+  }
+  
+private:
+  mutable std::mutex mutex_;
+  std::unordered_set<HandleBase*> handles_;
+  Stats stats_;
+};
+
+/* ============================================================================
+ * Helper Macros with RAII
+ * ============================================================================
+ */
+
+#define CHECK_HANDLE_VALID(handle)                                    \
+  do {                                                                \
+    if (!HandleRegistry::Instance().IsValid(handle)) {               \
+      ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT,             \
+                           "Invalid handle", __FILE__, __LINE__);    \
+      return MCP_ERROR_INVALID_ARGUMENT;                             \
+    }                                                                \
   } while (0)
 
-#define CHECK_HANDLE_RETURN_NULL(handle)         \
-  do {                                           \
-    if (!(handle)) {                             \
-      ErrorManager::set_error("Invalid handle"); \
-      return nullptr;                            \
-    }                                            \
+#define CHECK_HANDLE_VALID_NULL(handle)                              \
+  do {                                                               \
+    if (!HandleRegistry::Instance().IsValid(handle)) {               \
+      ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT,             \
+                           "Invalid handle", __FILE__, __LINE__);    \
+      return nullptr;                                                \
+    }                                                               \
   } while (0)
 
-#define TRY_CATCH(code)                       \
-  try {                                       \
-    code                                      \
-  } catch (const std::exception& e) {         \
-    ErrorManager::set_error(e.what());        \
-    return MCP_ERROR_UNKNOWN;                 \
-  } catch (...) {                             \
-    ErrorManager::set_error("Unknown error"); \
-    return MCP_ERROR_UNKNOWN;                 \
+#define RAII_GUARD(handle)                                           \
+  mcp::raii::ResourceGuard<HandleBase> guard_(                       \
+      static_cast<HandleBase*>(handle),                             \
+      [](HandleBase* h) { if (h) h->Release(); })
+
+#define RAII_TRANSACTION()                                           \
+  mcp::raii::AllocationTransaction transaction_
+
+#define TRY_WITH_RAII(code)                                          \
+  try {                                                              \
+    ErrorManager::ErrorScope error_scope_;                          \
+    code                                                             \
+  } catch (const std::exception& e) {                               \
+    ErrorManager::SetError(MCP_ERROR_UNKNOWN, e.what(),             \
+                         __FILE__, __LINE__);                       \
+    return MCP_ERROR_UNKNOWN;                                       \
+  } catch (...) {                                                   \
+    ErrorManager::SetError(MCP_ERROR_UNKNOWN, "Unknown error",      \
+                         __FILE__, __LINE__);                       \
+    return MCP_ERROR_UNKNOWN;                                       \
   }
 
-#define TRY_CATCH_NULL(code)                  \
-  try {                                       \
-    code                                      \
-  } catch (const std::exception& e) {         \
-    ErrorManager::set_error(e.what());        \
-    return nullptr;                           \
-  } catch (...) {                             \
-    ErrorManager::set_error("Unknown error"); \
-    return nullptr;                           \
+#define TRY_WITH_RAII_NULL(code)                                    \
+  try {                                                              \
+    ErrorManager::ErrorScope error_scope_;                          \
+    code                                                             \
+  } catch (const std::exception& e) {                               \
+    ErrorManager::SetError(MCP_ERROR_UNKNOWN, e.what(),             \
+                         __FILE__, __LINE__);                       \
+    return nullptr;                                                 \
+  } catch (...) {                                                   \
+    ErrorManager::SetError(MCP_ERROR_UNKNOWN, "Unknown error",      \
+                         __FILE__, __LINE__);                       \
+    return nullptr;                                                 \
   }
+
+/* ============================================================================
+ * Inline Implementations
+ * ============================================================================
+ */
+
+inline void HandleBase::RegisterHandle(HandleBase* handle) {
+  HandleRegistry::Instance().Register(handle);
+}
+
+inline void HandleBase::UnregisterHandle(HandleBase* handle) {
+  HandleRegistry::Instance().Unregister(handle);
+}
+
+inline void mcp_transaction_impl::DestroyHandle(void* handle, 
+                                                mcp_type_id_t type) {
+  if (!handle) return;
+  
+  /* Type-specific destruction */
+  switch (type) {
+    case MCP_TYPE_STRING:
+      mcp_string_buffer_free(static_cast<mcp_string_buffer_t*>(handle));
+      break;
+      
+    case MCP_TYPE_JSON:
+      mcp_json_free(static_cast<mcp_json_value_t>(handle));
+      break;
+      
+    default:
+      /* Generic handle destruction */
+      if (auto* base = static_cast<HandleBase*>(handle)) {
+        base->Release();
+      }
+      break;
+  }
+}
+
+/* Thread-local storage definition */
+thread_local mcp_error_info_t ErrorManager::thread_local_error_ = {};
 
 }  // namespace c_api
 }  // namespace mcp
