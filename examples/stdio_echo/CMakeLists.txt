@@ -50,23 +50,23 @@ target_link_libraries(stdio_echo_client_basic
 
 # Add include directories
 target_include_directories(stdio_echo_server_advanced PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+    ${GOPHER_MCP_ROOT_DIR}/include
+    ${GOPHER_MCP_ROOT_DIR}/examples/stdio_echo
 )
 
 target_include_directories(stdio_echo_client_advanced PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+    ${GOPHER_MCP_ROOT_DIR}/include
+    ${GOPHER_MCP_ROOT_DIR}/examples/stdio_echo
 )
 
 target_include_directories(stdio_echo_server_basic PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+    ${GOPHER_MCP_ROOT_DIR}/include
+    ${GOPHER_MCP_ROOT_DIR}/examples/stdio_echo
 )
 
 target_include_directories(stdio_echo_client_basic PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/examples/stdio_echo
+    ${GOPHER_MCP_ROOT_DIR}/include
+    ${GOPHER_MCP_ROOT_DIR}/examples/stdio_echo
 )
 
 # Installation rules

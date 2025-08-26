@@ -65,6 +65,16 @@ struct Role {
 
 // LoggingLevel enum with all RFC-5424 severities
 struct LoggingLevel {
+  // Save and undefine common macros that might conflict with enum values
+#ifdef DEBUG
+  #define MCP_SAVED_DEBUG DEBUG
+  #undef DEBUG
+#endif
+#ifdef ERROR
+  #define MCP_SAVED_ERROR ERROR
+  #undef ERROR
+#endif
+
   enum Value {
     DEBUG = 0,     // Debug-level messages
     INFO = 1,      // Informational messages
@@ -118,6 +128,16 @@ struct LoggingLevel {
       return mcp::make_optional(EMERGENCY);
     return nullopt;
   }
+
+  // Restore macros if they were defined before
+#ifdef MCP_SAVED_DEBUG
+  #define DEBUG MCP_SAVED_DEBUG
+  #undef MCP_SAVED_DEBUG
+#endif
+#ifdef MCP_SAVED_ERROR
+  #define ERROR MCP_SAVED_ERROR
+  #undef MCP_SAVED_ERROR
+#endif
 };
 
 }  // namespace enums

@@ -630,6 +630,8 @@ if(BUILD_C_API)
     target_link_libraries(test_mcp_raii
         gopher-mcp
         gopher_mcp_c_static  # Use static library for access to internal symbols
+        gopher-mcp-event
+        ${LIBEVENT_LIBRARIES}
         gtest
         gtest_main
         Threads::Threads

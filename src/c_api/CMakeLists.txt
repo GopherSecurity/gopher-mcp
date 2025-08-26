@@ -71,10 +71,10 @@ endif()
 # Include directories
 target_include_directories(gopher_mcp_c
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${GOPHER_MCP_ROOT_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
+        ${GOPHER_MCP_ROOT_DIR}/src
 )
 
 # Link with the main Gopher MCP C++ library
@@ -106,10 +106,10 @@ if(BUILD_C_API_STATIC)
     
     target_include_directories(gopher_mcp_c_static
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${GOPHER_MCP_ROOT_DIR}/include>
             $<INSTALL_INTERFACE:include>
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
+            ${GOPHER_MCP_ROOT_DIR}/src
     )
     
     target_link_libraries(gopher_mcp_c_static
@@ -142,7 +142,7 @@ endif()
 
 if(FALSE)  # Disabled for now
     configure_file(
-        "${CMAKE_SOURCE_DIR}/cmake/gopher_mcp_c.pc.in"
+        "${GOPHER_MCP_ROOT_DIR}/cmake/gopher_mcp_c.pc.in"
         "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.pc"
         @ONLY
     )
@@ -154,7 +154,7 @@ endif()
 
 # Install binding examples and build files
 install(
-    DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/
+    DIRECTORY ${GOPHER_MCP_ROOT_DIR}/bindings/
     DESTINATION share/gopher-mcp/bindings
     PATTERN "build" EXCLUDE
     PATTERN "*.pyc" EXCLUDE
@@ -183,8 +183,8 @@ if(BUILD_DOCS)
         
         doxygen_add_docs(
             gopher_mcp_c_docs
-            ${CMAKE_SOURCE_DIR}/include/mcp/c_api/mcp_c_api.h
-            ${CMAKE_SOURCE_DIR}/include/mcp/c_api/mcp_c_types.h
+            ${GOPHER_MCP_ROOT_DIR}/include/mcp/c_api/mcp_c_api.h
+            ${GOPHER_MCP_ROOT_DIR}/include/mcp/c_api/mcp_c_types.h
             COMMENT "Generating Gopher MCP C API documentation"
         )
         
@@ -204,7 +204,7 @@ message(STATUS "  Shared library: ${BUILD_SHARED_LIBS}")
 message(STATUS "  Static library: ${BUILD_C_API_STATIC}")
 message(STATUS "  Install prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  Language bindings:")
-message(STATUS "    Python: ${CMAKE_SOURCE_DIR}/bindings/python")
-message(STATUS "    TypeScript: ${CMAKE_SOURCE_DIR}/bindings/typescript")
-message(STATUS "    Go: ${CMAKE_SOURCE_DIR}/bindings/go")
-message(STATUS "    Rust: ${CMAKE_SOURCE_DIR}/bindings/rust")
+message(STATUS "    Python: ${GOPHER_MCP_ROOT_DIR}/bindings/python")
+message(STATUS "    TypeScript: ${GOPHER_MCP_ROOT_DIR}/bindings/typescript")
+message(STATUS "    Go: ${GOPHER_MCP_ROOT_DIR}/bindings/go")
+message(STATUS "    Rust: ${GOPHER_MCP_ROOT_DIR}/bindings/rust")
