@@ -239,4 +239,50 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   impl->Release();
 }
 
+/* ============================================================================
+ * Buffer Operations - implementations use existing RAII infrastructure
+ * ============================================================================
+ */
+
+// Buffer implementation using existing RAII patterns
+struct mcp_buffer_impl {
+    size_t capacity_;
+    size_t size_;
+    std::unique_ptr<char[]> data_;
+    
+    explicit mcp_buffer_impl(size_t capacity) 
+        : capacity_(capacity), size_(0) {
+        if (capacity > 0) {
+            data_ = std::make_unique<char[]>(capacity);
+        }
+    }
+    
+    ~mcp_buffer_impl() = default;
+};
+
+mcp_buffer_t* mcp_buffer_create(size_t capacity) MCP_NOEXCEPT {
+    if (!mcp_is_initialized()) {
+        ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED, "MCP library not initialized");
+        return nullptr;
+    }
+    
+    try {
+        auto buffer = std::make_unique<mcp_buffer_impl>(capacity);
+        auto result = new mcp_buffer_t(buffer.release());
+        return result;
+    } catch (...) {
+        ErrorManager::SetError(MCP_ERROR_NO_MEMORY, "Failed to create buffer");
+        return nullptr;
+    }
+}
+
+void mcp_buffer_free(mcp_buffer_t* buffer) MCP_NOEXCEPT {
+    if (!buffer || !*buffer) 
+        return;
+    
+    auto impl = reinterpret_cast<mcp_buffer_impl*>(*buffer);
+    delete impl;
+    *buffer = nullptr;
+}
+
 }  // extern "C"
