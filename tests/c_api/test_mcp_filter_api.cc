@@ -43,7 +43,7 @@ namespace {
  */
 class FilterGuard {
 public:
-    explicit FilterGuard(mcp_filter_t filter = nullptr) : filter_(filter) {}
+    explicit FilterGuard(mcp_filter_t filter = 0) : filter_(filter) {}
     
     FilterGuard(mcp_dispatcher_t dispatcher, const std::string& name,
                 mcp_protocol_layer_t layer = MCP_PROTOCOL_LAYER_7_APPLICATION,
@@ -64,7 +64,7 @@ public:
     
     // Move constructor
     FilterGuard(FilterGuard&& other) noexcept : filter_(other.filter_) {
-        other.filter_ = nullptr;
+        other.filter_ = 0;
     }
     
     // Move assignment
@@ -74,7 +74,7 @@ public:
                 mcp_filter_release(filter_);
             }
             filter_ = other.filter_;
-            other.filter_ = nullptr;
+            other.filter_ = 0;
         }
         return *this;
     }
@@ -86,7 +86,7 @@ public:
     mcp_filter_t get() const { return filter_; }
     mcp_filter_t release() {
         mcp_filter_t temp = filter_;
-        filter_ = nullptr;
+        filter_ = 0;
         return temp;
     }
     
@@ -578,7 +578,7 @@ protected:
 TEST_F(McpFilterApiTest, CreateAndDestroyFilter) {
     // Test basic filter creation and destruction using RAII
     FilterGuard filter = createTestFilter("lifecycle_test");
-    ASSERT_TRUE(filter.get() != nullptr) << "Failed to create filter";
+    ASSERT_TRUE(filter.get() != 0) << "Failed to create filter";
     
     // Verify filter exists
     mcp_filter_stats_t stats = {};
@@ -589,7 +589,7 @@ TEST_F(McpFilterApiTest, CreateAndDestroyFilter) {
 
 TEST_F(McpFilterApiTest, FilterReferenceCountingTest) {
     FilterGuard filter = createTestFilter("refcount_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Retain multiple times
     mcp_filter_retain(filter);
@@ -643,7 +643,7 @@ TEST_F(McpFilterApiTest, CreateAllBuiltinFilterTypes) {
     std::vector<FilterGuard> filters;
     for (const auto& test : filter_types) {
         FilterGuard filter = createBuiltinFilter(test.type);
-        ASSERT_TRUE(filter.get() != nullptr) << "Failed to create " << test.description << " filter";
+        ASSERT_TRUE(filter.get() != 0) << "Failed to create " << test.description << " filter";
         filters.push_back(std::move(filter));
     }
 }
@@ -692,7 +692,7 @@ static void test_error_callback(mcp_filter_t filter,
 
 TEST_F(McpFilterApiTest, SetAndTriggerCallbacks) {
     FilterGuard filter = createTestFilter("callback_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Set up callbacks
     mcp_filter_callbacks_t callbacks = {};
@@ -721,7 +721,7 @@ TEST_F(McpFilterApiTest, SetAndTriggerCallbacks) {
 
 TEST_F(McpFilterApiTest, SetAndGetProtocolMetadata) {
     FilterGuard filter = createTestFilter("metadata_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Test L3 metadata
     {
@@ -1017,7 +1017,7 @@ TEST_F(McpFilterApiTest, FilterManagerOperations) {
 
 TEST_F(McpFilterApiTest, ThreadSafeFilterOperations) {
     FilterGuard filter = createTestFilter("thread_safe_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     std::atomic<int> counter{0};
     std::vector<std::thread> threads;
@@ -1056,7 +1056,7 @@ TEST_F(McpFilterApiTest, ThreadSafeFilterOperations) {
 
 TEST_F(McpFilterApiTest, ConcurrentPostData) {
     FilterGuard filter = createTestFilter("concurrent_post_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     std::atomic<int> completed{0};
     
@@ -1112,7 +1112,7 @@ TEST_F(McpFilterApiTest, ConcurrentPostData) {
 
 TEST_F(McpFilterApiTest, FilterStatistics) {
     FilterGuard filter = createTestFilter("stats_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Get initial stats
     mcp_filter_stats_t stats = {};
@@ -1146,19 +1146,19 @@ TEST_F(McpFilterApiTest, InvalidParameterHandling) {
     config.name = "test";
     config.type = MCP_FILTER_CUSTOM;
     mcp_filter_t filter = mcp_filter_create(nullptr, &config);
-    EXPECT_EQ(filter, nullptr);
+    EXPECT_EQ(filter, 0u);
     
     // Test null config
     filter = mcp_filter_create(dispatcher_->get(), nullptr);
-    EXPECT_EQ(filter, nullptr);
+    EXPECT_EQ(filter, 0u);
     
     // Test invalid filter handle
     mcp_filter_stats_t stats = {};
-    EXPECT_NE(mcp_filter_get_stats(nullptr, &stats), MCP_OK);
+    EXPECT_NE(mcp_filter_get_stats(0, &stats), MCP_OK);
     
     // Test null callbacks
     FilterGuard test_filter = createTestFilter("error_test");
-    ASSERT_TRUE(test_filter.get() != nullptr);
+    ASSERT_TRUE(test_filter.get() != 0);
     EXPECT_NE(mcp_filter_set_callbacks(test_filter, nullptr), MCP_OK);
     
     // Test invalid buffer operations
@@ -1172,7 +1172,7 @@ TEST_F(McpFilterApiTest, InvalidParameterHandling) {
 
 TEST_F(McpFilterApiTest, ErrorCallbackTrigger) {
     FilterGuard filter = createTestFilter("error_callback_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Set up error callback
     mcp_filter_callbacks_t callbacks = {};
@@ -1238,7 +1238,7 @@ TEST_F(McpFilterApiTest, ResourceGuardMultipleGuards) {
 
 TEST_F(McpFilterApiTest, Layer6PresentationMetadata) {
     FilterGuard filter = createTestFilter("l6_test", MCP_PROTOCOL_LAYER_6_PRESENTATION);
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Test L6 presentation layer metadata
     mcp_protocol_metadata_t metadata = {};
@@ -1306,7 +1306,7 @@ TEST_F(McpFilterApiTest, BufferFlagCombinations) {
 
 TEST_F(McpFilterApiTest, ConnectionEventTypes) {
     FilterGuard filter = createTestFilter("event_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     // Test different connection states
     std::vector<mcp_connection_state_t> states = {
@@ -1345,7 +1345,7 @@ TEST_F(McpFilterApiTest, ConnectionEventTypes) {
 
 TEST_F(McpFilterApiTest, SpecificErrorScenarios) {
     FilterGuard filter = createTestFilter("error_scenario_test");
-    ASSERT_TRUE(filter.get() != nullptr);
+    ASSERT_TRUE(filter.get() != 0);
     
     struct ErrorTest {
         mcp_filter_error_t error;
@@ -1396,9 +1396,9 @@ TEST_F(McpFilterApiTest, CompleteFilterPipeline) {
     FilterGuard l5_filter = createTestFilter("l5_tls", MCP_PROTOCOL_LAYER_5_SESSION);
     FilterGuard l7_filter = createTestFilter("l7_http", MCP_PROTOCOL_LAYER_7_APPLICATION);
     
-    ASSERT_TRUE(l4_filter.get() != nullptr);
-    ASSERT_TRUE(l5_filter.get() != nullptr);
-    ASSERT_TRUE(l7_filter.get() != nullptr);
+    ASSERT_TRUE(l4_filter.get() != 0);
+    ASSERT_TRUE(l5_filter.get() != 0);
+    ASSERT_TRUE(l7_filter.get() != 0);
     
     // 2. Set protocol metadata for each
     mcp_protocol_metadata_t l4_meta = {};
@@ -1468,7 +1468,7 @@ TEST_F(McpFilterApiTest, FilterCreationPerformance) {
     for (int i = 0; i < filter_count; ++i) {
         std::string name = "perf_filter_" + std::to_string(i);
         FilterGuard filter = createTestFilter(name);
-        ASSERT_TRUE(filter.get() != nullptr);
+        ASSERT_TRUE(filter.get() != 0);
         filters.push_back(filter.release());
     }
     
@@ -1523,7 +1523,7 @@ TEST_F(McpFilterApiTest, NoMemoryLeakOnRepeatedOperations) {
     for (int iteration = 0; iteration < 100; ++iteration) {
         // Create and destroy filters
         FilterGuard filter = createTestFilter("leak_test");
-        ASSERT_TRUE(filter.get() != nullptr);
+        ASSERT_TRUE(filter.get() != 0);
         
         // Set callbacks
         mcp_filter_callbacks_t callbacks = {};
