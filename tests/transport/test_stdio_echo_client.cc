@@ -33,6 +33,7 @@
 #include <queue>
 #include <thread>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -72,7 +73,10 @@ class StdioEchoClientTest : public ::testing::Test {
 
     // Make pipes non-blocking to prevent test hangs
     // Essential for async I/O and timeout handling
+    // Make all pipe ends non-blocking for level-triggered events
     fcntl(client_stdin_pipe_[0], F_SETFL, O_NONBLOCK);
+    fcntl(client_stdin_pipe_[1], F_SETFL, O_NONBLOCK);
+    fcntl(client_stdout_pipe_[0], F_SETFL, O_NONBLOCK);
     fcntl(client_stdout_pipe_[1], F_SETFL, O_NONBLOCK);
 
     // Create dispatcher
@@ -445,9 +449,10 @@ TEST_F(StdioEchoClientTest, RequestResponse) {
   // 2. Server thread reads and processes request
   // 3. Server writes response to stdin pipe
   // 4. Client reads response and invokes callback
-  for (int i = 0; i < 20; ++i) {
+  // Increased timeout for level-triggered events on macOS
+  for (int i = 0; i < 50; ++i) {
     dispatcher_->run(event::RunType::NonBlock);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
 
   // Verify request was sent
