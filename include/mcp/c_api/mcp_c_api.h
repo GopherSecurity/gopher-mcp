@@ -39,35 +39,12 @@ extern "C" {
  */
 
 /**
- * Get library version information
- * @return Version string (do not free)
- */
-MCP_API const char* mcp_get_version(void) MCP_NOEXCEPT;
-
-/**
- * Get library build information
- * @return Build info string (do not free)
- */
-MCP_API const char* mcp_get_build_info(void) MCP_NOEXCEPT;
-
-/**
  * Initialize the MCP library
  * Must be called before any other API functions
  * @param allocator Custom allocator (NULL for default)
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT;
-
-/**
- * Initialize with configuration
- * @param allocator Custom allocator (NULL for default)
- * @param enable_raii Enable RAII for automatic cleanup
- * @param enable_tracking Enable resource tracking (debug)
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t mcp_init_ex(const mcp_allocator_t* allocator,
-                                  mcp_bool_t enable_raii,
-                                  mcp_bool_t enable_tracking) MCP_NOEXCEPT;
 
 /**
  * Shutdown the MCP library
@@ -80,6 +57,12 @@ MCP_API void mcp_shutdown(void) MCP_NOEXCEPT;
  * @return MCP_TRUE if initialized
  */
 MCP_API mcp_bool_t mcp_is_initialized(void) MCP_NOEXCEPT;
+
+/**
+ * Get library version information
+ * @return Version string (do not free)
+ */
+MCP_API const char* mcp_get_version(void) MCP_NOEXCEPT;
 
 /* ============================================================================
  * RAII Guard Functions

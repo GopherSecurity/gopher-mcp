@@ -7,6 +7,7 @@
 #include <atomic>
 #include <mutex>
 
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_raii.h"
 #include "mcp/event/libevent_dispatcher.h"
@@ -14,12 +15,7 @@
 namespace mcp {
 namespace c_api {
 
-// Thread-local error storage implementation
-thread_local std::string ErrorManager::thread_local_error_;
-
-// Global library state
-static std::atomic<bool> g_initialized{false};
-static std::mutex g_init_mutex;
+// Thread-local error storage implementation is in mcp_c_bridge.h
 
 }  // namespace c_api
 }  // namespace mcp
@@ -33,9 +29,9 @@ using namespace mcp::c_api;
 
 extern "C" {
 
-// Removed - now use mcp_ffi_initialize() and mcp_ffi_shutdown() from
-// mcp_c_memory_impl.cc mcp_init and mcp_shutdown are replaced by the new
-// FFI-safe functions
+// Library initialization is now implemented in mcp_c_memory_impl.cc
+// The functions mcp_init, mcp_shutdown, and mcp_is_initialized are
+// provided there for centralized memory and error management
 
 const char* mcp_get_version(void) {
   return "1.0.0";  // TODO: Use actual version from build system
@@ -49,13 +45,13 @@ const char* mcp_get_version(void) {
  * ============================================================================
  */
 
-mcp_dispatcher_t mcp_dispatcher_create(void) {
-  if (!g_initialized.load()) {
-    ErrorManager::set_error("Library not initialized");
+mcp_dispatcher_t mcp_dispatcher_create(void) MCP_NOEXCEPT {
+  if (!mcp_is_initialized()) {
+    ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED, "Library not initialized");
     return nullptr;
   }
 
-  TRY_CATCH_NULL({
+  TRY_WITH_RAII_NULL({
     auto impl = new mcp::c_api::mcp_dispatcher_impl();
 
     // Create libevent dispatcher
@@ -67,14 +63,14 @@ mcp_dispatcher_t mcp_dispatcher_create(void) {
   });
 }
 
-mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) {
-  CHECK_HANDLE(dispatcher);
+mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(dispatcher);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     if (impl->running) {
-      ErrorManager::set_error("Dispatcher already running");
+      ErrorManager::SetError(MCP_ERROR_INVALID_STATE, "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -90,14 +86,14 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) {
 }
 
 mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
-                                        uint32_t timeout_ms) {
-  CHECK_HANDLE(dispatcher);
+                                        uint32_t timeout_ms) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(dispatcher);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     if (impl->running) {
-      ErrorManager::set_error("Dispatcher already running");
+      ErrorManager::SetError(MCP_ERROR_INVALID_STATE, "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -117,7 +113,7 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
   });
 }
 
-void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) {
+void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   if (!dispatcher)
     return;
 
@@ -129,10 +125,10 @@ void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) {
 
 mcp_result_t mcp_dispatcher_post(mcp_dispatcher_t dispatcher,
                                  mcp_callback_t callback,
-                                 void* user_data) {
-  CHECK_HANDLE(dispatcher);
+                                 void* user_data) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(dispatcher);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     impl->dispatcher->post([callback, user_data]() {
@@ -145,19 +141,19 @@ mcp_result_t mcp_dispatcher_post(mcp_dispatcher_t dispatcher,
   });
 }
 
-bool mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) {
+mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   if (!dispatcher)
-    return false;
+    return MCP_FALSE;
 
   auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-  return std::this_thread::get_id() == impl->dispatcher_thread_id;
+  return (std::this_thread::get_id() == impl->dispatcher_thread_id) ? MCP_TRUE : MCP_FALSE;
 }
 
 uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
                                      mcp_timer_callback_t callback,
-                                     void* user_data) {
+                                     void* user_data) MCP_NOEXCEPT {
   if (!dispatcher || !callback) {
-    ErrorManager::set_error("Invalid parameters");
+    ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid parameters");
     return 0;
   }
 
@@ -170,11 +166,12 @@ uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
 
     // Store timer info
     uint64_t timer_id = impl->next_timer_id++;
-    impl->timers[timer_id] = {std::move(timer), callback, user_data};
+    impl->timers[timer_id] = std::make_unique<mcp::c_api::mcp_dispatcher_impl::TimerInfo>(
+        std::move(timer), callback, user_data);
 
     return timer_id;
   } catch (const std::exception& e) {
-    ErrorManager::set_error(e.what());
+    ErrorManager::SetError(MCP_ERROR_UNKNOWN, e.what());
     return 0;
   }
 }
@@ -182,40 +179,40 @@ uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
 mcp_result_t mcp_dispatcher_enable_timer(mcp_dispatcher_t dispatcher,
                                          uint64_t timer_id,
                                          uint32_t timeout_ms,
-                                         bool repeat) {
-  CHECK_HANDLE(dispatcher);
+                                         mcp_bool_t repeat) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(dispatcher);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     auto it = impl->timers.find(timer_id);
     if (it == impl->timers.end()) {
-      ErrorManager::set_error("Timer not found");
+      ErrorManager::SetError(MCP_ERROR_NOT_FOUND, "Timer not found");
       return MCP_ERROR_NOT_FOUND;
     }
 
     // TODO: Repeating timers not supported in current API
     // For now, just use one-shot timer
-    it->second.timer->enableTimer(std::chrono::milliseconds(timeout_ms));
+    it->second->timer->enableTimer(std::chrono::milliseconds(timeout_ms));
 
     return MCP_OK;
   });
 }
 
 void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher,
-                                  uint64_t timer_id) {
+                                  uint64_t timer_id) MCP_NOEXCEPT {
   if (!dispatcher)
     return;
 
   auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
   auto it = impl->timers.find(timer_id);
   if (it != impl->timers.end()) {
-    it->second.timer->disableTimer();
+    it->second->timer->disableTimer();
   }
 }
 
 void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher,
-                                  uint64_t timer_id) {
+                                  uint64_t timer_id) MCP_NOEXCEPT {
   if (!dispatcher)
     return;
 
@@ -223,7 +220,7 @@ void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher,
   impl->timers.erase(timer_id);
 }
 
-void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) {
+void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   if (!dispatcher)
     return;
 
@@ -238,7 +235,7 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) {
   impl->timers.clear();
 
   // Release the handle
-  impl->release();
+  impl->Release();
 }
 
 }  // extern "C"

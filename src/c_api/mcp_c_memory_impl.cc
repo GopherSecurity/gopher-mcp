@@ -81,7 +81,7 @@ extern "C" {
  * ============================================================================
  */
 
-MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator)
+MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator)
     MCP_NOEXCEPT {
   std::lock_guard<std::mutex> lock(g_state.mutex);
 
@@ -109,7 +109,7 @@ MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator)
   return MCP_OK;
 }
 
-MCP_API void mcp_ffi_shutdown(void) MCP_NOEXCEPT {
+MCP_API void mcp_shutdown(void) MCP_NOEXCEPT {
   std::lock_guard<std::mutex> lock(g_state.mutex);
 
   if (!g_state.initialized) {
@@ -128,7 +128,7 @@ MCP_API void mcp_ffi_shutdown(void) MCP_NOEXCEPT {
   g_state.error_handler_data = nullptr;
 }
 
-MCP_API mcp_bool_t mcp_ffi_is_initialized(void) MCP_NOEXCEPT {
+MCP_API mcp_bool_t mcp_is_initialized(void) MCP_NOEXCEPT {
   std::lock_guard<std::mutex> lock(g_state.mutex);
   return g_state.initialized ? MCP_TRUE : MCP_FALSE;
 }

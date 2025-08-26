@@ -16,28 +16,10 @@ extern "C" {
 #endif
 
 /* ============================================================================
- * Library Initialization
+ * Note: Library initialization functions (mcp_init, mcp_shutdown, 
+ * mcp_is_initialized) are declared in mcp_c_api.h
  * ============================================================================
  */
-
-/**
- * Initialize the FFI system with custom allocator
- * @param allocator Custom memory allocator (NULL for default)
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t mcp_ffi_initialize(const mcp_allocator_t* allocator)
-    MCP_NOEXCEPT;
-
-/**
- * Shutdown the FFI system and release all resources
- */
-MCP_API void mcp_ffi_shutdown(void) MCP_NOEXCEPT;
-
-/**
- * Check if FFI system is initialized
- * @return MCP_TRUE if initialized
- */
-MCP_API mcp_bool_t mcp_ffi_is_initialized(void) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Error Handling
