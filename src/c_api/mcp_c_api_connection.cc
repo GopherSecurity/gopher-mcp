@@ -4,6 +4,7 @@
  * Uses RAII for memory safety.
  */
 
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_raii.h"
 #include "mcp/network/connection_impl.h"
@@ -24,14 +25,13 @@ extern "C" {
 
 mcp_connection_t mcp_connection_create_client_ex(
     mcp_dispatcher_t dispatcher,
-    const mcp_transport_config_t* transport_config) {
-  CHECK_HANDLE_RETURN_NULL(dispatcher);
+    const mcp_transport_config_t* transport_config) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID_NULL(dispatcher);
 
-  TRY_CATCH_NULL({
+  TRY_WITH_RAII_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto conn_impl = std::make_unique<mcp::c_api::mcp_connection_impl>();
-    conn_impl->dispatcher = dispatcher_impl;
+    auto conn_impl = std::make_unique<mcp::c_api::mcp_connection_impl>(dispatcher_impl);
 
     // Use default configuration if not provided
     mcp_transport_config_t default_config = {};
@@ -91,7 +91,7 @@ mcp_connection_t mcp_connection_create_client_ex(
       }
 
       default:
-        ErrorManager::set_error("Unsupported transport type");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Unsupported transport type");
         return nullptr;
     }
 
@@ -149,16 +149,16 @@ mcp_result_t mcp_connection_configure(mcp_connection_t connection,
                                       const mcp_address_t* address,
                                       const mcp_socket_options_t* options,
                                       const mcp_ssl_config_t* ssl_config) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     // Configure address if provided
     if (address) {
-      auto cpp_address = to_cpp_address(address);
+      auto cpp_address = to_cpp_address_safe(address);
       if (!cpp_address) {
-        ErrorManager::set_error("Invalid address");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid address");
         return MCP_ERROR_INVALID_ARGUMENT;
       }
       // Store address for connection
@@ -188,9 +188,9 @@ mcp_result_t mcp_connection_set_callbacks(
     mcp_data_callback_t data_cb,
     mcp_error_callback_t error_cb,
     void* user_data) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     // Store callbacks
@@ -200,7 +200,7 @@ mcp_result_t mcp_connection_set_callbacks(
     impl->callback_user_data = user_data;
 
     // Create and set the callback bridge
-    impl->callback_bridge = std::make_unique<ConnectionCallbackBridge>(impl);
+    impl->callback_bridge = std::make_unique<mcp::c_api::mcp_connection_impl::CallbackBridge>(impl);
     impl->connection->addConnectionCallbacks(*impl->callback_bridge);
 
     return MCP_OK;
@@ -209,14 +209,14 @@ mcp_result_t mcp_connection_set_callbacks(
 
 mcp_result_t mcp_connection_set_watermarks(
     mcp_connection_t connection, const mcp_watermark_config_t* config) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
   if (!config) {
-    ErrorManager::set_error("Invalid watermark config");
+    ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid watermark config");
     return MCP_ERROR_INVALID_ARGUMENT;
   }
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     impl->connection->setBufferLimits(config->high_watermark);
@@ -227,9 +227,9 @@ mcp_result_t mcp_connection_set_watermarks(
 }
 
 mcp_result_t mcp_connection_connect(mcp_connection_t connection) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     // Ensure we're in dispatcher thread
@@ -265,14 +265,14 @@ mcp_result_t mcp_connection_write(mcp_connection_t connection,
                                   size_t length,
                                   mcp_write_callback_t callback,
                                   void* user_data) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
   if (!data || length == 0) {
-    ErrorManager::set_error("Invalid data");
+    ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid data");
     return MCP_ERROR_INVALID_ARGUMENT;
   }
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     // TODO: Create buffer properly
@@ -297,10 +297,10 @@ mcp_result_t mcp_connection_write(mcp_connection_t connection,
   });
 }
 
-mcp_result_t mcp_connection_close(mcp_connection_t connection, bool flush) {
-  CHECK_HANDLE(connection);
+mcp_result_t mcp_connection_close(mcp_connection_t connection, mcp_bool_t flush) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(connection);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
     impl->current_state = MCP_CONNECTION_STATE_CLOSING;
@@ -340,7 +340,7 @@ mcp_connection_state_t mcp_connection_get_state(mcp_connection_t connection) {
 mcp_result_t mcp_connection_get_stats(mcp_connection_t connection,
                                       uint64_t* bytes_read,
                                       uint64_t* bytes_written) {
-  CHECK_HANDLE(connection);
+  CHECK_HANDLE_VALID(connection);
 
   auto impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
 
@@ -354,7 +354,7 @@ mcp_result_t mcp_connection_get_stats(mcp_connection_t connection,
   return MCP_OK;
 }
 
-void mcp_connection_destroy(mcp_connection_t connection) {
+void mcp_connection_destroy(mcp_connection_t connection) MCP_NOEXCEPT {
   if (!connection)
     return;
 
@@ -367,7 +367,7 @@ void mcp_connection_destroy(mcp_connection_t connection) {
   }
 
   // Release the handle
-  impl->release();
+  impl->Release();
 }
 
 /* ============================================================================
@@ -377,13 +377,12 @@ void mcp_connection_destroy(mcp_connection_t connection) {
 
 mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
                                    mcp_transport_type_t transport) {
-  CHECK_HANDLE_RETURN_NULL(dispatcher);
+  CHECK_HANDLE_VALID_NULL(dispatcher);
 
-  TRY_CATCH_NULL({
+  TRY_WITH_RAII_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto listener_impl = std::make_unique<mcp::c_api::mcp_listener_impl>();
-    listener_impl->dispatcher = dispatcher_impl;
+    auto listener_impl = std::make_unique<mcp::c_api::mcp_listener_impl>(dispatcher_impl);
 
     // Create listener based on transport type
     switch (transport) {
@@ -404,7 +403,7 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
       }
 
       default:
-        ErrorManager::set_error("Unsupported transport type for listener");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Unsupported transport type for listener");
         return nullptr;
     }
 
@@ -416,9 +415,9 @@ mcp_result_t mcp_listener_configure(mcp_listener_t listener,
                                     const mcp_address_t* address,
                                     const mcp_socket_options_t* options,
                                     const mcp_ssl_config_t* ssl_config) {
-  CHECK_HANDLE(listener);
+  CHECK_HANDLE_VALID(listener);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_listener_impl*>(listener);
 
     if (!impl->listener) {
@@ -428,9 +427,9 @@ mcp_result_t mcp_listener_configure(mcp_listener_t listener,
 
     // Configure bind address
     if (address) {
-      auto cpp_address = to_cpp_address(address);
+      auto cpp_address = to_cpp_address_safe(address);
       if (!cpp_address) {
-        ErrorManager::set_error("Invalid address");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid address");
         return MCP_ERROR_INVALID_ARGUMENT;
       }
       // Store address for later binding
@@ -455,9 +454,9 @@ mcp_result_t mcp_listener_configure(mcp_listener_t listener,
 mcp_result_t mcp_listener_set_accept_callback(mcp_listener_t listener,
                                               mcp_accept_callback_t callback,
                                               void* user_data) {
-  CHECK_HANDLE(listener);
+  CHECK_HANDLE_VALID(listener);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_listener_impl*>(listener);
 
     impl->accept_callback = callback;
@@ -481,9 +480,9 @@ mcp_result_t mcp_listener_set_accept_callback(mcp_listener_t listener,
 }
 
 mcp_result_t mcp_listener_start(mcp_listener_t listener, int backlog) {
-  CHECK_HANDLE(listener);
+  CHECK_HANDLE_VALID(listener);
 
-  TRY_CATCH({
+  TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_listener_impl*>(listener);
 
     if (!impl->listener) {
@@ -499,7 +498,7 @@ mcp_result_t mcp_listener_start(mcp_listener_t listener, int backlog) {
       // Check if result holds an error
       if (mcp::holds_alternative<mcp::Error>(result)) {
         auto& error = mcp::get<mcp::Error>(result);
-        ErrorManager::set_error(error.message);
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, error.message);
         return MCP_ERROR_UNKNOWN;
       }
     }
@@ -508,7 +507,7 @@ mcp_result_t mcp_listener_start(mcp_listener_t listener, int backlog) {
   });
 }
 
-void mcp_listener_stop(mcp_listener_t listener) {
+void mcp_listener_stop(mcp_listener_t listener) MCP_NOEXCEPT {
   if (!listener)
     return;
 
@@ -519,7 +518,7 @@ void mcp_listener_stop(mcp_listener_t listener) {
   }
 }
 
-void mcp_listener_destroy(mcp_listener_t listener) {
+void mcp_listener_destroy(mcp_listener_t listener) MCP_NOEXCEPT {
   if (!listener)
     return;
 
@@ -529,7 +528,7 @@ void mcp_listener_destroy(mcp_listener_t listener) {
   mcp_listener_stop(listener);
 
   // Release the handle
-  impl->release();
+  impl->Release();
 }
 
 }  // extern "C"

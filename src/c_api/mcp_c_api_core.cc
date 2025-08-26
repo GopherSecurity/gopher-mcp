@@ -15,7 +15,8 @@
 namespace mcp {
 namespace c_api {
 
-// Thread-local error storage implementation is in mcp_c_bridge.h
+// Thread-local error storage implementation
+thread_local mcp_error_info_t ErrorManager::thread_local_error_ = {};
 
 }  // namespace c_api
 }  // namespace mcp
