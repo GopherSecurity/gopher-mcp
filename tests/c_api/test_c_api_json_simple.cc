@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_collections.h"
 #include "mcp/c_api/mcp_c_memory.h"
 }
@@ -24,12 +25,12 @@ class MCPJsonSimpleTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // Initialize FFI
-    mcp_ffi_initialize(nullptr);
+    mcp_init(nullptr);
   }
 
   void TearDown() override {
     // Clean up FFI
-    mcp_ffi_shutdown();
+    mcp_shutdown();
   }
 };
 

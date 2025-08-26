@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_c_types.h"
 
@@ -26,7 +27,7 @@ class MCPMemoryTest : public ::testing::Test {
   void SetUp() override {
     mcp_clear_last_error();
     // Initialize FFI system with default allocator
-    mcp_ffi_initialize(nullptr);
+    mcp_init(nullptr);
   }
 
   void TearDown() override {
@@ -35,7 +36,7 @@ class MCPMemoryTest : public ::testing::Test {
     if (error) {
       ADD_FAILURE() << "Unexpected error: " << error->message;
     }
-    mcp_ffi_shutdown();
+    mcp_shutdown();
   }
 };
 
@@ -84,21 +85,21 @@ void test_free(void* ptr, void* user_data) {
 
 TEST_F(MCPMemoryTest, FFIInitialization) {
   // Already initialized in SetUp
-  EXPECT_EQ(mcp_ffi_is_initialized(), MCP_TRUE);
+  EXPECT_EQ(mcp_is_initialized(), MCP_TRUE);
 
   // Should be safe to initialize again
-  EXPECT_EQ(mcp_ffi_initialize(nullptr), MCP_OK);
-  EXPECT_EQ(mcp_ffi_is_initialized(), MCP_TRUE);
+  EXPECT_EQ(mcp_init(nullptr), MCP_OK);
+  EXPECT_EQ(mcp_is_initialized(), MCP_TRUE);
 }
 
 TEST_F(MCPMemoryTest, FFIShutdown) {
-  EXPECT_EQ(mcp_ffi_is_initialized(), MCP_TRUE);
+  EXPECT_EQ(mcp_is_initialized(), MCP_TRUE);
 
-  mcp_ffi_shutdown();
-  EXPECT_EQ(mcp_ffi_is_initialized(), MCP_FALSE);
+  mcp_shutdown();
+  EXPECT_EQ(mcp_is_initialized(), MCP_FALSE);
 
   // Re-initialize for TearDown
-  mcp_ffi_initialize(nullptr);
+  mcp_init(nullptr);
 }
 
 TEST_F(MCPMemoryTest, FFICustomAllocator) {
@@ -107,8 +108,8 @@ TEST_F(MCPMemoryTest, FFICustomAllocator) {
                                &allocator_data};
 
   // Shutdown and reinitialize with custom allocator
-  mcp_ffi_shutdown();
-  EXPECT_EQ(mcp_ffi_initialize(&allocator), MCP_OK);
+  mcp_shutdown();
+  EXPECT_EQ(mcp_init(&allocator), MCP_OK);
 
   // Test allocation
   void* ptr = mcp_malloc(100);
@@ -559,8 +560,8 @@ TEST_F(MCPMemoryTest, IntegrationWithCustomAllocatorAndPool) {
                                &allocator_data};
 
   // Reinitialize with custom allocator
-  mcp_ffi_shutdown();
-  mcp_ffi_initialize(&allocator);
+  mcp_shutdown();
+  mcp_init(&allocator);
 
   // Create a memory pool (may or may not use custom allocator internally)
   auto pool = mcp_memory_pool_create(512);
@@ -591,8 +592,8 @@ TEST_F(MCPMemoryTest, AllocationFailureHandling) {
   mcp_allocator_t allocator = {test_alloc, test_realloc, test_free,
                                &allocator_data};
 
-  mcp_ffi_shutdown();
-  mcp_ffi_initialize(&allocator);
+  mcp_shutdown();
+  mcp_init(&allocator);
 
   // Allocation should fail
   void* ptr = mcp_malloc(100);
