@@ -12,6 +12,18 @@ endif()
 
 project(gopher-mcp VERSION 0.1.0 LANGUAGES C CXX)
 
+# Detect if we're being used as a submodule
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(GOPHER_MCP_IS_SUBMODULE TRUE)
+    message(STATUS "gopher-mcp: Building as submodule")
+else()
+    set(GOPHER_MCP_IS_SUBMODULE FALSE)
+    message(STATUS "gopher-mcp: Building as standalone project")
+endif()
+
+# Set the root directory for gopher-mcp (use current directory for proper submodule support)
+set(GOPHER_MCP_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
 #Set C++ standard
 if(NOT CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 14)
@@ -29,7 +41,22 @@ option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 option(BUILD_C_API "Build C API bindings" OFF)  # TODO: Re-enable after fixing compilation issues
 
 #Option to build language binding examples
-option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" ON)
+if(GOPHER_MCP_IS_SUBMODULE)
+    option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" OFF)
+else()
+    option(BUILD_BINDINGS_EXAMPLES "Build language binding examples" ON)
+endif()
+
+# Option to build tests when used as submodule (defaults to OFF for submodule)
+if(GOPHER_MCP_IS_SUBMODULE)
+    option(GOPHER_MCP_BUILD_TESTS "Build gopher-mcp tests when used as submodule" OFF)
+    # Honor parent BUILD_TESTS setting if not explicitly set
+    if(NOT DEFINED BUILD_TESTS)
+        set(BUILD_TESTS OFF)
+    endif()
+else()
+    option(BUILD_TESTS "Build tests" ON)
+endif()
 
 #Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -60,8 +87,10 @@ elseif(MSVC)
     add_compile_options(/W4 /WX)
 endif()
 
-#Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+#Include directories 
+# Always set include directories for building gopher-mcp sources
+# Use BEFORE to ensure our includes come before parent project's includes
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 #Configure based on C++ standard
 if(CMAKE_CXX_STANDARD GREATER_EQUAL 17 AND MCP_USE_STD_TYPES)
@@ -244,6 +273,31 @@ message(STATUS "==================================================")
 message(STATUS "All dependencies ready. Configuring build...")
 message(STATUS "==================================================")
 message(STATUS "")
+=======
+# nlohmann/json - check if already available (when used as submodule)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+# Google Test - only fetch if not already available and not a submodule
+if(NOT GOPHER_MCP_IS_SUBMODULE)
+    # Check if Google Test is already available
+    if(NOT TARGET gtest AND NOT TARGET GTest::gtest)
+        FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG release-1.12.1
+        )
+        # For Windows: Prevent overriding the parent project's compiler/linker settings
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+    endif()
+endif()
 
 # Source files
 set(MCP_SDK_SOURCES
@@ -325,7 +379,14 @@ set(MCP_EVENT_SOURCES
 
 # Create Gopher MCP library
 add_library(gopher-mcp STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
-target_include_directories(gopher-mcp PUBLIC ${CMAKE_SOURCE_DIR}/include)
+# Use both approaches to ensure headers are found in all contexts
+target_include_directories(gopher-mcp 
+    PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
 target_link_libraries(gopher-mcp PUBLIC Threads::Threads nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto)
 
 # Add llhttp if found
@@ -354,14 +415,24 @@ endif()
 
 # Create Gopher MCP Echo Advanced library (transport-agnostic advanced echo components)
 add_library(gopher-mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
-target_include_directories(gopher-mcp-echo-advanced PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(gopher-mcp-echo-advanced 
+    PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
 target_link_libraries(gopher-mcp-echo-advanced PUBLIC gopher-mcp Threads::Threads nlohmann_json::nlohmann_json)
 
 # Create Gopher MCP Event library
 add_library(gopher-mcp-event STATIC ${MCP_EVENT_SOURCES})
-target_include_directories(gopher-mcp-event PUBLIC 
-    ${CMAKE_SOURCE_DIR}/include
-    ${LIBEVENT_INCLUDE_DIRS}
+target_include_directories(gopher-mcp-event 
+    PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${LIBEVENT_INCLUDE_DIRS}
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(gopher-mcp-event PUBLIC 
     gopher-mcp
@@ -375,18 +446,22 @@ if(LIBEVENT_FOUND)
     target_link_libraries(gopher-mcp-event PUBLIC ${LIBEVENT_LIBRARIES})
 endif()
 
-# Enable testing
-enable_testing()
-
-# Test targets:
-# - make test          : Standard CMake test target (shows progress)
-# - make check         : Run tests with minimal output (recommended)
-# - make check-verbose : Run tests with detailed output
-# - make check-parallel: Run tests in parallel with minimal output
-# - ctest             : Direct CTest invocation (customizable)
-
-# Add test subdirectory
-add_subdirectory(tests)
+# Enable testing only if not a submodule or explicitly requested
+if(NOT GOPHER_MCP_IS_SUBMODULE OR GOPHER_MCP_BUILD_TESTS)
+    enable_testing()
+    
+    # Test targets:
+    # - make test          : Standard CMake test target (shows progress)
+    # - make check         : Run tests with minimal output (recommended)
+    # - make check-verbose : Run tests with detailed output
+    # - make check-parallel: Run tests in parallel with minimal output
+    # - ctest             : Direct CTest invocation (customizable)
+    
+    # Add test subdirectory only if tests should be built
+    if(BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+endif()
 
 # Add C API subdirectory (if enabled)
 if(BUILD_C_API)
@@ -394,9 +469,14 @@ if(BUILD_C_API)
     message(STATUS "Building C API bindings")
 endif()
 
-# Build examples (optional)
-option(BUILD_EXAMPLES "Build example programs" ON)
-if(BUILD_EXAMPLES)
+# Build examples (optional) - default OFF for submodule
+if(GOPHER_MCP_IS_SUBMODULE)
+    option(BUILD_EXAMPLES "Build example programs" OFF)
+else()
+    option(BUILD_EXAMPLES "Build example programs" ON)
+endif()
+
+if(BUILD_EXAMPLES AND NOT GOPHER_MCP_IS_SUBMODULE)
     add_executable(event_loop_example examples/event_loop_example.cc)
     target_link_libraries(event_loop_example 
         gopher-mcp-event 
@@ -425,19 +505,21 @@ if(BUILD_EXAMPLES)
     add_subdirectory(examples/transport)
 endif()
 
-# Add custom target for formatting
-add_custom_target(format
-    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
+# Add custom targets only if not a submodule
+if(NOT GOPHER_MCP_IS_SUBMODULE)
+    # Add custom target for formatting
+    add_custom_target(format
+    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests
             -name "*.h" -o -name "*.cc" | xargs clang-format -i
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Formatting all source files with clang-format"
 )
 
 # Add custom target to check formatting without modifying files
 add_custom_target(check-format
-    COMMAND find ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests
+    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests
             -name "*.h" -o -name "*.cc" | xargs clang-format --dry-run --Werror
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Checking source file formatting with clang-format"
 )
 
@@ -455,9 +537,10 @@ add_custom_target(check-verbose
     COMMENT "Running tests with verbose output..."
 )
 
-# Add custom target that runs tests in parallel
-add_custom_target(check-parallel
-    COMMAND ${CMAKE_CTEST_COMMAND} -j8 --output-on-failure
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running tests in parallel..."
-)
+    # Add custom target that runs tests in parallel
+    add_custom_target(check-parallel
+        COMMAND ${CMAKE_CTEST_COMMAND} -j8 --output-on-failure
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Running tests in parallel..."
+    )
+endif() # NOT GOPHER_MCP_IS_SUBMODULE
