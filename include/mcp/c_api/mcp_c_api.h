@@ -65,18 +65,25 @@ MCP_API mcp_bool_t mcp_is_initialized(void) MCP_NOEXCEPT;
 MCP_API const char* mcp_get_version(void) MCP_NOEXCEPT;
 
 /* ============================================================================
- * RAII Guard Functions
+ * RAII Guard Functions with Enhanced Safety
  * ============================================================================
  */
 
 /**
  * RAII guard handle for automatic resource cleanup
+ * Guards are automatically destroyed when going out of scope in C++
+ * For C users, explicit destruction is required
  */
 typedef struct mcp_guard_impl* mcp_guard_t;
 
 /**
- * Create a RAII guard for a handle
- * @param handle Handle to guard
+ * Guard cleanup callback for custom resources
+ */
+typedef void (*mcp_guard_cleanup_fn)(void* resource) MCP_NOEXCEPT;
+
+/**
+ * Create a RAII guard for a handle with automatic cleanup
+ * @param handle Handle to guard (takes ownership)
  * @param type Type of handle for validation
  * @return Guard handle or NULL on error
  */
@@ -84,17 +91,43 @@ MCP_API mcp_guard_t mcp_guard_create(void* handle,
                                       mcp_type_id_t type) MCP_NOEXCEPT;
 
 /**
- * Release resource from guard (prevents automatic cleanup)
- * @param guard Guard handle
- * @return Original handle
+ * Create a RAII guard with custom cleanup function
+ * @param handle Handle to guard (takes ownership)
+ * @param type Type of handle for validation  
+ * @param cleanup Custom cleanup function
+ * @return Guard handle or NULL on error
  */
-MCP_API void* mcp_guard_release(mcp_guard_t guard) MCP_NOEXCEPT;
+MCP_API mcp_guard_t mcp_guard_create_custom(void* handle,
+                                            mcp_type_id_t type,
+                                            mcp_guard_cleanup_fn cleanup) 
+                                            MCP_NOEXCEPT;
+
+/**
+ * Release resource from guard (prevents automatic cleanup)
+ * @param guard Guard handle (will be nullified)
+ * @return Original handle (caller takes ownership)
+ */
+MCP_API void* mcp_guard_release(mcp_guard_t* guard) MCP_NOEXCEPT;
 
 /**
  * Destroy guard and cleanup resource
- * @param guard Guard handle
+ * @param guard Guard handle (will be nullified)
  */
-MCP_API void mcp_guard_destroy(mcp_guard_t guard) MCP_NOEXCEPT;
+MCP_API void mcp_guard_destroy(mcp_guard_t* guard) MCP_NOEXCEPT;
+
+/**
+ * Check if guard is valid and holds a resource
+ * @param guard Guard handle
+ * @return MCP_TRUE if valid
+ */
+MCP_API mcp_bool_t mcp_guard_is_valid(mcp_guard_t guard) MCP_NOEXCEPT;
+
+/**
+ * Get the guarded resource without releasing ownership
+ * @param guard Guard handle  
+ * @return Guarded resource or NULL
+ */
+MCP_API void* mcp_guard_get(mcp_guard_t guard) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Transaction Management for Multiple Resources
@@ -103,19 +136,37 @@ MCP_API void mcp_guard_destroy(mcp_guard_t guard) MCP_NOEXCEPT;
 
 /**
  * Transaction handle for atomic multi-resource operations
+ * Ensures all-or-nothing semantics for resource operations
  */
 typedef struct mcp_transaction_impl* mcp_transaction_t;
 
 /**
- * Create a new transaction
+ * Transaction options for fine-grained control
+ */
+typedef struct mcp_transaction_opts {
+  mcp_bool_t auto_rollback;    /* Auto-rollback on error */
+  mcp_bool_t strict_ordering;  /* Enforce strict cleanup order */
+  uint32_t max_resources;      /* Maximum resources (0 = unlimited) */
+} mcp_transaction_opts_t;
+
+/**
+ * Create a new transaction with default options
  * @return Transaction handle or NULL on error
  */
 MCP_API mcp_transaction_t mcp_transaction_create(void) MCP_NOEXCEPT;
 
 /**
- * Add resource to transaction
+ * Create a new transaction with custom options
+ * @param opts Transaction options
+ * @return Transaction handle or NULL on error  
+ */
+MCP_API mcp_transaction_t mcp_transaction_create_ex(
+    const mcp_transaction_opts_t* opts) MCP_NOEXCEPT;
+
+/**
+ * Add resource to transaction with automatic cleanup
  * @param txn Transaction handle
- * @param handle Resource handle
+ * @param handle Resource handle (ownership transferred)
  * @param type Resource type for validation
  * @return MCP_OK on success
  */
@@ -124,23 +175,53 @@ MCP_API mcp_result_t mcp_transaction_add(mcp_transaction_t txn,
                                           mcp_type_id_t type) MCP_NOEXCEPT;
 
 /**
- * Commit transaction (prevent cleanup)
+ * Add resource with custom cleanup function
  * @param txn Transaction handle
+ * @param handle Resource handle (ownership transferred)
+ * @param type Resource type for validation
+ * @param cleanup Custom cleanup function
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_transaction_commit(mcp_transaction_t txn) MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_transaction_add_custom(mcp_transaction_t txn,
+                                                void* handle,
+                                                mcp_type_id_t type,
+                                                mcp_guard_cleanup_fn cleanup)
+                                                MCP_NOEXCEPT;
+
+/**
+ * Get number of resources in transaction
+ * @param txn Transaction handle
+ * @return Number of resources
+ */
+MCP_API size_t mcp_transaction_size(mcp_transaction_t txn) MCP_NOEXCEPT;
+
+/**
+ * Commit transaction (prevent cleanup)
+ * @param txn Transaction handle (will be nullified)
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_transaction_commit(mcp_transaction_t* txn) 
+    MCP_NOEXCEPT;
 
 /**
  * Rollback transaction (cleanup all resources)
- * @param txn Transaction handle
+ * @param txn Transaction handle (will be nullified)
  */
-MCP_API void mcp_transaction_rollback(mcp_transaction_t txn) MCP_NOEXCEPT;
+MCP_API void mcp_transaction_rollback(mcp_transaction_t* txn) MCP_NOEXCEPT;
 
 /**
- * Destroy transaction
- * @param txn Transaction handle
+ * Destroy transaction (auto-rollback if not committed)
+ * @param txn Transaction handle (will be nullified)
  */
-MCP_API void mcp_transaction_destroy(mcp_transaction_t txn) MCP_NOEXCEPT;
+MCP_API void mcp_transaction_destroy(mcp_transaction_t* txn) MCP_NOEXCEPT;
+
+/**
+ * Check if transaction is valid
+ * @param txn Transaction handle
+ * @return MCP_TRUE if valid
+ */
+MCP_API mcp_bool_t mcp_transaction_is_valid(mcp_transaction_t txn) 
+    MCP_NOEXCEPT;
 
 /* ============================================================================
  * Event Loop & Dispatcher
@@ -904,6 +985,82 @@ MCP_API size_t mcp_check_resource_leaks(void) MCP_NOEXCEPT;
  * Print resource leak report
  */
 MCP_API void mcp_print_leak_report(void) MCP_NOEXCEPT;
+
+/* ============================================================================
+ * RAII Helper Macros for C++ Users
+ * ============================================================================
+ */
+
+#ifdef __cplusplus
+
+/* Automatic cleanup guard for any MCP handle */
+#define MCP_AUTO_GUARD(handle, type) \
+  std::unique_ptr<void, std::function<void(void*)>> \
+    _guard_##__LINE__(handle, [](void* h) { \
+      if (h) { \
+        auto guard = mcp_guard_create(h, type); \
+        mcp_guard_destroy(&guard); \
+      } \
+    })
+
+/* Scoped transaction with automatic rollback */
+#define MCP_SCOPED_TRANSACTION(name) \
+  struct _TxnGuard_##__LINE__ { \
+    mcp_transaction_t txn; \
+    bool committed = false; \
+    _TxnGuard_##__LINE__() : txn(mcp_transaction_create()) {} \
+    ~_TxnGuard_##__LINE__() { \
+      if (txn && !committed) mcp_transaction_rollback(&txn); \
+      else if (txn) mcp_transaction_destroy(&txn); \
+    } \
+    void commit() { \
+      if (txn) { \
+        mcp_transaction_commit(&txn); \
+        committed = true; \
+      } \
+    } \
+  } name
+
+/* Automatic resource cleanup on scope exit */
+#define MCP_SCOPE_EXIT(code) \
+  auto _scope_exit_##__LINE__ = mcp::raii::ScopeExit([&]() { code; })
+
+/* Ensure resource is freed even on exception */  
+#define MCP_ENSURE_CLEANUP(resource, cleanup_fn) \
+  std::unique_ptr<std::remove_pointer_t<decltype(resource)>, \
+                  decltype(cleanup_fn)> \
+    _cleanup_##__LINE__(resource, cleanup_fn)
+
+#endif /* __cplusplus */
+
+/* ============================================================================
+ * RAII Patterns for C Users
+ * ============================================================================
+ */
+
+/* Guard creation with cleanup registration */
+#define MCP_GUARD_CREATE(handle, type) \
+  mcp_guard_create(handle, type)
+
+/* Transaction with resource tracking */
+#define MCP_TXN_ADD(txn, handle, type) \
+  mcp_transaction_add(txn, handle, type)
+
+/* Safe resource release */
+#define MCP_SAFE_RELEASE(guard_ptr) \
+  do { \
+    if (guard_ptr && *(guard_ptr)) { \
+      mcp_guard_destroy(guard_ptr); \
+    } \
+  } while(0)
+
+/* Safe transaction cleanup */
+#define MCP_SAFE_TXN_CLEANUP(txn_ptr) \
+  do { \
+    if (txn_ptr && *(txn_ptr)) { \
+      mcp_transaction_rollback(txn_ptr); \
+    } \
+  } while(0)
 
 #ifdef __cplusplus
 }

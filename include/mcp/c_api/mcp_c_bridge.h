@@ -40,6 +40,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <future>
 
 /* MCP C++ headers */
 #include "mcp/buffer.h"
@@ -114,39 +115,75 @@ private:
  */
 
 /**
- * RAII guard for automatic resource cleanup
- * Wraps handles with automatic reference counting
+ * RAII guard for automatic resource cleanup with enhanced safety
+ * Provides strong exception safety and automatic reference counting
  */
 struct mcp_guard_impl {
   using Deleter = std::function<void(void*)>;
   
   mcp_guard_impl(void* handle, mcp_type_id_t type, Deleter deleter)
-      : handle_(handle), type_(type), deleter_(std::move(deleter)) {
-    if (auto* base = static_cast<HandleBase*>(handle_)) {
-      base->AddRef();
+      : handle_(handle), type_(type), deleter_(std::move(deleter)),
+        ref_count_(1) {
+    if (handle_) {
+      if (auto* base = static_cast<HandleBase*>(handle_)) {
+        base->AddRef();
+      }
     }
   }
   
-  ~mcp_guard_impl() {
-    Release();
+  ~mcp_guard_impl() noexcept {
+    try {
+      if (handle_ && !released_) {
+        Release();
+      }
+    } catch (...) {
+      /* Suppress exceptions in destructor */
+    }
+  }
+  
+  /* Disable copy to enforce single ownership */
+  mcp_guard_impl(const mcp_guard_impl&) = delete;
+  mcp_guard_impl& operator=(const mcp_guard_impl&) = delete;
+  
+  /* Enable move semantics for transfer of ownership */
+  mcp_guard_impl(mcp_guard_impl&& other) noexcept
+      : handle_(other.handle_), type_(other.type_),
+        deleter_(std::move(other.deleter_)),
+        released_(other.released_.load()),
+        ref_count_(other.ref_count_.load()) {
+    other.handle_ = nullptr;
+    other.released_ = true;
   }
   
   void* Release() {
     void* h = handle_;
     handle_ = nullptr;
-    if (h && deleter_) {
-      deleter_(h);
+    released_ = true;
+    
+    if (h && deleter_ && ref_count_.fetch_sub(1) == 1) {
+      try {
+        deleter_(h);
+      } catch (const std::exception& e) {
+        /* Log cleanup failure - ErrorManager defined later */
+        /* ErrorManager::SetError(MCP_ERROR_UNKNOWN,
+                              std::string("Guard cleanup failed: ") + e.what()); */
+      }
     }
     return h;
   }
   
-  void* Get() const { return handle_; }
-  mcp_type_id_t GetType() const { return type_; }
+  void* Get() const noexcept { return released_ ? nullptr : handle_; }
+  mcp_type_id_t GetType() const noexcept { return type_; }
+  bool IsValid() const noexcept { return !released_ && handle_ != nullptr; }
+  
+  void AddRef() { ref_count_.fetch_add(1); }
   
 private:
   void* handle_;
   mcp_type_id_t type_;
   Deleter deleter_;
+  std::atomic<bool> released_{false};
+  std::atomic<int> ref_count_;
 };
 
 /* ============================================================================
@@ -155,58 +192,144 @@ private:
  */
 
 /**
- * Transaction for atomic multi-resource operations
+ * Transaction for atomic multi-resource operations with RAII
+ * Ensures all-or-nothing semantics with automatic rollback
  */
 struct mcp_transaction_impl {
   struct Resource {
     void* handle;
     mcp_type_id_t type;
     std::function<void(void*)> deleter;
+    std::string description;  /* For debugging */
+    
+    Resource(void* h, mcp_type_id_t t, std::function<void(void*)> d,
+             const std::string& desc = "")
+        : handle(h), type(t), deleter(std::move(d)), description(desc) {}
   };
   
-  mcp_transaction_impl() : committed_(false) {
-    resources_.reserve(8); /* Pre-allocate for performance */
+  explicit mcp_transaction_impl(const mcp_transaction_opts_t* opts = nullptr)
+      : committed_(false), rolled_back_(false) {
+    if (opts) {
+      auto_rollback_ = opts->auto_rollback;
+      strict_ordering_ = opts->strict_ordering;
+      max_resources_ = opts->max_resources;
+    }
+    
+    resources_.reserve(max_resources_ > 0 ? max_resources_ : 16);
   }
   
-  ~mcp_transaction_impl() {
-    if (!committed_) {
-      Rollback();
+  ~mcp_transaction_impl() noexcept {
+    if (!committed_ && !rolled_back_ && auto_rollback_) {
+      try {
+        Rollback();
+      } catch (...) {
+        /* Suppress exceptions in destructor */
+      }
     }
   }
   
-  void AddResource(void* handle, mcp_type_id_t type) {
-    if (!handle) return;
+  /* Disable copy to ensure single ownership */
+  mcp_transaction_impl(const mcp_transaction_impl&) = delete;
+  mcp_transaction_impl& operator=(const mcp_transaction_impl&) = delete;
+  
+  mcp_result_t AddResource(void* handle, mcp_type_id_t type,
+                           std::function<void(void*)> deleter = nullptr,
+                           const std::string& desc = "") {
+    if (!handle) return MCP_ERROR_INVALID_ARGUMENT;
+    if (committed_ || rolled_back_) return MCP_ERROR_INVALID_STATE;
     
     std::lock_guard<std::mutex> lock(mutex_);
-    resources_.push_back({
-      handle, 
-      type,
-      [type](void* h) { DestroyHandle(h, type); }
-    });
+    
+    if (max_resources_ > 0 && resources_.size() >= max_resources_) {
+      return MCP_ERROR_RESOURCE_LIMIT;
+    }
+    
+    if (!deleter) {
+      deleter = [type](void* h) { DestroyHandle(h, type); };
+    }
+    
+    try {
+      resources_.emplace_back(handle, type, std::move(deleter), desc);
+      return MCP_OK;
+    } catch (const std::exception&) {
+      return MCP_ERROR_NO_MEMORY;
+    }
   }
   
-  void Commit() {
+  mcp_result_t Commit() {
     std::lock_guard<std::mutex> lock(mutex_);
+    
+    if (committed_ || rolled_back_) {
+      return MCP_ERROR_INVALID_STATE;
+    }
+    
     committed_ = true;
     resources_.clear();
+    return MCP_OK;
   }
   
   void Rollback() {
     std::lock_guard<std::mutex> lock(mutex_);
-    /* Cleanup in reverse order (LIFO) */
-    for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
-      if (it->deleter) {
-        it->deleter(it->handle);
+    
+    if (committed_ || rolled_back_) {
+      return;
+    }
+    
+    /* Cleanup in reverse order (LIFO) for proper dependency handling */
+    if (strict_ordering_) {
+      for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
+        SafeCleanup(*it);
+      }
+    } else {
+      /* Parallel cleanup for independent resources */
+      std::vector<std::future<void>> futures;
+      for (auto& resource : resources_) {
+        futures.push_back(std::async(std::launch::async,
+                                     [this, &resource]() {
+          SafeCleanup(resource);
+        }));
+      }
+      for (auto& f : futures) {
+        f.wait();
       }
     }
+    
     resources_.clear();
-    committed_ = true;
+    rolled_back_ = true;
+  }
+  
+  size_t Size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return resources_.size();
+  }
+  
+  bool IsValid() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !committed_ && !rolled_back_;
   }
   
 private:
   mutable std::mutex mutex_;
   std::vector<Resource> resources_;
-  bool committed_;
+  std::atomic<bool> committed_;
+  std::atomic<bool> rolled_back_;
+  bool auto_rollback_ = true;
+  bool strict_ordering_ = true;
+  size_t max_resources_ = 0;
+  
+  void SafeCleanup(const Resource& resource) {
+    try {
+      if (resource.deleter && resource.handle) {
+        resource.deleter(resource.handle);
+      }
+    } catch (const std::exception& e) {
+      /* Log error but continue cleanup */
+      /* Log cleanup failure - ErrorManager defined later */
+      /* ErrorManager::SetError(MCP_ERROR_CLEANUP_FAILED,
+          std::string("Resource cleanup failed: ") + resource.description +
+          " - " + e.what()); */
+    }
+  }
   
   static void DestroyHandle(void* handle, mcp_type_id_t type);
 };
