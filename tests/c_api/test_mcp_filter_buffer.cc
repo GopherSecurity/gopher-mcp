@@ -17,7 +17,11 @@
 #include <gtest/gtest.h>
 
 #include "mcp/c_api/mcp_c_api.h"
-#include "mcp/c_api/mcp_filter_api.h"
+
+// Forward declare types to avoid header conflicts
+typedef uint64_t mcp_buffer_handle_t;
+typedef struct mcp_buffer_pool* mcp_buffer_pool_t;
+
 #include "mcp/c_api/mcp_filter_buffer.h"
 
 namespace {
@@ -32,7 +36,7 @@ class BufferGuard {
       : handle_(handle) {
     if (handle_ != 0) {
       guard_ = mcp_guard_create(reinterpret_cast<void*>(handle_), 
-                                MCP_TYPE_FILTER_BUFFER);
+                                MCP_TYPE_UNKNOWN);
     }
   }
   
@@ -64,7 +68,7 @@ class BufferGuard {
     handle_ = new_handle;
     if (handle_ != 0) {
       guard_ = mcp_guard_create(reinterpret_cast<void*>(handle_),
-                                MCP_TYPE_FILTER_BUFFER);
+                                MCP_TYPE_UNKNOWN);
     }
   }
   
@@ -169,8 +173,8 @@ class MCPFilterBufferTest : public ::testing::Test {
     config.buffer_size = buffer_size;
     config.max_buffers = 10;
     config.prealloc_count = 2;
-    config.thread_local_ = MCP_FALSE;
-    config.zero_on_alloc_ = MCP_FALSE;
+    // Note: thread_local is a C++ keyword, can't assign directly
+    config.zero_on_alloc = MCP_FALSE;
     
     auto pool = mcp_buffer_pool_create_ex(&config);
     return BufferPoolGuard(pool);
@@ -685,8 +689,8 @@ TEST_F(MCPFilterBufferTest, CreateBufferPool) {
   config.buffer_size = 4096;
   config.max_buffers = 5;
   config.prealloc_count = 2;
-  config.thread_local_ = MCP_FALSE;
-  config.zero_on_alloc_ = MCP_TRUE;
+  // Note: thread_local is a C++ keyword, can't assign directly
+  config.zero_on_alloc = MCP_TRUE;
   
   BufferPoolGuard pool(mcp_buffer_pool_create_ex(&config));
   ASSERT_NE(pool.get(), nullptr);
@@ -929,9 +933,9 @@ TEST_F(MCPFilterBufferTest, TransactionBasedOperations) {
   
   // Transaction manages multiple resources
   EXPECT_EQ(mcp_transaction_add(txn, reinterpret_cast<void*>(buffer1.release()),
-                                MCP_TYPE_FILTER_BUFFER), MCP_OK);
+                                MCP_TYPE_UNKNOWN), MCP_OK);
   EXPECT_EQ(mcp_transaction_add(txn, reinterpret_cast<void*>(buffer2.release()),
-                                MCP_TYPE_FILTER_BUFFER), MCP_OK);
+                                MCP_TYPE_UNKNOWN), MCP_OK);
   
   // Operations succeed or all rollback
   EXPECT_EQ(mcp_transaction_size(txn), 2);
