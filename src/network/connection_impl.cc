@@ -335,25 +335,20 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
 
         uint32_t initial_events;
         if (connected) {
-          // Server connection or already connected (e.g., stdio pipes) - enable
-          // read For write, only enable if there's data to write (prevents busy
-          // loop)
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
-          if (write_buffer_.length() > 0) {
-            initial_events |=
-                static_cast<uint32_t>(event::FileReadyType::Write);
-          }
+          // Server connection or already connected (e.g., stdio pipes)
+          // Always enable read to receive data
+          // For TCP servers, we need write events to detect when client disconnects
+          // For stdio/pipes, both should be enabled for bidirectional communication
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
+                           static_cast<uint32_t>(event::FileReadyType::Write);
         } else if (connecting_) {
           // Client connecting - enable write to detect connection completion
           initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
         } else {
           // Not connected and not connecting - for stdio/pipes, treat as
-          // already connected Enable read, and write if there's data
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
-          if (write_buffer_.length() > 0) {
-            initial_events |=
-                static_cast<uint32_t>(event::FileReadyType::Write);
-          }
+          // already connected and enable both for bidirectional communication
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
+                           static_cast<uint32_t>(event::FileReadyType::Write);
         }
 
         file_event_ = dispatcher_.createFileEvent(
@@ -478,13 +473,12 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
       return ReadDisableStatus::StillReadDisabled;
     }
 
-    // First disable - only keep Write enabled if we have data to write
-    // This prevents busy loop with level-triggered events
-    uint32_t events_to_enable = 0;
-    if (write_buffer_.length() > 0) {
-      events_to_enable = static_cast<uint32_t>(event::FileReadyType::Write);
+    // First disable - keep Write enabled (even with empty buffer)
+    // We'll handle the busy loop prevention in onWriteReady
+    file_event_state_ = static_cast<uint32_t>(event::FileReadyType::Write);
+    if (file_event_) {
+      file_event_->setEnabled(file_event_state_);
     }
-    enableFileEvents(events_to_enable);
     return ReadDisableStatus::TransitionedToReadDisabled;
   } else {
     if (read_disable_count_ == 0) {
@@ -808,6 +802,13 @@ void ConnectionImpl::onWriteReady() {
    */
   write_ready_ = true;
   write_event_count_++;  // Track write events for debugging
+  
+  // Prevent busy loop: if we have no data to write and we're already connected,
+  // just return without processing. Don't disable events as this causes issues
+  // with libevent repeatedly calling event_del()
+  if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_) {
+    return;
+  }
 
   // Notify state machine of write ready event
   if (state_machine_) {
