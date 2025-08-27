@@ -110,6 +110,7 @@ class LibeventDispatcher : public Dispatcher {
     FileTriggerType trigger_;
     libevent_event* event_;
     uint32_t enabled_events_;
+    bool event_added_{false};  // Track if event has been added to event base
 
     // For EmulatedEdge support
     uint32_t injected_activation_events_{0};

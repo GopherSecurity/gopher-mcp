@@ -436,7 +436,9 @@ LibeventDispatcher::FileEventImpl::FileEventImpl(LibeventDispatcher& dispatcher,
 
 LibeventDispatcher::FileEventImpl::~FileEventImpl() {
   if (event_) {
-    event_del(event_);
+    if (event_added_) {
+      event_del(event_);
+    }
     event_free(event_);
   }
 }
@@ -470,10 +472,16 @@ void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
 
 void LibeventDispatcher::FileEventImpl::updateEvents(uint32_t events) {
   if (event_) {
-    event_del(event_);
+    // Only call event_del if the event was previously added to the event base
+    // This prevents the "event has no event_base set" warning
+    if (event_added_) {
+      event_del(event_);
+      event_added_ = false;
+    }
 
     if (events != 0) {
       assignEvents(events);
+      event_added_ = true;
     }
   }
 }
