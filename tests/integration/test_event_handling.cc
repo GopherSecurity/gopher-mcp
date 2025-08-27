@@ -20,8 +20,8 @@
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/socket_impl.h"
+#include "mcp/network/address.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/stream_info/stream_info_impl.h"
 
 #include "real_io_test_base.h"
 
@@ -30,6 +30,12 @@ namespace test {
 
 class EventHandlingTest : public RealIoTestBase {
  protected:
+  ~EventHandlingTest() {
+    // Clean up any file descriptors we created
+    for (int fd : test_fds_) {
+      close(fd);
+    }
+  }
   struct TestCallbacks : public network::ConnectionCallbacks {
     void onEvent(network::ConnectionEvent event) override {
       events.push_back(event);
@@ -65,11 +71,14 @@ class EventHandlingTest : public RealIoTestBase {
     fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
     fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL) | O_NONBLOCK);
 
-    open_fds_.push_back(fds[0]);
-    open_fds_.push_back(fds[1]);
+    // Track fds for cleanup
+    test_fds_.push_back(fds[0]);
+    test_fds_.push_back(fds[1]);
 
     return {fds[0], fds[1]};
   }
+  
+  std::vector<int> test_fds_;
 
   /**
    * Monitor write events on a file descriptor
@@ -115,22 +124,23 @@ TEST_F(EventHandlingTest, NoWriteBusyLoopWithEmptyBuffer) {
 
   executeInDispatcher([this, server_fd]() {
     // Create server connection
-    auto socket = std::make_unique<network::SocketImpl>(
-        std::make_unique<network::IoSocketHandleImpl>(server_fd));
+    auto io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle), nullptr, nullptr);
 
-    auto transport_factory = network::createRawBufferTransportSocketFactory();
-    auto transport_socket = transport_factory->createTransportSocket(nullptr);
+    // Create a raw transport socket (no TLS)
+    // Since we're testing connection handling, not transport, use raw sockets
+    auto transport_socket = std::make_unique<network::RawBufferTransportSocket>();
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
-        stream_info::StreamInfoImpl::create());
+        true);  // true = already connected (for pipes/stdio)
 
     TestCallbacks callbacks;
     connection->addConnectionCallbacks(callbacks);
 
-    // Initialize connection - this should NOT cause busy loop
-    connection->initializeTransport();
-    connection->enableFileEventsIfNecessary();
+    // Connection is initialized in constructor
+    // This should NOT cause a busy loop with empty write buffer
 
     // Let it run for a bit to check for busy loop
     auto timer = dispatcher_->createTimer([this]() { dispatcher_->exit(); });
@@ -157,19 +167,20 @@ TEST_F(EventHandlingTest, EdgeTriggeredReadRaceCondition) {
   executeInDispatcher([this, server_fd, client_fd, &server_callbacks,
                        &data_sent]() {
     // Create server connection
-    auto socket = std::make_unique<network::SocketImpl>(
-        std::make_unique<network::IoSocketHandleImpl>(server_fd));
+    auto io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle), nullptr, nullptr);
 
-    auto transport_factory = network::createRawBufferTransportSocketFactory();
-    auto transport_socket = transport_factory->createTransportSocket(nullptr);
+    // Create a raw transport socket (no TLS)
+    // Since we're testing connection handling, not transport, use raw sockets
+    auto transport_socket = std::make_unique<network::RawBufferTransportSocket>();
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
-        stream_info::StreamInfoImpl::create());
+        true);  // true = already connected (for pipes/stdio)
 
     connection->addConnectionCallbacks(server_callbacks);
-    connection->initializeTransport();
-    connection->enableFileEventsIfNecessary();
+    // Connection is initialized automatically
 
     // Simulate race condition:
     // 1. Disable read events temporarily (simulating some processing)
@@ -215,20 +226,21 @@ TEST_F(EventHandlingTest, WriteEventManagement) {
   executeInDispatcher([this, server_fd, &write_events_before,
                        &write_events_during, &write_events_after]() {
     // Create server connection
-    auto socket = std::make_unique<network::SocketImpl>(
-        std::make_unique<network::IoSocketHandleImpl>(server_fd));
+    auto io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
+    auto socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle), nullptr, nullptr);
 
-    auto transport_factory = network::createRawBufferTransportSocketFactory();
-    auto transport_socket = transport_factory->createTransportSocket(nullptr);
+    // Create a raw transport socket (no TLS)
+    // Since we're testing connection handling, not transport, use raw sockets
+    auto transport_socket = std::make_unique<network::RawBufferTransportSocket>();
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
-        stream_info::StreamInfoImpl::create());
+        true);  // true = already connected (for pipes/stdio)
 
     TestCallbacks callbacks;
     connection->addConnectionCallbacks(callbacks);
-    connection->initializeTransport();
-    connection->enableFileEventsIfNecessary();
+    // Connection is initialized automatically
 
     // Phase 1: No data to write - should have minimal write events
     int phase1_count = 0;
@@ -246,8 +258,9 @@ TEST_F(EventHandlingTest, WriteEventManagement) {
     write_events_before = connection->getWriteEventCount();
 
     // Phase 2: Queue data to write - should trigger write events
-    Buffer write_buffer("large data chunk that needs multiple writes");
-    connection->write(write_buffer);
+    OwnedBuffer write_buffer;
+    write_buffer.add("large data chunk that needs multiple writes");
+    connection->write(write_buffer, false);
 
     int phase2_count = 0;
     auto phase2_timer = dispatcher_->createTimer([&phase2_count, this]() {
@@ -299,38 +312,38 @@ TEST_F(EventHandlingTest, BidirectionalCommunication) {
   executeInDispatcher([this, client_fd, server_fd, &client_callbacks,
                        &server_callbacks]() {
     // Create client connection
-    auto client_socket = std::make_unique<network::SocketImpl>(
-        std::make_unique<network::IoSocketHandleImpl>(client_fd));
+    auto client_io_handle = std::make_unique<network::IoSocketHandleImpl>(client_fd);
+    auto client_socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(client_io_handle), nullptr, nullptr);
     auto client_transport =
-        network::createRawBufferTransportSocketFactory()->createTransportSocket(
-            nullptr);
+        std::make_unique<network::RawBufferTransportSocket>();
     auto client_conn = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(client_socket), std::move(client_transport),
-        stream_info::StreamInfoImpl::create());
+        true);  // true = already connected (for pipes)
     client_conn->addConnectionCallbacks(client_callbacks);
-    client_conn->initializeTransport();
-    client_conn->enableFileEventsIfNecessary();
+    // Connection initialized automatically
 
     // Create server connection
-    auto server_socket = std::make_unique<network::SocketImpl>(
-        std::make_unique<network::IoSocketHandleImpl>(server_fd));
+    auto server_io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
+    auto server_socket = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(server_io_handle), nullptr, nullptr);
     auto server_transport =
-        network::createRawBufferTransportSocketFactory()->createTransportSocket(
-            nullptr);
+        std::make_unique<network::RawBufferTransportSocket>();
     auto server_conn = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(server_socket), std::move(server_transport),
-        stream_info::StreamInfoImpl::create());
+        true);  // true = already connected (for pipes)
     server_conn->addConnectionCallbacks(server_callbacks);
-    server_conn->initializeTransport();
-    server_conn->enableFileEventsIfNecessary();
+    // Connection initialized automatically
 
     // Client sends to server
-    Buffer client_msg("Hello from client");
-    client_conn->write(client_msg);
+    OwnedBuffer client_msg;
+    client_msg.add("Hello from client");
+    client_conn->write(client_msg, false);
 
     // Server sends to client
-    Buffer server_msg("Hello from server");
-    server_conn->write(server_msg);
+    OwnedBuffer server_msg;
+    server_msg.add("Hello from server");
+    server_conn->write(server_msg, false);
 
     // Let messages process
     auto timer =
