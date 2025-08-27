@@ -821,7 +821,7 @@ TEST_F(McpFilterApiTest, FilterChainPositioning) {
     for (int i = 0; i < 5; ++i) {
         std::string name = "chain_filter_" + std::to_string(i);
         filters.push_back(createTestFilter(name));
-        ASSERT_TRUE(filters.back().get() != nullptr);
+        ASSERT_TRUE(filters.back().get() != 0);
     }
     
     // Test different positioning strategies
@@ -1199,7 +1199,7 @@ TEST_F(McpFilterApiTest, ResourceGuardManagement) {
     for (int i = 0; i < 5; ++i) {
         std::string name = "guarded_filter_" + std::to_string(i);
         filters.push_back(createTestFilter(name));
-        ASSERT_TRUE(filters.back().get() != nullptr);
+        ASSERT_TRUE(filters.back().get() != 0);
         
         // Release to guard ownership
         ASSERT_EQ(mcp_filter_guard_add_filter(guard, filters.back().release()), MCP_OK);
