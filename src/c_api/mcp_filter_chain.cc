@@ -8,6 +8,7 @@
 #include "mcp/c_api/mcp_filter_buffer.h"
 #include "mcp/c_api/mcp_raii.h"
 #include "mcp/network/filter.h"
+#include "handle_manager.h"
 
 #include <algorithm>
 #include <atomic>
@@ -402,8 +403,11 @@ private:
     std::atomic<uint64_t> max_latency_us_{0};
 };
 
+// Use HandleManager from shared header
+using c_api_internal::HandleManager;
+
 // Handle manager for chains
-static filter_api::HandleManager<AdvancedFilterChain> g_chain_manager;
+static HandleManager<AdvancedFilterChain> g_chain_manager;
 
 // ============================================================================
 // Chain Router Implementation
@@ -511,14 +515,8 @@ MCP_API mcp_filter_chain_builder_t mcp_chain_builder_create_ex(
     
     if (!config) return nullptr;
     
-    try {
-        auto builder = new filter_api::FilterChainBuilder(dispatcher);
-        builder->chain = std::make_unique<filter_api::FilterChain>();
-        // Store config in builder
-        return builder;
-    } catch (...) {
-        return nullptr;
-    }
+    // Use the function from mcp_filter_api.cc to create the builder
+    return mcp_filter_chain_builder_create(dispatcher);
 }
 
 MCP_API mcp_result_t mcp_chain_builder_add_node(
@@ -685,7 +683,7 @@ MCP_API mcp_chain_router_t mcp_chain_router_create(
     if (!config) return nullptr;
     
     try {
-        return new ChainRouter(*config);
+        return reinterpret_cast<mcp_chain_router_t>(new ChainRouter(*config));
     } catch (...) {
         return nullptr;
     }
@@ -698,7 +696,7 @@ MCP_API mcp_result_t mcp_chain_router_add_route(
     
     if (!router) return MCP_ERROR_INVALID_ARGUMENT;
     
-    router->routes.push_back({condition, chain});
+    reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
     return MCP_OK;
 }
 
@@ -709,13 +707,13 @@ MCP_API mcp_filter_chain_t mcp_chain_router_route(
     
     if (!router) return 0;
     
-    return router->route(buffer, metadata);
+    return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
 }
 
 MCP_API void mcp_chain_router_destroy(
     mcp_chain_router_t router) MCP_NOEXCEPT {
     
-    delete router;
+    delete reinterpret_cast<ChainRouter*>(router);
 }
 
 // Chain Pool
@@ -726,7 +724,7 @@ MCP_API mcp_chain_pool_t mcp_chain_pool_create(
     mcp_routing_strategy_t strategy) MCP_NOEXCEPT {
     
     try {
-        return new ChainPool(base_chain, pool_size, strategy);
+        return reinterpret_cast<mcp_chain_pool_t>(new ChainPool(base_chain, pool_size, strategy));
     } catch (...) {
         return nullptr;
     }
@@ -736,7 +734,7 @@ MCP_API mcp_filter_chain_t mcp_chain_pool_get_next(
     mcp_chain_pool_t pool) MCP_NOEXCEPT {
     
     if (!pool) return 0;
-    return pool->getNext();
+    return reinterpret_cast<ChainPool*>(pool)->getNext();
 }
 
 MCP_API void mcp_chain_pool_return(
@@ -744,7 +742,7 @@ MCP_API void mcp_chain_pool_return(
     mcp_filter_chain_t chain) MCP_NOEXCEPT {
     
     if (pool) {
-        pool->returnChain(chain);
+        reinterpret_cast<ChainPool*>(pool)->returnChain(chain);
     }
 }
 
@@ -756,9 +754,10 @@ MCP_API mcp_result_t mcp_chain_pool_get_stats(
     
     if (!pool) return MCP_ERROR_INVALID_ARGUMENT;
     
-    if (active) *active = pool->chains.size() - pool->available.size();
-    if (idle) *idle = pool->available.size();
-    if (total_processed) *total_processed = pool->total_processed.load();
+    auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
+    if (active) *active = pool_impl->chains.size() - pool_impl->available.size();
+    if (idle) *idle = pool_impl->available.size();
+    if (total_processed) *total_processed = pool_impl->total_processed.load();
     
     return MCP_OK;
 }
@@ -766,7 +765,7 @@ MCP_API mcp_result_t mcp_chain_pool_get_stats(
 MCP_API void mcp_chain_pool_destroy(
     mcp_chain_pool_t pool) MCP_NOEXCEPT {
     
-    delete pool;
+    delete reinterpret_cast<ChainPool*>(pool);
 }
 
 // Chain Optimization

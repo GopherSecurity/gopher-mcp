@@ -9,6 +9,7 @@
 #include "mcp/network/connection.h"
 #include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
+#include "handle_manager.h"
 
 #include <atomic>
 #include <memory>
@@ -20,63 +21,15 @@
 namespace mcp {
 namespace filter_api {
 
+using c_api_internal::HandleManager;
+
 // ============================================================================
 // Handle Management System
 // ============================================================================
 
-template <typename T>
-class HandleManager {
-public:
-    using SharedPtr = std::shared_ptr<T>;
-    
-    HandleManager() : next_handle_(1) {}
-    
-    uint64_t store(SharedPtr obj) {
-        if (!obj) return 0;
-        
-        std::lock_guard<std::mutex> lock(mutex_);
-        uint64_t handle = next_handle_.fetch_add(1, std::memory_order_relaxed);
-        handles_[handle] = obj;
-        return handle;
-    }
-    
-    SharedPtr get(uint64_t handle) {
-        if (handle == 0) return nullptr;
-        
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = handles_.find(handle);
-        if (it != handles_.end()) {
-            return it->second;
-        }
-        return nullptr;
-    }
-    
-    void retain(uint64_t handle) {
-        // Reference counting is handled by shared_ptr
-        // This is a no-op but kept for API consistency
-    }
-    
-    void release(uint64_t handle) {
-        if (handle == 0) return;
-        
-        std::lock_guard<std::mutex> lock(mutex_);
-        handles_.erase(handle);
-    }
-    
-    void clear() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        handles_.clear();
-    }
-    
-private:
-    std::mutex mutex_;
-    std::atomic<uint64_t> next_handle_;
-    std::unordered_map<uint64_t, SharedPtr> handles_;
-};
-
 // Global handle managers
 static HandleManager<network::Filter> g_filter_manager;
-static HandleManager<Buffer> g_buffer_manager;
+HandleManager<Buffer> g_buffer_manager;  // Made non-static for external linkage
 static HandleManager<event::Dispatcher> g_dispatcher_manager;
 
 // ============================================================================
@@ -130,11 +83,11 @@ static HandleManager<FilterChain> g_filter_chain_manager;
 // Filter Chain Builder
 // ============================================================================
 
-struct FilterChainBuilder {
+struct mcp_filter_chain_builder {
     mcp_dispatcher_t dispatcher;
     std::unique_ptr<FilterChain> chain;
     
-    FilterChainBuilder(mcp_dispatcher_t disp) 
+    mcp_filter_chain_builder(mcp_dispatcher_t disp) 
         : dispatcher(disp), chain(std::make_unique<FilterChain>()) {}
 };
 
@@ -179,7 +132,7 @@ public:
         }
         
         mcp_filter_status_t status = callbacks_.on_new_connection(
-            MCP_CONNECTION_EVENT_CONNECTED,
+            MCP_CONNECTION_STATE_CONNECTED,
             callbacks_.user_data);
         
         return (status == MCP_FILTER_CONTINUE) 
@@ -272,8 +225,8 @@ struct BufferPool {
         : buffer_size_(buffer_size), max_buffers_(max_buffers) {
         // Pre-allocate buffers
         for (size_t i = 0; i < max_buffers; ++i) {
-            auto buffer = std::make_shared<OwnedImpl>();
-            buffer->reserve(buffer_size_);
+            auto buffer = std::make_shared<OwnedBuffer>();
+            // Buffers will be sized on demand
             free_buffers_.push_back(buffer);
         }
     }
@@ -461,7 +414,7 @@ MCP_API mcp_filter_chain_builder_t mcp_filter_chain_builder_create(
     mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     
     try {
-        return new FilterChainBuilder(dispatcher);
+        return reinterpret_cast<mcp_filter_chain_builder_t>(new mcp::filter_api::mcp_filter_chain_builder(dispatcher));
     } catch (...) {
         return nullptr;
     }
@@ -483,7 +436,7 @@ MCP_API mcp_result_t mcp_filter_chain_add_filter(
         ref_ptr = g_filter_manager.get(reference_filter);
     }
     
-    builder->chain->addFilter(filter_ptr, position, ref_ptr);
+    reinterpret_cast<mcp::filter_api::mcp_filter_chain_builder*>(builder)->chain->addFilter(filter_ptr, position, ref_ptr);
     return MCP_OK;
 }
 
@@ -492,14 +445,14 @@ MCP_API mcp_filter_chain_t mcp_filter_chain_build(
     
     if (!builder) return 0;
     
-    auto chain = std::move(builder->chain);
+    auto chain = std::move(reinterpret_cast<mcp::filter_api::mcp_filter_chain_builder*>(builder)->chain);
     return g_filter_chain_manager.store(std::move(chain));
 }
 
 MCP_API void mcp_filter_chain_builder_destroy(
     mcp_filter_chain_builder_t builder) MCP_NOEXCEPT {
     
-    delete builder;
+    delete reinterpret_cast<mcp::filter_api::mcp_filter_chain_builder*>(builder);
 }
 
 MCP_API void mcp_filter_chain_retain(mcp_filter_chain_t chain) MCP_NOEXCEPT {
@@ -561,7 +514,7 @@ MCP_API mcp_result_t mcp_filter_manager_initialize(
     if (!manager_ptr) return MCP_ERROR_NOT_FOUND;
     
     bool success = manager_ptr->initialize();
-    return success ? MCP_OK : MCP_ERROR_INITIALIZATION_FAILED;
+    return success ? MCP_OK : MCP_ERROR_INVALID_STATE;
 }
 
 MCP_API void mcp_filter_manager_release(
@@ -635,7 +588,7 @@ MCP_API mcp_buffer_handle_t mcp_filter_buffer_create(
     uint32_t flags) MCP_NOEXCEPT {
     
     try {
-        auto buffer = std::make_shared<mcp::OwnedImpl>();
+        auto buffer = std::make_shared<mcp::OwnedBuffer>();
         if (data && length > 0) {
             buffer->add(data, length);
         }
@@ -725,7 +678,7 @@ MCP_API mcp_filter_resource_guard_t* mcp_filter_guard_create(
     mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     
     try {
-        return new mcp_filter_resource_guard(dispatcher);
+        return reinterpret_cast<mcp_filter_resource_guard_t*>(new mcp::filter_api::mcp_filter_resource_guard(dispatcher));
     } catch (...) {
         return nullptr;
     }
@@ -737,7 +690,7 @@ MCP_API mcp_result_t mcp_filter_guard_add_filter(
     
     if (!guard) return MCP_ERROR_INVALID_ARGUMENT;
     
-    guard->tracked_filters.push_back(filter);
+    reinterpret_cast<mcp::filter_api::mcp_filter_resource_guard*>(guard)->tracked_filters.push_back(filter);
     mcp_filter_retain(filter);
     
     return MCP_OK;
@@ -746,7 +699,7 @@ MCP_API mcp_result_t mcp_filter_guard_add_filter(
 MCP_API void mcp_filter_guard_release(
     mcp_filter_resource_guard_t* guard) MCP_NOEXCEPT {
     
-    delete guard;
+    delete reinterpret_cast<mcp::filter_api::mcp_filter_resource_guard*>(guard);
 }
 
 // Buffer Pool Management
@@ -756,7 +709,7 @@ MCP_API mcp_buffer_pool_t mcp_buffer_pool_create(
     size_t max_buffers) MCP_NOEXCEPT {
     
     try {
-        return new BufferPool(buffer_size, max_buffers);
+        return reinterpret_cast<mcp_buffer_pool_t>(new BufferPool(buffer_size, max_buffers));
     } catch (...) {
         return nullptr;
     }
@@ -767,7 +720,7 @@ MCP_API mcp_buffer_handle_t mcp_buffer_pool_acquire(
     
     if (!pool) return 0;
     
-    auto buffer = pool->acquire();
+    auto buffer = reinterpret_cast<BufferPool*>(pool)->acquire();
     if (!buffer) return 0;
     
     return g_buffer_manager.store(buffer);
@@ -781,7 +734,7 @@ MCP_API void mcp_buffer_pool_release(
     
     auto buffer_ptr = g_buffer_manager.get(buffer);
     if (buffer_ptr) {
-        pool->release(buffer_ptr);
+        reinterpret_cast<BufferPool*>(pool)->release(buffer_ptr);
         g_buffer_manager.release(buffer);
     }
 }
@@ -789,7 +742,7 @@ MCP_API void mcp_buffer_pool_release(
 MCP_API void mcp_buffer_pool_destroy(
     mcp_buffer_pool_t pool) MCP_NOEXCEPT {
     
-    delete pool;
+    delete reinterpret_cast<BufferPool*>(pool);
 }
 
 // Statistics and Monitoring
