@@ -7,6 +7,7 @@
 #include "mcp/c_api/mcp_filter_api.h"
 #include "mcp/c_api/mcp_raii.h"
 #include "mcp/buffer.h"
+#include "handle_manager.h"
 
 #include <algorithm>
 #include <atomic>
@@ -23,7 +24,18 @@ namespace filter_buffer {
 // Handle Management (reuse from filter_api)
 // ============================================================================
 
-extern filter_api::HandleManager<Buffer> g_buffer_manager;
+// Import the g_buffer_manager from filter_api namespace
+using c_api_internal::HandleManager;
+
+} // namespace filter_buffer
+
+// Declare extern reference to g_buffer_manager defined in mcp_filter_api.cc
+namespace filter_api {
+    extern c_api_internal::HandleManager<Buffer> g_buffer_manager;
+}
+
+namespace filter_buffer {
+using mcp::filter_api::g_buffer_manager;
 
 // ============================================================================
 // Buffer Fragment Wrapper
@@ -140,13 +152,15 @@ struct BufferPoolImpl {
     BufferPoolImpl(const mcp_buffer_pool_config_t& config)
         : buffer_size_(config.buffer_size),
           max_buffers_(config.max_buffers),
-          thread_local_(config.thread_local_),
-          zero_on_alloc_(config.zero_on_alloc_) {
+          thread_local_(config.use_thread_local),
+          zero_on_alloc_(config.zero_on_alloc) {
         
         // Preallocate buffers
         for (size_t i = 0; i < config.prealloc_count && i < max_buffers_; ++i) {
-            auto buffer = std::make_shared<OwnedImpl>();
-            buffer->reserve(buffer_size_);
+            auto buffer = std::make_shared<OwnedBuffer>();
+            // Pre-allocate space
+            mcp::RawSlice slice;
+            buffer->reserveSingleSlice(buffer_size_, slice);
             free_buffers_.push_back(buffer);
         }
         total_allocated_ = config.prealloc_count * buffer_size_;
@@ -169,8 +183,10 @@ struct BufferPoolImpl {
         
         // Allocate new buffer if under limit
         if (used_count_ < max_buffers_) {
-            auto buffer = std::make_shared<OwnedImpl>();
-            buffer->reserve(buffer_size_);
+            auto buffer = std::make_shared<OwnedBuffer>();
+            // Pre-allocate space
+            mcp::RawSlice slice;
+            buffer->reserveSingleSlice(buffer_size_, slice);
             used_count_++;
             total_allocated_ += buffer_size_;
             return buffer;
@@ -236,9 +252,11 @@ MCP_API mcp_buffer_handle_t mcp_buffer_create_owned(
     mcp_buffer_ownership_t ownership) MCP_NOEXCEPT {
     
     try {
-        auto buffer = std::make_shared<mcp::OwnedImpl>();
+        auto buffer = std::make_shared<mcp::OwnedBuffer>();
         if (initial_capacity > 0) {
-            buffer->reserve(initial_capacity);
+            // Pre-allocate space
+            mcp::RawSlice slice;
+            buffer->reserveSingleSlice(initial_capacity, slice);
         }
         return g_buffer_manager.store(buffer);
     } catch (...) {
@@ -253,7 +271,7 @@ MCP_API mcp_buffer_handle_t mcp_buffer_create_view(
     if (!data || length == 0) return 0;
     
     try {
-        auto buffer = std::make_shared<mcp::OwnedImpl>();
+        auto buffer = std::make_shared<mcp::OwnedBuffer>();
         // Create a view without copying
         // Note: This is a simplification - real implementation would need
         // a proper view buffer that doesn't copy
@@ -270,7 +288,7 @@ MCP_API mcp_buffer_handle_t mcp_buffer_create_from_fragment(
     if (!fragment || !fragment->data) return 0;
     
     try {
-        auto buffer = std::make_shared<mcp::OwnedImpl>();
+        auto buffer = std::make_shared<mcp::OwnedBuffer>();
         auto frag = std::make_unique<ExternalBufferFragment>(*fragment);
         buffer->addBufferFragment(std::move(frag));
         return g_buffer_manager.store(buffer);
@@ -286,7 +304,7 @@ MCP_API mcp_buffer_handle_t mcp_buffer_clone(
     if (!src) return 0;
     
     try {
-        auto clone = std::make_shared<mcp::OwnedImpl>();
+        auto clone = std::make_shared<mcp::OwnedBuffer>();
         clone->add(*src);
         return g_buffer_manager.store(clone);
     } catch (...) {
@@ -432,7 +450,7 @@ MCP_API mcp_result_t mcp_buffer_set_drain_tracker(
     try {
         auto tracker_impl = std::make_shared<DrainTrackerImpl>(
             tracker->callback, tracker->user_data);
-        buf->addDrainTracker(tracker_impl);
+        buf->attachDrainTracker(tracker_impl);
         return MCP_OK;
     } catch (...) {
         return MCP_ERROR_OUT_OF_MEMORY;
@@ -786,7 +804,7 @@ MCP_API mcp_buffer_pool_t mcp_buffer_pool_create_ex(
     if (!config) return nullptr;
     
     try {
-        return new BufferPoolImpl(*config);
+        return reinterpret_cast<mcp_buffer_pool_t>(new BufferPoolImpl(*config));
     } catch (...) {
         return nullptr;
     }
@@ -800,7 +818,7 @@ MCP_API mcp_result_t mcp_buffer_pool_get_stats(
     
     if (!pool) return MCP_ERROR_INVALID_ARGUMENT;
     
-    pool->getStats(free_count, used_count, total_allocated);
+    reinterpret_cast<BufferPoolImpl*>(pool)->getStats(free_count, used_count, total_allocated);
     return MCP_OK;
 }
 
@@ -810,7 +828,7 @@ MCP_API mcp_result_t mcp_buffer_pool_trim(
     
     if (!pool) return MCP_ERROR_INVALID_ARGUMENT;
     
-    pool->trim(target_free);
+    reinterpret_cast<BufferPoolImpl*>(pool)->trim(target_free);
     return MCP_OK;
 }
 
