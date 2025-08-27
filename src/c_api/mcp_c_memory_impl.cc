@@ -81,8 +81,7 @@ extern "C" {
  * ============================================================================
  */
 
-MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator)
-    MCP_NOEXCEPT {
+MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
   std::lock_guard<std::mutex> lock(g_state.mutex);
 
   if (g_state.initialized) {
