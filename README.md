@@ -1,6 +1,8 @@
 # Gopher MCP
 
-A production-ready C++ implementation of the Model Context Protocol (MCP), designed following enterprise-grade design patterns and architectures.
+Please ⭐ if you like it.
+
+C++ implementation of the Model Context Protocol (MCP), designed following enterprise-grade design patterns and architectures.
 
 ## Architecture Overview
 
