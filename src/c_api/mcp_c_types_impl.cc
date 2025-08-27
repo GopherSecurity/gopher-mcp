@@ -1050,6 +1050,8 @@ MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT {
     delete json;
 }
 
+// Note: mcp_json_release is implemented in mcp_c_collections_impl.cc
+
 /* ============================================================================
  * Metadata Implementation
  * ============================================================================ */
