@@ -11,6 +11,7 @@ set(MCP_C_API_SOURCES
     mcp_c_api_core.cc          # Library init/shutdown, dispatcher
     mcp_c_api_connection.cc     # Connection management
     mcp_raii.cc                 # RAII utilities
+    mcp_guard_transaction_impl.cc  # Guard and transaction implementations
     
     # New FFI-safe implementation with opaque handles
     mcp_c_types_impl.cc         # Type implementations
