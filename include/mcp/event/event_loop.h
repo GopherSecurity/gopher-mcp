@@ -90,10 +90,10 @@ constexpr FileTriggerType determinePlatformPreferredEventType() {
   // FORCE_LEVEL_EVENTS allows testing Windows behavior on POSIX
   return FileTriggerType::EmulatedEdge;
 #elif defined(__APPLE__) || defined(__FreeBSD__)
-  // macOS/BSD: Use level-triggered for now due to EV_CLEAR re-registration
-  // issues Edge-triggered with EV_CLEAR requires careful re-registration that
-  // can cause race conditions
-  return FileTriggerType::Level;
+  // macOS/BSD: Use edge-triggered with proper race condition handling
+  // The connection implementation now properly handles edge-trigger races
+  // by activating read events after enabling them when necessary
+  return FileTriggerType::Edge;
 #else
   // Linux supports native edge triggering with epoll
   return FileTriggerType::Edge;

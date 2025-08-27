@@ -92,6 +92,9 @@ class ConnectionImpl : public ConnectionImplBase,
   void setDelayedCloseTimeout(std::chrono::milliseconds timeout) override;
   bool startSecureTransport() override;
   optional<std::chrono::milliseconds> lastRoundTripTime() const override;
+  uint64_t getWriteEventCount() const override {
+    return write_event_count_.load();
+  }
   void configureInitialCongestionWindow(uint64_t bandwidth_bits_per_sec,
                                         std::chrono::microseconds rtt) override;
   optional<uint64_t> congestionWindowInBytes() const override;
@@ -235,6 +238,9 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Connection callbacks are stored in base class callbacks_ member
   // No need for duplicate connection_callbacks_ here
+
+  // Write event counter for debugging
+  mutable std::atomic<uint64_t> write_event_count_{0};
 };
 
 /**

@@ -335,16 +335,25 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
 
         uint32_t initial_events;
         if (connected) {
-          // Server connection - enable read and write
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
-                           static_cast<uint32_t>(event::FileReadyType::Write);
+          // Server connection or already connected (e.g., stdio pipes) - enable
+          // read For write, only enable if there's data to write (prevents busy
+          // loop)
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
+          if (write_buffer_.length() > 0) {
+            initial_events |=
+                static_cast<uint32_t>(event::FileReadyType::Write);
+          }
         } else if (connecting_) {
           // Client connecting - enable write to detect connection completion
           initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
         } else {
-          // Not connected and not connecting - shouldn't happen but handle
-          // safely
-          initial_events = 0;
+          // Not connected and not connecting - for stdio/pipes, treat as
+          // already connected Enable read, and write if there's data
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
+          if (write_buffer_.length() > 0) {
+            initial_events |=
+                static_cast<uint32_t>(event::FileReadyType::Write);
+          }
         }
 
         file_event_ = dispatcher_.createFileEvent(
@@ -469,9 +478,13 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
       return ReadDisableStatus::StillReadDisabled;
     }
 
-    // First disable - keep Write enabled, disable Read
-    // Following reference pattern: always keep Write enabled
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+    // First disable - only keep Write enabled if we have data to write
+    // This prevents busy loop with level-triggered events
+    uint32_t events_to_enable = 0;
+    if (write_buffer_.length() > 0) {
+      events_to_enable = static_cast<uint32_t>(event::FileReadyType::Write);
+    }
+    enableFileEvents(events_to_enable);
     return ReadDisableStatus::TransitionedToReadDisabled;
   } else {
     if (read_disable_count_ == 0) {
@@ -485,10 +498,14 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
     }
 
     if (read_disable_count_ == 0) {
-      // Re-enable both Read and Write
-      // Following reference pattern: enable both when resuming reads
-      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                       static_cast<uint32_t>(event::FileReadyType::Write));
+      // Re-enable Read, and Write only if we have data to write
+      // This prevents busy loop with level-triggered events
+      uint32_t events_to_enable =
+          static_cast<uint32_t>(event::FileReadyType::Read);
+      if (write_buffer_.length() > 0) {
+        events_to_enable |= static_cast<uint32_t>(event::FileReadyType::Write);
+      }
+      enableFileEvents(events_to_enable);
 
       // Check if we need to resume reading (reference pattern)
       if (read_buffer_.length() > 0 || transport_wants_read_) {
@@ -790,6 +807,7 @@ void ConnectionImpl::onWriteReady() {
    * 2. Connected: Flush any pending data in write_buffer_ to socket
    */
   write_ready_ = true;
+  write_event_count_++;  // Track write events for debugging
 
   // Notify state machine of write ready event
   if (state_machine_) {
@@ -816,17 +834,25 @@ void ConnectionImpl::onWriteReady() {
     // Transport may have queued data during handshake
     flushWriteBuffer();
 
-    // Enable BOTH read and write events following production pattern
-    // Even though we may not have data to write immediately, keeping both
-    // enabled avoids race conditions from event reassignment
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                     static_cast<uint32_t>(event::FileReadyType::Write));
+    // Enable read events, write events only if there's data to write
+    // This prevents busy loop with level-triggered events when write buffer is
+    // empty
+    uint32_t events_to_enable =
+        static_cast<uint32_t>(event::FileReadyType::Read);
+    if (write_buffer_.length() > 0) {
+      events_to_enable |= static_cast<uint32_t>(event::FileReadyType::Write);
+    }
+    enableFileEvents(events_to_enable);
   } else {
     doWrite();
-    // Ensure both Read and Write events are enabled after writing
-    // This follows production pattern of keeping both events enabled
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                     static_cast<uint32_t>(event::FileReadyType::Write));
+    // After writing, only keep write events enabled if there's more data to
+    // write This prevents busy loop with level-triggered events
+    uint32_t events_to_enable =
+        static_cast<uint32_t>(event::FileReadyType::Read);
+    if (write_buffer_.length() > 0) {
+      events_to_enable |= static_cast<uint32_t>(event::FileReadyType::Write);
+    }
+    enableFileEvents(events_to_enable);
   }
 }
 
@@ -1252,41 +1278,43 @@ void ConnectionImpl::doWrite() {
   // Keep both Read and Write events enabled after writing
   // This ensures proper event handling for both client and server
   if (write_buffer_.length() == 0) {
-    // Finished writing current data - ensure both events are enabled
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                     static_cast<uint32_t>(event::FileReadyType::Write));
+    // Finished writing current data - only enable read events
+    // Write events will be enabled when new data arrives to prevent busy loop
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
 
-// CRITICAL: Handle edge-triggered race condition
-// With edge-triggered events, if data arrives while we're in the process of
-// enabling Read events, we miss the edge and never get a Read event
-// notification.
-//
-// The problem is a race condition with two possible scenarios:
-//
-// Scenario 1:
-// 1. Client writes request
-// 2. Client enables Read events
-// 3. Server processes request and sends response
-// 4. Response arrives at client TCP buffer
-// 5. But no edge transition because Read was already enabled
-//
-// Scenario 2:
-// 1. Client writes request
-// 2. Server processes and sends response quickly
-// 3. Response arrives at client TCP buffer
-// 4. Client enables Read events
-// 5. No edge because data was already there
-//
-// Solution: Activate a read event to check for any data that may have
-// arrived This forces the event loop to check the socket for available data
-// NOTE: Disabled for level-triggered events on macOS to avoid race conditions
-// Level-triggered events will naturally fire when data is available
-#ifdef __linux__
-    if (file_event_ && !is_server_connection_) {
-      // Activate read to check for any data that may have arrived
+    // CRITICAL: Handle edge-triggered race condition
+    // With edge-triggered events, if data arrives while we're in the process of
+    // enabling Read events, we miss the edge and never get a Read event
+    // notification.
+    //
+    // The problem is a race condition with two possible scenarios:
+    //
+    // Scenario 1:
+    // 1. Client writes request
+    // 2. Client enables Read events
+    // 3. Server processes request and sends response
+    // 4. Response arrives at client TCP buffer
+    // 5. But no edge transition because Read was already enabled
+    //
+    // Scenario 2:
+    // 1. Client writes request
+    // 2. Server processes and sends response quickly
+    // 3. Response arrives at client TCP buffer
+    // 4. Client enables Read events
+    // 5. No edge because data was already there
+    //
+    // Solution: Activate a read event to check for any data that may have
+    // arrived This forces the event loop to check the socket for available data
+    // NOTE: Disabled for level-triggered events on macOS to avoid race
+    // conditions Level-triggered events will naturally fire when data is
+    // available For edge-triggered, we need to check for data that may have
+    // arrived
+    if (file_event_ &&
+        event::PlatformDefaultTriggerType == event::FileTriggerType::Edge) {
+      // Activate read to check for any data that may have arrived during the
+      // race window
       file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
     }
-#endif
   }
 
   if (write_buffer_.length() == 0 && write_half_closed_) {
