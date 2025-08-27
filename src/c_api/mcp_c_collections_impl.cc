@@ -483,6 +483,11 @@ MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT {
   delete json;
 }
 
+// Alias for compatibility with different naming conventions
+MCP_API void mcp_json_release(mcp_json_value_t json) MCP_NOEXCEPT {
+  mcp_json_free(json);
+}
+
 MCP_API mcp_json_type_t mcp_json_get_type(mcp_json_value_t json) MCP_NOEXCEPT {
   return json ? json->type : MCP_JSON_TYPE_NULL;
 }
