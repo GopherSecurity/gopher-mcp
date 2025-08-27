@@ -503,7 +503,7 @@ typedef struct mcp_buffer_pool_config {
     size_t buffer_size;       // Size of each buffer
     size_t max_buffers;       // Maximum buffers in pool
     size_t prealloc_count;    // Number to preallocate
-    mcp_bool_t thread_local;  // Use thread-local caching
+    mcp_bool_t use_thread_local;  // Use thread-local caching
     mcp_bool_t zero_on_alloc; // Zero memory on allocation
 } mcp_buffer_pool_config_t;
 
