@@ -804,8 +804,7 @@ void ConnectionImpl::onWriteReady() {
   write_event_count_++;  // Track write events for debugging
   
   // Prevent busy loop: if we have no data to write and we're already connected,
-  // just return without processing. Don't disable events as this causes issues
-  // with libevent repeatedly calling event_del()
+  // just return without processing
   if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_) {
     return;
   }
