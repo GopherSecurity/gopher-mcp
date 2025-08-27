@@ -31,7 +31,8 @@ mcp_connection_t mcp_connection_create_client_ex(
   TRY_WITH_RAII_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto conn_impl = std::make_unique<mcp::c_api::mcp_connection_impl>(dispatcher_impl);
+    auto conn_impl =
+        std::make_unique<mcp::c_api::mcp_connection_impl>(dispatcher_impl);
 
     // Use default configuration if not provided
     mcp_transport_config_t default_config = {};
@@ -91,7 +92,8 @@ mcp_connection_t mcp_connection_create_client_ex(
       }
 
       default:
-        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Unsupported transport type");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT,
+                               "Unsupported transport type");
         return nullptr;
     }
 
@@ -200,7 +202,8 @@ mcp_result_t mcp_connection_set_callbacks(
     impl->callback_user_data = user_data;
 
     // Create and set the callback bridge
-    impl->callback_bridge = std::make_unique<mcp::c_api::mcp_connection_impl::CallbackBridge>(impl);
+    impl->callback_bridge =
+        std::make_unique<mcp::c_api::mcp_connection_impl::CallbackBridge>(impl);
     impl->connection->addConnectionCallbacks(*impl->callback_bridge);
 
     return MCP_OK;
@@ -212,7 +215,8 @@ mcp_result_t mcp_connection_set_watermarks(
   CHECK_HANDLE_VALID(connection);
 
   if (!config) {
-    ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Invalid watermark config");
+    ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT,
+                           "Invalid watermark config");
     return MCP_ERROR_INVALID_ARGUMENT;
   }
 
@@ -297,7 +301,8 @@ mcp_result_t mcp_connection_write(mcp_connection_t connection,
   });
 }
 
-mcp_result_t mcp_connection_close(mcp_connection_t connection, mcp_bool_t flush) MCP_NOEXCEPT {
+mcp_result_t mcp_connection_close(mcp_connection_t connection,
+                                  mcp_bool_t flush) MCP_NOEXCEPT {
   CHECK_HANDLE_VALID(connection);
 
   TRY_WITH_RAII({
@@ -382,7 +387,8 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
   TRY_WITH_RAII_NULL({
     auto dispatcher_impl =
         reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-    auto listener_impl = std::make_unique<mcp::c_api::mcp_listener_impl>(dispatcher_impl);
+    auto listener_impl =
+        std::make_unique<mcp::c_api::mcp_listener_impl>(dispatcher_impl);
 
     // Create listener based on transport type
     switch (transport) {
@@ -403,7 +409,8 @@ mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
       }
 
       default:
-        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT, "Unsupported transport type for listener");
+        ErrorManager::SetError(MCP_ERROR_INVALID_ARGUMENT,
+                               "Unsupported transport type for listener");
         return nullptr;
     }
 

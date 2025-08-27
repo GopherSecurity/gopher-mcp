@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 /* ============================================================================
- * Note: Library initialization functions (mcp_init, mcp_shutdown, 
+ * Note: Library initialization functions (mcp_init, mcp_shutdown,
  * mcp_is_initialized) are declared in mcp_c_api.h
  * ============================================================================
  */

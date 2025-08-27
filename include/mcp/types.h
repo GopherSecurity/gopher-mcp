@@ -67,12 +67,12 @@ struct Role {
 struct LoggingLevel {
   // Save and undefine common macros that might conflict with enum values
 #ifdef DEBUG
-  #define MCP_SAVED_DEBUG DEBUG
-  #undef DEBUG
+#define MCP_SAVED_DEBUG DEBUG
+#undef DEBUG
 #endif
 #ifdef ERROR
-  #define MCP_SAVED_ERROR ERROR
-  #undef ERROR
+#define MCP_SAVED_ERROR ERROR
+#undef ERROR
 #endif
 
   enum Value {
@@ -131,12 +131,12 @@ struct LoggingLevel {
 
   // Restore macros if they were defined before
 #ifdef MCP_SAVED_DEBUG
-  #define DEBUG MCP_SAVED_DEBUG
-  #undef MCP_SAVED_DEBUG
+#define DEBUG MCP_SAVED_DEBUG
+#undef MCP_SAVED_DEBUG
 #endif
 #ifdef MCP_SAVED_ERROR
-  #define ERROR MCP_SAVED_ERROR
-  #undef MCP_SAVED_ERROR
+#define ERROR MCP_SAVED_ERROR
+#undef MCP_SAVED_ERROR
 #endif
 };
 

@@ -48,7 +48,8 @@ const char* mcp_get_version(void) {
 
 mcp_dispatcher_t mcp_dispatcher_create(void) MCP_NOEXCEPT {
   if (!mcp_is_initialized()) {
-    ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED, "Library not initialized");
+    ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED,
+                           "Library not initialized");
     return nullptr;
   }
 
@@ -71,7 +72,8 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     if (impl->running) {
-      ErrorManager::SetError(MCP_ERROR_INVALID_STATE, "Dispatcher already running");
+      ErrorManager::SetError(MCP_ERROR_INVALID_STATE,
+                             "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -94,7 +96,8 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
     if (impl->running) {
-      ErrorManager::SetError(MCP_ERROR_INVALID_STATE, "Dispatcher already running");
+      ErrorManager::SetError(MCP_ERROR_INVALID_STATE,
+                             "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -147,7 +150,8 @@ mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     return MCP_FALSE;
 
   auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
-  return (std::this_thread::get_id() == impl->dispatcher_thread_id) ? MCP_TRUE : MCP_FALSE;
+  return (std::this_thread::get_id() == impl->dispatcher_thread_id) ? MCP_TRUE
+                                                                    : MCP_FALSE;
 }
 
 uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
@@ -167,8 +171,9 @@ uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
 
     // Store timer info
     uint64_t timer_id = impl->next_timer_id++;
-    impl->timers[timer_id] = std::make_unique<mcp::c_api::mcp_dispatcher_impl::TimerInfo>(
-        std::move(timer), callback, user_data);
+    impl->timers[timer_id] =
+        std::make_unique<mcp::c_api::mcp_dispatcher_impl::TimerInfo>(
+            std::move(timer), callback, user_data);
 
     return timer_id;
   } catch (const std::exception& e) {
@@ -246,43 +251,43 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
 
 // Buffer implementation using existing RAII patterns
 struct mcp_buffer_impl {
-    size_t capacity_;
-    size_t size_;
-    std::unique_ptr<char[]> data_;
-    
-    explicit mcp_buffer_impl(size_t capacity) 
-        : capacity_(capacity), size_(0) {
-        if (capacity > 0) {
-            data_ = std::make_unique<char[]>(capacity);
-        }
+  size_t capacity_;
+  size_t size_;
+  std::unique_ptr<char[]> data_;
+
+  explicit mcp_buffer_impl(size_t capacity) : capacity_(capacity), size_(0) {
+    if (capacity > 0) {
+      data_ = std::make_unique<char[]>(capacity);
     }
-    
-    ~mcp_buffer_impl() = default;
+  }
+
+  ~mcp_buffer_impl() = default;
 };
 
 mcp_buffer_t* mcp_buffer_create(size_t capacity) MCP_NOEXCEPT {
-    if (!mcp_is_initialized()) {
-        ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED, "MCP library not initialized");
-        return nullptr;
-    }
-    
-    try {
-        auto buffer = std::make_unique<mcp_buffer_impl>(capacity);
-        auto result = new mcp_buffer_t(buffer.release());
-        return result;
-    } catch (...) {
-        ErrorManager::SetError(MCP_ERROR_NO_MEMORY, "Failed to create buffer");
-        return nullptr;
-    }
+  if (!mcp_is_initialized()) {
+    ErrorManager::SetError(MCP_ERROR_NOT_INITIALIZED,
+                           "MCP library not initialized");
+    return nullptr;
+  }
+
+  try {
+    auto buffer = std::make_unique<mcp_buffer_impl>(capacity);
+    auto result = new mcp_buffer_t(buffer.release());
+    return result;
+  } catch (...) {
+    ErrorManager::SetError(MCP_ERROR_NO_MEMORY, "Failed to create buffer");
+    return nullptr;
+  }
 }
 
 void mcp_buffer_free(mcp_buffer_t* buffer) MCP_NOEXCEPT {
-    if (!buffer || !*buffer) 
-        return;
-    
-    auto impl = reinterpret_cast<mcp_buffer_impl*>(*buffer);
-    delete impl;
-    *buffer = nullptr;
+  if (!buffer || !*buffer)
+    return;
+
+  auto impl = reinterpret_cast<mcp_buffer_impl*>(*buffer);
+  delete impl;
+  *buffer = nullptr;
 }
 
 }  // extern "C"

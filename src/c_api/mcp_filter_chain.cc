@@ -4,11 +4,6 @@
  */
 
 #include "mcp/c_api/mcp_filter_chain.h"
-#include "mcp/c_api/mcp_filter_api.h"
-#include "mcp/c_api/mcp_filter_buffer.h"
-#include "mcp/c_api/mcp_raii.h"
-#include "mcp/network/filter.h"
-#include "handle_manager.h"
 
 #include <algorithm>
 #include <atomic>
@@ -22,6 +17,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "mcp/c_api/mcp_filter_api.h"
+#include "mcp/c_api/mcp_filter_buffer.h"
+#include "mcp/c_api/mcp_raii.h"
+#include "mcp/network/filter.h"
+
+#include "handle_manager.h"
+
 namespace mcp {
 namespace filter_chain {
 
@@ -30,51 +32,52 @@ namespace filter_chain {
 // ============================================================================
 
 class FilterNode {
-public:
-    FilterNode(const mcp_filter_node_t& config)
-        : filter_(config.filter),
-          name_(config.name ? config.name : ""),
-          priority_(config.priority),
-          enabled_(config.enabled),
-          bypass_on_error_(config.bypass_on_error) {}
-    
-    mcp_filter_t getFilter() const { return filter_; }
-    const std::string& getName() const { return name_; }
-    uint32_t getPriority() const { return priority_; }
-    bool isEnabled() const { return enabled_.load(); }
-    bool shouldBypassOnError() const { return bypass_on_error_; }
-    
-    void setEnabled(bool enabled) { enabled_.store(enabled); }
-    
-    // Statistics
-    void recordProcessing(std::chrono::microseconds duration) {
-        total_processed_++;
-        total_duration_ += duration;
-    }
-    
-    void recordError() { errors_++; }
-    void recordBypass() { bypassed_++; }
-    
-    uint64_t getTotalProcessed() const { return total_processed_; }
-    uint64_t getErrors() const { return errors_; }
-    uint64_t getBypassed() const { return bypassed_; }
-    double getAvgLatency() const {
-        if (total_processed_ == 0) return 0;
-        return total_duration_.count() / static_cast<double>(total_processed_);
-    }
-    
-private:
-    mcp_filter_t filter_;
-    std::string name_;
-    uint32_t priority_;
-    std::atomic<bool> enabled_;
-    bool bypass_on_error_;
-    
-    // Statistics
-    std::atomic<uint64_t> total_processed_{0};
-    std::atomic<uint64_t> errors_{0};
-    std::atomic<uint64_t> bypassed_{0};
-    std::chrono::microseconds total_duration_{0};
+ public:
+  FilterNode(const mcp_filter_node_t& config)
+      : filter_(config.filter),
+        name_(config.name ? config.name : ""),
+        priority_(config.priority),
+        enabled_(config.enabled),
+        bypass_on_error_(config.bypass_on_error) {}
+
+  mcp_filter_t getFilter() const { return filter_; }
+  const std::string& getName() const { return name_; }
+  uint32_t getPriority() const { return priority_; }
+  bool isEnabled() const { return enabled_.load(); }
+  bool shouldBypassOnError() const { return bypass_on_error_; }
+
+  void setEnabled(bool enabled) { enabled_.store(enabled); }
+
+  // Statistics
+  void recordProcessing(std::chrono::microseconds duration) {
+    total_processed_++;
+    total_duration_ += duration;
+  }
+
+  void recordError() { errors_++; }
+  void recordBypass() { bypassed_++; }
+
+  uint64_t getTotalProcessed() const { return total_processed_; }
+  uint64_t getErrors() const { return errors_; }
+  uint64_t getBypassed() const { return bypassed_; }
+  double getAvgLatency() const {
+    if (total_processed_ == 0)
+      return 0;
+    return total_duration_.count() / static_cast<double>(total_processed_);
+  }
+
+ private:
+  mcp_filter_t filter_;
+  std::string name_;
+  uint32_t priority_;
+  std::atomic<bool> enabled_;
+  bool bypass_on_error_;
+
+  // Statistics
+  std::atomic<uint64_t> total_processed_{0};
+  std::atomic<uint64_t> errors_{0};
+  std::atomic<uint64_t> bypassed_{0};
+  std::chrono::microseconds total_duration_{0};
 };
 
 // ============================================================================
@@ -82,325 +85,328 @@ private:
 // ============================================================================
 
 class AdvancedFilterChain {
-public:
-    AdvancedFilterChain(const mcp_chain_config_t& config)
-        : name_(config.name ? config.name : ""),
-          mode_(config.mode),
-          routing_(config.routing),
-          max_parallel_(config.max_parallel),
-          buffer_size_(config.buffer_size),
-          timeout_ms_(config.timeout_ms),
-          stop_on_error_(config.stop_on_error),
-          state_(MCP_CHAIN_STATE_IDLE) {}
-    
-    void addNode(std::unique_ptr<FilterNode> node) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        nodes_.push_back(std::move(node));
-        sortNodes();
+ public:
+  AdvancedFilterChain(const mcp_chain_config_t& config)
+      : name_(config.name ? config.name : ""),
+        mode_(config.mode),
+        routing_(config.routing),
+        max_parallel_(config.max_parallel),
+        buffer_size_(config.buffer_size),
+        timeout_ms_(config.timeout_ms),
+        stop_on_error_(config.stop_on_error),
+        state_(MCP_CHAIN_STATE_IDLE) {}
+
+  void addNode(std::unique_ptr<FilterNode> node) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    nodes_.push_back(std::move(node));
+    sortNodes();
+  }
+
+  void addConditionalFilter(const mcp_filter_condition_t& condition,
+                            mcp_filter_t filter) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    conditional_filters_.push_back({condition, filter});
+  }
+
+  void addParallelGroup(const std::vector<mcp_filter_t>& filters) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    parallel_groups_.push_back(filters);
+  }
+
+  mcp_filter_status_t process(mcp_buffer_handle_t buffer,
+                              const mcp_protocol_metadata_t* metadata) {
+    setState(MCP_CHAIN_STATE_PROCESSING);
+    auto start = std::chrono::steady_clock::now();
+
+    mcp_filter_status_t status = MCP_FILTER_CONTINUE;
+
+    switch (mode_) {
+      case MCP_CHAIN_MODE_SEQUENTIAL:
+        status = processSequential(buffer, metadata);
+        break;
+      case MCP_CHAIN_MODE_PARALLEL:
+        status = processParallel(buffer, metadata);
+        break;
+      case MCP_CHAIN_MODE_CONDITIONAL:
+        status = processConditional(buffer, metadata);
+        break;
+      case MCP_CHAIN_MODE_PIPELINE:
+        status = processPipeline(buffer, metadata);
+        break;
     }
-    
-    void addConditionalFilter(const mcp_filter_condition_t& condition,
-                             mcp_filter_t filter) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        conditional_filters_.push_back({condition, filter});
+
+    auto duration = std::chrono::steady_clock::now() - start;
+    updateStats(duration);
+
+    setState(status == MCP_FILTER_CONTINUE ? MCP_CHAIN_STATE_COMPLETED
+                                           : MCP_CHAIN_STATE_ERROR);
+
+    return status;
+  }
+
+  void pause() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == MCP_CHAIN_STATE_PROCESSING) {
+      setState(MCP_CHAIN_STATE_PAUSED);
     }
-    
-    void addParallelGroup(const std::vector<mcp_filter_t>& filters) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        parallel_groups_.push_back(filters);
+  }
+
+  void resume() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == MCP_CHAIN_STATE_PAUSED) {
+      setState(MCP_CHAIN_STATE_PROCESSING);
+      cv_.notify_all();
     }
-    
-    mcp_filter_status_t process(mcp_buffer_handle_t buffer,
-                                const mcp_protocol_metadata_t* metadata) {
-        setState(MCP_CHAIN_STATE_PROCESSING);
-        auto start = std::chrono::steady_clock::now();
-        
-        mcp_filter_status_t status = MCP_FILTER_CONTINUE;
-        
-        switch (mode_) {
-            case MCP_CHAIN_MODE_SEQUENTIAL:
-                status = processSequential(buffer, metadata);
-                break;
-            case MCP_CHAIN_MODE_PARALLEL:
-                status = processParallel(buffer, metadata);
-                break;
-            case MCP_CHAIN_MODE_CONDITIONAL:
-                status = processConditional(buffer, metadata);
-                break;
-            case MCP_CHAIN_MODE_PIPELINE:
-                status = processPipeline(buffer, metadata);
-                break;
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    setState(MCP_CHAIN_STATE_IDLE);
+    // Reset statistics
+    for (auto& node : nodes_) {
+      // Reset node stats if needed
+    }
+  }
+
+  void setFilterEnabled(const std::string& name, bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& node : nodes_) {
+      if (node->getName() == name) {
+        node->setEnabled(enabled);
+        break;
+      }
+    }
+  }
+
+  mcp_chain_state_t getState() const { return state_.load(); }
+
+  void getStats(mcp_chain_stats_t* stats) const {
+    if (!stats)
+      return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    stats->total_processed = 0;
+    stats->total_errors = 0;
+    stats->total_bypassed = 0;
+    stats->active_filters = 0;
+
+    double total_latency = 0;
+    for (const auto& node : nodes_) {
+      if (node->isEnabled()) {
+        stats->active_filters++;
+      }
+      stats->total_processed += node->getTotalProcessed();
+      stats->total_errors += node->getErrors();
+      stats->total_bypassed += node->getBypassed();
+      total_latency += node->getAvgLatency();
+    }
+
+    stats->avg_latency_ms = total_latency / nodes_.size() / 1000.0;
+    stats->max_latency_ms = max_latency_us_.load() / 1000.0;
+    stats->throughput_mbps = calculateThroughput();
+  }
+
+  void setEventCallback(mcp_chain_event_cb callback, void* user_data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    event_callback_ = callback;
+    event_user_data_ = user_data;
+  }
+
+  std::string dump(const std::string& format) const {
+    std::ostringstream oss;
+
+    if (format == "json") {
+      oss << "{\"name\":\"" << name_ << "\",";
+      oss << "\"mode\":" << mode_ << ",";
+      oss << "\"filters\":[";
+      bool first = true;
+      for (const auto& node : nodes_) {
+        if (!first)
+          oss << ",";
+        oss << "{\"name\":\"" << node->getName() << "\",";
+        oss << "\"priority\":" << node->getPriority() << ",";
+        oss << "\"enabled\":" << node->isEnabled() << "}";
+        first = false;
+      }
+      oss << "]}";
+    } else if (format == "dot") {
+      oss << "digraph " << name_ << " {" << std::endl;
+      for (size_t i = 0; i < nodes_.size(); ++i) {
+        oss << "  n" << i << " [label=\"" << nodes_[i]->getName() << "\"];"
+            << std::endl;
+        if (i > 0) {
+          oss << "  n" << (i - 1) << " -> n" << i << ";" << std::endl;
         }
-        
-        auto duration = std::chrono::steady_clock::now() - start;
-        updateStats(duration);
-        
-        setState(status == MCP_FILTER_CONTINUE 
-                ? MCP_CHAIN_STATE_COMPLETED 
-                : MCP_CHAIN_STATE_ERROR);
-        
-        return status;
+      }
+      oss << "}" << std::endl;
+    } else {  // text
+      oss << "Chain: " << name_ << std::endl;
+      oss << "Mode: " << mode_ << std::endl;
+      oss << "Filters:" << std::endl;
+      for (const auto& node : nodes_) {
+        oss << "  - " << node->getName();
+        oss << " (priority=" << node->getPriority();
+        oss << ", enabled=" << node->isEnabled() << ")" << std::endl;
+      }
     }
-    
-    void pause() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ == MCP_CHAIN_STATE_PROCESSING) {
-            setState(MCP_CHAIN_STATE_PAUSED);
+
+    return oss.str();
+  }
+
+ private:
+  mcp_filter_status_t processSequential(
+      mcp_buffer_handle_t buffer, const mcp_protocol_metadata_t* metadata) {
+    for (auto& node : nodes_) {
+      if (!node->isEnabled()) {
+        node->recordBypass();
+        continue;
+      }
+
+      if (isPaused()) {
+        waitForResume();
+      }
+
+      auto start = std::chrono::steady_clock::now();
+
+      // Process through filter (simplified)
+      mcp_filter_status_t status = MCP_FILTER_CONTINUE;
+      // TODO: Actually call filter with buffer
+
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start);
+      node->recordProcessing(duration);
+
+      if (status != MCP_FILTER_CONTINUE) {
+        if (stop_on_error_ && !node->shouldBypassOnError()) {
+          return status;
         }
+        node->recordError();
+      }
     }
-    
-    void resume() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ == MCP_CHAIN_STATE_PAUSED) {
-            setState(MCP_CHAIN_STATE_PROCESSING);
-            cv_.notify_all();
-        }
+
+    return MCP_FILTER_CONTINUE;
+  }
+
+  mcp_filter_status_t processParallel(mcp_buffer_handle_t buffer,
+                                      const mcp_protocol_metadata_t* metadata) {
+    std::vector<std::thread> threads;
+    std::atomic<int> errors{0};
+
+    size_t batch_size =
+        std::min(static_cast<size_t>(max_parallel_), nodes_.size());
+
+    for (size_t i = 0; i < nodes_.size(); i += batch_size) {
+      size_t end = std::min(i + batch_size, nodes_.size());
+
+      for (size_t j = i; j < end; ++j) {
+        threads.emplace_back([this, j, buffer, metadata, &errors]() {
+          if (!nodes_[j]->isEnabled())
+            return;
+
+          // Process filter
+          mcp_filter_status_t status = MCP_FILTER_CONTINUE;
+          // TODO: Call filter
+
+          if (status != MCP_FILTER_CONTINUE) {
+            errors++;
+          }
+        });
+      }
+
+      for (auto& t : threads) {
+        if (t.joinable())
+          t.join();
+      }
+      threads.clear();
     }
-    
-    void reset() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        setState(MCP_CHAIN_STATE_IDLE);
-        // Reset statistics
-        for (auto& node : nodes_) {
-            // Reset node stats if needed
-        }
+
+    return errors > 0 ? MCP_FILTER_STOP_ITERATION : MCP_FILTER_CONTINUE;
+  }
+
+  mcp_filter_status_t processConditional(
+      mcp_buffer_handle_t buffer, const mcp_protocol_metadata_t* metadata) {
+    for (const auto& cond_filter : conditional_filters_) {
+      if (evaluateCondition(cond_filter.first, buffer, metadata)) {
+        // Process through conditional filter
+        // TODO: Call filter
+      }
     }
-    
-    void setFilterEnabled(const std::string& name, bool enabled) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& node : nodes_) {
-            if (node->getName() == name) {
-                node->setEnabled(enabled);
-                break;
-            }
-        }
+
+    return processSequential(buffer, metadata);
+  }
+
+  mcp_filter_status_t processPipeline(mcp_buffer_handle_t buffer,
+                                      const mcp_protocol_metadata_t* metadata) {
+    // Pipeline processing with intermediate buffering
+    // TODO: Implement pipeline processing
+    return processSequential(buffer, metadata);
+  }
+
+  bool evaluateCondition(const mcp_filter_condition_t& condition,
+                         mcp_buffer_handle_t buffer,
+                         const mcp_protocol_metadata_t* metadata) {
+    // TODO: Evaluate condition based on buffer and metadata
+    return true;
+  }
+
+  void sortNodes() {
+    std::sort(nodes_.begin(), nodes_.end(), [](const auto& a, const auto& b) {
+      return a->getPriority() < b->getPriority();
+    });
+  }
+
+  void setState(mcp_chain_state_t new_state) {
+    mcp_chain_state_t old_state = state_.exchange(new_state);
+    if (event_callback_ && old_state != new_state) {
+      // Note: This should be posted to dispatcher thread
+      event_callback_(0, old_state, new_state, event_user_data_);
     }
-    
-    mcp_chain_state_t getState() const {
-        return state_.load();
+  }
+
+  bool isPaused() const { return state_ == MCP_CHAIN_STATE_PAUSED; }
+
+  void waitForResume() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [this]() { return state_ != MCP_CHAIN_STATE_PAUSED; });
+  }
+
+  void updateStats(std::chrono::steady_clock::duration duration) {
+    auto us =
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    uint64_t current_max = max_latency_us_.load();
+    while (us > current_max &&
+           !max_latency_us_.compare_exchange_weak(current_max, us)) {
     }
-    
-    void getStats(mcp_chain_stats_t* stats) const {
-        if (!stats) return;
-        
-        std::lock_guard<std::mutex> lock(mutex_);
-        
-        stats->total_processed = 0;
-        stats->total_errors = 0;
-        stats->total_bypassed = 0;
-        stats->active_filters = 0;
-        
-        double total_latency = 0;
-        for (const auto& node : nodes_) {
-            if (node->isEnabled()) {
-                stats->active_filters++;
-            }
-            stats->total_processed += node->getTotalProcessed();
-            stats->total_errors += node->getErrors();
-            stats->total_bypassed += node->getBypassed();
-            total_latency += node->getAvgLatency();
-        }
-        
-        stats->avg_latency_ms = total_latency / nodes_.size() / 1000.0;
-        stats->max_latency_ms = max_latency_us_.load() / 1000.0;
-        stats->throughput_mbps = calculateThroughput();
-    }
-    
-    void setEventCallback(mcp_chain_event_cb callback, void* user_data) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        event_callback_ = callback;
-        event_user_data_ = user_data;
-    }
-    
-    std::string dump(const std::string& format) const {
-        std::ostringstream oss;
-        
-        if (format == "json") {
-            oss << "{\"name\":\"" << name_ << "\",";
-            oss << "\"mode\":" << mode_ << ",";
-            oss << "\"filters\":[";
-            bool first = true;
-            for (const auto& node : nodes_) {
-                if (!first) oss << ",";
-                oss << "{\"name\":\"" << node->getName() << "\",";
-                oss << "\"priority\":" << node->getPriority() << ",";
-                oss << "\"enabled\":" << node->isEnabled() << "}";
-                first = false;
-            }
-            oss << "]}";
-        } else if (format == "dot") {
-            oss << "digraph " << name_ << " {" << std::endl;
-            for (size_t i = 0; i < nodes_.size(); ++i) {
-                oss << "  n" << i << " [label=\"" << nodes_[i]->getName() << "\"];" << std::endl;
-                if (i > 0) {
-                    oss << "  n" << (i-1) << " -> n" << i << ";" << std::endl;
-                }
-            }
-            oss << "}" << std::endl;
-        } else {  // text
-            oss << "Chain: " << name_ << std::endl;
-            oss << "Mode: " << mode_ << std::endl;
-            oss << "Filters:" << std::endl;
-            for (const auto& node : nodes_) {
-                oss << "  - " << node->getName();
-                oss << " (priority=" << node->getPriority();
-                oss << ", enabled=" << node->isEnabled() << ")" << std::endl;
-            }
-        }
-        
-        return oss.str();
-    }
-    
-private:
-    mcp_filter_status_t processSequential(mcp_buffer_handle_t buffer,
-                                         const mcp_protocol_metadata_t* metadata) {
-        for (auto& node : nodes_) {
-            if (!node->isEnabled()) {
-                node->recordBypass();
-                continue;
-            }
-            
-            if (isPaused()) {
-                waitForResume();
-            }
-            
-            auto start = std::chrono::steady_clock::now();
-            
-            // Process through filter (simplified)
-            mcp_filter_status_t status = MCP_FILTER_CONTINUE;
-            // TODO: Actually call filter with buffer
-            
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - start);
-            node->recordProcessing(duration);
-            
-            if (status != MCP_FILTER_CONTINUE) {
-                if (stop_on_error_ && !node->shouldBypassOnError()) {
-                    return status;
-                }
-                node->recordError();
-            }
-        }
-        
-        return MCP_FILTER_CONTINUE;
-    }
-    
-    mcp_filter_status_t processParallel(mcp_buffer_handle_t buffer,
-                                       const mcp_protocol_metadata_t* metadata) {
-        std::vector<std::thread> threads;
-        std::atomic<int> errors{0};
-        
-        size_t batch_size = std::min(static_cast<size_t>(max_parallel_), nodes_.size());
-        
-        for (size_t i = 0; i < nodes_.size(); i += batch_size) {
-            size_t end = std::min(i + batch_size, nodes_.size());
-            
-            for (size_t j = i; j < end; ++j) {
-                threads.emplace_back([this, j, buffer, metadata, &errors]() {
-                    if (!nodes_[j]->isEnabled()) return;
-                    
-                    // Process filter
-                    mcp_filter_status_t status = MCP_FILTER_CONTINUE;
-                    // TODO: Call filter
-                    
-                    if (status != MCP_FILTER_CONTINUE) {
-                        errors++;
-                    }
-                });
-            }
-            
-            for (auto& t : threads) {
-                if (t.joinable()) t.join();
-            }
-            threads.clear();
-        }
-        
-        return errors > 0 ? MCP_FILTER_STOP_ITERATION : MCP_FILTER_CONTINUE;
-    }
-    
-    mcp_filter_status_t processConditional(mcp_buffer_handle_t buffer,
-                                          const mcp_protocol_metadata_t* metadata) {
-        for (const auto& cond_filter : conditional_filters_) {
-            if (evaluateCondition(cond_filter.first, buffer, metadata)) {
-                // Process through conditional filter
-                // TODO: Call filter
-            }
-        }
-        
-        return processSequential(buffer, metadata);
-    }
-    
-    mcp_filter_status_t processPipeline(mcp_buffer_handle_t buffer,
-                                       const mcp_protocol_metadata_t* metadata) {
-        // Pipeline processing with intermediate buffering
-        // TODO: Implement pipeline processing
-        return processSequential(buffer, metadata);
-    }
-    
-    bool evaluateCondition(const mcp_filter_condition_t& condition,
-                          mcp_buffer_handle_t buffer,
-                          const mcp_protocol_metadata_t* metadata) {
-        // TODO: Evaluate condition based on buffer and metadata
-        return true;
-    }
-    
-    void sortNodes() {
-        std::sort(nodes_.begin(), nodes_.end(),
-                 [](const auto& a, const auto& b) {
-                     return a->getPriority() < b->getPriority();
-                 });
-    }
-    
-    void setState(mcp_chain_state_t new_state) {
-        mcp_chain_state_t old_state = state_.exchange(new_state);
-        if (event_callback_ && old_state != new_state) {
-            // Note: This should be posted to dispatcher thread
-            event_callback_(0, old_state, new_state, event_user_data_);
-        }
-    }
-    
-    bool isPaused() const {
-        return state_ == MCP_CHAIN_STATE_PAUSED;
-    }
-    
-    void waitForResume() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [this]() { return state_ != MCP_CHAIN_STATE_PAUSED; });
-    }
-    
-    void updateStats(std::chrono::steady_clock::duration duration) {
-        auto us = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-        uint64_t current_max = max_latency_us_.load();
-        while (us > current_max && 
-               !max_latency_us_.compare_exchange_weak(current_max, us)) {}
-    }
-    
-    double calculateThroughput() const {
-        // TODO: Calculate actual throughput
-        return 0.0;
-    }
-    
-private:
-    std::string name_;
-    mcp_chain_execution_mode_t mode_;
-    mcp_routing_strategy_t routing_;
-    uint32_t max_parallel_;
-    uint32_t buffer_size_;
-    uint32_t timeout_ms_;
-    bool stop_on_error_;
-    
-    std::atomic<mcp_chain_state_t> state_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    
-    std::vector<std::unique_ptr<FilterNode>> nodes_;
-    std::vector<std::pair<mcp_filter_condition_t, mcp_filter_t>> conditional_filters_;
-    std::vector<std::vector<mcp_filter_t>> parallel_groups_;
-    
-    mcp_chain_event_cb event_callback_{nullptr};
-    void* event_user_data_{nullptr};
-    
-    std::atomic<uint64_t> max_latency_us_{0};
+  }
+
+  double calculateThroughput() const {
+    // TODO: Calculate actual throughput
+    return 0.0;
+  }
+
+ private:
+  std::string name_;
+  mcp_chain_execution_mode_t mode_;
+  mcp_routing_strategy_t routing_;
+  uint32_t max_parallel_;
+  uint32_t buffer_size_;
+  uint32_t timeout_ms_;
+  bool stop_on_error_;
+
+  std::atomic<mcp_chain_state_t> state_;
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+
+  std::vector<std::unique_ptr<FilterNode>> nodes_;
+  std::vector<std::pair<mcp_filter_condition_t, mcp_filter_t>>
+      conditional_filters_;
+  std::vector<std::vector<mcp_filter_t>> parallel_groups_;
+
+  mcp_chain_event_cb event_callback_{nullptr};
+  void* event_user_data_{nullptr};
+
+  std::atomic<uint64_t> max_latency_us_{0};
 };
 
 // Use HandleManager from shared header
@@ -414,29 +420,29 @@ static HandleManager<AdvancedFilterChain> g_chain_manager;
 // ============================================================================
 
 struct ChainRouter {
-    mcp_router_config_t config;
-    std::vector<std::pair<mcp_filter_match_cb, mcp_filter_chain_t>> routes;
-    std::atomic<size_t> round_robin_index{0};
-    
-    ChainRouter(const mcp_router_config_t& cfg) : config(cfg) {}
-    
-    mcp_filter_chain_t route(mcp_buffer_handle_t buffer,
-                            const mcp_protocol_metadata_t* metadata) {
-        // Evaluate routes in order
-        for (const auto& route : routes) {
-            if (route.first && route.first(buffer, metadata, nullptr)) {
-                return route.second;
-            }
-        }
-        
-        // Default routing strategy
-        if (config.strategy == MCP_ROUTING_ROUND_ROBIN && !routes.empty()) {
-            size_t index = round_robin_index.fetch_add(1) % routes.size();
-            return routes[index].second;
-        }
-        
-        return 0;
+  mcp_router_config_t config;
+  std::vector<std::pair<mcp_filter_match_cb, mcp_filter_chain_t>> routes;
+  std::atomic<size_t> round_robin_index{0};
+
+  ChainRouter(const mcp_router_config_t& cfg) : config(cfg) {}
+
+  mcp_filter_chain_t route(mcp_buffer_handle_t buffer,
+                           const mcp_protocol_metadata_t* metadata) {
+    // Evaluate routes in order
+    for (const auto& route : routes) {
+      if (route.first && route.first(buffer, metadata, nullptr)) {
+        return route.second;
+      }
     }
+
+    // Default routing strategy
+    if (config.strategy == MCP_ROUTING_ROUND_ROBIN && !routes.empty()) {
+      size_t index = round_robin_index.fetch_add(1) % routes.size();
+      return routes[index].second;
+    }
+
+    return 0;
+  }
 };
 
 // ============================================================================
@@ -444,60 +450,61 @@ struct ChainRouter {
 // ============================================================================
 
 struct ChainPool {
-    std::vector<mcp_filter_chain_t> chains;
-    std::deque<mcp_filter_chain_t> available;
-    std::mutex mutex;
-    mcp_routing_strategy_t strategy;
-    std::atomic<size_t> round_robin_index{0};
-    std::atomic<uint64_t> total_processed{0};
-    
-    ChainPool(mcp_filter_chain_t base_chain, size_t size,
-              mcp_routing_strategy_t strat)
-        : strategy(strat) {
-        // Clone base chain for pool
-        for (size_t i = 0; i < size; ++i) {
-            // TODO: Actually clone chain
-            chains.push_back(base_chain);
-            available.push_back(base_chain);
-        }
+  std::vector<mcp_filter_chain_t> chains;
+  std::deque<mcp_filter_chain_t> available;
+  std::mutex mutex;
+  mcp_routing_strategy_t strategy;
+  std::atomic<size_t> round_robin_index{0};
+  std::atomic<uint64_t> total_processed{0};
+
+  ChainPool(mcp_filter_chain_t base_chain,
+            size_t size,
+            mcp_routing_strategy_t strat)
+      : strategy(strat) {
+    // Clone base chain for pool
+    for (size_t i = 0; i < size; ++i) {
+      // TODO: Actually clone chain
+      chains.push_back(base_chain);
+      available.push_back(base_chain);
     }
-    
-    mcp_filter_chain_t getNext() {
-        std::lock_guard<std::mutex> lock(mutex);
-        
-        if (available.empty()) {
-            return 0;
-        }
-        
-        mcp_filter_chain_t chain;
-        
-        switch (strategy) {
-            case MCP_ROUTING_ROUND_ROBIN:
-                chain = available.front();
-                available.pop_front();
-                break;
-            case MCP_ROUTING_LEAST_LOADED:
-                // TODO: Track load and select least loaded
-                chain = available.front();
-                available.pop_front();
-                break;
-            default:
-                chain = available.front();
-                available.pop_front();
-        }
-        
-        total_processed++;
-        return chain;
+  }
+
+  mcp_filter_chain_t getNext() {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    if (available.empty()) {
+      return 0;
     }
-    
-    void returnChain(mcp_filter_chain_t chain) {
-        std::lock_guard<std::mutex> lock(mutex);
-        available.push_back(chain);
+
+    mcp_filter_chain_t chain;
+
+    switch (strategy) {
+      case MCP_ROUTING_ROUND_ROBIN:
+        chain = available.front();
+        available.pop_front();
+        break;
+      case MCP_ROUTING_LEAST_LOADED:
+        // TODO: Track load and select least loaded
+        chain = available.front();
+        available.pop_front();
+        break;
+      default:
+        chain = available.front();
+        available.pop_front();
     }
+
+    total_processed++;
+    return chain;
+  }
+
+  void returnChain(mcp_filter_chain_t chain) {
+    std::lock_guard<std::mutex> lock(mutex);
+    available.push_back(chain);
+  }
 };
 
-} // namespace filter_chain
-} // namespace mcp
+}  // namespace filter_chain
+}  // namespace mcp
 
 // ============================================================================
 // C API Implementation
@@ -509,322 +516,302 @@ extern "C" {
 
 // Advanced Chain Builder
 
-MCP_API mcp_filter_chain_builder_t mcp_chain_builder_create_ex(
-    mcp_dispatcher_t dispatcher,
-    const mcp_chain_config_t* config) MCP_NOEXCEPT {
-    
-    if (!config) return nullptr;
-    
-    // Use the function from mcp_filter_api.cc to create the builder
-    return mcp_filter_chain_builder_create(dispatcher);
+MCP_API mcp_filter_chain_builder_t
+mcp_chain_builder_create_ex(mcp_dispatcher_t dispatcher,
+                            const mcp_chain_config_t* config) MCP_NOEXCEPT {
+  if (!config)
+    return nullptr;
+
+  // Use the function from mcp_filter_api.cc to create the builder
+  return mcp_filter_chain_builder_create(dispatcher);
 }
 
-MCP_API mcp_result_t mcp_chain_builder_add_node(
-    mcp_filter_chain_builder_t builder,
-    const mcp_filter_node_t* node) MCP_NOEXCEPT {
-    
-    if (!builder || !node) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    // TODO: Add node to builder
-    return MCP_OK;
+MCP_API mcp_result_t
+mcp_chain_builder_add_node(mcp_filter_chain_builder_t builder,
+                           const mcp_filter_node_t* node) MCP_NOEXCEPT {
+  if (!builder || !node)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  // TODO: Add node to builder
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_builder_add_conditional(
-    mcp_filter_chain_builder_t builder,
-    const mcp_filter_condition_t* condition,
-    mcp_filter_t filter) MCP_NOEXCEPT {
-    
-    if (!builder || !condition) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    // TODO: Add conditional filter
-    return MCP_OK;
+MCP_API mcp_result_t
+mcp_chain_builder_add_conditional(mcp_filter_chain_builder_t builder,
+                                  const mcp_filter_condition_t* condition,
+                                  mcp_filter_t filter) MCP_NOEXCEPT {
+  if (!builder || !condition)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  // TODO: Add conditional filter
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_builder_add_parallel_group(
-    mcp_filter_chain_builder_t builder,
-    const mcp_filter_t* filters,
-    size_t count) MCP_NOEXCEPT {
-    
-    if (!builder || !filters) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    // TODO: Add parallel group
-    return MCP_OK;
+MCP_API mcp_result_t
+mcp_chain_builder_add_parallel_group(mcp_filter_chain_builder_t builder,
+                                     const mcp_filter_t* filters,
+                                     size_t count) MCP_NOEXCEPT {
+  if (!builder || !filters)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  // TODO: Add parallel group
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_builder_set_router(
-    mcp_filter_chain_builder_t builder,
-    mcp_routing_function_t router,
-    void* user_data) MCP_NOEXCEPT {
-    
-    if (!builder) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    // TODO: Set custom router
-    return MCP_OK;
+MCP_API mcp_result_t
+mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
+                             mcp_routing_function_t router,
+                             void* user_data) MCP_NOEXCEPT {
+  if (!builder)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  // TODO: Set custom router
+  return MCP_OK;
 }
 
 // Chain Management
 
-MCP_API mcp_chain_state_t mcp_chain_get_state(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_CHAIN_STATE_ERROR;
-    
-    return chain_ptr->getState();
+MCP_API mcp_chain_state_t mcp_chain_get_state(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_CHAIN_STATE_ERROR;
+
+  return chain_ptr->getState();
 }
 
-MCP_API mcp_result_t mcp_chain_pause(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->pause();
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->pause();
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_resume(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->resume();
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->resume();
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_reset(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->reset();
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->reset();
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_set_filter_enabled(
-    mcp_filter_chain_t chain,
-    const char* filter_name,
-    mcp_bool_t enabled) MCP_NOEXCEPT {
-    
-    if (!filter_name) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->setFilterEnabled(filter_name, enabled);
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
+                                                  const char* filter_name,
+                                                  mcp_bool_t enabled)
+    MCP_NOEXCEPT {
+  if (!filter_name)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->setFilterEnabled(filter_name, enabled);
+  return MCP_OK;
 }
 
 MCP_API mcp_result_t mcp_chain_get_stats(
-    mcp_filter_chain_t chain,
-    mcp_chain_stats_t* stats) MCP_NOEXCEPT {
-    
-    if (!stats) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->getStats(stats);
-    return MCP_OK;
+    mcp_filter_chain_t chain, mcp_chain_stats_t* stats) MCP_NOEXCEPT {
+  if (!stats)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->getStats(stats);
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_set_event_callback(
-    mcp_filter_chain_t chain,
-    mcp_chain_event_cb callback,
-    void* user_data) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return MCP_ERROR_NOT_FOUND;
-    
-    chain_ptr->setEventCallback(callback, user_data);
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
+                                                  mcp_chain_event_cb callback,
+                                                  void* user_data)
+    MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;
+
+  chain_ptr->setEventCallback(callback, user_data);
+  return MCP_OK;
 }
 
 // Dynamic Chain Composition
 
 MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
-    mcp_dispatcher_t dispatcher,
-    mcp_json_value_t json_config) MCP_NOEXCEPT {
-    
-    // TODO: Parse JSON and create chain
-    return 0;
+    mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT {
+  // TODO: Parse JSON and create chain
+  return 0;
 }
 
-MCP_API mcp_json_value_t mcp_chain_export_to_json(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    // TODO: Export chain to JSON
-    return mcp_json_create_null();
+MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT {
+  // TODO: Export chain to JSON
+  return mcp_json_create_null();
 }
 
-MCP_API mcp_filter_chain_t mcp_chain_clone(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    // TODO: Clone chain
-    return 0;
+MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT {
+  // TODO: Clone chain
+  return 0;
 }
 
-MCP_API mcp_filter_chain_t mcp_chain_merge(
-    mcp_filter_chain_t chain1,
-    mcp_filter_chain_t chain2,
-    mcp_chain_execution_mode_t mode) MCP_NOEXCEPT {
-    
-    // TODO: Merge chains
-    return 0;
+MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
+                                           mcp_filter_chain_t chain2,
+                                           mcp_chain_execution_mode_t mode)
+    MCP_NOEXCEPT {
+  // TODO: Merge chains
+  return 0;
 }
 
 // Chain Router
 
-MCP_API mcp_chain_router_t mcp_chain_router_create(
-    const mcp_router_config_t* config) MCP_NOEXCEPT {
-    
-    if (!config) return nullptr;
-    
-    try {
-        return reinterpret_cast<mcp_chain_router_t>(new ChainRouter(*config));
-    } catch (...) {
-        return nullptr;
-    }
+MCP_API mcp_chain_router_t
+mcp_chain_router_create(const mcp_router_config_t* config) MCP_NOEXCEPT {
+  if (!config)
+    return nullptr;
+
+  try {
+    return reinterpret_cast<mcp_chain_router_t>(new ChainRouter(*config));
+  } catch (...) {
+    return nullptr;
+  }
 }
 
-MCP_API mcp_result_t mcp_chain_router_add_route(
-    mcp_chain_router_t router,
-    mcp_filter_match_cb condition,
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    if (!router) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_router_add_route(mcp_chain_router_t router,
+                                                mcp_filter_match_cb condition,
+                                                mcp_filter_chain_t chain)
+    MCP_NOEXCEPT {
+  if (!router)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
+  return MCP_OK;
 }
 
-MCP_API mcp_filter_chain_t mcp_chain_router_route(
-    mcp_chain_router_t router,
-    mcp_buffer_handle_t buffer,
-    const mcp_protocol_metadata_t* metadata) MCP_NOEXCEPT {
-    
-    if (!router) return 0;
-    
-    return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
+MCP_API mcp_filter_chain_t
+mcp_chain_router_route(mcp_chain_router_t router,
+                       mcp_buffer_handle_t buffer,
+                       const mcp_protocol_metadata_t* metadata) MCP_NOEXCEPT {
+  if (!router)
+    return 0;
+
+  return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
 }
 
-MCP_API void mcp_chain_router_destroy(
-    mcp_chain_router_t router) MCP_NOEXCEPT {
-    
-    delete reinterpret_cast<ChainRouter*>(router);
+MCP_API void mcp_chain_router_destroy(mcp_chain_router_t router) MCP_NOEXCEPT {
+  delete reinterpret_cast<ChainRouter*>(router);
 }
 
 // Chain Pool
 
-MCP_API mcp_chain_pool_t mcp_chain_pool_create(
-    mcp_filter_chain_t base_chain,
-    size_t pool_size,
-    mcp_routing_strategy_t strategy) MCP_NOEXCEPT {
-    
-    try {
-        return reinterpret_cast<mcp_chain_pool_t>(new ChainPool(base_chain, pool_size, strategy));
-    } catch (...) {
-        return nullptr;
-    }
+MCP_API mcp_chain_pool_t mcp_chain_pool_create(mcp_filter_chain_t base_chain,
+                                               size_t pool_size,
+                                               mcp_routing_strategy_t strategy)
+    MCP_NOEXCEPT {
+  try {
+    return reinterpret_cast<mcp_chain_pool_t>(
+        new ChainPool(base_chain, pool_size, strategy));
+  } catch (...) {
+    return nullptr;
+  }
 }
 
-MCP_API mcp_filter_chain_t mcp_chain_pool_get_next(
-    mcp_chain_pool_t pool) MCP_NOEXCEPT {
-    
-    if (!pool) return 0;
-    return reinterpret_cast<ChainPool*>(pool)->getNext();
+MCP_API mcp_filter_chain_t mcp_chain_pool_get_next(mcp_chain_pool_t pool)
+    MCP_NOEXCEPT {
+  if (!pool)
+    return 0;
+  return reinterpret_cast<ChainPool*>(pool)->getNext();
 }
 
-MCP_API void mcp_chain_pool_return(
-    mcp_chain_pool_t pool,
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    if (pool) {
-        reinterpret_cast<ChainPool*>(pool)->returnChain(chain);
-    }
+MCP_API void mcp_chain_pool_return(mcp_chain_pool_t pool,
+                                   mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  if (pool) {
+    reinterpret_cast<ChainPool*>(pool)->returnChain(chain);
+  }
 }
 
-MCP_API mcp_result_t mcp_chain_pool_get_stats(
-    mcp_chain_pool_t pool,
-    size_t* active,
-    size_t* idle,
-    uint64_t* total_processed) MCP_NOEXCEPT {
-    
-    if (!pool) return MCP_ERROR_INVALID_ARGUMENT;
-    
-    auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
-    if (active) *active = pool_impl->chains.size() - pool_impl->available.size();
-    if (idle) *idle = pool_impl->available.size();
-    if (total_processed) *total_processed = pool_impl->total_processed.load();
-    
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_pool_get_stats(mcp_chain_pool_t pool,
+                                              size_t* active,
+                                              size_t* idle,
+                                              uint64_t* total_processed)
+    MCP_NOEXCEPT {
+  if (!pool)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
+  if (active)
+    *active = pool_impl->chains.size() - pool_impl->available.size();
+  if (idle)
+    *idle = pool_impl->available.size();
+  if (total_processed)
+    *total_processed = pool_impl->total_processed.load();
+
+  return MCP_OK;
 }
 
-MCP_API void mcp_chain_pool_destroy(
-    mcp_chain_pool_t pool) MCP_NOEXCEPT {
-    
-    delete reinterpret_cast<ChainPool*>(pool);
+MCP_API void mcp_chain_pool_destroy(mcp_chain_pool_t pool) MCP_NOEXCEPT {
+  delete reinterpret_cast<ChainPool*>(pool);
 }
 
 // Chain Optimization
 
-MCP_API mcp_result_t mcp_chain_optimize(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    // TODO: Implement optimization
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_optimize(mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  // TODO: Implement optimization
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_reorder_filters(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-    
-    // TODO: Implement reordering
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_reorder_filters(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT {
+  // TODO: Implement reordering
+  return MCP_OK;
 }
 
-MCP_API mcp_result_t mcp_chain_profile(
-    mcp_filter_chain_t chain,
-    mcp_buffer_handle_t test_buffer,
-    size_t iterations,
-    mcp_json_value_t* report) MCP_NOEXCEPT {
-    
-    // TODO: Implement profiling
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_profile(mcp_filter_chain_t chain,
+                                       mcp_buffer_handle_t test_buffer,
+                                       size_t iterations,
+                                       mcp_json_value_t* report) MCP_NOEXCEPT {
+  // TODO: Implement profiling
+  return MCP_OK;
 }
 
 // Chain Debugging
 
 MCP_API mcp_result_t mcp_chain_set_trace_level(
-    mcp_filter_chain_t chain,
-    uint32_t trace_level) MCP_NOEXCEPT {
-    
-    // TODO: Implement tracing
-    return MCP_OK;
+    mcp_filter_chain_t chain, uint32_t trace_level) MCP_NOEXCEPT {
+  // TODO: Implement tracing
+  return MCP_OK;
 }
 
-MCP_API char* mcp_chain_dump(
-    mcp_filter_chain_t chain,
-    const char* format) MCP_NOEXCEPT {
-    
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr) return nullptr;
-    
-    std::string dump = chain_ptr->dump(format ? format : "text");
-    char* result = static_cast<char*>(malloc(dump.size() + 1));
-    if (result) {
-        std::strcpy(result, dump.c_str());
-    }
-    return result;
+MCP_API char* mcp_chain_dump(mcp_filter_chain_t chain,
+                             const char* format) MCP_NOEXCEPT {
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr)
+    return nullptr;
+
+  std::string dump = chain_ptr->dump(format ? format : "text");
+  char* result = static_cast<char*>(malloc(dump.size() + 1));
+  if (result) {
+    std::strcpy(result, dump.c_str());
+  }
+  return result;
 }
 
-MCP_API mcp_result_t mcp_chain_validate(
-    mcp_filter_chain_t chain,
-    mcp_json_value_t* errors) MCP_NOEXCEPT {
-    
-    // TODO: Implement validation
-    return MCP_OK;
+MCP_API mcp_result_t mcp_chain_validate(mcp_filter_chain_t chain,
+                                        mcp_json_value_t* errors) MCP_NOEXCEPT {
+  // TODO: Implement validation
+  return MCP_OK;
 }
 
-} // extern "C"
+}  // extern "C"

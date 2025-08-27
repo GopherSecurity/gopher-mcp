@@ -24,10 +24,10 @@
 #define MCP_C_API_H
 
 /* Include FFI-safe type definitions */
+#include "mcp_c_collections.h"
+#include "mcp_c_memory.h"
 #include "mcp_c_types.h"
 #include "mcp_c_types_api.h"
-#include "mcp_c_memory.h"
-#include "mcp_c_collections.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,20 +87,20 @@ typedef void (*mcp_guard_cleanup_fn)(void* resource) MCP_NOEXCEPT;
  * @param type Type of handle for validation
  * @return Guard handle or NULL on error
  */
-MCP_API mcp_guard_t mcp_guard_create(void* handle, 
-                                      mcp_type_id_t type) MCP_NOEXCEPT;
+MCP_API mcp_guard_t mcp_guard_create(void* handle,
+                                     mcp_type_id_t type) MCP_NOEXCEPT;
 
 /**
  * Create a RAII guard with custom cleanup function
  * @param handle Handle to guard (takes ownership)
- * @param type Type of handle for validation  
+ * @param type Type of handle for validation
  * @param cleanup Custom cleanup function
  * @return Guard handle or NULL on error
  */
 MCP_API mcp_guard_t mcp_guard_create_custom(void* handle,
                                             mcp_type_id_t type,
-                                            mcp_guard_cleanup_fn cleanup) 
-                                            MCP_NOEXCEPT;
+                                            mcp_guard_cleanup_fn cleanup)
+    MCP_NOEXCEPT;
 
 /**
  * Release resource from guard (prevents automatic cleanup)
@@ -124,7 +124,7 @@ MCP_API mcp_bool_t mcp_guard_is_valid(mcp_guard_t guard) MCP_NOEXCEPT;
 
 /**
  * Get the guarded resource without releasing ownership
- * @param guard Guard handle  
+ * @param guard Guard handle
  * @return Guarded resource or NULL
  */
 MCP_API void* mcp_guard_get(mcp_guard_t guard) MCP_NOEXCEPT;
@@ -144,9 +144,9 @@ typedef struct mcp_transaction_impl* mcp_transaction_t;
  * Transaction options for fine-grained control
  */
 typedef struct mcp_transaction_opts {
-  mcp_bool_t auto_rollback;    /* Auto-rollback on error */
-  mcp_bool_t strict_ordering;  /* Enforce strict cleanup order */
-  uint32_t max_resources;      /* Maximum resources (0 = unlimited) */
+  mcp_bool_t auto_rollback;   /* Auto-rollback on error */
+  mcp_bool_t strict_ordering; /* Enforce strict cleanup order */
+  uint32_t max_resources;     /* Maximum resources (0 = unlimited) */
 } mcp_transaction_opts_t;
 
 /**
@@ -158,10 +158,10 @@ MCP_API mcp_transaction_t mcp_transaction_create(void) MCP_NOEXCEPT;
 /**
  * Create a new transaction with custom options
  * @param opts Transaction options
- * @return Transaction handle or NULL on error  
+ * @return Transaction handle or NULL on error
  */
-MCP_API mcp_transaction_t mcp_transaction_create_ex(
-    const mcp_transaction_opts_t* opts) MCP_NOEXCEPT;
+MCP_API mcp_transaction_t
+mcp_transaction_create_ex(const mcp_transaction_opts_t* opts) MCP_NOEXCEPT;
 
 /**
  * Add resource to transaction with automatic cleanup
@@ -171,8 +171,8 @@ MCP_API mcp_transaction_t mcp_transaction_create_ex(
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_transaction_add(mcp_transaction_t txn,
-                                          void* handle,
-                                          mcp_type_id_t type) MCP_NOEXCEPT;
+                                         void* handle,
+                                         mcp_type_id_t type) MCP_NOEXCEPT;
 
 /**
  * Add resource with custom cleanup function
@@ -186,7 +186,7 @@ MCP_API mcp_result_t mcp_transaction_add_custom(mcp_transaction_t txn,
                                                 void* handle,
                                                 mcp_type_id_t type,
                                                 mcp_guard_cleanup_fn cleanup)
-                                                MCP_NOEXCEPT;
+    MCP_NOEXCEPT;
 
 /**
  * Get number of resources in transaction
@@ -200,7 +200,7 @@ MCP_API size_t mcp_transaction_size(mcp_transaction_t txn) MCP_NOEXCEPT;
  * @param txn Transaction handle (will be nullified)
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_transaction_commit(mcp_transaction_t* txn) 
+MCP_API mcp_result_t mcp_transaction_commit(mcp_transaction_t* txn)
     MCP_NOEXCEPT;
 
 /**
@@ -220,8 +220,7 @@ MCP_API void mcp_transaction_destroy(mcp_transaction_t* txn) MCP_NOEXCEPT;
  * @param txn Transaction handle
  * @return MCP_TRUE if valid
  */
-MCP_API mcp_bool_t mcp_transaction_is_valid(mcp_transaction_t txn) 
-    MCP_NOEXCEPT;
+MCP_API mcp_bool_t mcp_transaction_is_valid(mcp_transaction_t txn) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Event Loop & Dispatcher
@@ -239,15 +238,15 @@ MCP_API mcp_dispatcher_t mcp_dispatcher_create(void) MCP_NOEXCEPT;
  * @param guard Output: RAII guard for automatic cleanup
  * @return Dispatcher handle or NULL on error
  */
-MCP_API mcp_dispatcher_t mcp_dispatcher_create_guarded(
-    mcp_guard_t* guard) MCP_NOEXCEPT;
+MCP_API mcp_dispatcher_t mcp_dispatcher_create_guarded(mcp_guard_t* guard)
+    MCP_NOEXCEPT;
 
 /**
  * Run the dispatcher (blocks until stopped)
  * @param dispatcher Dispatcher handle
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) 
+MCP_API mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher)
     MCP_NOEXCEPT;
 
 /**
@@ -256,9 +255,8 @@ MCP_API mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher)
  * @param timeout_ms Maximum time to run in milliseconds
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
-                                                 uint32_t timeout_ms) 
-    MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_dispatcher_run_timeout(
+    mcp_dispatcher_t dispatcher, uint32_t timeout_ms) MCP_NOEXCEPT;
 
 /**
  * Stop the dispatcher
@@ -274,15 +272,15 @@ MCP_API void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_dispatcher_post(mcp_dispatcher_t dispatcher,
-                                          mcp_callback_t callback,
-                                          void* user_data) MCP_NOEXCEPT;
+                                         mcp_callback_t callback,
+                                         void* user_data) MCP_NOEXCEPT;
 
 /**
  * Check if current thread is dispatcher thread
  * @param dispatcher Dispatcher handle
  * @return MCP_TRUE if in dispatcher thread
  */
-MCP_API mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) 
+MCP_API mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher)
     MCP_NOEXCEPT;
 
 /**
@@ -293,8 +291,8 @@ MCP_API mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher)
  * @return Timer ID or 0 on error
  */
 MCP_API uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
-                                              mcp_timer_callback_t callback,
-                                              void* user_data) MCP_NOEXCEPT;
+                                             mcp_timer_callback_t callback,
+                                             void* user_data) MCP_NOEXCEPT;
 
 /**
  * Enable/arm a timer
@@ -305,9 +303,9 @@ MCP_API uint64_t mcp_dispatcher_create_timer(mcp_dispatcher_t dispatcher,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_dispatcher_enable_timer(mcp_dispatcher_t dispatcher,
-                                                  uint64_t timer_id,
-                                                  uint32_t timeout_ms,
-                                                  mcp_bool_t repeat) 
+                                                 uint64_t timer_id,
+                                                 uint32_t timeout_ms,
+                                                 mcp_bool_t repeat)
     MCP_NOEXCEPT;
 
 /**
@@ -316,7 +314,7 @@ MCP_API mcp_result_t mcp_dispatcher_enable_timer(mcp_dispatcher_t dispatcher,
  * @param timer_id Timer ID
  */
 MCP_API void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher,
-                                           uint64_t timer_id) MCP_NOEXCEPT;
+                                          uint64_t timer_id) MCP_NOEXCEPT;
 
 /**
  * Destroy a timer
@@ -324,7 +322,7 @@ MCP_API void mcp_dispatcher_disable_timer(mcp_dispatcher_t dispatcher,
  * @param timer_id Timer ID
  */
 MCP_API void mcp_dispatcher_destroy_timer(mcp_dispatcher_t dispatcher,
-                                           uint64_t timer_id) MCP_NOEXCEPT;
+                                          uint64_t timer_id) MCP_NOEXCEPT;
 
 /**
  * Destroy dispatcher
@@ -342,29 +340,29 @@ MCP_API void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
  */
 typedef struct mcp_transport_config {
   mcp_transport_type_t type;
-  
+
   /* Transport-specific configuration */
   union {
     struct {
       mcp_bool_t use_tls;
-      const char* alpn_protocols;  /* Comma-separated ALPN protocols */
-      const char* sni_hostname;    /* SNI hostname for TLS */
+      const char* alpn_protocols; /* Comma-separated ALPN protocols */
+      const char* sni_hostname;   /* SNI hostname for TLS */
     } tcp;
-    
+
     struct {
-      int stdin_fd;   /* -1 for default stdin */
-      int stdout_fd;  /* -1 for default stdout */
-      int stderr_fd;  /* -1 for default stderr */
+      int stdin_fd;  /* -1 for default stdin */
+      int stdout_fd; /* -1 for default stdout */
+      int stderr_fd; /* -1 for default stderr */
     } stdio;
-    
+
     struct {
-      const char* http_headers;  /* Additional HTTP headers for MCP */
+      const char* http_headers; /* Additional HTTP headers for MCP */
       uint32_t retry_delay_ms;
       uint32_t max_retries;
       mcp_bool_t use_compression;
     } http_sse;
   } config;
-  
+
   /* Common options */
   uint32_t connect_timeout_ms;
   uint32_t idle_timeout_ms;
@@ -401,8 +399,7 @@ MCP_API mcp_connection_t mcp_connection_create_client_guarded(
  * @return Connection handle or NULL on error
  */
 MCP_API mcp_connection_t mcp_connection_create_client(
-    mcp_dispatcher_t dispatcher,
-    mcp_transport_type_t transport) MCP_NOEXCEPT;
+    mcp_dispatcher_t dispatcher, mcp_transport_type_t transport) MCP_NOEXCEPT;
 
 /**
  * Configure connection
@@ -412,11 +409,11 @@ MCP_API mcp_connection_t mcp_connection_create_client(
  * @param ssl_config SSL configuration (NULL for non-SSL)
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_connection_configure(mcp_connection_t connection,
-                                               const mcp_address_t* address,
-                                               const mcp_socket_options_t* options,
-                                               const mcp_ssl_config_t* ssl_config) 
-    MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_connection_configure(mcp_connection_t connection,
+                         const mcp_address_t* address,
+                         const mcp_socket_options_t* options,
+                         const mcp_ssl_config_t* ssl_config) MCP_NOEXCEPT;
 
 /**
  * Set connection callbacks
@@ -427,12 +424,12 @@ MCP_API mcp_result_t mcp_connection_configure(mcp_connection_t connection,
  * @param user_data User data for callbacks
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_connection_set_callbacks(
-    mcp_connection_t connection,
-    mcp_connection_state_callback_t state_cb,
-    mcp_data_callback_t data_cb,
-    mcp_error_callback_t error_cb,
-    void* user_data) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_connection_set_callbacks(mcp_connection_t connection,
+                             mcp_connection_state_callback_t state_cb,
+                             mcp_data_callback_t data_cb,
+                             mcp_error_callback_t error_cb,
+                             void* user_data) MCP_NOEXCEPT;
 
 /**
  * Set watermarks for flow control
@@ -449,7 +446,7 @@ MCP_API mcp_result_t mcp_connection_set_watermarks(
  * @param connection Connection handle
  * @return MCP_OK if connection started
  */
-MCP_API mcp_result_t mcp_connection_connect(mcp_connection_t connection) 
+MCP_API mcp_result_t mcp_connection_connect(mcp_connection_t connection)
     MCP_NOEXCEPT;
 
 /**
@@ -462,10 +459,10 @@ MCP_API mcp_result_t mcp_connection_connect(mcp_connection_t connection)
  * @return MCP_OK if write queued
  */
 MCP_API mcp_result_t mcp_connection_write(mcp_connection_t connection,
-                                           const uint8_t* data,
-                                           size_t length,
-                                           mcp_write_callback_t callback,
-                                           void* user_data) MCP_NOEXCEPT;
+                                          const uint8_t* data,
+                                          size_t length,
+                                          mcp_write_callback_t callback,
+                                          void* user_data) MCP_NOEXCEPT;
 
 /**
  * Close connection
@@ -474,15 +471,15 @@ MCP_API mcp_result_t mcp_connection_write(mcp_connection_t connection,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_connection_close(mcp_connection_t connection,
-                                           mcp_bool_t flush) MCP_NOEXCEPT;
+                                          mcp_bool_t flush) MCP_NOEXCEPT;
 
 /**
  * Get connection state
  * @param connection Connection handle
  * @return Current connection state
  */
-MCP_API mcp_connection_state_t mcp_connection_get_state(
-    mcp_connection_t connection) MCP_NOEXCEPT;
+MCP_API mcp_connection_state_t
+mcp_connection_get_state(mcp_connection_t connection) MCP_NOEXCEPT;
 
 /**
  * Get connection statistics
@@ -492,8 +489,8 @@ MCP_API mcp_connection_state_t mcp_connection_get_state(
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_connection_get_stats(mcp_connection_t connection,
-                                               uint64_t* bytes_read,
-                                               uint64_t* bytes_written) 
+                                              uint64_t* bytes_read,
+                                              uint64_t* bytes_written)
     MCP_NOEXCEPT;
 
 /**
@@ -513,9 +510,8 @@ MCP_API void mcp_connection_destroy(mcp_connection_t connection) MCP_NOEXCEPT;
  * @param transport Transport type
  * @return Listener handle or NULL on error
  */
-MCP_API mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
-                                            mcp_transport_type_t transport) 
-    MCP_NOEXCEPT;
+MCP_API mcp_listener_t mcp_listener_create(
+    mcp_dispatcher_t dispatcher, mcp_transport_type_t transport) MCP_NOEXCEPT;
 
 /**
  * Create listener with RAII guard
@@ -524,10 +520,10 @@ MCP_API mcp_listener_t mcp_listener_create(mcp_dispatcher_t dispatcher,
  * @param guard Output: RAII guard for automatic cleanup
  * @return Listener handle or NULL on error
  */
-MCP_API mcp_listener_t mcp_listener_create_guarded(
-    mcp_dispatcher_t dispatcher,
-    mcp_transport_type_t transport,
-    mcp_guard_t* guard) MCP_NOEXCEPT;
+MCP_API mcp_listener_t
+mcp_listener_create_guarded(mcp_dispatcher_t dispatcher,
+                            mcp_transport_type_t transport,
+                            mcp_guard_t* guard) MCP_NOEXCEPT;
 
 /**
  * Configure listener
@@ -538,9 +534,9 @@ MCP_API mcp_listener_t mcp_listener_create_guarded(
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_listener_configure(mcp_listener_t listener,
-                                             const mcp_address_t* address,
-                                             const mcp_socket_options_t* options,
-                                             const mcp_ssl_config_t* ssl_config) 
+                                            const mcp_address_t* address,
+                                            const mcp_socket_options_t* options,
+                                            const mcp_ssl_config_t* ssl_config)
     MCP_NOEXCEPT;
 
 /**
@@ -550,10 +546,10 @@ MCP_API mcp_result_t mcp_listener_configure(mcp_listener_t listener,
  * @param user_data User data for callback
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_listener_set_accept_callback(
-    mcp_listener_t listener,
-    mcp_accept_callback_t callback,
-    void* user_data) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_listener_set_accept_callback(mcp_listener_t listener,
+                                 mcp_accept_callback_t callback,
+                                 void* user_data) MCP_NOEXCEPT;
 
 /**
  * Start listening
@@ -562,7 +558,7 @@ MCP_API mcp_result_t mcp_listener_set_accept_callback(
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_listener_start(mcp_listener_t listener,
-                                         int backlog) MCP_NOEXCEPT;
+                                        int backlog) MCP_NOEXCEPT;
 
 /**
  * Stop listening
@@ -588,7 +584,7 @@ MCP_API void mcp_listener_destroy(mcp_listener_t listener) MCP_NOEXCEPT;
  * @return Client handle or NULL on error
  */
 MCP_API mcp_client_t mcp_client_create(mcp_dispatcher_t dispatcher,
-                                        const mcp_client_config_t* config) 
+                                       const mcp_client_config_t* config)
     MCP_NOEXCEPT;
 
 /**
@@ -598,10 +594,10 @@ MCP_API mcp_client_t mcp_client_create(mcp_dispatcher_t dispatcher,
  * @param guard Output: RAII guard for automatic cleanup
  * @return Client handle or NULL on error
  */
-MCP_API mcp_client_t mcp_client_create_guarded(
-    mcp_dispatcher_t dispatcher,
-    const mcp_client_config_t* config,
-    mcp_guard_t* guard) MCP_NOEXCEPT;
+MCP_API mcp_client_t
+mcp_client_create_guarded(mcp_dispatcher_t dispatcher,
+                          const mcp_client_config_t* config,
+                          mcp_guard_t* guard) MCP_NOEXCEPT;
 
 /**
  * Set MCP message callbacks
@@ -612,12 +608,12 @@ MCP_API mcp_client_t mcp_client_create_guarded(
  * @param user_data User data for callbacks
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_client_set_callbacks(
-    mcp_client_t client,
-    mcp_request_callback_t request_cb,
-    mcp_response_callback_t response_cb,
-    mcp_notification_callback_t notification_cb,
-    void* user_data) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_client_set_callbacks(mcp_client_t client,
+                         mcp_request_callback_t request_cb,
+                         mcp_response_callback_t response_cb,
+                         mcp_notification_callback_t notification_cb,
+                         void* user_data) MCP_NOEXCEPT;
 
 /**
  * Connect client
@@ -631,7 +627,7 @@ MCP_API mcp_result_t mcp_client_connect(mcp_client_t client) MCP_NOEXCEPT;
  * @param client Client handle
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_initialize(mcp_client_t client) 
+MCP_API mcp_request_id_t mcp_client_initialize(mcp_client_t client)
     MCP_NOEXCEPT;
 
 /**
@@ -642,8 +638,8 @@ MCP_API mcp_request_id_t mcp_client_initialize(mcp_client_t client)
  * @return Request ID for tracking
  */
 MCP_API mcp_request_id_t mcp_client_send_request(mcp_client_t client,
-                                                  mcp_string_t method,
-                                                  mcp_json_value_t params) 
+                                                 mcp_string_t method,
+                                                 mcp_json_value_t params)
     MCP_NOEXCEPT;
 
 /**
@@ -654,8 +650,8 @@ MCP_API mcp_request_id_t mcp_client_send_request(mcp_client_t client,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_client_send_notification(mcp_client_t client,
-                                                   mcp_string_t method,
-                                                   mcp_json_value_t params) 
+                                                  mcp_string_t method,
+                                                  mcp_json_value_t params)
     MCP_NOEXCEPT;
 
 /**
@@ -663,7 +659,7 @@ MCP_API mcp_result_t mcp_client_send_notification(mcp_client_t client,
  * @param client Client handle
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_list_tools(mcp_client_t client) 
+MCP_API mcp_request_id_t mcp_client_list_tools(mcp_client_t client)
     MCP_NOEXCEPT;
 
 /**
@@ -674,8 +670,8 @@ MCP_API mcp_request_id_t mcp_client_list_tools(mcp_client_t client)
  * @return Request ID for tracking
  */
 MCP_API mcp_request_id_t mcp_client_call_tool(mcp_client_t client,
-                                               mcp_string_t name,
-                                               mcp_json_value_t arguments) 
+                                              mcp_string_t name,
+                                              mcp_json_value_t arguments)
     MCP_NOEXCEPT;
 
 /**
@@ -683,7 +679,7 @@ MCP_API mcp_request_id_t mcp_client_call_tool(mcp_client_t client,
  * @param client Client handle
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_list_resources(mcp_client_t client) 
+MCP_API mcp_request_id_t mcp_client_list_resources(mcp_client_t client)
     MCP_NOEXCEPT;
 
 /**
@@ -692,16 +688,15 @@ MCP_API mcp_request_id_t mcp_client_list_resources(mcp_client_t client)
  * @param uri Resource URI
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_read_resource(mcp_client_t client,
-                                                   mcp_string_t uri) 
-    MCP_NOEXCEPT;
+MCP_API mcp_request_id_t
+mcp_client_read_resource(mcp_client_t client, mcp_string_t uri) MCP_NOEXCEPT;
 
 /**
  * List prompts
  * @param client Client handle
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_list_prompts(mcp_client_t client) 
+MCP_API mcp_request_id_t mcp_client_list_prompts(mcp_client_t client)
     MCP_NOEXCEPT;
 
 /**
@@ -711,10 +706,8 @@ MCP_API mcp_request_id_t mcp_client_list_prompts(mcp_client_t client)
  * @param arguments Prompt arguments (map of string to string)
  * @return Request ID for tracking
  */
-MCP_API mcp_request_id_t mcp_client_get_prompt(mcp_client_t client,
-                                                mcp_string_t name,
-                                                mcp_map_t arguments) 
-    MCP_NOEXCEPT;
+MCP_API mcp_request_id_t mcp_client_get_prompt(
+    mcp_client_t client, mcp_string_t name, mcp_map_t arguments) MCP_NOEXCEPT;
 
 /**
  * Disconnect client
@@ -740,7 +733,7 @@ MCP_API void mcp_client_destroy(mcp_client_t client) MCP_NOEXCEPT;
  * @return Server handle or NULL on error
  */
 MCP_API mcp_server_t mcp_server_create(mcp_dispatcher_t dispatcher,
-                                        const mcp_server_config_t* config) 
+                                       const mcp_server_config_t* config)
     MCP_NOEXCEPT;
 
 /**
@@ -750,10 +743,10 @@ MCP_API mcp_server_t mcp_server_create(mcp_dispatcher_t dispatcher,
  * @param guard Output: RAII guard for automatic cleanup
  * @return Server handle or NULL on error
  */
-MCP_API mcp_server_t mcp_server_create_guarded(
-    mcp_dispatcher_t dispatcher,
-    const mcp_server_config_t* config,
-    mcp_guard_t* guard) MCP_NOEXCEPT;
+MCP_API mcp_server_t
+mcp_server_create_guarded(mcp_dispatcher_t dispatcher,
+                          const mcp_server_config_t* config,
+                          mcp_guard_t* guard) MCP_NOEXCEPT;
 
 /**
  * Set MCP message callbacks
@@ -763,11 +756,11 @@ MCP_API mcp_server_t mcp_server_create_guarded(
  * @param user_data User data for callbacks
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_server_set_callbacks(
-    mcp_server_t server,
-    mcp_request_callback_t request_cb,
-    mcp_notification_callback_t notification_cb,
-    void* user_data) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_server_set_callbacks(mcp_server_t server,
+                         mcp_request_callback_t request_cb,
+                         mcp_notification_callback_t notification_cb,
+                         void* user_data) MCP_NOEXCEPT;
 
 /**
  * Register tool
@@ -775,9 +768,8 @@ MCP_API mcp_result_t mcp_server_set_callbacks(
  * @param tool Tool definition
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_server_register_tool(mcp_server_t server,
-                                               const mcp_tool_t* tool) 
-    MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_server_register_tool(
+    mcp_server_t server, const mcp_tool_t* tool) MCP_NOEXCEPT;
 
 /**
  * Register resource template
@@ -786,8 +778,7 @@ MCP_API mcp_result_t mcp_server_register_tool(mcp_server_t server,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_server_register_resource(
-    mcp_server_t server,
-    const mcp_resource_template_t* resource) MCP_NOEXCEPT;
+    mcp_server_t server, const mcp_resource_template_t* resource) MCP_NOEXCEPT;
 
 /**
  * Register prompt
@@ -795,9 +786,8 @@ MCP_API mcp_result_t mcp_server_register_resource(
  * @param prompt Prompt definition
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_server_register_prompt(mcp_server_t server,
-                                                 const mcp_prompt_t* prompt) 
-    MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_server_register_prompt(
+    mcp_server_t server, const mcp_prompt_t* prompt) MCP_NOEXCEPT;
 
 /**
  * Start server
@@ -814,8 +804,8 @@ MCP_API mcp_result_t mcp_server_start(mcp_server_t server) MCP_NOEXCEPT;
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_server_send_response(mcp_server_t server,
-                                               mcp_request_id_t request_id,
-                                               mcp_json_value_t result) 
+                                              mcp_request_id_t request_id,
+                                              mcp_json_value_t result)
     MCP_NOEXCEPT;
 
 /**
@@ -826,8 +816,8 @@ MCP_API mcp_result_t mcp_server_send_response(mcp_server_t server,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_server_send_error(mcp_server_t server,
-                                            mcp_request_id_t request_id,
-                                            const mcp_jsonrpc_error_t* error) 
+                                           mcp_request_id_t request_id,
+                                           const mcp_jsonrpc_error_t* error)
     MCP_NOEXCEPT;
 
 /**
@@ -838,8 +828,8 @@ MCP_API mcp_result_t mcp_server_send_error(mcp_server_t server,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_server_send_notification(mcp_server_t server,
-                                                   mcp_string_t method,
-                                                   mcp_json_value_t params) 
+                                                  mcp_string_t method,
+                                                  mcp_json_value_t params)
     MCP_NOEXCEPT;
 
 /**
@@ -873,8 +863,7 @@ MCP_API mcp_json_value_t mcp_json_parse(mcp_string_t json) MCP_NOEXCEPT;
  * @return Serialized string (must be freed)
  */
 MCP_API mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value,
-                                                 mcp_bool_t pretty) 
-    MCP_NOEXCEPT;
+                                                mcp_bool_t pretty) MCP_NOEXCEPT;
 
 /**
  * Clone JSON value
@@ -908,7 +897,7 @@ MCP_API mcp_string_t mcp_string_from_cstr(const char* str) MCP_NOEXCEPT;
  * @return String structure
  */
 MCP_API mcp_string_t mcp_string_from_data(const char* data,
-                                           size_t length) MCP_NOEXCEPT;
+                                          size_t length) MCP_NOEXCEPT;
 
 /**
  * Duplicate string
@@ -938,8 +927,8 @@ MCP_API mcp_buffer_t* mcp_buffer_create(size_t capacity) MCP_NOEXCEPT;
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_buffer_append(mcp_buffer_t* buffer,
-                                        const uint8_t* data,
-                                        size_t length) MCP_NOEXCEPT;
+                                       const uint8_t* data,
+                                       size_t length) MCP_NOEXCEPT;
 
 /**
  * Get buffer data
@@ -949,8 +938,8 @@ MCP_API mcp_result_t mcp_buffer_append(mcp_buffer_t* buffer,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_buffer_get_data(mcp_buffer_t* buffer,
-                                          const uint8_t** out_data,
-                                          size_t* out_length) MCP_NOEXCEPT;
+                                         const uint8_t** out_data,
+                                         size_t* out_length) MCP_NOEXCEPT;
 
 /**
  * Free buffer
@@ -971,8 +960,8 @@ MCP_API void mcp_buffer_free(mcp_buffer_t* buffer) MCP_NOEXCEPT;
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_get_resource_stats(size_t* active_count,
-                                             size_t* total_created,
-                                             size_t* total_destroyed) 
+                                            size_t* total_created,
+                                            size_t* total_destroyed)
     MCP_NOEXCEPT;
 
 /**
@@ -994,42 +983,44 @@ MCP_API void mcp_print_leak_report(void) MCP_NOEXCEPT;
 #ifdef __cplusplus
 
 /* Automatic cleanup guard for any MCP handle */
-#define MCP_AUTO_GUARD(handle, type) \
-  std::unique_ptr<void, std::function<void(void*)>> \
-    _guard_##__LINE__(handle, [](void* h) { \
-      if (h) { \
-        auto guard = mcp_guard_create(h, type); \
-        mcp_guard_destroy(&guard); \
-      } \
-    })
+#define MCP_AUTO_GUARD(handle, type)                                   \
+  std::unique_ptr<void, std::function<void(void*)>> _guard_##__LINE__( \
+      handle, [](void* h) {                                            \
+        if (h) {                                                       \
+          auto guard = mcp_guard_create(h, type);                      \
+          mcp_guard_destroy(&guard);                                   \
+        }                                                              \
+      })
 
 /* Scoped transaction with automatic rollback */
-#define MCP_SCOPED_TRANSACTION(name) \
-  struct _TxnGuard_##__LINE__ { \
-    mcp_transaction_t txn; \
-    bool committed = false; \
+#define MCP_SCOPED_TRANSACTION(name)                          \
+  struct _TxnGuard_##__LINE__ {                               \
+    mcp_transaction_t txn;                                    \
+    bool committed = false;                                   \
     _TxnGuard_##__LINE__() : txn(mcp_transaction_create()) {} \
-    ~_TxnGuard_##__LINE__() { \
-      if (txn && !committed) mcp_transaction_rollback(&txn); \
-      else if (txn) mcp_transaction_destroy(&txn); \
-    } \
-    void commit() { \
-      if (txn) { \
-        mcp_transaction_commit(&txn); \
-        committed = true; \
-      } \
-    } \
+    ~_TxnGuard_##__LINE__() {                                 \
+      if (txn && !committed)                                  \
+        mcp_transaction_rollback(&txn);                       \
+      else if (txn)                                           \
+        mcp_transaction_destroy(&txn);                        \
+    }                                                         \
+    void commit() {                                           \
+      if (txn) {                                              \
+        mcp_transaction_commit(&txn);                         \
+        committed = true;                                     \
+      }                                                       \
+    }                                                         \
   } name
 
 /* Automatic resource cleanup on scope exit */
 #define MCP_SCOPE_EXIT(code) \
   auto _scope_exit_##__LINE__ = mcp::raii::ScopeExit([&]() { code; })
 
-/* Ensure resource is freed even on exception */  
-#define MCP_ENSURE_CLEANUP(resource, cleanup_fn) \
+/* Ensure resource is freed even on exception */
+#define MCP_ENSURE_CLEANUP(resource, cleanup_fn)             \
   std::unique_ptr<std::remove_pointer_t<decltype(resource)>, \
-                  decltype(cleanup_fn)> \
-    _cleanup_##__LINE__(resource, cleanup_fn)
+                  decltype(cleanup_fn)>                      \
+      _cleanup_##__LINE__(resource, cleanup_fn)
 
 #endif /* __cplusplus */
 
@@ -1039,28 +1030,26 @@ MCP_API void mcp_print_leak_report(void) MCP_NOEXCEPT;
  */
 
 /* Guard creation with cleanup registration */
-#define MCP_GUARD_CREATE(handle, type) \
-  mcp_guard_create(handle, type)
+#define MCP_GUARD_CREATE(handle, type) mcp_guard_create(handle, type)
 
 /* Transaction with resource tracking */
-#define MCP_TXN_ADD(txn, handle, type) \
-  mcp_transaction_add(txn, handle, type)
+#define MCP_TXN_ADD(txn, handle, type) mcp_transaction_add(txn, handle, type)
 
 /* Safe resource release */
-#define MCP_SAFE_RELEASE(guard_ptr) \
-  do { \
+#define MCP_SAFE_RELEASE(guard_ptr)  \
+  do {                               \
     if (guard_ptr && *(guard_ptr)) { \
-      mcp_guard_destroy(guard_ptr); \
-    } \
-  } while(0)
+      mcp_guard_destroy(guard_ptr);  \
+    }                                \
+  } while (0)
 
 /* Safe transaction cleanup */
-#define MCP_SAFE_TXN_CLEANUP(txn_ptr) \
-  do { \
-    if (txn_ptr && *(txn_ptr)) { \
+#define MCP_SAFE_TXN_CLEANUP(txn_ptr)    \
+  do {                                   \
+    if (txn_ptr && *(txn_ptr)) {         \
       mcp_transaction_rollback(txn_ptr); \
-    } \
-  } while(0)
+    }                                    \
+  } while (0)
 
 #ifdef __cplusplus
 }
