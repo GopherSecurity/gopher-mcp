@@ -33,8 +33,8 @@
 #include <queue>
 #include <thread>
 #include <unistd.h>
-#include <arpa/inet.h>
 
+#include <arpa/inet.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 

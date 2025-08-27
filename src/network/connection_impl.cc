@@ -1256,37 +1256,37 @@ void ConnectionImpl::doWrite() {
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
                      static_cast<uint32_t>(event::FileReadyType::Write));
 
-    // CRITICAL: Handle edge-triggered race condition
-    // With edge-triggered events, if data arrives while we're in the process of
-    // enabling Read events, we miss the edge and never get a Read event
-    // notification.
-    //
-    // The problem is a race condition with two possible scenarios:
-    //
-    // Scenario 1:
-    // 1. Client writes request
-    // 2. Client enables Read events
-    // 3. Server processes request and sends response
-    // 4. Response arrives at client TCP buffer
-    // 5. But no edge transition because Read was already enabled
-    //
-    // Scenario 2:
-    // 1. Client writes request
-    // 2. Server processes and sends response quickly
-    // 3. Response arrives at client TCP buffer
-    // 4. Client enables Read events
-    // 5. No edge because data was already there
-    //
-    // Solution: Activate a read event to check for any data that may have
-    // arrived This forces the event loop to check the socket for available data
-    // NOTE: Disabled for level-triggered events on macOS to avoid race conditions
-    // Level-triggered events will naturally fire when data is available
-    #ifdef __linux__
+// CRITICAL: Handle edge-triggered race condition
+// With edge-triggered events, if data arrives while we're in the process of
+// enabling Read events, we miss the edge and never get a Read event
+// notification.
+//
+// The problem is a race condition with two possible scenarios:
+//
+// Scenario 1:
+// 1. Client writes request
+// 2. Client enables Read events
+// 3. Server processes request and sends response
+// 4. Response arrives at client TCP buffer
+// 5. But no edge transition because Read was already enabled
+//
+// Scenario 2:
+// 1. Client writes request
+// 2. Server processes and sends response quickly
+// 3. Response arrives at client TCP buffer
+// 4. Client enables Read events
+// 5. No edge because data was already there
+//
+// Solution: Activate a read event to check for any data that may have
+// arrived This forces the event loop to check the socket for available data
+// NOTE: Disabled for level-triggered events on macOS to avoid race conditions
+// Level-triggered events will naturally fire when data is available
+#ifdef __linux__
     if (file_event_ && !is_server_connection_) {
       // Activate read to check for any data that may have arrived
       file_event_->activate(static_cast<uint32_t>(event::FileReadyType::Read));
     }
-    #endif
+#endif
   }
 
   if (write_buffer_.length() == 0 && write_half_closed_) {
