@@ -149,6 +149,12 @@ class Connection : public event::DeferredDeletable,
   virtual bool isHalfCloseEnabled() const = 0;
 
   /**
+   * Get write event count for debugging
+   * Returns the number of write events triggered since connection creation
+   */
+  virtual uint64_t getWriteEventCount() const { return 0; }
+
+  /**
    * Close the connection
    */
   virtual void close(ConnectionCloseType type) = 0;
