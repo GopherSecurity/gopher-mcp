@@ -17,6 +17,11 @@ set(MCP_C_API_SOURCES
     mcp_c_memory_impl.cc        # Memory management
     mcp_c_collections_impl.cc   # Collections and JSON
     
+    # Filter API and Buffer implementations
+    mcp_filter_api.cc          # Filter API implementation
+    mcp_filter_buffer.cc       # Buffer API implementation
+    mcp_filter_chain.cc        # Filter chain implementation
+    
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
     # mcp_c_api_client.cc
