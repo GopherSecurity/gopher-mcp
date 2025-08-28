@@ -804,8 +804,17 @@ void ConnectionImpl::onWriteReady() {
   write_event_count_++;  // Track write events for debugging
   
   // Prevent busy loop: if we have no data to write and we're already connected,
-  // just return without processing
-  if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_) {
+  // just return without processing. However, for stdio connections that start
+  // as connected, we need to allow at least one initial write to properly
+  // initialize the transport.
+  bool is_stdio = transport_socket_ && transport_socket_->protocol() == "stdio";
+  if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_ && 
+      initial_write_done_ && !is_stdio) {
+    // For non-stdio connections, prevent busy loop
+    return;
+  } else if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_ && 
+             is_stdio && initial_write_done_) {
+    // For stdio connections, also prevent busy loop after initial write
     return;
   }
 
@@ -845,6 +854,7 @@ void ConnectionImpl::onWriteReady() {
     enableFileEvents(events_to_enable);
   } else {
     doWrite();
+    initial_write_done_ = true;  // Mark that we've done at least one write
     // After writing, only keep write events enabled if there's more data to
     // write This prevents busy loop with level-triggered events
     uint32_t events_to_enable =
@@ -1110,10 +1120,10 @@ void ConnectionImpl::doRead() {
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
 
-  // CRITICAL BUG FIX: Always read directly from socket, bypassing transport
-  // socket The transport socket is broken and doesn't properly read data
-  if (false && transport_socket_) {
-    // Disabled: transport socket is broken
+  // Use transport socket for reading if available
+  // TODO: Fix transport socket implementation for HTTP/SSE
+  // For now, check if this is a real transport socket (not RawTransportSocket)
+  if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
     auto result = transport_socket_->doRead(read_buffer_);
     return result;
   }
@@ -1176,25 +1186,26 @@ void ConnectionImpl::doWrite() {
     return;
   }
 
-  // CRITICAL BUG FIX: Bypass transport socket processing
-  // The transport socket implementation is consuming all data without actually
-  // writing it to the underlying TCP socket. This causes SSE responses to never
-  // reach the client.
-  // TODO: Fix the transport socket implementation to properly write data or
-  // remove it.
-  //
-  // Disabled code:
-  // if (transport_socket_) {
-  //   auto result = transport_socket_->doWrite(write_buffer_,
-  //   write_half_closed_); if (!result.ok()) {
-  //     closeSocket(ConnectionEvent::LocalClose);
-  //     return;
-  //   }
-  //   if (result.action_ == TransportIoResult::CLOSE) {
-  //     closeSocket(ConnectionEvent::LocalClose);
-  //     return;
-  //   }
-  // }
+  // Use transport socket for initial processing if available
+  // This is essential for stdio transport which manages pipe bridging
+  // TODO: Fix transport socket implementation for HTTP/SSE
+  if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
+    // Let transport process any pending operations
+    // For stdio, this ensures the bridge threads are active
+    auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
+    if (!result.ok()) {
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+    if (result.action_ == TransportIoResult::CLOSE) {
+      closeSocket(ConnectionEvent::LocalClose);
+      return;
+    }
+    // If transport handled all data, we're done
+    if (write_buffer_.length() == 0) {
+      return;
+    }
+  }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
@@ -1206,12 +1217,10 @@ void ConnectionImpl::doWrite() {
   while (write_buffer_.length() > 0) {
     TransportIoResult write_result;
 
-    // CRITICAL BUG FIX: Always write directly to socket, bypassing transport
-    // socket The transport socket is consuming data without writing it to the
-    // TCP socket
-    // TODO: Fix transport socket implementation or remove it entirely
-    if (false && transport_socket_) {
-      // Disabled: transport socket is broken
+    // Try to write through transport socket if available
+    // For stdio connections, the transport manages the pipe bridging
+    // TODO: Fix transport socket implementation for HTTP/SSE
+    if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
       write_result =
           transport_socket_->doWrite(write_buffer_, write_half_closed_);
     } else {

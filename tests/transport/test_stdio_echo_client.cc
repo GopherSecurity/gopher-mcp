@@ -111,7 +111,8 @@ class StdioEchoClientTest : public ::testing::Test {
       McpConnectionConfig config;
       config.transport_type = TransportType::Stdio;
       config.stdio_config = transport::StdioTransportSocketConfig{
-          .stdin_fd = stdin_fd, .stdout_fd = stdout_fd, .non_blocking = true};
+          .stdin_fd = stdin_fd, .stdout_fd = stdout_fd, .non_blocking = true,
+          .use_bridge = false};  // Test pipes don't need bridging
       config.use_message_framing = false;  // Simplify for testing
 
       socket_interface_ = std::make_unique<network::SocketInterfaceImpl>();

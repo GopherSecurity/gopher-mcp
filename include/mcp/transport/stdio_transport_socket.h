@@ -13,6 +13,7 @@ struct StdioTransportSocketConfig {
   int stdin_fd{0};          // File descriptor for stdin
   int stdout_fd{1};         // File descriptor for stdout
   bool non_blocking{true};  // Whether to set non-blocking mode
+  bool use_bridge{true};     // Whether to use bridge threads (false for test pipes)
 };
 
 /**

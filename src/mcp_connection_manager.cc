@@ -20,6 +20,8 @@
 #include "mcp/transport/https_sse_transport_factory.h"
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/transport/stdio_transport_socket.h"
+#include "mcp/transport/pipe_io_handle.h"
+#include "mcp/network/address_impl.h"
 
 namespace mcp {
 
@@ -62,7 +64,7 @@ VoidResult McpConnectionManager::connect() {
   is_server_ = false;
 
   if (config_.transport_type == TransportType::Stdio) {
-    // For stdio, we use the pipe bridge pattern
+    // For stdio, we use either direct socket or pipe bridge pattern
     if (!config_.stdio_config.has_value()) {
       Error err;
       err.code = -1;
@@ -72,33 +74,58 @@ VoidResult McpConnectionManager::connect() {
 
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
+    
+    std::unique_ptr<network::ConnectionSocketImpl> socket_wrapper;
+    network::TransportSocketPtr transport_socket;
+    
+    if (config_.stdio_config->use_bridge) {
+      // Real stdio: use pipe bridge pattern for blocking I/O
+      // Create and initialize the pipe transport
+      transport::StdioPipeTransportConfig pipe_config;
+      pipe_config.stdin_fd = config_.stdio_config->stdin_fd;
+      pipe_config.stdout_fd = config_.stdio_config->stdout_fd;
+      pipe_config.non_blocking = config_.stdio_config->non_blocking;
 
-    // Create and initialize the pipe transport
-    transport::StdioPipeTransportConfig pipe_config;
-    pipe_config.stdin_fd = config_.stdio_config->stdin_fd;
-    pipe_config.stdout_fd = config_.stdio_config->stdout_fd;
-    pipe_config.non_blocking = config_.stdio_config->non_blocking;
+      auto pipe_transport =
+          std::make_unique<transport::StdioPipeTransport>(pipe_config);
 
-    auto pipe_transport =
-        std::make_unique<transport::StdioPipeTransport>(pipe_config);
+      // Initialize the pipe transport (creates pipes and starts bridge threads)
+      auto init_result = pipe_transport->initialize();
+      if (holds_alternative<Error>(init_result)) {
+        return init_result;
+      }
 
-    // Initialize the pipe transport (creates pipes and starts bridge threads)
-    auto init_result = pipe_transport->initialize();
-    if (holds_alternative<Error>(init_result)) {
-      return init_result;
+      // Get the pipe socket that ConnectionImpl will use
+      socket_wrapper = pipe_transport->takePipeSocket();
+      if (!socket_wrapper) {
+        Error err;
+        err.code = -1;
+        err.message = "Failed to get pipe socket from transport";
+        return makeVoidError(err);
+      }
+
+      // Use the pipe transport as the transport socket
+      transport_socket = std::move(pipe_transport);
+    } else {
+      // Test pipes: use StdioTransportSocket directly
+      // Create PipeIoHandle for the provided FDs
+      auto io_handle = std::make_unique<transport::PipeIoHandle>(
+          config_.stdio_config->stdin_fd, config_.stdio_config->stdout_fd);
+      
+      // Create pipe addresses
+      auto local_address =
+          std::make_shared<network::Address::PipeInstance>("/tmp/test_stdio_in");
+      auto remote_address =
+          std::make_shared<network::Address::PipeInstance>("/tmp/test_stdio_out");
+      
+      // Create the connection socket
+      socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
+          std::move(io_handle), local_address, remote_address);
+      
+      // Create StdioTransportSocket
+      transport_socket = std::make_unique<transport::StdioTransportSocket>(
+          *config_.stdio_config);
     }
-
-    // Get the pipe socket that ConnectionImpl will use
-    auto socket_wrapper = pipe_transport->takePipeSocket();
-    if (!socket_wrapper) {
-      Error err;
-      err.code = -1;
-      err.message = "Failed to get pipe socket from transport";
-      return makeVoidError(err);
-    }
-
-    // Use the pipe transport as the transport socket
-    network::TransportSocketPtr transport_socket = std::move(pipe_transport);
 
     // Create connection - for stdio, we're already "connected" since the pipes
     // are ready So we create it similar to a server connection but mark it as

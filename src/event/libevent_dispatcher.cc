@@ -465,7 +465,6 @@ void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
   if (trigger_ != FileTriggerType::Edge && enabled_events_ == events) {
     return;
   }
-
   enabled_events_ = events;
   updateEvents(events);
 }
