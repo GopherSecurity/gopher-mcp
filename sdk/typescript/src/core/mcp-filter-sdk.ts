@@ -23,7 +23,7 @@ import {
   createSuccess,
   isSuccess,
 } from "../types";
-import { mcpFilterLib } from "./ffi-bindings";
+import { mcpFilterLib, createStruct, McpFilterConfigStruct, toCString } from "./ffi-bindings";
 
 // ============================================================================
 // SDK Events
@@ -245,9 +245,20 @@ export class McpFilterSdk extends EventEmitter {
         );
       }
 
-      // For now, pass a simple integer since our wrapper just returns mock values
-      // TODO: Implement proper struct serialization when real native code is available
-      const filter = mcpFilterLib.mcp_filter_create(this._dispatcher, 1);
+      // Create C struct for filter config
+      const cConfig = {
+        name: toCString(config.name),
+        type: config.type,
+        settings: config.settings || 0,
+        layer: config.layer,
+        memoryPool: config.memoryPool || this._defaultMemoryPool,
+      };
+
+      // Serialize the struct for native function call
+      const structBuffer = createStruct(McpFilterConfigStruct, cConfig);
+
+      // Create filter
+      const filter = mcpFilterLib.mcp_filter_create(this._dispatcher, structBuffer);
       if (filter === 0) {
         return createError(
           McpResult.ERROR_INITIALIZATION_FAILED,
@@ -320,6 +331,38 @@ export class McpFilterSdk extends EventEmitter {
       return createError(
         McpResult.ERROR_INITIALIZATION_FAILED,
         `Built-in filter creation failed: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Process data through a filter
+   */
+  async processFilterData(
+    filter: McpFilter,
+    data: Buffer
+  ): Promise<McpResultWrapper<boolean>> {
+    try {
+      if (!this._filters.has(filter)) {
+        return createError(McpResult.ERROR_NOT_FOUND, "Filter not found");
+      }
+
+      const result = mcpFilterLib.mcp_filter_process_data(filter, data, data.length);
+      if (result === 0) {
+              return createError(
+        McpResult.ERROR_IO_ERROR,
+        "Filter data processing failed"
+      );
+      }
+
+      this.log("info", `Filter data processed: ${filter} (${data.length} bytes)`);
+      return createSuccess(true);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      return createError(
+        McpResult.ERROR_IO_ERROR,
+        `Filter data processing failed: ${errorMessage}`
       );
     }
   }
