@@ -182,13 +182,8 @@ try {
     console.warn(
       "Static library detected. Static libraries cannot be directly loaded by FFI."
     );
-    console.warn(
-      "Please build a dynamic wrapper library or use the mock implementation."
-    );
-    console.warn("Falling back to mock implementation for development");
-
-    // Fallback to mock implementation
-    mcpFilterLib = createMockLibrary();
+    // Library loading failed - this should not happen in production
+    throw new Error("Failed to load MCP Filter library");
   } else {
     // Load dynamic library
     const library = koffi.load(libPath);
@@ -231,11 +226,11 @@ try {
         ["int", "uint32", "int"]
       ),
       mcp_filter_release: library.func("mcp_filter_release", "void", ["int"]),
-      mcp_filter_process_data: library.func(
-        "mcp_filter_process_data",
+      mcp_filter_process_data: library.func("mcp_filter_process_data", "int", [
         "int",
-        ["int", "void*", "uint64"]
-      ),
+        "void*",
+        "uint64",
+      ]),
 
       // Buffer Functions
       mcp_filter_buffer_create: library.func(
@@ -272,95 +267,7 @@ try {
   }
 } catch (error) {
   console.warn(`Failed to load MCP Filter library: ${error}`);
-  console.warn("Falling back to mock implementation for development");
-
-  // Fallback to mock implementation
-  mcpFilterLib = createMockLibrary();
-}
-
-// ============================================================================
-// Mock Library Fallback
-// ============================================================================
-
-function createMockLibrary(): any {
-  console.log("Creating mock MCP Filter library for development");
-
-  return {
-    // Core MCP Functions
-    mcp_init: (_allocator: any) => 0, // MCP_OK
-    mcp_shutdown: () => {},
-    mcp_is_initialized: () => 1,
-    mcp_get_version: () => "1.0.0-mock",
-
-    // Memory Management
-    mcp_memory_pool_create: (_size: number) =>
-      Math.floor(Math.random() * 1000) + 1,
-    mcp_memory_pool_destroy: (_pool: number) => {},
-    mcp_memory_pool_alloc: (_pool: number, size: number) => Buffer.alloc(size),
-
-    // Dispatcher Functions
-    mcp_dispatcher_create: () => Math.floor(Math.random() * 1000) + 1,
-    mcp_dispatcher_destroy: (_dispatcher: number) => {},
-
-    // Filter Functions
-    mcp_filter_create: (_dispatcher: number, _config: any) =>
-      Math.floor(Math.random() * 1000) + 1,
-    mcp_filter_create_builtin: (
-      _dispatcher: number,
-      _type: number,
-      _config: number
-    ) => Math.floor(Math.random() * 1000) + 1,
-    mcp_filter_release: (_filter: number) => {},
-    mcp_filter_process_data: (_filter: number, _data: any, _size: number) => 1,
-
-    // Buffer Functions
-    mcp_filter_buffer_create: (_data: any, _size: number, _flags: number) =>
-      Math.floor(Math.random() * 1000) + 1,
-    mcp_filter_buffer_release: (_buffer: number) => {},
-    mcp_filter_buffer_get_data: (_buffer: number, _data: any, _size: any) => 0,
-    mcp_filter_buffer_set_data: (_buffer: number, _data: any, _size: number) =>
-      0,
-
-    // JSON Functions
-    mcp_json_create_object: () => Math.floor(Math.random() * 1000) + 1,
-    mcp_json_destroy: (_json: number) => {},
-    mcp_json_stringify: (_json: number) => "{}",
-
-    // Filter Chain Functions
-    mcp_filter_chain_create: (_name: string) =>
-      Math.floor(Math.random() * 1000) + 1,
-    mcp_filter_chain_destroy: (_chain: number) => {},
-    mcp_filter_chain_add_filter: (
-      _builder: any,
-      _filter: number,
-      _position: number,
-      _reference: number
-    ) => 0,
-
-    // Buffer Pool Functions
-    mcp_buffer_pool_create: (_config: any) =>
-      Math.floor(Math.random() * 1000) + 1,
-    mcp_buffer_pool_destroy: (_pool: number) => {},
-    mcp_buffer_pool_alloc: (_pool: number) =>
-      Math.floor(Math.random() * 1000) + 1,
-
-    // Resource Guard Functions
-    mcp_filter_guard_create: () => Math.floor(Math.random() * 1000) + 1,
-    mcp_filter_guard_destroy: (_guard: any) => {},
-    mcp_filter_guard_add_filter: (_guard: any, _filter: number) => 0,
-
-    // Thread-Safe Operations
-    mcp_filter_post_data: (
-      _filter: number,
-      _data: any,
-      _length: number,
-      _callback: any,
-      _userData: any
-    ) => 0,
-
-    // Utility Functions
-    mcp_get_error_string: (_result: number) => "Mock error message",
-  };
+  throw new Error(`Failed to load MCP Filter library: ${error}`);
 }
 
 // ============================================================================
@@ -391,48 +298,48 @@ export function createStruct<T extends Record<string, any>>(
 ): Buffer {
   // Get the size of the struct
   const structSize = koffi.sizeof(structType);
-  
+
   // Create a buffer to hold the struct data
   const buffer = Buffer.alloc(structSize);
-  
+
   // For the McpFilterConfig struct, we need to handle:
   // - char* (string pointer) - we'll write the string data and store offset
   // - uint32 (4 bytes)
   // - void* (pointer) - we'll write as 8 bytes (64-bit pointer)
-  
+
   let offset = 0;
-  
+
   // Handle each field based on the struct definition
-  if ('name' in data) {
+  if ("name" in data) {
     // For char*, we need to handle this carefully
     // In a real implementation, we'd need to allocate string memory
     // For now, we'll write a placeholder pointer
     buffer.writeBigUInt64LE(BigInt(0x12345678), offset);
     offset += 8;
   }
-  
-  if ('type' in data) {
-    buffer.writeUInt32LE(data['type'], offset);
+
+  if ("type" in data) {
+    buffer.writeUInt32LE(data["type"], offset);
     offset += 4;
   }
-  
-  if ('settings' in data) {
+
+  if ("settings" in data) {
     // void* - write as 8-byte pointer
-    buffer.writeBigUInt64LE(BigInt(data['settings'] || 0), offset);
+    buffer.writeBigUInt64LE(BigInt(data["settings"] || 0), offset);
     offset += 8;
   }
-  
-  if ('layer' in data) {
-    buffer.writeUInt32LE(data['layer'], offset);
+
+  if ("layer" in data) {
+    buffer.writeUInt32LE(data["layer"], offset);
     offset += 4;
   }
-  
-  if ('memoryPool' in data) {
+
+  if ("memoryPool" in data) {
     // void* - write as 8-byte pointer
-    buffer.writeBigUInt64LE(BigInt(data['memoryPool'] || 0), offset);
+    buffer.writeBigUInt64LE(BigInt(data["memoryPool"] || 0), offset);
     offset += 8;
   }
-  
+
   return buffer;
 }
 
