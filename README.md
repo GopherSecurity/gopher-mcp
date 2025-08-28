@@ -15,6 +15,17 @@ Gopher MCP follows a layered architecture designed for high performance, scalabi
 │  │     MCP Server / Client / Custom Applications        │   │
 │  └──────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
+│              Cross-Language Binding Layer                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ Python │ TypeScript │ Go │ Rust │ Java │ C# │ Ruby   │   │
+│  └──────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│                    C API (FFI Layer)                        │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ libgopher_mcp_c: Opaque Handles │ Memory Safety      │   │
+│  │ RAII Guards │ Type Safety │ Error Handling           │   │
+│  └──────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
 │                      Protocol Layer                         │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │        MCP JSON-RPC Protocol Implementation          │   │
@@ -43,6 +54,36 @@ Gopher MCP follows a layered architecture designed for high performance, scalabi
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## Cross-Language Support
+
+### Architecture Overview
+The SDK is designed with cross-language support as a first-class feature:
+- **Application Layer**: MCP server/client implementations using your preferred languages
+- **Language Bindings**: Native bindings for each language that wrap the C API
+- **C API Layer**: Stable FFI interface (`libgopher_mcp_c`) that bridges C++ and other languages
+
+### C API Features
+The C API provides a complete FFI-safe interface:
+- **Opaque handles**: Hide C++ implementation details
+- **Memory safety**: RAII guards and automatic resource management
+- **Type safety**: Strong typing with comprehensive error handling
+- **Thread safety**: All operations are thread-safe through the dispatcher model
+- **Zero-copy buffers**: Efficient data sharing where possible
+
+### Supported Languages
+Native bindings are available for all mainstream programming languages:
+- **Python**: ctypes/cffi integration with async support
+- **TypeScript/Node.js**: N-API bindings for high performance
+- **Go**: CGO integration with goroutine-safe wrappers
+- **Rust**: Safe FFI wrappers with ownership guarantees
+- **Java**: JNI bindings with automatic resource management
+- **C#/.NET**: P/Invoke with async/await support
+- **Ruby**: Native extension with GC integration
+- **Swift**: Direct C interop for iOS/macOS
+- **Kotlin**: JNI or Kotlin/Native for Android
+
+Each binding maintains language-specific idioms while providing full access to MCP functionality.
 
 ## Core Design Principles
 
