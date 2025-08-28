@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format check-format
+.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format check-format install uninstall
 
 # Default target
 all: build test
@@ -70,6 +70,23 @@ check-format:
 	@echo "Checking source file formatting..."
 	@find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format --dry-run --Werror
 
+# Install targets
+install:
+	@if [ ! -d build ]; then \
+		echo "Error: build directory not found. Please run 'make build' first."; \
+		exit 1; \
+	fi
+	@echo "Installing gopher-mcp..."
+	@cd build && make install
+
+uninstall:
+	@if [ ! -d build ]; then \
+		echo "Error: build directory not found."; \
+		exit 1; \
+	fi
+	@echo "Uninstalling gopher-mcp..."
+	@cd build && make uninstall
+
 # Help
 help:
 	@echo "MCP C++ SDK Makefile"
@@ -88,6 +105,10 @@ help:
 	@echo "  make check         - Alias for 'make test'"
 	@echo "  make check-verbose - Alias for 'make test-verbose'"
 	@echo "  make check-parallel - Alias for 'make test-parallel'"
+	@echo ""
+	@echo "Installation targets:"
+	@echo "  make install       - Install libraries, headers, and CMake files"
+	@echo "  make uninstall     - Remove installed files"
 	@echo ""
 	@echo "Other targets:"
 	@echo "  make clean         - Clean build directory"
