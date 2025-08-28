@@ -19,6 +19,7 @@ BUILD_DIR="build"
 CLEAN_BUILD=false
 RUN_TESTS=true
 VERBOSE=false
+INSTALL_PREFIX=""
 
 # Usage function
 usage() {
@@ -28,6 +29,7 @@ usage() {
     echo "  -c, --clean        Clean build (removes build directory first)"
     echo "  -t, --no-tests     Skip running tests after build"
     echo "  -v, --verbose      Verbose output"
+    echo "  -p, --prefix PATH  Set installation prefix"
     echo "  -h, --help         Show this help message"
     exit 1
 }
@@ -46,6 +48,10 @@ while [[ $# -gt 0 ]]; do
         -t|--no-tests)
             RUN_TESTS=false
             shift
+            ;;
+        -p|--prefix)
+            INSTALL_PREFIX="$2"
+            shift 2
             ;;
         -v|--verbose)
             VERBOSE=true
@@ -97,6 +103,10 @@ cd "$BUILD_DIR"
 CMAKE_ARGS="-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
 if [ "$VERBOSE" = true ]; then
     CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_VERBOSE_MAKEFILE=ON"
+fi
+if [ -n "$INSTALL_PREFIX" ]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX"
+    print_status "Using install prefix: $INSTALL_PREFIX"
 fi
 
 if cmake .. $CMAKE_ARGS; then
