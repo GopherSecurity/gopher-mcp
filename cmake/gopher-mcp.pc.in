@@ -1,0 +1,15 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=@CMAKE_INSTALL_FULL_LIBDIR@
+includedir=@CMAKE_INSTALL_FULL_INCLUDEDIR@/gopher-mcp
+
+Name: gopher-mcp
+Description: Modern C++ SDK for Model Context Protocol (MCP) with async I/O support
+Version: @PROJECT_VERSION@
+URL: https://github.com/your-org/gopher-mcp
+
+Requires: openssl
+Requires.private: libevent
+Libs: -L${libdir} -lgopher-mcp -lgopher-mcp-event
+Libs.private: -lpthread
+Cflags: -I${includedir}

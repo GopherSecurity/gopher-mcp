@@ -1,0 +1,54 @@
+# cmake_uninstall.cmake - Uninstall script for gopher-mcp
+# This file is configured by CMake and is used to uninstall the project
+
+if(NOT EXISTS "@CMAKE_BINARY_DIR@/install_manifest.txt")
+    message(FATAL_ERROR "Cannot find install manifest: @CMAKE_BINARY_DIR@/install_manifest.txt")
+endif()
+
+file(READ "@CMAKE_BINARY_DIR@/install_manifest.txt" files)
+string(REGEX REPLACE "\n" ";" files "${files}")
+
+foreach(file ${files})
+    message(STATUS "Uninstalling $ENV{DESTDIR}${file}")
+    if(IS_SYMLINK "$ENV{DESTDIR}${file}" OR EXISTS "$ENV{DESTDIR}${file}")
+        exec_program(
+            "@CMAKE_COMMAND@" ARGS "-E remove \"$ENV{DESTDIR}${file}\""
+            OUTPUT_VARIABLE rm_out
+            RETURN_VALUE rm_retval
+        )
+        if(NOT "${rm_retval}" STREQUAL 0)
+            message(FATAL_ERROR "Problem when removing $ENV{DESTDIR}${file}")
+        endif()
+    else()
+        message(STATUS "File $ENV{DESTDIR}${file} does not exist.")
+    endif()
+endforeach()
+
+# Remove empty directories
+# Get unique directories from installed files
+set(dirs "")
+foreach(file ${files})
+    get_filename_component(dir "$ENV{DESTDIR}${file}" DIRECTORY)
+    list(APPEND dirs "${dir}")
+endforeach()
+list(REMOVE_DUPLICATES dirs)
+list(SORT dirs)
+list(REVERSE dirs) # Remove deepest directories first
+
+foreach(dir ${dirs})
+    # Check if directory exists and is empty
+    if(EXISTS "${dir}")
+        file(GLOB dir_contents "${dir}/*")
+        list(LENGTH dir_contents n_contents)
+        if(n_contents EQUAL 0)
+            message(STATUS "Removing empty directory: ${dir}")
+            exec_program(
+                "@CMAKE_COMMAND@" ARGS "-E remove_directory \"${dir}\""
+                OUTPUT_VARIABLE rm_out
+                RETURN_VALUE rm_retval
+            )
+        endif()
+    endif()
+endforeach()
+
+message(STATUS "Uninstall completed")
