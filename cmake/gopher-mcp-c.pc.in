@@ -1,0 +1,14 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=@CMAKE_INSTALL_FULL_LIBDIR@
+includedir=@CMAKE_INSTALL_FULL_INCLUDEDIR@/gopher-mcp
+
+Name: gopher-mcp-c
+Description: C API bindings for Gopher MCP SDK - FFI-safe interface for language bindings
+Version: @PROJECT_VERSION@
+URL: https://github.com/your-org/gopher-mcp
+
+Requires: gopher-mcp
+Libs: -L${libdir} -lgopher_mcp_c
+Libs.private: -lgopher-mcp -lgopher-mcp-event -lpthread
+Cflags: -I${includedir}
