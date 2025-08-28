@@ -633,47 +633,79 @@ if(BUILD_C_API)
     )
     
     target_link_libraries(test_mcp_filter_api
-        gopher-mcp
         gopher_mcp_c_static
-        gopher-mcp-event
+        gopher-mcp-static
+        gopher-mcp-event-static
         ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
         gtest
         gmock
         gtest_main
         Threads::Threads
     )
+    if(NGHTTP2_FOUND)
+        target_link_directories(test_mcp_filter_api PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_filter_api ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_mcp_filter_api llhttp)
+    endif()
     
     target_link_libraries(test_mcp_filter_chain
-        gopher-mcp
         gopher_mcp_c_static
-        gopher-mcp-event
+        gopher-mcp-static
+        gopher-mcp-event-static
         ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
         gtest
         gmock
         gtest_main
         Threads::Threads
     )
+    if(NGHTTP2_FOUND)
+        target_link_directories(test_mcp_filter_chain PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_filter_chain ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_mcp_filter_chain llhttp)
+    endif()
     
     target_link_libraries(test_mcp_filter_buffer
-        gopher-mcp
         gopher_mcp_c_static
-        gopher-mcp-event
+        gopher-mcp-static
+        gopher-mcp-event-static
         ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
         gtest
         gmock
         gtest_main
         Threads::Threads
     )
+    if(NGHTTP2_FOUND)
+        target_link_directories(test_mcp_filter_buffer PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_filter_buffer ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_mcp_filter_buffer llhttp)
+    endif()
     
     target_link_libraries(test_mcp_raii
-        gopher-mcp
         gopher_mcp_c_static  # Use static library for access to internal symbols
-        gopher-mcp-event
+        gopher-mcp-static
+        gopher-mcp-event-static
         ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
         gtest
         gtest_main
         Threads::Threads
     )
+    if(NGHTTP2_FOUND)
+        target_link_directories(test_mcp_raii PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_raii ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_mcp_raii llhttp)
+    endif()
 endif()
 
 # Link libraries for new tests
