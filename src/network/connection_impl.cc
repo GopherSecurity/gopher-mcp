@@ -337,8 +337,9 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         if (connected) {
           // Server connection or already connected (e.g., stdio pipes)
           // Always enable read to receive data
-          // For TCP servers, we need write events to detect when client disconnects
-          // For stdio/pipes, both should be enabled for bidirectional communication
+          // For TCP servers, we need write events to detect when client
+          // disconnects For stdio/pipes, both should be enabled for
+          // bidirectional communication
           initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
                            static_cast<uint32_t>(event::FileReadyType::Write);
         } else if (connecting_) {
@@ -802,18 +803,18 @@ void ConnectionImpl::onWriteReady() {
    */
   write_ready_ = true;
   write_event_count_++;  // Track write events for debugging
-  
+
   // Prevent busy loop: if we have no data to write and we're already connected,
   // just return without processing. However, for stdio connections that start
   // as connected, we need to allow at least one initial write to properly
   // initialize the transport.
   bool is_stdio = transport_socket_ && transport_socket_->protocol() == "stdio";
-  if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_ && 
+  if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_ &&
       initial_write_done_ && !is_stdio) {
     // For non-stdio connections, prevent busy loop
     return;
-  } else if (!connecting_ && write_buffer_.length() == 0 && !write_half_closed_ && 
-             is_stdio && initial_write_done_) {
+  } else if (!connecting_ && write_buffer_.length() == 0 &&
+             !write_half_closed_ && is_stdio && initial_write_done_) {
     // For stdio connections, also prevent busy loop after initial write
     return;
   }
@@ -1123,7 +1124,8 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Use transport socket for reading if available
   // TODO: Fix transport socket implementation for HTTP/SSE
   // For now, check if this is a real transport socket (not RawTransportSocket)
-  if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
+  if (transport_socket_ &&
+      dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
     auto result = transport_socket_->doRead(read_buffer_);
     return result;
   }
@@ -1189,7 +1191,8 @@ void ConnectionImpl::doWrite() {
   // Use transport socket for initial processing if available
   // This is essential for stdio transport which manages pipe bridging
   // TODO: Fix transport socket implementation for HTTP/SSE
-  if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
+  if (transport_socket_ &&
+      dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
     // Let transport process any pending operations
     // For stdio, this ensures the bridge threads are active
     auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
@@ -1220,7 +1223,8 @@ void ConnectionImpl::doWrite() {
     // Try to write through transport socket if available
     // For stdio connections, the transport manages the pipe bridging
     // TODO: Fix transport socket implementation for HTTP/SSE
-    if (transport_socket_ && dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
+    if (transport_socket_ &&
+        dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
       write_result =
           transport_socket_->doWrite(write_buffer_, write_half_closed_);
     } else {

@@ -11,18 +11,18 @@
  * 3. Works correctly for both client and server connections
  */
 
-#include <fcntl.h>
 #include <cstring>
+#include <fcntl.h>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+#include "mcp/network/address.h"
 #include "mcp/network/connection_impl.h"
+#include "mcp/network/filter.h"
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/socket_impl.h"
-#include "mcp/network/address.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/network/filter.h"
 
 #include "real_io_test_base.h"
 
@@ -39,8 +39,8 @@ class EventHandlingTest : public RealIoTestBase {
   }
   // Simple read filter to capture received data
   class TestReadFilter : public network::ReadFilter {
-  public:
-    TestReadFilter(OwnedBuffer& buffer, std::atomic<bool>& received_flag) 
+   public:
+    TestReadFilter(OwnedBuffer& buffer, std::atomic<bool>& received_flag)
         : buffer_(buffer), data_received_(received_flag) {}
 
     network::FilterStatus onData(Buffer& data, bool) override {
@@ -54,9 +54,10 @@ class EventHandlingTest : public RealIoTestBase {
       return network::FilterStatus::Continue;
     }
 
-    void initializeReadFilterCallbacks(network::ReadFilterCallbacks&) override {}
+    void initializeReadFilterCallbacks(network::ReadFilterCallbacks&) override {
+    }
 
-  private:
+   private:
     OwnedBuffer& buffer_;
     std::atomic<bool>& data_received_;
   };
@@ -102,7 +103,7 @@ class EventHandlingTest : public RealIoTestBase {
 
     return {fds[0], fds[1]};
   }
-  
+
   std::vector<int> test_fds_;
 
   /**
@@ -155,7 +156,8 @@ TEST_F(EventHandlingTest, NoWriteBusyLoopWithEmptyBuffer) {
 
     // Create a raw transport socket (no TLS)
     // Since we're testing connection handling, not transport, use raw sockets
-    network::TransportSocketPtr transport_socket = nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+    network::TransportSocketPtr transport_socket =
+        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
@@ -198,20 +200,21 @@ TEST_F(EventHandlingTest, EdgeTriggeredReadRaceCondition) {
 
     // Create a raw transport socket (no TLS)
     // Since we're testing connection handling, not transport, use raw sockets
-    network::TransportSocketPtr transport_socket = nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+    network::TransportSocketPtr transport_socket =
+        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
         true);  // true = already connected (for pipes/stdio)
 
     connection->addConnectionCallbacks(server_callbacks);
-    
+
     // Add read filter to capture data
     auto read_filter = std::make_shared<TestReadFilter>(
         server_callbacks.received_data, server_callbacks.data_received);
     connection->addReadFilter(read_filter);
     connection->initializeReadFilters();
-    
+
     // Connection is initialized automatically
 
     // Simulate race condition:
@@ -264,7 +267,8 @@ TEST_F(EventHandlingTest, WriteEventManagement) {
 
     // Create a raw transport socket (no TLS)
     // Since we're testing connection handling, not transport, use raw sockets
-    network::TransportSocketPtr transport_socket = nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+    network::TransportSocketPtr transport_socket =
+        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
 
     auto connection = std::make_unique<network::ConnectionImpl>(
         *dispatcher_, std::move(socket), std::move(transport_socket),
@@ -341,66 +345,68 @@ TEST_F(EventHandlingTest, BidirectionalCommunication) {
   TestCallbacks client_callbacks;
   TestCallbacks server_callbacks;
 
-  executeInDispatcher([this, client_fd, server_fd, &client_callbacks,
-                       &server_callbacks]() {
-    // Create client connection
-    auto client_io_handle = std::make_unique<network::IoSocketHandleImpl>(client_fd);
-    auto client_socket = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(client_io_handle), nullptr, nullptr);
-    auto client_transport =
-        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
-    auto client_conn = std::make_unique<network::ConnectionImpl>(
-        *dispatcher_, std::move(client_socket), std::move(client_transport),
-        true);  // true = already connected (for pipes)
-    client_conn->addConnectionCallbacks(client_callbacks);
-    
-    // Add read filter to client to capture data
-    auto client_read_filter = std::make_shared<TestReadFilter>(
-        client_callbacks.received_data, client_callbacks.data_received);
-    client_conn->addReadFilter(client_read_filter);
-    client_conn->initializeReadFilters();
-    
-    // Connection initialized automatically
+  executeInDispatcher(
+      [this, client_fd, server_fd, &client_callbacks, &server_callbacks]() {
+        // Create client connection
+        auto client_io_handle =
+            std::make_unique<network::IoSocketHandleImpl>(client_fd);
+        auto client_socket = std::make_unique<network::ConnectionSocketImpl>(
+            std::move(client_io_handle), nullptr, nullptr);
+        auto client_transport =
+            nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+        auto client_conn = std::make_unique<network::ConnectionImpl>(
+            *dispatcher_, std::move(client_socket), std::move(client_transport),
+            true);  // true = already connected (for pipes)
+        client_conn->addConnectionCallbacks(client_callbacks);
 
-    // Create server connection
-    auto server_io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
-    auto server_socket = std::make_unique<network::ConnectionSocketImpl>(
-        std::move(server_io_handle), nullptr, nullptr);
-    auto server_transport =
-        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
-    auto server_conn = std::make_unique<network::ConnectionImpl>(
-        *dispatcher_, std::move(server_socket), std::move(server_transport),
-        true);  // true = already connected (for pipes)
-    server_conn->addConnectionCallbacks(server_callbacks);
-    
-    // Add read filter to server to capture data
-    auto server_read_filter = std::make_shared<TestReadFilter>(
-        server_callbacks.received_data, server_callbacks.data_received);
-    server_conn->addReadFilter(server_read_filter);
-    server_conn->initializeReadFilters();
-    
-    // Connection initialized automatically
+        // Add read filter to client to capture data
+        auto client_read_filter = std::make_shared<TestReadFilter>(
+            client_callbacks.received_data, client_callbacks.data_received);
+        client_conn->addReadFilter(client_read_filter);
+        client_conn->initializeReadFilters();
 
-    // Client sends to server
-    OwnedBuffer client_msg;
-    client_msg.add("Hello from client");
-    client_conn->write(client_msg, false);
+        // Connection initialized automatically
 
-    // Server sends to client
-    OwnedBuffer server_msg;
-    server_msg.add("Hello from server");
-    server_conn->write(server_msg, false);
+        // Create server connection
+        auto server_io_handle =
+            std::make_unique<network::IoSocketHandleImpl>(server_fd);
+        auto server_socket = std::make_unique<network::ConnectionSocketImpl>(
+            std::move(server_io_handle), nullptr, nullptr);
+        auto server_transport =
+            nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+        auto server_conn = std::make_unique<network::ConnectionImpl>(
+            *dispatcher_, std::move(server_socket), std::move(server_transport),
+            true);  // true = already connected (for pipes)
+        server_conn->addConnectionCallbacks(server_callbacks);
 
-    // Let messages process
-    auto timer =
-        dispatcher_->createTimer([this, client_conn = client_conn.release(),
-                                  server_conn = server_conn.release()]() {
-          delete client_conn;
-          delete server_conn;
-          dispatcher_->exit();
-        });
-    timer->enableTimer(std::chrono::milliseconds(100));
-  });
+        // Add read filter to server to capture data
+        auto server_read_filter = std::make_shared<TestReadFilter>(
+            server_callbacks.received_data, server_callbacks.data_received);
+        server_conn->addReadFilter(server_read_filter);
+        server_conn->initializeReadFilters();
+
+        // Connection initialized automatically
+
+        // Client sends to server
+        OwnedBuffer client_msg;
+        client_msg.add("Hello from client");
+        client_conn->write(client_msg, false);
+
+        // Server sends to client
+        OwnedBuffer server_msg;
+        server_msg.add("Hello from server");
+        server_conn->write(server_msg, false);
+
+        // Let messages process
+        auto timer =
+            dispatcher_->createTimer([this, client_conn = client_conn.release(),
+                                      server_conn = server_conn.release()]() {
+              delete client_conn;
+              delete server_conn;
+              dispatcher_->exit();
+            });
+        timer->enableTimer(std::chrono::milliseconds(100));
+      });
 
   // Both sides should receive the messages
   EXPECT_TRUE(client_callbacks.data_received);
