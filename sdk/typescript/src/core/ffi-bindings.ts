@@ -27,29 +27,29 @@ function getLibraryPath(): string {
   if (isMac) {
     // macOS - support both static and dynamic libraries
     if (arch() === "x64") {
-      // Try static library first, then dynamic
+      // Try dynamic library first, then static
       const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
       const dynamicLib = path.join(
         __dirname,
-        "../../../build/libgopher-mcp.dylib"
+        "../../build/libgopher-mcp.dylib"
       );
 
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
+      if (fs.existsSync(dynamicLib)) {
         return dynamicLib;
+      } else if (fs.existsSync(staticLib)) {
+        return staticLib;
       }
       return dynamicLib; // Default to dynamic for path generation
     } else if (arch() === "arm64") {
       const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
       const dynamicLib = path.join(
         __dirname,
-        "../../../build/libgopher-mcp.dylib"
+        "../../build/libgopher-mcp.dylib"
       );
 
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
+      if (fs.existsSync(dynamicLib)) {
+        return dynamicLib;
+      } else if (fs.existsSync(staticLib)) {
         return staticLib;
       }
       return dynamicLib;
@@ -191,8 +191,79 @@ try {
     mcpFilterLib = createMockLibrary();
   } else {
     // Load dynamic library
-    mcpFilterLib = koffi.load(libPath);
+    const library = koffi.load(libPath);
     console.log("MCP Filter library loaded successfully");
+
+    // Explicitly bind the functions we need
+    mcpFilterLib = {
+      // Core MCP Functions
+      mcp_init: library.func("mcp_init", "int", ["void*"]),
+      mcp_shutdown: library.func("mcp_shutdown", "void", []),
+      mcp_is_initialized: library.func("mcp_is_initialized", "int", []),
+      mcp_get_version: library.func("mcp_get_version", "string", []),
+
+      // Memory Management
+      mcp_memory_pool_create: library.func("mcp_memory_pool_create", "int", [
+        "uint64",
+      ]),
+      mcp_memory_pool_destroy: library.func("mcp_memory_pool_destroy", "void", [
+        "int",
+      ]),
+      mcp_memory_pool_alloc: library.func("mcp_memory_pool_alloc", "void*", [
+        "int",
+        "uint64",
+      ]),
+
+      // Dispatcher Functions
+      mcp_dispatcher_create: library.func("mcp_dispatcher_create", "int", []),
+      mcp_dispatcher_destroy: library.func("mcp_dispatcher_destroy", "void", [
+        "int",
+      ]),
+
+      // Filter Functions
+      mcp_filter_create: library.func("mcp_filter_create", "int", [
+        "int",
+        "void*",
+      ]),
+      mcp_filter_create_builtin: library.func(
+        "mcp_filter_create_builtin",
+        "int",
+        ["int", "uint32", "int"]
+      ),
+      mcp_filter_release: library.func("mcp_filter_release", "void", ["int"]),
+
+      // Buffer Functions
+      mcp_filter_buffer_create: library.func(
+        "mcp_filter_buffer_create",
+        "int",
+        ["void*", "uint64", "uint32"]
+      ),
+      mcp_filter_buffer_release: library.func(
+        "mcp_filter_buffer_release",
+        "void",
+        ["int"]
+      ),
+      mcp_filter_buffer_get_data: library.func(
+        "mcp_filter_buffer_get_data",
+        "int",
+        ["int", "void**", "void**"]
+      ),
+      mcp_filter_buffer_set_data: library.func(
+        "mcp_filter_buffer_set_data",
+        "int",
+        ["int", "void*", "uint64"]
+      ),
+
+      // JSON Functions
+      mcp_json_create_object: library.func("mcp_json_create_object", "int", []),
+      mcp_json_destroy: library.func("mcp_json_destroy", "void", ["int"]),
+      mcp_json_stringify: library.func("mcp_json_stringify", "string", ["int"]),
+
+      // Utility Functions
+      mcp_get_error_string: library.func("mcp_get_error_string", "string", [
+        "int",
+      ]),
+    };
   }
 } catch (error) {
   console.warn(`Failed to load MCP Filter library: ${error}`);
@@ -237,14 +308,12 @@ function createMockLibrary(): any {
     mcp_filter_release: (_filter: number) => {},
 
     // Buffer Functions
-    mcp_buffer_create: (_size: number, _flags: number) =>
-      Math.floor(Math.random() * 1000) + 1,
     mcp_filter_buffer_create: (_data: any, _size: number, _flags: number) =>
       Math.floor(Math.random() * 1000) + 1,
-    mcp_buffer_destroy: (_buffer: number) => {},
     mcp_filter_buffer_release: (_buffer: number) => {},
-    mcp_buffer_get_data: (_buffer: number, _data: any, _size: any) => 0,
-    mcp_buffer_set_data: (_buffer: number, _data: any, _size: number) => 0,
+    mcp_filter_buffer_get_data: (_buffer: number, _data: any, _size: any) => 0,
+    mcp_filter_buffer_set_data: (_buffer: number, _data: any, _size: number) =>
+      0,
 
     // JSON Functions
     mcp_json_create_object: () => Math.floor(Math.random() * 1000) + 1,
@@ -313,18 +382,18 @@ export function fromCString(ptr: Buffer): string {
 export function createStruct<T extends Record<string, any>>(
   structType: any,
   data: T
-): Buffer {
-  const buffer = Buffer.alloc(structType.size);
-  const struct = structType.alloc();
+): any {
+  // Create a new struct instance by calling the struct type
+  const struct = structType();
 
   // Copy data to struct
   Object.keys(data).forEach((key) => {
-    if (structType.fields.includes(key)) {
+    if (key in struct) {
       (struct as any)[key] = data[key];
     }
   });
 
-  return buffer;
+  return struct;
 }
 
 /**
