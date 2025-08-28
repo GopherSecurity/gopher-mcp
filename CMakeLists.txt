@@ -12,6 +12,12 @@ endif()
 
 project(gopher-mcp VERSION 0.1.0 LANGUAGES C CXX)
 
+# Set library version for shared libraries
+set(GOPHER_MCP_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(GOPHER_MCP_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(GOPHER_MCP_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(GOPHER_MCP_VERSION ${PROJECT_VERSION})
+
 # Detect if we're being used as a submodule
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(GOPHER_MCP_IS_SUBMODULE TRUE)
@@ -40,6 +46,11 @@ option(MCP_USE_STD_TYPES "Use std::optional and std::variant when available (C++
 
 #Option to enable strict warnings(disable for development)
 option(MCP_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
+
+# Build options
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(BUILD_STATIC_LIBS "Build static libraries" ON)
+option(GOPHER_MCP_INSTALL "Generate installation targets" ON)
 
 #Option to build C API bindings
 option(BUILD_C_API "Build C API bindings" OFF)  # TODO: Re-enable after fixing compilation issues
@@ -303,8 +314,8 @@ if(NOT GOPHER_MCP_IS_SUBMODULE)
     endif()
 endif()
 
-# Source files
-set(MCP_SDK_SOURCES
+# Source files - split core from client/server to avoid circular deps
+set(MCP_CORE_SOURCES
     src/buffer/buffer_impl.cc
     src/json/json_bridge.cc
     src/json/json_serialization.cc
@@ -344,9 +355,13 @@ set(MCP_SDK_SOURCES
     src/filter/http_routing_filter.cc
     src/filter/protocol_detection_filter.cc
     src/mcp_connection_manager.cc
+    src/protocol/mcp_protocol_state_machine.cc
+)
+
+# Client and server sources that need event library
+set(MCP_CLIENT_SERVER_SOURCES
     src/client/mcp_client.cc
     src/server/mcp_server.cc
-    src/protocol/mcp_protocol_state_machine.cc
 )
 
 # HTTP parser sources (conditional on llhttp)
@@ -381,74 +396,206 @@ set(MCP_EVENT_SOURCES
     src/event/worker.cc
 )
 
-# Create Gopher MCP library
-add_library(gopher-mcp STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
-# Use both approaches to ensure headers are found in all contexts
-target_include_directories(gopher-mcp 
-    PUBLIC 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(gopher-mcp PUBLIC Threads::Threads nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto)
+# Create Gopher MCP libraries (both static and shared)
+# Combine all sources for the main library (including event sources)
+set(MCP_SDK_SOURCES ${MCP_CORE_SOURCES} ${MCP_CLIENT_SERVER_SOURCES} ${MCP_EVENT_SOURCES})
+
+if(BUILD_STATIC_LIBS)
+    add_library(gopher-mcp-static STATIC ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
+    set_target_properties(gopher-mcp-static PROPERTIES
+        OUTPUT_NAME gopher-mcp
+        POSITION_INDEPENDENT_CODE ON
+        VERSION ${GOPHER_MCP_VERSION}
+        SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
+    )
+endif()
+
+if(BUILD_SHARED_LIBS)
+    add_library(gopher-mcp SHARED ${MCP_SDK_SOURCES} ${MCP_HTTP_SOURCES})
+    set_target_properties(gopher-mcp PROPERTIES
+        VERSION ${GOPHER_MCP_VERSION}
+        SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
+        POSITION_INDEPENDENT_CODE ON
+    )
+    
+    # Platform-specific shared library settings
+    if(WIN32)
+        set_target_properties(gopher-mcp PROPERTIES
+            WINDOWS_EXPORT_ALL_SYMBOLS ON
+            PREFIX ""
+        )
+    elseif(APPLE)
+        set_target_properties(gopher-mcp PROPERTIES
+            INSTALL_RPATH "@loader_path"
+            BUILD_WITH_INSTALL_RPATH OFF
+            MACOSX_RPATH ON
+        )
+    else()  # Linux/Unix
+        set_target_properties(gopher-mcp PROPERTIES
+            INSTALL_RPATH "$ORIGIN"
+            BUILD_WITH_INSTALL_RPATH OFF
+        )
+    endif()
+else()
+    # If only static is built, create alias
+    add_library(gopher-mcp ALIAS gopher-mcp-static)
+endif()
+# Configure include directories and linking for both library types
+foreach(lib_target gopher-mcp gopher-mcp-static)
+    if(TARGET ${lib_target})
+        target_include_directories(${lib_target}
+            PUBLIC 
+                $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                $<INSTALL_INTERFACE:include/gopher-mcp>
+            PRIVATE
+                $<BUILD_INTERFACE:$<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>>
+                ${LIBEVENT_INCLUDE_DIRS}
+        )
+        target_link_libraries(${lib_target} 
+            PUBLIC 
+                Threads::Threads 
+                OpenSSL::SSL 
+                OpenSSL::Crypto
+            PRIVATE
+                nlohmann_json::nlohmann_json
+                ${LIBEVENT_LIBRARIES}
+        )
+        if(LIBEVENT_LIBRARY_DIRS)
+            target_link_directories(${lib_target} PRIVATE ${LIBEVENT_LIBRARY_DIRS})
+        endif()
+        # Add compile definitions for nlohmann_json
+        target_compile_definitions(${lib_target} PUBLIC
+            $<BUILD_INTERFACE:NLOHMANN_JSON_NAMESPACE_NO_VERSION=1>
+        )
+    endif()
+endforeach()
 
 # Add llhttp if found
 if(LLHTTP_FOUND)
-    target_link_libraries(gopher-mcp PUBLIC llhttp)
-    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_LLHTTP=1)
+    foreach(lib_target gopher-mcp gopher-mcp-static)
+        if(TARGET ${lib_target})
+            target_link_libraries(${lib_target} PRIVATE llhttp)
+            target_compile_definitions(${lib_target} PUBLIC MCP_HAS_LLHTTP=1)
+            target_include_directories(${lib_target} PRIVATE 
+                $<BUILD_INTERFACE:$<TARGET_PROPERTY:llhttp,INTERFACE_INCLUDE_DIRECTORIES>>
+            )
+        endif()
+    endforeach()
 else()
-    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_LLHTTP=0)
+    foreach(lib_target gopher-mcp gopher-mcp-static)
+        if(TARGET ${lib_target})
+            target_compile_definitions(${lib_target} PUBLIC MCP_HAS_LLHTTP=0)
+        endif()
+    endforeach()
 endif()
 
 # Add nghttp2 if found
 if(NGHTTP2_FOUND)
-    target_include_directories(gopher-mcp PUBLIC ${NGHTTP2_INCLUDE_DIRS})
-    if(NGHTTP2_LIBRARY_DIRS)
-        target_link_directories(gopher-mcp PUBLIC ${NGHTTP2_LIBRARY_DIRS})
-    endif()
-    if(NGHTTP2_LIBRARIES)
-        target_link_libraries(gopher-mcp PUBLIC ${NGHTTP2_LIBRARIES})
-    else()
-        target_link_libraries(gopher-mcp PUBLIC nghttp2)
-    endif()
-    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_NGHTTP2=1)
+    foreach(lib_target gopher-mcp gopher-mcp-static)
+        if(TARGET ${lib_target})
+            target_include_directories(${lib_target} PRIVATE ${NGHTTP2_INCLUDE_DIRS})
+            if(NGHTTP2_LIBRARY_DIRS)
+                target_link_directories(${lib_target} PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+            endif()
+            if(NGHTTP2_LIBRARIES)
+                target_link_libraries(${lib_target} PRIVATE ${NGHTTP2_LIBRARIES})
+            else()
+                target_link_libraries(${lib_target} PRIVATE nghttp2)
+            endif()
+            target_compile_definitions(${lib_target} PUBLIC MCP_HAS_NGHTTP2=1)
+        endif()
+    endforeach()
 else()
-    target_compile_definitions(gopher-mcp PUBLIC MCP_HAS_NGHTTP2=0)
+    foreach(lib_target gopher-mcp gopher-mcp-static)
+        if(TARGET ${lib_target})
+            target_compile_definitions(${lib_target} PUBLIC MCP_HAS_NGHTTP2=0)
+        endif()
+    endforeach()
 endif()
 
-# Create Gopher MCP Echo Advanced library (transport-agnostic advanced echo components)
-add_library(gopher-mcp-echo-advanced STATIC ${MCP_ECHO_ADVANCED_SOURCES})
-target_include_directories(gopher-mcp-echo-advanced 
-    PUBLIC 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(gopher-mcp-echo-advanced PUBLIC gopher-mcp Threads::Threads nlohmann_json::nlohmann_json)
+# Create Gopher MCP Echo Advanced libraries
+if(BUILD_STATIC_LIBS)
+    add_library(gopher-mcp-echo-advanced-static STATIC ${MCP_ECHO_ADVANCED_SOURCES})
+    set_target_properties(gopher-mcp-echo-advanced-static PROPERTIES
+        OUTPUT_NAME gopher-mcp-echo-advanced
+        POSITION_INDEPENDENT_CODE ON
+    )
+endif()
 
-# Create Gopher MCP Event library
-add_library(gopher-mcp-event STATIC ${MCP_EVENT_SOURCES})
-target_include_directories(gopher-mcp-event 
-    PUBLIC 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${LIBEVENT_INCLUDE_DIRS}
-    INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(gopher-mcp-event PUBLIC 
-    gopher-mcp
-    Threads::Threads
-)
-
-if(LIBEVENT_FOUND)
-    if(LIBEVENT_LIBRARY_DIRS)
-        target_link_directories(gopher-mcp-event PUBLIC ${LIBEVENT_LIBRARY_DIRS})
+if(BUILD_SHARED_LIBS)
+    add_library(gopher-mcp-echo-advanced SHARED ${MCP_ECHO_ADVANCED_SOURCES})
+    set_target_properties(gopher-mcp-echo-advanced PROPERTIES
+        VERSION ${GOPHER_MCP_VERSION}
+        SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
+        POSITION_INDEPENDENT_CODE ON
+    )
+else()
+    add_library(gopher-mcp-echo-advanced ALIAS gopher-mcp-echo-advanced-static)
+endif()
+# Configure echo advanced library
+foreach(lib_target gopher-mcp-echo-advanced gopher-mcp-echo-advanced-static)
+    if(TARGET ${lib_target})
+        target_include_directories(${lib_target}
+            PUBLIC 
+                $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                $<INSTALL_INTERFACE:include/gopher-mcp>
+        )
+        # Link to appropriate main library
+        if(TARGET gopher-mcp)
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+        elseif(TARGET gopher-mcp-static)
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+        endif()
+        target_link_libraries(${lib_target} PUBLIC 
+            Threads::Threads
+        )
     endif()
-    target_link_libraries(gopher-mcp-event PUBLIC ${LIBEVENT_LIBRARIES})
+endforeach()
+
+# Create Gopher MCP Event libraries
+if(BUILD_STATIC_LIBS)
+    add_library(gopher-mcp-event-static STATIC ${MCP_EVENT_SOURCES})
+    set_target_properties(gopher-mcp-event-static PROPERTIES
+        OUTPUT_NAME gopher-mcp-event
+        POSITION_INDEPENDENT_CODE ON
+    )
 endif()
+
+if(BUILD_SHARED_LIBS)
+    add_library(gopher-mcp-event SHARED ${MCP_EVENT_SOURCES})
+    set_target_properties(gopher-mcp-event PROPERTIES
+        VERSION ${GOPHER_MCP_VERSION}
+        SOVERSION ${GOPHER_MCP_VERSION_MAJOR}
+        POSITION_INDEPENDENT_CODE ON
+    )
+else()
+    add_library(gopher-mcp-event ALIAS gopher-mcp-event-static)
+endif()
+# Configure event library
+foreach(lib_target gopher-mcp-event gopher-mcp-event-static)
+    if(TARGET ${lib_target})
+        target_include_directories(${lib_target}
+            PUBLIC 
+                $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                $<BUILD_INTERFACE:${LIBEVENT_INCLUDE_DIRS}>
+                $<INSTALL_INTERFACE:include/gopher-mcp>
+        )
+        # Link to appropriate main library
+        if(TARGET gopher-mcp)
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+        elseif(TARGET gopher-mcp-static)
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+        endif()
+        target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+        
+        if(LIBEVENT_FOUND)
+            if(LIBEVENT_LIBRARY_DIRS)
+                target_link_directories(${lib_target} PUBLIC ${LIBEVENT_LIBRARY_DIRS})
+            endif()
+            target_link_libraries(${lib_target} PUBLIC ${LIBEVENT_LIBRARIES})
+        endif()
+    endif()
+endforeach()
 
 # Enable testing only if not a submodule or explicitly requested
 if(NOT GOPHER_MCP_IS_SUBMODULE OR GOPHER_MCP_BUILD_TESTS)
@@ -548,3 +695,145 @@ add_custom_target(check-verbose
         COMMENT "Running tests in parallel..."
     )
 endif() # NOT GOPHER_MCP_IS_SUBMODULE
+
+# ============================================================================
+# Installation Support
+# ============================================================================
+
+if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+    
+    # Set installation directories based on OS
+    if(WIN32)
+        set(GOPHER_MCP_INSTALL_BINDIR ${CMAKE_INSTALL_BINDIR})
+        set(GOPHER_MCP_INSTALL_LIBDIR ${CMAKE_INSTALL_LIBDIR})
+        set(GOPHER_MCP_INSTALL_INCLUDEDIR ${CMAKE_INSTALL_INCLUDEDIR}/gopher-mcp)
+        set(GOPHER_MCP_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/gopher-mcp)
+    else()
+        set(GOPHER_MCP_INSTALL_BINDIR ${CMAKE_INSTALL_BINDIR})
+        set(GOPHER_MCP_INSTALL_LIBDIR ${CMAKE_INSTALL_LIBDIR})
+        set(GOPHER_MCP_INSTALL_INCLUDEDIR ${CMAKE_INSTALL_INCLUDEDIR}/gopher-mcp)
+        set(GOPHER_MCP_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/gopher-mcp)
+    endif()
+    
+    # Export targets for installation - separate shared and static
+    set(GOPHER_MCP_SHARED_TARGETS "")
+    set(GOPHER_MCP_STATIC_TARGETS "")
+    
+    # Collect shared targets
+    if(TARGET gopher-mcp)
+        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp)
+    endif()
+    if(TARGET gopher-mcp-echo-advanced AND BUILD_SHARED_LIBS)
+        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-echo-advanced)
+    endif()
+    if(TARGET gopher-mcp-event AND BUILD_SHARED_LIBS)
+        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-event)
+    endif()
+    
+    # Collect static targets
+    if(TARGET gopher-mcp-static)
+        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-static)
+    endif()
+    if(TARGET gopher-mcp-echo-advanced-static)
+        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-echo-advanced-static)
+    endif()
+    if(TARGET gopher-mcp-event-static)
+        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-event-static)
+    endif()
+    
+    # Install shared libraries with export
+    if(GOPHER_MCP_SHARED_TARGETS)
+        install(TARGETS ${GOPHER_MCP_SHARED_TARGETS}
+            EXPORT gopher-mcp-targets
+            LIBRARY DESTINATION ${GOPHER_MCP_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${GOPHER_MCP_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${GOPHER_MCP_INSTALL_BINDIR}
+            INCLUDES DESTINATION ${GOPHER_MCP_INSTALL_INCLUDEDIR}
+        )
+    endif()
+    
+    # Install static libraries without export (to avoid dependency issues)
+    if(GOPHER_MCP_STATIC_TARGETS)
+        install(TARGETS ${GOPHER_MCP_STATIC_TARGETS}
+            LIBRARY DESTINATION ${GOPHER_MCP_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${GOPHER_MCP_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${GOPHER_MCP_INSTALL_BINDIR}
+        )
+    endif()
+    
+    # Install header files
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
+        DESTINATION ${GOPHER_MCP_INSTALL_INCLUDEDIR}
+        FILES_MATCHING 
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+    )
+    
+    # Generate and install package configuration files
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gopher-mcp-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-config.cmake
+        INSTALL_DESTINATION ${GOPHER_MCP_INSTALL_CMAKEDIR}
+    )
+    
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-config-version.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+    
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-config-version.cmake
+        DESTINATION ${GOPHER_MCP_INSTALL_CMAKEDIR}
+    )
+    
+    # Install export targets (only if shared libraries exist)
+    if(GOPHER_MCP_SHARED_TARGETS)
+        install(EXPORT gopher-mcp-targets
+            FILE gopher-mcp-targets.cmake
+            NAMESPACE gopher-mcp::
+            DESTINATION ${GOPHER_MCP_INSTALL_CMAKEDIR}
+        )
+    endif()
+    
+    # Generate pkg-config file
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gopher-mcp.pc.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp.pc
+        @ONLY
+    )
+    
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    )
+    
+    # Create uninstall target
+    if(NOT TARGET uninstall)
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+            IMMEDIATE @ONLY
+        )
+        
+        add_custom_target(uninstall
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
+            COMMENT "Uninstalling gopher-mcp..."
+        )
+    endif()
+    
+    # Print installation summary
+    message(STATUS "")
+    message(STATUS "Installation Configuration:")
+    message(STATUS "  Install prefix: ${CMAKE_INSTALL_PREFIX}")
+    message(STATUS "  Libraries: ${GOPHER_MCP_INSTALL_LIBDIR}")
+    message(STATUS "  Headers: ${GOPHER_MCP_INSTALL_INCLUDEDIR}")
+    message(STATUS "  CMake modules: ${GOPHER_MCP_INSTALL_CMAKEDIR}")
+    message(STATUS "  Shared libraries: ${BUILD_SHARED_LIBS}")
+    message(STATUS "  Static libraries: ${BUILD_STATIC_LIBS}")
+    message(STATUS "")
+    message(STATUS "To install, run: make install")
+    message(STATUS "To uninstall, run: make uninstall")
+endif()
