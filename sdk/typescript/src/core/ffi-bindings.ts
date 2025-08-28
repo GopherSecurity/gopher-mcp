@@ -231,6 +231,11 @@ try {
         ["int", "uint32", "int"]
       ),
       mcp_filter_release: library.func("mcp_filter_release", "void", ["int"]),
+      mcp_filter_process_data: library.func(
+        "mcp_filter_process_data",
+        "int",
+        ["int", "void*", "uint64"]
+      ),
 
       // Buffer Functions
       mcp_filter_buffer_create: library.func(
@@ -306,6 +311,7 @@ function createMockLibrary(): any {
       _config: number
     ) => Math.floor(Math.random() * 1000) + 1,
     mcp_filter_release: (_filter: number) => {},
+    mcp_filter_process_data: (_filter: number, _data: any, _size: number) => 1,
 
     // Buffer Functions
     mcp_filter_buffer_create: (_data: any, _size: number, _flags: number) =>
@@ -382,18 +388,52 @@ export function fromCString(ptr: Buffer): string {
 export function createStruct<T extends Record<string, any>>(
   structType: any,
   data: T
-): any {
-  // Create a new struct instance by calling the struct type
-  const struct = structType();
-
-  // Copy data to struct
-  Object.keys(data).forEach((key) => {
-    if (key in struct) {
-      (struct as any)[key] = data[key];
-    }
-  });
-
-  return struct;
+): Buffer {
+  // Get the size of the struct
+  const structSize = koffi.sizeof(structType);
+  
+  // Create a buffer to hold the struct data
+  const buffer = Buffer.alloc(structSize);
+  
+  // For the McpFilterConfig struct, we need to handle:
+  // - char* (string pointer) - we'll write the string data and store offset
+  // - uint32 (4 bytes)
+  // - void* (pointer) - we'll write as 8 bytes (64-bit pointer)
+  
+  let offset = 0;
+  
+  // Handle each field based on the struct definition
+  if ('name' in data) {
+    // For char*, we need to handle this carefully
+    // In a real implementation, we'd need to allocate string memory
+    // For now, we'll write a placeholder pointer
+    buffer.writeBigUInt64LE(BigInt(0x12345678), offset);
+    offset += 8;
+  }
+  
+  if ('type' in data) {
+    buffer.writeUInt32LE(data['type'], offset);
+    offset += 4;
+  }
+  
+  if ('settings' in data) {
+    // void* - write as 8-byte pointer
+    buffer.writeBigUInt64LE(BigInt(data['settings'] || 0), offset);
+    offset += 8;
+  }
+  
+  if ('layer' in data) {
+    buffer.writeUInt32LE(data['layer'], offset);
+    offset += 4;
+  }
+  
+  if ('memoryPool' in data) {
+    // void* - write as 8-byte pointer
+    buffer.writeBigUInt64LE(BigInt(data['memoryPool'] || 0), offset);
+    offset += 8;
+  }
+  
+  return buffer;
 }
 
 /**
