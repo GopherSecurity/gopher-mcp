@@ -11,6 +11,7 @@
 #include "mcp/filter/stdio_filter_chain_factory.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/network/address_impl.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/connection_manager.h"
 #include "mcp/network/listener.h"
@@ -18,10 +19,9 @@
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/https_sse_transport_factory.h"
+#include "mcp/transport/pipe_io_handle.h"
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/transport/stdio_transport_socket.h"
-#include "mcp/transport/pipe_io_handle.h"
-#include "mcp/network/address_impl.h"
 
 namespace mcp {
 
@@ -74,10 +74,10 @@ VoidResult McpConnectionManager::connect() {
 
     // Create stream info
     auto stream_info = stream_info::StreamInfoImpl::create();
-    
+
     std::unique_ptr<network::ConnectionSocketImpl> socket_wrapper;
     network::TransportSocketPtr transport_socket;
-    
+
     if (config_.stdio_config->use_bridge) {
       // Real stdio: use pipe bridge pattern for blocking I/O
       // Create and initialize the pipe transport
@@ -111,17 +111,17 @@ VoidResult McpConnectionManager::connect() {
       // Create PipeIoHandle for the provided FDs
       auto io_handle = std::make_unique<transport::PipeIoHandle>(
           config_.stdio_config->stdin_fd, config_.stdio_config->stdout_fd);
-      
+
       // Create pipe addresses
-      auto local_address =
-          std::make_shared<network::Address::PipeInstance>("/tmp/test_stdio_in");
-      auto remote_address =
-          std::make_shared<network::Address::PipeInstance>("/tmp/test_stdio_out");
-      
+      auto local_address = std::make_shared<network::Address::PipeInstance>(
+          "/tmp/test_stdio_in");
+      auto remote_address = std::make_shared<network::Address::PipeInstance>(
+          "/tmp/test_stdio_out");
+
       // Create the connection socket
       socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
           std::move(io_handle), local_address, remote_address);
-      
+
       // Create StdioTransportSocket
       transport_socket = std::make_unique<transport::StdioTransportSocket>(
           *config_.stdio_config);
