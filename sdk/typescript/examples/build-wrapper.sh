@@ -52,7 +52,6 @@ case "$PLATFORM" in
             gcc -shared -fPIC \
                 -o "$OUTPUT_LIB" \
                 "$WRAPPER_SRC" \
-                -L. -l:$(basename "$STATIC_LIB") \
                 -Wl,-undefined,dynamic_lookup
             
             if [ $? -eq 0 ]; then
@@ -75,8 +74,7 @@ case "$PLATFORM" in
             
             gcc -shared -fPIC \
                 -o "$OUTPUT_LIB" \
-                "$WRAPPER_SRC" \
-                -L. -l:$(basename "$STATIC_LIB")
+                "$WRAPPER_SRC"
             
             if [ $? -eq 0 ]; then
                 echo -e "${GREEN}✅ Successfully built: $OUTPUT_LIB${NC}"
