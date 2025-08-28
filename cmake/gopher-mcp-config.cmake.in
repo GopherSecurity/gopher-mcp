@@ -1,0 +1,93 @@
+@PACKAGE_INIT@
+
+# gopher-mcp CMake configuration file
+# 
+# This module sets the following variables:
+#   gopher-mcp_FOUND         - TRUE if all components are found
+#   gopher-mcp_INCLUDE_DIRS  - Include directories
+#   gopher-mcp_LIBRARIES     - Link libraries
+#   gopher-mcp_VERSION       - Version string
+#
+# It also provides the following imported targets:
+#   gopher-mcp::gopher-mcp              - Main library (shared or static)
+#   gopher-mcp::gopher-mcp-static       - Static library (if built)
+#   gopher-mcp::gopher-mcp-event        - Event library
+#   gopher-mcp::gopher-mcp-event-static - Event static library (if built)
+#   gopher-mcp::gopher-mcp-echo-advanced - Echo advanced library
+
+include(CMakeFindDependencyMacro)
+
+# Find required dependencies
+find_dependency(Threads)
+find_dependency(OpenSSL REQUIRED)
+
+# Find nlohmann_json
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    find_package(nlohmann_json QUIET)
+    if(NOT nlohmann_json_FOUND)
+        # Try to fetch it if not found
+        include(FetchContent)
+        FetchContent_Declare(
+            nlohmann_json
+            GIT_REPOSITORY https://github.com/nlohmann/json.git
+            GIT_TAG v3.11.3
+        )
+        FetchContent_MakeAvailable(nlohmann_json)
+    endif()
+endif()
+
+# Find libevent
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBEVENT libevent)
+endif()
+
+if(NOT LIBEVENT_FOUND)
+    find_path(LIBEVENT_INCLUDE_DIR event2/event.h
+        PATHS /usr/local/include /usr/include
+    )
+    find_library(LIBEVENT_CORE_LIBRARY
+        NAMES event_core event
+        PATHS /usr/local/lib /usr/lib
+    )
+    find_library(LIBEVENT_PTHREADS_LIBRARY
+        NAMES event_pthreads
+        PATHS /usr/local/lib /usr/lib
+    )
+    
+    if(LIBEVENT_INCLUDE_DIR AND LIBEVENT_CORE_LIBRARY)
+        set(LIBEVENT_FOUND TRUE)
+        set(LIBEVENT_INCLUDE_DIRS ${LIBEVENT_INCLUDE_DIR})
+        set(LIBEVENT_LIBRARIES ${LIBEVENT_CORE_LIBRARY})
+        if(LIBEVENT_PTHREADS_LIBRARY)
+            list(APPEND LIBEVENT_LIBRARIES ${LIBEVENT_PTHREADS_LIBRARY})
+        endif()
+    else()
+        message(FATAL_ERROR "libevent not found. Please install libevent development package.")
+    endif()
+endif()
+
+# Include the targets file
+if(NOT TARGET gopher-mcp::gopher-mcp AND NOT TARGET gopher-mcp::gopher-mcp-static)
+    include("${CMAKE_CURRENT_LIST_DIR}/gopher-mcp-targets.cmake")
+endif()
+
+# Set variables for compatibility
+set(gopher-mcp_VERSION @PROJECT_VERSION@)
+set(gopher-mcp_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+# Determine which libraries are available and set gopher-mcp_LIBRARIES
+set(gopher-mcp_LIBRARIES "")
+if(TARGET gopher-mcp::gopher-mcp)
+    list(APPEND gopher-mcp_LIBRARIES gopher-mcp::gopher-mcp)
+elseif(TARGET gopher-mcp::gopher-mcp-static)
+    list(APPEND gopher-mcp_LIBRARIES gopher-mcp::gopher-mcp-static)
+endif()
+
+if(TARGET gopher-mcp::gopher-mcp-event)
+    list(APPEND gopher-mcp_LIBRARIES gopher-mcp::gopher-mcp-event)
+elseif(TARGET gopher-mcp::gopher-mcp-event-static)
+    list(APPEND gopher-mcp_LIBRARIES gopher-mcp::gopher-mcp-event-static)
+endif()
+
+check_required_components(gopher-mcp)
