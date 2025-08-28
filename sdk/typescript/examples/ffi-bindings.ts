@@ -49,6 +49,9 @@ async function demonstrateFFIBindings() {
     }
 
     const filter = filterResult.data;
+    if (!filter) {
+      throw new Error("Filter creation returned no data");
+    }
     console.log(`✅ Filter created with ID: ${filter}\n`);
 
     console.log("4. Creating memory pool...");
@@ -59,6 +62,9 @@ async function demonstrateFFIBindings() {
     }
 
     const pool = poolResult.data;
+    if (!pool) {
+      throw new Error("Memory pool creation returned no data");
+    }
     console.log(`✅ Memory pool created with ID: ${pool}\n`);
 
     console.log("5. Creating buffer...");
@@ -72,6 +78,9 @@ async function demonstrateFFIBindings() {
     }
 
     const buffer = bufferResult.data;
+    if (!buffer) {
+      throw new Error("Buffer creation returned no data");
+    }
     console.log(`✅ Buffer created with ID: ${buffer}\n`);
 
     console.log("6. Getting SDK statistics...");
