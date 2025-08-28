@@ -31,7 +31,7 @@ async function basicUsageExample() {
     // Step 1: Initialize the SDK
     console.log("1. Initializing SDK...");
     const initResult = await sdk.initialize();
-    if (!initResult.success) {
+    if (initResult.result !== 0) {
       throw new Error(`Failed to initialize SDK: ${initResult.error}`);
     }
     console.log("✓ SDK initialized successfully\n");
@@ -47,11 +47,14 @@ async function basicUsageExample() {
     };
 
     const filterResult = await sdk.createFilter(filterConfig);
-    if (!filterResult.success) {
+    if (filterResult.result !== 0) {
       throw new Error(`Failed to create filter: ${filterResult.error}`);
     }
 
     const filter = filterResult.data;
+    if (!filter) {
+      throw new Error("Filter creation returned no data");
+    }
     console.log(`✓ Custom filter created: ${filter}\n`);
 
     // Step 3: Create a built-in filter
@@ -59,13 +62,16 @@ async function basicUsageExample() {
     const httpFilterResult = await sdk.createBuiltinFilter(
       McpBuiltinFilterType.HTTP_CODEC
     );
-    if (!httpFilterResult.success) {
+    if (httpFilterResult.result !== 0) {
       throw new Error(
         `Failed to create HTTP filter: ${httpFilterResult.error}`
       );
     }
 
     const httpFilter = httpFilterResult.data;
+    if (!httpFilter) {
+      throw new Error("HTTP filter creation returned no data");
+    }
     console.log(`✓ HTTP codec filter created: ${httpFilter}\n`);
 
     // Step 4: Create buffers with different flags
@@ -76,12 +82,15 @@ async function basicUsageExample() {
       Buffer.from("This is readonly data"),
       McpBufferFlag.READONLY | McpBufferFlag.EXTERNAL
     );
-    if (!readonlyBufferResult.success) {
+    if (readonlyBufferResult.result !== 0) {
       throw new Error(
         `Failed to create readonly buffer: ${readonlyBufferResult.error}`
       );
     }
     const readonlyBuffer = readonlyBufferResult.data;
+    if (!readonlyBuffer) {
+      throw new Error("Readonly buffer creation returned no data");
+    }
     console.log(`✓ Readonly buffer created: ${readonlyBuffer}`);
 
     // Create an owned buffer for writing
@@ -89,21 +98,27 @@ async function basicUsageExample() {
       Buffer.from("This is writable data"),
       McpBufferFlag.OWNED
     );
-    if (!ownedBufferResult.success) {
+    if (ownedBufferResult.result !== 0) {
       throw new Error(
         `Failed to create owned buffer: ${ownedBufferResult.error}`
       );
     }
     const ownedBuffer = ownedBufferResult.data;
+    if (!ownedBuffer) {
+      throw new Error("Owned buffer creation returned no data");
+    }
     console.log(`✓ Owned buffer created: ${ownedBuffer}\n`);
 
     // Step 5: Create a memory pool
     console.log("5. Creating custom memory pool...");
     const poolResult = await sdk.createMemoryPool(1024 * 1024); // 1MB
-    if (!poolResult.success) {
+    if (poolResult.result !== 0) {
       throw new Error(`Failed to create memory pool: ${poolResult.error}`);
     }
     const memoryPool = poolResult.data;
+    if (!memoryPool) {
+      throw new Error("Memory pool creation returned no data");
+    }
     console.log(`✓ Memory pool created: ${memoryPool}\n`);
 
     // Step 6: Display SDK statistics
@@ -155,7 +170,7 @@ async function basicUsageExample() {
     // Step 9: Shutdown the SDK
     console.log("\n9. Shutting down SDK...");
     const shutdownResult = await sdk.shutdown();
-    if (shutdownResult.success) {
+    if (shutdownResult.result === 0) {
       console.log("✓ SDK shut down successfully");
     } else {
       console.error(`❌ SDK shutdown failed: ${shutdownResult.error}`);
