@@ -170,6 +170,47 @@ TransportIoResult StdioTransportSocket::performWrite(Buffer& buffer) {
     return TransportIoResult::success(0);
   }
 
+  // When we have callbacks (ConnectionImpl), use the io_handle instead of raw FD
+  if (callbacks_) {
+    // Get buffer slices
+    constexpr size_t max_slices = 16;
+    ConstRawSlice slices[max_slices];
+    size_t num_slices = buffer.getRawSlices(slices, max_slices);
+    
+    if (num_slices == 0) {
+      return TransportIoResult::success(0);
+    }
+    
+    // Write using io_handle
+    network::IoHandle& io_handle = callbacks_->ioHandle();
+    auto result = io_handle.writev(slices, num_slices);
+    
+    if (!result.ok()) {
+      // Handle would-block
+      if (result.wouldBlock()) {
+        return TransportIoResult::success(0);
+      }
+      
+      // Handle broken pipe
+      if (result.error_code() == EPIPE) {
+        shutdown_write_ = true;
+        return TransportIoResult::close();
+      }
+      
+      // Other errors
+      failure_reason_ = "Write error: " + std::string(strerror(result.error_code()));
+      Error err;
+      err.code = result.error_code();
+      err.message = failure_reason_;
+      return TransportIoResult::error(err);
+    }
+    
+    size_t bytes_written = *result;
+    buffer.drain(bytes_written);
+    return TransportIoResult::success(bytes_written);
+  }
+
+  // Fallback: write to raw FD if no callbacks
   // Get raw slices from buffer
   constexpr size_t max_slices = 16;
   RawSlice slices[max_slices];

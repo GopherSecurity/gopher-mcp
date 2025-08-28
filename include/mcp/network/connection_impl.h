@@ -241,6 +241,10 @@ class ConnectionImpl : public ConnectionImplBase,
 
   // Write event counter for debugging
   mutable std::atomic<uint64_t> write_event_count_{0};
+  
+  // Track if we've done the initial write for already-connected connections
+  // This is needed for stdio connections to properly initialize
+  bool initial_write_done_{false};
 };
 
 /**
