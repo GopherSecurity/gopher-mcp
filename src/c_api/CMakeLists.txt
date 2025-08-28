@@ -83,14 +83,12 @@ target_include_directories(gopher_mcp_c
         ${GOPHER_MCP_ROOT_DIR}/src
 )
 
-# Link with the main Gopher MCP C++ library
+# Link with shared libraries 
+# The shared library already contains all needed dependencies
 target_link_libraries(gopher_mcp_c
     PRIVATE
         gopher-mcp
         gopher-mcp-event
-        ${LIBEVENT_LIBRARIES}
-        OpenSSL::SSL
-        OpenSSL::Crypto
 )
 
 # Compile features
@@ -120,11 +118,8 @@ if(BUILD_C_API_STATIC)
     
     target_link_libraries(gopher_mcp_c_static
         PRIVATE
-            gopher-mcp
-            gopher-mcp-event
-            ${LIBEVENT_LIBRARIES}
-            OpenSSL::SSL
-            OpenSSL::Crypto
+            gopher-mcp-static
+            gopher-mcp-event-static
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
@@ -136,36 +131,35 @@ if(BUILD_C_API_STATIC)
 endif()
 
 # ============================================================================
-# Installation (disabled for now to avoid export issues)
+# Installation
 # ============================================================================
-
-# TODO: Fix export configuration to properly handle gopher-mcp and gopher-mcp-event dependencies
-# For now, we'll just build the libraries without installation support
+# Installation is handled by the main CMakeLists.txt to ensure proper
+# export configuration and unified installation of all components
 
 # ============================================================================
-# pkg-config support (simplified)
+# pkg-config support
 # ============================================================================
-
-if(FALSE)  # Disabled for now
-    configure_file(
-        "${GOPHER_MCP_ROOT_DIR}/cmake/gopher_mcp_c.pc.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.pc"
-        @ONLY
-    )
-endif()
+# pkg-config file generation is handled by the main CMakeLists.txt
 
 # ============================================================================
 # Language binding support files
 # ============================================================================
 
-# Install binding examples and build files
-install(
-    DIRECTORY ${GOPHER_MCP_ROOT_DIR}/bindings/
-    DESTINATION share/gopher-mcp/bindings
-    PATTERN "build" EXCLUDE
-    PATTERN "*.pyc" EXCLUDE
-    PATTERN "__pycache__" EXCLUDE
-)
+# Install binding examples and build files (if enabled)
+if(BUILD_BINDINGS_EXAMPLES AND GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
+    install(
+        DIRECTORY ${GOPHER_MCP_ROOT_DIR}/bindings/
+        DESTINATION share/gopher-mcp/bindings
+        PATTERN "build" EXCLUDE
+        PATTERN "*.pyc" EXCLUDE
+        PATTERN "__pycache__" EXCLUDE
+        PATTERN "node_modules" EXCLUDE
+        PATTERN ".git" EXCLUDE
+        PATTERN "*.o" EXCLUDE
+        PATTERN "*.so" EXCLUDE
+        PATTERN "*.dylib" EXCLUDE
+    )
+endif()
 
 # ============================================================================
 # Testing
