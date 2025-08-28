@@ -314,7 +314,9 @@ export function createStruct<T extends Record<string, any>>(
     // For char*, we need to handle this carefully
     // In a real implementation, we'd need to allocate string memory
     // For now, we'll write a placeholder pointer
-    buffer.writeBigUInt64LE(BigInt(0x12345678), offset);
+    // Note: This is a limitation - we need to allocate string memory properly
+    // For the enhanced wrapper to work, we'll use a non-null value
+    buffer.writeBigUInt64LE(BigInt(0x1000), offset);
     offset += 8;
   }
 
