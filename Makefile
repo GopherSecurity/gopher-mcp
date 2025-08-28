@@ -7,15 +7,30 @@ OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
 CONFIG ?= Release
 
 # Determine installation prefix
-# Use CMAKE_INSTALL_PREFIX if set, otherwise check if we can write to /usr/local
+# Default to system-wide installation unless explicitly overridden
 ifeq ($(CMAKE_INSTALL_PREFIX),)
-    ifeq ($(shell test -w /usr/local && echo yes || echo no),yes)
-        PREFIX ?= /usr/local
-    else
-        PREFIX ?= $(HOME)/.local
-    endif
+    PREFIX ?= /usr/local
 else
     PREFIX := $(CMAKE_INSTALL_PREFIX)
+endif
+
+# Check if we need sudo for installation
+# We need sudo if the prefix directory exists and is not writable,
+# or if it doesn't exist and the parent directory is not writable
+define check_need_sudo
+	if [ -d "$(PREFIX)" ]; then \
+		test -w "$(PREFIX)" && echo no || echo yes; \
+	elif [ -d "$$(dirname "$(PREFIX)")" ]; then \
+		test -w "$$(dirname "$(PREFIX)")" && echo no || echo yes; \
+	else \
+		echo yes; \
+	fi
+endef
+NEED_SUDO := $(shell $(check_need_sudo))
+ifeq ($(NEED_SUDO),yes)
+    SUDO := sudo
+else
+    SUDO :=
 endif
 
 # Default target
@@ -32,6 +47,9 @@ release:
 # Build without running tests (includes C API by default)
 build:
 	@echo "Building with install prefix: $(PREFIX)"
+	@if [ "$(NEED_SUDO)" = "yes" ]; then \
+		echo "Note: Installation will require sudo privileges"; \
+	fi
 	@./build.sh --no-tests --prefix "$(PREFIX)"
 
 # Build with specific configuration
@@ -106,18 +124,18 @@ install:
 		exit 1; \
 	fi
 	@echo "Installing gopher-mcp to $(PREFIX)..."
-	@mkdir -p "$(PREFIX)" 2>/dev/null || true
-	@if [ ! -w "$(PREFIX)" ] && [ ! -w "$(dir $(PREFIX))" ]; then \
-		echo "Warning: Cannot create or write to $(PREFIX)"; \
-		echo "You may need to run: sudo make install"; \
-		echo "Or specify a different prefix: make install CMAKE_INSTALL_PREFIX=~/mylibs"; \
-		exit 1; \
+	@if [ "$(NEED_SUDO)" = "yes" ]; then \
+		echo "Note: Installation to $(PREFIX) requires administrator privileges."; \
+		echo "You will be prompted for your password."; \
+		echo ""; \
 	fi
+	@$(SUDO) mkdir -p "$(PREFIX)" 2>/dev/null || true
 	@if [ "$(OS)" = "Windows_NT" ]; then \
-		cd build && cmake --install . --prefix "$(PREFIX)" --config $(CONFIG); \
+		$(SUDO) cmake --install build --prefix "$(PREFIX)" --config $(CONFIG); \
 	else \
-		cd build && cmake --install . --prefix "$(PREFIX)"; \
+		$(SUDO) cmake --install build --prefix "$(PREFIX)"; \
 	fi
+	@echo ""
 	@echo "Installation complete at $(PREFIX)"
 	@echo "Components installed:"
 	@echo "  - C++ SDK libraries and headers"
@@ -126,7 +144,8 @@ install:
 	fi
 	@if [ "$(PREFIX)" != "/usr/local" ] && [ "$(PREFIX)" != "/usr" ]; then \
 		echo ""; \
-		echo "Note: You may need to update your environment:"; \
+		echo "Note: Custom installation path detected."; \
+		echo "You may need to update your environment:"; \
 		echo "  export LD_LIBRARY_PATH=$(PREFIX)/lib:\$$LD_LIBRARY_PATH  # Linux"; \
 		echo "  export DYLD_LIBRARY_PATH=$(PREFIX)/lib:\$$DYLD_LIBRARY_PATH  # macOS"; \
 		echo "  export PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig:\$$PKG_CONFIG_PATH"; \
@@ -139,22 +158,22 @@ uninstall:
 		exit 1; \
 	fi
 	@echo "Uninstalling gopher-mcp from $(PREFIX)..."
-	@if [ ! -w "$(PREFIX)" ] && [ -d "$(PREFIX)/lib" ]; then \
-		echo "Warning: $(PREFIX) is not writable by current user."; \
-		echo "You may need to run: sudo make uninstall"; \
-		exit 1; \
+	@if [ "$(NEED_SUDO)" = "yes" ]; then \
+		echo "Note: Uninstalling from $(PREFIX) requires administrator privileges."; \
+		echo "You will be prompted for your password."; \
+		echo ""; \
 	fi
 	@if [ -f build/install_manifest.txt ]; then \
 		if [ "$(OS)" = "Windows_NT" ]; then \
-			cd build && cmake --build . --target uninstall; \
+			cd build && $(SUDO) cmake --build . --target uninstall; \
 		else \
-			cd build && $(MAKE) uninstall 2>/dev/null || \
+			cd build && $(SUDO) $(MAKE) uninstall 2>/dev/null || \
 			(echo "Running fallback uninstall..."; \
 			 while IFS= read -r file; do \
 				 if [ -f "$$file" ] || [ -L "$$file" ]; then \
-					 rm -v "$$file"; \
+					 $(SUDO) rm -v "$$file"; \
 				 fi; \
-			 done < install_manifest.txt); \
+			 done < build/install_manifest.txt); \
 		fi; \
 		echo "Uninstall complete."; \
 	else \
@@ -205,7 +224,7 @@ help:
 	@echo "│                                                                       │"
 	@echo "│ Installation customization (use with configure or CMAKE_ARGS):       │"
 	@echo "│   CMAKE_INSTALL_PREFIX=/path  Set installation directory             │"
-	@echo "│                               (default: ~/.local or /usr/local)      │"
+	@echo "│                               (default: /usr/local)                  │"
 	@echo "│   BUILD_C_API=ON/OFF          Build C API (default: ON)              │"
 	@echo "│   BUILD_SHARED_LIBS=ON/OFF    Build shared libraries (default: ON)   │"
 	@echo "│   BUILD_STATIC_LIBS=ON/OFF    Build static libraries (default: ON)   │"
@@ -237,17 +256,17 @@ help:
 	@echo "│ Clean rebuild:                                                       │"
 	@echo "│   $$ make clean && make                                              │"
 	@echo "│                                                                       │"
-	@echo "│ User installation (no sudo required):                                │"
-	@echo "│   $$ make build                     # Installs to ~/.local by default│"
-	@echo "│   $$ make install                                                    │"
-	@echo "│                                                                       │"
-	@echo "│ System-wide installation:                                            │"
+	@echo "│ System-wide installation (default):                                  │"
 	@echo "│   $$ make build                                                      │"
-	@echo "│   $$ sudo make install              # Installs to /usr/local         │"
+	@echo "│   $$ make install                   # Will prompt for sudo if needed │"
+	@echo "│                                                                       │"
+	@echo "│ User-local installation (no sudo):                                   │"
+	@echo "│   $$ make build CMAKE_INSTALL_PREFIX=~/.local                        │"
+	@echo "│   $$ make install                                                    │"
 	@echo "│                                                                       │"
 	@echo "│ Custom installation:                                                 │"
 	@echo "│   $$ make build CMAKE_INSTALL_PREFIX=/opt/gopher                     │"
-	@echo "│   $$ make install                                                    │"
+	@echo "│   $$ make install                   # Will use sudo if needed        │"
 	@echo "│                                                                       │"
 	@echo "│ Build without C API:                                                 │"
 	@echo "│   $$ make build-cpp-only                                             │"

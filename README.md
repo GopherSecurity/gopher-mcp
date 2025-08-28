@@ -127,17 +127,21 @@ Multiple transport implementations:
 
 ### Build & Install
 ```bash
-# Quick build and install (default: /usr/local)
+# Quick build and install (default: /usr/local, auto-prompts for sudo)
 make
-sudo make install
+make install  # Will prompt for password if needed
 
-# Or customize installation
+# User-local installation (no sudo required)
+make build CMAKE_INSTALL_PREFIX=~/.local
+make install
+
+# Custom installation
 cmake -B build -DCMAKE_INSTALL_PREFIX=/opt/gopher-mcp
 make -C build
-sudo make install
+make install  # Will use sudo if needed
 
-# Uninstall
-sudo make uninstall
+# Uninstall (auto-detects if sudo is needed)
+make uninstall
 ```
 
 ### Build Options
@@ -165,7 +169,8 @@ The C API library (`libgopher_mcp_c`) is built by default and provides a stable 
 
 ```bash
 # The C API is included in default install
-make && sudo make install
+make
+make install  # Auto-prompts for sudo if needed
 
 # Headers: /usr/local/include/gopher-mcp/mcp/c_api/
 # Library: /usr/local/lib/libgopher_mcp_c.{so,dylib}
