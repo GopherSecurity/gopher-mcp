@@ -52,8 +52,8 @@ option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(BUILD_STATIC_LIBS "Build static libraries" ON)
 option(GOPHER_MCP_INSTALL "Generate installation targets" ON)
 
-#Option to build C API bindings
-option(BUILD_C_API "Build C API bindings" OFF)  # TODO: Re-enable after fixing compilation issues
+# Option to build C API bindings (for FFI language bindings)
+option(BUILD_C_API "Build C API bindings for FFI" ON)
 
 #Option to build language binding examples
 if(GOPHER_MCP_IS_SUBMODULE)
@@ -718,29 +718,40 @@ if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
     endif()
     
     # Export targets for installation - separate shared and static
+    # to avoid dependency issues with static libraries
     set(GOPHER_MCP_SHARED_TARGETS "")
     set(GOPHER_MCP_STATIC_TARGETS "")
     
-    # Collect shared targets
-    if(TARGET gopher-mcp)
-        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp)
-    endif()
-    if(TARGET gopher-mcp-echo-advanced AND BUILD_SHARED_LIBS)
-        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-echo-advanced)
-    endif()
-    if(TARGET gopher-mcp-event AND BUILD_SHARED_LIBS)
-        list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-event)
+    # Collect shared library targets
+    if(BUILD_SHARED_LIBS)
+        if(TARGET gopher-mcp)
+            list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp)
+        endif()
+        if(TARGET gopher-mcp-echo-advanced)
+            list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-echo-advanced)
+        endif()
+        if(TARGET gopher-mcp-event)
+            list(APPEND GOPHER_MCP_SHARED_TARGETS gopher-mcp-event)
+        endif()
+        if(BUILD_C_API AND TARGET gopher_mcp_c)
+            list(APPEND GOPHER_MCP_SHARED_TARGETS gopher_mcp_c)
+        endif()
     endif()
     
-    # Collect static targets
-    if(TARGET gopher-mcp-static)
-        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-static)
-    endif()
-    if(TARGET gopher-mcp-echo-advanced-static)
-        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-echo-advanced-static)
-    endif()
-    if(TARGET gopher-mcp-event-static)
-        list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-event-static)
+    # Collect static library targets
+    if(BUILD_STATIC_LIBS)
+        if(TARGET gopher-mcp-static)
+            list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-static)
+        endif()
+        if(TARGET gopher-mcp-echo-advanced-static)
+            list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-echo-advanced-static)
+        endif()
+        if(TARGET gopher-mcp-event-static)
+            list(APPEND GOPHER_MCP_STATIC_TARGETS gopher-mcp-event-static)
+        endif()
+        if(BUILD_C_API AND BUILD_C_API_STATIC AND TARGET gopher_mcp_c_static)
+            list(APPEND GOPHER_MCP_STATIC_TARGETS gopher_mcp_c_static)
+        endif()
     endif()
     
     # Install shared libraries with export
@@ -763,13 +774,22 @@ if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
         )
     endif()
     
-    # Install header files
+    # Install C++ SDK header files
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
         DESTINATION ${GOPHER_MCP_INSTALL_INCLUDEDIR}
         FILES_MATCHING 
         PATTERN "*.h"
         PATTERN "*.hpp"
     )
+    
+    # Install C API headers (if C API is enabled)
+    if(BUILD_C_API)
+        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/mcp/c_api/
+            DESTINATION ${GOPHER_MCP_INSTALL_INCLUDEDIR}/mcp/c_api
+            FILES_MATCHING 
+            PATTERN "*.h"
+        )
+    endif()
     
     # Generate and install package configuration files
     configure_package_config_file(
@@ -799,7 +819,8 @@ if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
         )
     endif()
     
-    # Generate pkg-config file
+    # Generate pkg-config files
+    # C++ SDK pkg-config
     configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gopher-mcp.pc.in
         ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp.pc
@@ -809,6 +830,19 @@ if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
     )
+    
+    # C API pkg-config (if enabled)
+    if(BUILD_C_API)
+        configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gopher-mcp-c.pc.in
+            ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-c.pc
+            @ONLY
+        )
+        
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gopher-mcp-c.pc
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+        )
+    endif()
     
     # Create uninstall target
     if(NOT TARGET uninstall)
@@ -831,9 +865,15 @@ if(GOPHER_MCP_INSTALL AND NOT GOPHER_MCP_IS_SUBMODULE)
     message(STATUS "  Libraries: ${GOPHER_MCP_INSTALL_LIBDIR}")
     message(STATUS "  Headers: ${GOPHER_MCP_INSTALL_INCLUDEDIR}")
     message(STATUS "  CMake modules: ${GOPHER_MCP_INSTALL_CMAKEDIR}")
-    message(STATUS "  Shared libraries: ${BUILD_SHARED_LIBS}")
-    message(STATUS "  Static libraries: ${BUILD_STATIC_LIBS}")
+    message(STATUS "  Components:")
+    message(STATUS "    C++ SDK: YES")
+    message(STATUS "    C API: ${BUILD_C_API}")
+    message(STATUS "    Shared libraries: ${BUILD_SHARED_LIBS}")
+    message(STATUS "    Static libraries: ${BUILD_STATIC_LIBS}")
+    if(BUILD_C_API)
+        message(STATUS "    C API static: ${BUILD_C_API_STATIC}")
+    endif()
     message(STATUS "")
-    message(STATUS "To install, run: make install")
-    message(STATUS "To uninstall, run: make uninstall")
+    message(STATUS "To install all components: make install")
+    message(STATUS "To uninstall: make uninstall")
 endif()
