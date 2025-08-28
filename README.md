@@ -116,26 +116,59 @@ Multiple transport implementations:
 - **HTTP+SSE**: HTTP with Server-Sent Events
 - **HTTPS+SSE**: Secure HTTP+SSE
 
-## Building
+## Quick Start
 
 ### Prerequisites
 - C++14 or later compiler
 - CMake 3.10+
 - libevent 2.1+
 - OpenSSL 1.1+ (for SSL/TLS support)
-- nghttp2 (for HTTP/2 support)
+- nghttp2 (optional, for HTTP/2 support)
 
-### Build Instructions
+### Build & Install
 ```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+# Quick build and install (default: /usr/local)
+make
+sudo make install
+
+# Or customize installation
+cmake -B build -DCMAKE_INSTALL_PREFIX=/opt/gopher-mcp
+make -C build
+sudo make install
+
+# Uninstall
+sudo make uninstall
+```
+
+### Build Options
+```bash
+# Build only C++ libraries (no C API)
+cmake -B build -DBUILD_C_API=OFF
+
+# Build only static libraries
+cmake -B build -DBUILD_SHARED_LIBS=OFF
+
+# Build for production
+make release
+sudo make install
 ```
 
 ### Running Tests
 ```bash
-cd build
-ctest --verbose
+make test           # Run tests with minimal output
+make test-verbose   # Run tests with detailed output
+make test-parallel  # Run tests in parallel
+```
+
+### For FFI Language Bindings
+The C API library (`libgopher_mcp_c`) is built by default and provides a stable ABI for FFI bindings:
+
+```bash
+# The C API is included in default install
+make && sudo make install
+
+# Headers: /usr/local/include/gopher-mcp/mcp/c_api/
+# Library: /usr/local/lib/libgopher_mcp_c.{so,dylib}
 ```
 
 ## Usage Examples
