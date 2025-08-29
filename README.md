@@ -58,13 +58,28 @@ Gopher MCP follows a layered architecture designed for high performance, scalabi
 ## Cross-Language Support
 
 ### Architecture Overview
+
 The SDK is designed with cross-language support as a first-class feature:
+
 - **Application Layer**: MCP server/client implementations using your preferred languages
 - **Language Bindings**: Native bindings for each language that wrap the C API
 - **C API Layer**: Stable FFI interface (`libgopher_mcp_c`) that bridges C++ and other languages
 
+### FFI Symbol Export Configuration
+
+The C API library is built with configurable symbol export to support FFI usage:
+
+- **Default**: `EXPORT_ALL_SYMBOLS=ON` - Exports all symbols for FFI compatibility
+- **Alternative**: `EXPORT_ALL_SYMBOLS=OFF` - Hides symbols for production use
+- **Build Command**: `cmake .. -DEXPORT_ALL_SYMBOLS=ON && make install`
+- **Verification**: `nm -D /usr/local/lib/libgopher_mcp_c.0.1.0.dylib | grep mcp_init`
+
+> **Note**: For TypeScript SDK and other FFI bindings to work, build with `EXPORT_ALL_SYMBOLS=ON`
+
 ### C API Features
+
 The C API provides a complete FFI-safe interface:
+
 - **Opaque handles**: Hide C++ implementation details
 - **Memory safety**: RAII guards and automatic resource management
 - **Type safety**: Strong typing with comprehensive error handling
@@ -72,7 +87,9 @@ The C API provides a complete FFI-safe interface:
 - **Zero-copy buffers**: Efficient data sharing where possible
 
 ### Supported Languages
+
 Native bindings are available for all mainstream programming languages:
+
 - **Python**: ctypes/cffi integration with async support
 - **TypeScript/Node.js**: N-API bindings for high performance
 - **Go**: CGO integration with goroutine-safe wrappers
@@ -88,19 +105,25 @@ Each binding maintains language-specific idioms while providing full access to M
 ## Core Design Principles
 
 ### 1. Thread-Safe Dispatcher Model
+
 All I/O operations and state transitions occur within dispatcher threads, eliminating the need for complex synchronization:
+
 - Each worker thread has its own dispatcher
 - Callbacks are invoked in dispatcher thread context
 - Thread-local storage for connection state
 
 ### 2. Filter Chain Architecture
+
 Modular processing pipeline for extensible functionality:
+
 - **Stateless filters** for HTTP/2 concurrent stream support
 - In-place buffer modification for zero-copy performance
 - Dynamic filter composition based on transport and requirements
 
 ### 3. Production Patterns
+
 Following enterprise design patterns:
+
 - Connection pooling with O(1) insertion/removal
 - Circuit breaker for failure isolation
 - Watermark-based flow control
@@ -109,7 +132,9 @@ Following enterprise design patterns:
 ## Key Components
 
 ### Application Base (`mcp_application_base.h`)
+
 Base framework providing:
+
 - Worker thread management
 - Filter chain construction
 - Connection pooling
@@ -117,7 +142,9 @@ Base framework providing:
 - Graceful lifecycle management
 
 ### MCP Server (`server/mcp_server.h`)
+
 Production-ready server with:
+
 - Multi-transport support (stdio, HTTP+SSE, WebSocket)
 - Session management with timeout
 - Resource subscriptions
@@ -125,7 +152,9 @@ Production-ready server with:
 - Prompt management
 
 ### MCP Client (`client/mcp_client.h`)
+
 Enterprise client featuring:
+
 - Transport negotiation
 - Connection pooling
 - Circuit breaker pattern
@@ -133,14 +162,18 @@ Enterprise client featuring:
 - Future-based async API
 
 ### Network Layer (`network/`)
+
 Core networking infrastructure:
+
 - **Connection**: Manages socket lifecycle and filter chain
 - **Listener**: Accepts incoming connections
 - **Filter**: Modular processing units
 - **Socket Interface**: Platform abstraction
 
 ### Filter Chain (`filter/`)
+
 Processing pipeline components:
+
 - **HTTP Codec**: HTTP/1.1 and HTTP/2 protocol handling
 - **SSE Codec**: Server-Sent Events processing
 - **Routing**: Request routing based on method and path
@@ -150,7 +183,9 @@ Processing pipeline components:
 - **Backpressure**: Flow control
 
 ### Transport Layer (`transport/`)
+
 Multiple transport implementations:
+
 - **Stdio**: Standard I/O pipes
 - **TCP**: Raw TCP sockets
 - **SSL/TLS**: Secure sockets
@@ -160,6 +195,7 @@ Multiple transport implementations:
 ## Quick Start
 
 ### Prerequisites
+
 - C++14 or later compiler
 - CMake 3.10+
 - libevent 2.1+
@@ -167,6 +203,7 @@ Multiple transport implementations:
 - nghttp2 (optional, for HTTP/2 support)
 
 ### Build & Install
+
 ```bash
 # Quick build and install (default: /usr/local, auto-prompts for sudo)
 make
@@ -186,6 +223,7 @@ make uninstall
 ```
 
 ### Build Options
+
 ```bash
 # Build only C++ libraries (no C API)
 cmake -B build -DBUILD_C_API=OFF
@@ -196,9 +234,20 @@ cmake -B build -DBUILD_SHARED_LIBS=OFF
 # Build for production
 make release
 sudo make install
+
+# Build with FFI support (recommended for language bindings)
+cmake -B build -DEXPORT_ALL_SYMBOLS=ON
+make -C build -j$(nproc)
+sudo make -C build install
+
+# Build without FFI support (production use only)
+cmake -B build -DEXPORT_ALL_SYMBOLS=OFF
+make -C build -j$(nproc)
+sudo make -C build install
 ```
 
 ### Running Tests
+
 ```bash
 make test           # Run tests with minimal output
 make test-verbose   # Run tests with detailed output
@@ -206,6 +255,7 @@ make test-parallel  # Run tests in parallel
 ```
 
 ### For FFI Language Bindings
+
 The C API library (`libgopher_mcp_c`) is built by default and provides a stable ABI for FFI bindings:
 
 ```bash
@@ -220,6 +270,7 @@ make install  # Auto-prompts for sudo if needed
 ## Usage Examples
 
 ### Creating an MCP Server
+
 ```cpp
 #include "mcp/server/mcp_server.h"
 
@@ -227,14 +278,14 @@ int main() {
     mcp::server::McpServerConfig config;
     config.server_name = "my-mcp-server";
     config.worker_threads = 4;
-    
+
     auto server = mcp::server::createMcpServer(config);
-    
+
     // Register a tool
     mcp::Tool tool;
     tool.name = "calculator";
     tool.description = "Performs calculations";
-    
+
     server->registerTool(tool, [](const std::string& name,
                                   const mcp::optional<mcp::Metadata>& args,
                                   mcp::server::SessionContext& session) {
@@ -243,16 +294,17 @@ int main() {
         // ... perform calculation ...
         return result;
     });
-    
+
     // Start listening
     server->listen("tcp://0.0.0.0:8080");
     server->run();
-    
+
     return 0;
 }
 ```
 
 ### Creating an MCP Client
+
 ```cpp
 #include "mcp/client/mcp_client.h"
 
@@ -260,36 +312,68 @@ int main() {
     mcp::client::McpClientConfig config;
     config.client_name = "my-mcp-client";
     config.max_retries = 3;
-    
+
     auto client = mcp::client::createMcpClient(config);
-    
+
     // Connect to server
     client->connect("tcp://localhost:8080");
-    
+
     // Initialize protocol
     auto init_future = client->initializeProtocol();
     auto init_result = init_future.get();
-    
+
     // Call a tool
     mcp::Metadata args;
     args["expression"] = "2 + 2";
-    
+
     auto tool_future = client->callTool("calculator", args);
     auto tool_result = tool_future.get();
-    
+
     return 0;
 }
 ```
 
+## Troubleshooting
+
+### FFI Library Loading Issues
+
+If you encounter issues with TypeScript SDK or other FFI bindings not being able to load the shared library:
+
+**Problem**: `nm: error: File format has no dynamic symbol table`
+
+**Solution**: Rebuild with symbol export enabled:
+
+```bash
+cd build
+cmake .. -DEXPORT_ALL_SYMBOLS=ON
+make -j$(nproc)
+sudo make install
+```
+
+**Verification**: Check that symbols are exported:
+
+```bash
+nm -D /usr/local/lib/libgopher_mcp_c.0.1.0.dylib | grep mcp_init
+# Should show: 0000000000001234 T _mcp_init
+```
+
+### Common Build Issues
+
+- **CMake not found**: `brew install cmake` (macOS) or `apt install cmake` (Ubuntu)
+- **nghttp2 not found**: `brew install nghttp2` (macOS) or `apt install libnghttp2-dev` (Ubuntu)
+- **Library not found**: Ensure `LD_LIBRARY_PATH` includes `/usr/local/lib` or rebuild with correct prefix
+
 ## Documentation
 
 ### Core Components
+
 - [MCP Protocol](docs/mcp_protocol.md) - Protocol implementation details
 - [Filter Chain](docs/filter_chain.md) - Processing pipeline architecture
 - [Transport Layer](docs/transport_layer.md) - Transport implementations
 - [Network Layer](docs/network_layer.md) - Connection management and socket abstraction
 
 ### Design Documents
+
 - [Event Loop Design](docs/event_loop_design.md) - Event-driven architecture and dispatcher design
 - [Filter Usage Guide](docs/filter_usage_guide.md) - Comprehensive guide for using and creating filters
 - [CTAD Alternatives](docs/CTAD_alternatives.md) - Class Template Argument Deduction alternatives for C++14
