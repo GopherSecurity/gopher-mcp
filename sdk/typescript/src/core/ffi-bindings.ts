@@ -6,109 +6,540 @@
  * to the C API functions. It uses koffi for cross-platform compatibility.
  */
 
-import fs from "fs";
 import koffi from "koffi";
 import { arch, platform } from "os";
-import path from "path";
 
-// ============================================================================
-// Platform Detection
-// ============================================================================
-
-const isWindows = platform() === "win32";
-const isMac = platform() === "darwin";
-const isLinux = platform() === "linux";
-
-// ============================================================================
-// Library Path Configuration
-// ============================================================================
+// Library configuration for different platforms and architectures
+const LIBRARY_CONFIG = {
+  darwin: {
+    x64: {
+      path: "/usr/local/lib/libgopher_mcp_c.dylib",
+      name: "libgopher_mcp_c.dylib",
+    },
+    arm64: {
+      path: "/usr/local/lib/libgopher_mcp_c.dylib",
+      name: "libgopher_mcp_c.dylib",
+    },
+  },
+  linux: {
+    x64: {
+      path: "/usr/local/lib/libgopher_mcp_c.so",
+      name: "libgopher_mcp_c.so",
+    },
+    arm64: {
+      path: "/usr/local/lib/libgopher_mcp_c.so",
+      name: "libgopher_mcp_c.so",
+    },
+  },
+  win32: {
+    x64: {
+      path: "C:\\Program Files\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+      name: "gopher_mcp_c.dll",
+    },
+    ia32: {
+      path: "C:\\Program Files (x86)\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+      name: "gopher_mcp_c.dll",
+    },
+  },
+} as const;
 
 function getLibraryPath(): string {
-  if (isMac) {
-    // macOS - support both static and dynamic libraries
-    if (arch() === "x64") {
-      // Try dynamic library first, then static
-      const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
-      const dynamicLib = path.join(
-        __dirname,
-        "../../build/libgopher-mcp.dylib"
+  const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
+  const currentArch =
+    arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
+
+  if (
+    !LIBRARY_CONFIG[currentPlatform] ||
+    !LIBRARY_CONFIG[currentPlatform][currentArch]
+  ) {
+    throw new Error(`Unsupported platform: ${currentPlatform} ${currentArch}`);
+  }
+
+  return LIBRARY_CONFIG[currentPlatform][currentArch].path;
+}
+
+function getLibraryName(): string {
+  const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
+  const currentArch =
+    arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
+
+  if (
+    !LIBRARY_CONFIG[currentPlatform] ||
+    !LIBRARY_CONFIG[currentPlatform][currentArch]
+  ) {
+    throw new Error(`Unsupported platform: ${currentPlatform} ${currentArch}`);
+  }
+
+  return LIBRARY_CONFIG[currentPlatform][currentArch].name;
+}
+
+// MCP Filter Library interface - using real C API functions
+export let mcpFilterLib: any = {};
+
+try {
+  const libPath = getLibraryPath();
+  const libName = getLibraryName();
+
+  console.log(`Loading MCP C API library: ${libName}`);
+  console.log(`Library path: ${libPath}`);
+
+  // Load the shared library
+  const library = koffi.load(libPath);
+  console.log(`MCP C API library loaded successfully: ${libName}`);
+
+  // Try to bind functions and see which ones are available
+  const availableFunctions: any = {};
+
+  // List of REAL C API functions from mcp_filter_api.h, mcp_filter_buffer.h, mcp_filter_chain.h
+  const functionList = [
+    // Core filter functions from mcp_filter_api.h
+    {
+      name: "mcp_filter_create",
+      signature: "uint64_t",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_filter_create_builtin",
+      signature: "uint64_t",
+      args: ["uint64_t", "int", "void*"],
+    },
+    { name: "mcp_filter_retain", signature: "void", args: ["uint64_t"] },
+    { name: "mcp_filter_release", signature: "void", args: ["uint64_t"] },
+    {
+      name: "mcp_filter_set_callbacks",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_filter_set_protocol_metadata",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_filter_get_protocol_metadata",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+
+    // Filter chain functions from mcp_filter_api.h and mcp_filter_chain.h
+    {
+      name: "mcp_filter_chain_builder_create",
+      signature: "void*",
+      args: ["uint64_t"],
+    },
+    {
+      name: "mcp_filter_chain_add_filter",
+      signature: "int",
+      args: ["void*", "uint64_t", "int", "uint64_t"],
+    },
+    { name: "mcp_filter_chain_build", signature: "uint64_t", args: ["void*"] },
+    {
+      name: "mcp_filter_chain_builder_destroy",
+      signature: "void",
+      args: ["void*"],
+    },
+    { name: "mcp_filter_chain_retain", signature: "void", args: ["uint64_t"] },
+    { name: "mcp_filter_chain_release", signature: "void", args: ["uint64_t"] },
+
+    // Advanced chain functions from mcp_filter_chain.h
+    {
+      name: "mcp_chain_builder_create_ex",
+      signature: "void*",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_chain_builder_add_node",
+      signature: "int",
+      args: ["void*", "void*"],
+    },
+    {
+      name: "mcp_chain_builder_add_conditional",
+      signature: "int",
+      args: ["void*", "void*", "uint64_t"],
+    },
+    {
+      name: "mcp_chain_builder_add_parallel_group",
+      signature: "int",
+      args: ["void*", "void*", "size_t"],
+    },
+    { name: "mcp_chain_get_state", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_pause", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_resume", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_reset", signature: "int", args: ["uint64_t"] },
+
+    // Buffer functions from mcp_filter_buffer.h
+    {
+      name: "mcp_buffer_create_owned",
+      signature: "uint64_t",
+      args: ["size_t", "int"],
+    },
+    {
+      name: "mcp_buffer_create_view",
+      signature: "uint64_t",
+      args: ["void*", "size_t"],
+    },
+    {
+      name: "mcp_buffer_create_from_fragment",
+      signature: "uint64_t",
+      args: ["void*"],
+    },
+    { name: "mcp_buffer_clone", signature: "uint64_t", args: ["uint64_t"] },
+    {
+      name: "mcp_buffer_create_cow",
+      signature: "uint64_t",
+      args: ["uint64_t"],
+    },
+    {
+      name: "mcp_buffer_add",
+      signature: "int",
+      args: ["uint64_t", "void*", "size_t"],
+    },
+    {
+      name: "mcp_buffer_add_string",
+      signature: "int",
+      args: ["uint64_t", "string"],
+    },
+    {
+      name: "mcp_buffer_add_buffer",
+      signature: "int",
+      args: ["uint64_t", "uint64_t"],
+    },
+    {
+      name: "mcp_buffer_add_fragment",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_buffer_prepend",
+      signature: "int",
+      args: ["uint64_t", "void*", "size_t"],
+    },
+    {
+      name: "mcp_buffer_drain",
+      signature: "int",
+      args: ["uint64_t", "size_t"],
+    },
+    {
+      name: "mcp_buffer_move",
+      signature: "int",
+      args: ["uint64_t", "uint64_t", "size_t"],
+    },
+    {
+      name: "mcp_buffer_reserve",
+      signature: "int",
+      args: ["uint64_t", "size_t", "void*"],
+    },
+    {
+      name: "mcp_buffer_commit_reservation",
+      signature: "int",
+      args: ["void*", "size_t"],
+    },
+    {
+      name: "mcp_buffer_cancel_reservation",
+      signature: "int",
+      args: ["void*"],
+    },
+    {
+      name: "mcp_buffer_get_contiguous",
+      signature: "int",
+      args: ["uint64_t", "size_t", "size_t", "void*", "size_t*"],
+    },
+    {
+      name: "mcp_buffer_linearize",
+      signature: "int",
+      args: ["uint64_t", "size_t", "void*"],
+    },
+    {
+      name: "mcp_buffer_peek",
+      signature: "int",
+      args: ["uint64_t", "size_t", "void*", "size_t"],
+    },
+    {
+      name: "mcp_buffer_write_le_int",
+      signature: "int",
+      args: ["uint64_t", "uint64_t", "size_t"],
+    },
+    {
+      name: "mcp_buffer_write_be_int",
+      signature: "int",
+      args: ["uint64_t", "uint64_t", "size_t"],
+    },
+    {
+      name: "mcp_buffer_read_le_int",
+      signature: "int",
+      args: ["uint64_t", "size_t", "uint64_t*"],
+    },
+    {
+      name: "mcp_buffer_read_be_int",
+      signature: "int",
+      args: ["uint64_t", "size_t", "uint64_t*"],
+    },
+    {
+      name: "mcp_buffer_search",
+      signature: "int",
+      args: ["uint64_t", "void*", "size_t", "size_t", "size_t*"],
+    },
+    {
+      name: "mcp_buffer_find_byte",
+      signature: "int",
+      args: ["uint64_t", "uint8_t", "size_t*"],
+    },
+    { name: "mcp_buffer_length", signature: "size_t", args: ["uint64_t"] },
+    { name: "mcp_buffer_capacity", signature: "size_t", args: ["uint64_t"] },
+    { name: "mcp_buffer_is_empty", signature: "int", args: ["uint64_t"] },
+    {
+      name: "mcp_buffer_get_stats",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_buffer_set_watermarks",
+      signature: "int",
+      args: ["uint64_t", "size_t", "size_t", "size_t"],
+    },
+    {
+      name: "mcp_buffer_above_high_watermark",
+      signature: "int",
+      args: ["uint64_t"],
+    },
+    {
+      name: "mcp_buffer_below_low_watermark",
+      signature: "int",
+      args: ["uint64_t"],
+    },
+
+    // Buffer pool functions
+    {
+      name: "mcp_buffer_pool_create",
+      signature: "void*",
+      args: ["size_t", "size_t"],
+    },
+    { name: "mcp_buffer_pool_create_ex", signature: "void*", args: ["void*"] },
+    { name: "mcp_buffer_pool_acquire", signature: "uint64_t", args: ["void*"] },
+    {
+      name: "mcp_buffer_pool_release",
+      signature: "void",
+      args: ["void*", "uint64_t"],
+    },
+    { name: "mcp_buffer_pool_destroy", signature: "void", args: ["void*"] },
+    {
+      name: "mcp_buffer_pool_get_stats",
+      signature: "int",
+      args: ["void*", "size_t*", "size_t*", "size_t*"],
+    },
+    {
+      name: "mcp_buffer_pool_trim",
+      signature: "int",
+      args: ["void*", "size_t"],
+    },
+
+    // Filter manager functions
+    {
+      name: "mcp_filter_manager_create",
+      signature: "uint64_t",
+      args: ["uint64_t", "uint64_t"],
+    },
+    {
+      name: "mcp_filter_manager_add_filter",
+      signature: "int",
+      args: ["uint64_t", "uint64_t"],
+    },
+    {
+      name: "mcp_filter_manager_add_chain",
+      signature: "int",
+      args: ["uint64_t", "uint64_t"],
+    },
+    {
+      name: "mcp_filter_manager_initialize",
+      signature: "int",
+      args: ["uint64_t"],
+    },
+    {
+      name: "mcp_filter_manager_release",
+      signature: "void",
+      args: ["uint64_t"],
+    },
+
+    // Zero-copy buffer operations
+    {
+      name: "mcp_filter_get_buffer_slices",
+      signature: "int",
+      args: ["uint64_t", "void*", "size_t*"],
+    },
+    {
+      name: "mcp_filter_reserve_buffer",
+      signature: "int",
+      args: ["uint64_t", "size_t", "void*"],
+    },
+    {
+      name: "mcp_filter_commit_buffer",
+      signature: "int",
+      args: ["uint64_t", "size_t"],
+    },
+    {
+      name: "mcp_filter_buffer_create",
+      signature: "uint64_t",
+      args: ["void*", "size_t", "uint32_t"],
+    },
+    {
+      name: "mcp_filter_buffer_release",
+      signature: "void",
+      args: ["uint64_t"],
+    },
+
+    // Client/Server integration
+    {
+      name: "mcp_client_send_filtered",
+      signature: "uint64_t",
+      args: ["void*", "void*", "size_t", "void*", "void*"],
+    },
+    {
+      name: "mcp_server_process_filtered",
+      signature: "int",
+      args: ["void*", "uint64_t", "uint64_t", "void*", "void*"],
+    },
+
+    // Thread-safe operations
+    {
+      name: "mcp_filter_post_data",
+      signature: "int",
+      args: ["uint64_t", "void*", "size_t", "void*", "void*"],
+    },
+
+    // Resource management
+    { name: "mcp_filter_guard_create", signature: "void*", args: ["uint64_t"] },
+    {
+      name: "mcp_filter_guard_add_filter",
+      signature: "int",
+      args: ["void*", "uint64_t"],
+    },
+    { name: "mcp_filter_guard_release", signature: "void", args: ["void*"] },
+
+    // Statistics and monitoring
+    {
+      name: "mcp_filter_get_stats",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    { name: "mcp_filter_reset_stats", signature: "int", args: ["uint64_t"] },
+    {
+      name: "mcp_chain_get_stats",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+
+    // Chain optimization and debugging
+    { name: "mcp_chain_optimize", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_reorder_filters", signature: "int", args: ["uint64_t"] },
+    {
+      name: "mcp_chain_profile",
+      signature: "int",
+      args: ["uint64_t", "uint64_t", "size_t", "void*"],
+    },
+    {
+      name: "mcp_chain_set_trace_level",
+      signature: "int",
+      args: ["uint64_t", "uint32_t"],
+    },
+    {
+      name: "mcp_chain_dump",
+      signature: "string",
+      args: ["uint64_t", "string"],
+    },
+    {
+      name: "mcp_chain_validate",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+
+    // Chain routing
+    { name: "mcp_chain_router_create", signature: "void*", args: ["void*"] },
+    {
+      name: "mcp_chain_router_add_route",
+      signature: "int",
+      args: ["void*", "void*", "uint64_t"],
+    },
+    {
+      name: "mcp_chain_router_route",
+      signature: "uint64_t",
+      args: ["void*", "uint64_t", "void*"],
+    },
+    { name: "mcp_chain_router_destroy", signature: "void", args: ["void*"] },
+
+    // Chain pool for load balancing
+    {
+      name: "mcp_chain_pool_create",
+      signature: "void*",
+      args: ["uint64_t", "size_t", "int"],
+    },
+    { name: "mcp_chain_pool_get_next", signature: "uint64_t", args: ["void*"] },
+    {
+      name: "mcp_chain_pool_return",
+      signature: "void",
+      args: ["void*", "uint64_t"],
+    },
+    {
+      name: "mcp_chain_pool_get_stats",
+      signature: "int",
+      args: ["void*", "size_t*", "size_t*", "uint64_t*"],
+    },
+    { name: "mcp_chain_pool_destroy", signature: "void", args: ["void*"] },
+
+    // Memory management (from mcp_c_memory.h)
+    { name: "mcp_memory_pool_create", signature: "void*", args: ["size_t"] },
+    { name: "mcp_memory_pool_destroy", signature: "void", args: ["void*"] },
+    {
+      name: "mcp_memory_pool_alloc",
+      signature: "void*",
+      args: ["void*", "size_t"],
+    },
+
+    // JSON utilities (from mcp_c_collections.h)
+    { name: "mcp_json_create_object", signature: "void*", args: [] },
+    { name: "mcp_json_create_string", signature: "void*", args: ["string"] },
+    { name: "mcp_json_create_number", signature: "void*", args: ["double"] },
+    { name: "mcp_json_create_bool", signature: "void*", args: ["int"] },
+    { name: "mcp_json_free", signature: "void", args: ["void*"] },
+    { name: "mcp_json_stringify", signature: "string", args: ["void*"] },
+
+    // Core MCP functions (from mcp_c_api.h)
+    { name: "mcp_init", signature: "int", args: ["void*"] },
+    { name: "mcp_shutdown", signature: "void", args: [] },
+    { name: "mcp_is_initialized", signature: "int", args: [] },
+    { name: "mcp_get_version", signature: "string", args: [] },
+    { name: "mcp_get_last_error", signature: "void*", args: [] },
+    { name: "mcp_clear_last_error", signature: "void", args: [] },
+  ];
+
+  // Try to bind each function
+  for (const func of functionList) {
+    try {
+      availableFunctions[func.name] = library.func(
+        func.name,
+        func.signature,
+        func.args
       );
-
-      if (fs.existsSync(dynamicLib)) {
-        return dynamicLib;
-      } else if (fs.existsSync(staticLib)) {
-        return staticLib;
-      }
-      return dynamicLib; // Default to dynamic for path generation
-    } else if (arch() === "arm64") {
-      const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
-      const dynamicLib = path.join(
-        __dirname,
-        "../../build/libgopher-mcp.dylib"
-      );
-
-      if (fs.existsSync(dynamicLib)) {
-        return dynamicLib;
-      } else if (fs.existsSync(staticLib)) {
-        return staticLib;
-      }
-      return dynamicLib;
-    }
-  } else if (isLinux) {
-    // Linux - support both static and dynamic libraries
-    if (arch() === "x64") {
-      const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
-      const dynamicLib = path.join(
-        __dirname,
-        "../../../build/libgopher-mcp.so"
-      );
-
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
-        return staticLib;
-      }
-      return dynamicLib;
-    } else if (arch() === "arm64") {
-      const staticLib = path.join(__dirname, "../../../build/libgopher-mcp.a");
-      const dynamicLib = path.join(
-        __dirname,
-        "../../../build/libgopher-mcp.so"
-      );
-
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
-        return staticLib;
-      }
-      return dynamicLib;
-    }
-  } else if (isWindows) {
-    // Windows - support both static and dynamic libraries
-    if (arch() === "x64") {
-      const staticLib = path.join(__dirname, "../../../build/gopher-mcp.lib");
-      const dynamicLib = path.join(__dirname, "../../../build/gopher-mcp.dll");
-
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
-        return staticLib;
-      }
-      return dynamicLib;
-    } else if (arch() === "ia32") {
-      const staticLib = path.join(__dirname, "../../../build/gopher-mcp.lib");
-      const dynamicLib = path.join(__dirname, "../../../build/gopher-mcp.dll");
-
-      if (fs.existsSync(staticLib)) {
-        return staticLib;
-      } else if (fs.existsSync(dynamicLib)) {
-        return staticLib;
-      }
-      return dynamicLib;
+      console.log(`✓ Bound function: ${func.name}`);
+    } catch (error) {
+      console.log(`✗ Failed to bind function: ${func.name} - ${error}`);
     }
   }
 
-  throw new Error(`Unsupported platform: ${platform()} ${arch()}`);
+  mcpFilterLib = availableFunctions;
+
+  const boundCount = Object.keys(availableFunctions).length;
+  console.log(
+    `Successfully bound ${boundCount} out of ${functionList.length} functions`
+  );
+
+  if (boundCount === 0) {
+    throw new Error("No functions could be bound from the library");
+  }
+} catch (error) {
+  const libName = getLibraryName();
+  const errorMsg = `Failed to load MCP C API library (${libName}): ${error}`;
+  console.error(errorMsg);
+  throw new Error(errorMsg);
 }
 
 // ============================================================================
@@ -166,109 +597,6 @@ export const McpFilterStatsStruct = koffi.struct("McpFilterStats", {
   processingTimeUs: "uint64",
   throughputMbps: "double",
 });
-
-// ============================================================================
-// Library Loading
-// ============================================================================
-
-let mcpFilterLib: any = null;
-
-try {
-  const libPath = getLibraryPath();
-  console.log(`Loading MCP Filter library from: ${libPath}`);
-
-  // Check if this is a static library
-  if (libPath.endsWith(".a") || libPath.endsWith(".lib")) {
-    console.warn(
-      "Static library detected. Static libraries cannot be directly loaded by FFI."
-    );
-    // Library loading failed - this should not happen in production
-    throw new Error("Failed to load MCP Filter library");
-  } else {
-    // Load dynamic library
-    const library = koffi.load(libPath);
-    console.log("MCP Filter library loaded successfully");
-
-    // Explicitly bind the functions we need
-    mcpFilterLib = {
-      // Core MCP Functions
-      mcp_init: library.func("mcp_init", "int", ["void*"]),
-      mcp_shutdown: library.func("mcp_shutdown", "void", []),
-      mcp_is_initialized: library.func("mcp_is_initialized", "int", []),
-      mcp_get_version: library.func("mcp_get_version", "string", []),
-
-      // Memory Management
-      mcp_memory_pool_create: library.func("mcp_memory_pool_create", "int", [
-        "uint64",
-      ]),
-      mcp_memory_pool_destroy: library.func("mcp_memory_pool_destroy", "void", [
-        "int",
-      ]),
-      mcp_memory_pool_alloc: library.func("mcp_memory_pool_alloc", "void*", [
-        "int",
-        "uint64",
-      ]),
-
-      // Dispatcher Functions
-      mcp_dispatcher_create: library.func("mcp_dispatcher_create", "int", []),
-      mcp_dispatcher_destroy: library.func("mcp_dispatcher_destroy", "void", [
-        "int",
-      ]),
-
-      // Filter Functions
-      mcp_filter_create: library.func("mcp_filter_create", "int", [
-        "int",
-        "void*",
-      ]),
-      mcp_filter_create_builtin: library.func(
-        "mcp_filter_create_builtin",
-        "int",
-        ["int", "uint32", "int"]
-      ),
-      mcp_filter_release: library.func("mcp_filter_release", "void", ["int"]),
-      mcp_filter_process_data: library.func("mcp_filter_process_data", "int", [
-        "int",
-        "void*",
-        "uint64",
-      ]),
-
-      // Buffer Functions
-      mcp_filter_buffer_create: library.func(
-        "mcp_filter_buffer_create",
-        "int",
-        ["void*", "uint64", "uint32"]
-      ),
-      mcp_filter_buffer_release: library.func(
-        "mcp_filter_buffer_release",
-        "void",
-        ["int"]
-      ),
-      mcp_filter_buffer_get_data: library.func(
-        "mcp_filter_buffer_get_data",
-        "int",
-        ["int", "void**", "void**"]
-      ),
-      mcp_filter_buffer_set_data: library.func(
-        "mcp_filter_buffer_set_data",
-        "int",
-        ["int", "void*", "uint64"]
-      ),
-
-      // JSON Functions
-      mcp_json_create_object: library.func("mcp_json_create_object", "int", []),
-      mcp_json_destroy: library.func("mcp_json_destroy", "void", ["int"]),
-      mcp_json_stringify: library.func("mcp_json_stringify", "string", ["int"]),
-
-      // Utility Functions
-      mcp_get_error_string: library.func("mcp_get_error_string", "string", [
-        "int",
-      ]),
-    };
-  }
-} catch (error) {
-  console.warn(`Failed to load MCP Filter library: ${error}`);
-  throw new Error(`Failed to load MCP Filter library: ${error}`);
-}
 
 // ============================================================================
 // Utility Functions
@@ -406,9 +734,3 @@ export function fromCBool(value: number): boolean {
 export function allocateCString(str: string): Buffer {
   return Buffer.from(str + "\0", "utf8");
 }
-
-// ============================================================================
-// Export Library
-// ============================================================================
-
-export { mcpFilterLib };
