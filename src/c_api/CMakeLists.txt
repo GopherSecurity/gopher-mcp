@@ -1,5 +1,9 @@
 # CMake configuration for Gopher MCP C API bindings
+# Updated to ensure proper symbol export for FFI usage
 cmake_minimum_required(VERSION 3.14)
+
+# Configuration option for symbol export
+option(EXPORT_ALL_SYMBOLS "Export all symbols for FFI usage" ON)
 
 # ============================================================================
 # C API Library
@@ -45,6 +49,20 @@ set_target_properties(gopher_mcp_c PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
+# Ensure symbols are exported for FFI usage
+if(EXPORT_ALL_SYMBOLS)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        # On macOS, ensure symbols are properly exported for dynamic loading
+        set_target_properties(gopher_mcp_c PROPERTIES
+            C_VISIBILITY_PRESET default
+            CXX_VISIBILITY_PRESET default
+        )
+        message(STATUS "Symbol export enabled for FFI usage on macOS")
+    endif()
+else()
+    message(STATUS "Symbol export disabled - library may not work with FFI")
+endif()
+
 # Export only C API symbols
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # Windows: Use .def file or __declspec(dllexport)
@@ -54,8 +72,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_compile_definitions(gopher_mcp_c PRIVATE GOPHER_MCP_C_API_EXPORTS MCP_BUILD_LIBRARY MCP_BUILD_SHARED)
 else()
     # Unix/Linux/macOS: Use visibility attributes
-    target_compile_options(gopher_mcp_c PRIVATE -fvisibility=hidden)
+    if(EXPORT_ALL_SYMBOLS)
+        target_compile_options(gopher_mcp_c PRIVATE -fvisibility=default)
+        message(STATUS "Using default visibility for symbol export")
+    else()
+        target_compile_options(gopher_mcp_c PRIVATE -fvisibility=hidden)
+        message(STATUS "Using hidden visibility (may not work with FFI)")
+    endif()
+    
     target_compile_definitions(gopher_mcp_c PRIVATE MCP_BUILD_LIBRARY MCP_BUILD_SHARED)
+    
+    # Add explicit export for C functions
+    target_compile_definitions(gopher_mcp_c PRIVATE MCP_API_EXPORT)
+    
+    # Ensure all mcp_* functions are exported by adding export attributes
+    target_compile_definitions(gopher_mcp_c PRIVATE MCP_EXPORT_SYMBOLS)
 
     # Generate export map
     set(EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.map")
@@ -72,8 +103,23 @@ else()
         set_target_properties(gopher_mcp_c PROPERTIES
             LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols"
         )
-        # Generate symbols list for macOS
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_mcp_*\n")
+        # Generate comprehensive symbols list for macOS
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "# Export all MCP API symbols\n")
+        file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "mcp_*\n")
+        file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_mcp_*\n")
+        file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "MCP_*\n")
+        
+        # Alternative approach: Use flat namespace and export all symbols for debugging
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set_target_properties(gopher_mcp_c PROPERTIES
+                LINK_FLAGS "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols -Wl,-flat_namespace"
+            )
+        endif()
+        
+        # Ensure proper symbol visibility on macOS (only if export is enabled)
+        if(EXPORT_ALL_SYMBOLS)
+            target_compile_options(gopher_mcp_c PRIVATE -fvisibility=default)
+        endif()
     endif()
 endif()
 
@@ -237,3 +283,16 @@ message(STATUS "    Python: ${GOPHER_MCP_ROOT_DIR}/bindings/python")
 message(STATUS "    TypeScript: ${GOPHER_MCP_ROOT_DIR}/bindings/typescript")
 message(STATUS "    Go: ${GOPHER_MCP_ROOT_DIR}/bindings/go")
 message(STATUS "    Rust: ${GOPHER_MCP_ROOT_DIR}/bindings/rust")
+
+# ============================================================================
+# FFI Support Configuration
+# ============================================================================
+message(STATUS "  FFI Support:")
+message(STATUS "    Symbol Export: ${EXPORT_ALL_SYMBOLS}")
+if(EXPORT_ALL_SYMBOLS)
+    message(STATUS "    ✓ Library will be built with symbols exported for FFI usage")
+    message(STATUS "    ✓ TypeScript SDK should be able to load the shared library")
+else()
+    message(STATUS "    ✗ Library will be built with hidden symbols (may not work with FFI)")
+    message(STATUS "    ✗ TypeScript SDK may fail to load the shared library")
+endif()
