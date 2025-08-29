@@ -25,11 +25,6 @@ export type {
 // ============================================================================
 
 export {
-  McpBufferSliceStruct,
-  McpFilterCallbacksStruct,
-  McpFilterConfigStruct,
-  McpFilterStatsStruct,
-  McpProtocolMetadataStruct,
   allocateCString,
   createStruct,
   freeCString,
@@ -37,11 +32,106 @@ export {
   fromCString,
   getNullPtr,
   isNullPtr,
+  McpBufferSliceStruct,
+  McpFilterCallbacksStruct,
+  McpFilterConfigStruct,
   mcpFilterLib,
+  McpFilterStatsStruct,
+  McpProtocolMetadataStruct,
   readStruct,
   toCBool,
   toCString,
 } from "./core/ffi-bindings";
+
+// ============================================================================
+// Protocol Filters
+// ============================================================================
+
+// HTTP Filter
+export {
+  HttpFilter,
+  HttpFilterType,
+  HttpMethod,
+  HttpStatus,
+} from "./protocols/http-filter";
+export type {
+  HttpFilterCallbacks,
+  HttpFilterConfig,
+  HttpHeaders,
+  HttpRequest,
+  HttpResponse,
+} from "./protocols/http-filter";
+
+// TCP Proxy Filter
+export {
+  TcpConnectionState,
+  TcpFilterType,
+  TcpProxyFilter,
+} from "./protocols/tcp-proxy-filter";
+export type {
+  TcpConnection,
+  TcpProxyCallbacks,
+  TcpProxyConfig,
+} from "./protocols/tcp-proxy-filter";
+
+// ============================================================================
+// Advanced Buffer Management
+// ============================================================================
+
+export {
+  AdvancedBuffer,
+  AdvancedBufferPool,
+  BufferFlags,
+  BufferOwnership,
+} from "./buffers/advanced-buffer";
+export type {
+  BufferFragment,
+  BufferReservation,
+  DrainTracker,
+} from "./buffers/advanced-buffer";
+
+// ============================================================================
+// Filter Chains
+// ============================================================================
+
+export {
+  ChainExecutionMode,
+  ChainState,
+  FilterChain,
+  MatchCondition,
+  RoutingStrategy,
+} from "./chains/filter-chain";
+export type {
+  ChainConfig,
+  ChainEventCallback,
+  ChainStats,
+  FilterCondition,
+  FilterMatchCallback,
+  FilterNode,
+  RouterConfig,
+  RoutingFunction,
+} from "./chains/filter-chain";
+
+// Enhanced Filter Chain
+export {
+  ChainPool,
+  ChainRouter,
+  cloneChain,
+  createChainFromJson,
+  EnhancedFilterChain,
+  exportChainToJson,
+  mergeChains,
+} from "./chains/enhanced-filter-chain";
+export type {
+  ChainConfig as EnhancedChainConfig,
+  ChainEventCallback as EnhancedChainEventCallback,
+  ChainStats as EnhancedChainStats,
+  FilterCondition as EnhancedFilterCondition,
+  FilterMatchCallback as EnhancedFilterMatchCallback,
+  FilterNode as EnhancedFilterNode,
+  RouterConfig as EnhancedRouterConfig,
+  RoutingFunction as EnhancedRoutingFunction,
+} from "./chains/enhanced-filter-chain";
 
 // ============================================================================
 // Type Definitions
@@ -50,12 +140,36 @@ export {
 export * from "./types";
 
 // ============================================================================
+// RAII Resource Management
+// ============================================================================
+
+export {
+  checkResourceLeaks,
+  getResourceStats,
+  makeResourceGuard,
+  makeScopedCleanup,
+  makeTypedResourceGuard,
+  RAII_CLEANUP,
+  RAII_GUARD,
+  RAII_TRANSACTION,
+  reportResourceLeaks,
+  resetResourceStats,
+  ResourceGuard,
+  ResourceManager,
+  ResourceTransaction,
+  ResourceType,
+  ScopedCleanup,
+} from "./raii/resource-manager";
+export type { ResourceInfo, ResourceStats } from "./raii/resource-manager";
+
+// ============================================================================
 // Version Information
 // ============================================================================
 
 export const VERSION = "1.0.0";
 export const SDK_NAME = "MCP Filter SDK";
-export const SDK_DESCRIPTION = "TypeScript SDK for MCP Filter C API";
+export const SDK_DESCRIPTION =
+  "TypeScript SDK for MCP Filter C API with Advanced Buffer Management, Enhanced Filter Chains, and RAII Resource Management";
 
 // ============================================================================
 // Default Export
