@@ -20,20 +20,19 @@ describe("HttpFilter", () => {
     const config: HttpFilterConfig = {
       name: "test-http-filter",
       type: HttpFilterType.HTTP_CODEC,
-      settings: {
-        host: "localhost",
-        port: 8080,
-        maxConnections: 100,
-        enableCompression: true,
-        enableTls: false,
-        timeout: 30000,
-        maxRequestSize: 1024 * 1024, // 1MB
-        cors: {
-          enabled: true,
-          allowedOrigins: ["*"],
-          allowedMethods: ["GET", "POST", "PUT", "DELETE"],
+              settings: {
+          host: "localhost",
+          port: 8080,
+          compression: true,
+          ssl: false,
+          timeout: 30000,
+          maxBodySize: 1024 * 1024, // 1MB
+          cors: {
+            enabled: true,
+            origins: ["*"],
+            methods: ["GET", "POST", "PUT", "DELETE"],
+          },
         },
-      },
       layer: 7,
       memoryPool: 0,
     };
@@ -63,15 +62,14 @@ describe("HttpFilter", () => {
         settings: {
           host: "0.0.0.0",
           port: 80,
-          maxConnections: 1000,
-          enableCompression: false,
-          enableTls: false,
+          compression: false,
+          ssl: false,
           timeout: 60000,
-          maxRequestSize: 1024 * 1024 * 10, // 10MB
+          maxBodySize: 1024 * 1024 * 10, // 10MB
           cors: {
             enabled: false,
-            allowedOrigins: [],
-            allowedMethods: [],
+            origins: [],
+            methods: [],
           },
         },
         layer: 7,
@@ -91,22 +89,21 @@ describe("HttpFilter", () => {
         settings: {
           host: "localhost",
           port: 9090,
-          maxConnections: 500,
-          enableCompression: false,
-          enableTls: true,
+          compression: false,
+          ssl: true,
           timeout: 45000,
-          maxRequestSize: 1024 * 1024 * 5, // 5MB
+          maxBodySize: 1024 * 1024 * 5, // 5MB
           cors: {
             enabled: true,
-            allowedOrigins: ["https://example.com"],
-            allowedMethods: ["GET", "POST"],
+            origins: ["https://example.com"],
+            methods: ["GET", "POST"],
           },
         },
         layer: 7,
         memoryPool: 0,
       };
 
-      const customFilter = new HttpFilter(customConfig, HttpFilterType.HTTP_ROUTER);
+      const customFilter = new HttpFilter(customConfig);
       expect(customFilter).toBeDefined();
       expect(customFilter.type).toBe(HttpFilterType.HTTP_ROUTER.toString());
     });
@@ -120,15 +117,14 @@ describe("HttpFilter", () => {
         settings: {
           host: "localhost",
           port: 8080,
-          maxConnections: 100,
-          enableCompression: false,
-          enableTls: false,
+          compression: false,
+          ssl: false,
           timeout: 30000,
-          maxRequestSize: 1024 * 1024,
+          maxBodySize: 1024 * 1024,
           cors: {
             enabled: false,
-            allowedOrigins: [],
-            allowedMethods: [],
+            origins: [],
+            methods: [],
           },
         },
         layer: 7,
@@ -152,15 +148,14 @@ describe("HttpFilter", () => {
         settings: {
           host: "localhost",
           port: 8080,
-          maxConnections: 100,
-          enableCompression: false,
-          enableTls: false,
+          compression: false,
+          ssl: false,
           timeout: 30000,
-          maxRequestSize: 1024 * 1024,
+          maxBodySize: 1024 * 1024,
           cors: {
             enabled: false,
-            allowedOrigins: [],
-            allowedMethods: [],
+            origins: [],
+            methods: [],
           },
         },
         layer: 7,
@@ -171,13 +166,6 @@ describe("HttpFilter", () => {
 
   describe("request processing", () => {
     it("should process GET request", () => {
-      const request = {
-        method: "GET",
-        path: "/api/test",
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from(""),
-      };
-
       // Test that the filter can handle requests (actual processing depends on implementation)
       expect(httpFilter).toBeDefined();
       expect(httpFilter.filterHandle).toBeGreaterThan(0);
@@ -186,40 +174,18 @@ describe("HttpFilter", () => {
     it("should process different HTTP methods", () => {
       const methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
       
-      methods.forEach((method) => {
-        const request = {
-          method,
-          path: `/test/${method}`,
-          headers: { "Content-Type": "application/json" },
-          body: Buffer.from("test data"),
-        };
-
+      methods.forEach(() => {
         // Test that the filter can handle different methods
         expect(httpFilter).toBeDefined();
       });
     });
 
     it("should handle request with query parameters", () => {
-      const request = {
-        method: "GET",
-        path: "/search?q=test&page=1",
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from(""),
-      };
-
       // Test that the filter can handle requests with query params
       expect(httpFilter).toBeDefined();
     });
 
     it("should handle large request body", () => {
-      const largeBody = Buffer.alloc(1024 * 1024); // 1MB
-      const request = {
-        method: "POST",
-        path: "/upload",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: largeBody,
-      };
-
       // Test that the filter can handle large requests
       expect(httpFilter).toBeDefined();
     });
@@ -227,12 +193,6 @@ describe("HttpFilter", () => {
 
   describe("response processing", () => {
     it("should process response", () => {
-      const response = {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from('{"message": "success"}'),
-      };
-
       // Test that the filter can handle responses
       expect(httpFilter).toBeDefined();
     });
@@ -240,29 +200,13 @@ describe("HttpFilter", () => {
     it("should handle different status codes", () => {
       const statusCodes = [200, 201, 400, 401, 404, 500];
       
-      statusCodes.forEach((statusCode) => {
-        const response = {
-          statusCode,
-          headers: { "Content-Type": "application/json" },
-          body: Buffer.from(`{"status": ${statusCode}}`),
-        };
-
+      statusCodes.forEach(() => {
         // Test that the filter can handle different status codes
         expect(httpFilter).toBeDefined();
       });
     });
 
     it("should handle response with custom headers", () => {
-      const response = {
-        statusCode: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Custom-Header": "custom-value",
-          "Cache-Control": "no-cache",
-        },
-        body: Buffer.from('{"custom": "response"}'),
-      };
-
       // Test that the filter can handle custom headers
       expect(httpFilter).toBeDefined();
     });
@@ -278,26 +222,11 @@ describe("HttpFilter", () => {
     });
 
     it("should handle malformed requests", () => {
-      const malformedRequest = {
-        method: "INVALID",
-        path: "",
-        headers: {},
-        body: Buffer.from(""),
-      };
-
       // Test that the filter can handle malformed requests
       expect(httpFilter).toBeDefined();
     });
 
     it("should handle oversized requests", () => {
-      const oversizedBody = Buffer.alloc(1024 * 1024 * 20); // 20MB
-      const oversizedRequest = {
-        method: "POST",
-        path: "/upload",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: oversizedBody,
-      };
-
       // Test that the filter can handle oversized requests
       expect(httpFilter).toBeDefined();
     });
@@ -305,13 +234,6 @@ describe("HttpFilter", () => {
 
   describe("filter statistics and monitoring", () => {
     it("should track request count", () => {
-      const request = {
-        method: "GET",
-        path: "/test",
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from(""),
-      };
-
       // Process multiple requests
       expect(httpFilter).toBeDefined();
       expect(httpFilter).toBeDefined();
@@ -322,12 +244,6 @@ describe("HttpFilter", () => {
     });
 
     it("should track response count", () => {
-      const response = {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from('{"message": "success"}'),
-      };
-
       // Process multiple responses
       expect(httpFilter).toBeDefined();
       expect(httpFilter).toBeDefined();
@@ -352,51 +268,16 @@ describe("HttpFilter", () => {
 
   describe("filter configuration", () => {
     it("should update configuration", () => {
-      const newConfig = {
-        host: "127.0.0.1",
-        port: 9090,
-        maxConnections: 200,
-        enableCompression: false,
-        enableTls: true,
-        timeout: 45000,
-        maxRequestSize: 1024 * 1024 * 2, // 2MB
-        cors: {
-          enabled: true,
-          allowedOrigins: ["https://example.com"],
-          allowedMethods: ["GET", "POST"],
-        },
-      };
-
       // Test that the filter can handle configuration updates
       expect(httpFilter).toBeDefined();
     });
 
     it("should validate configuration values", () => {
-      const invalidConfig = {
-        host: "",
-        port: -1,
-        maxConnections: 0,
-        enableCompression: "invalid" as any,
-        enableTls: "invalid" as any,
-        timeout: -1000,
-        maxRequestSize: -1024,
-        cors: {
-          enabled: "invalid" as any,
-          allowedOrigins: "invalid" as any,
-          allowedMethods: "invalid" as any,
-        },
-      };
-
       // Test that the filter can handle invalid configurations
       expect(httpFilter).toBeDefined();
     });
 
     it("should handle partial configuration updates", () => {
-      const partialConfig = {
-        port: 9090,
-        enableCompression: false,
-      };
-
       // Test that the filter can handle partial updates
       expect(httpFilter).toBeDefined();
     });
@@ -444,39 +325,17 @@ describe("HttpFilter", () => {
 
   describe("edge cases", () => {
     it("should handle empty request", () => {
-      const emptyRequest = {
-        method: "",
-        path: "",
-        headers: {},
-        body: Buffer.from(""),
-      };
-
       // Test that the filter can handle empty requests
       expect(httpFilter).toBeDefined();
     });
 
     it("should handle very long URLs", () => {
-      const longUrl = "/" + "a".repeat(1000);
-      const request = {
-        method: "GET",
-        path: longUrl,
-        headers: { "Content-Type": "application/json" },
-        body: Buffer.from(""),
-      };
-
       // Test that the filter can handle long URLs
       expect(httpFilter).toBeDefined();
     });
 
     it("should handle concurrent requests", async () => {
-      const promises = Array.from({ length: 10 }, (_, i) => {
-        const request = {
-          method: "GET",
-          path: `/concurrent/${i}`,
-          headers: { "Content-Type": "application/json" },
-          body: Buffer.from(`data-${i}`),
-        };
-
+      const promises = Array.from({ length: 10 }, () => {
         // Test concurrent request processing
         return Promise.resolve();
       });

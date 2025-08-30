@@ -3,8 +3,12 @@
  * @brief Unit tests for TcpProxyFilter class
  */
 
-import { TcpProxyFilter, TcpFilterType } from "../protocols/tcp-proxy-filter";
-import { TcpProxyConfig, TcpProxyCallbacks } from "../protocols/tcp-proxy-filter";
+import {
+  TcpFilterType,
+  TcpProxyCallbacks,
+  TcpProxyConfig,
+  TcpProxyFilter,
+} from "../protocols/tcp-proxy-filter";
 
 describe("TcpProxyFilter", () => {
   let filter: TcpProxyFilter;
@@ -70,23 +74,30 @@ describe("TcpProxyFilter", () => {
   describe("data processing", () => {
     it("should process incoming data through callbacks", async () => {
       const testData = Buffer.from("test data");
-      
+
       // Mock the onData callback to return processed data
       mockCallbacks.onData = jest.fn().mockResolvedValue(testData);
-      
+
       const result = await filter.processData(testData);
-      
-      expect(mockCallbacks.onData).toHaveBeenCalledWith(expect.any(String), testData);
+
+      expect(mockCallbacks.onData).toHaveBeenCalledWith(
+        expect.any(String),
+        testData
+      );
       expect(result).toEqual(testData);
     });
 
     it("should handle data processing errors gracefully", async () => {
       const testData = Buffer.from("test data");
-      
+
       // Mock the onData callback to throw an error
-      mockCallbacks.onData = jest.fn().mockRejectedValue(new Error("Processing failed"));
-      
-      await expect(filter.processData(testData)).rejects.toThrow("Processing failed");
+      mockCallbacks.onData = jest
+        .fn()
+        .mockRejectedValue(new Error("Processing failed"));
+
+      await expect(filter.processData(testData)).rejects.toThrow(
+        "Processing failed"
+      );
     });
   });
 
@@ -94,12 +105,12 @@ describe("TcpProxyFilter", () => {
     it("should track new connections", () => {
       const connectionId = "conn-1";
       const metadata = { source: "test" };
-      
+
       // Simulate connection creation through callbacks
       if (mockCallbacks.onConnection) {
         mockCallbacks.onConnection(connectionId, metadata);
       }
-      
+
       // Check if connection is tracked (this depends on internal implementation)
       const connections = filter.getAllConnections();
       // Note: The actual connection tracking depends on the filter's internal state
@@ -143,7 +154,7 @@ describe("TcpProxyFilter", () => {
         maxConnections: 200,
         connectionTimeout: 60000,
       };
-      
+
       await expect(filter.updateSettings(newSettings)).resolves.not.toThrow();
     });
   });
@@ -151,7 +162,7 @@ describe("TcpProxyFilter", () => {
   describe("cleanup", () => {
     it("should destroy filter and clean up resources", async () => {
       await expect(filter.destroy()).resolves.not.toThrow();
-      
+
       // After destruction, the filter should be in a clean state
       // Note: We can't check internal handles as they're private
     });
@@ -160,7 +171,7 @@ describe("TcpProxyFilter", () => {
   describe("error handling", () => {
     it("should handle callback errors gracefully", () => {
       const error = new Error("Test error");
-      
+
       if (mockCallbacks.onError) {
         expect(() => mockCallbacks.onError!(error)).not.toThrow();
       }

@@ -3,7 +3,11 @@
  * @brief Unit tests for AdvancedBuffer and AdvancedBufferPool classes
  */
 
-import { AdvancedBuffer, AdvancedBufferPool, BufferOwnership } from "../buffers/advanced-buffer";
+import {
+  AdvancedBuffer,
+  AdvancedBufferPool,
+  BufferOwnership,
+} from "../buffers/advanced-buffer";
 
 describe("AdvancedBuffer", () => {
   let buffer: AdvancedBuffer;
@@ -35,7 +39,7 @@ describe("AdvancedBuffer", () => {
     it("should create buffer view from data", () => {
       const data = Buffer.from("test data");
       const viewBuffer = AdvancedBuffer.createView(data, data.length);
-      
+
       expect(viewBuffer).toBeDefined();
       expect(viewBuffer.getHandle()).toBeGreaterThan(0);
     });
@@ -47,7 +51,7 @@ describe("AdvancedBuffer", () => {
         releaseCallback: jest.fn(),
         userData: null,
       };
-      
+
       const fragmentBuffer = AdvancedBuffer.createFromFragment(fragment);
       expect(fragmentBuffer).toBeDefined();
       expect(fragmentBuffer.getHandle()).toBeGreaterThan(0);
@@ -69,7 +73,7 @@ describe("AdvancedBuffer", () => {
       const sourceBuffer = new AdvancedBuffer(256);
       const testData = Buffer.from("source data");
       sourceBuffer.add(testData);
-      
+
       expect(() => buffer.addBuffer(sourceBuffer)).not.toThrow();
     });
 
@@ -81,14 +85,14 @@ describe("AdvancedBuffer", () => {
     it("should drain bytes from buffer", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       expect(() => buffer.drain(4)).not.toThrow();
     });
 
     it("should move data to another buffer", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const destBuffer = new AdvancedBuffer(1024);
       expect(() => buffer.moveTo(destBuffer, 4)).not.toThrow();
     });
@@ -116,7 +120,7 @@ describe("AdvancedBuffer", () => {
     it("should get contiguous memory view", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const result = buffer.getContiguous(0, 4);
       expect(result).toBeDefined();
       expect(result.data).toBeDefined();
@@ -126,16 +130,16 @@ describe("AdvancedBuffer", () => {
     it("should linearize buffer", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const result = buffer.linearize(4);
       expect(result).toBeDefined();
-      expect(result.data).toBeDefined();
+      expect(Buffer.isBuffer(result)).toBe(true);
     });
 
     it("should peek at buffer data", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const peekBuffer = Buffer.alloc(4);
       expect(() => buffer.peek(0, peekBuffer, 4)).not.toThrow();
     });
@@ -169,7 +173,7 @@ describe("AdvancedBuffer", () => {
     it("should search for pattern in buffer", () => {
       const testData = Buffer.from("test data pattern");
       buffer.add(testData);
-      
+
       const pattern = Buffer.from("pattern");
       const result = buffer.search(pattern, 0);
       expect(result).toBeDefined();
@@ -179,7 +183,7 @@ describe("AdvancedBuffer", () => {
     it("should find byte in buffer", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const result = buffer.findByte(32); // space character
       expect(result).toBeDefined();
       expect(result).toBeGreaterThan(0);
@@ -190,7 +194,7 @@ describe("AdvancedBuffer", () => {
     it("should get buffer length", () => {
       const testData = Buffer.from("test data");
       buffer.add(testData);
-      
+
       const length = buffer.length;
       expect(length).toBeGreaterThan(0);
     });
@@ -272,18 +276,18 @@ describe("AdvancedBufferPool", () => {
 
     it("should handle pool exhaustion", () => {
       const buffers: AdvancedBuffer[] = [];
-      
+
       // Acquire all buffers
       for (let i = 0; i < 12; i++) {
         const buffer = pool.acquire();
         if (buffer) buffers.push(buffer);
       }
-      
+
       // Should not be able to acquire more than pool size
       expect(buffers.length).toBeLessThanOrEqual(10);
-      
+
       // Release all buffers
-      buffers.forEach(buffer => pool.release(buffer));
+      buffers.forEach((buffer) => pool.release(buffer));
     });
   });
 
