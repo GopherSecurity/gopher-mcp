@@ -1,5 +1,5 @@
 /**
- * @file mcp_filter_api.h
+ * @file mcp_c_filter_api.h
  * @brief C API for MCP C++ Filter Architecture
  *
  * This header provides FFI-safe C bindings for the MCP filter architecture,

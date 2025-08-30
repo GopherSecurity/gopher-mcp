@@ -24,7 +24,7 @@
 #include <type_traits>
 
 #include "mcp/c_api/mcp_c_types.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/types.h"
 
 namespace mcp {

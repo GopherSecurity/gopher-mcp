@@ -3,7 +3,7 @@
  * @brief Implementation of C API for MCP C++ Filter Architecture
  */
 
-#include "mcp/c_api/mcp_filter_api.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
 
 #include <atomic>
 #include <cstring>
@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "mcp/buffer.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"

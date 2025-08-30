@@ -1,5 +1,5 @@
 /**
- * @file mcp_logging_api.h
+ * @file mcp_c_logging_api.h
  * @brief FFI-safe C API for MCP Logging Framework with RAII enforcement
  * 
  * This header provides a complete C API for the MCP logging framework with:

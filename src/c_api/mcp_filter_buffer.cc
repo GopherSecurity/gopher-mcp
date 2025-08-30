@@ -3,7 +3,7 @@
  * @brief Implementation of zero-copy buffer interface for MCP Filter API
  */
 
-#include "mcp/c_api/mcp_filter_buffer.h"
+#include "mcp/c_api/mcp_c_filter_buffer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -14,8 +14,8 @@
 #include <vector>
 
 #include "mcp/buffer.h"
-#include "mcp/c_api/mcp_filter_api.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
+#include "mcp/c_api/mcp_c_raii.h"
 
 #include "handle_manager.h"
 

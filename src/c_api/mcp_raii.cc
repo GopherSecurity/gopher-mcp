@@ -11,7 +11,7 @@
  */
 
 #define MCP_RAII_IMPLEMENTATION
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 
 // Include C API types for specializations
 extern "C" {

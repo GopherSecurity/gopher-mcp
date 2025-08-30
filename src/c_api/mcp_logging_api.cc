@@ -3,10 +3,10 @@
  * @brief Implementation of MCP Logging C API with RAII enforcement
  */
 
-#include "mcp/c_api/mcp_logging_api.h"
+#include "mcp/c_api/mcp_c_logging_api.h"
 #include "mcp/c_api/mcp_c_types.h"
 #include "mcp/c_api/mcp_c_memory.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/logging/logger.h"
 #include "mcp/logging/logger_registry.h"
 #include "mcp/logging/log_sink.h"

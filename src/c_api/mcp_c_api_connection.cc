@@ -6,7 +6,7 @@
 
 #include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_bridge.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"

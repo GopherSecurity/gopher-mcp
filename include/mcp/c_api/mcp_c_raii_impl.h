@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file mcp_raii_impl.h
+ * @file mcp_c_raii_impl.h
  * @brief Implementation helper for MCP RAII utilities
  *
  * This file provides a clean interface for RAII implementation details

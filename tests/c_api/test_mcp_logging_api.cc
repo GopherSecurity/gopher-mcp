@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "mcp/c_api/mcp_logging_api.h"
+#include "mcp/c_api/mcp_c_logging_api.h"
 #include "mcp/c_api/mcp_c_types.h"
 #include <thread>
 #include <chrono>

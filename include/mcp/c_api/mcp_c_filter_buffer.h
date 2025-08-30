@@ -1,5 +1,5 @@
 /**
- * @file mcp_filter_buffer.h
+ * @file mcp_c_filter_buffer.h
  * @brief Zero-copy buffer interface for MCP Filter API
  *
  * This header provides advanced buffer management capabilities for filters,
@@ -18,7 +18,7 @@
 
 #include "mcp_c_memory.h"
 #include "mcp_c_types.h"
-#include "mcp_filter_api.h"
+#include "mcp_c_filter_api.h"
 
 #ifdef __cplusplus
 extern "C" {
