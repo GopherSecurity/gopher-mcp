@@ -88,16 +88,16 @@ add_executable(test_builders core/test_builders.cc)
 if(BUILD_C_API)
     # Tests using new opaque handle API
     add_executable(test_c_api_types_simple c_api/test_c_api_types_simple.cc)
-    add_executable(test_mcp_raii c_api/test_mcp_raii.cc)
+    add_executable(test_mcp_c_raii c_api/test_mcp_c_raii.cc)
     add_executable(test_c_types_impl c_api/test_c_types_impl.cc)
     add_executable(test_c_memory_impl c_api/test_c_memory_impl.cc)
     add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     add_executable(test_c_api_json_simple c_api/test_c_api_json_simple.cc)
     add_executable(test_c_api_json c_api/test_c_api_json.cc)
-    add_executable(test_mcp_filter_api c_api/test_mcp_filter_api.cc)
-    add_executable(test_mcp_filter_chain c_api/test_mcp_filter_chain.cc)
-    add_executable(test_mcp_filter_buffer c_api/test_mcp_filter_buffer.cc)
-    add_executable(test_mcp_logging_api c_api/test_mcp_logging_api.cc)
+    add_executable(test_mcp_c_filter_api c_api/test_mcp_c_filter_api.cc)
+    add_executable(test_mcp_c_filter_chain c_api/test_mcp_c_filter_chain.cc)
+    add_executable(test_mcp_c_filter_buffer c_api/test_mcp_c_filter_buffer.cc)
+    add_executable(test_mcp_c_logging_api c_api/test_mcp_c_logging_api.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -590,7 +590,7 @@ if(BUILD_C_API)
     
     # RAII utilities test (comprehensive with all edge cases)
     # Disable atexit leak checker for tests since some tests intentionally leave resources tracked
-    target_compile_definitions(test_mcp_raii PRIVATE MCP_RAII_DISABLE_ATEXIT)
+    target_compile_definitions(test_mcp_c_raii PRIVATE MCP_RAII_DISABLE_ATEXIT)
     
     # New comprehensive implementation tests
     target_link_libraries(test_c_types_impl
@@ -633,7 +633,7 @@ if(BUILD_C_API)
         Threads::Threads
     )
     
-    target_link_libraries(test_mcp_filter_api
+    target_link_libraries(test_mcp_c_filter_api
         gopher_mcp_c_static
         gopher-mcp-static
         gopher-mcp-event-static
@@ -645,14 +645,14 @@ if(BUILD_C_API)
         Threads::Threads
     )
     if(NGHTTP2_FOUND)
-        target_link_directories(test_mcp_filter_api PRIVATE ${NGHTTP2_LIBRARY_DIRS})
-        target_link_libraries(test_mcp_filter_api ${NGHTTP2_LIBRARIES})
+        target_link_directories(test_mcp_c_filter_api PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_c_filter_api ${NGHTTP2_LIBRARIES})
     endif()
     if(LLHTTP_FOUND)
-        target_link_libraries(test_mcp_filter_api llhttp)
+        target_link_libraries(test_mcp_c_filter_api llhttp)
     endif()
     
-    target_link_libraries(test_mcp_filter_chain
+    target_link_libraries(test_mcp_c_filter_chain
         gopher_mcp_c_static
         gopher-mcp-static
         gopher-mcp-event-static
@@ -664,14 +664,14 @@ if(BUILD_C_API)
         Threads::Threads
     )
     if(NGHTTP2_FOUND)
-        target_link_directories(test_mcp_filter_chain PRIVATE ${NGHTTP2_LIBRARY_DIRS})
-        target_link_libraries(test_mcp_filter_chain ${NGHTTP2_LIBRARIES})
+        target_link_directories(test_mcp_c_filter_chain PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_c_filter_chain ${NGHTTP2_LIBRARIES})
     endif()
     if(LLHTTP_FOUND)
-        target_link_libraries(test_mcp_filter_chain llhttp)
+        target_link_libraries(test_mcp_c_filter_chain llhttp)
     endif()
     
-    target_link_libraries(test_mcp_filter_buffer
+    target_link_libraries(test_mcp_c_filter_buffer
         gopher_mcp_c_static
         gopher-mcp-static
         gopher-mcp-event-static
@@ -683,14 +683,14 @@ if(BUILD_C_API)
         Threads::Threads
     )
     if(NGHTTP2_FOUND)
-        target_link_directories(test_mcp_filter_buffer PRIVATE ${NGHTTP2_LIBRARY_DIRS})
-        target_link_libraries(test_mcp_filter_buffer ${NGHTTP2_LIBRARIES})
+        target_link_directories(test_mcp_c_filter_buffer PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_c_filter_buffer ${NGHTTP2_LIBRARIES})
     endif()
     if(LLHTTP_FOUND)
-        target_link_libraries(test_mcp_filter_buffer llhttp)
+        target_link_libraries(test_mcp_c_filter_buffer llhttp)
     endif()
     
-    target_link_libraries(test_mcp_logging_api
+    target_link_libraries(test_mcp_c_logging_api
         gopher_mcp_c_static
         gopher-mcp-static
         gopher-mcp-event-static
@@ -702,13 +702,13 @@ if(BUILD_C_API)
         Threads::Threads
     )
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_mcp_logging_api ${NGHTTP2_LIBRARIES})
+        target_link_libraries(test_mcp_c_logging_api ${NGHTTP2_LIBRARIES})
     endif()
     if(LLHTTP_FOUND)
-        target_link_libraries(test_mcp_logging_api llhttp)
+        target_link_libraries(test_mcp_c_logging_api llhttp)
     endif()
     
-    target_link_libraries(test_mcp_raii
+    target_link_libraries(test_mcp_c_raii
         gopher_mcp_c_static  # Use static library for access to internal symbols
         gopher-mcp-static
         gopher-mcp-event-static
@@ -719,11 +719,11 @@ if(BUILD_C_API)
         Threads::Threads
     )
     if(NGHTTP2_FOUND)
-        target_link_directories(test_mcp_raii PRIVATE ${NGHTTP2_LIBRARY_DIRS})
-        target_link_libraries(test_mcp_raii ${NGHTTP2_LIBRARIES})
+        target_link_directories(test_mcp_c_raii PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_c_raii ${NGHTTP2_LIBRARIES})
     endif()
     if(LLHTTP_FOUND)
-        target_link_libraries(test_mcp_raii llhttp)
+        target_link_libraries(test_mcp_c_raii llhttp)
     endif()
 endif()
 
