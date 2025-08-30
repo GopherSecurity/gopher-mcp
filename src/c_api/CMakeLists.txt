@@ -10,8 +10,8 @@ set(MCP_C_API_SOURCES
     # Core functionality
     mcp_c_api_core.cc          # Library init/shutdown, dispatcher
     mcp_c_api_connection.cc     # Connection management
-    mcp_raii.cc                 # RAII utilities
-    mcp_guard_transaction_impl.cc  # Guard and transaction implementations
+    mcp_c_raii.cc                 # RAII utilities
+    mcp_c_guard_transaction_impl.cc  # Guard and transaction implementations
     
     # New FFI-safe implementation with opaque handles
     mcp_c_types_impl.cc         # Type implementations
@@ -19,12 +19,12 @@ set(MCP_C_API_SOURCES
     mcp_c_collections_impl.cc   # Collections and JSON
     
     # Filter API and Buffer implementations
-    mcp_filter_api.cc          # Filter API implementation
-    mcp_filter_buffer.cc       # Buffer API implementation
-    mcp_filter_chain.cc        # Filter chain implementation
+    mcp_c_filter_api.cc          # Filter API implementation
+    mcp_c_filter_buffer.cc       # Buffer API implementation
+    mcp_c_filter_chain.cc        # Filter chain implementation
     
     # Logging API with RAII
-    mcp_logging_api.cc         # FFI-safe logging API with RAII
+    mcp_c_logging_api.cc         # FFI-safe logging API with RAII
     
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
