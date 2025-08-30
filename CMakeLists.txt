@@ -261,6 +261,16 @@ else()
     message(STATUS "nghttp2 support disabled")
 endif()
 
+# fmt library for formatting
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG 10.1.1
+)
+message(STATUS "Downloading fmt... This may take a moment depending on your connection speed.")
+FetchContent_MakeAvailable(fmt)
+message(STATUS "fmt download complete.")
+
 # nlohmann/json
 FetchContent_Declare(
     nlohmann_json
@@ -613,6 +623,10 @@ if(NOT GOPHER_MCP_IS_SUBMODULE OR GOPHER_MCP_BUILD_TESTS)
         add_subdirectory(tests)
     endif()
 endif()
+
+# Add logging subdirectory
+add_subdirectory(src/logging)
+message(STATUS "Building logging framework")
 
 # Add C API subdirectory (if enabled)
 if(BUILD_C_API)

@@ -1048,3 +1048,62 @@ add_custom_target(run_tests
     COMMENT "Running tests..."
 )
 
+# ============================================================================
+# Logging Framework Tests
+# ============================================================================
+
+# Logging tests
+add_executable(test_bloom_filter logging/test_bloom_filter.cc)
+add_executable(test_log_level logging/test_log_level.cc)
+add_executable(test_log_sink logging/test_log_sink.cc)
+add_executable(test_logger logging/test_logger.cc)
+add_executable(test_logger_registry logging/test_logger_registry.cc)
+
+# Link logging test libraries
+target_link_libraries(test_bloom_filter
+    mcp_logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_log_level
+    mcp_logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_log_sink
+    mcp_logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_logger
+    mcp_logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_logger_registry
+    mcp_logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+# Add logging tests to CTest
+add_test(NAME test_bloom_filter COMMAND test_bloom_filter)
+add_test(NAME test_log_level COMMAND test_log_level)
+add_test(NAME test_log_sink COMMAND test_log_sink)
+add_test(NAME test_logger COMMAND test_logger)
+add_test(NAME test_logger_registry COMMAND test_logger_registry)
+
