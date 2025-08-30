@@ -39,6 +39,7 @@ enum class Component {
   Http,
   Json,
   // Add more components as needed
+  Count  // Must be last - used for iteration
 };
 
 // Sink types
