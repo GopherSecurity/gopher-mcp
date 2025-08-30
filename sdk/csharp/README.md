@@ -23,7 +23,7 @@ sdk/csharp/
 │   ├── GopherMcp.Tests.csproj
 │   └── HelloWorldTests.cs   # HelloWorld class tests
 ├── examples/                # Example applications
-│   ├── HelloWorldExample.csproj
+│   ├── GopherMcpExample.csproj
 │   └── Program.cs           # Example console application
 ├── GopherMcp.sln           # Solution file
 ├── Directory.Build.props    # Shared build configuration
@@ -84,7 +84,7 @@ dotnet run
 
 # Or run with the solution
 cd sdk/csharp
-dotnet run --project examples/HelloWorldExample.csproj
+dotnet run --project examples/GopherMcpExample.csproj
 ```
 
 ## Usage

@@ -1,7 +1,7 @@
 using System;
 using GopherMcp;
 
-namespace HelloWorldExample
+namespace GopherMcpExample
 {
     class Program
     {

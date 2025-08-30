@@ -8,7 +8,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GopherMcp.Tests", "tests\Go
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Examples", "Examples", "{D7C9F5B3-AE40-6DB1-C5F6-9A0B1E4D3F65}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HelloWorldExample", "examples\HelloWorldExample.csproj", "{E8D0A6C4-BF51-7EC2-D607-AB1C2F5E4G76}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GopherMcpExample", "examples\GopherMcpExample.csproj", "{E8D0A6C4-BF51-7EC2-D607-AB1C2F5E4G76}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
