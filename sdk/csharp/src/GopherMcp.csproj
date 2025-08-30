@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net7.0;net6.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>GopherMcp</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Gopher MCP Contributors</Authors>
+    <Description>C# SDK for the Gopher MCP - Hello World starter library</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/yourusername/mcp-cpp-sdk</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <DefineConstants>$(DefineConstants);NET8_0;NET8_0_OR_GREATER;NET7_0_OR_GREATER;NET6_0_OR_GREATER</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net7.0'">
+    <DefineConstants>$(DefineConstants);NET7_0;NET7_0_OR_GREATER;NET6_0_OR_GREATER</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net6.0'">
+    <DefineConstants>$(DefineConstants);NET6_0;NET6_0_OR_GREATER</DefineConstants>
+  </PropertyGroup>
+
+</Project>

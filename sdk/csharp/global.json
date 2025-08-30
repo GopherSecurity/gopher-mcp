@@ -1,0 +1,12 @@
+{
+  "sdk": {
+    "version": "6.0.100",
+    "rollForward": "latestMajor",
+    "allowPrerelease": false
+  },
+  "comments": [
+    "This configuration allows SDK 6.0.100 or higher.",
+    "With rollForward set to latestMajor, it will use any available SDK version.",
+    "This means .NET 6.0, 7.0, 8.0, or later SDKs can all build this project."
+  ]
+}

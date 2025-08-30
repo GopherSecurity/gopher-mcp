@@ -1,0 +1,96 @@
+<Project>
+  <!-- Common properties for all projects in this directory tree -->
+  <PropertyGroup>
+    <!-- .NET 8.0 as primary target, with .NET 7.0 and 6.0 for compatibility -->
+    <DefaultTargetFramework>net8.0</DefaultTargetFramework>
+    
+    <!-- Use latest C# language features available for each framework -->
+    <LangVersion>latest</LangVersion>
+    
+    <!-- Enable nullable reference types -->
+    <Nullable>enable</Nullable>
+    
+    <!-- Enable implicit usings for common namespaces -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    
+    <!-- Code analysis settings -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    
+    <!-- Treat warnings as errors in Release builds -->
+    <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
+    
+    <!-- Enable deterministic builds for reproducibility -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    
+    <!-- Source Link for debugging support -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
+    <!-- Assembly and package metadata -->
+    <Product>Gopher MCP SDK</Product>
+    <Company>Gopher MCP Contributors</Company>
+    <Copyright>Copyright © 2024 Gopher MCP Contributors</Copyright>
+    
+    <!-- Versioning -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionSuffix Condition="'$(CI)' == 'true' AND '$(GITHUB_REF)' != 'refs/heads/main'">preview</VersionSuffix>
+    
+    <!-- Repository information -->
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/yourusername/mcp-cpp-sdk</RepositoryUrl>
+    
+    <!-- Default to not packaging test projects -->
+    <IsPackable Condition="'$(IsTestProject)' == 'true'">false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Common package references for all projects -->
+  <ItemGroup Condition="'$(IsTestProject)' != 'true'">
+    <!-- Add source link support -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- .NET 8.0 specific features -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <!-- Enable AOT warnings to ensure AOT compatibility -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    
+    <!-- Enable new .NET 8 features -->
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);Microsoft.AspNetCore.Http.Generated</InterceptorsPreviewNamespaces>
+  </PropertyGroup>
+
+  <!-- .NET 7.0 specific features -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net7.0'">
+    <!-- Enable trim warnings for .NET 7 -->
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    
+    <!-- .NET 7 performance features -->
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+    <TieredCompilationQuickJitForLoops>true</TieredCompilationQuickJitForLoops>
+  </PropertyGroup>
+
+  <!-- .NET 6.0 specific features -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net6.0'">
+    <!-- Enable single file warnings for .NET 6 -->
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    
+    <!-- .NET 6 performance features -->
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+  </PropertyGroup>
+
+  <!-- Code style and formatting rules -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CS1591</NoWarn> <!-- Missing XML comment for publicly visible type or member -->
+  </PropertyGroup>
+</Project>

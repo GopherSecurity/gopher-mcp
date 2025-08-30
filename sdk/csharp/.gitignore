@@ -1,104 +1,403 @@
-# Build output
-dist/
-build/
-bin/
-obj/
+## .NET / C# Gitignore
+## Comprehensive ignore file for C# and .NET projects
 
-# Logs
-*.log
+# ==========================================
+# Build Results
+# ==========================================
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+[Oo]ut/
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
-
-# nyc test coverage
-.nyc_output
-
-# Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
-.grunt
-
-# Bower dependency directory (https://bower.io/)
-bower_components
-
-# node-waf configuration
-.lock-wscript
-
-# Compiled binary addons (https://nodejs.org/api/addons.html)
-build/Release
-
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# TypeScript cache
-*.tsbuildinfo
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Microbundle cache
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
-.env
-.env.test
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-
-# Nuxt.js build / generate output
-.nuxt
-dist
-
-# Gatsby files
-.cache/
-public
-
-# Storybook build outputs
-.out
-.storybook-out
-
-# Temporary folders
-tmp/
-temp/
-
-# Editor directories and files
+# ==========================================
+# Visual Studio / VS Code
+# ==========================================
+.vs/
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
+*.code-workspace
 
-# OS generated files
+# Visual Studio 2015/2017 cache/options directory
+.vs/
+
+# Visual Studio 2017 auto generated files
+Generated\ Files/
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Visual Studio Trace Files
+*.e2e
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# ==========================================
+# .NET Core / .NET 5+
+# ==========================================
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.binlog
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# StyleCop
+StyleCopReport.xml
+
+# ==========================================
+# NuGet
+# ==========================================
+*.nupkg
+*.snupkg
+# The packages folder can be ignored because of Package Restore
+**/[Pp]ackages/*
+# except build/, which is used as an MSBuild target.
+!**/[Pp]ackages/build/
+# NuGet v3's project.json files produces more ignorable files
+*.nuget.props
+*.nuget.targets
+
+# ==========================================
+# Testing
+# ==========================================
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# xUnit
+*.xunit.xml
+
+# Coverlet Code Coverage Tool
+coverage*.json
+coverage*.xml
+coverage*.info
+lcov.info
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# AxoCover Code Coverage Tool
+.axoCover/*
+!.axoCover/settings.json
+
+# ==========================================
+# JetBrains Rider
+# ==========================================
+.idea/
+*.sln.iml
+*.iml
+.idea/
+*.DotSettings
+*.DotSettings.user
+
+# ==========================================
+# ReSharper
+# ==========================================
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# TeamCity
+_TeamCity*
+
+# DotCover Code Coverage Tool
+*.dotCover
+
+# ==========================================
+# User-specific files
+# ==========================================
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Mono auto generated files
+mono_crash.*
+
+# ==========================================
+# Files built by Visual Studio
+# ==========================================
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# ==========================================
+# Publishing
+# ==========================================
+# Click-Once directory
+publish/
+
+# Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+
+# Microsoft Azure Web App publish settings
+PublishScripts/
+
+# ==========================================
+# Windows
+# ==========================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Windows Installer files
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# ==========================================
+# macOS
+# ==========================================
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-Thumbs.db
+.AppleDouble
+.LSOverride
+Icon
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ==========================================
+# Linux
+# ==========================================
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==========================================
+# Backup & Temporary Files
+# ==========================================
+*.bak
+*.backup
+*.old
+*.orig
+*.original
+*.tmp
+*.temp
+*.swp
+*.swo
+*.swn
+*.cache
+[Tt]emp/
+[Tt]mp/
+[Bb]ackup*/
+UpgradeLog*.XML
+UpgradeLog*.htm
+ServiceFabricBackup/
+*.rptproj.bak
+_UpgradeReport_Files/
+
+# ==========================================
+# Database Files
+# ==========================================
+*.mdf
+*.ldf
+*.ndf
+*.sdf
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# ==========================================
+# Documentation Tools
+# ==========================================
+# DocProject is a documentation generator add-in
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+# Sandcastle Help File Builder
+*.shfbproj
+
+# ==========================================
+# Environment & Configuration
+# ==========================================
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.json
+!appsettings.json
+!appsettings.Example.json
+
+# ==========================================
+# Miscellaneous
+# ==========================================
+# SQL Server files
+*.rdl.data
+*.bim.layout
+*.bim_*.settings
+*.rptproj.rsuser
+
+# Microsoft Fakes
+FakesAssemblies/
+
+# GhostDoc plugin setting file
+*.GhostDoc.xml
+
+# Node.js Tools for Visual Studio (if mixed project)
+.ntvs_analysis.dat
+node_modules/
+
+# Python Tools for Visual Studio (PTVS)
+__pycache__/
+*.pyc
+
+# Cake - Uncomment if using
+# tools/**
+# !tools/packages.config
+
+# Tabs Studio
+*.tss
+
+# Telerik's JustMock configuration file
+*.jmconfig
+
+# BizTalk build output
+*.btp.cs
+*.btm.cs
+*.odx.cs
+*.xsd.cs
+
+# OpenCover UI analysis results
+OpenCover/
+
+# Azure Stream Analytics local run output
+ASALocalRun/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# NVidia Nsight GPU debugger configuration file
+*.nvuser
+
+# MFractors (Xamarin productivity tool) working folder
+.mfractor/
+
+# Local History for Visual Studio
+.localhistory/
+
+# Visual Studio History (VSHistory) files
+.vshistory/
+
+# BeatPulse healthcheck temp database
+healthchecksdb
+
+# Backup folder for Package Reference Convert tool in Visual Studio 2017
+MigrationBackup/
+
+# Ionide (cross platform F# VS Code tools) working folder
+.ionide/
+
+# Fody - auto-generated XML schema
+FodyWeavers.xsd
+
+# ==========================================
+# Project Specific
+# ==========================================
+# Native library files (for testing, use proper package management in production)
+*.dll
+!System.*.dll
+*.so
+*.dylib
+# But allow NuGet package DLLs
+!packages/**/*.dll
+
+# Local developer settings
+*.local.json
+local.settings.json
+
+# Benchmark results
+BenchmarkDotNet.Artifacts/
+
+# JetBrains Fleet
+.fleet/
+
+# SonarQube
+.sonarqube/
+.sonarlint/

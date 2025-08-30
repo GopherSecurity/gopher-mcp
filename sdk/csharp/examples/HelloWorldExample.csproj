@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0;net7.0;net6.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot Condition="'$(TargetFramework)' == 'net8.0'">false</PublishAot>
+    <PublishTrimmed Condition="'$(TargetFramework)' == 'net7.0'">false</PublishTrimmed>
+    <PublishSingleFile Condition="'$(TargetFramework)' == 'net6.0'">false</PublishSingleFile>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\GopherMcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Console" Static="true" />
+  </ItemGroup>
+
+</Project>
