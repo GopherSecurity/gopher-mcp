@@ -23,6 +23,9 @@ set(MCP_C_API_SOURCES
     mcp_filter_buffer.cc       # Buffer API implementation
     mcp_filter_chain.cc        # Filter chain implementation
     
+    # Logging API with RAII
+    mcp_logging_api.cc         # FFI-safe logging API with RAII
+    
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
     # mcp_c_api_client.cc
@@ -81,6 +84,7 @@ target_include_directories(gopher_mcp_c
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${GOPHER_MCP_ROOT_DIR}/src
+        ${CMAKE_BINARY_DIR}/_deps/fmt-src/include
 )
 
 # Link with shared libraries 
@@ -89,6 +93,7 @@ target_link_libraries(gopher_mcp_c
     PRIVATE
         gopher-mcp
         gopher-mcp-event
+        gopher-mcp-logging
 )
 
 # Compile features
@@ -114,12 +119,14 @@ if(BUILD_C_API_STATIC)
             $<INSTALL_INTERFACE:include>
         PRIVATE
             ${GOPHER_MCP_ROOT_DIR}/src
+            ${CMAKE_BINARY_DIR}/_deps/fmt-src/include
     )
     
     target_link_libraries(gopher_mcp_c_static
         PRIVATE
             gopher-mcp-static
             gopher-mcp-event-static
+            gopher-mcp-logging-static
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
