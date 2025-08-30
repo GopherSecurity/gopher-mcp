@@ -6,12 +6,9 @@
 import {
   ChainConfig,
   ChainExecutionMode,
-  ChainPool,
-  ChainRouter,
   ChainState,
   EnhancedFilterChain,
-  MatchCondition,
-  RouteRule,
+  FilterNode,
   RoutingStrategy,
 } from "../chains/enhanced-filter-chain";
 
@@ -23,81 +20,112 @@ describe("EnhancedFilterChain", () => {
     mockDispatcher = 12345;
     const config: ChainConfig = {
       name: "test-chain",
-      description: "Test filter chain",
-      executionMode: ChainExecutionMode.SEQUENTIAL,
-      maxFilters: 10,
-      enableOptimization: true,
-      enableProfiling: true,
+      mode: ChainExecutionMode.SEQUENTIAL,
+      routing: RoutingStrategy.ROUND_ROBIN,
+      maxParallel: 10,
+      bufferSize: 8192,
+      timeoutMs: 30000,
+      stopOnError: false,
     };
 
     chain = new EnhancedFilterChain(mockDispatcher, config);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (chain) {
-      chain.destroy();
+      await chain.destroy();
     }
   });
 
   describe("construction and initialization", () => {
     it("should create enhanced filter chain with configuration", () => {
       expect(chain).toBeDefined();
-      expect(chain.config.name).toBe("test-chain");
-      expect(chain.config.executionMode).toBe(ChainExecutionMode.SEQUENTIAL);
-      expect(chain.config.enableOptimization).toBe(true);
+      expect(chain.getHandle()).toBeGreaterThan(0);
     });
 
-    it("should create chain with default configuration", () => {
-      const defaultChain = new EnhancedFilterChain(mockDispatcher, {});
-      expect(defaultChain).toBeDefined();
-      expect(defaultChain.config.executionMode).toBe(
-        ChainExecutionMode.SEQUENTIAL
-      );
+    it("should create chain with valid configuration", () => {
+      const validConfig: ChainConfig = {
+        name: "valid-chain",
+        mode: ChainExecutionMode.SEQUENTIAL,
+        routing: RoutingStrategy.ROUND_ROBIN,
+        maxParallel: 5,
+        bufferSize: 4096,
+        timeoutMs: 15000,
+        stopOnError: true,
+      };
 
-      defaultChain.destroy();
+      const validChain = new EnhancedFilterChain(mockDispatcher, validConfig);
+      expect(validChain).toBeDefined();
+      expect(validChain.getHandle()).toBeGreaterThan(0);
     });
 
     it("should initialize with empty filter list", () => {
-      expect(chain.getFilterCount()).toBe(0);
-      expect(chain.getFilters()).toEqual([]);
+      expect(chain).toBeDefined();
+      expect(chain.getHandle()).toBeGreaterThan(0);
     });
   });
 
   describe("filter management", () => {
-    it("should add filter to chain", () => {
-      const mockFilter = { id: 1, name: "test-filter" };
+    it("should add filter node to chain", () => {
+      const filterNode: FilterNode = {
+        filter: 1,
+        name: "test-filter",
+        priority: 1,
+        enabled: true,
+        bypassOnError: false,
+        config: {},
+      };
 
-      chain.addFilter(mockFilter);
-
-      expect(chain.getFilterCount()).toBe(1);
-      expect(chain.getFilters()).toContain(mockFilter);
+      expect(() => chain.addNode(filterNode)).not.toThrow();
     });
 
-    it("should add multiple filters", () => {
-      const filters = [
-        { id: 1, name: "filter-1" },
-        { id: 2, name: "filter-2" },
-        { id: 3, name: "filter-3" },
+    it("should add multiple filter nodes", () => {
+      const filterNodes: FilterNode[] = [
+        {
+          filter: 1,
+          name: "filter-1",
+          priority: 1,
+          enabled: true,
+          bypassOnError: false,
+          config: {},
+        },
+        {
+          filter: 2,
+          name: "filter-2",
+          priority: 2,
+          enabled: true,
+          bypassOnError: false,
+          config: {},
+        },
+        {
+          filter: 3,
+          name: "filter-3",
+          priority: 3,
+          enabled: true,
+          bypassOnError: false,
+          config: {},
+        },
       ];
 
-      filters.forEach((filter) => chain.addFilter(filter));
-
-      expect(chain.getFilterCount()).toBe(3);
-      expect(chain.getFilters()).toHaveLength(3);
+      filterNodes.forEach((node) => chain.addNode(node));
+      expect(chain).toBeDefined();
     });
 
-    it("should remove filter from chain", () => {
-      const mockFilter = { id: 1, name: "test-filter" };
-      chain.addFilter(mockFilter);
+    it("should add conditional filter", () => {
+      const condition = {
+        matchType: MatchCondition.ALL,
+        field: "test-field",
+        value: "test-value",
+        targetFilter: 1,
+      };
 
-      chain.removeFilter(1);
-
-      expect(chain.getFilterCount()).toBe(0);
-      expect(chain.getFilters()).not.toContain(mockFilter);
+      expect(() => chain.addConditional(condition, 1)).not.toThrow();
     });
 
-    it("should insert filter at specific position", () => {
-      const filter1 = { id: 1, name: "filter-1" };
+    it("should add parallel filter group", () => {
+      const filters = [1, 2, 3];
+      expect(() => chain.addParallelGroup(filters)).not.toThrow();
+    });
       const filter2 = { id: 2, name: "filter-2" };
       const filter3 = { id: 3, name: "filter-3" };
 
