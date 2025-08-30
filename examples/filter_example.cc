@@ -16,7 +16,7 @@
 #include <thread>
 
 #include "mcp/c_api/mcp_c_api.h"
-#include "mcp/c_api/mcp_filter_api.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
 
 // ============================================================================
 // Custom Filter Callbacks

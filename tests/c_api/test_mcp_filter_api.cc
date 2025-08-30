@@ -30,7 +30,7 @@
 #include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_collections.h"
 #include "mcp/c_api/mcp_c_memory.h"
-#include "mcp/c_api/mcp_filter_api.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
 
 namespace {
 

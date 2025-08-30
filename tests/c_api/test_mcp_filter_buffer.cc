@@ -23,7 +23,7 @@
 typedef uint64_t mcp_buffer_handle_t;
 typedef struct mcp_buffer_pool* mcp_buffer_pool_t;
 
-#include "mcp/c_api/mcp_filter_buffer.h"
+#include "mcp/c_api/mcp_c_filter_buffer.h"
 
 namespace {
 

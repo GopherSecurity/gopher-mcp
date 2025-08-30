@@ -9,7 +9,7 @@
 
 #include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_bridge.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/event/libevent_dispatcher.h"
 
 namespace mcp {

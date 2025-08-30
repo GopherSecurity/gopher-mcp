@@ -768,5 +768,5 @@ size_t mcp_raii_active_resources();
 // Include implementation file for specialized deleters
 // This ensures the implementation is compiled separately
 #ifdef MCP_RAII_IMPLEMENTATION
-#include "mcp_raii_impl.h"
+#include "mcp_c_raii_impl.h"
 #endif

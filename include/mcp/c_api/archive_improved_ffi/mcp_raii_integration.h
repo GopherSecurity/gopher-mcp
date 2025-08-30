@@ -24,7 +24,7 @@
 
 #include "mcp_c_types_improved.h"
 #include "mcp_ffi_core.h"
-#include "mcp_raii.h"
+#include "mcp_c_raii.h"
 
 namespace mcp {
 namespace raii {

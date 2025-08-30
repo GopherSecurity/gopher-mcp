@@ -3,7 +3,7 @@
  * @brief Implementation of advanced filter chain management
  */
 
-#include "mcp/c_api/mcp_filter_chain.h"
+#include "mcp/c_api/mcp_c_filter_chain.h"
 
 #include <algorithm>
 #include <atomic>
@@ -17,9 +17,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "mcp/c_api/mcp_filter_api.h"
-#include "mcp/c_api/mcp_filter_buffer.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
+#include "mcp/c_api/mcp_c_filter_buffer.h"
+#include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/network/filter.h"
 
 #include "handle_manager.h"

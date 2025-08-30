@@ -1,5 +1,5 @@
 /**
- * @file mcp_filter_chain.h
+ * @file mcp_c_filter_chain.h
  * @brief Advanced filter chain management for MCP Filter API
  *
  * This header provides comprehensive filter chain composition and management,
@@ -17,7 +17,7 @@
 #ifndef MCP_FILTER_CHAIN_H
 #define MCP_FILTER_CHAIN_H
 
-#include "mcp_filter_api.h"
+#include "mcp_c_filter_api.h"
 
 #ifdef __cplusplus
 extern "C" {

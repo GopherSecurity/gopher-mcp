@@ -31,9 +31,9 @@
 #include <gtest/gtest.h>
 
 #include "mcp/c_api/mcp_c_api.h"
-#include "mcp/c_api/mcp_filter_api.h"
-#include "mcp/c_api/mcp_filter_buffer.h"
-#include "mcp/c_api/mcp_filter_chain.h"
+#include "mcp/c_api/mcp_c_filter_api.h"
+#include "mcp/c_api/mcp_c_filter_buffer.h"
+#include "mcp/c_api/mcp_c_filter_chain.h"
 
 namespace {
 

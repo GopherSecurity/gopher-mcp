@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "mcp/c_api/mcp_c_api.h"
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 
 #include "handle_manager.h"
 
