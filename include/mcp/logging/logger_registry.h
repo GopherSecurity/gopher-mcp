@@ -84,6 +84,8 @@ private:
   
   std::shared_ptr<LogSink> getDefaultSink();
   
+  LogLevel getEffectiveLevelLocked(const std::string& name);  // Assumes mutex already locked
+  
   // Hierarchical logger map
   mutable std::mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<Logger>> loggers_;

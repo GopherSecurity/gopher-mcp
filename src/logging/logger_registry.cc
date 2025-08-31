@@ -16,10 +16,11 @@ LoggerRegistry::LoggerRegistry()
 }
 
 void LoggerRegistry::initializeDefaults() {
-  // Create default logger with console output
+  // Create default logger without sink initially to avoid initialization issues
   default_logger_ = std::make_shared<Logger>("default", LogMode::Sync);
-  default_sink_ = std::make_shared<StdioSink>(StdioSink::Stderr);
-  default_logger_->setSink(default_sink_);
+  // Don't create sink during static initialization to avoid potential deadlock
+  // default_sink_ = std::make_shared<StdioSink>(StdioSink::Stderr);
+  // default_logger_->setSink(default_sink_);
   default_logger_->setLevel(global_level_);
   
   // Initialize bloom filter
@@ -47,14 +48,13 @@ std::shared_ptr<Logger> LoggerRegistry::getOrCreateLogger(const std::string& nam
   auto logger = std::make_shared<Logger>(name, LogMode::Sync);
   
   // Set effective level based on patterns and component
-  LogLevel effective_level = getEffectiveLevel(name);
+  LogLevel effective_level = getEffectiveLevelLocked(name);
   logger->setLevel(effective_level);
   
-  // Use default sink if available
-  if (default_logger_) {
-    // Share the same sink as default logger
-    logger->setSink(default_logger_->getSink());
-  }
+  // Don't try to use default sink to avoid potential issues
+  // if (default_logger_ && default_sink_) {
+  //   logger->setSink(default_sink_);
+  // }
   
   // Set bloom filter hint
   bloom_filter_.add(name);
@@ -144,8 +144,8 @@ bool LoggerRegistry::shouldLog(const std::string& name, LogLevel level) {
   return checkActualLevel(name, level);
 }
 
-LogLevel LoggerRegistry::getEffectiveLevel(const std::string& name) {
-  std::lock_guard<std::mutex> lock(mutex_);
+LogLevel LoggerRegistry::getEffectiveLevelLocked(const std::string& name) {
+  // NOTE: Assumes mutex_ is already locked by caller
   
   // Check for specific patterns (most specific first)
   for (const auto& pattern : patterns_) {
@@ -174,6 +174,11 @@ LogLevel LoggerRegistry::getEffectiveLevel(const std::string& name) {
   
   // Use global level
   return global_level_;
+}
+
+LogLevel LoggerRegistry::getEffectiveLevel(const std::string& name) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return getEffectiveLevelLocked(name);
 }
 
 std::vector<std::string> LoggerRegistry::getLoggerNames() const {
