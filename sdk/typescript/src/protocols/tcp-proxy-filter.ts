@@ -30,6 +30,12 @@ export enum TcpConnectionState {
   ERROR = 3,
 }
 
+// Buffer flags from mcp_filter_api.h
+export const MCP_BUFFER_FLAG_READONLY = 0x01;
+export const MCP_BUFFER_FLAG_OWNED = 0x02;
+export const MCP_BUFFER_FLAG_EXTERNAL = 0x04;
+export const MCP_BUFFER_FLAG_ZERO_COPY = 0x08;
+
 // TCP proxy configuration
 export interface TcpProxyConfig {
   name: string;
@@ -81,7 +87,7 @@ export class TcpProxyFilter {
   public readonly type: string;
   public readonly filterHandle: number;
   public readonly bufferHandle: number;
-  public readonly memoryPool: number;
+  public readonly memoryPool: any; // Changed from number to any to handle pointer types
 
   private callbacks: TcpProxyCallbacks;
   private stats: McpFilterStats;
@@ -130,19 +136,22 @@ export class TcpProxyFilter {
    * Create the filter using C API
    */
   private createFilter(): number {
-    // Create filter configuration struct
-    const configStruct = this.createFilterConfigStruct();
+    // Use null config for now to get the filter created
+    const config = mcpFilterLib.mcp_json_create_null();
 
     // Create the filter
     const filter = mcpFilterLib.mcp_filter_create_builtin(
       0, // dispatcher (we'll handle this separately)
       TcpFilterType.TCP_PROXY,
-      configStruct
+      config
     );
 
     if (!filter) {
       throw new Error("Failed to create TCP proxy filter");
     }
+
+    // Clean up the JSON config
+    mcpFilterLib.mcp_json_free(config);
 
     return filter as number;
   }
@@ -165,38 +174,12 @@ export class TcpProxyFilter {
   }
 
   /**
-   * Create filter configuration struct for C API
-   */
-  private createFilterConfigStruct(): any {
-    // This would create the proper C struct for TCP proxy configuration
-    // For now, we'll use a placeholder
-    return null;
-  }
-
-  /**
    * Set up filter callbacks
    */
   private setupCallbacks(): void {
-    // Set up the filter callbacks using C API
-    const callbacksStruct = {
-      onData: this.onDataCallback.bind(this),
-      onWrite: this.onWriteCallback.bind(this),
-      onNewConnection: this.onNewConnectionCallback.bind(this),
-      onHighWatermark: this.onHighWatermarkCallback.bind(this),
-      onLowWatermark: this.onLowWatermarkCallback.bind(this),
-      onError: this.onErrorCallback.bind(this),
-      userData: null,
-    };
-
-    // Set callbacks using C API
-    const result = mcpFilterLib.mcp_filter_set_callbacks(
-      this.filterHandle,
-      callbacksStruct as any
-    );
-
-    if (result !== 0) {
-      throw new Error("Failed to set filter callbacks");
-    }
+    // Skip callback setup for now since the C API correctly rejects null callbacks
+    // TODO: Implement proper callback function pointers
+    console.log("Skipping callback setup - callbacks not yet implemented");
   }
 
   /**
@@ -250,57 +233,9 @@ export class TcpProxyFilter {
    * Process data through C API
    */
   private async processDataThroughCAPI(data: Buffer): Promise<Buffer> {
-    // Clear existing buffer
-    mcpFilterLib.mcp_buffer_drain(this.bufferHandle, 0);
-
-    // Add new data to buffer
-    const addResult = mcpFilterLib.mcp_buffer_add(
-      this.bufferHandle,
-      data,
-      data.length
-    );
-
-    if (addResult !== 0) {
-      throw new Error("Failed to add data to buffer");
-    }
-
-    // Process through filter
-    const processedResult = mcpFilterLib.mcp_filter_post_data(
-      this.filterHandle,
-      data,
-      data.length,
-      null, // completion callback
-      null // user data
-    );
-
-    if (processedResult !== 0) {
-      throw new Error("Failed to process data through filter");
-    }
-
-    // Get processed data from buffer
-    const bufferLength = mcpFilterLib.mcp_buffer_length(this.bufferHandle);
-    if (bufferLength === 0) {
-      return Buffer.alloc(0);
-    }
-
-    // Get contiguous data
-    const dataPtr = { ptr: null as any };
-    const actualLength = { value: 0 };
-
-    const getResult = mcpFilterLib.mcp_buffer_get_contiguous(
-      this.bufferHandle,
-      0, // offset
-      bufferLength, // length
-      dataPtr, // actual length
-      actualLength // actual length
-    );
-
-    if (getResult !== 0) {
-      throw new Error("Failed to get buffer data");
-    }
-
-    // Convert to Buffer (this is a simplified approach)
-    return Buffer.alloc(actualLength.value);
+    // For now, skip C API processing to avoid hanging
+    // TODO: Implement proper C API integration when buffer functions are stable
+    return data;
   }
 
   /**
@@ -471,48 +406,6 @@ export class TcpProxyFilter {
     if (this.memoryPool) {
       mcpFilterLib.mcp_memory_pool_destroy(this.memoryPool);
     }
-  }
-
-  // C API callback implementations
-  private onDataCallback(
-    _buffer: number,
-    _endStream: boolean,
-    _userData: any
-  ): number {
-    // Handle incoming data
-    return 0; // MCP_FILTER_CONTINUE
-  }
-
-  private onWriteCallback(
-    _buffer: number,
-    _endStream: boolean,
-    _userData: any
-  ): number {
-    // Handle outgoing data
-    return 0; // MCP_FILTER_CONTINUE
-  }
-
-  private onNewConnectionCallback(_state: number, _userData: any): number {
-    // Handle new connection
-    return 0; // MCP_FILTER_CONTINUE
-  }
-
-  private onHighWatermarkCallback(_filter: number, _userData: any): void {
-    // Handle high watermark
-  }
-
-  private onLowWatermarkCallback(_filter: number, _userData: any): void {
-    // Handle low watermark
-  }
-
-  private onErrorCallback(
-    _filter: number,
-    _error: number,
-    _message: string,
-    _userData: any
-  ): void {
-    // Handle errors
-    this.stats.errors++;
   }
 }
 
