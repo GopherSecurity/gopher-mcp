@@ -289,6 +289,12 @@ mcp_log_result_t mcp_logger_add_sink(mcp_logger_handle_t logger_handle,
   }
 }
 
+// Alias for compatibility with header declaration
+mcp_log_result_t mcp_logger_set_sink(mcp_logger_handle_t logger_handle,
+                                     mcp_sink_handle_t sink_handle) {
+  return mcp_logger_add_sink(logger_handle, sink_handle);
+}
+
 mcp_log_result_t mcp_logger_remove_sink(mcp_logger_handle_t logger_handle,
                                     mcp_sink_handle_t sink_handle) {
   auto* logger = HandleManager::instance().get<LoggerHandle>(logger_handle);
@@ -461,6 +467,15 @@ void mcp_sink_destroy(mcp_sink_handle_t handle) {
   if (handle != MCP_INVALID_HANDLE) {
     HandleManager::instance().release(handle);
   }
+}
+
+// Alias for compatibility with header declaration  
+mcp_log_result_t mcp_sink_release(mcp_sink_handle_t handle) {
+  if (handle != MCP_INVALID_HANDLE) {
+    HandleManager::instance().release(handle);
+    return MCP_LOG_OK;
+  }
+  return MCP_LOG_ERROR_INVALID_HANDLE;
 }
 
 mcp_log_result_t mcp_sink_set_formatter(mcp_sink_handle_t handle,
