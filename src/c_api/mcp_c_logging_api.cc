@@ -22,45 +22,55 @@
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
+#include <thread>
 
 namespace mcp {
 namespace c_api {
 namespace {
 
-// Thread-safe handle management following mcp_raii.h patterns
-class HandleManager {
+// Thread-local error message storage for FFI error reporting
+thread_local std::string g_last_error_message;
+
+void set_last_error(const std::string& msg) {
+  g_last_error_message = msg;
+}
+
+// Type-safe handle management with proper RAII enforcement
+template<typename HandleType>
+class TypedHandleManager {
 public:
-  static HandleManager& instance() {
-    static HandleManager manager;
+  static TypedHandleManager& instance() {
+    static TypedHandleManager manager;
     return manager;
   }
 
   template<typename T>
-  uint64_t allocate(std::unique_ptr<T> resource) {
+  HandleType allocate(std::unique_ptr<T> resource) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto handle = next_handle_.fetch_add(1, std::memory_order_relaxed);
+    auto id = next_handle_.fetch_add(1, std::memory_order_relaxed);
     
     // Create a type-erased deleter
     auto deleter = [](void* p) { delete static_cast<T*>(p); };
-    resources_.emplace(handle, std::unique_ptr<void, void(*)(void*)>(
+    resources_.emplace(id, std::unique_ptr<void, void(*)(void*)>(
       resource.release(), deleter));
     
-    return handle;
+    return HandleType{id};
   }
 
   template<typename T>
-  T* get(uint64_t handle) {
+  T* get(HandleType handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = resources_.find(handle);
+    auto it = resources_.find(handle.id);
     if (it == resources_.end()) {
       return nullptr;
     }
     return static_cast<T*>(it->second.get());
   }
 
-  bool release(uint64_t handle) {
+  bool release(HandleType handle) {
+    if (handle.id == 0) return false;  // Invalid handle
     std::lock_guard<std::mutex> lock(mutex_);
-    return resources_.erase(handle) > 0;
+    return resources_.erase(handle.id) > 0;
   }
 
   void clear() {
@@ -69,12 +79,18 @@ public:
   }
 
 private:
-  HandleManager() : next_handle_(1) {} // 0 is invalid handle
+  TypedHandleManager() : next_handle_(1) {} // 0 is invalid handle
   
   std::mutex mutex_;
   std::atomic<uint64_t> next_handle_;
   std::unordered_map<uint64_t, std::unique_ptr<void, void(*)(void*)>> resources_;
 };
+
+// Instantiate handle managers for each handle type
+using LoggerHandleManager = TypedHandleManager<mcp_logger_handle_t>;
+using SinkHandleManager = TypedHandleManager<mcp_sink_handle_t>;
+using ContextHandleManager = TypedHandleManager<mcp_log_context_handle_t>;
+using FormatterHandleManager = TypedHandleManager<mcp_formatter_handle_t>;
 
 // RAII wrapper for logger handle
 struct LoggerHandle {
@@ -94,11 +110,25 @@ struct LoggerHandle {
   }
 };
 
-// RAII wrapper for sink handle
+// RAII wrapper for sink handle with cleanup callback
 struct SinkHandle {
   std::shared_ptr<logging::LogSink> sink;
+  mcp_sink_cleanup_callback_t cleanup_callback = nullptr;
+  void* user_data = nullptr;
   
   explicit SinkHandle(std::shared_ptr<logging::LogSink> s) : sink(std::move(s)) {}
+  
+  SinkHandle(std::shared_ptr<logging::LogSink> s, 
+             mcp_sink_cleanup_callback_t cleanup, 
+             void* data)
+      : sink(std::move(s)), cleanup_callback(cleanup), user_data(data) {}
+  
+  ~SinkHandle() {
+    // Call cleanup callback if provided
+    if (cleanup_callback && user_data) {
+      cleanup_callback(user_data);
+    }
+  }
 };
 
 // RAII wrapper for context handle
@@ -117,20 +147,8 @@ std::string to_string(mcp_string_view_t str) {
   return std::string(str.data, str.length);
 }
 
-// Convert std::string to C string view (caller owns memory)
-mcp_string_view_t to_string_view(const std::string& str) {
-  mcp_string_view_t view;
-  view.length = str.length();
-  if (view.length > 0) {
-    view.data = static_cast<char*>(std::malloc(view.length + 1));
-    if (view.data) {
-      std::memcpy(const_cast<char*>(view.data), str.c_str(), view.length + 1);
-    }
-  } else {
-    view.data = nullptr;
-  }
-  return view;
-}
+// Note: Removed to_string_view as it had memory ownership issues
+// All string data should be owned by the caller when passing through FFI
 
 // Convert C log level to C++ log level
 logging::LogLevel to_cpp_level(mcp_log_level_t level) {
@@ -156,45 +174,74 @@ extern "C" {
 static mcp_logger_handle_t create_logger_internal(mcp_string_view_t name) {
   try {
     auto logger_handle = std::make_unique<LoggerHandle>(to_string(name));
-    return HandleManager::instance().allocate(std::move(logger_handle));
+    return LoggerHandleManager::instance().allocate(std::move(logger_handle));
+  } catch (const std::exception& e) {
+    set_last_error(std::string("Failed to create logger: ") + e.what());
+    return MCP_INVALID_LOGGER_HANDLE;
   } catch (...) {
-    return MCP_INVALID_HANDLE;
+    set_last_error("Failed to create logger: unknown error");
+    return MCP_INVALID_LOGGER_HANDLE;
   }
 }
 
 mcp_log_result_t mcp_logger_get_or_create(mcp_string_view_t name,
                                           mcp_logger_handle_t* handle) {
   if (!handle) {
+    set_last_error("Null pointer provided for handle");
     return MCP_LOG_ERROR_NULL_POINTER;
   }
   *handle = create_logger_internal(name);
-  return (*handle != MCP_INVALID_HANDLE) ? MCP_LOG_OK : MCP_LOG_ERROR_OUT_OF_MEMORY;
+  return MCP_IS_VALID_LOGGER(*handle) ? MCP_LOG_OK : MCP_LOG_ERROR_OUT_OF_MEMORY;
 }
 
 mcp_log_result_t mcp_logger_get_default(mcp_logger_handle_t* handle) {
   if (!handle) {
+    set_last_error("Null pointer provided for handle");
     return MCP_LOG_ERROR_NULL_POINTER;
   }
-  static mcp_logger_handle_t default_handle = []() {
+  
+  // Thread-safe lazy initialization
+  static std::once_flag init_flag;
+  static mcp_logger_handle_t default_handle = MCP_INVALID_LOGGER_HANDLE;
+  static std::atomic<bool> init_success{false};
+  
+  std::call_once(init_flag, []() {
     mcp_string_view_t name = {"default", 7};
-    return create_logger_internal(name);
-  }();
+    auto h = create_logger_internal(name);
+    if (MCP_IS_VALID_LOGGER(h)) {
+      default_handle = h;
+      init_success.store(true);
+    }
+  });
+  
+  if (!init_success.load()) {
+    set_last_error("Failed to initialize default logger");
+    return MCP_LOG_ERROR_NOT_INITIALIZED;
+  }
+  
   *handle = default_handle;
   return MCP_LOG_OK;
 }
 
 mcp_log_result_t mcp_logger_release(mcp_logger_handle_t handle) {
-  if (handle == MCP_INVALID_HANDLE) {
+  if (!MCP_IS_VALID_LOGGER(handle)) {
+    set_last_error("Invalid logger handle");
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
-  return HandleManager::instance().release(handle) ? MCP_LOG_OK : MCP_LOG_ERROR_NOT_FOUND;
+  bool released = LoggerHandleManager::instance().release(handle);
+  if (!released) {
+    set_last_error("Logger handle not found");
+    return MCP_LOG_ERROR_NOT_FOUND;
+  }
+  return MCP_LOG_OK;
 }
 
 mcp_log_result_t mcp_logger_log(mcp_logger_handle_t handle,
                                 mcp_log_level_t level,
                                 mcp_string_view_t message) {
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle) {
+    set_last_error("Invalid or released logger handle");
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   logger_handle->ensureLogger();
@@ -216,11 +263,13 @@ mcp_log_result_t mcp_logger_log(mcp_logger_handle_t handle,
 mcp_log_result_t mcp_logger_log_structured(mcp_logger_handle_t handle,
                                            const mcp_log_message_t* message) {
   if (!message) {
+    set_last_error("Null message pointer");
     return MCP_LOG_ERROR_NULL_POINTER;
   }
   
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle) {
+    set_last_error("Invalid or released logger handle");
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   logger_handle->ensureLogger();
@@ -252,8 +301,9 @@ mcp_log_result_t mcp_logger_log_structured(mcp_logger_handle_t handle,
 
 mcp_log_result_t mcp_logger_set_level(mcp_logger_handle_t handle,
                                   mcp_log_level_t level) {
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle) {
+    set_last_error("Invalid or released logger handle");
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   logger_handle->ensureLogger();
@@ -272,10 +322,12 @@ mcp_log_result_t mcp_logger_set_level(mcp_logger_handle_t handle,
 mcp_log_result_t mcp_logger_get_level(mcp_logger_handle_t handle,
                                       mcp_log_level_t* level) {
   if (!level) {
+    set_last_error("Null pointer provided for level");
     return MCP_LOG_ERROR_NULL_POINTER;
   }
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle) {
+    set_last_error("Invalid or released logger handle");
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   logger_handle->ensureLogger();
@@ -289,8 +341,13 @@ mcp_log_result_t mcp_logger_get_level(mcp_logger_handle_t handle,
 
 mcp_bool_t mcp_logger_should_log(mcp_logger_handle_t handle,
                                  mcp_log_level_t level) {
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
+  if (!logger_handle) {
+    return MCP_FALSE;
+  }
+  
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_FALSE;
   }
   
@@ -364,6 +421,103 @@ mcp_log_result_t mcp_logger_flush(mcp_logger_handle_t handle) {
 }
 
 // Sink API Implementation
+mcp_log_result_t mcp_sink_create_external(
+    mcp_log_sink_callback_t callback,
+    void* user_data,
+    mcp_sink_cleanup_callback_t cleanup,
+    mcp_sink_handle_t* handle) {
+  if (!handle || !callback) {
+    set_last_error("Invalid parameters for external sink");
+    return MCP_LOG_ERROR_NULL_POINTER;
+  }
+  
+  try {
+    // Create a custom sink that wraps the callback
+    class ExternalSink : public logging::LogSink {
+    public:
+      ExternalSink(mcp_log_sink_callback_t cb, void* data)
+          : callback_(cb), user_data_(data) {}
+      
+      void log(const logging::LogMessage& msg) override {
+        if (callback_) {
+          // Format message and call the callback
+          std::string formatted = formatMessage(msg);
+          callback_(to_c_level(msg.level), 
+                   msg.logger_name.c_str(),
+                   formatted.c_str(),
+                   user_data_);
+        }
+      }
+      
+      void flush() override {
+        // External sinks handle their own flushing
+      }
+      
+    private:
+      mcp_log_sink_callback_t callback_;
+      void* user_data_;
+      
+      std::string formatMessage(const logging::LogMessage& msg) {
+        // Simple formatting - can be enhanced
+        return msg.message;
+      }
+    };
+    
+    auto sink = std::make_shared<ExternalSink>(callback, user_data);
+    auto sink_handle = std::make_unique<SinkHandle>(sink, cleanup, user_data);
+    *handle = SinkHandleManager::instance().allocate(std::move(sink_handle));
+    
+    return MCP_LOG_OK;
+  } catch (const std::exception& e) {
+    set_last_error(std::string("Failed to create external sink: ") + e.what());
+    return MCP_LOG_ERROR_OUT_OF_MEMORY;
+  }
+}
+
+mcp_log_result_t mcp_sink_release(mcp_sink_handle_t handle) {
+  if (!MCP_IS_VALID_SINK(handle)) {
+    set_last_error("Invalid sink handle");
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  bool released = SinkHandleManager::instance().release(handle);
+  if (!released) {
+    set_last_error("Sink handle not found");
+    return MCP_LOG_ERROR_NOT_FOUND;
+  }
+  return MCP_LOG_OK;
+}
+
+// Error handling implementation
+mcp_log_result_t mcp_logging_get_last_error(char* buffer, size_t buffer_size) {
+  if (!buffer || buffer_size == 0) {
+    return MCP_LOG_ERROR_NULL_POINTER;
+  }
+  
+  size_t len = std::min(g_last_error_message.length(), buffer_size - 1);
+  std::memcpy(buffer, g_last_error_message.c_str(), len);
+  buffer[len] = '\0';
+  
+  return MCP_LOG_OK;
+}
+
+const char* mcp_logging_result_to_string(mcp_log_result_t result) {
+  switch (result) {
+    case MCP_LOG_OK: return "Success";
+    case MCP_LOG_ERROR_INVALID_HANDLE: return "Invalid handle";
+    case MCP_LOG_ERROR_NULL_POINTER: return "Null pointer";
+    case MCP_LOG_ERROR_OUT_OF_MEMORY: return "Out of memory";
+    case MCP_LOG_ERROR_INVALID_LEVEL: return "Invalid log level";
+    case MCP_LOG_ERROR_SINK_FAILED: return "Sink operation failed";
+    case MCP_LOG_ERROR_ALREADY_EXISTS: return "Resource already exists";
+    case MCP_LOG_ERROR_NOT_FOUND: return "Resource not found";
+    case MCP_LOG_ERROR_INVALID_PATTERN: return "Invalid pattern";
+    case MCP_LOG_ERROR_IO_ERROR: return "I/O error";
+    case MCP_LOG_ERROR_NOT_INITIALIZED: return "Not initialized";
+    default: return "Unknown error";
+  }
+}
+
+// Additional sink API implementations
 mcp_log_result_t mcp_sink_create_file(mcp_string_view_t filename,
                                       size_t max_file_size,
                                       size_t max_files,

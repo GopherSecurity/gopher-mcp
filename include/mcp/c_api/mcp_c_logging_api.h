@@ -28,14 +28,26 @@ extern "C" {
  * Core Types and Enumerations
  * ============================================================================ */
 
-/** Opaque handle types for RAII management */
-typedef uint64_t mcp_logger_handle_t;
-typedef uint64_t mcp_sink_handle_t;
-typedef uint64_t mcp_log_context_handle_t;
-typedef uint64_t mcp_formatter_handle_t;
+/** 
+ * Opaque handle types with type safety for RAII management
+ * Each handle type is distinct to prevent mixing handle types
+ */
+typedef struct mcp_logger_handle { uint64_t id; } mcp_logger_handle_t;
+typedef struct mcp_sink_handle { uint64_t id; } mcp_sink_handle_t;
+typedef struct mcp_log_context_handle { uint64_t id; } mcp_log_context_handle_t;
+typedef struct mcp_formatter_handle { uint64_t id; } mcp_formatter_handle_t;
 
-/** Invalid handle constant */
-#define MCP_INVALID_HANDLE ((uint64_t)0)
+/** Invalid handle constants */
+#define MCP_INVALID_LOGGER_HANDLE ((mcp_logger_handle_t){0})
+#define MCP_INVALID_SINK_HANDLE ((mcp_sink_handle_t){0})
+#define MCP_INVALID_CONTEXT_HANDLE ((mcp_log_context_handle_t){0})
+#define MCP_INVALID_FORMATTER_HANDLE ((mcp_formatter_handle_t){0})
+
+/** Handle validation macros */
+#define MCP_IS_VALID_LOGGER(h) ((h).id != 0)
+#define MCP_IS_VALID_SINK(h) ((h).id != 0)
+#define MCP_IS_VALID_CONTEXT(h) ((h).id != 0)
+#define MCP_IS_VALID_FORMATTER(h) ((h).id != 0)
 
 /** Result codes for logging operations */
 typedef enum {
@@ -108,10 +120,14 @@ typedef enum {
  * FFI-Safe String Type
  * ============================================================================ */
 
-/** Zero-copy string reference for efficient string passing */
+/** 
+ * Zero-copy string reference for efficient string passing
+ * IMPORTANT: The caller retains ownership of the string data.
+ * The string data must remain valid for the duration of the API call.
+ */
 typedef struct mcp_string_view {
-    const char* data;
-    size_t length;
+    const char* data;  /* Pointer to string data (not null-terminated) */
+    size_t length;     /* Length of string in bytes */
 } mcp_string_view_t;
 
 /** Helper macro to create string view from literal */
@@ -121,6 +137,10 @@ typedef struct mcp_string_view {
 /** Helper macro to create string view from C string */
 #define MCP_STRING_VIEW_C(str) \
     (mcp_string_view_t){.data = (str), .length = strlen(str)}
+
+/** Helper macro for empty string view */
+#define MCP_EMPTY_STRING_VIEW \
+    (mcp_string_view_t){.data = NULL, .length = 0}
 
 /* ============================================================================
  * Log Message Structure
@@ -153,13 +173,24 @@ typedef struct mcp_log_message {
  * Callback Types for External Integration
  * ============================================================================ */
 
-/** External sink callback for custom log handling */
+/** 
+ * External sink callback for custom log handling
+ * IMPORTANT: This callback is invoked synchronously during logging.
+ * The callback must not call back into the logging API to avoid deadlock.
+ * The formatted_message is only valid during the callback execution.
+ */
 typedef void (*mcp_log_sink_callback_t)(
     mcp_log_level_t level,
-    const char* logger_name,
-    const char* formatted_message,
-    void* user_data
+    const char* logger_name,        /* Null-terminated logger name */
+    const char* formatted_message,   /* Null-terminated formatted message */
+    void* user_data                  /* User-provided context */
 );
+
+/** 
+ * Sink cleanup callback for releasing user data
+ * Called when the sink is destroyed
+ */
+typedef void (*mcp_sink_cleanup_callback_t)(void* user_data);
 
 /** Log filter callback for custom filtering */
 typedef int (*mcp_log_filter_callback_t)(
@@ -396,6 +427,7 @@ mcp_log_result_t mcp_sink_create_stdio(
 mcp_log_result_t mcp_sink_create_external(
     mcp_log_sink_callback_t callback,
     void* user_data,
+    mcp_sink_cleanup_callback_t cleanup,  /* Optional cleanup for user_data */
     mcp_sink_handle_t* handle
 );
 
@@ -581,7 +613,7 @@ mcp_log_result_t mcp_logging_reset_stats(void);
  * ============================================================================ */
 
 /**
- * Get last error message
+ * Get last error message (thread-local)
  * 
  * @param buffer Buffer to store error message
  * @param buffer_size Size of buffer
@@ -593,9 +625,176 @@ mcp_log_result_t mcp_logging_get_last_error(char* buffer, size_t buffer_size);
  * Convert result code to string
  * 
  * @param result Result code
- * @return String representation of result
+ * @return String representation of result (static string, do not free)
  */
 const char* mcp_logging_result_to_string(mcp_log_result_t result);
+
+/* ============================================================================
+ * RAII Guards for Automatic Resource Management
+ * ============================================================================ */
+
+#ifdef __cplusplus
+
+namespace mcp {
+namespace logging {
+
+/**
+ * RAII guard for automatic logger handle release
+ */
+class LoggerGuard {
+public:
+    explicit LoggerGuard(mcp_logger_handle_t h = MCP_INVALID_LOGGER_HANDLE) 
+        : handle_(h) {}
+    
+    ~LoggerGuard() {
+        if (MCP_IS_VALID_LOGGER(handle_)) {
+            mcp_logger_release(handle_);
+        }
+    }
+    
+    // Move semantics
+    LoggerGuard(LoggerGuard&& other) noexcept 
+        : handle_(other.handle_) {
+        other.handle_ = MCP_INVALID_LOGGER_HANDLE;
+    }
+    
+    LoggerGuard& operator=(LoggerGuard&& other) noexcept {
+        if (this != &other) {
+            if (MCP_IS_VALID_LOGGER(handle_)) {
+                mcp_logger_release(handle_);
+            }
+            handle_ = other.handle_;
+            other.handle_ = MCP_INVALID_LOGGER_HANDLE;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    LoggerGuard(const LoggerGuard&) = delete;
+    LoggerGuard& operator=(const LoggerGuard&) = delete;
+    
+    // Access
+    mcp_logger_handle_t get() const { return handle_; }
+    mcp_logger_handle_t* operator&() { return &handle_; }
+    operator mcp_logger_handle_t() const { return handle_; }
+    
+    // Release ownership
+    mcp_logger_handle_t release() {
+        auto h = handle_;
+        handle_ = MCP_INVALID_LOGGER_HANDLE;
+        return h;
+    }
+    
+private:
+    mcp_logger_handle_t handle_;
+};
+
+/**
+ * RAII guard for automatic sink handle release
+ */
+class SinkGuard {
+public:
+    explicit SinkGuard(mcp_sink_handle_t h = MCP_INVALID_SINK_HANDLE) 
+        : handle_(h) {}
+    
+    ~SinkGuard() {
+        if (MCP_IS_VALID_SINK(handle_)) {
+            mcp_sink_release(handle_);
+        }
+    }
+    
+    // Move semantics
+    SinkGuard(SinkGuard&& other) noexcept 
+        : handle_(other.handle_) {
+        other.handle_ = MCP_INVALID_SINK_HANDLE;
+    }
+    
+    SinkGuard& operator=(SinkGuard&& other) noexcept {
+        if (this != &other) {
+            if (MCP_IS_VALID_SINK(handle_)) {
+                mcp_sink_release(handle_);
+            }
+            handle_ = other.handle_;
+            other.handle_ = MCP_INVALID_SINK_HANDLE;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    SinkGuard(const SinkGuard&) = delete;
+    SinkGuard& operator=(const SinkGuard&) = delete;
+    
+    // Access
+    mcp_sink_handle_t get() const { return handle_; }
+    mcp_sink_handle_t* operator&() { return &handle_; }
+    operator mcp_sink_handle_t() const { return handle_; }
+    
+    // Release ownership
+    mcp_sink_handle_t release() {
+        auto h = handle_;
+        handle_ = MCP_INVALID_SINK_HANDLE;
+        return h;
+    }
+    
+private:
+    mcp_sink_handle_t handle_;
+};
+
+/**
+ * RAII guard for automatic context handle release
+ */
+class ContextGuard {
+public:
+    explicit ContextGuard(mcp_log_context_handle_t h = MCP_INVALID_CONTEXT_HANDLE) 
+        : handle_(h) {}
+    
+    ~ContextGuard() {
+        if (MCP_IS_VALID_CONTEXT(handle_)) {
+            mcp_context_release(handle_);
+        }
+    }
+    
+    // Move semantics
+    ContextGuard(ContextGuard&& other) noexcept 
+        : handle_(other.handle_) {
+        other.handle_ = MCP_INVALID_CONTEXT_HANDLE;
+    }
+    
+    ContextGuard& operator=(ContextGuard&& other) noexcept {
+        if (this != &other) {
+            if (MCP_IS_VALID_CONTEXT(handle_)) {
+                mcp_context_release(handle_);
+            }
+            handle_ = other.handle_;
+            other.handle_ = MCP_INVALID_CONTEXT_HANDLE;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    ContextGuard(const ContextGuard&) = delete;
+    ContextGuard& operator=(const ContextGuard&) = delete;
+    
+    // Access
+    mcp_log_context_handle_t get() const { return handle_; }
+    mcp_log_context_handle_t* operator&() { return &handle_; }
+    operator mcp_log_context_handle_t() const { return handle_; }
+    
+    // Release ownership
+    mcp_log_context_handle_t release() {
+        auto h = handle_;
+        handle_ = MCP_INVALID_CONTEXT_HANDLE;
+        return h;
+    }
+    
+private:
+    mcp_log_context_handle_t handle_;
+};
+
+} // namespace logging
+} // namespace mcp
+
+#endif // __cplusplus
 
 #ifdef __cplusplus
 }
