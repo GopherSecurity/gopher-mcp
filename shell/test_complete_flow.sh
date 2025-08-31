@@ -22,7 +22,7 @@ trap cleanup EXIT
 
 # Start server with verbose logging
 echo "1. Starting MCP server on port $SERVER_PORT..."
-./build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT --verbose > server.log 2>&1 &
+../build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT --verbose > server.log 2>&1 &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 sleep 3

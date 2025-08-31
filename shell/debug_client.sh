@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Starting MCP server..."
-./build/examples/mcp/mcp_example_server --port 3001 --transport http --verbose > server.log 2>&1 &
+../build/examples/mcp/mcp_example_server --port 3001 --transport http --verbose > server.log 2>&1 &
 SERVER_PID=$!
 
 sleep 2
@@ -10,7 +10,7 @@ echo "Starting MCP client with verbose logging..."
 
 # Run client with timeout and capture output
 (
-    ./build/examples/mcp/mcp_example_client \
+    ../build/examples/mcp/mcp_example_client \
         --host localhost \
         --port 3001 \
         --transport http \

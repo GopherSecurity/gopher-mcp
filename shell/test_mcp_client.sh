@@ -14,7 +14,7 @@ echo ""
 
 # Start server first
 echo -e "${GREEN}Starting MCP server on port 3000...${NC}"
-./build/examples/mcp/mcp_example_server --transport http --port 3000 > /tmp/server_test.log 2>&1 &
+../build/examples/mcp/mcp_example_server --transport http --port 3000 > /tmp/server_test.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -30,7 +30,7 @@ fi
 
 # Test client connection
 echo -e "${GREEN}Starting MCP client connecting to http://localhost:3000...${NC}"
-./build/examples/mcp/mcp_example_client --transport http --host localhost --port 3000 > /tmp/client_test.log 2>&1 &
+../build/examples/mcp/mcp_example_client --transport http --host localhost --port 3000 > /tmp/client_test.log 2>&1 &
 CLIENT_PID=$!
 sleep 10
 kill $CLIENT_PID 2>/dev/null

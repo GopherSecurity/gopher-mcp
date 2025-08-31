@@ -21,7 +21,7 @@ run_test() {
     echo ""
     
     # Start server
-    ./build/examples/mcp/mcp_example_server $server_args &
+    ../build/examples/mcp/mcp_example_server $server_args &
     SERVER_PID=$!
     
     # Give server time to start
@@ -35,7 +35,7 @@ run_test() {
     
     # Run client with timeout
     (
-        ./build/examples/mcp/mcp_example_client $client_args &
+        ../build/examples/mcp/mcp_example_client $client_args &
         CLIENT_PID=$!
         
         # Wait for client or timeout

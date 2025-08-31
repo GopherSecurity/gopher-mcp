@@ -10,7 +10,7 @@ rm -f /tmp/server_sse.log /tmp/client_sse.log
 
 # Start server with SSE support
 echo "Starting server..."
-./build/examples/mcp/mcp_example_server --port 3002 > /tmp/server_sse.log 2>&1 &
+../build/examples/mcp/mcp_example_server --port 3002 > /tmp/server_sse.log 2>&1 &
 SERVER_PID=$!
 sleep 2
 
