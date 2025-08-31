@@ -237,5 +237,10 @@ void LoggerRegistry::setComponentLevel(const std::string& path, LogLevel level) 
   }
 }
 
+// ComponentLogger implementation
+std::string ComponentLogger::getComponentPath(Component comp, const std::string& name) {
+  return LoggerRegistry::getComponentPath(comp, name);
+}
+
 } // namespace logging
 } // namespace mcp

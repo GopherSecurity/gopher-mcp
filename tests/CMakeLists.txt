@@ -1080,7 +1080,8 @@ add_executable(test_logger_registry logging/test_logger_registry.cc)
 
 # Link logging test libraries
 target_link_libraries(test_bloom_filter
-    mcp_logging
+    gopher-mcp-logging-static
+    fmt::fmt
     gtest
     gmock
     gtest_main
@@ -1088,7 +1089,8 @@ target_link_libraries(test_bloom_filter
 )
 
 target_link_libraries(test_log_level
-    mcp_logging
+    gopher-mcp-logging-static
+    fmt::fmt
     gtest
     gmock
     gtest_main
@@ -1096,7 +1098,8 @@ target_link_libraries(test_log_level
 )
 
 target_link_libraries(test_log_sink
-    mcp_logging
+    gopher-mcp-logging-static
+    fmt::fmt
     gtest
     gmock
     gtest_main
@@ -1104,7 +1107,8 @@ target_link_libraries(test_log_sink
 )
 
 target_link_libraries(test_logger
-    mcp_logging
+    gopher-mcp-logging-static
+    fmt::fmt
     gtest
     gmock
     gtest_main
@@ -1112,7 +1116,8 @@ target_link_libraries(test_logger
 )
 
 target_link_libraries(test_logger_registry
-    mcp_logging
+    gopher-mcp-logging-static
+    fmt::fmt
     gtest
     gmock
     gtest_main

@@ -72,6 +72,9 @@ public:
   // Get all registered loggers (for testing/debugging)
   std::vector<std::string> getLoggerNames() const;
   
+  // Component path helper (public for ComponentLogger)
+  static std::string getComponentPath(Component comp, const std::string& name);
+  
 private:
   LoggerRegistry();
   
@@ -80,8 +83,6 @@ private:
   bool checkActualLevel(const std::string& logger_name, LogLevel level) const;
   
   std::shared_ptr<LogSink> getDefaultSink();
-  
-  static std::string getComponentPath(Component comp, const std::string& name);
   
   // Hierarchical logger map
   mutable std::mutex mutex_;
