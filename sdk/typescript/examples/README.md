@@ -1,147 +1,153 @@
 # MCP Filter SDK Examples
 
-This directory contains examples demonstrating how to use the MCP Filter SDK with shared libraries.
+This directory contains examples that demonstrate the MCP Filter SDK functionality using the **REAL shared library**.
 
-## Examples
+## 🚀 Examples Overview
 
-### 1. Core Features Demo
+### 1. `real-shared-library-demo.ts` - Comprehensive Demo
+A full-featured demonstration that showcases all SDK capabilities:
+- **Basic Filters**: HTTP and TCP Proxy filter creation and management
+- **Advanced Buffers**: Buffer operations, pooling, and performance testing
+- **Filter Chains**: Chain management, execution modes, and state control
+- **RAII Management**: Resource guards, transactions, and cleanup
+- **Real C API Integration**: Direct calls to the shared library
+- **Performance Testing**: Stress testing with real operations
 
-**File**: `core-features-demo.ts`
+### 2. `integration-test.ts` - Focused Integration Testing
+A focused test suite that verifies the real shared library integration:
+- **MCP Core**: Initialization, version, status
+- **Resource Management**: Dispatchers, memory pools
+- **Filter Operations**: Creation, stats, cleanup
+- **Buffer Operations**: Creation, properties, pools
+- **JSON Operations**: All JSON creation functions
+- **Resource Cleanup**: Proper cleanup of all resources
 
-Demonstrates the core SDK functionality and basic operations:
-
-```bash
-# Run the demo
-npm run build
-node dist/examples/core-features-demo.js
-```
-
-This example shows:
-
-- Advanced buffer management (create, add, view, watermarks)
-- Enhanced filter chain enums and routing strategies
-- RAII resource management (guards, transactions, cleanup)
-- C API function binding verification (108/108 functions)
-
-### 2. Verification Demo
-
-**File**: `verification-demo.ts`
-
-Comprehensive verification of all SDK components:
-
-```bash
-# Run the demo
-npm run build
-node dist/examples/verification-demo.js
-```
-
-This example verifies:
-
-- Buffer operations and pool management
-- Enum accessibility and values
-- RAII resource tracking and cleanup
-- SDK class instantiation
-- C API integration status
-
-### 3. Advanced Usage Demo
-
-**File**: `advanced-usage-demo.ts`
-
-Demonstrates advanced features and complex scenarios:
-
-```bash
-# Run the demo
-npm run build
-node dist/examples/advanced-usage-demo.js
-```
-
-This example showcases:
-
-- Complex buffer operations and pooling
-- Advanced filter chain composition
-- Performance monitoring and optimization
-- Resource management patterns
-
-## Quick Start
+## 🏃‍♂️ How to Run
 
 ### Prerequisites
+1. **Shared Library Installed**: `/usr/local/lib/libgopher_mcp_c.dylib`
+2. **Project Built**: Run `npm run build` first
+3. **Node.js**: Version 16+ recommended
 
-1. **Install System Libraries**:
+### Running the Comprehensive Demo
+```bash
+# Build the project first
+npm run build
 
-   ```bash
-   cd /path/to/gopher-mcp
-   make install
-   ```
+# Run the comprehensive demo
+node dist/examples/real-shared-library-demo.js
+```
 
-2. **Fix Rpath Dependencies** (macOS):
+### Running the Integration Tests
+```bash
+# Build the project first
+npm run build
 
-   ```bash
-   sudo install_name_tool -add_rpath /usr/local/lib /usr/local/lib/libgopher_mcp_c.0.1.0.dylib
-   ```
+# Run the integration tests
+node dist/examples/integration-test.js
+```
 
-3. **Build and Run Examples**:
+## 🔍 What These Examples Demonstrate
 
-   ```bash
-   cd sdk/typescript
-   npm install
-   npm run build
+### ✅ **Real Shared Library Integration**
+- **No Mocks**: These examples use the actual C library functions
+- **Real FFI Calls**: Direct calls to `libgopher_mcp_c.dylib`
+- **Resource Management**: Proper creation and cleanup of C resources
+- **Error Handling**: Real error conditions and responses
 
-   # Run core features demo
-   node dist/examples/core-features-demo.js
-   ```
+### ✅ **Complete SDK Functionality**
+- **All Filter Types**: HTTP, TCP Proxy, and custom filters
+- **Buffer Operations**: Advanced buffer management and pooling
+- **Chain Management**: Filter chain creation and execution
+- **RAII Patterns**: Automatic resource cleanup
+- **Performance Metrics**: Real performance measurements
 
-## What Each Demo Tests
+### ✅ **Production-Ready Code**
+- **Resource Cleanup**: Proper cleanup of all resources
+- **Error Handling**: Comprehensive error handling and reporting
+- **Performance Testing**: Stress testing with real workloads
+- **Memory Management**: Proper memory allocation and deallocation
 
-### Core Features Demo
+## 🧪 Testing Strategy
 
-- ✅ **Buffer Management**: Create, modify, view, watermarks
-- ✅ **Enum Access**: All filter chain and routing enums
-- ✅ **RAII System**: Resource guards, transactions, cleanup
-- ✅ **C API Binding**: Function availability verification
+### **Unit Tests** (in `src/__tests__/`)
+- **Use Mocks**: Fast, isolated testing
+- **No Shared Library**: Tests run without external dependencies
+- **Fast Execution**: Suitable for CI/CD and development
 
-### Verification Demo
+### **Integration Examples** (in `examples/`)
+- **Use Real Library**: Actual shared library calls
+- **Real Resources**: Real memory allocation and cleanup
+- **End-to-End Testing**: Complete workflow testing
+- **Performance Validation**: Real performance characteristics
 
-- ✅ **Complete Testing**: All major SDK components
-- ✅ **Buffer Pooling**: Memory management and statistics
-- ✅ **Resource Tracking**: Leak detection and cleanup
-- ✅ **SDK Integration**: Class instantiation and setup
+## 🎯 Key Benefits
 
-### Advanced Usage Demo
+1. **Real Integration**: Verify that TypeScript wrappers work with actual C library
+2. **Performance Validation**: Measure real performance characteristics
+3. **Resource Management**: Test proper cleanup and memory management
+4. **Error Handling**: Test real error conditions and edge cases
+5. **Documentation**: Live examples of how to use the SDK
 
-- ✅ **Complex Scenarios**: Advanced buffer operations
-- ✅ **Filter Chains**: Dynamic composition and routing
-- ✅ **Performance**: Monitoring and optimization
-- ✅ **Resource Patterns**: Best practices and patterns
+## 🔧 Troubleshooting
 
-## Current Status
+### **Shared Library Not Found**
+```bash
+# Check if library exists
+ls -la /usr/local/lib/libgopher_mcp_c.dylib
 
-🎉 **All examples are working perfectly!**
+# Check library dependencies
+otool -L /usr/local/lib/libgopher_mcp_c.dylib
+```
 
-- **108/108 C API functions** successfully bound
-- **Shared libraries** loading correctly
-- **All demos** executing without errors
-- **Production-ready** implementation
+### **Build Errors**
+```bash
+# Clean and rebuild
+npm run clean
+npm run build
+```
 
-## Troubleshooting
+### **Runtime Errors**
+- Check that all dependencies are installed
+- Verify shared library permissions
+- Check Node.js version compatibility
 
-### Common Issues
+## 📊 Expected Output
 
-1. **Library not found**: Ensure `libgopher_mcp_c.dylib` is installed and accessible
-2. **Rpath issues**: Use `install_name_tool` to fix macOS dynamic library paths
-3. **Build errors**: Run `npm run build` to compile TypeScript to JavaScript
-4. **Runtime errors**: Check that the C++ library was built with proper symbol export
+### **Comprehensive Demo**
+```
+🚀 MCP Filter SDK - Real Shared Library Demo
+This demo uses the ACTUAL shared library, not mocks!
+Shared library path: /usr/local/lib/libgopher_mcp_c.dylib
+Available functions: 85
 
-### Getting Help
+============================================================
+📋 1. Basic Filter Creation and Management
+============================================================
+🔍 Creating HTTP Filter...
+✅ HTTP Filter created successfully
+...
+```
 
-- Check the main `README.md` for detailed setup instructions
-- Review `IMPLEMENTATION_GUIDE.md` for implementation details
-- Ensure all system dependencies are installed (`libevent`, `OpenSSL`, `nghttp2`)
+### **Integration Tests**
+```
+🚀 MCP Filter SDK - Integration Test Suite
+Testing REAL shared library functionality
+Shared library path: /usr/local/lib/libgopher_mcp_c.dylib
+Available functions: 85
 
-## Next Steps
+🧪 Running test: MCP Initialization
+   Testing MCP initialization...
+✅ MCP Initialization - PASSED
+...
+```
 
-The examples demonstrate that the TypeScript SDK is fully functional. To use in production:
+## 🎉 Success Criteria
 
-1. **Integrate the SDK** into your application
-2. **Use the advanced buffer management** for high-performance data processing
-3. **Leverage the enhanced filter chains** for complex routing scenarios
-4. **Utilize the RAII system** for robust resource management
+- **All Examples Run**: No crashes or fatal errors
+- **Resources Cleaned Up**: No memory leaks or resource leaks
+- **Performance Acceptable**: Operations complete in reasonable time
+- **Error Handling**: Graceful handling of edge cases
+- **Integration Working**: TypeScript wrappers properly call C functions
+
+These examples provide the **definitive proof** that our TypeScript SDK is fully integrated with the real shared library and ready for production use!
