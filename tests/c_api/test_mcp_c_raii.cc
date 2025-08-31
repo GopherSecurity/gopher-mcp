@@ -22,7 +22,7 @@
 #include <gtest/gtest.h>
 
 #define MCP_RAII_IMPLEMENTATION
-#include "mcp/c_api/mcp_raii.h"
+#include "mcp/c_api/mcp_c_raii.h"
 // Note: Avoiding mcp_c_types.h to prevent header conflicts
 
 using namespace mcp::raii;
