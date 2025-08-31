@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Starting server..."
-./build/examples/mcp/mcp_example_server --transport http --port 9096 > server_simple.log 2>&1 &
+../build/examples/mcp/mcp_example_server --transport http --port 9096 > server_simple.log 2>&1 &
 SERVER_PID=$!
 sleep 3
 

@@ -17,7 +17,7 @@ trap cleanup EXIT
 
 # Start server
 echo "Starting MCP server on port $SERVER_PORT..."
-./build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT 2>&1 > server.log &
+../build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT 2>&1 > server.log &
 SERVER_PID=$!
 sleep 3
 

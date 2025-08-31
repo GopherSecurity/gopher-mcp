@@ -9,7 +9,7 @@ SERVER_PORT=9092
 
 # Start server
 echo "1. Starting MCP server on port $SERVER_PORT..."
-./build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT > server.log 2>&1 &
+../build/examples/mcp/mcp_example_server --transport http --port $SERVER_PORT > server.log 2>&1 &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 sleep 3

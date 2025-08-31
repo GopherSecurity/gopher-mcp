@@ -11,7 +11,7 @@ sleep 1
 
 # Start server in background
 echo "Starting server on port 3000..."
-./build/examples/mcp/mcp_example_server --port 3000 --transport http &
+../build/examples/mcp/mcp_example_server --port 3000 --transport http &
 SERVER_PID=$!
 
 # Wait for server to start
