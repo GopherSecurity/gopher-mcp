@@ -458,5 +458,65 @@ namespace GopherMcp.Interop
                 return true;
             }
         }
+        
+        /// <summary>
+        /// List iterator handle
+        /// </summary>
+        public sealed class McpListIteratorHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_list_iterator_free when implemented
+                return true;
+            }
+        }
+        
+        /// <summary>
+        /// Map iterator handle
+        /// </summary>
+        public sealed class McpMapIteratorHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_map_iterator_free when implemented
+                return true;
+            }
+        }
+        
+        /// <summary>
+        /// Metadata handle
+        /// </summary>
+        public sealed class McpMetadataHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_metadata_free when implemented
+                return true;
+            }
+        }
+        
+        /// <summary>
+        /// Guard handle for RAII
+        /// </summary>
+        public sealed class McpGuardHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_guard_destroy when implemented
+                return true;
+            }
+        }
+        
+        /// <summary>
+        /// Transaction handle for RAII
+        /// </summary>
+        public sealed class McpTransactionHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_transaction_destroy when implemented
+                return true;
+            }
+        }
     }
 }
