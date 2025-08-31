@@ -16,6 +16,9 @@ public:
   
   void flush() override {
     flushed_ = true;
+    if (flush_callback) {
+      flush_callback();
+    }
   }
   
   SinkType type() const override { return SinkType::Null; }
@@ -23,6 +26,7 @@ public:
   std::vector<LogMessage> messages_;
   std::string last_formatted_;
   bool flushed_ = false;
+  std::function<void()> flush_callback;
 };
 
 class LogSinkTest : public ::testing::Test {
@@ -182,17 +186,21 @@ TEST_F(LogSinkTest, RotatingFileSinkRotation) {
 }
 
 TEST_F(LogSinkTest, SinkGuardRAII) {
-  auto test_sink = std::make_unique<TestLogSink>();
-  auto* raw_sink = test_sink.get();
+  // Use a shared flag to track if flush was called
+  auto flush_called = std::make_shared<bool>(false);
   
   {
+    auto test_sink = std::make_unique<TestLogSink>();
+    // Capture the flush flag in the sink
+    test_sink->flush_callback = [flush_called]() { *flush_called = true; };
+    
     SinkGuard<TestLogSink> guard(std::move(test_sink));
     guard->log(test_message_);
-    EXPECT_FALSE(raw_sink->flushed_);
+    EXPECT_FALSE(*flush_called);
   }
   
   // After guard is destroyed, sink should be flushed
-  EXPECT_TRUE(raw_sink->flushed_);
+  EXPECT_TRUE(*flush_called);
 }
 
 TEST_F(LogSinkTest, SinkFactory) {
