@@ -518,5 +518,17 @@ namespace GopherMcp.Interop
                 return true;
             }
         }
+        
+        /// <summary>
+        /// Memory pool handle
+        /// </summary>
+        public sealed class McpMemoryPoolHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_memory_pool_destroy when implemented
+                return true;
+            }
+        }
     }
 }
