@@ -141,32 +141,6 @@ try {
     { name: "mcp_filter_chain_retain", signature: "void", args: ["uint64_t"] },
     { name: "mcp_filter_chain_release", signature: "void", args: ["uint64_t"] },
 
-    // Advanced chain functions from mcp_filter_chain.h
-    {
-      name: "mcp_chain_builder_create_ex",
-      signature: "void*",
-      args: ["uint64_t", "void*"],
-    },
-    {
-      name: "mcp_chain_builder_add_node",
-      signature: "int",
-      args: ["void*", "void*"],
-    },
-    {
-      name: "mcp_chain_builder_add_conditional",
-      signature: "int",
-      args: ["void*", "void*", "uint64_t"],
-    },
-    {
-      name: "mcp_chain_builder_add_parallel_group",
-      signature: "int",
-      args: ["void*", "void*", "size_t"],
-    },
-    { name: "mcp_chain_get_state", signature: "int", args: ["uint64_t"] },
-    { name: "mcp_chain_pause", signature: "int", args: ["uint64_t"] },
-    { name: "mcp_chain_resume", signature: "int", args: ["uint64_t"] },
-    { name: "mcp_chain_reset", signature: "int", args: ["uint64_t"] },
-
     // Buffer functions from mcp_filter_buffer.h
     {
       name: "mcp_buffer_create_owned",
@@ -422,68 +396,6 @@ try {
       args: ["uint64_t", "void*"],
     },
     { name: "mcp_filter_reset_stats", signature: "int", args: ["uint64_t"] },
-    {
-      name: "mcp_chain_get_stats",
-      signature: "int",
-      args: ["uint64_t", "void*"],
-    },
-
-    // Chain optimization and debugging
-    { name: "mcp_chain_optimize", signature: "int", args: ["uint64_t"] },
-    { name: "mcp_chain_reorder_filters", signature: "int", args: ["uint64_t"] },
-    {
-      name: "mcp_chain_profile",
-      signature: "int",
-      args: ["uint64_t", "uint64_t", "size_t", "void*"],
-    },
-    {
-      name: "mcp_chain_set_trace_level",
-      signature: "int",
-      args: ["uint64_t", "uint32_t"],
-    },
-    {
-      name: "mcp_chain_dump",
-      signature: "string",
-      args: ["uint64_t", "string"],
-    },
-    {
-      name: "mcp_chain_validate",
-      signature: "int",
-      args: ["uint64_t", "void*"],
-    },
-
-    // Chain routing
-    { name: "mcp_chain_router_create", signature: "void*", args: ["void*"] },
-    {
-      name: "mcp_chain_router_add_route",
-      signature: "int",
-      args: ["void*", "void*", "uint64_t"],
-    },
-    {
-      name: "mcp_chain_router_route",
-      signature: "uint64_t",
-      args: ["void*", "uint64_t", "void*"],
-    },
-    { name: "mcp_chain_router_destroy", signature: "void", args: ["void*"] },
-
-    // Chain pool for load balancing
-    {
-      name: "mcp_chain_pool_create",
-      signature: "void*",
-      args: ["uint64_t", "size_t", "int"],
-    },
-    { name: "mcp_chain_pool_get_next", signature: "uint64_t", args: ["void*"] },
-    {
-      name: "mcp_chain_pool_return",
-      signature: "void",
-      args: ["void*", "uint64_t"],
-    },
-    {
-      name: "mcp_chain_pool_get_stats",
-      signature: "int",
-      args: ["void*", "size_t*", "size_t*", "uint64_t*"],
-    },
-    { name: "mcp_chain_pool_destroy", signature: "void", args: ["void*"] },
 
     // Memory management (from mcp_c_memory.h)
     { name: "mcp_memory_pool_create", signature: "void*", args: ["size_t"] },
@@ -499,6 +411,7 @@ try {
     { name: "mcp_json_create_string", signature: "void*", args: ["string"] },
     { name: "mcp_json_create_number", signature: "void*", args: ["double"] },
     { name: "mcp_json_create_bool", signature: "void*", args: ["int"] },
+    { name: "mcp_json_create_null", signature: "void*", args: [] },
     { name: "mcp_json_free", signature: "void", args: ["void*"] },
     { name: "mcp_json_stringify", signature: "string", args: ["void*"] },
 
@@ -546,57 +459,48 @@ try {
 // C Struct Definitions
 // ============================================================================
 
-/**
- * MCP Filter Configuration C struct
- */
-export const McpFilterConfigStruct = koffi.struct("McpFilterConfig", {
+// Comment out problematic struct definitions for now
+// These can be re-enabled once we resolve the duplicate type name issues
+/*
+export const McpFilterConfigStruct = koffi.struct("McpFilterConfigCStruct", {
   name: "char*",
   type: "uint32",
   settings: "void*",
   layer: "uint32",
-  memoryPool: "void*",
+  memory_pool: "void*",
 });
 
-/**
- * MCP Buffer Slice C struct
- */
 export const McpBufferSliceStruct = koffi.struct("McpBufferSlice", {
   data: "void*",
   length: "size_t",
   flags: "uint32",
 });
 
-/**
- * MCP Protocol Metadata C struct
- */
 export const McpProtocolMetadataStruct = koffi.struct("McpProtocolMetadata", {
   layer: "uint32",
-  data: "void*",
+  transport_protocol: "uint32",
+  app_protocol: "uint32",
+  flags: "uint32",
 });
 
-/**
- * MCP Filter Callbacks C struct
- */
 export const McpFilterCallbacksStruct = koffi.struct("McpFilterCallbacks", {
-  onData: "void*",
-  onWrite: "void*",
-  onNewConnection: "void*",
-  onHighWatermark: "void*",
-  onLowWatermark: "void*",
-  onError: "void*",
-  userData: "void*",
+  on_data: "void*",
+  on_write: "void*",
+  on_new_connection: "void*",
+  on_high_watermark: "void*",
+  on_low_watermark: "void*",
+  on_error: "void*",
+  user_data: "void*",
 });
 
-/**
- * MCP Filter Stats C struct
- */
 export const McpFilterStatsStruct = koffi.struct("McpFilterStats", {
-  bytesProcessed: "uint64",
-  packetsProcessed: "uint64",
-  errors: "uint32",
-  processingTimeUs: "uint64",
-  throughputMbps: "double",
+  bytes_processed: "uint64",
+  packets_processed: "uint64",
+  processing_time_us: "uint64",
+  errors: "uint64",
+  warnings: "uint64",
 });
+*/
 
 // ============================================================================
 // Utility Functions
