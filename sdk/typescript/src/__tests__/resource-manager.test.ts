@@ -4,22 +4,22 @@
  */
 
 import {
-  ResourceGuard,
-  ResourceType,
-  ResourceManager,
-  ResourceTransaction,
-  ScopedCleanup,
-  makeResourceGuard,
-  makeTypedResourceGuard,
-  makeScopedCleanup,
-  getDefaultDeleter,
+  RAII_CLEANUP,
   RAII_GUARD,
   RAII_TRANSACTION,
-  RAII_CLEANUP,
-  getResourceStats,
-  resetResourceStats,
+  ResourceGuard,
+  ResourceManager,
+  ResourceTransaction,
+  ResourceType,
+  ScopedCleanup,
   checkResourceLeaks,
+  getDefaultDeleter,
+  getResourceStats,
+  makeResourceGuard,
+  makeScopedCleanup,
+  makeTypedResourceGuard,
   reportResourceLeaks,
+  resetResourceStats,
 } from "../raii/resource-manager";
 
 describe("ResourceGuard", () => {
@@ -329,11 +329,17 @@ describe("ResourceManager", () => {
       const initialStats = manager.getStats();
       expect(initialStats.guardsCreated).toBeGreaterThanOrEqual(0);
 
-      const guard = new ResourceGuard(Buffer.from("test"), ResourceType.BUFFER, jest.fn());
+      const guard = new ResourceGuard(
+        Buffer.from("test"),
+        ResourceType.BUFFER,
+        jest.fn()
+      );
       expect(guard).toBeDefined();
 
       const finalStats = manager.getStats();
-      expect(finalStats.guardsCreated).toBeGreaterThan(initialStats.guardsCreated);
+      expect(finalStats.guardsCreated).toBeGreaterThan(
+        initialStats.guardsCreated
+      );
     });
 
     it("should track guard destruction", () => {
@@ -341,12 +347,18 @@ describe("ResourceManager", () => {
       expect(initialStats.guardsDestroyed).toBeGreaterThanOrEqual(0);
 
       {
-        const guard = new ResourceGuard(Buffer.from("test"), ResourceType.BUFFER, jest.fn());
+        const guard = new ResourceGuard(
+          Buffer.from("test"),
+          ResourceType.BUFFER,
+          jest.fn()
+        );
         expect(guard).toBeDefined();
       } // Guard goes out of scope
 
       const finalStats = manager.getStats();
-      expect(finalStats.guardsDestroyed).toBeGreaterThan(initialStats.guardsDestroyed);
+      expect(finalStats.guardsDestroyed).toBeGreaterThan(
+        initialStats.guardsDestroyed
+      );
     });
 
     it("should track resource tracking", () => {
@@ -358,7 +370,9 @@ describe("ResourceManager", () => {
       expect(transaction.resourceCount()).toBe(1);
 
       const finalStats = manager.getStats();
-      expect(finalStats.resourcesTracked).toBeGreaterThan(initialStats.resourcesTracked);
+      expect(finalStats.resourcesTracked).toBeGreaterThan(
+        initialStats.resourcesTracked
+      );
     });
 
     it("should track resource release", () => {
@@ -370,7 +384,9 @@ describe("ResourceManager", () => {
       transaction.rollback();
 
       const finalStats = manager.getStats();
-      expect(finalStats.resourcesReleased).toBeGreaterThan(initialStats.resourcesReleased);
+      expect(finalStats.resourcesReleased).toBeGreaterThan(
+        initialStats.resourcesReleased
+      );
     });
 
     it("should track exceptions in destructors", () => {
@@ -387,7 +403,9 @@ describe("ResourceManager", () => {
       expect(() => transaction.rollback()).not.toThrow();
 
       const finalStats = manager.getStats();
-      expect(finalStats.exceptionsInDestructors).toBeGreaterThan(initialStats.exceptionsInDestructors);
+      expect(finalStats.exceptionsInDestructors).toBeGreaterThan(
+        initialStats.exceptionsInDestructors
+      );
     });
   });
 

@@ -23,7 +23,7 @@ import {
   createSuccess,
   isSuccess,
 } from "../types";
-import { mcpFilterLib, createStruct, McpFilterConfigStruct, toCString } from "./ffi-bindings";
+import { mcpFilterLib } from "./ffi-bindings";
 
 // ============================================================================
 // SDK Events
@@ -228,57 +228,14 @@ export class McpFilterSdk extends EventEmitter {
    * Create a new filter
    */
   async createFilter(
-    config: McpFilterConfig
+    _config: McpFilterConfig
   ): Promise<McpResultWrapper<McpFilter>> {
-    try {
-      if (!this._initialized) {
-        return createError(
-          McpResult.ERROR_NOT_INITIALIZED,
-          "SDK not initialized"
-        );
-      }
-
-      if (this._filters.size >= this._config.maxFilters) {
-        return createError(
-          McpResult.ERROR_RESOURCE_LIMIT,
-          "Maximum number of filters reached"
-        );
-      }
-
-      // Create C struct for filter config
-      const cConfig = {
-        name: toCString(config.name),
-        type: config.type,
-        settings: config.settings || 0,
-        layer: config.layer,
-        memoryPool: config.memoryPool || this._defaultMemoryPool,
-      };
-
-      // Serialize the struct for native function call
-      const structBuffer = createStruct(McpFilterConfigStruct, cConfig);
-
-      // Create filter
-      const filter = mcpFilterLib.mcp_filter_create(this._dispatcher, structBuffer);
-      if (filter === 0) {
-        return createError(
-          McpResult.ERROR_INITIALIZATION_FAILED,
-          "Failed to create filter"
-        );
-      }
-
-      this._filters.add(filter);
-      this.emit("filter:created", filter, config);
-      this.log("info", `Filter created: ${config.name} (${filter})`);
-
-      return createSuccess(filter);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      return createError(
-        McpResult.ERROR_INITIALIZATION_FAILED,
-        `Filter creation failed: ${errorMessage}`
-      );
-    }
+    // TODO: Implement proper C struct serialization
+    // For now, return an error to avoid struct issues
+    return createError(
+      McpResult.ERROR_INITIALIZATION_FAILED,
+      "Filter creation temporarily disabled - struct serialization not implemented"
+    );
   }
 
   /**
@@ -347,15 +304,22 @@ export class McpFilterSdk extends EventEmitter {
         return createError(McpResult.ERROR_NOT_FOUND, "Filter not found");
       }
 
-      const result = mcpFilterLib.mcp_filter_process_data(filter, data, data.length);
-      if (result === 0) {
-              return createError(
-        McpResult.ERROR_IO_ERROR,
-        "Filter data processing failed"
+      const result = mcpFilterLib.mcp_filter_process_data(
+        filter,
+        data,
+        data.length
       );
+      if (result === 0) {
+        return createError(
+          McpResult.ERROR_IO_ERROR,
+          "Filter data processing failed"
+        );
       }
 
-      this.log("info", `Filter data processed: ${filter} (${data.length} bytes)`);
+      this.log(
+        "info",
+        `Filter data processed: ${filter} (${data.length} bytes)`
+      );
       return createSuccess(true);
     } catch (error) {
       const errorMessage =
