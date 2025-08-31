@@ -38,10 +38,19 @@ typedef struct mcp_log_context_handle { uint64_t id; } mcp_log_context_handle_t;
 typedef struct mcp_formatter_handle { uint64_t id; } mcp_formatter_handle_t;
 
 /** Invalid handle constants */
-#define MCP_INVALID_LOGGER_HANDLE ((mcp_logger_handle_t){0})
-#define MCP_INVALID_SINK_HANDLE ((mcp_sink_handle_t){0})
-#define MCP_INVALID_CONTEXT_HANDLE ((mcp_log_context_handle_t){0})
-#define MCP_INVALID_FORMATTER_HANDLE ((mcp_formatter_handle_t){0})
+#ifdef __cplusplus
+  /* C++ doesn't support compound literals, use constexpr */
+  constexpr mcp_logger_handle_t MCP_INVALID_LOGGER_HANDLE = {0};
+  constexpr mcp_sink_handle_t MCP_INVALID_SINK_HANDLE = {0};
+  constexpr mcp_log_context_handle_t MCP_INVALID_CONTEXT_HANDLE = {0};
+  constexpr mcp_formatter_handle_t MCP_INVALID_FORMATTER_HANDLE = {0};
+#else
+  /* C supports compound literals */
+  #define MCP_INVALID_LOGGER_HANDLE ((mcp_logger_handle_t){0})
+  #define MCP_INVALID_SINK_HANDLE ((mcp_sink_handle_t){0})
+  #define MCP_INVALID_CONTEXT_HANDLE ((mcp_log_context_handle_t){0})
+  #define MCP_INVALID_FORMATTER_HANDLE ((mcp_formatter_handle_t){0})
+#endif
 
 /** Handle validation macros */
 #define MCP_IS_VALID_LOGGER(h) ((h).id != 0)
@@ -641,24 +650,24 @@ namespace logging {
 /**
  * RAII guard for automatic logger handle release
  */
-class LoggerGuard {
+class CLoggerGuard {
 public:
-    explicit LoggerGuard(mcp_logger_handle_t h = MCP_INVALID_LOGGER_HANDLE) 
+    explicit CLoggerGuard(mcp_logger_handle_t h = MCP_INVALID_LOGGER_HANDLE) 
         : handle_(h) {}
     
-    ~LoggerGuard() {
+    ~CLoggerGuard() {
         if (MCP_IS_VALID_LOGGER(handle_)) {
             mcp_logger_release(handle_);
         }
     }
     
     // Move semantics
-    LoggerGuard(LoggerGuard&& other) noexcept 
+    CLoggerGuard(CLoggerGuard&& other) noexcept 
         : handle_(other.handle_) {
         other.handle_ = MCP_INVALID_LOGGER_HANDLE;
     }
     
-    LoggerGuard& operator=(LoggerGuard&& other) noexcept {
+    CLoggerGuard& operator=(CLoggerGuard&& other) noexcept {
         if (this != &other) {
             if (MCP_IS_VALID_LOGGER(handle_)) {
                 mcp_logger_release(handle_);
@@ -670,12 +679,12 @@ public:
     }
     
     // Delete copy operations
-    LoggerGuard(const LoggerGuard&) = delete;
-    LoggerGuard& operator=(const LoggerGuard&) = delete;
+    CLoggerGuard(const CLoggerGuard&) = delete;
+    CLoggerGuard& operator=(const CLoggerGuard&) = delete;
     
     // Access
     mcp_logger_handle_t get() const { return handle_; }
-    mcp_logger_handle_t* operator&() { return &handle_; }
+    mcp_logger_handle_t* addressof() { return &handle_; }
     operator mcp_logger_handle_t() const { return handle_; }
     
     // Release ownership
@@ -692,24 +701,24 @@ private:
 /**
  * RAII guard for automatic sink handle release
  */
-class SinkGuard {
+class CSinkGuard {
 public:
-    explicit SinkGuard(mcp_sink_handle_t h = MCP_INVALID_SINK_HANDLE) 
+    explicit CSinkGuard(mcp_sink_handle_t h = MCP_INVALID_SINK_HANDLE) 
         : handle_(h) {}
     
-    ~SinkGuard() {
+    ~CSinkGuard() {
         if (MCP_IS_VALID_SINK(handle_)) {
             mcp_sink_release(handle_);
         }
     }
     
     // Move semantics
-    SinkGuard(SinkGuard&& other) noexcept 
+    CSinkGuard(CSinkGuard&& other) noexcept 
         : handle_(other.handle_) {
         other.handle_ = MCP_INVALID_SINK_HANDLE;
     }
     
-    SinkGuard& operator=(SinkGuard&& other) noexcept {
+    CSinkGuard& operator=(CSinkGuard&& other) noexcept {
         if (this != &other) {
             if (MCP_IS_VALID_SINK(handle_)) {
                 mcp_sink_release(handle_);
@@ -721,12 +730,12 @@ public:
     }
     
     // Delete copy operations
-    SinkGuard(const SinkGuard&) = delete;
-    SinkGuard& operator=(const SinkGuard&) = delete;
+    CSinkGuard(const CSinkGuard&) = delete;
+    CSinkGuard& operator=(const CSinkGuard&) = delete;
     
     // Access
     mcp_sink_handle_t get() const { return handle_; }
-    mcp_sink_handle_t* operator&() { return &handle_; }
+    mcp_sink_handle_t* addressof() { return &handle_; }
     operator mcp_sink_handle_t() const { return handle_; }
     
     // Release ownership
@@ -743,24 +752,24 @@ private:
 /**
  * RAII guard for automatic context handle release
  */
-class ContextGuard {
+class CContextGuard {
 public:
-    explicit ContextGuard(mcp_log_context_handle_t h = MCP_INVALID_CONTEXT_HANDLE) 
+    explicit CContextGuard(mcp_log_context_handle_t h = MCP_INVALID_CONTEXT_HANDLE) 
         : handle_(h) {}
     
-    ~ContextGuard() {
+    ~CContextGuard() {
         if (MCP_IS_VALID_CONTEXT(handle_)) {
             mcp_context_release(handle_);
         }
     }
     
     // Move semantics
-    ContextGuard(ContextGuard&& other) noexcept 
+    CContextGuard(CContextGuard&& other) noexcept 
         : handle_(other.handle_) {
         other.handle_ = MCP_INVALID_CONTEXT_HANDLE;
     }
     
-    ContextGuard& operator=(ContextGuard&& other) noexcept {
+    CContextGuard& operator=(CContextGuard&& other) noexcept {
         if (this != &other) {
             if (MCP_IS_VALID_CONTEXT(handle_)) {
                 mcp_context_release(handle_);
@@ -772,12 +781,12 @@ public:
     }
     
     // Delete copy operations
-    ContextGuard(const ContextGuard&) = delete;
-    ContextGuard& operator=(const ContextGuard&) = delete;
+    CContextGuard(const CContextGuard&) = delete;
+    CContextGuard& operator=(const CContextGuard&) = delete;
     
     // Access
     mcp_log_context_handle_t get() const { return handle_; }
-    mcp_log_context_handle_t* operator&() { return &handle_; }
+    mcp_log_context_handle_t* addressof() { return &handle_; }
     operator mcp_log_context_handle_t() const { return handle_; }
     
     // Release ownership

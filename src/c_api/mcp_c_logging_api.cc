@@ -356,8 +356,8 @@ mcp_bool_t mcp_logger_should_log(mcp_logger_handle_t handle,
 
 mcp_log_result_t mcp_logger_add_sink(mcp_logger_handle_t logger_handle,
                                  mcp_sink_handle_t sink_handle) {
-  auto* logger = HandleManager::instance().get<LoggerHandle>(logger_handle);
-  auto* sink = HandleManager::instance().get<SinkHandle>(sink_handle);
+  auto* logger = LoggerHandleManager::instance().get<LoggerHandle>(logger_handle);
+  auto* sink = SinkHandleManager::instance().get<SinkHandle>(sink_handle);
   
   if (!logger || !sink || !sink->sink) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
@@ -383,8 +383,8 @@ mcp_log_result_t mcp_logger_set_sink(mcp_logger_handle_t logger_handle,
 
 mcp_log_result_t mcp_logger_remove_sink(mcp_logger_handle_t logger_handle,
                                     mcp_sink_handle_t sink_handle) {
-  auto* logger = HandleManager::instance().get<LoggerHandle>(logger_handle);
-  auto* sink = HandleManager::instance().get<SinkHandle>(sink_handle);
+  auto* logger = LoggerHandleManager::instance().get<LoggerHandle>(logger_handle);
+  auto* sink = SinkHandleManager::instance().get<SinkHandle>(sink_handle);
   
   if (!logger || !sink || !sink->sink) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
@@ -403,7 +403,7 @@ mcp_log_result_t mcp_logger_remove_sink(mcp_logger_handle_t logger_handle,
 }
 
 mcp_log_result_t mcp_logger_flush(mcp_logger_handle_t handle) {
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -451,6 +451,10 @@ mcp_log_result_t mcp_sink_create_external(
       
       void flush() override {
         // External sinks handle their own flushing
+      }
+      
+      logging::SinkType type() const override {
+        return logging::SinkType::External;
       }
       
     private:
@@ -533,7 +537,7 @@ mcp_log_result_t mcp_sink_create_file(mcp_string_view_t filename,
     config.max_files = max_files == 0 ? 1 : max_files;
     auto sink = std::make_shared<logging::RotatingFileSink>(config);
     auto sink_handle = std::make_unique<SinkHandle>(std::move(sink));
-    *handle = HandleManager::instance().allocate(std::move(sink_handle));
+    *handle = SinkHandleManager::instance().allocate(std::move(sink_handle));
     return MCP_LOG_OK;
   } catch (...) {
     return MCP_LOG_ERROR_OUT_OF_MEMORY;
@@ -550,9 +554,9 @@ static mcp_sink_handle_t create_rotating_file_internal(mcp_string_view_t filenam
     config.max_files = max_files;
     auto sink = std::make_shared<logging::RotatingFileSink>(config);
     auto sink_handle = std::make_unique<SinkHandle>(std::move(sink));
-    return HandleManager::instance().allocate(std::move(sink_handle));
+    return SinkHandleManager::instance().allocate(std::move(sink_handle));
   } catch (...) {
-    return MCP_INVALID_HANDLE;
+    return MCP_INVALID_SINK_HANDLE;
   }
 }
 
@@ -566,7 +570,7 @@ mcp_log_result_t mcp_sink_create_stdio(int use_stderr,
       use_stderr ? logging::StdioSink::Stderr 
                  : logging::StdioSink::Stdout);
     auto sink_handle = std::make_unique<SinkHandle>(std::move(sink));
-    *handle = HandleManager::instance().allocate(std::move(sink_handle));
+    *handle = SinkHandleManager::instance().allocate(std::move(sink_handle));
     return MCP_LOG_OK;
   } catch (...) {
     return MCP_LOG_ERROR_OUT_OF_MEMORY;
@@ -577,9 +581,9 @@ static mcp_sink_handle_t create_null_sink_internal() {
   try {
     auto sink = std::make_shared<logging::NullSink>();
     auto sink_handle = std::make_unique<SinkHandle>(std::move(sink));
-    return HandleManager::instance().allocate(std::move(sink_handle));
+    return SinkHandleManager::instance().allocate(std::move(sink_handle));
   } catch (...) {
-    return MCP_INVALID_HANDLE;
+    return MCP_INVALID_SINK_HANDLE;
   }
 }
 
@@ -633,45 +637,13 @@ private:
   void* user_data_;
 };
 
-mcp_log_result_t mcp_sink_create_external(mcp_log_sink_callback_t callback,
-                                          void* user_data,
-                                          mcp_sink_handle_t* handle) {
-  if (!handle) {
-    return MCP_LOG_ERROR_NULL_POINTER;
-  }
-  if (!callback) {
-    return MCP_LOG_ERROR_NULL_POINTER;
-  }
-  
-  try {
-    auto sink = std::make_shared<ExternalSinkWrapper>(
-      callback, nullptr, user_data);
-    auto sink_handle = std::make_unique<SinkHandle>(std::move(sink));
-    *handle = HandleManager::instance().allocate(std::move(sink_handle));
-    return MCP_LOG_OK;
-  } catch (...) {
-    return MCP_LOG_ERROR_OUT_OF_MEMORY;
-  }
-}
+// Duplicate function removed - already defined above
 
-void mcp_sink_destroy(mcp_sink_handle_t handle) {
-  if (handle != MCP_INVALID_HANDLE) {
-    HandleManager::instance().release(handle);
-  }
-}
-
-// Alias for compatibility with header declaration  
-mcp_log_result_t mcp_sink_release(mcp_sink_handle_t handle) {
-  if (handle != MCP_INVALID_HANDLE) {
-    HandleManager::instance().release(handle);
-    return MCP_LOG_OK;
-  }
-  return MCP_LOG_ERROR_INVALID_HANDLE;
-}
+// Duplicate functions removed - already defined above
 
 mcp_log_result_t mcp_sink_set_formatter(mcp_sink_handle_t handle,
                                     mcp_formatter_type_t type) {
-  auto* sink_handle = HandleManager::instance().get<SinkHandle>(handle);
+  auto* sink_handle = SinkHandleManager::instance().get<SinkHandle>(handle);
   if (!sink_handle || !sink_handle->sink) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -698,7 +670,7 @@ mcp_log_result_t mcp_sink_set_formatter(mcp_sink_handle_t handle,
 
 mcp_log_result_t mcp_sink_set_level_filter(mcp_sink_handle_t handle,
                                        mcp_log_level_t min_level) {
-  auto* sink_handle = HandleManager::instance().get<SinkHandle>(handle);
+  auto* sink_handle = SinkHandleManager::instance().get<SinkHandle>(handle);
   if (!sink_handle || !sink_handle->sink) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -718,7 +690,7 @@ mcp_log_result_t mcp_context_create(mcp_log_context_handle_t* handle) {
   }
   try {
     auto context_handle = std::make_unique<ContextHandle>();
-    *handle = HandleManager::instance().allocate(std::move(context_handle));
+    *handle = ContextHandleManager::instance().allocate(std::move(context_handle));
     return MCP_LOG_OK;
   } catch (...) {
     return MCP_LOG_ERROR_OUT_OF_MEMORY;
@@ -733,21 +705,21 @@ mcp_log_context_handle_t mcp_context_create_with_data(mcp_string_view_t correlat
     context.request_id = to_string(request_id);
     
     auto context_handle = std::make_unique<ContextHandle>(std::move(context));
-    return HandleManager::instance().allocate(std::move(context_handle));
+    return ContextHandleManager::instance().allocate(std::move(context_handle));
   } catch (...) {
-    return MCP_INVALID_HANDLE;
+    return MCP_INVALID_CONTEXT_HANDLE;
   }
 }
 
 void mcp_context_destroy(mcp_log_context_handle_t handle) {
-  if (handle != MCP_INVALID_HANDLE) {
-    HandleManager::instance().release(handle);
+  if (MCP_IS_VALID_CONTEXT(handle)) {
+    ContextHandleManager::instance().release(handle);
   }
 }
 
 mcp_log_result_t mcp_context_set_correlation_id(mcp_log_context_handle_t handle,
                                             mcp_string_view_t correlation_id) {
-  auto* context_handle = HandleManager::instance().get<ContextHandle>(handle);
+  auto* context_handle = ContextHandleManager::instance().get<ContextHandle>(handle);
   if (!context_handle) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -758,7 +730,7 @@ mcp_log_result_t mcp_context_set_correlation_id(mcp_log_context_handle_t handle,
 
 mcp_log_result_t mcp_context_set_request_id(mcp_log_context_handle_t handle,
                                         mcp_string_view_t request_id) {
-  auto* context_handle = HandleManager::instance().get<ContextHandle>(handle);
+  auto* context_handle = ContextHandleManager::instance().get<ContextHandle>(handle);
   if (!context_handle) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -769,7 +741,7 @@ mcp_log_result_t mcp_context_set_request_id(mcp_log_context_handle_t handle,
 
 mcp_log_result_t mcp_context_add_latency(mcp_log_context_handle_t handle,
                                      double latency_ms) {
-  auto* context_handle = HandleManager::instance().get<ContextHandle>(handle);
+  auto* context_handle = ContextHandleManager::instance().get<ContextHandle>(handle);
   if (!context_handle) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
@@ -781,8 +753,8 @@ mcp_log_result_t mcp_context_add_latency(mcp_log_context_handle_t handle,
 
 mcp_log_result_t mcp_context_propagate(mcp_log_context_handle_t from_handle,
                                    mcp_log_context_handle_t to_handle) {
-  auto* from_context = HandleManager::instance().get<ContextHandle>(from_handle);
-  auto* to_context = HandleManager::instance().get<ContextHandle>(to_handle);
+  auto* from_context = ContextHandleManager::instance().get<ContextHandle>(from_handle);
+  auto* to_context = ContextHandleManager::instance().get<ContextHandle>(to_handle);
   
   if (!from_context || !to_context) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
@@ -833,7 +805,11 @@ mcp_log_result_t mcp_registry_flush_all() {
 void mcp_registry_shutdown() {
   try {
     // LoggerRegistry doesn't have shutdown, cleanup happens in destructor
-    HandleManager::instance().clear();
+    // Clear all handle managers
+    LoggerHandleManager::instance().clear();
+    SinkHandleManager::instance().clear();
+    ContextHandleManager::instance().clear();
+    FormatterHandleManager::instance().clear();
   } catch (...) {
     // Ignore exceptions during shutdown
   }
@@ -846,7 +822,7 @@ void mcp_logger_get_stats(mcp_logger_handle_t handle,
   
   std::memset(stats, 0, sizeof(*stats));
   
-  auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
+  auto* logger_handle = LoggerHandleManager::instance().get<LoggerHandle>(handle);
   if (!logger_handle || !logger_handle->logger) {
     return;
   }

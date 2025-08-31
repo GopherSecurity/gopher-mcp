@@ -63,7 +63,7 @@ TEST_F(LoggingApiTest, LoggerCreateDestroy) {
   auto result = mcp_logger_get_or_create(name, &handle);
   
   ASSERT_EQ(result, MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Logger should be usable
   auto message = makeStringView("Test message");
@@ -84,8 +84,8 @@ TEST_F(LoggingApiTest, LoggerGetOrCreate) {
   ASSERT_EQ(mcp_logger_get_or_create(name, &handle1), MCP_LOG_OK);
   ASSERT_EQ(mcp_logger_get_or_create(name, &handle2), MCP_LOG_OK);
   
-  ASSERT_NE(handle1, MCP_INVALID_HANDLE);
-  ASSERT_NE(handle2, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle1));
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle2));
   
   // Both handles should work
   auto message = makeStringView("Test message");
@@ -100,7 +100,7 @@ TEST_F(LoggingApiTest, LoggerGetOrCreate) {
 TEST_F(LoggingApiTest, DefaultLogger) {
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_default(&handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Default logger should be immediately usable
   auto message = makeStringView("Default logger test");
@@ -117,7 +117,7 @@ TEST_F(LoggingApiTest, LogLevels) {
   auto name = makeStringView("level_test");
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_or_create(name, &handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Set level to WARNING
   EXPECT_EQ(mcp_logger_set_level(handle, MCP_LOG_LEVEL_WARNING), MCP_LOG_OK);
@@ -136,7 +136,7 @@ TEST_F(LoggingApiTest, StructuredLogging) {
   auto name = makeStringView("structured_test");
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_or_create(name, &handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Create structured message
   mcp_log_message_t msg = {};
@@ -159,12 +159,12 @@ TEST_F(LoggingApiTest, FileSink) {
   auto filename = makeStringView("test.log");
   mcp_sink_handle_t sink_handle;
   ASSERT_EQ(mcp_sink_create_file(filename, 0, 0, &sink_handle), MCP_LOG_OK);
-  ASSERT_NE(sink_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink_handle));
   
   auto logger_name = makeStringView("file_test");
   mcp_logger_handle_t logger_handle;
   ASSERT_EQ(mcp_logger_get_or_create(logger_name, &logger_handle), MCP_LOG_OK);
-  ASSERT_NE(logger_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger_handle));
   
   // Add sink to logger
   EXPECT_EQ(mcp_logger_set_sink(logger_handle, sink_handle), MCP_LOG_OK);
@@ -201,12 +201,12 @@ TEST_F(LoggingApiTest, RotatingFileSink) {
   
   mcp_sink_handle_t sink_handle;
   ASSERT_EQ(mcp_sink_create_file(filename, max_size, max_files, &sink_handle), MCP_LOG_OK);
-  ASSERT_NE(sink_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink_handle));
   
   auto logger_name = makeStringView("rotating_test");
   mcp_logger_handle_t logger_handle;
   ASSERT_EQ(mcp_logger_get_or_create(logger_name, &logger_handle), MCP_LOG_OK);
-  ASSERT_NE(logger_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger_handle));
   
   // Add sink to logger
   EXPECT_EQ(mcp_logger_set_sink(logger_handle, sink_handle), MCP_LOG_OK);
@@ -235,17 +235,17 @@ TEST_F(LoggingApiTest, StdioSinks) {
   // Test stdout sink
   mcp_sink_handle_t stdout_sink;
   ASSERT_EQ(mcp_sink_create_stdio(0, &stdout_sink), MCP_LOG_OK);
-  ASSERT_NE(stdout_sink, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(stdout_sink));
   
   // Test stderr sink
   mcp_sink_handle_t stderr_sink;
   ASSERT_EQ(mcp_sink_create_stdio(1, &stderr_sink), MCP_LOG_OK);
-  ASSERT_NE(stderr_sink, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(stderr_sink));
   
   auto logger_name = makeStringView("stdio_test");
   mcp_logger_handle_t logger_handle;
   ASSERT_EQ(mcp_logger_get_or_create(logger_name, &logger_handle), MCP_LOG_OK);
-  ASSERT_NE(logger_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger_handle));
   
   // Add both sinks
   EXPECT_EQ(mcp_logger_set_sink(logger_handle, stdout_sink), MCP_LOG_OK);
@@ -280,13 +280,13 @@ TEST_F(LoggingApiTest, ExternalSink) {
   
   // Create external sink with callback
   mcp_sink_handle_t sink_handle;
-  ASSERT_EQ(mcp_sink_create_external(external_log_callback, &messages, &sink_handle), MCP_LOG_OK);
-  ASSERT_NE(sink_handle, MCP_INVALID_HANDLE);
+  ASSERT_EQ(mcp_sink_create_external(external_log_callback, &messages, nullptr, &sink_handle), MCP_LOG_OK);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink_handle));
   
   auto logger_name = makeStringView("external_test");
   mcp_logger_handle_t logger_handle;
   ASSERT_EQ(mcp_logger_get_or_create(logger_name, &logger_handle), MCP_LOG_OK);
-  ASSERT_NE(logger_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger_handle));
   
   EXPECT_EQ(mcp_logger_set_sink(logger_handle, sink_handle), MCP_LOG_OK);
   
@@ -321,12 +321,12 @@ TEST_F(LoggingApiTest, SinkLevelFilter) {
   auto filename = makeStringView("test.log");
   mcp_sink_handle_t sink_handle;
   ASSERT_EQ(mcp_sink_create_file(filename, 0, 0, &sink_handle), MCP_LOG_OK);
-  ASSERT_NE(sink_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink_handle));
   
   auto logger_name = makeStringView("filter_test");
   mcp_logger_handle_t logger_handle;
   ASSERT_EQ(mcp_logger_get_or_create(logger_name, &logger_handle), MCP_LOG_OK);
-  ASSERT_NE(logger_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger_handle));
   
   EXPECT_EQ(mcp_logger_set_sink(logger_handle, sink_handle), MCP_LOG_OK);
   
@@ -391,13 +391,13 @@ TEST_F(LoggingApiTest, ThreadSafety) {
   auto name = makeStringView("thread_test");
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_or_create(name, &handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Add file sink
   auto filename = makeStringView("test.log");
   mcp_sink_handle_t sink_handle;
   ASSERT_EQ(mcp_sink_create_file(filename, 0, 0, &sink_handle), MCP_LOG_OK);
-  ASSERT_NE(sink_handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink_handle));
   EXPECT_EQ(mcp_logger_set_sink(handle, sink_handle), MCP_LOG_OK);
   
   // Async mode setting not available in current API
@@ -455,10 +455,10 @@ TEST_F(LoggingApiTest, ShutdownCleanup) {
   ASSERT_EQ(mcp_sink_create_stdio(0, &sink2), MCP_LOG_OK);
   // Context API not available, skip context creation
   
-  ASSERT_NE(logger1, MCP_INVALID_HANDLE);
-  ASSERT_NE(logger2, MCP_INVALID_HANDLE);
-  ASSERT_NE(sink1, MCP_INVALID_HANDLE);
-  ASSERT_NE(sink2, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger1));
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(logger2));
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink1));
+  ASSERT_TRUE(MCP_IS_VALID_SINK(sink2));
   
   // Add sinks to loggers
   mcp_logger_set_sink(logger1, sink1);
@@ -483,21 +483,21 @@ TEST_F(LoggingApiTest, ShutdownCleanup) {
 // Test error conditions
 TEST_F(LoggingApiTest, ErrorConditions) {
   // Invalid handle operations
-  EXPECT_NE(mcp_logger_log(MCP_INVALID_HANDLE, MCP_LOG_LEVEL_INFO, 
+  EXPECT_NE(mcp_logger_log(MCP_INVALID_LOGGER_HANDLE, MCP_LOG_LEVEL_INFO, 
                            makeStringView("test")), MCP_LOG_OK);
   mcp_log_level_t level;
-  EXPECT_NE(mcp_logger_get_level(MCP_INVALID_HANDLE, &level), MCP_LOG_OK);
+  EXPECT_NE(mcp_logger_get_level(MCP_INVALID_LOGGER_HANDLE, &level), MCP_LOG_OK);
   // mcp_logger_should_log is not available
   
   // Null message
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_or_create(makeStringView("error_test"), &handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   EXPECT_NE(mcp_logger_log_structured(handle, nullptr), MCP_LOG_OK);
   
   // Invalid sink creation
   mcp_sink_handle_t invalid_sink;
-  EXPECT_NE(mcp_sink_create_external(nullptr, nullptr, &invalid_sink), MCP_LOG_OK);
+  EXPECT_NE(mcp_sink_create_external(nullptr, nullptr, nullptr, &invalid_sink), MCP_LOG_OK);
   
   // Context operations not available in current API
   
@@ -508,7 +508,7 @@ TEST_F(LoggingApiTest, ErrorConditions) {
 TEST_F(LoggingApiTest, StringViewMemory) {
   mcp_logger_handle_t handle;
   ASSERT_EQ(mcp_logger_get_or_create(makeStringView("memory_test"), &handle), MCP_LOG_OK);
-  ASSERT_NE(handle, MCP_INVALID_HANDLE);
+  ASSERT_TRUE(MCP_IS_VALID_LOGGER(handle));
   
   // Allocate string view dynamically
   mcp_string_view_t* view = static_cast<mcp_string_view_t*>(
