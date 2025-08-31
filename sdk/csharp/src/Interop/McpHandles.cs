@@ -530,5 +530,17 @@ namespace GopherMcp.Interop
                 return true;
             }
         }
+
+        /// <summary>
+        /// Handle for filter
+        /// </summary>
+        public sealed class McpFilterHandle : McpSafeHandle
+        {
+            protected override bool ReleaseHandle()
+            {
+                // Call mcp_filter_release when implemented
+                return true;
+            }
+        }
     }
 }
