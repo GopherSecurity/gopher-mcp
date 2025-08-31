@@ -107,6 +107,9 @@ TEST_F(LoggerRegistryTest, SetComponentLevel) {
 }
 
 TEST_F(LoggerRegistryTest, PatternBasedLogging) {
+  // Set global level explicitly to ensure consistent test
+  registry_->setGlobalLevel(LogLevel::Info);
+  
   // Set pattern for filter components
   registry_->setPattern("filter/*", LogLevel::Debug);
   
@@ -114,7 +117,7 @@ TEST_F(LoggerRegistryTest, PatternBasedLogging) {
   auto other_logger = registry_->getOrCreateLogger("server/main");
   
   EXPECT_EQ(filter_logger->getLevel(), LogLevel::Debug);
-  EXPECT_NE(other_logger->getLevel(), LogLevel::Debug);
+  EXPECT_EQ(other_logger->getLevel(), LogLevel::Info);  // Should be Info, not just != Debug
 }
 
 TEST_F(LoggerRegistryTest, BloomFilterIntegration) {
@@ -197,6 +200,9 @@ TEST_F(LoggerRegistryTest, RegisterComponentLogger) {
 }
 
 TEST_F(LoggerRegistryTest, EffectiveLevelWithPatterns) {
+  // Set global level explicitly to ensure consistent test
+  registry_->setGlobalLevel(LogLevel::Info);
+  
   // Set multiple patterns
   registry_->setPattern("network/*", LogLevel::Debug);
   registry_->setPattern("network/connection*", LogLevel::Debug);
