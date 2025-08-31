@@ -181,21 +181,42 @@ export class AdvancedBuffer {
    * Add buffer fragment (zero-copy)
    */
   addFragment(fragment: BufferFragment): void {
-    const fragmentStruct = {
-      data: fragment.data,
-      size: fragment.size,
-      releaseCallback: fragment.releaseCallback || null,
-      userData: fragment.userData || null,
-    };
-
-    const result = mcpFilterLib.mcp_buffer_add_fragment(
+    // For now, just add the data directly since the C struct is not available
+    // TODO: Implement proper fragment handling when C structs are available
+    const result = mcpFilterLib.mcp_buffer_add(
       this.handle,
-      fragmentStruct as any
+      fragment.data,
+      fragment.size
     );
 
     if (result !== 0) {
       throw new Error("Failed to add fragment to buffer");
     }
+  }
+
+  /**
+   * Add multiple fragments efficiently
+   */
+  addFragments(fragments: BufferFragment[]): void {
+    for (const fragment of fragments) {
+      this.addFragment(fragment);
+    }
+  }
+
+  /**
+   * Get buffer fragments for zero-copy access
+   */
+  getFragments(): BufferFragment[] {
+    // This would need to be implemented based on the C API
+    // For now, return a single fragment representing the entire buffer
+    return [
+      {
+        data: this.getContiguous(0, this.length).data,
+        size: this.length,
+        releaseCallback: undefined as any,
+        userData: undefined as any,
+      },
+    ];
   }
 
   /**
@@ -405,34 +426,36 @@ export class AdvancedBuffer {
    * Read integer with little-endian byte order
    */
   readLittleEndianInt(size: number): number {
-    const result = mcpFilterLib.mcp_buffer_read_le_int(this.handle, size, {
-      value: 0,
-    });
+    const value = { value: 0 };
+    const result = mcpFilterLib.mcp_buffer_read_le_int(
+      this.handle,
+      size,
+      value as any
+    );
 
     if (result !== 0) {
       throw new Error("Failed to read little-endian integer");
     }
 
-    // For now, return a placeholder value since we can't easily get the actual value
-    // In a real implementation, this would return the actual read value
-    return 0;
+    return value.value;
   }
 
   /**
    * Read integer with big-endian byte order
    */
   readBigEndianInt(size: number): number {
-    const result = mcpFilterLib.mcp_buffer_read_be_int(this.handle, size, {
-      value: 0,
-    });
+    const value = { value: 0 };
+    const result = mcpFilterLib.mcp_buffer_read_be_int(
+      this.handle,
+      size,
+      value as any
+    );
 
     if (result !== 0) {
       throw new Error("Failed to read big-endian integer");
     }
 
-    // For now, return a placeholder value since we can't easily get the actual value
-    // In a real implementation, this would return the actual read value
-    return 0;
+    return value.value;
   }
 
   /**
@@ -449,7 +472,8 @@ export class AdvancedBuffer {
     );
 
     if (result !== 0) {
-      throw new Error("Pattern not found in buffer");
+      // Return -1 to indicate pattern not found (matching C++ behavior)
+      return -1;
     }
 
     return position.value;
@@ -467,7 +491,8 @@ export class AdvancedBuffer {
     );
 
     if (result !== 0) {
-      throw new Error("Delimiter not found in buffer");
+      // Return -1 to indicate delimiter not found (matching C++ behavior)
+      return -1;
     }
 
     return position.value;
@@ -555,6 +580,13 @@ export class AdvancedBuffer {
    */
   getHandle(): number {
     return this.handle;
+  }
+
+  /**
+   * Get the buffer ownership type
+   */
+  getOwnership(): BufferOwnership {
+    return this.ownership;
   }
 
   /**
@@ -685,5 +717,141 @@ export class AdvancedBufferPool {
       mcpFilterLib.mcp_buffer_pool_destroy(this.pool);
       this.pool = 0;
     }
+  }
+
+  /**
+   * Get pool configuration
+   */
+  getConfig() {
+    return { ...this.config };
+  }
+
+  /**
+   * Check if pool is exhausted
+   */
+  isExhausted(): boolean {
+    const stats = this.getStats();
+    return stats.freeCount === 0;
+  }
+
+  /**
+   * Get pool utilization percentage
+   */
+  getUtilization(): number {
+    const stats = this.getStats();
+    if (stats.totalAllocated === 0) return 0;
+    return (stats.usedCount / this.config.maxBuffers) * 100;
+  }
+
+  /**
+   * Preallocate additional buffers
+   */
+  preallocate(count: number): void {
+    // This would need to be implemented based on the C API
+    // For now, just log the request
+    console.log(`Preallocating ${count} additional buffers`);
+  }
+}
+
+/**
+ * Advanced buffer chain for efficient data processing
+ */
+export class BufferChain {
+  private buffers: AdvancedBuffer[] = [];
+  private currentIndex: number = 0;
+
+  constructor() {}
+
+  /**
+   * Add buffer to chain
+   */
+  addBuffer(buffer: AdvancedBuffer): void {
+    this.buffers.push(buffer);
+  }
+
+  /**
+   * Get next buffer in chain
+   */
+  getNextBuffer(): AdvancedBuffer | null {
+    if (this.currentIndex >= this.buffers.length) {
+      return null;
+    }
+    const buffer = this.buffers[this.currentIndex];
+    if (buffer) {
+      this.currentIndex++;
+      return buffer;
+    }
+    return null;
+  }
+
+  /**
+   * Reset chain position
+   */
+  reset(): void {
+    this.currentIndex = 0;
+  }
+
+  /**
+   * Get total length of all buffers in chain
+   */
+  getTotalLength(): number {
+    return this.buffers.reduce((total, buffer) => total + buffer.length, 0);
+  }
+
+  /**
+   * Clear all buffers in chain
+   */
+  clear(): void {
+    this.buffers = [];
+    this.currentIndex = 0;
+  }
+}
+
+/**
+ * Buffer performance monitor for optimization
+ */
+export class BufferPerformanceMonitor {
+  private metrics: Map<string, number> = new Map();
+  private startTimes: Map<string, number> = new Map();
+
+  /**
+   * Start timing an operation
+   */
+  startTimer(operation: string): void {
+    this.startTimes.set(operation, performance.now());
+  }
+
+  /**
+   * End timing an operation
+   */
+  endTimer(operation: string): void {
+    const startTime = this.startTimes.get(operation);
+    if (startTime) {
+      const duration = performance.now() - startTime;
+      this.metrics.set(operation, duration);
+      this.startTimes.delete(operation);
+    }
+  }
+
+  /**
+   * Get operation duration
+   */
+  getDuration(operation: string): number {
+    return this.metrics.get(operation) || 0;
+  }
+
+  /**
+   * Get all metrics
+   */
+  getAllMetrics(): Map<string, number> {
+    return new Map(this.metrics);
+  }
+
+  /**
+   * Reset all metrics
+   */
+  reset(): void {
+    this.metrics.clear();
+    this.startTimes.clear();
   }
 }
