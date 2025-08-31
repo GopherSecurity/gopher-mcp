@@ -81,8 +81,17 @@ struct LoggerHandle {
   std::shared_ptr<logging::Logger> logger;
   std::string name;
   
-  LoggerHandle(const std::string& n) 
-    : name(n), logger(logging::LoggerRegistry::instance().getOrCreateLogger(n)) {}
+  LoggerHandle(const std::string& n) : name(n) {
+    // Avoid calling LoggerRegistry during static initialization
+    // Create logger lazily when first used instead
+    logger = nullptr;
+  }
+  
+  void ensureLogger() {
+    if (!logger) {
+      logger = logging::LoggerRegistry::instance().getOrCreateLogger(name);
+    }
+  }
 };
 
 // RAII wrapper for sink handle
@@ -185,7 +194,11 @@ mcp_log_result_t mcp_logger_log(mcp_logger_handle_t handle,
                                 mcp_log_level_t level,
                                 mcp_string_view_t message) {
   auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  if (!logger_handle) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -207,7 +220,11 @@ mcp_log_result_t mcp_logger_log_structured(mcp_logger_handle_t handle,
   }
   
   auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  if (!logger_handle) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -236,7 +253,11 @@ mcp_log_result_t mcp_logger_log_structured(mcp_logger_handle_t handle,
 mcp_log_result_t mcp_logger_set_level(mcp_logger_handle_t handle,
                                   mcp_log_level_t level) {
   auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  if (!logger_handle) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -254,7 +275,11 @@ mcp_log_result_t mcp_logger_get_level(mcp_logger_handle_t handle,
     return MCP_LOG_ERROR_NULL_POINTER;
   }
   auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  if (!logger_handle) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -277,7 +302,11 @@ mcp_log_result_t mcp_logger_add_sink(mcp_logger_handle_t logger_handle,
   auto* logger = HandleManager::instance().get<LoggerHandle>(logger_handle);
   auto* sink = HandleManager::instance().get<SinkHandle>(sink_handle);
   
-  if (!logger || !logger->logger || !sink || !sink->sink) {
+  if (!logger || !sink || !sink->sink) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger->ensureLogger();
+  if (!logger->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -300,7 +329,11 @@ mcp_log_result_t mcp_logger_remove_sink(mcp_logger_handle_t logger_handle,
   auto* logger = HandleManager::instance().get<LoggerHandle>(logger_handle);
   auto* sink = HandleManager::instance().get<SinkHandle>(sink_handle);
   
-  if (!logger || !logger->logger || !sink || !sink->sink) {
+  if (!logger || !sink || !sink->sink) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger->ensureLogger();
+  if (!logger->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
@@ -314,7 +347,11 @@ mcp_log_result_t mcp_logger_remove_sink(mcp_logger_handle_t logger_handle,
 
 mcp_log_result_t mcp_logger_flush(mcp_logger_handle_t handle) {
   auto* logger_handle = HandleManager::instance().get<LoggerHandle>(handle);
-  if (!logger_handle || !logger_handle->logger) {
+  if (!logger_handle) {
+    return MCP_LOG_ERROR_INVALID_HANDLE;
+  }
+  logger_handle->ensureLogger();
+  if (!logger_handle->logger) {
     return MCP_LOG_ERROR_INVALID_HANDLE;
   }
   
