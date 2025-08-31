@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from "events";
+import { mcpFilterLib } from "./ffi-bindings";
 import {
   McpBufferFlag,
   McpBufferHandle,
@@ -22,8 +23,7 @@ import {
   createError,
   createSuccess,
   isSuccess,
-} from "../types";
-import { mcpFilterLib } from "./ffi-bindings";
+} from "./types";
 
 // ============================================================================
 // SDK Events

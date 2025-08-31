@@ -5,7 +5,9 @@ This directory contains examples that demonstrate the MCP Filter SDK functionali
 ## 🚀 Examples Overview
 
 ### 1. `real-shared-library-demo.ts` - Comprehensive Demo
+
 A full-featured demonstration that showcases all SDK capabilities:
+
 - **Basic Filters**: HTTP and TCP Proxy filter creation and management
 - **Advanced Buffers**: Buffer operations, pooling, and performance testing
 - **Filter Chains**: Chain management, execution modes, and state control
@@ -14,7 +16,9 @@ A full-featured demonstration that showcases all SDK capabilities:
 - **Performance Testing**: Stress testing with real operations
 
 ### 2. `integration-test.ts` - Focused Integration Testing
+
 A focused test suite that verifies the real shared library integration:
+
 - **MCP Core**: Initialization, version, status
 - **Resource Management**: Dispatchers, memory pools
 - **Filter Operations**: Creation, stats, cleanup
@@ -25,11 +29,13 @@ A focused test suite that verifies the real shared library integration:
 ## 🏃‍♂️ How to Run
 
 ### Prerequisites
+
 1. **Shared Library Installed**: `/usr/local/lib/libgopher_mcp_c.dylib`
 2. **Project Built**: Run `npm run build` first
 3. **Node.js**: Version 16+ recommended
 
 ### Running the Comprehensive Demo
+
 ```bash
 # Build the project first
 npm run build
@@ -39,6 +45,7 @@ node dist/examples/real-shared-library-demo.js
 ```
 
 ### Running the Integration Tests
+
 ```bash
 # Build the project first
 npm run build
@@ -50,12 +57,14 @@ node dist/examples/integration-test.js
 ## 🔍 What These Examples Demonstrate
 
 ### ✅ **Real Shared Library Integration**
+
 - **No Mocks**: These examples use the actual C library functions
 - **Real FFI Calls**: Direct calls to `libgopher_mcp_c.dylib`
 - **Resource Management**: Proper creation and cleanup of C resources
 - **Error Handling**: Real error conditions and responses
 
 ### ✅ **Complete SDK Functionality**
+
 - **All Filter Types**: HTTP, TCP Proxy, and custom filters
 - **Buffer Operations**: Advanced buffer management and pooling
 - **Chain Management**: Filter chain creation and execution
@@ -63,6 +72,7 @@ node dist/examples/integration-test.js
 - **Performance Metrics**: Real performance measurements
 
 ### ✅ **Production-Ready Code**
+
 - **Resource Cleanup**: Proper cleanup of all resources
 - **Error Handling**: Comprehensive error handling and reporting
 - **Performance Testing**: Stress testing with real workloads
@@ -71,11 +81,13 @@ node dist/examples/integration-test.js
 ## 🧪 Testing Strategy
 
 ### **Unit Tests** (in `src/__tests__/`)
+
 - **Use Mocks**: Fast, isolated testing
 - **No Shared Library**: Tests run without external dependencies
 - **Fast Execution**: Suitable for CI/CD and development
 
 ### **Integration Examples** (in `examples/`)
+
 - **Use Real Library**: Actual shared library calls
 - **Real Resources**: Real memory allocation and cleanup
 - **End-to-End Testing**: Complete workflow testing
@@ -92,6 +104,7 @@ node dist/examples/integration-test.js
 ## 🔧 Troubleshooting
 
 ### **Shared Library Not Found**
+
 ```bash
 # Check if library exists
 ls -la /usr/local/lib/libgopher_mcp_c.dylib
@@ -101,6 +114,7 @@ otool -L /usr/local/lib/libgopher_mcp_c.dylib
 ```
 
 ### **Build Errors**
+
 ```bash
 # Clean and rebuild
 npm run clean
@@ -108,6 +122,7 @@ npm run build
 ```
 
 ### **Runtime Errors**
+
 - Check that all dependencies are installed
 - Verify shared library permissions
 - Check Node.js version compatibility
@@ -115,6 +130,7 @@ npm run build
 ## 📊 Expected Output
 
 ### **Comprehensive Demo**
+
 ```
 🚀 MCP Filter SDK - Real Shared Library Demo
 This demo uses the ACTUAL shared library, not mocks!
@@ -130,6 +146,7 @@ Available functions: 85
 ```
 
 ### **Integration Tests**
+
 ```
 🚀 MCP Filter SDK - Integration Test Suite
 Testing REAL shared library functionality
