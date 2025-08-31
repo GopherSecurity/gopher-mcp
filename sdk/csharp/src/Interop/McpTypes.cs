@@ -159,6 +159,18 @@ namespace GopherMcp.Interop
             public IntPtr value; // void*
         }
         
+        /// <summary>
+        /// Resource template structure for MCP server
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct mcp_resource_template_t
+        {
+            public mcp_string_t uri;
+            public mcp_string_t name;
+            public mcp_string_t description;
+            public mcp_string_t mime_type;
+        }
+        
         // Enumerations
         
         /// <summary>
