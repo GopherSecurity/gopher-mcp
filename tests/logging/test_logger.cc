@@ -67,6 +67,7 @@ TEST_F(LoggerTest, BasicLogging) {
 TEST_F(LoggerTest, LogLevels) {
   Logger logger("test", LogMode::Sync);
   logger.setSink(sink_);
+  logger.setLevel(LogLevel::Debug);  // Enable all log levels
   
   logger.debug("Debug message");
   logger.info("Info message");
