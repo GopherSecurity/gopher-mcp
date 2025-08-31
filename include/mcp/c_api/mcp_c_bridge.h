@@ -25,9 +25,9 @@
 #include "mcp_c_api.h"
 #include "mcp_c_collections.h"
 #include "mcp_c_memory.h"
+#include "mcp_c_raii.h"
 #include "mcp_c_types.h"
 #include "mcp_c_types_api.h"
-#include "mcp_c_raii.h"
 
 /* C++ standard library headers */
 #include <atomic>

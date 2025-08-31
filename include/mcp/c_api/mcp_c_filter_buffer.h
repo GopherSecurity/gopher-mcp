@@ -16,9 +16,9 @@
 #ifndef MCP_FILTER_BUFFER_H
 #define MCP_FILTER_BUFFER_H
 
+#include "mcp_c_filter_api.h"
 #include "mcp_c_memory.h"
 #include "mcp_c_types.h"
-#include "mcp_c_filter_api.h"
 
 #ifdef __cplusplus
 extern "C" {
