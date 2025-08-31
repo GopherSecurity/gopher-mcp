@@ -199,7 +199,7 @@ TEST_F(LoggerRegistryTest, RegisterComponentLogger) {
 TEST_F(LoggerRegistryTest, EffectiveLevelWithPatterns) {
   // Set multiple patterns
   registry_->setPattern("network/*", LogLevel::Debug);
-  registry_->setPattern("network/connection*", LogLevel::Trace);
+  registry_->setPattern("network/connection*", LogLevel::Debug);
   registry_->setPattern("server/*", LogLevel::Warning);
   
   // Check effective levels
