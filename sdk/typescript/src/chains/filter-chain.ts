@@ -10,7 +10,7 @@
  * - Load balancing
  */
 
-import { McpProtocolMetadata } from "../types";
+import { McpProtocolMetadata } from "../types/filters";
 
 // Chain execution modes from mcp_filter_chain.h
 export enum ChainExecutionMode {

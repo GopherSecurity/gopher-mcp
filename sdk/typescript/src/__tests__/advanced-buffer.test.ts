@@ -13,10 +13,10 @@ import {
   BufferFlags,
   BufferOwnership,
 } from "../buffers/advanced-buffer";
-import { mcpFilterLib } from "../core/ffi-bindings";
+import { mcpFilterLib } from "../ffi-bindings";
 
 // Mock the native library for testing
-jest.mock("../core/ffi-bindings", () => ({
+jest.mock("../ffi-bindings", () => ({
   mcpFilterLib: {
     mcp_buffer_create_owned: jest.fn(),
     mcp_buffer_create_view: jest.fn(),

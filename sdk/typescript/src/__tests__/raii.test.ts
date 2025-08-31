@@ -28,7 +28,7 @@ import {
   safeCleanup,
   withResource,
   withTransaction,
-} from "../core/raii";
+} from "../raii";
 
 // ============================================================================
 // Mock Resource Class for Testing

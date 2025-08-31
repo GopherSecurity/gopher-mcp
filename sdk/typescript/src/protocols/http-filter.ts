@@ -9,7 +9,7 @@
  * - Protocol detection and routing
  */
 
-import { mcpFilterLib } from "../core/ffi-bindings";
+import { mcpFilterLib } from "../ffi-bindings";
 import { McpBuiltinFilterType, McpFilterStats } from "../types";
 
 // HTTP filter types from mcp_filter_api.h

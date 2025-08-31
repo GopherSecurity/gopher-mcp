@@ -9,7 +9,7 @@
  * - Load balancing
  */
 
-import { mcpFilterLib } from "../core/ffi-bindings";
+import { mcpFilterLib } from "../ffi-bindings";
 import {
   McpBuiltinFilterType,
   McpFilterStats,

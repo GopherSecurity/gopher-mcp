@@ -6,7 +6,7 @@
  * and advanced memory management capabilities as defined in mcp_filter_buffer.h
  */
 
-import { mcpFilterLib } from "../core/ffi-bindings";
+import { mcpFilterLib } from "../ffi-bindings";
 import { McpBufferStats } from "../types";
 
 // Buffer ownership model from mcp_filter_buffer.h

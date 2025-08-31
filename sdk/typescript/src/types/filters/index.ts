@@ -14,7 +14,7 @@ import {
   McpMap,
   McpMemoryPool,
   McpResult,
-} from "./mcp-types";
+} from "../mcp-types";
 
 // ============================================================================
 // Filter Types and Enumerations

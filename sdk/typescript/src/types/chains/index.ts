@@ -6,7 +6,7 @@
  * with the filter chain API types defined in mcp_filter_chain.h
  */
 
-import { McpFilter, McpFilterChain, McpProtocolMetadata } from "./filter-types";
+import { McpFilter, McpFilterChain, McpProtocolMetadata } from "../filters";
 import {
   McpBool,
   McpBufferHandle,
@@ -14,7 +14,7 @@ import {
   McpMap,
   fromBoolean,
   toBoolean,
-} from "./mcp-types";
+} from "../mcp-types";
 
 // ============================================================================
 // Chain Types and Enumerations

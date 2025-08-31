@@ -13,12 +13,12 @@
 export {
   default as McpFilterSdk,
   McpFilterSdk as SDK,
-} from "./core/mcp-filter-sdk";
+} from "./mcp-filter-sdk";
 export type {
   McpSdkConfig,
   McpSdkEvents,
   McpSdkStats,
-} from "./core/mcp-filter-sdk";
+} from "./mcp-filter-sdk";
 
 // ============================================================================
 // FFI Bindings
@@ -37,7 +37,7 @@ export {
   readStruct,
   toCBool,
   toCString,
-} from "./core/ffi-bindings";
+} from "./ffi-bindings";
 
 // ============================================================================
 // Protocol Filters
@@ -118,7 +118,7 @@ export * from "./types";
 // RAII Resource Management
 // ============================================================================
 
-export * from "./core/raii";
+export * from "./raii";
 
 // ============================================================================
 // Version Information
@@ -133,4 +133,4 @@ export const SDK_DESCRIPTION =
 // Default Export
 // ============================================================================
 
-export { McpFilterSdk as default } from "./core/mcp-filter-sdk";
+export { McpFilterSdk as default } from "./mcp-filter-sdk";

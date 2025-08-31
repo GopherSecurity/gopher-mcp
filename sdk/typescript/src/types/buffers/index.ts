@@ -6,7 +6,7 @@
  * with the buffer API types defined in mcp_filter_buffer.h
  */
 
-import { McpBool, McpBufferHandle } from "./mcp-types";
+import { McpBool, McpBufferHandle } from "../mcp-types";
 
 // ============================================================================
 // Buffer Types and Enumerations
