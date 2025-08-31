@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+
 #include "mcp/logging/log_level.h"
 
 using namespace mcp::logging;
@@ -26,7 +27,7 @@ TEST(LogLevelTest, StringToLogLevel) {
   EXPECT_EQ(stringToLogLevel("ALERT"), LogLevel::Alert);
   EXPECT_EQ(stringToLogLevel("EMERGENCY"), LogLevel::Emergency);
   EXPECT_EQ(stringToLogLevel("OFF"), LogLevel::Off);
-  
+
   // Lowercase
   EXPECT_EQ(stringToLogLevel("debug"), LogLevel::Debug);
   EXPECT_EQ(stringToLogLevel("info"), LogLevel::Info);
@@ -37,7 +38,7 @@ TEST(LogLevelTest, StringToLogLevel) {
   EXPECT_EQ(stringToLogLevel("alert"), LogLevel::Alert);
   EXPECT_EQ(stringToLogLevel("emergency"), LogLevel::Emergency);
   EXPECT_EQ(stringToLogLevel("off"), LogLevel::Off);
-  
+
   // Invalid defaults to Info
   EXPECT_EQ(stringToLogLevel("invalid"), LogLevel::Info);
   EXPECT_EQ(stringToLogLevel(""), LogLevel::Info);
@@ -58,14 +59,22 @@ TEST(LogLevelTest, ComponentToString) {
 
 TEST(LogLevelTest, LogLevelOrdering) {
   // Verify the numeric ordering matches severity
-  EXPECT_LT(static_cast<int>(LogLevel::Debug), static_cast<int>(LogLevel::Info));
-  EXPECT_LT(static_cast<int>(LogLevel::Info), static_cast<int>(LogLevel::Notice));
-  EXPECT_LT(static_cast<int>(LogLevel::Notice), static_cast<int>(LogLevel::Warning));
-  EXPECT_LT(static_cast<int>(LogLevel::Warning), static_cast<int>(LogLevel::Error));
-  EXPECT_LT(static_cast<int>(LogLevel::Error), static_cast<int>(LogLevel::Critical));
-  EXPECT_LT(static_cast<int>(LogLevel::Critical), static_cast<int>(LogLevel::Alert));
-  EXPECT_LT(static_cast<int>(LogLevel::Alert), static_cast<int>(LogLevel::Emergency));
-  EXPECT_LT(static_cast<int>(LogLevel::Emergency), static_cast<int>(LogLevel::Off));
+  EXPECT_LT(static_cast<int>(LogLevel::Debug),
+            static_cast<int>(LogLevel::Info));
+  EXPECT_LT(static_cast<int>(LogLevel::Info),
+            static_cast<int>(LogLevel::Notice));
+  EXPECT_LT(static_cast<int>(LogLevel::Notice),
+            static_cast<int>(LogLevel::Warning));
+  EXPECT_LT(static_cast<int>(LogLevel::Warning),
+            static_cast<int>(LogLevel::Error));
+  EXPECT_LT(static_cast<int>(LogLevel::Error),
+            static_cast<int>(LogLevel::Critical));
+  EXPECT_LT(static_cast<int>(LogLevel::Critical),
+            static_cast<int>(LogLevel::Alert));
+  EXPECT_LT(static_cast<int>(LogLevel::Alert),
+            static_cast<int>(LogLevel::Emergency));
+  EXPECT_LT(static_cast<int>(LogLevel::Emergency),
+            static_cast<int>(LogLevel::Off));
 }
 
 TEST(LogLevelTest, LogModeValues) {
@@ -73,7 +82,7 @@ TEST(LogLevelTest, LogModeValues) {
   LogMode sync = LogMode::Sync;
   LogMode async = LogMode::Async;
   LogMode noop = LogMode::NoOp;
-  
+
   EXPECT_NE(static_cast<int>(sync), static_cast<int>(async));
   EXPECT_NE(static_cast<int>(sync), static_cast<int>(noop));
   EXPECT_NE(static_cast<int>(async), static_cast<int>(noop));
@@ -81,8 +90,10 @@ TEST(LogLevelTest, LogModeValues) {
 
 TEST(LogLevelTest, SinkTypeValues) {
   // Verify sink types are distinct
-  EXPECT_NE(static_cast<int>(SinkType::File), static_cast<int>(SinkType::Stdio));
+  EXPECT_NE(static_cast<int>(SinkType::File),
+            static_cast<int>(SinkType::Stdio));
   EXPECT_NE(static_cast<int>(SinkType::File), static_cast<int>(SinkType::Null));
-  EXPECT_NE(static_cast<int>(SinkType::File), static_cast<int>(SinkType::External));
+  EXPECT_NE(static_cast<int>(SinkType::File),
+            static_cast<int>(SinkType::External));
   EXPECT_NE(static_cast<int>(SinkType::File), static_cast<int>(SinkType::MCP));
 }
