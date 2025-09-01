@@ -89,12 +89,34 @@ target_include_directories(gopher_mcp_c
 
 # Link with shared libraries 
 # The shared library already contains all needed dependencies
-target_link_libraries(gopher_mcp_c
-    PRIVATE
-        gopher-mcp
-        gopher-mcp-event
-        gopher-mcp-logging
-)
+# When gopher-mcp is built as static only, link to static version
+if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
+    # gopher-mcp exists but no shared version - it's an alias to static
+    target_link_libraries(gopher_mcp_c
+        PRIVATE
+            gopher-mcp-static
+            gopher-mcp-event-static
+            gopher-mcp-logging-static
+    )
+else()
+    # Normal case - shared libraries exist
+    target_link_libraries(gopher_mcp_c
+        PRIVATE
+            gopher-mcp
+            gopher-mcp-event
+            gopher-mcp-logging
+    )
+endif()
+
+# Add nghttp2 linking if needed
+if(NGHTTP2_FOUND)
+    if(NGHTTP2_LIBRARY_DIRS)
+        target_link_directories(gopher_mcp_c PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+    endif()
+    if(NGHTTP2_LIBRARIES)
+        target_link_libraries(gopher_mcp_c PRIVATE ${NGHTTP2_LIBRARIES})
+    endif()
+endif()
 
 # Compile features
 target_compile_features(gopher_mcp_c PRIVATE cxx_std_17)

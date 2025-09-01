@@ -246,17 +246,28 @@ if(MCP_USE_NGHTTP2)
         FetchContent_MakeAvailable(nghttp2)
         message(STATUS "nghttp2 download and configuration complete.")
         
+        set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
         set(NGHTTP2_FOUND TRUE)
         set(NGHTTP2_INCLUDE_DIRS 
             ${nghttp2_SOURCE_DIR}/lib/includes 
+            ${nghttp2_BINARY_DIR}/lib/includes PARENT_SCOPE)
+        set(NGHTTP2_INCLUDE_DIRS 
+            ${nghttp2_SOURCE_DIR}/lib/includes 
             ${nghttp2_BINARY_DIR}/lib/includes)
+        set(NGHTTP2_LIBRARIES nghttp2_static PARENT_SCOPE)
         set(NGHTTP2_LIBRARIES nghttp2_static)
         
         message(STATUS "nghttp2 successfully configured for build from source")
     else()
         message(STATUS "Found system nghttp2")
+        # Propagate to parent scope when using system nghttp2
+        set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
+        set(NGHTTP2_INCLUDE_DIRS ${NGHTTP2_INCLUDE_DIRS} PARENT_SCOPE)
+        set(NGHTTP2_LIBRARIES ${NGHTTP2_LIBRARIES} PARENT_SCOPE)
+        set(NGHTTP2_LIBRARY_DIRS ${NGHTTP2_LIBRARY_DIRS} PARENT_SCOPE)
     endif()
 else()
+    set(NGHTTP2_FOUND FALSE PARENT_SCOPE)
     set(NGHTTP2_FOUND FALSE)
     message(STATUS "nghttp2 support disabled")
 endif()
@@ -451,7 +462,16 @@ else()
     add_library(gopher-mcp ALIAS gopher-mcp-static)
 endif()
 # Configure include directories and linking for both library types
-foreach(lib_target gopher-mcp gopher-mcp-static)
+# Only configure real targets, not aliases
+set(REAL_TARGETS)
+if(TARGET gopher-mcp-static)
+    list(APPEND REAL_TARGETS gopher-mcp-static)
+endif()
+if(BUILD_SHARED_LIBS AND TARGET gopher-mcp)
+    list(APPEND REAL_TARGETS gopher-mcp)
+endif()
+
+foreach(lib_target ${REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
             PUBLIC 
@@ -482,7 +502,7 @@ endforeach()
 
 # Add llhttp if found
 if(LLHTTP_FOUND)
-    foreach(lib_target gopher-mcp gopher-mcp-static)
+    foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_link_libraries(${lib_target} PRIVATE llhttp)
             target_compile_definitions(${lib_target} PUBLIC MCP_HAS_LLHTTP=1)
@@ -492,7 +512,7 @@ if(LLHTTP_FOUND)
         endif()
     endforeach()
 else()
-    foreach(lib_target gopher-mcp gopher-mcp-static)
+    foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_compile_definitions(${lib_target} PUBLIC MCP_HAS_LLHTTP=0)
         endif()
@@ -501,22 +521,36 @@ endif()
 
 # Add nghttp2 if found
 if(NGHTTP2_FOUND)
-    foreach(lib_target gopher-mcp gopher-mcp-static)
+    foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_include_directories(${lib_target} PRIVATE ${NGHTTP2_INCLUDE_DIRS})
             if(NGHTTP2_LIBRARY_DIRS)
-                target_link_directories(${lib_target} PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+                # For static libraries, make link directories PUBLIC so they propagate
+                if("${lib_target}" STREQUAL "gopher-mcp-static" OR "${lib_target}" STREQUAL "gopher-mcp-event-static")
+                    target_link_directories(${lib_target} PUBLIC ${NGHTTP2_LIBRARY_DIRS})
+                else()
+                    target_link_directories(${lib_target} PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+                endif()
             endif()
             if(NGHTTP2_LIBRARIES)
-                target_link_libraries(${lib_target} PRIVATE ${NGHTTP2_LIBRARIES})
+                # For static libraries, make nghttp2 a PUBLIC dependency so it propagates
+                if("${lib_target}" STREQUAL "gopher-mcp-static" OR "${lib_target}" STREQUAL "gopher-mcp-event-static")
+                    target_link_libraries(${lib_target} PUBLIC ${NGHTTP2_LIBRARIES})
+                else()
+                    target_link_libraries(${lib_target} PRIVATE ${NGHTTP2_LIBRARIES})
+                endif()
             else()
-                target_link_libraries(${lib_target} PRIVATE nghttp2)
+                if("${lib_target}" STREQUAL "gopher-mcp-static" OR "${lib_target}" STREQUAL "gopher-mcp-event-static")
+                    target_link_libraries(${lib_target} PUBLIC nghttp2)
+                else()
+                    target_link_libraries(${lib_target} PRIVATE nghttp2)
+                endif()
             endif()
             target_compile_definitions(${lib_target} PUBLIC MCP_HAS_NGHTTP2=1)
         endif()
     endforeach()
 else()
-    foreach(lib_target gopher-mcp gopher-mcp-static)
+    foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_compile_definitions(${lib_target} PUBLIC MCP_HAS_NGHTTP2=0)
         endif()
@@ -543,7 +577,16 @@ else()
     add_library(gopher-mcp-echo-advanced ALIAS gopher-mcp-echo-advanced-static)
 endif()
 # Configure echo advanced library
-foreach(lib_target gopher-mcp-echo-advanced gopher-mcp-echo-advanced-static)
+# Only configure real targets, not aliases
+set(ECHO_REAL_TARGETS)
+if(TARGET gopher-mcp-echo-advanced-static)
+    list(APPEND ECHO_REAL_TARGETS gopher-mcp-echo-advanced-static)
+endif()
+if(BUILD_SHARED_LIBS AND TARGET gopher-mcp-echo-advanced)
+    list(APPEND ECHO_REAL_TARGETS gopher-mcp-echo-advanced)
+endif()
+
+foreach(lib_target ${ECHO_REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
             PUBLIC 
@@ -582,7 +625,16 @@ else()
     add_library(gopher-mcp-event ALIAS gopher-mcp-event-static)
 endif()
 # Configure event library
-foreach(lib_target gopher-mcp-event gopher-mcp-event-static)
+# Only configure real targets, not aliases
+set(EVENT_REAL_TARGETS)
+if(TARGET gopher-mcp-event-static)
+    list(APPEND EVENT_REAL_TARGETS gopher-mcp-event-static)
+endif()
+if(BUILD_SHARED_LIBS AND TARGET gopher-mcp-event)
+    list(APPEND EVENT_REAL_TARGETS gopher-mcp-event)
+endif()
+
+foreach(lib_target ${EVENT_REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
             PUBLIC 
