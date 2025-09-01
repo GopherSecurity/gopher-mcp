@@ -16,6 +16,8 @@ import {
   initializeFilterManager,
   postDataToFilter,
   readStringFromBuffer,
+  releaseFilter,
+  releaseFilterManager,
 } from "./index";
 
 /**
@@ -69,6 +71,7 @@ export class FilterManager {
     metrics?: number;
   } = {};
   private config: FilterManagerConfig;
+  private _isDestroyed: boolean = false;
 
   constructor(config: FilterManagerConfig = {}) {
     // Store configuration
@@ -91,6 +94,8 @@ export class FilterManager {
    * Process JSON-RPC message through filters
    */
   async process(message: JSONRPCMessage): Promise<JSONRPCMessage> {
+    this.ensureNotDestroyed();
+
     // Validate input message
     this.validateMessage(message);
 
@@ -120,6 +125,8 @@ export class FilterManager {
    * Optimized for response processing (typically logging, metrics, compression)
    */
   async processResponse(response: JSONRPCMessage): Promise<JSONRPCMessage> {
+    this.ensureNotDestroyed();
+
     // Validate input response
     this.validateMessage(response);
 
@@ -157,6 +164,8 @@ export class FilterManager {
     processedRequest: JSONRPCMessage;
     processedResponse: JSONRPCMessage;
   }> {
+    this.ensureNotDestroyed();
+
     // Process request first
     const processedRequest = await this.process(request);
 
@@ -164,6 +173,83 @@ export class FilterManager {
     const processedResponse = await this.processResponse(response);
 
     return { processedRequest, processedResponse };
+  }
+
+  /**
+   * Destroy the FilterManager and release all C++ resources
+   * This should be called when the FilterManager is no longer needed
+   */
+  destroy(): void {
+    if (this._isDestroyed) {
+      console.warn("FilterManager is already destroyed");
+      return;
+    }
+
+    try {
+      // Release all individual filters
+      if (this.filters.auth) {
+        releaseFilter(this.filters.auth);
+        delete this.filters.auth;
+      }
+
+      if (this.filters.rateLimit) {
+        releaseFilter(this.filters.rateLimit);
+        delete this.filters.rateLimit;
+      }
+
+      if (this.filters.logging) {
+        releaseFilter(this.filters.logging);
+        delete this.filters.logging;
+      }
+
+      if (this.filters.metrics) {
+        releaseFilter(this.filters.metrics);
+        delete this.filters.metrics;
+      }
+
+      // Release the filter manager
+      if (this.filterManager) {
+        releaseFilterManager(this.filterManager);
+        this.filterManager = 0;
+      }
+
+      this._isDestroyed = true;
+      console.log("FilterManager destroyed and resources released");
+    } catch (error) {
+      console.error("Error during FilterManager destruction:", error);
+      this._isDestroyed = true; // Mark as destroyed even if cleanup failed
+    }
+  }
+
+  /**
+   * Check if the FilterManager has been destroyed
+   */
+  isDestroyed(): boolean {
+    return this._isDestroyed;
+  }
+
+  /**
+   * Finalizer method for automatic cleanup
+   * This will be called by the garbage collector
+   */
+  [Symbol.dispose](): void {
+    if (!this._isDestroyed) {
+      console.warn(
+        "FilterManager was not properly destroyed, cleaning up automatically"
+      );
+      this.destroy();
+    }
+  }
+
+  /**
+   * Ensure the FilterManager is not destroyed before processing
+   */
+  private ensureNotDestroyed(): void {
+    if (this._isDestroyed) {
+      throw new Error(
+        "FilterManager has been destroyed and cannot process messages"
+      );
+    }
   }
 
   /**

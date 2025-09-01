@@ -232,6 +232,71 @@ async function requestResponseDemo() {
 }
 
 /**
+ * Demo: Resource cleanup and lifecycle management
+ */
+async function resourceCleanupDemo() {
+  console.log("\n🔧 Resource Cleanup Demo");
+
+  // Create a FilterManager
+  const filterManager = new FilterManager({
+    auth: {
+      method: "jwt",
+      secret: "cleanup-demo-secret",
+    },
+    rateLimit: {
+      requestsPerMinute: 50,
+      burstSize: 5,
+    },
+    logging: true,
+    metrics: true,
+  });
+
+  console.log("✅ FilterManager created");
+
+  // Check if it's destroyed (should be false)
+  console.log("Is destroyed:", filterManager.isDestroyed());
+
+  // Process a message
+  const testMessage: JSONRPCMessage = {
+    jsonrpc: "2.0",
+    id: "cleanup-test",
+    method: "test/cleanup",
+    params: { test: true },
+  };
+
+  try {
+    await filterManager.process(testMessage);
+    console.log("✅ Message processed successfully");
+  } catch (error) {
+    console.error("❌ Message processing failed:", error);
+  }
+
+  // Destroy the FilterManager
+  console.log("🗑️ Destroying FilterManager...");
+  filterManager.destroy();
+
+  // Check if it's destroyed (should be true)
+  console.log("Is destroyed:", filterManager.isDestroyed());
+
+  // Try to process a message after destruction (should fail)
+  try {
+    await filterManager.process(testMessage);
+    console.log("❌ This should not happen - processing after destruction");
+  } catch (error) {
+    console.log(
+      "✅ Correctly prevented processing after destruction:",
+      (error as Error).message
+    );
+  }
+
+  // Try to destroy again (should warn)
+  console.log("🗑️ Attempting to destroy again...");
+  filterManager.destroy();
+
+  console.log("✅ Resource cleanup demos completed");
+}
+
+/**
  * Main demo function
  */
 async function main() {
@@ -242,6 +307,7 @@ async function main() {
     await configurationDemo();
     await errorHandlingDemo();
     await requestResponseDemo();
+    await resourceCleanupDemo();
 
     console.log("\n🎉 All demos completed successfully!");
   } catch (error) {
@@ -260,4 +326,5 @@ export {
   configurationDemo,
   errorHandlingDemo,
   requestResponseDemo,
+  resourceCleanupDemo,
 };
