@@ -1,17 +1,95 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { GopherTransport, GopherTransportConfig } from "./gopher-transport";
 
 async function main() {
   try {
-    // Create a client transport
-    const transport = new StdioClientTransport({
-      command: "npx",
-      args: ["ts-node", "src/mcp-server.ts"],
-    });
+    // Create a GopherTransport with comprehensive filter configuration
+    const transportConfig: GopherTransportConfig = {
+      name: "mcp-client-transport",
+      version: "1.0.0",
+      protocol: "stdio",
+      
+      // Client-specific filter configuration
+      filters: {
+        // Security filters for client
+        security: {
+          authentication: {
+            method: "jwt",
+            secret: "client-secret-key",
+            issuer: "mcp-client",
+            audience: "mcp-server",
+          },
+          authorization: {
+            enabled: true,
+            policy: "allow",
+            rules: [
+              {
+                resource: "tools/*",
+                action: "call",
+              },
+            ],
+          },
+        },
+
+        // Observability for client
+        observability: {
+          accessLog: {
+            enabled: true,
+            format: "json",
+            fields: ["timestamp", "method", "sessionId", "duration", "clientId"],
+            output: "console",
+          },
+          metrics: {
+            enabled: true,
+            labels: { 
+              component: "mcp-client",
+              transport: "gopher",
+            },
+          },
+          tracing: {
+            enabled: true,
+            serviceName: "mcp-client",
+            samplingRate: 0.2, // 20% sampling for client
+          },
+        },
+
+        // Traffic management for client
+        trafficManagement: {
+          rateLimit: {
+            enabled: true,
+            requestsPerMinute: 500, // Lower rate limit for client
+            burstSize: 25,
+            keyExtractor: "custom",
+          },
+          circuitBreaker: {
+            enabled: true,
+            failureThreshold: 3, // Lower threshold for client
+            timeout: 15000,
+            resetTimeout: 30000,
+          },
+          retry: {
+            enabled: true,
+            maxAttempts: 2, // Fewer retries for client
+            backoffStrategy: "exponential",
+            baseDelay: 500,
+            maxDelay: 3000,
+          },
+        },
+
+        // Error handling
+        errorHandling: {
+          stopOnError: false,
+          retryAttempts: 1,
+          fallbackBehavior: "passthrough",
+        },
+      },
+    };
+
+    const transport = new GopherTransport(transportConfig);
 
     // Create a client
     const client = new Client({
@@ -19,10 +97,14 @@ async function main() {
       version: "1.0.0",
     });
 
+    // Start the GopherTransport
+    await transport.start();
+
     // Connect the client to the transport
     await client.connect(transport);
 
-    console.log("Connected to MCP server");
+    console.log("✅ Connected to MCP server via GopherTransport");
+    console.log(`📊 Transport stats:`, transport.getStats());
 
     // List available tools
     const toolsRequest = {
@@ -82,8 +164,13 @@ async function main() {
     );
 
     console.log("Multiply result:", multiplyResult);
+
+    // Clean up resources
+    await transport.close();
+    console.log("🧹 Client resources cleaned up");
+
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Client error:", error);
   }
 }
 
