@@ -116,6 +116,57 @@ export class FilterManager {
   }
 
   /**
+   * Process JSON-RPC response through filters
+   * Optimized for response processing (typically logging, metrics, compression)
+   */
+  async processResponse(response: JSONRPCMessage): Promise<JSONRPCMessage> {
+    // Validate input response
+    this.validateMessage(response);
+
+    try {
+      // Convert response to buffer using FFI wrapper
+      const responseBuffer = createBufferFromString(
+        JSON.stringify(response),
+        BufferOwnership.SHARED
+      );
+
+      // Process through response-specific filters
+      const processedBuffer = await this.processThroughResponseFilters(
+        responseBuffer
+      );
+
+      // Convert back to JSON-RPC message
+      const processedResponse = JSON.parse(
+        readStringFromBuffer(processedBuffer)
+      );
+
+      return processedResponse;
+    } catch (error) {
+      return this.handleProcessingError(error, response);
+    }
+  }
+
+  /**
+   * Process a complete request-response cycle
+   * Useful for MCP transport layer integration
+   */
+  async processRequestResponse(
+    request: JSONRPCMessage,
+    response: JSONRPCMessage
+  ): Promise<{
+    processedRequest: JSONRPCMessage;
+    processedResponse: JSONRPCMessage;
+  }> {
+    // Process request first
+    const processedRequest = await this.process(request);
+
+    // Process response
+    const processedResponse = await this.processResponse(response);
+
+    return { processedRequest, processedResponse };
+  }
+
+  /**
    * Setup filters based on configuration
    */
   private setupFilters(config: FilterManagerConfig): void {
@@ -195,6 +246,44 @@ export class FilterManager {
           }
           // Continue processing other filters if stopOnError is false
           console.warn(`Filter '${name}' failed, continuing: ${error}`);
+        }
+      }
+    }
+
+    return processedBuffer;
+  }
+
+  /**
+   * Process response through response-specific filters
+   * Typically includes logging, metrics, and compression (not auth/rate limiting)
+   */
+  private async processThroughResponseFilters(buffer: number): Promise<number> {
+    // Process through response-specific filters only
+    let processedBuffer = buffer;
+
+    const responseFilterChain = [
+      { name: "logging", filter: this.filters.logging },
+      { name: "metrics", filter: this.filters.metrics },
+    ];
+
+    for (const { name, filter } of responseFilterChain) {
+      if (filter) {
+        try {
+          processedBuffer = await this.processThroughFilter(
+            filter,
+            processedBuffer
+          );
+        } catch (error) {
+          const shouldStop = this.config.errorHandling?.stopOnError ?? true;
+          if (shouldStop) {
+            throw new Error(
+              `Response filter '${name}' processing failed: ${error}`
+            );
+          }
+          // Continue processing other filters if stopOnError is false
+          console.warn(
+            `Response filter '${name}' failed, continuing: ${error}`
+          );
         }
       }
     }

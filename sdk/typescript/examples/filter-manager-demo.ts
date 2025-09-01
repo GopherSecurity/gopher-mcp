@@ -161,6 +161,77 @@ async function errorHandlingDemo() {
 }
 
 /**
+ * Demo: Request-Response processing
+ */
+async function requestResponseDemo() {
+  console.log("\n🔧 Request-Response Processing Demo");
+
+  const filterManager = new FilterManager({
+    auth: {
+      method: "jwt",
+      secret: "demo-secret",
+    },
+    rateLimit: {
+      requestsPerMinute: 100,
+      burstSize: 10,
+    },
+    logging: true,
+    metrics: true,
+  });
+
+  // Create a sample request
+  const request: JSONRPCMessage = {
+    jsonrpc: "2.0",
+    id: "1",
+    method: "filesystem/read",
+    params: {
+      path: "/tmp/test.txt",
+    },
+  };
+
+  // Create a sample response
+  const response: JSONRPCMessage = {
+    jsonrpc: "2.0",
+    id: "1",
+    result: {
+      content: "Hello, World!",
+      size: 13,
+    },
+  };
+
+  console.log("📥 Original request:", JSON.stringify(request, null, 2));
+  console.log("📤 Original response:", JSON.stringify(response, null, 2));
+
+  try {
+    // Process request and response separately
+    const processedRequest = await filterManager.process(request);
+    const processedResponse = await filterManager.processResponse(response);
+
+    console.log(
+      "✅ Processed request:",
+      JSON.stringify(processedRequest, null, 2)
+    );
+    console.log(
+      "✅ Processed response:",
+      JSON.stringify(processedResponse, null, 2)
+    );
+
+    // Process both together
+    const { processedRequest: req, processedResponse: res } =
+      await filterManager.processRequestResponse(request, response);
+
+    console.log("✅ Combined processing completed");
+    console.log("📥 Final request:", JSON.stringify(req, null, 2));
+    console.log("📤 Final response:", JSON.stringify(res, null, 2));
+  } catch (error) {
+    console.error("❌ Request-Response processing failed:", error);
+    throw error;
+  }
+
+  console.log("✅ Request-Response demos completed");
+}
+
+/**
  * Main demo function
  */
 async function main() {
@@ -170,6 +241,7 @@ async function main() {
     await basicFilterManagerDemo();
     await configurationDemo();
     await errorHandlingDemo();
+    await requestResponseDemo();
 
     console.log("\n🎉 All demos completed successfully!");
   } catch (error) {
@@ -183,4 +255,9 @@ if (require.main === module) {
   main().catch(console.error);
 }
 
-export { basicFilterManagerDemo, configurationDemo, errorHandlingDemo };
+export {
+  basicFilterManagerDemo,
+  configurationDemo,
+  errorHandlingDemo,
+  requestResponseDemo,
+};
