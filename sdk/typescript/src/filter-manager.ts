@@ -49,6 +49,12 @@ export interface FilterManagerConfig {
   };
   logging?: boolean;
   metrics?: boolean;
+  // Error handling configuration
+  errorHandling?: {
+    stopOnError?: boolean; // Stop processing on first filter error
+    retryAttempts?: number; // Number of retry attempts for failed filters
+    fallbackBehavior?: "reject" | "passthrough" | "default"; // What to do on error
+  };
 }
 
 /**
@@ -62,8 +68,15 @@ export class FilterManager {
     logging?: number;
     metrics?: number;
   } = {};
+  private config: FilterManagerConfig;
 
   constructor(config: FilterManagerConfig = {}) {
+    // Store configuration
+    this.config = config;
+
+    // Validate configuration
+    this.validateConfig(config);
+
     // Create filter manager using FFI wrapper
     this.filterManager = createFilterManager(0, 0);
 
@@ -78,6 +91,9 @@ export class FilterManager {
    * Process JSON-RPC message through filters
    */
   async process(message: JSONRPCMessage): Promise<JSONRPCMessage> {
+    // Validate input message
+    this.validateMessage(message);
+
     try {
       // Convert message to buffer using FFI wrapper
       const messageBuffer = createBufferFromString(
@@ -85,7 +101,7 @@ export class FilterManager {
         BufferOwnership.SHARED
       );
 
-      // Process through filters (placeholder for now)
+      // Process through filters with error handling
       const processedBuffer = await this.processThroughFilters(messageBuffer);
 
       // Convert back to JSON-RPC message
@@ -95,7 +111,7 @@ export class FilterManager {
 
       return processedMessage;
     } catch (error) {
-      throw new Error(`Filter processing failed: ${error}`);
+      return this.handleProcessingError(error, message);
     }
   }
 
@@ -158,40 +174,29 @@ export class FilterManager {
     // Process through each filter using our FFI wrapper
     let processedBuffer = buffer;
 
-    // Process through authentication filter if configured
-    if (this.filters.auth) {
-      const authResult = await this.processThroughFilter(
-        this.filters.auth,
-        processedBuffer
-      );
-      processedBuffer = authResult;
-    }
+    const filterChain = [
+      { name: "auth", filter: this.filters.auth },
+      { name: "rateLimit", filter: this.filters.rateLimit },
+      { name: "logging", filter: this.filters.logging },
+      { name: "metrics", filter: this.filters.metrics },
+    ];
 
-    // Process through rate limiting filter if configured
-    if (this.filters.rateLimit) {
-      const rateLimitResult = await this.processThroughFilter(
-        this.filters.rateLimit,
-        processedBuffer
-      );
-      processedBuffer = rateLimitResult;
-    }
-
-    // Process through logging filter if configured
-    if (this.filters.logging) {
-      const loggingResult = await this.processThroughFilter(
-        this.filters.logging,
-        processedBuffer
-      );
-      processedBuffer = loggingResult;
-    }
-
-    // Process through metrics filter if configured
-    if (this.filters.metrics) {
-      const metricsResult = await this.processThroughFilter(
-        this.filters.metrics,
-        processedBuffer
-      );
-      processedBuffer = metricsResult;
+    for (const { name, filter } of filterChain) {
+      if (filter) {
+        try {
+          processedBuffer = await this.processThroughFilter(
+            filter,
+            processedBuffer
+          );
+        } catch (error) {
+          const shouldStop = this.config.errorHandling?.stopOnError ?? true;
+          if (shouldStop) {
+            throw new Error(`Filter '${name}' processing failed: ${error}`);
+          }
+          // Continue processing other filters if stopOnError is false
+          console.warn(`Filter '${name}' failed, continuing: ${error}`);
+        }
+      }
     }
 
     return processedBuffer;
@@ -220,5 +225,105 @@ export class FilterManager {
         null // No user data
       );
     });
+  }
+
+  /**
+   * Validate configuration
+   */
+  private validateConfig(config: FilterManagerConfig): void {
+    // Validate rate limit configuration
+    if (config.rateLimit) {
+      if (config.rateLimit.requestsPerMinute <= 0) {
+        throw new Error("Rate limit requestsPerMinute must be positive");
+      }
+      if (config.rateLimit.burstSize && config.rateLimit.burstSize <= 0) {
+        throw new Error("Rate limit burstSize must be positive");
+      }
+    }
+
+    // Validate auth configuration
+    if (config.auth) {
+      if (config.auth.method === "jwt" && !config.auth.secret) {
+        throw new Error("JWT authentication requires a secret");
+      }
+      if (config.auth.method === "api-key" && !config.auth.key) {
+        throw new Error("API key authentication requires a key");
+      }
+    }
+
+    // Validate error handling configuration
+    if (config.errorHandling) {
+      if (
+        config.errorHandling.retryAttempts &&
+        config.errorHandling.retryAttempts < 0
+      ) {
+        throw new Error("Retry attempts must be non-negative");
+      }
+    }
+  }
+
+  /**
+   * Validate JSON-RPC message
+   */
+  private validateMessage(message: JSONRPCMessage): void {
+    if (!message) {
+      throw new Error("Message cannot be null or undefined");
+    }
+
+    if (message.jsonrpc !== "2.0") {
+      throw new Error("Invalid JSON-RPC version. Must be '2.0'");
+    }
+
+    // Check if it's a request or response
+    const isRequest = message.method !== undefined;
+    const isResponse =
+      message.result !== undefined || message.error !== undefined;
+
+    if (!isRequest && !isResponse) {
+      throw new Error(
+        "Message must be either a request (with method) or response (with result/error)"
+      );
+    }
+
+    if (isRequest && isResponse) {
+      throw new Error("Message cannot be both a request and response");
+    }
+  }
+
+  /**
+   * Handle processing errors based on configuration
+   */
+  private handleProcessingError(
+    error: any,
+    originalMessage: JSONRPCMessage
+  ): JSONRPCMessage {
+    const fallbackBehavior =
+      this.config.errorHandling?.fallbackBehavior ?? "reject";
+
+    switch (fallbackBehavior) {
+      case "reject":
+        throw new Error(`Filter processing failed: ${error}`);
+
+      case "passthrough":
+        console.warn(
+          `Filter processing failed, returning original message: ${error}`
+        );
+        return originalMessage;
+
+      case "default":
+        // Return a default error response
+        return {
+          jsonrpc: "2.0",
+          id: originalMessage.id || "unknown",
+          error: {
+            code: -32603, // Internal error
+            message: "Filter processing failed",
+            data: { originalError: error.toString() },
+          },
+        };
+
+      default:
+        throw new Error(`Unknown fallback behavior: ${fallbackBehavior}`);
+    }
   }
 }

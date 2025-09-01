@@ -88,9 +88,76 @@ async function configurationDemo() {
     logging: true,
   });
 
-  console.log("✅ Created 3 different FilterManager configurations");
+  // Demo 4: Error-resilient configuration
+  const resilientManager = new FilterManager({
+    auth: {
+      method: "jwt",
+      secret: "resilient-secret",
+    },
+    rateLimit: {
+      requestsPerMinute: 200,
+      burstSize: 20,
+    },
+    logging: true,
+    metrics: true,
+    errorHandling: {
+      stopOnError: false, // Continue processing even if one filter fails
+      fallbackBehavior: "passthrough", // Return original message on error
+    },
+  });
 
-  return { securityManager, performanceManager, minimalManager };
+  console.log("✅ Created 4 different FilterManager configurations");
+
+  return {
+    securityManager,
+    performanceManager,
+    minimalManager,
+    resilientManager,
+  };
+}
+
+/**
+ * Demo: Error handling scenarios
+ */
+async function errorHandlingDemo() {
+  console.log("\n🔧 Error Handling Demo");
+
+  // Test invalid configuration
+  try {
+    new FilterManager({
+      rateLimit: {
+        requestsPerMinute: -10, // Invalid: negative value
+      },
+    });
+  } catch (error) {
+    console.log(
+      "✅ Configuration validation caught invalid rate limit:",
+      (error as Error).message
+    );
+  }
+
+  // Test invalid message
+  const resilientManager = new FilterManager({
+    errorHandling: {
+      fallbackBehavior: "default", // Return error response
+    },
+  });
+
+  try {
+    const invalidMessage = {
+      jsonrpc: "1.0", // Invalid version
+      method: "test",
+    } as any;
+
+    await resilientManager.process(invalidMessage);
+  } catch (error) {
+    console.log(
+      "✅ Message validation caught invalid JSON-RPC version:",
+      (error as Error).message
+    );
+  }
+
+  console.log("✅ Error handling demos completed");
 }
 
 /**
@@ -102,6 +169,7 @@ async function main() {
   try {
     await basicFilterManagerDemo();
     await configurationDemo();
+    await errorHandlingDemo();
 
     console.log("\n🎉 All demos completed successfully!");
   } catch (error) {
@@ -115,4 +183,4 @@ if (require.main === module) {
   main().catch(console.error);
 }
 
-export { basicFilterManagerDemo, configurationDemo };
+export { basicFilterManagerDemo, configurationDemo, errorHandlingDemo };
