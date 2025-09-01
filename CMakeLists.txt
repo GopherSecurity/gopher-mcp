@@ -246,29 +246,37 @@ if(MCP_USE_NGHTTP2)
         FetchContent_MakeAvailable(nghttp2)
         message(STATUS "nghttp2 download and configuration complete.")
         
-        set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
         set(NGHTTP2_FOUND TRUE)
         set(NGHTTP2_INCLUDE_DIRS 
             ${nghttp2_SOURCE_DIR}/lib/includes 
-            ${nghttp2_BINARY_DIR}/lib/includes PARENT_SCOPE)
-        set(NGHTTP2_INCLUDE_DIRS 
-            ${nghttp2_SOURCE_DIR}/lib/includes 
             ${nghttp2_BINARY_DIR}/lib/includes)
-        set(NGHTTP2_LIBRARIES nghttp2_static PARENT_SCOPE)
         set(NGHTTP2_LIBRARIES nghttp2_static)
+        
+        # Propagate to parent scope only when used as submodule
+        if(GOPHER_MCP_IS_SUBMODULE)
+            set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
+            set(NGHTTP2_INCLUDE_DIRS 
+                ${nghttp2_SOURCE_DIR}/lib/includes 
+                ${nghttp2_BINARY_DIR}/lib/includes PARENT_SCOPE)
+            set(NGHTTP2_LIBRARIES nghttp2_static PARENT_SCOPE)
+        endif()
         
         message(STATUS "nghttp2 successfully configured for build from source")
     else()
         message(STATUS "Found system nghttp2")
-        # Propagate to parent scope when using system nghttp2
-        set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
-        set(NGHTTP2_INCLUDE_DIRS ${NGHTTP2_INCLUDE_DIRS} PARENT_SCOPE)
-        set(NGHTTP2_LIBRARIES ${NGHTTP2_LIBRARIES} PARENT_SCOPE)
-        set(NGHTTP2_LIBRARY_DIRS ${NGHTTP2_LIBRARY_DIRS} PARENT_SCOPE)
+        # Propagate to parent scope only when used as submodule
+        if(GOPHER_MCP_IS_SUBMODULE)
+            set(NGHTTP2_FOUND TRUE PARENT_SCOPE)
+            set(NGHTTP2_INCLUDE_DIRS ${NGHTTP2_INCLUDE_DIRS} PARENT_SCOPE)
+            set(NGHTTP2_LIBRARIES ${NGHTTP2_LIBRARIES} PARENT_SCOPE)
+            set(NGHTTP2_LIBRARY_DIRS ${NGHTTP2_LIBRARY_DIRS} PARENT_SCOPE)
+        endif()
     endif()
 else()
-    set(NGHTTP2_FOUND FALSE PARENT_SCOPE)
     set(NGHTTP2_FOUND FALSE)
+    if(GOPHER_MCP_IS_SUBMODULE)
+        set(NGHTTP2_FOUND FALSE PARENT_SCOPE)
+    endif()
     message(STATUS "nghttp2 support disabled")
 endif()
 
