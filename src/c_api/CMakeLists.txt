@@ -100,19 +100,21 @@ else()
         )
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         # macOS uses different linker flags
-        set_target_properties(gopher_mcp_c PROPERTIES
-            LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols"
-        )
         # Generate comprehensive symbols list for macOS
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "# Export all MCP API symbols\n")
         file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "mcp_*\n")
         file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "_mcp_*\n")
         file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols" "MCP_*\n")
         
+        # Set proper linker flags for macOS
+        set_target_properties(gopher_mcp_c PROPERTIES
+            LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols"
+        )
+        
         # Alternative approach: Use flat namespace and export all symbols for debugging
         if(CMAKE_BUILD_TYPE STREQUAL "Debug")
             set_target_properties(gopher_mcp_c PROPERTIES
-                LINK_FLAGS "${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols -Wl,-flat_namespace"
+                LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/gopher_mcp_c.symbols -Wl,-flat_namespace"
             )
         endif()
         

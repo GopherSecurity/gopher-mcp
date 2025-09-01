@@ -1,669 +1,311 @@
 /**
  * @file filter-chain.test.ts
- * @brief Comprehensive unit tests for FilterChain class matching C++ test coverage
+ * @brief Tests for MCP Filter Chain API wrapper
  *
- * Tests cover:
- * - Basic chain creation and configuration
- * - Filter management operations
- * - Chain state management
- * - Data processing through filters
- * - Performance and stress testing
- * - Thread safety and concurrent operations
- * - Error handling and recovery
- * - Memory management and optimization
- * - Protocol metadata handling
- * - Integration scenarios
+ * This test file covers the advanced filter chain functionality including:
+ * - Chain execution modes
+ * - Routing strategies
+ * - Conditional execution
+ * - Parallel processing
+ * - Chain optimization
  */
 
 import {
-  ChainConfig,
+  addConditionalFilter,
+  addFilterNodeToChain,
+  addParallelFilterGroup,
   ChainExecutionMode,
   ChainState,
-  FilterChain,
-  FilterPosition,
+  createChainBuilderEx,
+  createConditionalChain,
+  createParallelChain,
+  createSimpleChain,
+  getChainState,
+  MatchCondition,
+  pauseChain,
+  resetChain,
+  resumeChain,
   RoutingStrategy,
-} from "../chains/filter-chain";
-import {
-  HttpFilter,
-  HttpFilterConfig,
-  HttpFilterType,
-} from "../protocols/http-filter";
-import {
-  TcpFilterType,
-  TcpProxyConfig,
-  TcpProxyFilter,
-} from "../protocols/tcp-proxy-filter";
+} from "../filter-chain";
 
-describe("FilterChain", () => {
-  let chain: FilterChain;
-  let config: ChainConfig;
+// Mock the FFI library
+jest.mock("../ffi-bindings", () => ({
+  mcpFilterLib: {
+    mcp_chain_builder_create_ex: jest.fn(),
+    mcp_chain_builder_add_node: jest.fn(),
+    mcp_chain_builder_add_conditional: jest.fn(),
+    mcp_chain_builder_add_parallel_group: jest.fn(),
+    mcp_chain_get_state: jest.fn(),
+    mcp_chain_pause: jest.fn(),
+    mcp_chain_resume: jest.fn(),
+    mcp_chain_reset: jest.fn(),
+    mcp_filter_chain_build: jest.fn(),
+    mcp_filter_chain_builder_destroy: jest.fn(),
+  },
+}));
 
+import { mcpFilterLib } from "../ffi-bindings";
+
+describe("Filter Chain API", () => {
   beforeEach(() => {
-    config = {
-      name: "test-chain",
-      mode: ChainExecutionMode.SEQUENTIAL,
-      routing: RoutingStrategy.ROUND_ROBIN,
-      maxParallel: 4,
-      bufferSize: 1024,
-      timeoutMs: 5000,
-      stopOnError: false,
-    };
-
-    chain = new FilterChain(config);
+    jest.clearAllMocks();
   });
 
-  afterEach(() => {
-    if (chain) {
-      chain.destroy();
-    }
-  });
-
-  // ============================================================================
-  // Basic Chain Creation Tests
-  // ============================================================================
-
-  describe("constructor and basic operations", () => {
-    it("should create filter chain with configuration", () => {
-      expect(chain.name).toBe("test-chain");
-      expect(chain.getFilterCount()).toBe(0);
-      expect(chain.isEmpty()).toBe(true);
-      expect(chain.getState()).toBe(ChainState.IDLE);
-    });
-
-    it("should create chain with initial filters", () => {
-      const httpFilterConfig: HttpFilterConfig = {
-        name: "http-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-
-      const tcpFilterConfig: TcpProxyConfig = {
-        name: "tcp-filter",
-        type: TcpFilterType.TCP_PROXY,
-        settings: {
-          upstreamHost: "localhost",
-          upstreamPort: 9000,
-          localPort: 8000,
-        },
-        layer: 4,
-        memoryPool: null,
-      };
-
-      const httpFilter = new HttpFilter(httpFilterConfig);
-      const tcpFilter = new TcpProxyFilter(tcpFilterConfig);
-
-      const chainWithFilters = new FilterChain(config, [httpFilter, tcpFilter]);
-
-      expect(chainWithFilters.getFilterCount()).toBe(2);
-      expect(chainWithFilters.isEmpty()).toBe(false);
-
-      chainWithFilters.destroy();
-    });
-
-    it("should get chain statistics", () => {
-      const stats = chain.getStats();
-      expect(stats.totalProcessed).toBe(0);
-      expect(stats.totalErrors).toBe(0);
-      expect(stats.totalBypassed).toBe(0);
-      expect(stats.avgLatencyMs).toBe(0);
-      expect(stats.maxLatencyMs).toBe(0);
-      expect(stats.throughputMbps).toBe(0);
-      expect(stats.activeFilters).toBe(0);
-    });
-  });
-
-  // ============================================================================
-  // Filter Management Tests
-  // ============================================================================
-
-  describe("filter management", () => {
-    it("should add filter to chain", () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      expect(chain.getFilterCount()).toBe(1);
-      expect(chain.getFilter("test-filter")).toBeDefined();
-      expect(chain.getStats().activeFilters).toBe(1);
-    });
-
-    it("should add filter at specific position", () => {
-      const filter1Config: HttpFilterConfig = {
-        name: "filter1",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-
-      const filter2Config: TcpProxyConfig = {
-        name: "filter2",
-        type: TcpFilterType.TCP_PROXY,
-        settings: {
-          upstreamHost: "localhost",
-          upstreamPort: 9000,
-          localPort: 8000,
-        },
-        layer: 4,
-        memoryPool: null,
-      };
-
-      const filter1 = new HttpFilter(filter1Config);
-      const filter2 = new TcpProxyFilter(filter2Config);
-
-      // Add first filter
-      chain.addFilter({
-        filter: filter1,
-        name: "filter1",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      // Add second filter at the beginning
-      chain.addFilterAtPosition(
-        {
-          filter: filter2,
-          name: "filter2",
-          priority: 0,
-          enabled: true,
-          bypassOnError: false,
-          config: {},
-        },
-        FilterPosition.FIRST
+  describe("Chain Builder", () => {
+    it("should create chain builder with configuration", () => {
+      const mockBuilder = { id: "builder-1" };
+      (mcpFilterLib.mcp_chain_builder_create_ex as jest.Mock).mockReturnValue(
+        mockBuilder
       );
 
-      const filters = chain.getFilters();
-      expect(filters.length).toBe(2);
-      expect(filters[0]?.name).toBe("filter2");
-      expect(filters[1]?.name).toBe("filter1");
+      const config = {
+        name: "test-chain",
+        mode: ChainExecutionMode.SEQUENTIAL,
+        routing: RoutingStrategy.ROUND_ROBIN,
+        maxParallel: 4,
+        bufferSize: 8192,
+        timeoutMs: 5000,
+        stopOnError: false,
+      };
+
+      const result = createChainBuilderEx(0, config);
+
+      expect(result).toBe(mockBuilder);
+      expect(mcpFilterLib.mcp_chain_builder_create_ex).toHaveBeenCalledWith(
+        0,
+        config
+      );
     });
 
-    it("should remove filter from chain", () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
+    it("should add filter node to chain", () => {
+      const builder = { id: "builder-1" };
+      const node = {
+        filter: 12345,
         name: "test-filter",
         priority: 1,
         enabled: true,
         bypassOnError: false,
-        config: {},
-      });
-
-      expect(chain.getFilterCount()).toBe(1);
-
-      const removed = chain.removeFilter("test-filter");
-      expect(removed).toBe(true);
-      expect(chain.getFilterCount()).toBe(0);
-      expect(chain.isEmpty()).toBe(true);
-      expect(chain.getStats().activeFilters).toBe(0);
-    });
-
-    it("should return false when removing non-existent filter", () => {
-      const removed = chain.removeFilter("non-existent");
-      expect(removed).toBe(false);
-    });
-
-    it("should enable/disable filter", () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
+        config: null,
       };
-      const filter = new HttpFilter(filterConfig);
 
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
+      (mcpFilterLib.mcp_chain_builder_add_node as jest.Mock).mockReturnValue(0);
 
-      const filterNode = chain.getFilter("test-filter");
-      expect(filterNode?.enabled).toBe(true);
+      const result = addFilterNodeToChain(builder, node);
 
-      chain.setFilterEnabled("test-filter", false);
-      expect(filterNode?.enabled).toBe(false);
-
-      chain.setFilterEnabled("test-filter", true);
-      expect(filterNode?.enabled).toBe(true);
+      expect(result).toBe(0);
+      expect(mcpFilterLib.mcp_chain_builder_add_node).toHaveBeenCalledWith(
+        builder,
+        node
+      );
     });
 
-    it("should return false when enabling/disabling non-existent filter", () => {
-      const result = chain.setFilterEnabled("non-existent", false);
-      expect(result).toBe(false);
+    it("should add conditional filter", () => {
+      const builder = { id: "builder-1" };
+      const condition = {
+        matchType: MatchCondition.ALL,
+        field: "method",
+        value: "GET",
+        targetFilter: 12345,
+      };
+
+      (
+        mcpFilterLib.mcp_chain_builder_add_conditional as jest.Mock
+      ).mockReturnValue(0);
+
+      const result = addConditionalFilter(builder, condition, 12345);
+
+      expect(result).toBe(0);
+      expect(
+        mcpFilterLib.mcp_chain_builder_add_conditional
+      ).toHaveBeenCalledWith(builder, condition, 12345);
+    });
+
+    it("should add parallel filter group", () => {
+      const builder = { id: "builder-1" };
+      const filters = [12345, 67890];
+
+      (
+        mcpFilterLib.mcp_chain_builder_add_parallel_group as jest.Mock
+      ).mockReturnValue(0);
+
+      const result = addParallelFilterGroup(builder, filters, filters.length);
+
+      expect(result).toBe(0);
+      expect(
+        mcpFilterLib.mcp_chain_builder_add_parallel_group
+      ).toHaveBeenCalledWith(builder, filters, filters.length);
     });
   });
 
-  // ============================================================================
-  // Chain State Management Tests
-  // ============================================================================
+  describe("Chain Management", () => {
+    it("should get chain state", () => {
+      const chainHandle = 12345;
+      const mockState = ChainState.PROCESSING;
 
-  describe("chain state management", () => {
-    it("should get current chain state", () => {
-      expect(chain.getState()).toBe(ChainState.IDLE);
+      (mcpFilterLib.mcp_chain_get_state as jest.Mock).mockReturnValue(
+        mockState
+      );
+
+      const result = getChainState(chainHandle);
+
+      expect(result).toBe(mockState);
+      expect(mcpFilterLib.mcp_chain_get_state).toHaveBeenCalledWith(
+        chainHandle
+      );
     });
 
     it("should pause chain execution", () => {
-      chain.pause();
-      expect(chain.getState()).toBe(ChainState.PAUSED);
+      const chainHandle = 12345;
+
+      (mcpFilterLib.mcp_chain_pause as jest.Mock).mockReturnValue(0);
+
+      const result = pauseChain(chainHandle);
+
+      expect(result).toBe(0);
+      expect(mcpFilterLib.mcp_chain_pause).toHaveBeenCalledWith(chainHandle);
     });
 
     it("should resume chain execution", () => {
-      chain.pause();
-      chain.resume();
-      expect(chain.getState()).toBe(ChainState.IDLE);
+      const chainHandle = 12345;
+
+      (mcpFilterLib.mcp_chain_resume as jest.Mock).mockReturnValue(0);
+
+      const result = resumeChain(chainHandle);
+
+      expect(result).toBe(0);
+      expect(mcpFilterLib.mcp_chain_resume).toHaveBeenCalledWith(chainHandle);
     });
 
     it("should reset chain to initial state", () => {
-      // Add a filter and process some data to change state
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
+      const chainHandle = 12345;
 
-      chain.reset();
-      expect(chain.getState()).toBe(ChainState.IDLE);
-      expect(chain.getStats().totalProcessed).toBe(0);
-      expect(chain.getStats().totalErrors).toBe(0);
+      (mcpFilterLib.mcp_chain_reset as jest.Mock).mockReturnValue(0);
+
+      const result = resetChain(chainHandle);
+
+      expect(result).toBe(0);
+      expect(mcpFilterLib.mcp_chain_reset).toHaveBeenCalledWith(chainHandle);
     });
   });
 
-  // ============================================================================
-  // Data Processing Tests
-  // ============================================================================
+  describe("Utility Functions", () => {
+    it("should create simple sequential chain", () => {
+      const mockBuilder = { id: "builder-1" };
+      const mockChain = 99999;
 
-  describe("data processing", () => {
-    it("should process data through enabled filters", async () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      const testData = Buffer.from("GET / HTTP/1.1\r\n\r\n");
-      const result = await chain.processData(testData);
-
-      expect(result).toBeDefined();
-      expect(chain.getStats().totalProcessed).toBe(1);
-      expect(chain.getState()).toBe(ChainState.COMPLETED);
-    });
-
-    it("should skip disabled filters", async () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: false, // Disabled
-        bypassOnError: false,
-        config: {},
-      });
-
-      const testData = Buffer.from("test data");
-      const result = await chain.processData(testData);
-
-      expect(result).toEqual(testData); // Should return original data
-      expect(chain.getStats().totalProcessed).toBe(1);
-    });
-
-    it("should handle filter errors with bypass", async () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: true, // Bypass on error
-        config: {},
-      });
-
-      // Mock the filter to throw an error
-      jest
-        .spyOn(filter, "processData")
-        .mockRejectedValue(new Error("Filter error"));
-
-      const testData = Buffer.from("test data");
-      const result = await chain.processData(testData);
-
-      expect(result).toBeDefined();
-      expect(chain.getStats().totalProcessed).toBe(1);
-      expect(chain.getState()).toBe(ChainState.COMPLETED); // Not ERROR due to bypass
-    });
-  });
-
-  // Note: Advanced chain operations tests removed to match .cc test scope
-  // The C++ tests focus on infrastructure (dispatcher, buffers, transactions)
-  // not complex filter chain logic scenarios
-
-  // Note: Performance tests removed to match .cc test scope
-  // The C++ tests focus on basic functionality, not performance stress testing
-
-  // ============================================================================
-  // Thread Safety Tests
-  // ============================================================================
-
-  describe("thread safety", () => {
-    it("should handle concurrent filter additions", async () => {
-      const chain = new FilterChain({
-        name: "concurrent_test",
-        mode: ChainExecutionMode.SEQUENTIAL,
-        routing: RoutingStrategy.ROUND_ROBIN,
-        maxParallel: 4,
-        bufferSize: 1024,
-        timeoutMs: 5000,
-        stopOnError: false,
-      });
-
-      const promises = [];
-      const filterCount = 10;
-
-      // Add filters concurrently
-      for (let i = 0; i < filterCount; i++) {
-        promises.push(
-          new Promise<void>((resolve) => {
-            const filter = {
-              name: `filter_${i}`,
-              processData: jest
-                .fn()
-                .mockImplementation((data: any) => ({ ...data, filterId: i })),
-              filterHandle: i,
-            };
-
-            chain.addFilter({
-              filter,
-              name: `filter_${i}`,
-              priority: i,
-              enabled: true,
-              bypassOnError: false,
-              config: {},
-            });
-            resolve();
-          })
-        );
-      }
-
-      await Promise.all(promises);
-
-      expect(chain.getFilterCount()).toBe(filterCount);
-      expect(chain.getStats().activeFilters).toBe(filterCount);
-
-      chain.destroy();
-    });
-  });
-
-  // ============================================================================
-  // Protocol Metadata Tests
-  // ============================================================================
-
-  describe("protocol metadata handling", () => {
-    it("should process HTTP protocol data", async () => {
-      const chain = new FilterChain({
-        name: "http_protocol_test",
-        mode: ChainExecutionMode.SEQUENTIAL,
-        routing: RoutingStrategy.ROUND_ROBIN,
-        maxParallel: 4,
-        bufferSize: 1024,
-        timeoutMs: 5000,
-        stopOnError: false,
-      });
-
-      const httpFilter = {
-        name: "http_filter",
-        processData: jest.fn().mockImplementation((data: any) => {
-          if (data.protocol === "HTTP") {
-            return {
-              ...data,
-              processed: true,
-              headers: { ...data.headers, "X-Processed": "true" },
-            };
-          }
-          return data;
-        }),
-        filterHandle: 1,
-      };
-
-      chain.addFilter({
-        filter: httpFilter,
-        name: "http_filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      const httpData = Buffer.from(
-        JSON.stringify({
-          protocol: "HTTP",
-          method: "GET",
-          path: "/api/test",
-          headers: { "Content-Type": "application/json" },
-        })
+      (mcpFilterLib.mcp_chain_builder_create_ex as jest.Mock).mockReturnValue(
+        mockBuilder
+      );
+      (mcpFilterLib.mcp_chain_builder_add_node as jest.Mock).mockReturnValue(0);
+      (mcpFilterLib.mcp_filter_chain_build as jest.Mock).mockReturnValue(
+        mockChain
       );
 
-      const result = await chain.processData(httpData);
+      const filters = [12345, 67890];
+      const result = createSimpleChain(0, filters, "test-chain");
 
-      expect(result).toBeDefined();
-
-      chain.destroy();
-    });
-  });
-
-  // Note: Complex error handling tests removed to match .cc test scope
-  // The C++ tests focus on basic error handling, not complex validation scenarios
-
-  // Note: Complex integration tests removed to match .cc test scope
-  // The C++ tests focus on basic functionality, not complex HTTP pipeline scenarios
-
-  // ============================================================================
-  // Chain Cleanup Tests
-  // ============================================================================
-
-  describe("chain cleanup", () => {
-    it("should destroy chain resources", () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "test-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "test-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      expect(chain.getFilterCount()).toBe(1);
-
-      chain.destroy();
-
-      // After destroy, the chain should be in ERROR state
-      expect(chain.getState()).toBe(ChainState.ERROR);
+      expect(result).toBe(mockChain);
+      expect(mcpFilterLib.mcp_filter_chain_build).toHaveBeenCalledWith(
+        mockBuilder
+      );
+      expect(
+        mcpFilterLib.mcp_filter_chain_builder_destroy
+      ).toHaveBeenCalledWith(mockBuilder);
     });
 
-    it("should clear all filters", () => {
-      const filter1Config: HttpFilterConfig = {
-        name: "filter1",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter2Config: TcpProxyConfig = {
-        name: "filter2",
-        type: TcpFilterType.TCP_PROXY,
-        settings: {
-          upstreamHost: "localhost",
-          upstreamPort: 9000,
-          localPort: 8000,
+    it("should create parallel processing chain", () => {
+      const mockBuilder = { id: "builder-1" };
+      const mockChain = 99999;
+
+      (mcpFilterLib.mcp_chain_builder_create_ex as jest.Mock).mockReturnValue(
+        mockBuilder
+      );
+      (
+        mcpFilterLib.mcp_chain_builder_add_parallel_group as jest.Mock
+      ).mockReturnValue(0);
+      (mcpFilterLib.mcp_filter_chain_build as jest.Mock).mockReturnValue(
+        mockChain
+      );
+
+      const filters = [12345, 67890];
+      const result = createParallelChain(0, filters, 2, "parallel-chain");
+
+      expect(result).toBe(mockChain);
+      expect(mcpFilterLib.mcp_filter_chain_build).toHaveBeenCalledWith(
+        mockBuilder
+      );
+      expect(
+        mcpFilterLib.mcp_filter_chain_builder_destroy
+      ).toHaveBeenCalledWith(mockBuilder);
+    });
+
+    it("should create conditional chain with routing", () => {
+      const mockBuilder = { id: "builder-1" };
+      const mockChain = 99999;
+
+      (mcpFilterLib.mcp_chain_builder_create_ex as jest.Mock).mockReturnValue(
+        mockBuilder
+      );
+      (
+        mcpFilterLib.mcp_chain_builder_add_conditional as jest.Mock
+      ).mockReturnValue(0);
+      (mcpFilterLib.mcp_filter_chain_build as jest.Mock).mockReturnValue(
+        mockChain
+      );
+
+      const conditions = [
+        {
+          condition: {
+            matchType: MatchCondition.ALL,
+            field: "method",
+            value: "GET",
+            targetFilter: 12345,
+          },
+          chain: 12345,
         },
-        layer: 4,
-        memoryPool: null,
-      };
+      ];
 
-      const filter1 = new HttpFilter(filter1Config);
-      const filter2 = new TcpProxyFilter(filter2Config);
+      const result = createConditionalChain(0, conditions, "conditional-chain");
 
-      chain.addFilter({
-        filter: filter1,
-        name: "filter1",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      chain.addFilter({
-        filter: filter2,
-        name: "filter2",
-        priority: 2,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      expect(chain.getFilterCount()).toBe(2);
-
-      chain.clear();
-
-      expect(chain.getFilterCount()).toBe(0);
-      expect(chain.isEmpty()).toBe(true);
-      expect(chain.getStats().activeFilters).toBe(0);
+      expect(result).toBe(mockChain);
+      expect(mcpFilterLib.mcp_filter_chain_build).toHaveBeenCalledWith(
+        mockBuilder
+      );
+      expect(
+        mcpFilterLib.mcp_filter_chain_builder_destroy
+      ).toHaveBeenCalledWith(mockBuilder);
     });
   });
 
-  // ============================================================================
-  // Edge Cases Tests
-  // ============================================================================
-
-  describe("edge cases", () => {
-    it("should handle empty chain", () => {
-      expect(chain.isEmpty()).toBe(true);
-      expect(chain.getFilterCount()).toBe(0);
+  describe("Enums and Constants", () => {
+    it("should have correct chain execution modes", () => {
+      expect(ChainExecutionMode.SEQUENTIAL).toBe(0);
+      expect(ChainExecutionMode.PARALLEL).toBe(1);
+      expect(ChainExecutionMode.CONDITIONAL).toBe(2);
+      expect(ChainExecutionMode.PIPELINE).toBe(3);
     });
 
-    it("should handle chain with single filter", () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "single-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
-
-      chain.addFilter({
-        filter,
-        name: "single-filter",
-        priority: 1,
-        enabled: true,
-        bypassOnError: false,
-        config: {},
-      });
-
-      expect(chain.getFilterCount()).toBe(1);
-      expect(chain.isEmpty()).toBe(false);
+    it("should have correct routing strategies", () => {
+      expect(RoutingStrategy.ROUND_ROBIN).toBe(0);
+      expect(RoutingStrategy.LEAST_LOADED).toBe(1);
+      expect(RoutingStrategy.HASH_BASED).toBe(2);
+      expect(RoutingStrategy.PRIORITY).toBe(3);
+      expect(RoutingStrategy.CUSTOM).toBe(99);
     });
 
-    it("should handle chain with disabled filters", async () => {
-      const filterConfig: HttpFilterConfig = {
-        name: "disabled-filter",
-        type: HttpFilterType.HTTP_CODEC,
-        settings: { port: 8080, host: "localhost" },
-        layer: 7,
-        memoryPool: null,
-      };
-      const filter = new HttpFilter(filterConfig);
+    it("should have correct match conditions", () => {
+      expect(MatchCondition.ALL).toBe(0);
+      expect(MatchCondition.ANY).toBe(1);
+      expect(MatchCondition.NONE).toBe(2);
+      expect(MatchCondition.CUSTOM).toBe(99);
+    });
 
-      chain.addFilter({
-        filter,
-        name: "disabled-filter",
-        priority: 1,
-        enabled: false, // Disabled
-        bypassOnError: false,
-        config: {},
-      });
-
-      const testData = Buffer.from("test data");
-      const result = await chain.processData(testData);
-
-      expect(result).toEqual(testData); // Should return original data unchanged
-      expect(chain.getStats().totalProcessed).toBe(1);
+    it("should have correct chain states", () => {
+      expect(ChainState.IDLE).toBe(0);
+      expect(ChainState.PROCESSING).toBe(1);
+      expect(ChainState.PAUSED).toBe(2);
+      expect(ChainState.ERROR).toBe(3);
+      expect(ChainState.COMPLETED).toBe(4);
     });
   });
 });

@@ -1,373 +1,271 @@
-# MCP Filter SDK for TypeScript
+# MCP Filter SDK
 
-A high-performance TypeScript SDK for the Model Context Protocol (MCP) Filter Architecture, providing direct access to the Gopher MCP C++ codebase through FFI.
+A TypeScript SDK for the MCP (Model Context Protocol) Filter C API, providing advanced filter infrastructure, buffer management, and filter chain composition capabilities.
 
-## 🎉 **Status: FULLY WORKING!**
+## 🎯 **Architecture Overview**
 
-✅ **108 C API functions** successfully bound  
-✅ **Shared libraries** loading correctly  
-✅ **Production-ready** implementation  
-✅ **Native performance** with clean TypeScript code
+This SDK is designed as a **filter library only** - it provides the infrastructure for creating, managing, and composing filters that can be integrated into custom MCP transport layers. The SDK does **NOT** provide transport layer functionality; instead, it focuses on:
 
-## Features
+- **Filter Lifecycle Management**: Create, configure, and manage filters
+- **Filter Chain Composition**: Build complex processing pipelines
+- **Advanced Buffer Operations**: Zero-copy operations and memory management
+- **Integration Ready**: Easy to plug into existing MCP implementations
 
-- **Complete C API Integration**: Access to all 108 MCP filter functions
-- **Native Performance**: Direct FFI calls to C++ codebase
-- **Zero Overhead**: No wrapper layers or abstractions
-- **Cross-Platform**: macOS, Linux, and Windows support
-- **Type Safety**: Full TypeScript support with proper types
-- **Production Ready**: Robust error handling and debugging
+## 🏗️ **Core Components**
 
-## Quick Start
+### **1. Filter API (`filter-api.ts`)**
 
-### Prerequisites
+Wrapper for `mcp_c_filter_api.h` providing:
 
-1. **Install System Libraries**:
+- Filter creation and lifecycle management
+- Built-in filter types (HTTP, TCP, Security, Observability)
+- Filter chain building and management
+- Basic buffer operations
+- **Uses existing C++ RAII system** - no duplicate resource management
 
-   ```bash
-   cd /path/to/gopher-mcp
-   make install
-   ```
+### **2. Filter Chain (`filter-chain.ts`)**
 
-2. **Fix Rpath Dependencies** (macOS):
+Wrapper for `mcp_c_filter_chain.h` providing:
 
-   ```bash
-   sudo install_name_tool -add_rpath /usr/local/lib /usr/local/lib/libgopher_mcp_c.0.1.0.dylib
-   ```
+- Advanced chain composition (sequential, parallel, conditional)
+- Dynamic routing and load balancing
+- Chain optimization and performance monitoring
+- Event-driven chain management
 
-3. **Install TypeScript SDK**:
-   ```bash
-   cd sdk/typescript
-   npm install
-   npm run build
-   ```
+### **3. Filter Buffer (`filter-buffer.ts`)**
 
-### Basic Usage
+Wrapper for `mcp_c_filter_buffer.h` providing:
 
-```typescript
-import { McpFilterSdk } from "@mcp/filter-sdk";
+- Zero-copy buffer operations
+- Scatter-gather I/O support
+- Advanced memory pooling
+- Type-safe integer I/O operations
 
-// Initialize the SDK
-const sdk = new McpFilterSdk({
-  name: "my-filter",
-  version: "1.0.0",
-});
+## 📁 **File Structure**
 
-// Create a filter using the C API
-const filter = await sdk.createFilter({
-  name: "http-filter",
-  type: "http",
-  settings: {
-    port: 8080,
-    host: "localhost",
-  },
-});
+```
+src/
+├── filter-api.ts          # Core filter infrastructure
+├── filter-chain.ts        # Advanced chain management
+├── filter-buffer.ts       # Buffer operations and memory management
+├── ffi-bindings.ts        # FFI bindings to C++ shared library
+├── types/                 # TypeScript type definitions
+└── __tests__/            # Comprehensive test suite
+    ├── filter-api.test.ts
+    ├── filter-chain.test.ts
+    └── filter-buffer.test.ts
 
-// Process data
-const result = await filter.processData(Buffer.from("HTTP request data"));
-console.log("Processed data:", result);
+examples/
+└── basic-usage.ts        # Usage examples and patterns
 ```
 
-### Advanced Filter Chain
+## 🚀 **Quick Start**
 
-```typescript
-import { McpFilterSdk, FilterChain } from "@mcp/filter-sdk";
+### **Installation**
 
-const sdk = new McpFilterSdk();
-
-// Create a filter chain using C API functions
-const chain = new FilterChain([
-  await sdk.createFilter({ name: "rate-limiter", type: "rate-limit" }),
-  await sdk.createFilter({ name: "http-parser", type: "http-codec" }),
-  await sdk.createFilter({ name: "auth-filter", type: "authentication" }),
-]);
-
-// Process data through the chain
-const processed = await chain.process(Buffer.from("HTTP request"));
+```bash
+npm install @mcp/filter-sdk
 ```
 
-## API Reference
-
-### Core Classes
-
-#### `McpFilterSdk`
-
-The main SDK class that provides access to all MCP filter functionality.
+### **Basic Usage**
 
 ```typescript
-class McpFilterSdk {
-  constructor(config: McpSdkConfig);
+import {
+  createBuiltinFilter,
+  createSimpleChain,
+  BuiltinFilterType,
+  createBufferFromString,
+} from "@mcp/filter-sdk";
 
-  // Filter management
-  createFilter(config: FilterConfig): Promise<Filter>;
-  destroyFilter(filter: Filter): Promise<void>;
+// Create a simple HTTP processing pipeline
+const authFilter = createBuiltinFilter(0, BuiltinFilterType.AUTHENTICATION, {});
+const rateLimitFilter = createBuiltinFilter(
+  0,
+  BuiltinFilterType.RATE_LIMIT,
+  {}
+);
+const accessLogFilter = createBuiltinFilter(
+  0,
+  BuiltinFilterType.ACCESS_LOG,
+  {}
+);
 
-  // Memory management
-  createMemoryPool(size: number): Promise<MemoryPool>;
-  destroyMemoryPool(pool: MemoryPool): Promise<void>;
+// Build the filter chain
+const chain = createSimpleChain(
+  0,
+  [authFilter, rateLimitFilter, accessLogFilter],
+  "http-pipeline"
+);
 
-  // Event handling
-  on(event: string, handler: Function): void;
-  off(event: string, handler: Function): void;
-}
+// Create and manage buffers
+const buffer = createBufferFromString("Hello, MCP!", BufferOwnership.SHARED);
 ```
 
-#### `Filter`
-
-Represents an individual filter in the processing chain.
+### **Advanced Chain Composition**
 
 ```typescript
-interface Filter {
-  name: string;
-  type: string;
+import { createParallelChain, ChainExecutionMode } from "@mcp/filter-sdk";
 
-  // Data processing
-  processData(data: Buffer): Promise<Buffer>;
+// Create parallel processing pipeline
+const filters = [
+  createBuiltinFilter(0, BuiltinFilterType.METRICS, {}),
+  createBuiltinFilter(0, BuiltinFilterType.TRACING, {}),
+  createBuiltinFilter(0, BuiltinFilterType.ACCESS_LOG, {}),
+];
 
-  // Configuration
-  updateSettings(settings: any): Promise<void>;
-
-  // Statistics
-  getStats(): FilterStats;
-}
+const parallelChain = createParallelChain(0, filters, 2, "parallel-pipeline");
 ```
 
-### Configuration
+## 🔧 **Integration with MCP Transport Layers**
 
-#### `McpSdkConfig`
-
-```typescript
-interface McpSdkConfig {
-  name: string; // SDK instance name
-  version: string; // SDK version
-  logLevel?: "debug" | "info" | "warn" | "error";
-  maxMemoryPoolSize?: number;
-  enableMetrics?: boolean;
-}
-```
-
-#### `FilterConfig`
+### **For MCP Server Developers**
 
 ```typescript
-interface FilterConfig {
-  name: string; // Filter name
-  type: string; // Filter type
-  settings?: any; // Filter-specific settings
-  layer?: number; // Processing layer
-  memoryPool?: MemoryPool; // Associated memory pool
-}
-```
+// In your MCP server implementation
+import { createFilterManager, addFilterToManager } from "@mcp/filter-sdk";
 
-## Available C API Functions
+class McpServer {
+  private filterManager: number;
 
-The SDK provides access to **all 108 functions** from the MCP C API:
+  constructor() {
+    // Create filter manager for this connection
+    this.filterManager = createFilterManager(connection, dispatcher);
 
-### Filter Management
+    // Add security filters
+    const authFilter = createBuiltinFilter(
+      dispatcher,
+      BuiltinFilterType.AUTHENTICATION,
+      {}
+    );
+    addFilterToManager(this.filterManager, authFilter);
 
-- `mcp_filter_create` - Create new filters
-- `mcp_filter_create_builtin` - Create built-in filters
-- `mcp_filter_retain` / `mcp_filter_release` - Reference counting
+    // Initialize the filter pipeline
+    initializeFilterManager(this.filterManager);
+  }
 
-### Filter Chains
-
-- `mcp_filter_chain_builder_create` - Build filter chains
-- `mcp_filter_chain_add_filter` - Add filters to chains
-- `mcp_filter_chain_build` - Finalize chain construction
-
-### Buffer Operations
-
-- `mcp_buffer_create_owned` - Create owned buffers
-- `mcp_buffer_add` - Add data to buffers
-- `mcp_buffer_length` - Get buffer information
-
-### Memory Management
-
-- `mcp_memory_pool_create` - Create memory pools
-- `mcp_memory_pool_alloc` - Allocate memory
-- `mcp_memory_pool_destroy` - Clean up pools
-
-### JSON Utilities
-
-- `mcp_json_create_object` - Create JSON objects
-- `mcp_json_stringify` - Serialize JSON
-- `mcp_json_free` - Free JSON resources
-
-### Core MCP
-
-- `mcp_init` / `mcp_shutdown` - Initialize/cleanup
-- `mcp_get_version` - Get version information
-- `mcp_get_last_error` - Error handling
-
-## Error Handling
-
-The SDK provides comprehensive error handling:
-
-```typescript
-try {
-  const filter = await sdk.createFilter(config);
-} catch (error) {
-  if (error.code === "MCP_FILTER_CREATE_FAILED") {
-    console.error("Failed to create filter:", error.message);
-  } else if (error.code === "MCP_LIBRARY_NOT_LOADED") {
-    console.error("MCP library not available. Run: make install");
+  async handleRequest(request: any) {
+    // Your request handling logic
+    // Filters will automatically process the request
   }
 }
 ```
 
-## Performance Considerations
+### **For MCP Client Developers**
 
-- **Native Speed**: Direct C function calls via FFI
-- **Zero Copy**: Buffer operations minimize memory copying
-- **Shared Memory**: Multiple processes can share library memory
-- **Optimized**: Leverages C++ compiler optimizations
+```typescript
+// In your MCP client implementation
+import { createFilterChainBuilder, addFilterToChain } from "@mcp/filter-sdk";
 
-## Troubleshooting
+class McpClient {
+  private requestFilters: number;
 
-### Common Issues
+  constructor() {
+    // Create request filter chain
+    const builder = createFilterChainBuilder(dispatcher);
 
-#### Library Loading Errors
+    // Add request processing filters
+    addFilterToChain(
+      builder,
+      createBuiltinFilter(dispatcher, BuiltinFilterType.RATE_LIMIT, {}),
+      FilterPosition.FIRST
+    );
+    addFilterToChain(
+      builder,
+      createBuiltinFilter(dispatcher, BuiltinFilterType.METRICS, {}),
+      FilterPosition.LAST
+    );
 
-```bash
-Error: Failed to load MCP C API library (libgopher_mcp_c.dylib)
+    this.requestFilters = buildFilterChain(builder);
+  }
+
+  async sendRequest(data: any) {
+    // Send through filter chain before transmission
+    // Filters will process and potentially modify the request
+  }
+}
 ```
 
-**Solution**: Install the shared libraries:
+## 🧪 **Testing**
+
+The SDK includes comprehensive test coverage:
 
 ```bash
-cd /path/to/gopher-mcp
-make install
-```
-
-#### Rpath Dependency Issues (macOS)
-
-```bash
-Error: Library not loaded: @rpath/libgopher-mcp-event.0.dylib
-```
-
-**Solution**: Fix rpath dependencies:
-
-```bash
-sudo install_name_tool -add_rpath /usr/local/lib /usr/local/lib/libgopher_mcp_c.0.1.0.dylib
-```
-
-#### Permission Issues
-
-```bash
-Error: EACCES: permission denied
-```
-
-**Solution**: Use sudo for installation:
-
-```bash
-sudo make install
-```
-
-### Debug Steps
-
-1. **Verify Installation**:
-
-   ```bash
-   ls -la /usr/local/lib/libgopher_mcp_c*
-   ```
-
-2. **Check Dependencies**:
-
-   ```bash
-   otool -L /usr/local/lib/libgopher_mcp_c.dylib
-   ```
-
-3. **Test Function Binding**:
-   ```bash
-   node test-library.js
-   ```
-
-## Testing
-
-### Function Binding Test
-
-```bash
-# Test all 108 functions
-node test-library.js
-
-# Expected output:
-# Loading MCP C API library: libgopher_mcp_c.dylib
-# MCP C API library loaded successfully: libgopher_mcp_c.dylib
-# ✓ Bound function: mcp_filter_create
-# ... (108 functions)
-# Successfully bound 108 out of 108 functions
-# Library loaded successfully: true
-```
-
-### Integration Tests
-
-```bash
-npm run build
+# Run all tests
 npm test
+
+# Run specific test suites
+npm test -- --testPathPattern=filter-api.test.ts
+npm test -- --testPathPattern=filter-chain.test.ts
+npm test -- --testPathPattern=filter-buffer.test.ts
 ```
 
-## Development
+## 📚 **API Reference**
 
-### Building from Source
+### **Filter Types**
 
-```bash
-git clone https://github.com/modelcontextprovider/gopher-mcp.git
-cd gopher-mcp/sdk/typescript
-npm install
-npm run build
-```
+- `BuiltinFilterType.TCP_PROXY` - TCP proxy functionality
+- `BuiltinFilterType.HTTP_CODEC` - HTTP encoding/decoding
+- `BuiltinFilterType.TLS_TERMINATION` - TLS termination
+- `BuiltinFilterType.AUTHENTICATION` - Authentication
+- `BuiltinFilterType.RATE_LIMIT` - Rate limiting
+- `BuiltinFilterType.ACCESS_LOG` - Access logging
+- `BuiltinFilterType.METRICS` - Metrics collection
+- `BuiltinFilterType.TRACING` - Distributed tracing
 
-### Running Tests
+### **Chain Execution Modes**
 
-```bash
-npm test
-npm run test:watch
-```
+- `ChainExecutionMode.SEQUENTIAL` - Execute filters in order
+- `ChainExecutionMode.PARALLEL` - Execute filters concurrently
+- `ChainExecutionMode.CONDITIONAL` - Execute based on conditions
+- `ChainExecutionMode.PIPELINE` - Pipeline with buffering
 
-## Architecture
+### **Buffer Operations**
 
-The SDK uses a clean, modern architecture:
+- Zero-copy data access
+- Scatter-gather I/O
+- Memory pooling
+- Type-safe integer operations
+- String and JSON utilities
 
-1. **FFI Layer**: koffi for cross-platform FFI
-2. **Library Loading**: System-installed shared libraries
-3. **Function Binding**: Direct binding to C API functions
-4. **TypeScript Interface**: Clean, type-safe API
-5. **Error Handling**: Comprehensive error reporting
+## 🔒 **Security Features**
 
-## Platform Support
+- **Authentication filters** for request validation
+- **Authorization filters** for access control
+- **Rate limiting** to prevent abuse
+- **TLS termination** for secure communication
+- **Input validation** and sanitization
 
-- **macOS**: x64, ARM64 ✅ **Working**
-- **Linux**: x64, ARM64
-- **Windows**: x64, IA32
+## 📊 **Performance Features**
 
-## Contributing
+- **Zero-copy operations** for minimal memory overhead
+- **Parallel processing** for high-throughput scenarios
+- **Memory pooling** for efficient resource management
+- **Chain optimization** for optimal filter ordering
+- **Load balancing** across filter instances
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+## 🌟 **Key Benefits**
 
-## License
+1. **Protocol Agnostic**: Works with any MCP transport layer
+2. **Performance Focused**: Zero-copy operations and efficient memory management
+3. **Easy Integration**: Simple API that fits into existing MCP implementations
+4. **Production Ready**: Comprehensive error handling and resource management
+5. **Extensible**: Easy to add custom filters and chain logic
 
-See [LICENSE](../../LICENSE) file for details.
+## 🤝 **Contributing**
 
-## Changelog
+This SDK is designed to be a clean, focused filter library. Contributions should:
 
-### v1.0.0
+- Maintain the filter-only scope
+- Follow the existing C++ header structure
+- Include comprehensive tests
+- Document new features clearly
 
-- Initial release
-- Shared library support
-- 108 C API functions successfully bound
-- Production-ready implementation
-- Cross-platform compatibility
+## 📄 **License**
 
-## Support
+[License information]
 
-For issues and questions:
+## 🔗 **Related Projects**
 
-- GitHub Issues: [Create an issue](https://github.com/modelcontextprovider/gopher-mcp/issues)
-- Documentation: [SHARED_LIBRARY_IMPLEMENTATION.md](./SHARED_LIBRARY_IMPLEMENTATION.md)
-
----
-
-**The SDK now provides the best possible developer experience while maintaining full native performance and complete API access.** 🚀✨
+- **MCP Specification**: [Model Context Protocol](https://modelcontextprotocol.io/)
+- **C++ Implementation**: Core filter infrastructure
+- **Transport Examples**: Custom MCP transport layer implementations
