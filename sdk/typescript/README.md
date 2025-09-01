@@ -1,15 +1,22 @@
 # MCP Filter SDK
 
-A TypeScript SDK for the MCP (Model Context Protocol) Filter C API, providing advanced filter infrastructure, buffer management, and filter chain composition capabilities.
+A comprehensive TypeScript SDK for the MCP (Model Context Protocol) Filter C API, providing advanced filter infrastructure, buffer management, filter chain composition, and a complete transport layer implementation.
 
 ## 🎯 **Architecture Overview**
 
-This SDK is designed as a **filter library only** - it provides the infrastructure for creating, managing, and composing filters that can be integrated into custom MCP transport layers. The SDK does **NOT** provide transport layer functionality; instead, it focuses on:
+This SDK provides both **filter infrastructure** and **transport layer implementation**:
 
+### **Filter Infrastructure:**
 - **Filter Lifecycle Management**: Create, configure, and manage filters
 - **Filter Chain Composition**: Build complex processing pipelines
 - **Advanced Buffer Operations**: Zero-copy operations and memory management
-- **Integration Ready**: Easy to plug into existing MCP implementations
+- **FilterManager**: High-level message processing with comprehensive filter support
+
+### **Transport Layer:**
+- **GopherTransport**: Complete MCP transport implementation
+- **Protocol Support**: TCP, UDP, and stdio protocols
+- **Enterprise Features**: Security, observability, traffic management
+- **MCP Integration**: Seamless integration with MCP client/server
 
 ## 🏗️ **Core Components**
 
@@ -41,6 +48,26 @@ Wrapper for `mcp_c_filter_buffer.h` providing:
 - Advanced memory pooling
 - Type-safe integer I/O operations
 
+### **4. Filter Manager (`filter-manager.ts`)**
+
+High-level message processing system providing:
+
+- **Comprehensive Filter Support**: All 15 available C++ filter types
+- **JSON-RPC Processing**: Complete request/response processing pipeline
+- **Configuration Management**: Flexible filter configuration system
+- **Error Handling**: Robust error handling with fallback behaviors
+- **Resource Management**: Automatic cleanup and memory safety
+
+### **5. Gopher Transport (`mcp-example/src/gopher-transport.ts`)**
+
+Complete MCP transport implementation providing:
+
+- **Protocol Support**: TCP, UDP, and stdio protocols
+- **FilterManager Integration**: All messages processed through filter pipeline
+- **Session Management**: Unique session IDs and lifecycle management
+- **Enterprise Features**: Security, observability, traffic management
+- **MCP Compatibility**: Full compatibility with MCP client/server
+
 ## 📁 **File Structure**
 
 ```
@@ -48,15 +75,26 @@ src/
 ├── filter-api.ts          # Core filter infrastructure
 ├── filter-chain.ts        # Advanced chain management
 ├── filter-buffer.ts       # Buffer operations and memory management
+├── filter-manager.ts      # High-level message processing
 ├── ffi-bindings.ts        # FFI bindings to C++ shared library
 ├── types/                 # TypeScript type definitions
 └── __tests__/            # Comprehensive test suite
     ├── filter-api.test.ts
     ├── filter-chain.test.ts
-    └── filter-buffer.test.ts
+    ├── filter-buffer.test.ts
+    └── filter-manager-simple.test.ts
 
 examples/
-└── basic-usage.ts        # Usage examples and patterns
+├── basic-usage.ts        # Basic usage examples
+└── filter-manager-demo.ts # FilterManager demonstration
+
+mcp-example/              # Complete MCP integration example
+├── src/
+│   ├── gopher-transport.ts    # Complete transport implementation
+│   ├── filter-types.ts        # Local type definitions
+│   ├── mcp-client.ts          # MCP client with GopherTransport
+│   └── mcp-server.ts          # MCP server with GopherTransport
+└── package.json
 ```
 
 ## 🚀 **Quick Start**
@@ -67,38 +105,87 @@ examples/
 npm install @mcp/filter-sdk
 ```
 
-### **Basic Usage**
+### **Basic Usage with FilterManager**
 
 ```typescript
-import {
-  createBuiltinFilter,
-  createSimpleChain,
-  BuiltinFilterType,
-  createBufferFromString,
-} from "@mcp/filter-sdk";
+import { FilterManager, FilterManagerConfig } from "@mcp/filter-sdk";
 
-// Create a simple HTTP processing pipeline
-const authFilter = createBuiltinFilter(0, BuiltinFilterType.AUTHENTICATION, {});
-const rateLimitFilter = createBuiltinFilter(
-  0,
-  BuiltinFilterType.RATE_LIMIT,
-  {}
-);
-const accessLogFilter = createBuiltinFilter(
-  0,
-  BuiltinFilterType.ACCESS_LOG,
-  {}
-);
+// Configure comprehensive filter pipeline
+const config: FilterManagerConfig = {
+  security: {
+    authentication: {
+      method: "jwt",
+      secret: "your-secret-key",
+    },
+    authorization: {
+      enabled: true,
+      policy: "allow",
+      rules: [{ resource: "*", action: "read" }],
+    },
+  },
+  observability: {
+    accessLog: { enabled: true, format: "json" },
+    metrics: { enabled: true },
+    tracing: { enabled: true, serviceName: "my-service" },
+  },
+  trafficManagement: {
+    rateLimit: { enabled: true, requestsPerMinute: 1000 },
+    circuitBreaker: { enabled: true, failureThreshold: 5 },
+  },
+};
 
-// Build the filter chain
-const chain = createSimpleChain(
-  0,
-  [authFilter, rateLimitFilter, accessLogFilter],
-  "http-pipeline"
-);
+// Create FilterManager
+const filterManager = new FilterManager(config);
 
-// Create and manage buffers
-const buffer = createBufferFromString("Hello, MCP!", BufferOwnership.SHARED);
+// Process JSON-RPC messages
+const message = {
+  jsonrpc: "2.0",
+  id: 1,
+  method: "tools/list",
+  params: {},
+};
+
+const processedMessage = await filterManager.process(message);
+console.log("Processed message:", processedMessage);
+```
+
+### **Complete MCP Integration with GopherTransport**
+
+```typescript
+import { GopherTransport, GopherTransportConfig } from "./gopher-transport";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+// Configure transport with comprehensive filters
+const transportConfig: GopherTransportConfig = {
+  name: "my-mcp-client",
+  protocol: "tcp",
+  host: "localhost",
+  port: 8080,
+  filters: {
+    security: {
+      authentication: { method: "jwt", secret: "client-secret" },
+      authorization: { enabled: true, policy: "allow" },
+    },
+    observability: {
+      accessLog: { enabled: true },
+      metrics: { enabled: true },
+      tracing: { enabled: true, serviceName: "mcp-client" },
+    },
+    trafficManagement: {
+      rateLimit: { enabled: true, requestsPerMinute: 500 },
+      circuitBreaker: { enabled: true, failureThreshold: 3 },
+    },
+  },
+};
+
+// Create and use transport
+const transport = new GopherTransport(transportConfig);
+await transport.start();
+
+const client = new Client({ name: "my-client", version: "1.0.0" });
+await client.connect(transport);
+
+// All messages automatically processed through filter pipeline
 ```
 
 ### **Advanced Chain Composition**
@@ -116,73 +203,107 @@ const filters = [
 const parallelChain = createParallelChain(0, filters, 2, "parallel-pipeline");
 ```
 
-## 🔧 **Integration with MCP Transport Layers**
+## 🔧 **Complete MCP Integration**
 
-### **For MCP Server Developers**
+### **MCP Client with GopherTransport**
 
 ```typescript
-// In your MCP server implementation
-import { createFilterManager, addFilterToManager } from "@mcp/filter-sdk";
+import { GopherTransport, GopherTransportConfig } from "./gopher-transport";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-class McpServer {
-  private filterManager: number;
+// Client-specific configuration
+const clientConfig: GopherTransportConfig = {
+  name: "mcp-client-transport",
+  protocol: "tcp",
+  host: "localhost",
+  port: 8080,
+  filters: {
+    security: {
+      authentication: {
+        method: "jwt",
+        secret: "client-secret-key",
+        issuer: "mcp-client",
+        audience: "mcp-server",
+      },
+    },
+    observability: {
+      accessLog: { enabled: true, format: "json" },
+      metrics: { enabled: true, labels: { component: "mcp-client" } },
+      tracing: { enabled: true, serviceName: "mcp-client", samplingRate: 0.2 },
+    },
+    trafficManagement: {
+      rateLimit: { enabled: true, requestsPerMinute: 500, burstSize: 25 },
+      circuitBreaker: { enabled: true, failureThreshold: 3, timeout: 15000 },
+      retry: { enabled: true, maxAttempts: 2, backoffStrategy: "exponential" },
+    },
+  },
+};
 
-  constructor() {
-    // Create filter manager for this connection
-    this.filterManager = createFilterManager(connection, dispatcher);
+const transport = new GopherTransport(clientConfig);
+await transport.start();
 
-    // Add security filters
-    const authFilter = createBuiltinFilter(
-      dispatcher,
-      BuiltinFilterType.AUTHENTICATION,
-      {}
-    );
-    addFilterToManager(this.filterManager, authFilter);
+const client = new Client({ name: "calculator-client", version: "1.0.0" });
+await client.connect(transport);
 
-    // Initialize the filter pipeline
-    initializeFilterManager(this.filterManager);
-  }
-
-  async handleRequest(request: any) {
-    // Your request handling logic
-    // Filters will automatically process the request
-  }
-}
+// All messages automatically processed through comprehensive filter pipeline
 ```
 
-### **For MCP Client Developers**
+### **MCP Server with GopherTransport**
 
 ```typescript
-// In your MCP client implementation
-import { createFilterChainBuilder, addFilterToChain } from "@mcp/filter-sdk";
+import { GopherTransport, GopherTransportConfig } from "./gopher-transport";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-class McpClient {
-  private requestFilters: number;
+// Server-specific configuration
+const serverConfig: GopherTransportConfig = {
+  name: "mcp-server-transport",
+  protocol: "tcp",
+  host: "0.0.0.0",
+  port: 8080,
+  filters: {
+    security: {
+      authentication: {
+        method: "jwt",
+        secret: "server-secret-key",
+        issuer: "mcp-server",
+        audience: "mcp-client",
+      },
+      authorization: {
+        enabled: true,
+        policy: "allow",
+        rules: [{ resource: "tools/*", action: "call", conditions: { authenticated: true } }],
+      },
+    },
+    observability: {
+      accessLog: { enabled: true, format: "json", fields: ["timestamp", "method", "sessionId", "duration"] },
+      metrics: { enabled: true, labels: { component: "mcp-server", service: "calculator" } },
+      tracing: { enabled: true, serviceName: "mcp-server", samplingRate: 0.5 },
+    },
+    trafficManagement: {
+      rateLimit: { enabled: true, requestsPerMinute: 2000, burstSize: 100 },
+      circuitBreaker: { enabled: true, failureThreshold: 10, timeout: 60000 },
+      loadBalancer: {
+        enabled: true,
+        strategy: "round-robin",
+        upstreams: [
+          { host: "worker-1", port: 8080, weight: 1, healthCheck: true },
+          { host: "worker-2", port: 8080, weight: 1, healthCheck: true },
+        ],
+      },
+    },
+    http: {
+      compression: { enabled: true, algorithms: ["gzip", "deflate"], minSize: 512 },
+    },
+  },
+};
 
-  constructor() {
-    // Create request filter chain
-    const builder = createFilterChainBuilder(dispatcher);
+const mcpServer = new McpServer({ name: "calculator-server", version: "1.0.0" });
+const transport = new GopherTransport(serverConfig);
 
-    // Add request processing filters
-    addFilterToChain(
-      builder,
-      createBuiltinFilter(dispatcher, BuiltinFilterType.RATE_LIMIT, {}),
-      FilterPosition.FIRST
-    );
-    addFilterToChain(
-      builder,
-      createBuiltinFilter(dispatcher, BuiltinFilterType.METRICS, {}),
-      FilterPosition.LAST
-    );
+await transport.start();
+await mcpServer.connect(transport);
 
-    this.requestFilters = buildFilterChain(builder);
-  }
-
-  async sendRequest(data: any) {
-    // Send through filter chain before transmission
-    // Filters will process and potentially modify the request
-  }
-}
+// All requests automatically processed through comprehensive filter pipeline
 ```
 
 ## 🧪 **Testing**
@@ -201,16 +322,35 @@ npm test -- --testPathPattern=filter-buffer.test.ts
 
 ## 📚 **API Reference**
 
-### **Filter Types**
+### **Available Filter Types (All 15 C++ Filters)**
 
-- `BuiltinFilterType.TCP_PROXY` - TCP proxy functionality
-- `BuiltinFilterType.HTTP_CODEC` - HTTP encoding/decoding
-- `BuiltinFilterType.TLS_TERMINATION` - TLS termination
-- `BuiltinFilterType.AUTHENTICATION` - Authentication
-- `BuiltinFilterType.RATE_LIMIT` - Rate limiting
-- `BuiltinFilterType.ACCESS_LOG` - Access logging
-- `BuiltinFilterType.METRICS` - Metrics collection
-- `BuiltinFilterType.TRACING` - Distributed tracing
+**Network Filters:**
+- `TCP_PROXY` - TCP proxy functionality
+- `UDP_PROXY` - UDP proxy functionality
+
+**HTTP Filters:**
+- `HTTP_CODEC` - HTTP encoding/decoding
+- `HTTP_ROUTER` - HTTP request routing
+- `HTTP_COMPRESSION` - HTTP compression (gzip, deflate, brotli)
+
+**Security Filters:**
+- `TLS_TERMINATION` - TLS/SSL termination
+- `AUTHENTICATION` - Authentication (JWT, API key, OAuth2)
+- `AUTHORIZATION` - Authorization and access control
+
+**Observability Filters:**
+- `ACCESS_LOG` - Access logging
+- `METRICS` - Metrics collection
+- `TRACING` - Distributed tracing
+
+**Traffic Management Filters:**
+- `RATE_LIMIT` - Rate limiting
+- `CIRCUIT_BREAKER` - Circuit breaker pattern
+- `RETRY` - Retry logic with backoff
+- `LOAD_BALANCER` - Load balancing
+
+**Custom Filters:**
+- `CUSTOM` - User-defined filters
 
 ### **Chain Execution Modes**
 
@@ -245,11 +385,14 @@ npm test -- --testPathPattern=filter-buffer.test.ts
 
 ## 🌟 **Key Benefits**
 
-1. **Protocol Agnostic**: Works with any MCP transport layer
-2. **Performance Focused**: Zero-copy operations and efficient memory management
-3. **Easy Integration**: Simple API that fits into existing MCP implementations
-4. **Production Ready**: Comprehensive error handling and resource management
-5. **Extensible**: Easy to add custom filters and chain logic
+1. **Complete Solution**: Both filter infrastructure and transport layer implementation
+2. **Enterprise Ready**: Production-grade security, observability, and traffic management
+3. **Protocol Support**: TCP, UDP, and stdio protocols with easy configuration
+4. **Performance Focused**: Zero-copy operations and efficient memory management
+5. **Easy Integration**: Drop-in replacement for standard MCP transports
+6. **Comprehensive Filtering**: All 15 C++ filter types with flexible configuration
+7. **Resource Safe**: Automatic cleanup and memory management
+8. **Type Safe**: Full TypeScript support with proper type definitions
 
 ## 🤝 **Contributing**
 
