@@ -18,6 +18,9 @@ export * from "./filter-chain";
 // Advanced Buffer Operations (mcp_c_filter_buffer.h)
 export * from "./filter-buffer";
 
+// Filter Manager for JSONRPCMessage processing
+export * from "./filter-manager";
+
 // FFI bindings for C++ integration
 export * from "./ffi-bindings";
 
