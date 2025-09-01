@@ -14,6 +14,7 @@ import {
   createBuiltinFilter,
   createFilterManager,
   initializeFilterManager,
+  postDataToFilter,
   readStringFromBuffer,
 } from "./index";
 
@@ -151,11 +152,73 @@ export class FilterManager {
   }
 
   /**
-   * Process message through filters (placeholder implementation)
+   * Process message through filters using C++ filter chain
    */
   private async processThroughFilters(buffer: number): Promise<number> {
-    // TODO: Implement actual filter processing
-    // For now, just return the buffer as-is
-    return buffer;
+    // Process through each filter using our FFI wrapper
+    let processedBuffer = buffer;
+
+    // Process through authentication filter if configured
+    if (this.filters.auth) {
+      const authResult = await this.processThroughFilter(
+        this.filters.auth,
+        processedBuffer
+      );
+      processedBuffer = authResult;
+    }
+
+    // Process through rate limiting filter if configured
+    if (this.filters.rateLimit) {
+      const rateLimitResult = await this.processThroughFilter(
+        this.filters.rateLimit,
+        processedBuffer
+      );
+      processedBuffer = rateLimitResult;
+    }
+
+    // Process through logging filter if configured
+    if (this.filters.logging) {
+      const loggingResult = await this.processThroughFilter(
+        this.filters.logging,
+        processedBuffer
+      );
+      processedBuffer = loggingResult;
+    }
+
+    // Process through metrics filter if configured
+    if (this.filters.metrics) {
+      const metricsResult = await this.processThroughFilter(
+        this.filters.metrics,
+        processedBuffer
+      );
+      processedBuffer = metricsResult;
+    }
+
+    return processedBuffer;
+  }
+
+  /**
+   * Process message through a single filter using FFI
+   */
+  private async processThroughFilter(
+    filter: number,
+    buffer: number
+  ): Promise<number> {
+    // Use postDataToFilter to process through the specific filter
+    // This will call the C++ filter's processing logic
+    return new Promise((resolve, reject) => {
+      postDataToFilter(
+        filter,
+        new Uint8Array(), // Empty data since we're using buffer
+        (result: any, _userData: any) => {
+          if (result) {
+            resolve(buffer); // Return the processed buffer
+          } else {
+            reject(new Error("Filter processing failed"));
+          }
+        },
+        null // No user data
+      );
+    });
   }
 }
