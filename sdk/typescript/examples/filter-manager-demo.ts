@@ -6,6 +6,204 @@
 import { FilterManager, JSONRPCMessage } from "../src";
 
 /**
+ * Demo: Comprehensive FilterManager with all filter types
+ */
+async function comprehensiveFilterManagerDemo() {
+  console.log("🔧 Comprehensive FilterManager Demo");
+
+  // Create FilterManager with comprehensive configuration
+  const filterManager = new FilterManager({
+    // Network filters
+    network: {
+      tcpProxy: {
+        enabled: true,
+        upstreamHost: "localhost",
+        upstreamPort: 8080,
+        bindAddress: "0.0.0.0",
+        bindPort: 3000,
+      },
+    },
+
+    // HTTP filters
+    http: {
+      codec: {
+        enabled: true,
+        compressionLevel: 6,
+        maxRequestSize: 1024 * 1024, // 1MB
+        maxResponseSize: 1024 * 1024, // 1MB
+      },
+      router: {
+        enabled: true,
+        routes: [
+          {
+            path: "/api/v1/*",
+            method: "GET",
+            target: "http://backend:8080",
+            headers: { "X-Forwarded-For": "client" },
+          },
+        ],
+      },
+      compression: {
+        enabled: true,
+        algorithms: ["gzip", "deflate", "brotli"],
+        minSize: 1024, // 1KB
+      },
+    },
+
+    // Security filters
+    security: {
+      tlsTermination: {
+        enabled: true,
+        certPath: "/path/to/cert.pem",
+        keyPath: "/path/to/key.pem",
+        protocols: ["TLSv1.2", "TLSv1.3"],
+      },
+      authentication: {
+        method: "jwt",
+        secret: "your-jwt-secret",
+        issuer: "your-app",
+        audience: "your-users",
+      },
+      authorization: {
+        enabled: true,
+        policy: "allow",
+        rules: [
+          {
+            resource: "/api/admin/*",
+            action: "read",
+            conditions: { role: "admin" },
+          },
+        ],
+      },
+    },
+
+    // Observability filters
+    observability: {
+      accessLog: {
+        enabled: true,
+        format: "json",
+        fields: ["timestamp", "method", "path", "status", "duration"],
+        output: "console",
+      },
+      metrics: {
+        enabled: true,
+        endpoint: "http://prometheus:9090",
+        interval: 60000, // 1 minute
+        labels: { service: "mcp-filter-manager" },
+      },
+      tracing: {
+        enabled: true,
+        serviceName: "mcp-filter-manager",
+        endpoint: "http://jaeger:14268",
+        samplingRate: 0.1, // 10% sampling
+      },
+    },
+
+    // Traffic management filters
+    trafficManagement: {
+      rateLimit: {
+        enabled: true,
+        requestsPerMinute: 1000,
+        burstSize: 50,
+        keyExtractor: "ip",
+      },
+      circuitBreaker: {
+        enabled: true,
+        failureThreshold: 5,
+        timeout: 30000, // 30 seconds
+        resetTimeout: 60000, // 1 minute
+      },
+      retry: {
+        enabled: true,
+        maxAttempts: 3,
+        backoffStrategy: "exponential",
+        baseDelay: 1000, // 1 second
+        maxDelay: 10000, // 10 seconds
+      },
+      loadBalancer: {
+        enabled: true,
+        strategy: "round-robin",
+        upstreams: [
+          { host: "backend1", port: 8080, weight: 1, healthCheck: true },
+          { host: "backend2", port: 8080, weight: 1, healthCheck: true },
+          { host: "backend3", port: 8080, weight: 2, healthCheck: true },
+        ],
+      },
+    },
+
+    // Custom filters
+    customFilters: [
+      {
+        enabled: true,
+        name: "customValidation",
+        config: {
+          validateSchema: true,
+          schemaPath: "/schemas/request.json",
+        },
+        position: "first",
+      },
+      {
+        enabled: true,
+        name: "customTransform",
+        config: {
+          transformResponse: true,
+          addHeaders: { "X-Processed-By": "custom-filter" },
+        },
+        position: "last",
+      },
+    ],
+
+    // Error handling
+    errorHandling: {
+      stopOnError: false,
+      retryAttempts: 2,
+      fallbackBehavior: "passthrough",
+    },
+  });
+
+  console.log("📊 Configured filters:");
+  console.log("  - Network: TCP Proxy");
+  console.log("  - HTTP: Codec, Router, Compression");
+  console.log("  - Security: TLS Termination, Authentication, Authorization");
+  console.log("  - Observability: Access Log, Metrics, Tracing");
+  console.log("  - Traffic Management: Rate Limit, Circuit Breaker, Retry, Load Balancer");
+  console.log("  - Custom: Validation, Transform");
+
+  // Create a sample JSON-RPC message
+  const jsonrpcMessage: JSONRPCMessage = {
+    jsonrpc: "2.0",
+    id: "comprehensive-test",
+    method: "comprehensive/process",
+    params: {
+      data: "comprehensive test data",
+      headers: { "Authorization": "Bearer token123" },
+    },
+  };
+
+  console.log("📥 Input message:", JSON.stringify(jsonrpcMessage, null, 2));
+
+  try {
+    // Process the message through all filters
+    const processedMessage = await filterManager.process(jsonrpcMessage);
+
+    console.log(
+      "📤 Processed message:",
+      JSON.stringify(processedMessage, null, 2)
+    );
+    console.log("✅ Comprehensive FilterManager processing completed successfully!");
+
+    return processedMessage;
+  } catch (error) {
+    console.error("❌ Comprehensive FilterManager processing failed:", error);
+    throw error;
+  } finally {
+    // Clean up resources
+    filterManager.destroy();
+    console.log("🧹 FilterManager resources cleaned up");
+  }
+}
+
+/**
  * Demo: Basic FilterManager usage
  */
 async function basicFilterManagerDemo() {
@@ -304,6 +502,7 @@ async function main() {
 
   try {
     await basicFilterManagerDemo();
+    await comprehensiveFilterManagerDemo();
     await configurationDemo();
     await errorHandlingDemo();
     await requestResponseDemo();
@@ -323,6 +522,7 @@ if (require.main === module) {
 
 export {
   basicFilterManagerDemo,
+  comprehensiveFilterManagerDemo,
   configurationDemo,
   errorHandlingDemo,
   requestResponseDemo,
