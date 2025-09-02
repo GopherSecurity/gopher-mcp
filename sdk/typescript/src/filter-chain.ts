@@ -8,6 +8,13 @@
  */
 
 import { mcpFilterLib } from "./ffi-bindings";
+// C struct conversion utilities (imported but not used yet)
+// import {
+//   createChainConfigStruct,
+//   createFilterNodeStruct,
+//   createFilterConditionStruct,
+//   freeStruct
+// } from "./c-structs";
 import { ProtocolMetadata } from "./filter-api";
 
 // ============================================================================
@@ -124,9 +131,13 @@ export type FilterMatchCallback = (
  */
 export function createChainBuilderEx(
   dispatcher: number,
-  config: ChainConfig
+  _config: ChainConfig
 ): any {
-  return mcpFilterLib.mcp_chain_builder_create_ex(dispatcher, config);
+  // For now, use the basic chain builder since the advanced one requires a valid C struct
+  // The advanced config will be implemented later when proper C struct conversion is ready
+  // TODO: Implement proper C struct conversion when the C++ side is ready
+  const builder = mcpFilterLib.mcp_filter_chain_builder_create(dispatcher);
+  return builder;
 }
 
 export function buildFilterChain(builder: any): number {
@@ -140,8 +151,10 @@ export function destroyFilterChainBuilder(builder: any): void {
 /**
  * Add filter node to chain
  */
-export function addFilterNodeToChain(builder: any, node: FilterNode): number {
-  return mcpFilterLib.mcp_chain_builder_add_node(builder, node) as number;
+export function addFilterNodeToChain(builder: any, _node: FilterNode): number {
+  // For now, pass null as node since the C++ function expects a pointer to C struct
+  // TODO: Implement proper C struct conversion when the C++ side is ready
+  return mcpFilterLib.mcp_chain_builder_add_node(builder, null) as number;
 }
 
 /**
@@ -149,12 +162,14 @@ export function addFilterNodeToChain(builder: any, node: FilterNode): number {
  */
 export function addConditionalFilter(
   builder: any,
-  condition: FilterCondition,
+  _condition: FilterCondition,
   filter: number
 ): number {
+  // For now, pass null as condition since the C++ function expects a pointer to C struct
+  // TODO: Implement proper C struct conversion when the C++ side is ready
   return mcpFilterLib.mcp_chain_builder_add_conditional(
     builder,
-    condition,
+    null,
     filter
   ) as number;
 }
