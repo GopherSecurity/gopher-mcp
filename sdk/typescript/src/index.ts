@@ -24,5 +24,16 @@ export * from "./filter-manager";
 // FFI bindings for C++ integration
 export * from "./ffi-bindings";
 
+// C struct conversion utilities (selective exports to avoid conflicts)
+export {
+  createChainConfigStruct,
+  createFilterCallbacksStruct,
+  createFilterConditionStruct,
+  createFilterConfigStruct,
+  createFilterNodeStruct,
+  createProtocolMetadataStruct,
+  freeStruct,
+} from "./c-structs";
+
 // Type definitions
 export * from "./types";
