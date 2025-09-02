@@ -21,10 +21,12 @@ mcp-example/
 
 ## Features
 
+- **FilterManager SDK Demo**: Pure demonstration of the TypeScript SDK with real C++ library integration
 - **Calculator Tool**: A simple arithmetic calculator that supports addition, subtraction, multiplication, and division
 - **MCP Server**: Implements the MCP protocol to expose the calculator tool
 - **MCP Client**: Demonstrates how to connect to and use the MCP server
 - **Error Handling**: Includes proper error handling for edge cases like division by zero
+- **Real C++ Integration**: Uses actual compiled C++ library (not mocks) for filter processing
 
 ## Installation
 
@@ -40,6 +42,20 @@ mcp-example/
    ```
 
 ## Usage
+
+### Run the FilterManager Demonstration
+
+The pure FilterManager demo shows the core SDK functionality without network simulation:
+
+```bash
+npm run filter-demo
+```
+
+This demonstrates:
+- Real C++ library integration (93 functions bound)
+- Filter chain processing (authentication, logging, rate limiting)
+- Buffer operations using actual C++ implementation
+- JSON-RPC message processing through filters
 
 ### Run the Complete Example
 

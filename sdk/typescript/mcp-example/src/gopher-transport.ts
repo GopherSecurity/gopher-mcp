@@ -225,9 +225,11 @@ export class GopherTransport implements Transport {
           : "notification";
       console.log(`✅ Message processed through filters: ${processedInfo}`);
 
-      // In a real implementation, this would send the message over the network
-      // For now, we'll simulate the send operation
-      await this.simulateSend(processedMessage, options);
+      // FilterManager processing complete - message ready for actual transport
+      console.log(`✅ Message ready for transport: ${JSON.stringify(processedMessage, null, 2)}`);
+      
+      // In a real implementation, you would send the processedMessage over your chosen transport
+      // (TCP, WebSocket, HTTP, etc.) here
     } catch (error) {
       const errorMsg = `Failed to send message: ${error}`;
       console.error("❌", errorMsg);
@@ -268,9 +270,10 @@ export class GopherTransport implements Transport {
   }
 
   /**
-   * Simulate receiving a message (for testing/demo purposes)
+   * Process a received message through FilterManager
+   * In a real implementation, this would be called when receiving data from the network
    */
-  async simulateReceive(
+  async processReceivedMessage(
     message: JSONRPCMessage,
     extra?: MessageExtraInfo
   ): Promise<void> {
@@ -283,7 +286,7 @@ export class GopherTransport implements Transport {
         "method" in message
           ? `${message.method} (id: ${"id" in message ? message.id : "N/A"})`
           : "notification";
-      console.log(`📥 Simulating received message: ${messageInfo}`);
+      console.log(`📥 Processing received message: ${messageInfo}`);
 
       // Process response through FilterManager
       const filterMessage = adaptToFilterMessage(message);
@@ -313,26 +316,7 @@ export class GopherTransport implements Transport {
     }
   }
 
-  /**
-   * Simulate sending a message (for testing/demo purposes)
-   */
-  private async simulateSend(
-    message: JSONRPCMessage,
-    options?: TransportSendOptions
-  ): Promise<void> {
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, Math.random() * 100));
 
-    // In a real implementation, this would:
-    // 1. Serialize the message
-    // 2. Send over TCP/UDP/WebSocket
-    // 3. Handle network errors
-    // 4. Wait for acknowledgment
-
-    console.log(
-      `🌐 Simulated network send: ${JSON.stringify(message, null, 2)}`
-    );
-  }
 
   /**
    * Generate a unique session ID
