@@ -152,10 +152,15 @@ export function destroyFilterChainBuilder(builder: any): void {
 /**
  * Add filter node to chain
  */
-export function addFilterNodeToChain(builder: any, _node: FilterNode): number {
-  // For now, pass null as node since the C++ function expects a pointer to C struct
-  // TODO: Implement proper C struct conversion when the C++ side is ready
-  return mcpFilterLib.mcp_chain_builder_add_node(builder, null) as number;
+export function addFilterNodeToChain(builder: any, node: FilterNode): number {
+  // Use the simpler mcp_filter_chain_add_filter function instead of mcp_chain_builder_add_node
+  // This avoids the need for complex C struct conversion
+  return mcpFilterLib.mcp_filter_chain_add_filter(
+    builder,
+    node.filter,
+    0, // MCP_FILTER_POSITION_FIRST
+    0  // No reference filter
+  ) as number;
 }
 
 /**
