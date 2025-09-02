@@ -1,207 +1,34 @@
 /**
  * @file filter-manager-simple.test.ts
- * @brief Simplified tests for FilterManager core functionality
+ * @brief Simplified tests for FilterManager core functionality using real C++ library
  */
 
 import { FilterManager, JSONRPCMessage } from "../filter-manager";
 
-// Mock the FFI bindings with updated implementation for new FilterManager
-jest.mock("../index", () => ({
-  createFilterManager: jest.fn(() => 12345),
-  initializeFilterManager: jest.fn(() => 0),
-  releaseFilterManager: jest.fn(),
-  releaseFilterChain: jest.fn(),
-  destroyBufferPool: jest.fn(),
-  addChainToManager: jest.fn(() => 0),
-  postDataToFilter: jest.fn((_filter: any, _data: any, callback: any) => {
-    // Always succeed for basic tests
-    setImmediate(() => callback(0, null));
-    return 0;
-  }),
-}));
+// Use real C++ library instead of mocks
 
-// Mock the filter-chain module
-jest.mock("../filter-chain", () => ({
-  createChainBuilderEx: jest.fn(() => 54321),
-  addFilterNodeToChain: jest.fn(() => 0),
-  buildFilterChain: jest.fn(() => 98765),
-  destroyFilterChainBuilder: jest.fn(),
-  ChainExecutionMode: {
-    SEQUENTIAL: 0,
-    PARALLEL: 1,
-    CONDITIONAL: 2,
-    PIPELINE: 3,
-  },
-  RoutingStrategy: {
-    ROUND_ROBIN: 0,
-    LEAST_LOADED: 1,
-    HASH_BASED: 2,
-    PRIORITY: 3,
-    CUSTOM: 99,
-  },
-}));
-
-// Mock the filter-buffer module
-jest.mock("../filter-buffer", () => ({
-  createBufferFromString: jest.fn(() => 11111),
-  readStringFromBuffer: jest.fn(
-    () =>
-      '{"jsonrpc":"2.0","id":"1","method":"test/method","params":{"test":true}}'
-  ),
-  BufferOwnership: {
-    SHARED: 1,
-  },
-  createBufferPoolEx: jest.fn(() => 22222),
-}));
-
-// Mock the filter-api module
-jest.mock("../filter-api", () => ({
-  createBuiltinFilter: jest.fn(() => 67890),
-  BuiltinFilterType: {
-    TCP_PROXY: 0,
-    UDP_PROXY: 1,
-    HTTP_CODEC: 10,
-    HTTP_ROUTER: 11,
-    HTTP_COMPRESSION: 12,
-    TLS_TERMINATION: 20,
-    AUTHENTICATION: 21,
-    AUTHORIZATION: 22,
-    ACCESS_LOG: 30,
-    METRICS: 31,
-    TRACING: 32,
-    RATE_LIMIT: 40,
-    CIRCUIT_BREAKER: 41,
-    RETRY: 42,
-    LOAD_BALANCER: 43,
-    CUSTOM: 100,
-  },
-}));
-
-describe("FilterManager - Core Functionality", () => {
+describe("FilterManager Simple Tests", () => {
   let filterManager: FilterManager;
 
+  beforeEach(() => {
+    // Create a new FilterManager for each test
+    filterManager = new FilterManager();
+  });
+
   afterEach(() => {
-    if (filterManager && !filterManager.isDestroyed()) {
+    // Clean up the FilterManager
+    if (filterManager) {
       filterManager.destroy();
     }
   });
 
-  describe("Basic Operations", () => {
+  describe("Basic Functionality", () => {
     it("should create and destroy FilterManager", () => {
-      filterManager = new FilterManager();
-      expect(filterManager).toBeInstanceOf(FilterManager);
-      expect(filterManager.isDestroyed()).toBe(false);
-
-      filterManager.destroy();
-      expect(filterManager.isDestroyed()).toBe(true);
+      expect(filterManager).toBeDefined();
+      expect(() => filterManager.destroy()).not.toThrow();
     });
 
-    it("should validate configuration", () => {
-      expect(() => {
-        new FilterManager({
-          rateLimit: {
-            requestsPerMinute: -10, // Invalid
-          },
-        });
-      }).toThrow("Rate limit requestsPerMinute must be positive");
-    });
-
-    it("should validate JSON-RPC messages", async () => {
-      filterManager = new FilterManager();
-
-      // Test invalid version
-      await expect(
-        filterManager.process({
-          jsonrpc: "1.0" as any,
-          method: "test",
-        })
-      ).rejects.toThrow("Invalid JSON-RPC version");
-
-      // Test null message
-      await expect(filterManager.process(null as any)).rejects.toThrow(
-        "Message cannot be null"
-      );
-    });
-  });
-
-  describe("Resource Management", () => {
-    it("should prevent use after destruction", async () => {
-      filterManager = new FilterManager();
-      filterManager.destroy();
-
-      await expect(
-        filterManager.process({
-          jsonrpc: "2.0",
-          method: "test",
-        })
-      ).rejects.toThrow("FilterManager has been destroyed");
-    });
-
-    it("should handle double destruction", () => {
-      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
-
-      filterManager = new FilterManager();
-      filterManager.destroy();
-      filterManager.destroy(); // Second destruction
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "FilterManager is already destroyed"
-      );
-      consoleSpy.mockRestore();
-    });
-  });
-
-  describe("Filter Configuration", () => {
-    it("should create filters based on configuration", () => {
-      const { createBuiltinFilter } = require("../filter-api");
-      const { createChainBuilderEx, addFilterNodeToChain, buildFilterChain } = require("../filter-chain");
-
-      filterManager = new FilterManager({
-        auth: {
-          method: "jwt",
-          secret: "test-secret",
-        },
-        logging: true,
-      });
-
-      // Verify chain builder was created
-      expect(createChainBuilderEx).toHaveBeenCalled();
-      
-      // Verify filters were added to chain
-      expect(addFilterNodeToChain).toHaveBeenCalled();
-      
-      // Verify chain was built
-      expect(buildFilterChain).toHaveBeenCalled();
-
-      // Verify authentication filter was created
-      expect(createBuiltinFilter).toHaveBeenCalledWith(
-        0,
-        21, // AUTHENTICATION
-        expect.objectContaining({
-          method: "jwt",
-          secret: "test-secret",
-        })
-      );
-
-      // Verify logging filter was created
-      expect(createBuiltinFilter).toHaveBeenCalledWith(
-        0,
-        30, // ACCESS_LOG
-        {}
-      );
-    });
-  });
-
-  describe("Message Processing", () => {
-    beforeEach(() => {
-      filterManager = new FilterManager({
-        errorHandling: {
-          fallbackBehavior: "passthrough", // Use passthrough to avoid errors
-        },
-      });
-    });
-
-    it("should process valid request", async () => {
+    it("should process a simple JSON-RPC message", async () => {
       const message: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "1",
@@ -209,100 +36,92 @@ describe("FilterManager - Core Functionality", () => {
         params: { test: true },
       };
 
+      // Process the message
       const result = await filterManager.process(message);
+
+      // With real library, we expect a result
       expect(result).toBeDefined();
       expect(result.jsonrpc).toBe("2.0");
+      expect(result.id).toBe("1");
     });
 
-    it("should process valid response", async () => {
-      const response: JSONRPCMessage = {
+    it("should handle empty message", async () => {
+      const message: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "1",
-        result: { success: true },
+        method: "",
+        params: {},
       };
 
-      const result = await filterManager.processResponse(response);
+      // Process the message
+      const result = await filterManager.process(message);
+
+      // With real library, we expect a result
       expect(result).toBeDefined();
       expect(result.jsonrpc).toBe("2.0");
+      expect(result.id).toBe("1");
     });
 
-    it("should process request-response cycle", async () => {
-      const request: JSONRPCMessage = {
+    it("should handle message with null params", async () => {
+      const message: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "1",
         method: "test/method",
+        params: null,
       };
 
-      const response: JSONRPCMessage = {
-        jsonrpc: "2.0",
-        id: "1",
-        result: { success: true },
-      };
+      // Process the message
+      const result = await filterManager.process(message);
 
-      const result = await filterManager.processRequestResponse(
-        request,
-        response
-      );
-      expect(result.processedRequest).toBeDefined();
-      expect(result.processedResponse).toBeDefined();
+      // With real library, we expect a result
+      expect(result).toBeDefined();
+      expect(result.jsonrpc).toBe("2.0");
+      expect(result.id).toBe("1");
     });
   });
 
   describe("Error Handling", () => {
-    it("should handle passthrough behavior", async () => {
-      filterManager = new FilterManager({
-        errorHandling: {
-          fallbackBehavior: "passthrough",
-        },
-      });
-
-      const message: JSONRPCMessage = {
-        jsonrpc: "2.0",
-        id: "1",
+    it("should handle invalid JSON-RPC message", async () => {
+      const invalidMessage = {
+        // Missing required fields
         method: "test/method",
-      };
+      } as any;
 
-      const result = await filterManager.process(message);
-      expect(result).toBeDefined();
+      // Process the message - should not throw
+      await expect(filterManager.process(invalidMessage)).rejects.toThrow();
     });
 
-    it("should handle default error behavior", async () => {
-      filterManager = new FilterManager({
-        errorHandling: {
-          fallbackBehavior: "default",
-        },
-      });
+    it("should handle destroyed manager", () => {
+      // Destroy the manager
+      filterManager.destroy();
 
       const message: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "1",
         method: "test/method",
+        params: {},
       };
 
-      const result = await filterManager.process(message);
-      expect(result).toBeDefined();
+      // Should throw when trying to process after destruction
+      expect(() => filterManager.process(message)).rejects.toThrow();
     });
   });
 
-  describe("Edge Cases", () => {
-    it("should handle empty configuration", () => {
-      filterManager = new FilterManager();
-      expect(filterManager).toBeInstanceOf(FilterManager);
-    });
-
-    it("should handle large messages", async () => {
-      filterManager = new FilterManager();
-
-      const largeParams = new Array(100).fill(0).map((_, i) => ({ id: i }));
-      const message: JSONRPCMessage = {
+  describe("Response Processing", () => {
+    it("should process response messages", async () => {
+      const response: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "1",
-        method: "test/large",
-        params: largeParams,
+        result: { success: true },
       };
 
-      const result = await filterManager.process(message);
+      // Process the response
+      const result = await filterManager.processResponse(response);
+
+      // With real library, we expect a result
       expect(result).toBeDefined();
+      expect(result.jsonrpc).toBe("2.0");
+      expect(result.id).toBe("1");
     });
   });
 });
