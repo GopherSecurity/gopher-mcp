@@ -5,32 +5,75 @@
 
 import { FilterManager, JSONRPCMessage } from "../filter-manager";
 
-// Mock the FFI bindings with simpler implementation
+// Mock the FFI bindings with updated implementation for new FilterManager
 jest.mock("../index", () => ({
   createFilterManager: jest.fn(() => 12345),
-  createBuiltinFilter: jest.fn(() => 67890),
-  addFilterToManager: jest.fn(() => 0),
   initializeFilterManager: jest.fn(() => 0),
-  releaseFilter: jest.fn(),
   releaseFilterManager: jest.fn(),
-  createBufferFromString: jest.fn(() => 11111),
-  readStringFromBuffer: jest.fn(
-    () =>
-      '{"jsonrpc":"2.0","id":"1","method":"test/method","params":{"test":true}}'
-  ),
+  releaseFilterChain: jest.fn(),
+  destroyBufferPool: jest.fn(),
+  addChainToManager: jest.fn(() => 0),
   postDataToFilter: jest.fn((_filter: any, _data: any, callback: any) => {
     // Always succeed for basic tests
     setImmediate(() => callback(0, null));
     return 0;
   }),
+}));
+
+// Mock the filter-chain module
+jest.mock("../filter-chain", () => ({
+  createChainBuilderEx: jest.fn(() => 54321),
+  addFilterNodeToChain: jest.fn(() => 0),
+  buildFilterChain: jest.fn(() => 98765),
+  destroyFilterChainBuilder: jest.fn(),
+  ChainExecutionMode: {
+    SEQUENTIAL: 0,
+    PARALLEL: 1,
+    CONDITIONAL: 2,
+    PIPELINE: 3,
+  },
+  RoutingStrategy: {
+    ROUND_ROBIN: 0,
+    LEAST_LOADED: 1,
+    HASH_BASED: 2,
+    PRIORITY: 3,
+    CUSTOM: 99,
+  },
+}));
+
+// Mock the filter-buffer module
+jest.mock("../filter-buffer", () => ({
+  createBufferFromString: jest.fn(() => 11111),
+  readStringFromBuffer: jest.fn(
+    () =>
+      '{"jsonrpc":"2.0","id":"1","method":"test/method","params":{"test":true}}'
+  ),
   BufferOwnership: {
     SHARED: 1,
   },
+  createBufferPoolEx: jest.fn(() => 22222),
+}));
+
+// Mock the filter-api module
+jest.mock("../filter-api", () => ({
+  createBuiltinFilter: jest.fn(() => 67890),
   BuiltinFilterType: {
+    TCP_PROXY: 0,
+    UDP_PROXY: 1,
+    HTTP_CODEC: 10,
+    HTTP_ROUTER: 11,
+    HTTP_COMPRESSION: 12,
+    TLS_TERMINATION: 20,
     AUTHENTICATION: 21,
-    RATE_LIMIT: 40,
+    AUTHORIZATION: 22,
     ACCESS_LOG: 30,
     METRICS: 31,
+    TRACING: 32,
+    RATE_LIMIT: 40,
+    CIRCUIT_BREAKER: 41,
+    RETRY: 42,
+    LOAD_BALANCER: 43,
+    CUSTOM: 100,
   },
 }));
 
@@ -110,7 +153,8 @@ describe("FilterManager - Core Functionality", () => {
 
   describe("Filter Configuration", () => {
     it("should create filters based on configuration", () => {
-      const { createBuiltinFilter } = require("../index");
+      const { createBuiltinFilter } = require("../filter-api");
+      const { createChainBuilderEx, addFilterNodeToChain, buildFilterChain } = require("../filter-chain");
 
       filterManager = new FilterManager({
         auth: {
@@ -120,6 +164,16 @@ describe("FilterManager - Core Functionality", () => {
         logging: true,
       });
 
+      // Verify chain builder was created
+      expect(createChainBuilderEx).toHaveBeenCalled();
+      
+      // Verify filters were added to chain
+      expect(addFilterNodeToChain).toHaveBeenCalled();
+      
+      // Verify chain was built
+      expect(buildFilterChain).toHaveBeenCalled();
+
+      // Verify authentication filter was created
       expect(createBuiltinFilter).toHaveBeenCalledWith(
         0,
         21, // AUTHENTICATION
@@ -129,6 +183,7 @@ describe("FilterManager - Core Functionality", () => {
         })
       );
 
+      // Verify logging filter was created
       expect(createBuiltinFilter).toHaveBeenCalledWith(
         0,
         30, // ACCESS_LOG
