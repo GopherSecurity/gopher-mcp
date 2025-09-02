@@ -1,4 +1,9 @@
 import {
+  JSONRPCMessage as FilterJSONRPCMessage,
+  FilterManager,
+  FilterManagerConfig,
+} from "@mcp/filter-sdk";
+import {
   Transport,
   TransportSendOptions,
 } from "@modelcontextprotocol/sdk/shared/transport";
@@ -6,33 +11,36 @@ import {
   JSONRPCMessage,
   MessageExtraInfo,
 } from "@modelcontextprotocol/sdk/types";
-import { FilterManager, FilterManagerConfig, JSONRPCMessage as FilterJSONRPCMessage } from "./filter-types";
 
 // Type adapter to convert between MCP SDK and FilterManager JSONRPCMessage types
 type MCPJSONRPCMessage = JSONRPCMessage;
 type AdapterJSONRPCMessage = FilterJSONRPCMessage;
 
-function adaptToFilterMessage(mcpMessage: MCPJSONRPCMessage): AdapterJSONRPCMessage {
+function adaptToFilterMessage(
+  mcpMessage: MCPJSONRPCMessage
+): AdapterJSONRPCMessage {
   return mcpMessage as AdapterJSONRPCMessage;
 }
 
-function adaptToMCPMessage(filterMessage: AdapterJSONRPCMessage): MCPJSONRPCMessage {
+function adaptToMCPMessage(
+  filterMessage: AdapterJSONRPCMessage
+): MCPJSONRPCMessage {
   return filterMessage as MCPJSONRPCMessage;
 }
 
 export interface GopherTransportConfig {
   // Filter configuration for this transport
   filters?: FilterManagerConfig;
-  
+
   // Transport-specific configuration
   name?: string;
   version?: string;
-  
+
   // Connection configuration
   host?: string;
   port?: number;
   protocol?: "tcp" | "udp" | "stdio";
-  
+
   // Timeout configuration
   connectTimeout?: number;
   sendTimeout?: number;
@@ -60,7 +68,7 @@ export class GopherTransport implements Transport {
       version: "1.0.0",
       protocol: "stdio",
       connectTimeout: 30000, // 30 seconds
-      sendTimeout: 10000,    // 10 seconds
+      sendTimeout: 10000, // 10 seconds
       receiveTimeout: 30000, // 30 seconds
       ...config,
     };
@@ -95,7 +103,7 @@ export class GopherTransport implements Transport {
         },
         metrics: {
           enabled: true,
-          labels: { 
+          labels: {
             transport: this.config.name || "gopher-transport",
             version: this.config.version || "1.0.0",
           },
@@ -142,7 +150,9 @@ export class GopherTransport implements Transport {
     };
 
     this.filterManager = new FilterManager(filterConfig);
-    console.log(`🔧 GopherTransport initialized with FilterManager (${this.config.name})`);
+    console.log(
+      `🔧 GopherTransport initialized with FilterManager (${this.config.name})`
+    );
   }
 
   async start(): Promise<void> {
@@ -157,7 +167,7 @@ export class GopherTransport implements Transport {
 
     try {
       console.log(`🚀 Starting GopherTransport (${this.config.protocol})`);
-      
+
       // Generate session ID
       this.sessionId = this.generateSessionId();
       console.log(`📋 Session ID: ${this.sessionId}`);
@@ -173,7 +183,7 @@ export class GopherTransport implements Transport {
       this.isConnected = false;
       const errorMsg = `Failed to start GopherTransport: ${error}`;
       console.error("❌", errorMsg);
-      
+
       if (this.onerror) {
         this.onerror(new Error(errorMsg));
       }
@@ -181,7 +191,10 @@ export class GopherTransport implements Transport {
     }
   }
 
-  async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+  async send(
+    message: JSONRPCMessage,
+    options?: TransportSendOptions
+  ): Promise<void> {
     if (this.isDestroyed) {
       throw new Error("GopherTransport has been destroyed");
     }
@@ -191,25 +204,34 @@ export class GopherTransport implements Transport {
     }
 
     try {
-      const messageInfo = 'method' in message ? `${message.method} (id: ${'id' in message ? message.id : 'N/A'})` : 'notification';
+      const messageInfo =
+        "method" in message
+          ? `${message.method} (id: ${"id" in message ? message.id : "N/A"})`
+          : "notification";
       console.log(`📤 Sending message: ${messageInfo}`);
 
       // Process message through FilterManager
       const filterMessage = adaptToFilterMessage(message);
-      const processedFilterMessage = await this.filterManager.process(filterMessage);
+      const processedFilterMessage = await this.filterManager.process(
+        filterMessage
+      );
       const processedMessage = adaptToMCPMessage(processedFilterMessage);
-      
-      const processedInfo = 'method' in processedMessage ? `${processedMessage.method} (id: ${'id' in processedMessage ? processedMessage.id : 'N/A'})` : 'notification';
+
+      const processedInfo =
+        "method" in processedMessage
+          ? `${processedMessage.method} (id: ${
+              "id" in processedMessage ? processedMessage.id : "N/A"
+            })`
+          : "notification";
       console.log(`✅ Message processed through filters: ${processedInfo}`);
 
       // In a real implementation, this would send the message over the network
       // For now, we'll simulate the send operation
       await this.simulateSend(processedMessage, options);
-
     } catch (error) {
       const errorMsg = `Failed to send message: ${error}`;
       console.error("❌", errorMsg);
-      
+
       if (this.onerror) {
         this.onerror(new Error(errorMsg));
       }
@@ -225,12 +247,12 @@ export class GopherTransport implements Transport {
 
     try {
       console.log("🔌 Closing GopherTransport connection");
-      
+
       this.isConnected = false;
-      
+
       // Clean up FilterManager resources
       this.filterManager.destroy();
-      
+
       this.isDestroyed = true;
       console.log("✅ GopherTransport closed successfully");
 
@@ -248,21 +270,34 @@ export class GopherTransport implements Transport {
   /**
    * Simulate receiving a message (for testing/demo purposes)
    */
-  async simulateReceive(message: JSONRPCMessage, extra?: MessageExtraInfo): Promise<void> {
+  async simulateReceive(
+    message: JSONRPCMessage,
+    extra?: MessageExtraInfo
+  ): Promise<void> {
     if (!this.isConnected || this.isDestroyed) {
       return;
     }
 
     try {
-      const messageInfo = 'method' in message ? `${message.method} (id: ${'id' in message ? message.id : 'N/A'})` : 'notification';
+      const messageInfo =
+        "method" in message
+          ? `${message.method} (id: ${"id" in message ? message.id : "N/A"})`
+          : "notification";
       console.log(`📥 Simulating received message: ${messageInfo}`);
 
       // Process response through FilterManager
       const filterMessage = adaptToFilterMessage(message);
-      const processedFilterMessage = await this.filterManager.processResponse(filterMessage);
+      const processedFilterMessage = await this.filterManager.processResponse(
+        filterMessage
+      );
       const processedMessage = adaptToMCPMessage(processedFilterMessage);
-      
-      const processedInfo = 'method' in processedMessage ? `${processedMessage.method} (id: ${'id' in processedMessage ? processedMessage.id : 'N/A'})` : 'notification';
+
+      const processedInfo =
+        "method" in processedMessage
+          ? `${processedMessage.method} (id: ${
+              "id" in processedMessage ? processedMessage.id : "N/A"
+            })`
+          : "notification";
       console.log(`✅ Response processed through filters: ${processedInfo}`);
 
       // Notify message event
@@ -271,7 +306,7 @@ export class GopherTransport implements Transport {
       }
     } catch (error) {
       console.error("❌ Error processing received message:", error);
-      
+
       if (this.onerror) {
         this.onerror(new Error(`Failed to process received message: ${error}`));
       }
@@ -281,17 +316,22 @@ export class GopherTransport implements Transport {
   /**
    * Simulate sending a message (for testing/demo purposes)
    */
-  private async simulateSend(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+  private async simulateSend(
+    message: JSONRPCMessage,
+    options?: TransportSendOptions
+  ): Promise<void> {
     // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
-    
+    await new Promise((resolve) => setTimeout(resolve, Math.random() * 100));
+
     // In a real implementation, this would:
     // 1. Serialize the message
     // 2. Send over TCP/UDP/WebSocket
     // 3. Handle network errors
     // 4. Wait for acknowledgment
-    
-    console.log(`🌐 Simulated network send: ${JSON.stringify(message, null, 2)}`);
+
+    console.log(
+      `🌐 Simulated network send: ${JSON.stringify(message, null, 2)}`
+    );
   }
 
   /**
