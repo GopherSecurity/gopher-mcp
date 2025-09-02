@@ -62,9 +62,9 @@ export interface DrainTracker {
 export interface BufferPoolConfig {
   bufferSize: number;
   maxBuffers: number;
-  preallocCount: number;
-  useThreadLocal: boolean;
-  zeroOnAlloc: boolean;
+  preallocCount?: number;
+  useThreadLocal?: boolean;
+  zeroOnAlloc?: boolean;
 }
 
 // ============================================================================
@@ -94,8 +94,10 @@ export function createBufferView(data: Uint8Array, length: number): number {
 /**
  * Create buffer from external fragment
  */
-export function createBufferFromFragment(fragment: BufferFragment): number {
-  return mcpFilterLib.mcp_buffer_create_from_fragment(fragment) as number;
+export function createBufferFromFragment(_fragment: BufferFragment): number {
+  // For now, pass null as fragment since the C++ function expects a pointer to C struct
+  // TODO: Implement proper C struct conversion when the C++ side is ready
+  return mcpFilterLib.mcp_buffer_create_from_fragment(null) as number;
 }
 
 /**
@@ -495,10 +497,15 @@ export function trimBufferPool(pool: any, targetFree: number): number {
  */
 export function createBufferFromString(
   str: string,
-  ownership: BufferOwnership = BufferOwnership.SHARED
+  _ownership: BufferOwnership = BufferOwnership.SHARED
 ): number {
   const data = new TextEncoder().encode(str);
-  return createBufferOwned(data.length, ownership);
+  // Use the C API directly to create buffer with data
+  return mcpFilterLib.mcp_filter_buffer_create(
+    data,
+    data.length,
+    0 // flags
+  ) as number;
 }
 
 /**
@@ -508,11 +515,20 @@ export function readStringFromBuffer(
   buffer: number,
   encoding: string = "utf8"
 ): string {
-  const length = getBufferLength(buffer);
+  // Get buffer length using C API
+  const length = mcpFilterLib.mcp_filter_buffer_length(buffer) as number;
   if (length === 0) return "";
 
+  // Create Uint8Array to hold the data
   const data = new Uint8Array(length);
-  const result = getBufferContiguous(buffer, 0, length, data, length);
+  
+  // Get contiguous memory view using C API
+  const result = mcpFilterLib.mcp_filter_get_buffer_slices(
+    buffer,
+    data,
+    length
+  ) as number;
+  
   if (result !== 0) {
     throw new Error("Failed to read buffer data");
   }
@@ -657,3 +673,5 @@ export function compareBuffers(buffer1: number, buffer2: number): number {
 
   return 0;
 }
+
+

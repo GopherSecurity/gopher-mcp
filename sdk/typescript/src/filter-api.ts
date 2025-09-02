@@ -451,14 +451,16 @@ export function processServerRequestFiltered(
 export function postDataToFilter(
   filter: number,
   data: Uint8Array,
-  callback: (result: any, userData: any) => void,
+  _callback: (result: any, userData: any) => void,
   userData: any
 ): number {
+  // For now, pass null as callback since the C++ function expects a pointer to C function
+  // TODO: Implement proper C callback conversion when the C++ side is ready
   return mcpFilterLib.mcp_filter_post_data(
     filter,
     data,
     data.length,
-    callback,
+    null, // callback
     userData
   ) as number;
 }
@@ -537,3 +539,5 @@ export function getFilterStats(filter: number, stats: McpFilterStats): number {
 export function resetFilterStats(filter: number): number {
   return mcpFilterLib.mcp_filter_reset_stats(filter) as number;
 }
+
+
