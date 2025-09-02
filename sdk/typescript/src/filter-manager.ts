@@ -7,18 +7,39 @@
  */
 
 import {
-  addFilterToManager,
-  BufferOwnership,
-  BuiltinFilterType,
-  createBufferFromString,
-  createBuiltinFilter,
+  addChainToManager,
   createFilterManager,
+  destroyBufferPool,
   initializeFilterManager,
   postDataToFilter,
-  readStringFromBuffer,
-  releaseFilter,
+  releaseFilterChain,
   releaseFilterManager,
 } from "./index";
+
+// Import the three filter modules as requested
+import {
+  addFilterNodeToChain,
+  buildFilterChain,
+  ChainConfig,
+  ChainExecutionMode,
+  createChainBuilderEx,
+  destroyFilterChainBuilder,
+  FilterNode,
+  RoutingStrategy,
+} from "./filter-chain";
+
+import {
+  BufferOwnership as AdvancedBufferOwnership,
+  BufferPoolConfig,
+  createBufferFromString as createBufferFromStringAdvanced,
+  createBufferPoolEx,
+  readStringFromBuffer as readStringFromBufferAdvanced,
+} from "./filter-buffer";
+
+import {
+  BuiltinFilterType as AdvancedBuiltinFilterType,
+  createBuiltinFilter as createBuiltinFilterAdvanced,
+} from "./filter-api";
 
 /**
  * JSON-RPC Message interface (compatible with MCP)
@@ -247,46 +268,27 @@ export interface FilterManagerConfig {
     retryAttempts?: number; // Number of retry attempts for failed filters
     fallbackBehavior?: "reject" | "passthrough" | "default"; // What to do on error
   };
+
+  // Chain configuration
+  chain?: {
+    executionMode?: ChainExecutionMode;
+    routingStrategy?: RoutingStrategy;
+    maxParallel?: number;
+    bufferSize?: number;
+    timeoutMs?: number;
+  };
+
+  // Buffer pool configuration
+  bufferPool?: BufferPoolConfig;
 }
 
 /**
- * Filter Manager for processing JSONRPCMessage
+ * Filter Manager for processing JSONRPCMessage using proper filter chain management
  */
 export class FilterManager {
   private filterManager: number;
-  private filters: {
-    // Network filters
-    tcpProxy?: number;
-    udpProxy?: number;
-    
-    // HTTP filters
-    httpCodec?: number;
-    httpRouter?: number;
-    httpCompression?: number;
-    
-    // Security filters
-    tlsTermination?: number;
-    authentication?: number;
-    authorization?: number;
-    
-    // Observability filters
-    accessLog?: number;
-    metrics?: number;
-    tracing?: number;
-    
-    // Traffic management filters
-    rateLimit?: number;
-    circuitBreaker?: number;
-    retry?: number;
-    loadBalancer?: number;
-    
-    // Custom filters
-    customFilters?: Map<string, number>;
-    
-    // Legacy filters (for backward compatibility)
-    auth?: number;
-    logging?: number;
-  } = {};
+  private filterChain: number = 0;
+  private bufferPool: any;
   private config: FilterManagerConfig;
   private _isDestroyed: boolean = false;
 
@@ -300,15 +302,20 @@ export class FilterManager {
     // Create filter manager using FFI wrapper
     this.filterManager = createFilterManager(0, 0);
 
-    // Setup filters based on configuration
-    this.setupFilters(config);
+    // Create buffer pool if configured
+    if (config.bufferPool) {
+      this.bufferPool = createBufferPoolEx(config.bufferPool);
+    }
+
+    // Setup filter chain using filter-chain.ts
+    this.setupFilterChain(config);
 
     // Initialize filter manager
     initializeFilterManager(this.filterManager);
   }
 
   /**
-   * Process JSON-RPC message through filters
+   * Process JSON-RPC message through filters using proper chain management
    */
   async process(message: JSONRPCMessage): Promise<JSONRPCMessage> {
     this.ensureNotDestroyed();
@@ -317,18 +324,20 @@ export class FilterManager {
     this.validateMessage(message);
 
     try {
-      // Convert message to buffer using FFI wrapper
-      const messageBuffer = createBufferFromString(
+      // Convert message to buffer using filter-buffer.ts
+      const messageBuffer = createBufferFromStringAdvanced(
         JSON.stringify(message),
-        BufferOwnership.SHARED
+        AdvancedBufferOwnership.SHARED
       );
 
-      // Process through filters with error handling
-      const processedBuffer = await this.processThroughFilters(messageBuffer);
+      // Process through filter chain using filter-chain.ts
+      const processedBuffer = await this.processThroughFilterChain(
+        messageBuffer
+      );
 
-      // Convert back to JSON-RPC message
+      // Convert back to JSON-RPC message using filter-buffer.ts
       const processedMessage = JSON.parse(
-        readStringFromBuffer(processedBuffer)
+        readStringFromBufferAdvanced(processedBuffer)
       );
 
       return processedMessage;
@@ -348,20 +357,20 @@ export class FilterManager {
     this.validateMessage(response);
 
     try {
-      // Convert response to buffer using FFI wrapper
-      const responseBuffer = createBufferFromString(
+      // Convert response to buffer using filter-buffer.ts
+      const responseBuffer = createBufferFromStringAdvanced(
         JSON.stringify(response),
-        BufferOwnership.SHARED
+        AdvancedBufferOwnership.SHARED
       );
 
-      // Process through response-specific filters
-      const processedBuffer = await this.processThroughResponseFilters(
+      // Process through response-specific filters using filter-chain.ts
+      const processedBuffer = await this.processThroughResponseChain(
         responseBuffer
       );
 
-      // Convert back to JSON-RPC message
+      // Convert back to JSON-RPC message using filter-buffer.ts
       const processedResponse = JSON.parse(
-        readStringFromBuffer(processedBuffer)
+        readStringFromBufferAdvanced(processedBuffer)
       );
 
       return processedResponse;
@@ -403,8 +412,21 @@ export class FilterManager {
     }
 
     try {
-      // Release all individual filters
-      this.releaseAllFilters();
+      // Release filter chain using filter-chain.ts
+      if (this.filterChain) {
+        // Note: We need to add a release function to filter-chain.ts
+        // For now, we'll use the existing releaseFilterChain from filter-api.ts
+        releaseFilterChain(this.filterChain);
+        this.filterChain = 0;
+      }
+
+      // Release buffer pool using filter-buffer.ts
+      if (this.bufferPool) {
+        // Note: We need to add a destroy function to filter-buffer.ts
+        // For now, we'll use the existing destroyBufferPool from filter-api.ts
+        destroyBufferPool(this.bufferPool);
+        this.bufferPool = null;
+      }
 
       // Release the filter manager
       if (this.filterManager) {
@@ -452,139 +474,90 @@ export class FilterManager {
   }
 
   /**
-   * Release all filters
+   * Setup filter chain using filter-chain.ts
    */
-  private releaseAllFilters(): void {
+  private setupFilterChain(config: FilterManagerConfig): void {
+    // Create chain configuration using filter-chain.ts
+    const chainConfig: ChainConfig = {
+      name: "mcp-filter-chain",
+      mode: config.chain?.executionMode || ChainExecutionMode.SEQUENTIAL,
+      routing: config.chain?.routingStrategy || RoutingStrategy.ROUND_ROBIN,
+      maxParallel: config.chain?.maxParallel || 1,
+      bufferSize: config.chain?.bufferSize || 8192,
+      timeoutMs: config.chain?.timeoutMs || 5000,
+      stopOnError: config.errorHandling?.stopOnError ?? true,
+    };
+
+    // Create chain builder using filter-chain.ts
+    const chainBuilder = createChainBuilderEx(0, chainConfig);
+    if (!chainBuilder) {
+      throw new Error("Failed to create filter chain builder");
+    }
+
+    try {
+      // Add filters to chain using filter-chain.ts
+      this.addFiltersToChain(chainBuilder, config);
+
+      // Build the chain using filter-chain.ts
+      this.filterChain = buildFilterChain(chainBuilder);
+      if (!this.filterChain) {
+        throw new Error("Failed to build filter chain");
+      }
+
+      // Add chain to manager using filter-api.ts
+      addChainToManager(this.filterManager, this.filterChain);
+    } finally {
+      // Clean up builder using filter-chain.ts
+      destroyFilterChainBuilder(chainBuilder);
+    }
+  }
+
+  /**
+   * Add filters to chain using filter-chain.ts
+   */
+  private addFiltersToChain(
+    chainBuilder: any,
+    config: FilterManagerConfig
+  ): void {
     // Network filters
-    if (this.filters.tcpProxy) {
-      releaseFilter(this.filters.tcpProxy);
-      delete this.filters.tcpProxy;
-    }
-    if (this.filters.udpProxy) {
-      releaseFilter(this.filters.udpProxy);
-      delete this.filters.udpProxy;
-    }
+    this.addNetworkFiltersToChain(chainBuilder, config.network);
 
     // HTTP filters
-    if (this.filters.httpCodec) {
-      releaseFilter(this.filters.httpCodec);
-      delete this.filters.httpCodec;
-    }
-    if (this.filters.httpRouter) {
-      releaseFilter(this.filters.httpRouter);
-      delete this.filters.httpRouter;
-    }
-    if (this.filters.httpCompression) {
-      releaseFilter(this.filters.httpCompression);
-      delete this.filters.httpCompression;
-    }
+    this.addHttpFiltersToChain(chainBuilder, config.http);
 
     // Security filters
-    if (this.filters.tlsTermination) {
-      releaseFilter(this.filters.tlsTermination);
-      delete this.filters.tlsTermination;
-    }
-    if (this.filters.authentication) {
-      releaseFilter(this.filters.authentication);
-      delete this.filters.authentication;
-    }
-    if (this.filters.authorization) {
-      releaseFilter(this.filters.authorization);
-      delete this.filters.authorization;
-    }
+    this.addSecurityFiltersToChain(chainBuilder, config.security);
 
     // Observability filters
-    if (this.filters.accessLog) {
-      releaseFilter(this.filters.accessLog);
-      delete this.filters.accessLog;
-    }
-    if (this.filters.metrics) {
-      releaseFilter(this.filters.metrics);
-      delete this.filters.metrics;
-    }
-    if (this.filters.tracing) {
-      releaseFilter(this.filters.tracing);
-      delete this.filters.tracing;
-    }
+    this.addObservabilityFiltersToChain(chainBuilder, config.observability);
 
     // Traffic management filters
-    if (this.filters.rateLimit) {
-      releaseFilter(this.filters.rateLimit);
-      delete this.filters.rateLimit;
-    }
-    if (this.filters.circuitBreaker) {
-      releaseFilter(this.filters.circuitBreaker);
-      delete this.filters.circuitBreaker;
-    }
-    if (this.filters.retry) {
-      releaseFilter(this.filters.retry);
-      delete this.filters.retry;
-    }
-    if (this.filters.loadBalancer) {
-      releaseFilter(this.filters.loadBalancer);
-      delete this.filters.loadBalancer;
-    }
+    this.addTrafficManagementFiltersToChain(
+      chainBuilder,
+      config.trafficManagement
+    );
 
     // Custom filters
-    if (this.filters.customFilters) {
-      for (const [_name, filterHandle] of this.filters.customFilters) {
-        releaseFilter(filterHandle);
-      }
-      this.filters.customFilters.clear();
-      delete this.filters.customFilters;
-    }
+    this.addCustomFiltersToChain(chainBuilder, config.customFilters);
 
     // Legacy filters
-    if (this.filters.auth) {
-      releaseFilter(this.filters.auth);
-      delete this.filters.auth;
-    }
-    if (this.filters.logging) {
-      releaseFilter(this.filters.logging);
-      delete this.filters.logging;
-    }
+    this.addLegacyFiltersToChain(chainBuilder, config);
   }
 
   /**
-   * Setup filters based on configuration
+   * Add network filters to chain using filter-chain.ts
    */
-  private setupFilters(config: FilterManagerConfig): void {
-    // Initialize custom filters map
-    this.filters.customFilters = new Map();
-
-    // Setup Network Filters
-    this.setupNetworkFilters(config.network);
-
-    // Setup HTTP Filters
-    this.setupHttpFilters(config.http);
-
-    // Setup Security Filters
-    this.setupSecurityFilters(config.security);
-
-    // Setup Observability Filters
-    this.setupObservabilityFilters(config.observability);
-
-    // Setup Traffic Management Filters
-    this.setupTrafficManagementFilters(config.trafficManagement);
-
-    // Setup Custom Filters
-    this.setupCustomFilters(config.customFilters);
-
-    // Setup Legacy Filters (for backward compatibility)
-    this.setupLegacyFilters(config);
-  }
-
-  /**
-   * Setup Network Filters
-   */
-  private setupNetworkFilters(networkConfig?: NetworkFilterConfig): void {
+  private addNetworkFiltersToChain(
+    chainBuilder: any,
+    networkConfig?: NetworkFilterConfig
+  ): void {
     if (!networkConfig) return;
 
     // TCP Proxy filter
     if (networkConfig.tcpProxy?.enabled) {
-      this.filters.tcpProxy = createBuiltinFilter(
+      const tcpProxyFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.TCP_PROXY,
+        AdvancedBuiltinFilterType.TCP_PROXY,
         {
           upstreamHost: networkConfig.tcpProxy.upstreamHost,
           upstreamPort: networkConfig.tcpProxy.upstreamPort,
@@ -592,14 +565,24 @@ export class FilterManager {
           bindPort: networkConfig.tcpProxy.bindPort || 8080,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.tcpProxy);
+
+      const filterNode: FilterNode = {
+        filter: tcpProxyFilter,
+        name: "tcp-proxy",
+        priority: 1,
+        enabled: true,
+        bypassOnError: false,
+        config: networkConfig.tcpProxy,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // UDP Proxy filter
     if (networkConfig.udpProxy?.enabled) {
-      this.filters.udpProxy = createBuiltinFilter(
+      const udpProxyFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.UDP_PROXY,
+        AdvancedBuiltinFilterType.UDP_PROXY,
         {
           upstreamHost: networkConfig.udpProxy.upstreamHost,
           upstreamPort: networkConfig.udpProxy.upstreamPort,
@@ -607,82 +590,141 @@ export class FilterManager {
           bindPort: networkConfig.udpProxy.bindPort || 8080,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.udpProxy);
+
+      const filterNode: FilterNode = {
+        filter: udpProxyFilter,
+        name: "udp-proxy",
+        priority: 2,
+        enabled: true,
+        bypassOnError: false,
+        config: networkConfig.udpProxy,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Setup HTTP Filters
+   * Add HTTP filters to chain using filter-chain.ts
    */
-  private setupHttpFilters(httpConfig?: HttpFilterConfig): void {
+  private addHttpFiltersToChain(
+    chainBuilder: any,
+    httpConfig?: HttpFilterConfig
+  ): void {
     if (!httpConfig) return;
 
     // HTTP Codec filter
     if (httpConfig.codec?.enabled) {
-      this.filters.httpCodec = createBuiltinFilter(
+      const httpCodecFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.HTTP_CODEC,
+        AdvancedBuiltinFilterType.HTTP_CODEC,
         {
           compressionLevel: httpConfig.codec.compressionLevel || 6,
-          maxRequestSize: httpConfig.codec.maxRequestSize || 1024 * 1024, // 1MB
-          maxResponseSize: httpConfig.codec.maxResponseSize || 1024 * 1024, // 1MB
+          maxRequestSize: httpConfig.codec.maxRequestSize || 1024 * 1024,
+          maxResponseSize: httpConfig.codec.maxResponseSize || 1024 * 1024,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.httpCodec);
+
+      const filterNode: FilterNode = {
+        filter: httpCodecFilter,
+        name: "http-codec",
+        priority: 10,
+        enabled: true,
+        bypassOnError: false,
+        config: httpConfig.codec,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // HTTP Router filter
     if (httpConfig.router?.enabled) {
-      this.filters.httpRouter = createBuiltinFilter(
+      const httpRouterFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.HTTP_ROUTER,
+        AdvancedBuiltinFilterType.HTTP_ROUTER,
         {
           routes: httpConfig.router.routes,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.httpRouter);
+
+      const filterNode: FilterNode = {
+        filter: httpRouterFilter,
+        name: "http-router",
+        priority: 11,
+        enabled: true,
+        bypassOnError: false,
+        config: httpConfig.router,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // HTTP Compression filter
     if (httpConfig.compression?.enabled) {
-      this.filters.httpCompression = createBuiltinFilter(
+      const httpCompressionFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.HTTP_COMPRESSION,
+        AdvancedBuiltinFilterType.HTTP_COMPRESSION,
         {
           algorithms: httpConfig.compression.algorithms,
-          minSize: httpConfig.compression.minSize || 1024, // 1KB
+          minSize: httpConfig.compression.minSize || 1024,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.httpCompression);
+
+      const filterNode: FilterNode = {
+        filter: httpCompressionFilter,
+        name: "http-compression",
+        priority: 12,
+        enabled: true,
+        bypassOnError: false,
+        config: httpConfig.compression,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Setup Security Filters
+   * Add security filters to chain using filter-chain.ts
    */
-  private setupSecurityFilters(securityConfig?: SecurityFilterConfig): void {
+  private addSecurityFiltersToChain(
+    chainBuilder: any,
+    securityConfig?: SecurityFilterConfig
+  ): void {
     if (!securityConfig) return;
 
     // TLS Termination filter
     if (securityConfig.tlsTermination?.enabled) {
-      this.filters.tlsTermination = createBuiltinFilter(
+      const tlsTerminationFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.TLS_TERMINATION,
+        AdvancedBuiltinFilterType.TLS_TERMINATION,
         {
           certPath: securityConfig.tlsTermination.certPath,
           keyPath: securityConfig.tlsTermination.keyPath,
           caPath: securityConfig.tlsTermination.caPath,
-          protocols: securityConfig.tlsTermination.protocols || ["TLSv1.2", "TLSv1.3"],
+          protocols: securityConfig.tlsTermination.protocols || [
+            "TLSv1.2",
+            "TLSv1.3",
+          ],
         }
       );
-      addFilterToManager(this.filterManager, this.filters.tlsTermination);
+
+      const filterNode: FilterNode = {
+        filter: tlsTerminationFilter,
+        name: "tls-termination",
+        priority: 20,
+        enabled: true,
+        bypassOnError: false,
+        config: securityConfig.tlsTermination,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Authentication filter
     if (securityConfig.authentication) {
-      this.filters.authentication = createBuiltinFilter(
+      const authenticationFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.AUTHENTICATION,
+        AdvancedBuiltinFilterType.AUTHENTICATION,
         {
           method: securityConfig.authentication.method,
           secret: securityConfig.authentication.secret,
@@ -691,349 +733,401 @@ export class FilterManager {
           audience: securityConfig.authentication.audience,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.authentication);
+
+      const filterNode: FilterNode = {
+        filter: authenticationFilter,
+        name: "authentication",
+        priority: 21,
+        enabled: true,
+        bypassOnError: false,
+        config: securityConfig.authentication,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Authorization filter
     if (securityConfig.authorization?.enabled) {
-      this.filters.authorization = createBuiltinFilter(
+      const authorizationFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.AUTHORIZATION,
+        AdvancedBuiltinFilterType.AUTHORIZATION,
         {
           policy: securityConfig.authorization.policy,
           rules: securityConfig.authorization.rules,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.authorization);
+
+      const filterNode: FilterNode = {
+        filter: authorizationFilter,
+        name: "authorization",
+        priority: 22,
+        enabled: true,
+        bypassOnError: false,
+        config: securityConfig.authorization,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Setup Observability Filters
+   * Add observability filters to chain using filter-chain.ts
    */
-  private setupObservabilityFilters(observabilityConfig?: ObservabilityFilterConfig): void {
+  private addObservabilityFiltersToChain(
+    chainBuilder: any,
+    observabilityConfig?: ObservabilityFilterConfig
+  ): void {
     if (!observabilityConfig) return;
 
     // Access Log filter
     if (observabilityConfig.accessLog?.enabled) {
-      this.filters.accessLog = createBuiltinFilter(
+      const accessLogFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.ACCESS_LOG,
+        AdvancedBuiltinFilterType.ACCESS_LOG,
         {
           format: observabilityConfig.accessLog.format || "json",
-          fields: observabilityConfig.accessLog.fields || ["timestamp", "method", "path", "status"],
+          fields: observabilityConfig.accessLog.fields || [
+            "timestamp",
+            "method",
+            "path",
+            "status",
+          ],
           output: observabilityConfig.accessLog.output || "console",
         }
       );
-      addFilterToManager(this.filterManager, this.filters.accessLog);
+
+      const filterNode: FilterNode = {
+        filter: accessLogFilter,
+        name: "access-log",
+        priority: 30,
+        enabled: true,
+        bypassOnError: false,
+        config: observabilityConfig.accessLog,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Metrics filter
     if (observabilityConfig.metrics?.enabled) {
-      this.filters.metrics = createBuiltinFilter(
+      const metricsFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.METRICS,
+        AdvancedBuiltinFilterType.METRICS,
         {
           endpoint: observabilityConfig.metrics.endpoint,
-          interval: observabilityConfig.metrics.interval || 60000, // 1 minute
+          interval: observabilityConfig.metrics.interval || 60000,
           labels: observabilityConfig.metrics.labels || {},
         }
       );
-      addFilterToManager(this.filterManager, this.filters.metrics);
+
+      const filterNode: FilterNode = {
+        filter: metricsFilter,
+        name: "metrics",
+        priority: 31,
+        enabled: true,
+        bypassOnError: false,
+        config: observabilityConfig.metrics,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Tracing filter
     if (observabilityConfig.tracing?.enabled) {
-      this.filters.tracing = createBuiltinFilter(
+      const tracingFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.TRACING,
+        AdvancedBuiltinFilterType.TRACING,
         {
           serviceName: observabilityConfig.tracing.serviceName,
           endpoint: observabilityConfig.tracing.endpoint,
           samplingRate: observabilityConfig.tracing.samplingRate || 1.0,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.tracing);
+
+      const filterNode: FilterNode = {
+        filter: tracingFilter,
+        name: "tracing",
+        priority: 32,
+        enabled: true,
+        bypassOnError: false,
+        config: observabilityConfig.tracing,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Setup Traffic Management Filters
+   * Add traffic management filters to chain using filter-chain.ts
    */
-  private setupTrafficManagementFilters(trafficConfig?: TrafficManagementFilterConfig): void {
+  private addTrafficManagementFiltersToChain(
+    chainBuilder: any,
+    trafficConfig?: TrafficManagementFilterConfig
+  ): void {
     if (!trafficConfig) return;
 
     // Rate Limiting filter
     if (trafficConfig.rateLimit?.enabled) {
-      this.filters.rateLimit = createBuiltinFilter(
+      const rateLimitFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.RATE_LIMIT,
+        AdvancedBuiltinFilterType.RATE_LIMIT,
         {
           requestsPerMinute: trafficConfig.rateLimit.requestsPerMinute,
           burstSize: trafficConfig.rateLimit.burstSize || 10,
           keyExtractor: trafficConfig.rateLimit.keyExtractor || "ip",
         }
       );
-      addFilterToManager(this.filterManager, this.filters.rateLimit);
+
+      const filterNode: FilterNode = {
+        filter: rateLimitFilter,
+        name: "rate-limit",
+        priority: 40,
+        enabled: true,
+        bypassOnError: false,
+        config: trafficConfig.rateLimit,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Circuit Breaker filter
     if (trafficConfig.circuitBreaker?.enabled) {
-      this.filters.circuitBreaker = createBuiltinFilter(
+      const circuitBreakerFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.CIRCUIT_BREAKER,
+        AdvancedBuiltinFilterType.CIRCUIT_BREAKER,
         {
           failureThreshold: trafficConfig.circuitBreaker.failureThreshold,
           timeout: trafficConfig.circuitBreaker.timeout,
           resetTimeout: trafficConfig.circuitBreaker.resetTimeout,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.circuitBreaker);
+
+      const filterNode: FilterNode = {
+        filter: circuitBreakerFilter,
+        name: "circuit-breaker",
+        priority: 41,
+        enabled: true,
+        bypassOnError: false,
+        config: trafficConfig.circuitBreaker,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Retry filter
     if (trafficConfig.retry?.enabled) {
-      this.filters.retry = createBuiltinFilter(
+      const retryFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.RETRY,
+        AdvancedBuiltinFilterType.RETRY,
         {
           maxAttempts: trafficConfig.retry.maxAttempts,
           backoffStrategy: trafficConfig.retry.backoffStrategy,
-          baseDelay: trafficConfig.retry.baseDelay || 1000, // 1 second
-          maxDelay: trafficConfig.retry.maxDelay || 30000, // 30 seconds
+          baseDelay: trafficConfig.retry.baseDelay || 1000,
+          maxDelay: trafficConfig.retry.maxDelay || 30000,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.retry);
+
+      const filterNode: FilterNode = {
+        filter: retryFilter,
+        name: "retry",
+        priority: 42,
+        enabled: true,
+        bypassOnError: false,
+        config: trafficConfig.retry,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Load Balancer filter
     if (trafficConfig.loadBalancer?.enabled) {
-      this.filters.loadBalancer = createBuiltinFilter(
+      const loadBalancerFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.LOAD_BALANCER,
+        AdvancedBuiltinFilterType.LOAD_BALANCER,
         {
           strategy: trafficConfig.loadBalancer.strategy,
           upstreams: trafficConfig.loadBalancer.upstreams,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.loadBalancer);
+
+      const filterNode: FilterNode = {
+        filter: loadBalancerFilter,
+        name: "load-balancer",
+        priority: 43,
+        enabled: true,
+        bypassOnError: false,
+        config: trafficConfig.loadBalancer,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Setup Custom Filters
+   * Add custom filters to chain using filter-chain.ts
    */
-  private setupCustomFilters(customFilters?: CustomFilterConfig[]): void {
+  private addCustomFiltersToChain(
+    chainBuilder: any,
+    customFilters?: CustomFilterConfig[]
+  ): void {
     if (!customFilters) return;
 
     for (const customFilter of customFilters) {
       if (customFilter.enabled) {
-        const filterHandle = createBuiltinFilter(
+        const customFilterHandle = createBuiltinFilterAdvanced(
           0,
-          BuiltinFilterType.CUSTOM,
+          AdvancedBuiltinFilterType.CUSTOM,
           customFilter.config
         );
-        
-        this.filters.customFilters!.set(customFilter.name, filterHandle);
-        addFilterToManager(this.filterManager, filterHandle);
+
+        const filterNode: FilterNode = {
+          filter: customFilterHandle,
+          name: customFilter.name,
+          priority: 100,
+          enabled: true,
+          bypassOnError: false,
+          config: customFilter.config,
+        };
+
+        addFilterNodeToChain(chainBuilder, filterNode);
       }
     }
   }
 
   /**
-   * Setup Legacy Filters (for backward compatibility)
+   * Add legacy filters to chain using filter-chain.ts
    */
-  private setupLegacyFilters(config: FilterManagerConfig): void {
+  private addLegacyFiltersToChain(
+    chainBuilder: any,
+    config: FilterManagerConfig
+  ): void {
     // Legacy Authentication filter
     if (config.auth) {
-      this.filters.auth = createBuiltinFilter(
+      const authFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.AUTHENTICATION,
+        AdvancedBuiltinFilterType.AUTHENTICATION,
         {
           method: config.auth.method,
           secret: config.auth.secret,
           key: config.auth.key,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.auth);
+
+      const filterNode: FilterNode = {
+        filter: authFilter,
+        name: "legacy-auth",
+        priority: 21,
+        enabled: true,
+        bypassOnError: false,
+        config: config.auth,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Legacy Rate limiting filter
     if (config.rateLimit) {
-      this.filters.rateLimit = createBuiltinFilter(
+      const rateLimitFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.RATE_LIMIT,
+        AdvancedBuiltinFilterType.RATE_LIMIT,
         {
           requestsPerMinute: config.rateLimit.requestsPerMinute,
           burstSize: config.rateLimit.burstSize || 10,
         }
       );
-      addFilterToManager(this.filterManager, this.filters.rateLimit);
+
+      const filterNode: FilterNode = {
+        filter: rateLimitFilter,
+        name: "legacy-rate-limit",
+        priority: 40,
+        enabled: true,
+        bypassOnError: false,
+        config: config.rateLimit,
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Legacy Logging filter
     if (config.logging) {
-      this.filters.logging = createBuiltinFilter(
+      const loggingFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.ACCESS_LOG,
+        AdvancedBuiltinFilterType.ACCESS_LOG,
         {}
       );
-      addFilterToManager(this.filterManager, this.filters.logging);
+
+      const filterNode: FilterNode = {
+        filter: loggingFilter,
+        name: "legacy-logging",
+        priority: 30,
+        enabled: true,
+        bypassOnError: false,
+        config: {},
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
 
     // Legacy Metrics filter
     if (config.metrics) {
-      this.filters.metrics = createBuiltinFilter(
+      const metricsFilter = createBuiltinFilterAdvanced(
         0,
-        BuiltinFilterType.METRICS,
+        AdvancedBuiltinFilterType.METRICS,
         {}
       );
-      addFilterToManager(this.filterManager, this.filters.metrics);
+
+      const filterNode: FilterNode = {
+        filter: metricsFilter,
+        name: "legacy-metrics",
+        priority: 31,
+        enabled: true,
+        bypassOnError: false,
+        config: {},
+      };
+
+      addFilterNodeToChain(chainBuilder, filterNode);
     }
   }
 
   /**
-   * Process message through filters using C++ filter chain
+   * Process message through filter chain using filter-chain.ts
    */
-  private async processThroughFilters(buffer: number): Promise<number> {
-    // Process through each filter using our FFI wrapper
-    let processedBuffer = buffer;
-
-    // Define the processing order for all filters
-    const filterChain = [
-      // Network filters (first - handle raw network traffic)
-      { name: "tcpProxy", filter: this.filters.tcpProxy },
-      { name: "udpProxy", filter: this.filters.udpProxy },
-      
-      // Security filters (early - authentication and authorization)
-      { name: "tlsTermination", filter: this.filters.tlsTermination },
-      { name: "authentication", filter: this.filters.authentication },
-      { name: "authorization", filter: this.filters.authorization },
-      { name: "auth", filter: this.filters.auth }, // Legacy auth
-      
-      // HTTP filters (protocol-specific processing)
-      { name: "httpCodec", filter: this.filters.httpCodec },
-      { name: "httpRouter", filter: this.filters.httpRouter },
-      { name: "httpCompression", filter: this.filters.httpCompression },
-      
-      // Traffic management filters (rate limiting, circuit breaker, etc.)
-      { name: "rateLimit", filter: this.filters.rateLimit },
-      { name: "circuitBreaker", filter: this.filters.circuitBreaker },
-      { name: "retry", filter: this.filters.retry },
-      { name: "loadBalancer", filter: this.filters.loadBalancer },
-      
-      // Observability filters (logging, metrics, tracing)
-      { name: "accessLog", filter: this.filters.accessLog },
-      { name: "logging", filter: this.filters.logging }, // Legacy logging
-      { name: "metrics", filter: this.filters.metrics },
-      { name: "tracing", filter: this.filters.tracing },
-      
-      // Custom filters (user-defined)
-      ...this.getCustomFilters(),
-    ];
-
-    for (const { name, filter } of filterChain) {
-      if (filter) {
-        try {
-          processedBuffer = await this.processThroughFilter(
-            filter,
-            processedBuffer
-          );
-        } catch (error) {
-          const shouldStop = this.config.errorHandling?.stopOnError ?? true;
-          if (shouldStop) {
-            throw new Error(`Filter '${name}' processing failed: ${error}`);
-          }
-          // Continue processing other filters if stopOnError is false
-          console.warn(`Filter '${name}' failed, continuing: ${error}`);
-        }
-      }
-    }
-
-    return processedBuffer;
-  }
-
-  /**
-   * Get custom filters as an array of {name, filter} objects
-   */
-  private getCustomFilters(): Array<{ name: string; filter: number }> {
-    if (!this.filters.customFilters) {
-      return [];
-    }
-    
-    const customFilters: Array<{ name: string; filter: number }> = [];
-    for (const [name, filterHandle] of this.filters.customFilters) {
-      customFilters.push({ name: `custom_${name}`, filter: filterHandle });
-    }
-    return customFilters;
-  }
-
-  /**
-   * Process response through response-specific filters
-   * Typically includes logging, metrics, and compression (not auth/rate limiting)
-   */
-  private async processThroughResponseFilters(buffer: number): Promise<number> {
-    // Process through response-specific filters only
-    let processedBuffer = buffer;
-
-    const responseFilterChain = [
-      // HTTP response processing
-      { name: "httpCompression", filter: this.filters.httpCompression },
-      { name: "httpCodec", filter: this.filters.httpCodec },
-      
-      // Observability (response logging, metrics, tracing)
-      { name: "accessLog", filter: this.filters.accessLog },
-      { name: "logging", filter: this.filters.logging }, // Legacy logging
-      { name: "metrics", filter: this.filters.metrics },
-      { name: "tracing", filter: this.filters.tracing },
-      
-      // Custom response filters
-      ...this.getCustomFilters(),
-    ];
-
-    for (const { name, filter } of responseFilterChain) {
-      if (filter) {
-        try {
-          processedBuffer = await this.processThroughFilter(
-            filter,
-            processedBuffer
-          );
-        } catch (error) {
-          const shouldStop = this.config.errorHandling?.stopOnError ?? true;
-          if (shouldStop) {
-            throw new Error(
-              `Response filter '${name}' processing failed: ${error}`
-            );
-          }
-          // Continue processing other filters if stopOnError is false
-          console.warn(
-            `Response filter '${name}' failed, continuing: ${error}`
-          );
-        }
-      }
-    }
-
-    return processedBuffer;
-  }
-
-  /**
-   * Process message through a single filter using FFI
-   */
-  private async processThroughFilter(
-    filter: number,
-    buffer: number
-  ): Promise<number> {
-    // Use postDataToFilter to process through the specific filter
-    // This will call the C++ filter's processing logic
+  private async processThroughFilterChain(buffer: number): Promise<number> {
+    // Use the filter chain to process the buffer
+    // Note: We need to add a process function to filter-chain.ts
+    // For now, we'll use the existing postDataToFilter from filter-api.ts
     return new Promise((resolve, reject) => {
       postDataToFilter(
-        filter,
+        this.filterChain,
         new Uint8Array(), // Empty data since we're using buffer
         (result: any, _userData: any) => {
           if (result) {
             resolve(buffer); // Return the processed buffer
           } else {
-            reject(new Error("Filter processing failed"));
+            reject(new Error("Filter chain processing failed"));
+          }
+        },
+        null // No user data
+      );
+    });
+  }
+
+  /**
+   * Process response through response-specific filter chain using filter-chain.ts
+   */
+  private async processThroughResponseChain(buffer: number): Promise<number> {
+    // For responses, we typically only process through observability filters
+    // Note: We need to add a process function to filter-chain.ts
+    // For now, we'll use the existing postDataToFilter from filter-api.ts
+    return new Promise((resolve, reject) => {
+      postDataToFilter(
+        this.filterChain,
+        new Uint8Array(), // Empty data since we're using buffer
+        (result: any, _userData: any) => {
+          if (result) {
+            resolve(buffer); // Return the processed buffer
+          } else {
+            reject(new Error("Response filter chain processing failed"));
           }
         },
         null // No user data

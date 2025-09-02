@@ -129,6 +129,14 @@ export function createChainBuilderEx(
   return mcpFilterLib.mcp_chain_builder_create_ex(dispatcher, config);
 }
 
+export function buildFilterChain(builder: any): number {
+  return mcpFilterLib.mcp_filter_chain_build(builder);
+}
+
+export function destroyFilterChainBuilder(builder: any): void {
+  mcpFilterLib.mcp_filter_chain_builder_destroy(builder);
+}
+
 /**
  * Add filter node to chain
  */
