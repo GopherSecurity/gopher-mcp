@@ -14,7 +14,7 @@ import {
   postDataToFilter,
   releaseFilterChain,
   releaseFilterManager,
-} from "./index";
+} from "./filter-api";
 
 // Import the three filter modules as requested
 import {

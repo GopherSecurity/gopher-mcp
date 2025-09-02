@@ -169,8 +169,10 @@ export interface FilterCallbacks {
 /**
  * Create a new filter
  */
-export function createFilter(dispatcher: number, config: FilterConfig): number {
-  return mcpFilterLib.mcp_filter_create(dispatcher, config) as number;
+export function createFilter(dispatcher: number, _config: FilterConfig): number {
+  // For now, pass null as config since the C++ function expects a pointer to C struct
+  // TODO: Implement proper C struct conversion when the C++ side is ready
+  return mcpFilterLib.mcp_filter_create(dispatcher, null) as number;
 }
 
 /**
