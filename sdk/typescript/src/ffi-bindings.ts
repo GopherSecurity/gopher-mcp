@@ -13,11 +13,11 @@ import { arch, platform } from "os";
 const LIBRARY_CONFIG = {
   darwin: {
     x64: {
-      path: "/usr/local/lib/libgopher_mcp_c.dylib",
+      path: "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
       name: "libgopher_mcp_c.dylib",
     },
     arm64: {
-      path: "/usr/local/lib/libgopher_mcp_c.dylib",
+      path: "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
       name: "libgopher_mcp_c.dylib",
     },
   },
@@ -126,6 +126,16 @@ try {
       name: "mcp_filter_chain_builder_create",
       signature: "void*",
       args: ["uint64_t"],
+    },
+    {
+      name: "mcp_chain_builder_create_ex",
+      signature: "void*",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_chain_builder_add_node",
+      signature: "int",
+      args: ["void*", "void*"],
     },
     {
       name: "mcp_filter_chain_add_filter",
