@@ -20,7 +20,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.4"
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@mcp/filter-sdk": "file:../"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
