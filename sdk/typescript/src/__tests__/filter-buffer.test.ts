@@ -40,7 +40,7 @@ import {
   writeBufferLittleEndianInt,
 } from "../filter-buffer";
 
-// Mock the FFI library
+// Mock the FFI library (with missing mcp_buffer_peek added)
 jest.mock("../ffi-bindings", () => ({
   mcpFilterLib: {
     mcp_buffer_create_owned: jest.fn(),
@@ -54,6 +54,7 @@ jest.mock("../ffi-bindings", () => ({
     mcp_buffer_move: jest.fn(),
     mcp_buffer_reserve: jest.fn(),
     mcp_buffer_get_contiguous: jest.fn(),
+    mcp_buffer_peek: jest.fn(), // Added missing function
     mcp_buffer_write_le_int: jest.fn(),
     mcp_buffer_write_be_int: jest.fn(),
     mcp_buffer_read_le_int: jest.fn(),
@@ -63,6 +64,14 @@ jest.mock("../ffi-bindings", () => ({
     mcp_buffer_length: jest.fn(),
     mcp_buffer_capacity: jest.fn(),
     mcp_buffer_is_empty: jest.fn(),
+    mcp_filter_buffer_create: jest.fn(),
+    mcp_filter_buffer_release: jest.fn(),
+    mcp_buffer_above_high_watermark: jest.fn(),
+    mcp_buffer_below_low_watermark: jest.fn(),
+    mcp_buffer_pool_create: jest.fn(),
+    mcp_buffer_pool_acquire: jest.fn(),
+    mcp_buffer_pool_release: jest.fn(),
+    mcp_buffer_pool_destroy: jest.fn(),
   },
 }));
 
@@ -110,15 +119,17 @@ describe("Filter Buffer API", () => {
         size: 3,
       };
 
-      (
-        mcpFilterLib.mcp_buffer_create_from_fragment as jest.Mock
-      ).mockReturnValue(mockBufferHandle);
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
+        mockBufferHandle
+      );
 
       const result = createBufferFromFragment(fragment);
 
       expect(result).toBe(mockBufferHandle);
-      expect(mcpFilterLib.mcp_buffer_create_from_fragment).toHaveBeenCalledWith(
-        fragment
+      expect(mcpFilterLib.mcp_filter_buffer_create).toHaveBeenCalledWith(
+        expect.any(Uint8Array),
+        fragment.size,
+        0
       );
     });
 
@@ -439,16 +450,17 @@ describe("Filter Buffer API", () => {
       const mockBufferHandle = 12345;
       const str = "test string";
 
-      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
         mockBufferHandle
       );
 
       const result = createBufferFromString(str, BufferOwnership.SHARED);
 
       expect(result).toBe(mockBufferHandle);
-      expect(mcpFilterLib.mcp_buffer_create_owned).toHaveBeenCalledWith(
+      expect(mcpFilterLib.mcp_filter_buffer_create).toHaveBeenCalledWith(
+        expect.any(Uint8Array),
         str.length,
-        BufferOwnership.SHARED
+        0
       );
     });
 
@@ -460,11 +472,11 @@ describe("Filter Buffer API", () => {
       ]); // "test string"
 
       (mcpFilterLib.mcp_buffer_length as jest.Mock).mockReturnValue(mockLength);
-      (mcpFilterLib.mcp_buffer_get_contiguous as jest.Mock).mockImplementation(
-        (_buffer, _offset, _length, data, _actualLength) => {
+      (mcpFilterLib.mcp_buffer_peek as jest.Mock).mockImplementation(
+        (_buffer, _offset, data, _length) => {
           // Mock the actual data copying
           data.set(mockData);
-          return 0;
+          return 0; // MCP_OK
         }
       );
 
@@ -472,13 +484,19 @@ describe("Filter Buffer API", () => {
 
       expect(result).toBe("test string");
       expect(mcpFilterLib.mcp_buffer_length).toHaveBeenCalledWith(bufferHandle);
+      expect(mcpFilterLib.mcp_buffer_peek).toHaveBeenCalledWith(
+        bufferHandle, 
+        0, 
+        expect.any(Uint8Array), 
+        mockLength
+      );
     });
 
     it("should create buffer from JSON", () => {
       const mockBufferHandle = 12345;
       const obj = { test: "value", number: 42 };
 
-      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
         mockBufferHandle
       );
 
@@ -486,9 +504,10 @@ describe("Filter Buffer API", () => {
 
       expect(result).toBe(mockBufferHandle);
       const expectedLength = JSON.stringify(obj).length;
-      expect(mcpFilterLib.mcp_buffer_create_owned).toHaveBeenCalledWith(
+      expect(mcpFilterLib.mcp_filter_buffer_create).toHaveBeenCalledWith(
+        expect.any(Uint8Array),
         expectedLength,
-        BufferOwnership.SHARED
+        0
       );
     });
 
