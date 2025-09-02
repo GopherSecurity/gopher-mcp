@@ -94,10 +94,24 @@ export function createBufferView(data: Uint8Array, length: number): number {
 /**
  * Create buffer from external fragment
  */
-export function createBufferFromFragment(_fragment: BufferFragment): number {
-  // For now, pass null as fragment since the C++ function expects a pointer to C struct
-  // TODO: Implement proper C struct conversion when the C++ side is ready
-  return mcpFilterLib.mcp_buffer_create_from_fragment(null) as number;
+export function createBufferFromFragment(fragment: BufferFragment): number {
+  // Create a proper C struct for the fragment
+  // For now, we'll create a simple buffer from the fragment data
+  if (fragment.data && fragment.size > 0) {
+    const data = new Uint8Array(fragment.data);
+    return mcpFilterLib.mcp_filter_buffer_create(
+      data,
+      fragment.size,
+      0 // flags
+    ) as number;
+  }
+  
+  // If no data, create empty buffer
+  return mcpFilterLib.mcp_filter_buffer_create(
+    new Uint8Array(0),
+    0,
+    0 // flags
+  ) as number;
 }
 
 /**
@@ -516,19 +530,19 @@ export function readStringFromBuffer(
   encoding: string = "utf8"
 ): string {
   // Get buffer length using C API
-  const length = mcpFilterLib.mcp_filter_buffer_length(buffer) as number;
+  const length = mcpFilterLib.mcp_buffer_length(buffer) as number;
   if (length === 0) return "";
 
   // Create Uint8Array to hold the data
   const data = new Uint8Array(length);
-  
+
   // Get contiguous memory view using C API
   const result = mcpFilterLib.mcp_filter_get_buffer_slices(
     buffer,
     data,
     length
   ) as number;
-  
+
   if (result !== 0) {
     throw new Error("Failed to read buffer data");
   }
@@ -673,5 +687,3 @@ export function compareBuffers(buffer1: number, buffer2: number): number {
 
   return 0;
 }
-
-

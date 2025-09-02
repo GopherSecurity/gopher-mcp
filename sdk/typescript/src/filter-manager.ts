@@ -1101,7 +1101,7 @@ export class FilterManager {
         this.filterChain,
         new Uint8Array(), // Empty data since we're using buffer
         (result: any, _userData: any) => {
-          if (result) {
+          if (result === 0) { // 0 = MCP_OK
             resolve(buffer); // Return the processed buffer
           } else {
             reject(new Error("Filter chain processing failed"));

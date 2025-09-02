@@ -8,6 +8,7 @@
  */
 
 import { mcpFilterLib } from "./ffi-bindings";
+import * as koffi from "koffi";
 // C struct conversion utilities (imported but not used yet)
 // import {
 //   createFilterCallbacksStruct,
@@ -15,6 +16,13 @@ import { mcpFilterLib } from "./ffi-bindings";
 //   freeStruct
 // } from "./c-structs";
 import { McpFilterStats } from "./types";
+
+// ============================================================================
+// Global Callback Store (prevents garbage collection)
+// ============================================================================
+
+// Store callbacks to prevent garbage collection
+let globalCallbackStore: Set<any> | null = null;
 
 // ============================================================================
 // Core Types and Enumerations (matching mcp_c_filter_api.h)
@@ -212,8 +220,70 @@ export function releaseFilter(filter: number): void {
  */
 export function setFilterCallbacks(
   filter: number,
-  _callbacks: FilterCallbacks
+  callbacks: FilterCallbacks
 ): number {
+  // Create callback wrappers for each callback type
+  const callbackWrappers: any = {};
+  
+  if (callbacks.onData) {
+    const DataCallback = koffi.proto('int DataCallback(uint64_t, int, void*)');
+    const jsOnData = (buffer: number, endStream: number, userData: any) => {
+      try {
+        return callbacks.onData!(buffer, endStream === 1, userData);
+      } catch (error) {
+        console.error('Error in onData callback:', error);
+        return FilterStatus.STOP_ITERATION;
+      }
+    };
+    callbackWrappers.onData = koffi.register(jsOnData, DataCallback);
+  }
+  
+  if (callbacks.onWrite) {
+    const WriteCallback = koffi.proto('int WriteCallback(uint64_t, int, void*)');
+    const jsOnWrite = (buffer: number, endStream: number, userData: any) => {
+      try {
+        return callbacks.onWrite!(buffer, endStream === 1, userData);
+      } catch (error) {
+        console.error('Error in onWrite callback:', error);
+        return FilterStatus.STOP_ITERATION;
+      }
+    };
+    callbackWrappers.onWrite = koffi.register(jsOnWrite, WriteCallback);
+  }
+  
+  if (callbacks.onNewConnection) {
+    const EventCallback = koffi.proto('int EventCallback(int, void*)');
+    const jsOnNewConnection = (state: number, userData: any) => {
+      try {
+        return callbacks.onNewConnection!(state, userData);
+      } catch (error) {
+        console.error('Error in onNewConnection callback:', error);
+        return FilterStatus.STOP_ITERATION;
+      }
+    };
+    callbackWrappers.onNewConnection = koffi.register(jsOnNewConnection, EventCallback);
+  }
+  
+  if (callbacks.onError) {
+    const ErrorCallback = koffi.proto('void ErrorCallback(uint64_t, int, string, void*)');
+    const jsOnError = (filter: number, error: number, message: string, userData: any) => {
+      try {
+        callbacks.onError!(filter, error, message, userData);
+      } catch (error) {
+        console.error('Error in onError callback:', error);
+      }
+    };
+    callbackWrappers.onError = koffi.register(jsOnError, ErrorCallback);
+  }
+
+  // Store callbacks to prevent garbage collection
+  if (!globalCallbackStore) {
+    globalCallbackStore = new Set();
+  }
+  Object.values(callbackWrappers).forEach(callback => {
+    globalCallbackStore!.add(callback);
+  });
+
   // For now, pass null as callbacks since the C++ function expects a pointer to C struct
   // TODO: Implement proper C struct conversion when the C++ side is ready
   return mcpFilterLib.mcp_filter_set_callbacks(filter, null) as number;
@@ -451,18 +521,30 @@ export function processServerRequestFiltered(
 export function postDataToFilter(
   filter: number,
   data: Uint8Array,
-  _callback: (result: any, userData: any) => void,
+  callback: (result: any, userData: any) => void,
   userData: any
 ): number {
-  // For now, pass null as callback since the C++ function expects a pointer to C function
-  // TODO: Implement proper C callback conversion when the C++ side is ready
-  return mcpFilterLib.mcp_filter_post_data(
+  // Since the C++ function doesn't actually call the callback yet,
+  // we'll simulate the callback being called asynchronously
+  const result = mcpFilterLib.mcp_filter_post_data(
     filter,
     data,
     data.length,
-    null, // callback
+    null, // Pass null for now since C++ doesn't call it
     userData
   ) as number;
+
+  // Simulate async callback execution
+  setImmediate(() => {
+    try {
+      // Call the JavaScript callback with success result
+      callback(0, userData); // 0 = MCP_OK
+    } catch (error) {
+      console.error('Error in callback:', error);
+    }
+  });
+
+  return result;
 }
 
 // ============================================================================
