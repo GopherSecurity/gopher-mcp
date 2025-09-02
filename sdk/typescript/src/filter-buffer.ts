@@ -533,12 +533,14 @@ export function readStringFromBuffer(
   const length = mcpFilterLib.mcp_buffer_length(buffer) as number;
   if (length === 0) return "";
 
-  // Create Uint8Array to hold the data
+  // For now, create a simple buffer and use peek to read the data
+  // This is not zero-copy but it's safe and works
   const data = new Uint8Array(length);
-
-  // Get contiguous memory view using C API
-  const result = mcpFilterLib.mcp_filter_get_buffer_slices(
+  
+  // Use buffer peek to safely copy data
+  const result = mcpFilterLib.mcp_buffer_peek(
     buffer,
+    0, // offset
     data,
     length
   ) as number;
