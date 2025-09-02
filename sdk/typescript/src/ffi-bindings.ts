@@ -151,6 +151,22 @@ try {
     { name: "mcp_filter_chain_retain", signature: "void", args: ["uint64_t"] },
     { name: "mcp_filter_chain_release", signature: "void", args: ["uint64_t"] },
 
+    // Missing chain functions from mcp_c_filter_chain.h
+    {
+      name: "mcp_chain_builder_add_conditional",
+      signature: "int",
+      args: ["void*", "void*", "uint64_t"],
+    },
+    {
+      name: "mcp_chain_builder_add_parallel_group",
+      signature: "int",
+      args: ["void*", "void*", "size_t"],
+    },
+    { name: "mcp_chain_get_state", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_pause", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_resume", signature: "int", args: ["uint64_t"] },
+    { name: "mcp_chain_reset", signature: "int", args: ["uint64_t"] },
+
     // Buffer functions from mcp_filter_buffer.h
     {
       name: "mcp_buffer_create_owned",

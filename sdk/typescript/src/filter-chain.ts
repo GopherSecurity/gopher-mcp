@@ -7,6 +7,7 @@
  * routing, and optimization. It uses the existing C++ RAII system through FFI calls.
  */
 
+import * as koffi from "koffi";
 import { mcpFilterLib } from "./ffi-bindings";
 // C struct conversion utilities (imported but not used yet)
 // import {
@@ -182,9 +183,11 @@ export function addParallelFilterGroup(
   filters: number[],
   count: number
 ): number {
+  // Convert JavaScript array to C array using koffi
+  const filtersArray = koffi.as(filters, "uint64_t *");
   return mcpFilterLib.mcp_chain_builder_add_parallel_group(
     builder,
-    filters,
+    filtersArray,
     count
   ) as number;
 }
