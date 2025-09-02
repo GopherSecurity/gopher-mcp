@@ -12,13 +12,11 @@
 import {
   addFilterToChain,
   addFilterToManager,
-  buildFilterChain,
   BuiltinFilterType,
   createBuiltinFilter,
   createFilter,
   createFilterChainBuilder,
   createFilterManager,
-  destroyFilterChainBuilder,
   FilterError,
   FilterPosition,
   FilterStatus,
@@ -27,6 +25,8 @@ import {
   releaseFilterManager,
   retainFilter,
 } from "../filter-api";
+
+import { buildFilterChain, destroyFilterChainBuilder } from "../filter-chain";
 
 // Mock the FFI library
 jest.mock("../ffi-bindings", () => ({
