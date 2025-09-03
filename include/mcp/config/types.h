@@ -88,7 +88,7 @@ struct NodeConfig {
         
         // Validate ID contains only valid characters (alphanumeric, dash, underscore)
         for (char c : id) {
-            if (!std::isalnum(c) && c != '-' && c != '_') {
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
                 throw ConfigValidationError("node.id", 
                     "Node ID can only contain alphanumeric characters, dashes, and underscores");
             }
@@ -379,7 +379,7 @@ struct BootstrapConfig {
                     valid_version = false;
                     break;
                 }
-            } else if (!std::isdigit(c)) {
+            } else if (!std::isdigit(static_cast<unsigned char>(c))) {
                 valid_version = false;
                 break;
             }
