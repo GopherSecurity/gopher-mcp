@@ -14,10 +14,30 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 
 # Import MCP SDK types
-from mcp import Transport, JSONRPCMessage as MCPJSONRPCMessage
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../src'))
+
+# Define local types since we don't have the full MCP library
+from typing import Protocol
+from dataclasses import dataclass
+
+class Transport(Protocol):
+    """Transport protocol interface"""
+    pass
+
+@dataclass
+class JSONRPCMessage:
+    """JSON-RPC message structure"""
+    jsonrpc: str = "2.0"
+    id: Optional[Union[str, int]] = None
+    method: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
+    result: Optional[Any] = None
+    error: Optional[Dict[str, Any]] = None
 
 # Import local types
-from .filter_types import (
+from filter_types import (
     GopherTransportConfig,
     FilterManagerConfig,
     JSONRPCMessage,
@@ -52,7 +72,7 @@ from .filter_types import (
 # Type Adapters
 # ============================================================================
 
-def adapt_to_filter_message(mcp_message: MCPJSONRPCMessage) -> JSONRPCMessage:
+def adapt_to_filter_message(mcp_message: JSONRPCMessage) -> JSONRPCMessage:
     """Convert MCP JSONRPCMessage to FilterManager JSONRPCMessage."""
     return JSONRPCMessage(
         jsonrpc=mcp_message.jsonrpc,
@@ -64,9 +84,9 @@ def adapt_to_filter_message(mcp_message: MCPJSONRPCMessage) -> JSONRPCMessage:
     )
 
 
-def adapt_to_mcp_message(filter_message: JSONRPCMessage) -> MCPJSONRPCMessage:
+def adapt_to_mcp_message(filter_message: JSONRPCMessage) -> JSONRPCMessage:
     """Convert FilterManager JSONRPCMessage to MCP JSONRPCMessage."""
-    return MCPJSONRPCMessage(
+    return JSONRPCMessage(
         jsonrpc=filter_message.jsonrpc,
         id=filter_message.id,
         method=filter_message.method,
@@ -257,7 +277,7 @@ class GopherTransport(Transport):
         # This would create a UDP server listening on the specified host/port
         pass
     
-    async def send(self, message: MCPJSONRPCMessage) -> None:
+    async def send(self, message: JSONRPCMessage) -> None:
         """
         Send a message through the transport.
         
@@ -288,7 +308,7 @@ class GopherTransport(Transport):
         # Emit event
         self._emit_event(TransportEvent.message_sent("transport", processed_message))
     
-    async def _send_processed_message(self, message: MCPJSONRPCMessage) -> None:
+    async def _send_processed_message(self, message: JSONRPCMessage) -> None:
         """Send the processed message through the actual transport."""
         if self._config.protocol == "stdio":
             await self._send_stdio(message)
@@ -299,25 +319,25 @@ class GopherTransport(Transport):
         else:
             raise ValueError(f"Unsupported protocol: {self._config.protocol}")
     
-    async def _send_stdio(self, message: MCPJSONRPCMessage) -> None:
+    async def _send_stdio(self, message: JSONRPCMessage) -> None:
         """Send message through stdio."""
         # TODO: Implement stdio sending
         # This would write the message to stdout
         print(f"STDOUT: {json.dumps(message.dict())}")
     
-    async def _send_tcp(self, message: MCPJSONRPCMessage) -> None:
+    async def _send_tcp(self, message: JSONRPCMessage) -> None:
         """Send message through TCP."""
         # TODO: Implement TCP sending
         # This would send the message through the TCP connection
         pass
     
-    async def _send_udp(self, message: MCPJSONRPCMessage) -> None:
+    async def _send_udp(self, message: JSONRPCMessage) -> None:
         """Send message through UDP."""
         # TODO: Implement UDP sending
         # This would send the message through the UDP connection
         pass
     
-    async def receive(self) -> AsyncGenerator[MCPJSONRPCMessage, None]:
+    async def receive(self) -> AsyncGenerator[JSONRPCMessage, None]:
         """
         Receive messages from the transport.
         
@@ -343,7 +363,7 @@ class GopherTransport(Transport):
         else:
             raise ValueError(f"Unsupported protocol: {self._config.protocol}")
     
-    async def _receive_stdio(self) -> AsyncGenerator[MCPJSONRPCMessage, None]:
+    async def _receive_stdio(self) -> AsyncGenerator[JSONRPCMessage, None]:
         """Receive messages from stdio."""
         # TODO: Implement stdio receiving
         # This would read messages from stdin
@@ -355,7 +375,7 @@ class GopherTransport(Transport):
                 break
             
             # Create a mock message for demonstration
-            mock_message = MCPJSONRPCMessage(
+            mock_message = JSONRPCMessage(
                 jsonrpc="2.0",
                 id=1,
                 method="tools/list",
@@ -375,7 +395,7 @@ class GopherTransport(Transport):
             
             yield mcp_message
     
-    async def _receive_tcp(self) -> AsyncGenerator[MCPJSONRPCMessage, None]:
+    async def _receive_tcp(self) -> AsyncGenerator[JSONRPCMessage, None]:
         """Receive messages from TCP."""
         # TODO: Implement TCP receiving
         # This would read messages from TCP connections
@@ -386,7 +406,7 @@ class GopherTransport(Transport):
             # Simulate receiving messages
             pass
     
-    async def _receive_udp(self) -> AsyncGenerator[MCPJSONRPCMessage, None]:
+    async def _receive_udp(self) -> AsyncGenerator[JSONRPCMessage, None]:
         """Receive messages from UDP."""
         # TODO: Implement UDP receiving
         # This would read messages from UDP connections
@@ -478,7 +498,7 @@ class GopherTransport(Transport):
         for session_id in expired_sessions:
             self.remove_session(session_id)
     
-    async def simulate_receive(self, message: MCPJSONRPCMessage) -> MCPJSONRPCMessage:
+    async def simulate_receive(self, message: JSONRPCMessage) -> JSONRPCMessage:
         """
         Simulate receiving a message (for testing).
         
