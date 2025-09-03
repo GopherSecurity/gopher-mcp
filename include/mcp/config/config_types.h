@@ -211,7 +211,7 @@ inline void NodeConfig::validate() const {
     
     // Validate ID contains only valid characters
     for (char c : id_val) {
-        if (!std::isalnum(c) && c != '-' && c != '_') {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
             throw ConfigValidationError("node.id", 
                 "Node ID can only contain alphanumeric characters, dashes, and underscores");
         }
