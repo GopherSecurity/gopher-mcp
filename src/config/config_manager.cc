@@ -500,7 +500,22 @@ std::string ConfigurationManager::generateVersionId() {
     auto time_t = std::chrono::system_clock::to_time_t(now);
     
     std::stringstream ss;
-    ss << std::put_time(std::localtime(&time_t), "%Y%m%d-%H%M%S");
+    
+    // Use gmtime with a static mutex for thread safety
+    // gmtime is not guaranteed thread-safe but safer than localtime
+    static std::mutex time_mutex;
+    {
+        std::lock_guard<std::mutex> lock(time_mutex);
+        struct tm* tm_ptr = std::gmtime(&time_t);
+        if (tm_ptr) {
+            ss << std::put_time(tm_ptr, "%Y%m%d-%H%M%S");
+        } else {
+            // Fallback to timestamp if gmtime fails
+            auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()).count();
+            ss << millis;
+        }
+    }
     
     // Add random component for uniqueness
     std::random_device rd;
