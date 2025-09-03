@@ -1463,5 +1463,3 @@ public:
 
 } // namespace config
 } // namespace mcp
-
-#endif // MCP_CONFIG_TYPES_H
