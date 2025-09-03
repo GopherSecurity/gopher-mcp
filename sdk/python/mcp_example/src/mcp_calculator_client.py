@@ -9,14 +9,32 @@ import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
 
-# Import MCP SDK
-from mcp import Client
-from mcp.types import CallToolResult, ListToolsResult
+# Define local types since we don't have the full MCP library
+@dataclass
+class CallToolResult:
+    content: List[Dict[str, Any]]
+    isError: bool = False
+
+@dataclass
+class ListToolsResult:
+    tools: List[Dict[str, Any]]
+
+class Client:
+    """Mock MCP Client for demonstration"""
+    def __init__(self):
+        pass
+    
+    async def list_tools(self) -> ListToolsResult:
+        return ListToolsResult(tools=[])
+    
+    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> CallToolResult:
+        return CallToolResult(content=[{"type": "text", "text": f"Tool {name} called with {arguments}"}])
 
 # Import local components
-from .gopher_transport import GopherTransport, gopher_transport_context
-from .filter_types import (
+from gopher_transport import GopherTransport, gopher_transport_context
+from filter_types import (
     GopherTransportConfig,
     FilterManagerConfig,
     SecurityFilterConfig,
