@@ -6,6 +6,7 @@
 #include "mcp/config/config_manager.h"
 #include "mcp/config/parse_error.h"
 #include "mcp/config/units.h"
+#include "mcp/config/types_with_validation.h"
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -418,12 +419,18 @@ nlohmann::json ConfigurationManager::mergeConfigurations() {
     nlohmann::json merged;
     
     // Merge in priority order (lowest to highest)
+    // TODO: Implement deterministic merge semantics with:
+    // - Named resource merge-by-name support
+    // - Conflict detection and reporting
+    // - Array merge strategies (replace/append/merge-by-key)
+    // Current implementation uses merge_patch which replaces arrays wholesale
     for (const auto& source : sources_) {
         if (source->hasConfiguration()) {
             try {
                 auto config = source->loadConfiguration();
                 if (!config.empty()) {
-                    // Deep merge
+                    // Deep merge using JSON merge patch (RFC 7396)
+                    // Note: Arrays are replaced entirely, not merged
                     merged.merge_patch(config);
                 }
             } catch (const std::exception& e) {
@@ -441,27 +448,48 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(const nlohmann::json& co
     snapshot.version_id = generateVersionId();
     snapshot.timestamp = std::chrono::system_clock::now();
     
-    // Parse bootstrap configuration
+    // Use a mutable copy of validation context for this parse operation
+    ValidationContext ctx = validation_context_;
+    
+    // Parse bootstrap configuration with validation
     snapshot.bootstrap = std::make_shared<BootstrapConfig>();
+    
+    // Check for unknown fields at root level
+    static const std::set<std::string> root_fields = {
+        "node", "admin", "version", "server", "_config_path"
+    };
+    validateJsonFields(config, root_fields, "", ctx);
+    
     if (config.contains("node")) {
-        snapshot.bootstrap->node = NodeConfig::fromJson(config["node"]);
+        snapshot.bootstrap->node = NodeConfigWithValidation::fromJson(config["node"], ctx);
     }
     if (config.contains("admin")) {
-        snapshot.bootstrap->admin = AdminConfig::fromJson(config["admin"]);
+        snapshot.bootstrap->admin = AdminConfigWithValidation::fromJson(config["admin"], ctx);
     }
     if (config.contains("version")) {
-        snapshot.bootstrap->version = config["version"].get<std::string>();
+        try {
+            snapshot.bootstrap->version = config["version"].get<std::string>();
+        } catch (const nlohmann::json::exception& e) {
+            throw ConfigValidationError("version", "Type error: " + std::string(e.what()));
+        }
     }
     
-    // Parse server configuration
+    // Parse server configuration with validation
     snapshot.server = std::make_shared<ServerConfig>();
     if (config.contains("server")) {
-        *snapshot.server = ServerConfig::fromJson(config["server"]);
+        *snapshot.server = ServerConfigWithValidation::fromJson(config["server"], ctx);
     }
     
     // Validate configurations
     snapshot.bootstrap->validate();
     snapshot.server->validate();
+    
+    // Report on unknown fields if any were encountered
+    if (ctx.hasUnknownFields()) {
+        const auto& unknownFields = ctx.getUnknownFields();
+        // These would have already been reported via the warning handler
+        // during parsing based on the policy
+    }
     
     return snapshot;
 }
