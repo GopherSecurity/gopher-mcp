@@ -12,10 +12,12 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <memory>
 #include <stdexcept>
 #include <sstream>
 #include <chrono>
+#include <cctype>
 
 #include <nlohmann/json.hpp>
 
@@ -544,6 +546,918 @@ struct BootstrapConfig {
     
     bool operator!=(const BootstrapConfig& other) const {
         return !(*this == other);
+    }
+};
+
+/**
+ * @brief Configuration version management
+ * 
+ * Handles semantic versioning for configuration schemas
+ */
+class ConfigVersion {
+public:
+    ConfigVersion() : major_(1), minor_(0), patch_(0) {}
+    
+    ConfigVersion(int major, int minor, int patch = 0)
+        : major_(major), minor_(minor), patch_(patch) {}
+    
+    /**
+     * @brief Parse version string (e.g., "1.2.3" or "v1.2.3")
+     */
+    static ConfigVersion parse(const std::string& version) {
+        std::string v = version;
+        // Remove leading 'v' if present
+        if (!v.empty() && v[0] == 'v') {
+            v = v.substr(1);
+        }
+        
+        int major = 0, minor = 0, patch = 0;
+        std::istringstream iss(v);
+        char dot1, dot2;
+        
+        iss >> major >> dot1 >> minor;
+        if (dot1 != '.') {
+            throw ConfigValidationError("version", "Invalid version format: " + version);
+        }
+        
+        if (iss >> dot2 >> patch) {
+            if (dot2 != '.') {
+                throw ConfigValidationError("version", "Invalid version format: " + version);
+            }
+        }
+        
+        return ConfigVersion(major, minor, patch);
+    }
+    
+    std::string toString() const {
+        std::ostringstream oss;
+        oss << major_ << "." << minor_ << "." << patch_;
+        return oss.str();
+    }
+    
+    bool operator==(const ConfigVersion& other) const {
+        return major_ == other.major_ && minor_ == other.minor_ && patch_ == other.patch_;
+    }
+    
+    bool operator!=(const ConfigVersion& other) const {
+        return !(*this == other);
+    }
+    
+    bool operator<(const ConfigVersion& other) const {
+        if (major_ != other.major_) return major_ < other.major_;
+        if (minor_ != other.minor_) return minor_ < other.minor_;
+        return patch_ < other.patch_;
+    }
+    
+    bool operator<=(const ConfigVersion& other) const {
+        return (*this < other) || (*this == other);
+    }
+    
+    bool operator>(const ConfigVersion& other) const {
+        return !(*this <= other);
+    }
+    
+    bool operator>=(const ConfigVersion& other) const {
+        return !(*this < other);
+    }
+    
+    bool isCompatibleWith(const ConfigVersion& required) const {
+        // Same major version and at least the required minor version
+        return major_ == required.major_ && *this >= required;
+    }
+    
+    int major() const { return major_; }
+    int minor() const { return minor_; }
+    int patch() const { return patch_; }
+
+private:
+    int major_;
+    int minor_;
+    int patch_;
+};
+
+/**
+ * @brief Filter configuration
+ * 
+ * Defines a single filter in the processing chain
+ */
+struct FilterConfig {
+    /// Filter type (e.g., "buffer", "rate_limit", "tap")
+    std::string type;
+    
+    /// Unique name for this filter instance
+    std::string name;
+    
+    /// Filter-specific configuration as JSON
+    nlohmann::json config = nlohmann::json::object();
+    
+    /// Whether this filter is enabled
+    bool enabled = true;
+    
+    /**
+     * @brief Validate the filter configuration
+     */
+    void validate() const {
+        if (type.empty()) {
+            throw ConfigValidationError("filter.type", "Filter type cannot be empty");
+        }
+        
+        if (name.empty()) {
+            throw ConfigValidationError("filter.name", "Filter name cannot be empty");
+        }
+        
+        // Name should be unique within a chain (validated at chain level)
+        // Type should be a valid registered filter type (validated at runtime)
+    }
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["type"] = type;
+        j["name"] = name;
+        j["config"] = config;
+        j["enabled"] = enabled;
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static FilterConfig fromJson(const nlohmann::json& j) {
+        FilterConfig fc;
+        
+        if (j.contains("type")) {
+            fc.type = j["type"].get<std::string>();
+        }
+        
+        if (j.contains("name")) {
+            fc.name = j["name"].get<std::string>();
+        }
+        
+        if (j.contains("config")) {
+            fc.config = j["config"];
+        }
+        
+        if (j.contains("enabled")) {
+            fc.enabled = j["enabled"].get<bool>();
+        }
+        
+        return fc;
+    }
+    
+    bool operator==(const FilterConfig& other) const {
+        return type == other.type && 
+               name == other.name &&
+               config == other.config &&
+               enabled == other.enabled;
+    }
+    
+    bool operator!=(const FilterConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief Filter chain configuration
+ * 
+ * Defines a named sequence of filters for a transport
+ */
+struct FilterChainConfig {
+    /// Chain name (e.g., "default", "http", "grpc")
+    std::string name = "default";
+    
+    /// Transport type this chain applies to
+    std::string transport_type = "tcp";
+    
+    /// Ordered list of filters in the chain
+    std::vector<FilterConfig> filters;
+    
+    /**
+     * @brief Validate the filter chain configuration
+     */
+    void validate() const {
+        if (name.empty()) {
+            throw ConfigValidationError("filter_chain.name", "Filter chain name cannot be empty");
+        }
+        
+        if (transport_type.empty()) {
+            throw ConfigValidationError("filter_chain.transport_type", 
+                "Transport type cannot be empty");
+        }
+        
+        // Validate each filter
+        for (size_t i = 0; i < filters.size(); ++i) {
+            try {
+                filters[i].validate();
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError(
+                    "filter_chain.filters[" + std::to_string(i) + "]." + e.field(), 
+                    e.reason());
+            }
+        }
+        
+        // Check for duplicate filter names within the chain
+        std::map<std::string, size_t> name_counts;
+        for (const auto& filter : filters) {
+            if (++name_counts[filter.name] > 1) {
+                throw ConfigValidationError("filter_chain.filters", 
+                    "Duplicate filter name: " + filter.name);
+            }
+        }
+    }
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["name"] = name;
+        j["transport_type"] = transport_type;
+        j["filters"] = nlohmann::json::array();
+        
+        for (const auto& filter : filters) {
+            j["filters"].push_back(filter.toJson());
+        }
+        
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static FilterChainConfig fromJson(const nlohmann::json& j) {
+        FilterChainConfig fcc;
+        
+        if (j.contains("name")) {
+            fcc.name = j["name"].get<std::string>();
+        }
+        
+        if (j.contains("transport_type")) {
+            fcc.transport_type = j["transport_type"].get<std::string>();
+        }
+        
+        if (j.contains("filters") && j["filters"].is_array()) {
+            for (const auto& filter_json : j["filters"]) {
+                fcc.filters.push_back(FilterConfig::fromJson(filter_json));
+            }
+        }
+        
+        return fcc;
+    }
+    
+    /**
+     * @brief Merge another filter chain configuration
+     */
+    void merge(const FilterChainConfig& other) {
+        if (!other.name.empty() && other.name != "default") {
+            name = other.name;
+        }
+        
+        if (!other.transport_type.empty() && other.transport_type != "tcp") {
+            transport_type = other.transport_type;
+        }
+        
+        // For filters, replace the entire list if other has filters
+        if (!other.filters.empty()) {
+            filters = other.filters;
+        }
+    }
+    
+    bool operator==(const FilterChainConfig& other) const {
+        return name == other.name &&
+               transport_type == other.transport_type &&
+               filters == other.filters;
+    }
+    
+    bool operator!=(const FilterChainConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief TLS configuration settings
+ */
+struct TLSConfig {
+    /// Whether TLS is enabled
+    bool enabled = false;
+    
+    /// Path to certificate file
+    std::string cert_file;
+    
+    /// Path to private key file
+    std::string key_file;
+    
+    /// Path to CA certificate file for client verification
+    std::string ca_file;
+    
+    /// Whether to verify client certificates
+    bool verify_client = false;
+    
+    /// Minimum TLS version (e.g., "1.2", "1.3")
+    std::string min_version = "1.2";
+    
+    /// Cipher suites (empty means use defaults)
+    std::vector<std::string> cipher_suites;
+    
+    /**
+     * @brief Validate TLS configuration
+     */
+    void validate() const {
+        if (enabled) {
+            if (cert_file.empty()) {
+                throw ConfigValidationError("tls.cert_file", 
+                    "Certificate file is required when TLS is enabled");
+            }
+            
+            if (key_file.empty()) {
+                throw ConfigValidationError("tls.key_file", 
+                    "Private key file is required when TLS is enabled");
+            }
+            
+            if (verify_client && ca_file.empty()) {
+                throw ConfigValidationError("tls.ca_file", 
+                    "CA file is required when client verification is enabled");
+            }
+            
+            // Validate TLS version
+            if (min_version != "1.0" && min_version != "1.1" && 
+                min_version != "1.2" && min_version != "1.3") {
+                throw ConfigValidationError("tls.min_version", 
+                    "Invalid TLS version: " + min_version);
+            }
+        }
+    }
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["enabled"] = enabled;
+        j["cert_file"] = cert_file;
+        j["key_file"] = key_file;
+        j["ca_file"] = ca_file;
+        j["verify_client"] = verify_client;
+        j["min_version"] = min_version;
+        j["cipher_suites"] = cipher_suites;
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static TLSConfig fromJson(const nlohmann::json& j) {
+        TLSConfig tls;
+        
+        if (j.contains("enabled")) {
+            tls.enabled = j["enabled"].get<bool>();
+        }
+        
+        if (j.contains("cert_file")) {
+            tls.cert_file = j["cert_file"].get<std::string>();
+        }
+        
+        if (j.contains("key_file")) {
+            tls.key_file = j["key_file"].get<std::string>();
+        }
+        
+        if (j.contains("ca_file")) {
+            tls.ca_file = j["ca_file"].get<std::string>();
+        }
+        
+        if (j.contains("verify_client")) {
+            tls.verify_client = j["verify_client"].get<bool>();
+        }
+        
+        if (j.contains("min_version")) {
+            tls.min_version = j["min_version"].get<std::string>();
+        }
+        
+        if (j.contains("cipher_suites") && j["cipher_suites"].is_array()) {
+            tls.cipher_suites = j["cipher_suites"].get<std::vector<std::string>>();
+        }
+        
+        return tls;
+    }
+    
+    bool operator==(const TLSConfig& other) const {
+        return enabled == other.enabled &&
+               cert_file == other.cert_file &&
+               key_file == other.key_file &&
+               ca_file == other.ca_file &&
+               verify_client == other.verify_client &&
+               min_version == other.min_version &&
+               cipher_suites == other.cipher_suites;
+    }
+    
+    bool operator!=(const TLSConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief Transport configuration
+ * 
+ * Defines a transport endpoint with its filter chain
+ */
+struct TransportConfig {
+    /// Transport type (e.g., "tcp", "stdio", "http", "https")
+    std::string type = "tcp";
+    
+    /// Bind address (for network transports)
+    std::string address = "127.0.0.1";
+    
+    /// Port number (for network transports)
+    uint16_t port = 3333;
+    
+    /// TLS configuration (for secure transports)
+    TLSConfig tls;
+    
+    /// Filter chain name to use
+    std::string filter_chain = "default";
+    
+    /// Whether this transport is enabled
+    bool enabled = true;
+    
+    /**
+     * @brief Validate transport configuration
+     */
+    void validate() const {
+        if (type.empty()) {
+            throw ConfigValidationError("transport.type", "Transport type cannot be empty");
+        }
+        
+        // Validate network transports
+        if (type == "tcp" || type == "http" || type == "https") {
+            if (address.empty()) {
+                throw ConfigValidationError("transport.address", 
+                    "Address is required for network transport");
+            }
+            
+            if (port == 0) {
+                throw ConfigValidationError("transport.port", 
+                    "Valid port is required for network transport");
+            }
+        }
+        
+        // HTTPS requires TLS
+        if (type == "https" && !tls.enabled) {
+            throw ConfigValidationError("transport.tls", 
+                "TLS must be enabled for HTTPS transport");
+        }
+        
+        // Validate TLS if configured
+        if (tls.enabled) {
+            tls.validate();
+        }
+        
+        if (filter_chain.empty()) {
+            throw ConfigValidationError("transport.filter_chain", 
+                "Filter chain name cannot be empty");
+        }
+    }
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["type"] = type;
+        j["address"] = address;
+        j["port"] = port;
+        j["tls"] = tls.toJson();
+        j["filter_chain"] = filter_chain;
+        j["enabled"] = enabled;
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static TransportConfig fromJson(const nlohmann::json& j) {
+        TransportConfig tc;
+        
+        if (j.contains("type")) {
+            tc.type = j["type"].get<std::string>();
+        }
+        
+        if (j.contains("address")) {
+            tc.address = j["address"].get<std::string>();
+        }
+        
+        if (j.contains("port")) {
+            tc.port = j["port"].get<uint16_t>();
+        }
+        
+        if (j.contains("tls")) {
+            tc.tls = TLSConfig::fromJson(j["tls"]);
+        }
+        
+        if (j.contains("filter_chain")) {
+            tc.filter_chain = j["filter_chain"].get<std::string>();
+        }
+        
+        if (j.contains("enabled")) {
+            tc.enabled = j["enabled"].get<bool>();
+        }
+        
+        return tc;
+    }
+    
+    bool operator==(const TransportConfig& other) const {
+        return type == other.type &&
+               address == other.address &&
+               port == other.port &&
+               tls == other.tls &&
+               filter_chain == other.filter_chain &&
+               enabled == other.enabled;
+    }
+    
+    bool operator!=(const TransportConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief MCP protocol capabilities configuration
+ */
+struct CapabilitiesConfig {
+    /// Supported MCP protocol features
+    std::vector<std::string> features = {"tools", "prompts", "resources"};
+    
+    /// Maximum request size in bytes
+    size_t max_request_size = 10 * 1024 * 1024; // 10MB
+    
+    /// Maximum response size in bytes  
+    size_t max_response_size = 10 * 1024 * 1024; // 10MB
+    
+    /// Request timeout in milliseconds
+    uint32_t request_timeout_ms = 30000; // 30 seconds
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["features"] = features;
+        j["max_request_size"] = max_request_size;
+        j["max_response_size"] = max_response_size;
+        j["request_timeout_ms"] = request_timeout_ms;
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static CapabilitiesConfig fromJson(const nlohmann::json& j) {
+        CapabilitiesConfig cc;
+        
+        if (j.contains("features") && j["features"].is_array()) {
+            cc.features = j["features"].get<std::vector<std::string>>();
+        }
+        
+        if (j.contains("max_request_size")) {
+            cc.max_request_size = j["max_request_size"].get<size_t>();
+        }
+        
+        if (j.contains("max_response_size")) {
+            cc.max_response_size = j["max_response_size"].get<size_t>();
+        }
+        
+        if (j.contains("request_timeout_ms")) {
+            cc.request_timeout_ms = j["request_timeout_ms"].get<uint32_t>();
+        }
+        
+        return cc;
+    }
+    
+    bool operator==(const CapabilitiesConfig& other) const {
+        return features == other.features &&
+               max_request_size == other.max_request_size &&
+               max_response_size == other.max_response_size &&
+               request_timeout_ms == other.request_timeout_ms;
+    }
+    
+    bool operator!=(const CapabilitiesConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief Server configuration
+ * 
+ * Comprehensive server settings including protocol, sessions, and resources
+ */
+struct ServerConfig {
+    /// Server name
+    std::string name = "gopher-mcp-server";
+    
+    /// Server version
+    ConfigVersion version = ConfigVersion(1, 0, 0);
+    
+    /// MCP protocol capabilities
+    CapabilitiesConfig capabilities;
+    
+    /// Maximum concurrent sessions
+    uint32_t max_sessions = 1000;
+    
+    /// Session idle timeout in milliseconds (0 = no timeout)
+    uint32_t session_timeout_ms = 300000; // 5 minutes
+    
+    /// Worker thread pool size (0 = auto-detect)
+    uint32_t worker_threads = 0;
+    
+    /// Event loop thread count
+    uint32_t event_threads = 1;
+    
+    /// List of transport configurations
+    std::vector<TransportConfig> transports;
+    
+    /// List of filter chain configurations
+    std::vector<FilterChainConfig> filter_chains;
+    
+    /**
+     * @brief Validate server configuration
+     */
+    void validate() const {
+        if (name.empty()) {
+            throw ConfigValidationError("server.name", "Server name cannot be empty");
+        }
+        
+        if (max_sessions == 0) {
+            throw ConfigValidationError("server.max_sessions", 
+                "Maximum sessions must be greater than 0");
+        }
+        
+        if (event_threads == 0) {
+            throw ConfigValidationError("server.event_threads", 
+                "Event threads must be greater than 0");
+        }
+        
+        // Validate transports
+        for (size_t i = 0; i < transports.size(); ++i) {
+            try {
+                transports[i].validate();
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError(
+                    "server.transports[" + std::to_string(i) + "]." + e.field(),
+                    e.reason());
+            }
+        }
+        
+        // Validate filter chains
+        for (size_t i = 0; i < filter_chains.size(); ++i) {
+            try {
+                filter_chains[i].validate();
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError(
+                    "server.filter_chains[" + std::to_string(i) + "]." + e.field(),
+                    e.reason());
+            }
+        }
+        
+        // Check that referenced filter chains exist
+        std::set<std::string> chain_names;
+        for (const auto& chain : filter_chains) {
+            chain_names.insert(chain.name);
+        }
+        
+        for (const auto& transport : transports) {
+            if (chain_names.find(transport.filter_chain) == chain_names.end()) {
+                throw ConfigValidationError("server.transports", 
+                    "Transport references non-existent filter chain: " + transport.filter_chain);
+            }
+        }
+    }
+    
+    /**
+     * @brief Convert to JSON
+     */
+    nlohmann::json toJson() const {
+        nlohmann::json j;
+        j["name"] = name;
+        j["version"] = version.toString();
+        j["capabilities"] = capabilities.toJson();
+        j["max_sessions"] = max_sessions;
+        j["session_timeout_ms"] = session_timeout_ms;
+        j["worker_threads"] = worker_threads;
+        j["event_threads"] = event_threads;
+        
+        j["transports"] = nlohmann::json::array();
+        for (const auto& transport : transports) {
+            j["transports"].push_back(transport.toJson());
+        }
+        
+        j["filter_chains"] = nlohmann::json::array();
+        for (const auto& chain : filter_chains) {
+            j["filter_chains"].push_back(chain.toJson());
+        }
+        
+        return j;
+    }
+    
+    /**
+     * @brief Create from JSON
+     */
+    static ServerConfig fromJson(const nlohmann::json& j) {
+        ServerConfig sc;
+        
+        if (j.contains("name")) {
+            sc.name = j["name"].get<std::string>();
+        }
+        
+        if (j.contains("version")) {
+            sc.version = ConfigVersion::parse(j["version"].get<std::string>());
+        }
+        
+        if (j.contains("capabilities")) {
+            sc.capabilities = CapabilitiesConfig::fromJson(j["capabilities"]);
+        }
+        
+        if (j.contains("max_sessions")) {
+            sc.max_sessions = j["max_sessions"].get<uint32_t>();
+        }
+        
+        if (j.contains("session_timeout_ms")) {
+            sc.session_timeout_ms = j["session_timeout_ms"].get<uint32_t>();
+        }
+        
+        if (j.contains("worker_threads")) {
+            sc.worker_threads = j["worker_threads"].get<uint32_t>();
+        }
+        
+        if (j.contains("event_threads")) {
+            sc.event_threads = j["event_threads"].get<uint32_t>();
+        }
+        
+        if (j.contains("transports") && j["transports"].is_array()) {
+            for (const auto& transport_json : j["transports"]) {
+                sc.transports.push_back(TransportConfig::fromJson(transport_json));
+            }
+        }
+        
+        if (j.contains("filter_chains") && j["filter_chains"].is_array()) {
+            for (const auto& chain_json : j["filter_chains"]) {
+                sc.filter_chains.push_back(FilterChainConfig::fromJson(chain_json));
+            }
+        }
+        
+        return sc;
+    }
+    
+    /**
+     * @brief Merge another server configuration
+     */
+    void merge(const ServerConfig& other) {
+        if (!other.name.empty() && other.name != "gopher-mcp-server") {
+            name = other.name;
+        }
+        
+        if (other.version != ConfigVersion(1, 0, 0)) {
+            version = other.version;
+        }
+        
+        // Merge capabilities
+        if (!other.capabilities.features.empty()) {
+            capabilities = other.capabilities;
+        }
+        
+        if (other.max_sessions != 1000) {
+            max_sessions = other.max_sessions;
+        }
+        
+        if (other.session_timeout_ms != 300000) {
+            session_timeout_ms = other.session_timeout_ms;
+        }
+        
+        if (other.worker_threads != 0) {
+            worker_threads = other.worker_threads;
+        }
+        
+        if (other.event_threads != 1) {
+            event_threads = other.event_threads;
+        }
+        
+        // Replace transports and filter chains if provided
+        if (!other.transports.empty()) {
+            transports = other.transports;
+        }
+        
+        if (!other.filter_chains.empty()) {
+            filter_chains = other.filter_chains;
+        }
+    }
+    
+    bool operator==(const ServerConfig& other) const {
+        return name == other.name &&
+               version == other.version &&
+               capabilities == other.capabilities &&
+               max_sessions == other.max_sessions &&
+               session_timeout_ms == other.session_timeout_ms &&
+               worker_threads == other.worker_threads &&
+               event_threads == other.event_threads &&
+               transports == other.transports &&
+               filter_chains == other.filter_chains;
+    }
+    
+    bool operator!=(const ServerConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * @brief Factory for creating default configurations
+ */
+class ConfigFactory {
+public:
+    /**
+     * @brief Create default server configuration
+     */
+    static ServerConfig createDefaultServerConfig() {
+        ServerConfig config;
+        
+        // Add default TCP transport
+        TransportConfig tcp;
+        tcp.type = "tcp";
+        tcp.address = "127.0.0.1";
+        tcp.port = 3333;
+        tcp.filter_chain = "default";
+        config.transports.push_back(tcp);
+        
+        // Add default filter chain
+        FilterChainConfig chain;
+        chain.name = "default";
+        chain.transport_type = "tcp";
+        
+        // Add basic filters
+        FilterConfig buffer_filter;
+        buffer_filter.type = "buffer";
+        buffer_filter.name = "request_buffer";
+        buffer_filter.config["max_size"] = 1024 * 1024; // 1MB
+        chain.filters.push_back(buffer_filter);
+        
+        config.filter_chains.push_back(chain);
+        
+        return config;
+    }
+    
+    /**
+     * @brief Create HTTP server configuration
+     */
+    static ServerConfig createHttpServerConfig() {
+        ServerConfig config = createDefaultServerConfig();
+        config.name = "gopher-mcp-http-server";
+        
+        // Replace with HTTP transport
+        config.transports.clear();
+        TransportConfig http;
+        http.type = "http";
+        http.address = "0.0.0.0";
+        http.port = 8080;
+        http.filter_chain = "http";
+        config.transports.push_back(http);
+        
+        // Add HTTP filter chain
+        FilterChainConfig http_chain;
+        http_chain.name = "http";
+        http_chain.transport_type = "http";
+        
+        // HTTP codec filter
+        FilterConfig http_codec;
+        http_codec.type = "http_codec";
+        http_codec.name = "http_codec";
+        http_codec.config["max_header_size"] = 8192;
+        http_chain.filters.push_back(http_codec);
+        
+        // SSE codec filter
+        FilterConfig sse_codec;
+        sse_codec.type = "sse_codec";
+        sse_codec.name = "sse_codec";
+        http_chain.filters.push_back(sse_codec);
+        
+        config.filter_chains.push_back(http_chain);
+        
+        return config;
+    }
+    
+    /**
+     * @brief Create secure HTTPS server configuration
+     */
+    static ServerConfig createHttpsServerConfig() {
+        ServerConfig config = createHttpServerConfig();
+        config.name = "gopher-mcp-https-server";
+        
+        // Update transport to HTTPS with TLS
+        config.transports[0].type = "https";
+        config.transports[0].port = 8443;
+        config.transports[0].tls.enabled = true;
+        config.transports[0].tls.cert_file = "/etc/mcp/server.crt";
+        config.transports[0].tls.key_file = "/etc/mcp/server.key";
+        config.transports[0].tls.min_version = "1.2";
+        
+        return config;
     }
 };
 
