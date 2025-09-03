@@ -12,13 +12,65 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
-# Import MCP SDK
-from mcp import McpServer
-from mcp.types import Tool, TextContent
-
 # Import local components
-from .gopher_transport import GopherTransport, gopher_transport_context
-from .filter_types import (
+from gopher_transport import GopherTransport, gopher_transport_context
+
+# Define local types since we don't have the full MCP library
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+@dataclass
+class Tool:
+    name: str
+    description: str
+    inputSchema: Dict[str, Any]
+
+@dataclass
+class TextContent:
+    type: str = "text"
+    text: str = ""
+
+class McpServer:
+    """Mock MCP Server for demonstration"""
+    def __init__(self, name: str, version: str):
+        self.name = name
+        self.version = version
+        self.tools = []
+        self.tool_handlers = {}
+    
+    def list_tools(self) -> List[Tool]:
+        return self.tools
+    
+    def call_tool(self, name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+        if name in self.tool_handlers:
+            return self.tool_handlers[name](arguments)
+        return [TextContent(text=f"Tool {name} called with {arguments}")]
+    
+    def tool(self, name: str):
+        """Decorator for registering tools"""
+        def decorator(func):
+            self.tools.append(Tool(
+                name=name,
+                description=f"Tool: {name}",
+                inputSchema={"type": "object", "properties": {}}
+            ))
+            self.tool_handlers[name] = func
+            return func
+        return decorator
+    
+    async def connect(self, transport):
+        """Connect to transport"""
+        self.transport = transport
+        return True
+    
+    async def start(self):
+        """Start the server"""
+        pass
+    
+    async def stop(self):
+        """Stop the server"""
+        pass
+from filter_types import (
     GopherTransportConfig,
     FilterManagerConfig,
     SecurityFilterConfig,
@@ -153,7 +205,6 @@ class CalculatorServer:
         """Create transport configuration with comprehensive filters."""
         return GopherTransportConfig(
             name="calculator-server-transport",
-            version="1.0.0",
             protocol="tcp",
             host="localhost",
             port=8080,
