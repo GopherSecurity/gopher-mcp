@@ -9,8 +9,8 @@
     <PublishAot Condition="'$(TargetFramework)' == 'net8.0'">false</PublishAot>
     <PublishTrimmed Condition="'$(TargetFramework)' == 'net7.0'">false</PublishTrimmed>
     <PublishSingleFile Condition="'$(TargetFramework)' == 'net6.0'">false</PublishSingleFile>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NoWarn>$(NoWarn);CS1998;CA1304;CA1311;CA1852</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

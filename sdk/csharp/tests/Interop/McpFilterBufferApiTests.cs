@@ -7,6 +7,7 @@ using GopherMcp.Interop;
 using static GopherMcp.Interop.McpTypes;
 using static GopherMcp.Interop.McpFilterBufferApi;
 using static GopherMcp.Interop.McpHandles;
+using McpBufferPoolHandle = GopherMcp.Interop.McpFilterApi.McpBufferPoolHandle;
 
 namespace GopherMcp.Tests.Interop
 {
@@ -57,7 +58,7 @@ namespace GopherMcp.Tests.Interop
             var reservation = new mcp_buffer_reservation_t();
             reservation.data.Should().Be(IntPtr.Zero);
             reservation.capacity.Should().Be(UIntPtr.Zero);
-            reservation.buffer.IsInvalid.Should().BeTrue();
+            reservation.buffer.Should().BeNull();
             reservation.reservation_id.Should().Be(0);
         }
 
@@ -100,8 +101,8 @@ namespace GopherMcp.Tests.Interop
             config.buffer_size.Should().Be(UIntPtr.Zero);
             config.max_buffers.Should().Be(UIntPtr.Zero);
             config.prealloc_count.Should().Be(UIntPtr.Zero);
-            config.use_thread_local.Should().Be(0);
-            config.zero_on_alloc.Should().Be(0);
+            ((bool)config.use_thread_local).Should().BeFalse();
+            ((bool)config.zero_on_alloc).Should().BeFalse();
         }
 
         #endregion
@@ -625,7 +626,7 @@ namespace GopherMcp.Tests.Interop
             // Verify buffer pool create ex function
             var method = typeof(McpFilterBufferApi).GetMethod("mcp_buffer_pool_create_ex");
             method.Should().NotBeNull();
-            method.ReturnType.Should().Be(typeof(McpHandles.McpBufferPoolHandle));
+            method.ReturnType.Should().Be(typeof(McpBufferPoolHandle));
             
             var parameters = method.GetParameters();
             parameters.Should().HaveCount(1);
@@ -642,7 +643,7 @@ namespace GopherMcp.Tests.Interop
             
             var parameters = method.GetParameters();
             parameters.Should().HaveCount(4);
-            parameters[0].ParameterType.Should().Be(typeof(McpHandles.McpBufferPoolHandle));
+            parameters[0].ParameterType.Should().Be(typeof(McpBufferPoolHandle));
             parameters[1].IsOut.Should().BeTrue();
             parameters[2].IsOut.Should().BeTrue();
             parameters[3].IsOut.Should().BeTrue();
@@ -658,7 +659,7 @@ namespace GopherMcp.Tests.Interop
             
             var parameters = method.GetParameters();
             parameters.Should().HaveCount(2);
-            parameters[0].ParameterType.Should().Be(typeof(McpHandles.McpBufferPoolHandle));
+            parameters[0].ParameterType.Should().Be(typeof(McpBufferPoolHandle));
             parameters[1].ParameterType.Should().Be(typeof(UIntPtr));
         }
 
@@ -812,7 +813,7 @@ namespace GopherMcp.Tests.Interop
         public void Buffer_Pool_Handle_Should_Be_Defined()
         {
             // Verify buffer pool handle type exists
-            typeof(McpHandles.McpBufferPoolHandle).Should().NotBeNull();
+            typeof(McpBufferPoolHandle).Should().NotBeNull();
         }
 
         [Fact]
@@ -872,15 +873,15 @@ namespace GopherMcp.Tests.Interop
                 buffer_size = new UIntPtr(4096),
                 max_buffers = new UIntPtr(100),
                 prealloc_count = new UIntPtr(10),
-                use_thread_local = 1,
-                zero_on_alloc = 0
+                use_thread_local = mcp_bool_t.True,
+                zero_on_alloc = mcp_bool_t.False
             };
 
             config.buffer_size.Should().Be(new UIntPtr(4096));
             config.max_buffers.Should().Be(new UIntPtr(100));
             config.prealloc_count.Should().Be(new UIntPtr(10));
-            config.use_thread_local.Should().Be(1);
-            config.zero_on_alloc.Should().Be(0);
+            ((bool)config.use_thread_local).Should().BeTrue();
+            ((bool)config.zero_on_alloc).Should().BeFalse();
         }
 
         #endregion
