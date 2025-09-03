@@ -1,0 +1,37 @@
+# Core dependencies for the Python SDK
+# These are the minimal dependencies required for basic functionality
+
+# No external dependencies required - the SDK uses only Python standard library
+# The following are optional dependencies for enhanced functionality:
+
+# For async operations (built-in asyncio is sufficient)
+# asyncio
+
+# For type checking and development
+# mypy>=1.0.0
+# flake8>=5.0.0
+
+# For testing (built-in unittest is sufficient)
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+
+# For MCP integration (if using the mcp-example)
+# mcp>=1.0.0
+
+# For JSON handling (built-in json is sufficient)
+# ujson>=5.0.0  # Faster JSON parsing
+
+# For logging (built-in logging is sufficient)
+# structlog>=23.0.0  # Structured logging
+
+# For configuration management
+# pydantic>=2.0.0  # Data validation and settings
+
+# For monitoring and observability
+# prometheus-client>=0.16.0  # Metrics collection
+# opentelemetry-api>=1.20.0  # Tracing
+
+# For development and testing
+# black>=23.0.0  # Code formatting
+# isort>=5.12.0  # Import sorting
+# pre-commit>=3.0.0  # Git hooks
