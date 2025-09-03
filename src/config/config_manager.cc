@@ -444,10 +444,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(const nlohmann::json& co
     // Parse bootstrap configuration
     snapshot.bootstrap = std::make_shared<BootstrapConfig>();
     if (config.contains("node")) {
-        *snapshot.bootstrap->node = NodeConfig::fromJson(config["node"]);
+        snapshot.bootstrap->node = NodeConfig::fromJson(config["node"]);
     }
     if (config.contains("admin")) {
-        *snapshot.bootstrap->admin = AdminConfig::fromJson(config["admin"]);
+        snapshot.bootstrap->admin = AdminConfig::fromJson(config["admin"]);
     }
     if (config.contains("version")) {
         snapshot.bootstrap->version = config["version"].get<std::string>();
