@@ -22,6 +22,16 @@
 #include <nlohmann/json.hpp>
 #include "mcp/config/units.h"  // For unit parsing
 
+// Helper macro for safe JSON field extraction with error context
+#define SAFE_GET_JSON_FIELD(json, field_name, target, error_path) \
+    do { \
+        try { \
+            target = json[field_name].get<decltype(target)>(); \
+        } catch (const nlohmann::json::exception& e) { \
+            throw ConfigValidationError(error_path, "Type error: " + std::string(e.what())); \
+        } \
+    } while(0)
+
 namespace mcp {
 namespace config {
 
@@ -148,23 +158,43 @@ struct NodeConfig {
         NodeConfig config;
         
         if (j.contains("id") && !j["id"].is_null()) {
-            config.id = j["id"].get<std::string>();
+            try {
+                config.id = j["id"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("node.id", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("cluster") && !j["cluster"].is_null()) {
-            config.cluster = j["cluster"].get<std::string>();
+            try {
+                config.cluster = j["cluster"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("node.cluster", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("metadata") && j["metadata"].is_object()) {
-            config.metadata = j["metadata"].get<std::map<std::string, std::string>>();
+            try {
+                config.metadata = j["metadata"].get<std::map<std::string, std::string>>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("node.metadata", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("region") && !j["region"].is_null()) {
-            config.region = j["region"].get<std::string>();
+            try {
+                config.region = j["region"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("node.region", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("zone") && !j["zone"].is_null()) {
-            config.zone = j["zone"].get<std::string>();
+            try {
+                config.zone = j["zone"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("node.zone", "Type error: " + std::string(e.what()));
+            }
         }
         
         return config;
@@ -301,31 +331,59 @@ struct AdminConfig {
         AdminConfig config;
         
         if (j.contains("address") && !j["address"].is_null()) {
-            config.address = j["address"].get<std::string>();
+            try {
+                config.address = j["address"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.address", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("port") && !j["port"].is_null()) {
-            config.port = j["port"].get<uint16_t>();
+            try {
+                config.port = j["port"].get<uint16_t>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.port", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("allowed_ips") && j["allowed_ips"].is_array()) {
-            config.allowed_ips = j["allowed_ips"].get<std::vector<std::string>>();
+            try {
+                config.allowed_ips = j["allowed_ips"].get<std::vector<std::string>>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.allowed_ips", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("enabled") && !j["enabled"].is_null()) {
-            config.enabled = j["enabled"].get<bool>();
+            try {
+                config.enabled = j["enabled"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.enabled", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("path_prefix") && !j["path_prefix"].is_null()) {
-            config.path_prefix = j["path_prefix"].get<std::string>();
+            try {
+                config.path_prefix = j["path_prefix"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.path_prefix", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("enable_cors") && !j["enable_cors"].is_null()) {
-            config.enable_cors = j["enable_cors"].get<bool>();
+            try {
+                config.enable_cors = j["enable_cors"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.enable_cors", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("cors_origins") && j["cors_origins"].is_array()) {
-            config.cors_origins = j["cors_origins"].get<std::vector<std::string>>();
+            try {
+                config.cors_origins = j["cors_origins"].get<std::vector<std::string>>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("admin.cors_origins", "Type error: " + std::string(e.what()));
+            }
         }
         
         return config;
@@ -437,19 +495,39 @@ struct BootstrapConfig {
         BootstrapConfig config;
         
         if (j.contains("version") && !j["version"].is_null()) {
-            config.version = j["version"].get<std::string>();
+            try {
+                config.version = j["version"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("bootstrap.version", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("node") && j["node"].is_object()) {
-            config.node = NodeConfig::fromJson(j["node"]);
+            try {
+                config.node = NodeConfig::fromJson(j["node"]);
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError("bootstrap.node." + e.field(), e.reason());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("bootstrap.node", "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("admin") && j["admin"].is_object()) {
-            config.admin = AdminConfig::fromJson(j["admin"]);
+            try {
+                config.admin = AdminConfig::fromJson(j["admin"]);
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError("bootstrap.admin." + e.field(), e.reason());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("bootstrap.admin", "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("_config_path") && !j["_config_path"].is_null()) {
-            config.config_path = j["_config_path"].get<std::string>();
+            try {
+                config.config_path = j["_config_path"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("bootstrap._config_path", "Type error: " + std::string(e.what()));
+            }
         }
         
         // Set loaded_at to current time
@@ -690,11 +768,19 @@ struct FilterConfig {
         FilterConfig fc;
         
         if (j.contains("type")) {
-            fc.type = j["type"].get<std::string>();
+            try {
+                fc.type = j["type"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("filter.type", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("name")) {
-            fc.name = j["name"].get<std::string>();
+            try {
+                fc.name = j["name"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("filter.name", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("config")) {
@@ -702,7 +788,11 @@ struct FilterConfig {
         }
         
         if (j.contains("enabled")) {
-            fc.enabled = j["enabled"].get<bool>();
+            try {
+                fc.enabled = j["enabled"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("filter.enabled", "Type error: " + std::string(e.what()));
+            }
         }
         
         return fc;
@@ -792,16 +882,38 @@ struct FilterChainConfig {
         FilterChainConfig fcc;
         
         if (j.contains("name")) {
-            fcc.name = j["name"].get<std::string>();
+            try {
+                fcc.name = j["name"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("filter_chain.name", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("transport_type")) {
-            fcc.transport_type = j["transport_type"].get<std::string>();
+            try {
+                fcc.transport_type = j["transport_type"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("filter_chain.transport_type", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("filters") && j["filters"].is_array()) {
+            size_t idx = 0;
             for (const auto& filter_json : j["filters"]) {
-                fcc.filters.push_back(FilterConfig::fromJson(filter_json));
+                try {
+                    fcc.filters.push_back(FilterConfig::fromJson(filter_json));
+                } catch (const ConfigValidationError& e) {
+                    throw ConfigValidationError(
+                        "filter_chain.filters[" + std::to_string(idx) + "]." + e.field(),
+                        e.reason());
+                } catch (const std::exception& e) {
+                    throw ConfigValidationError(
+                        "filter_chain.filters[" + std::to_string(idx) + "]",
+                        "Parse error: " + std::string(e.what()));
+                }
+                idx++;
             }
         }
         
@@ -913,31 +1025,66 @@ struct TLSConfig {
         TLSConfig tls;
         
         if (j.contains("enabled")) {
-            tls.enabled = j["enabled"].get<bool>();
+            try {
+                tls.enabled = j["enabled"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.enabled", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("cert_file")) {
-            tls.cert_file = j["cert_file"].get<std::string>();
+            try {
+                tls.cert_file = j["cert_file"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.cert_file", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("key_file")) {
-            tls.key_file = j["key_file"].get<std::string>();
+            try {
+                tls.key_file = j["key_file"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.key_file", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("ca_file")) {
-            tls.ca_file = j["ca_file"].get<std::string>();
+            try {
+                tls.ca_file = j["ca_file"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.ca_file", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("verify_client")) {
-            tls.verify_client = j["verify_client"].get<bool>();
+            try {
+                tls.verify_client = j["verify_client"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.verify_client", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("min_version")) {
-            tls.min_version = j["min_version"].get<std::string>();
+            try {
+                tls.min_version = j["min_version"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.min_version", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("cipher_suites") && j["cipher_suites"].is_array()) {
-            tls.cipher_suites = j["cipher_suites"].get<std::vector<std::string>>();
+            try {
+                tls.cipher_suites = j["cipher_suites"].get<std::vector<std::string>>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("tls.cipher_suites", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         return tls;
@@ -1041,27 +1188,59 @@ struct TransportConfig {
         TransportConfig tc;
         
         if (j.contains("type")) {
-            tc.type = j["type"].get<std::string>();
+            try {
+                tc.type = j["type"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("transport.type", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("address")) {
-            tc.address = j["address"].get<std::string>();
+            try {
+                tc.address = j["address"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("transport.address", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("port")) {
-            tc.port = j["port"].get<uint16_t>();
+            try {
+                tc.port = j["port"].get<uint16_t>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("transport.port", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("tls")) {
-            tc.tls = TLSConfig::fromJson(j["tls"]);
+            try {
+                tc.tls = TLSConfig::fromJson(j["tls"]);
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError("transport.tls." + e.field(), e.reason());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("transport.tls", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("filter_chain")) {
-            tc.filter_chain = j["filter_chain"].get<std::string>();
+            try {
+                tc.filter_chain = j["filter_chain"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("transport.filter_chain", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("enabled")) {
-            tc.enabled = j["enabled"].get<bool>();
+            try {
+                tc.enabled = j["enabled"].get<bool>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("transport.enabled", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         return tc;
@@ -1116,22 +1295,55 @@ struct CapabilitiesConfig {
         CapabilitiesConfig cc;
         
         if (j.contains("features") && j["features"].is_array()) {
-            cc.features = j["features"].get<std::vector<std::string>>();
+            try {
+                cc.features = j["features"].get<std::vector<std::string>>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("capabilities.features", 
+                    "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("max_request_size")) {
-            cc.max_request_size = parseJsonSize<size_t>(j["max_request_size"], "max_request_size");
+            try {
+                cc.max_request_size = parseJsonSize<size_t>(j["max_request_size"], "max_request_size");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("capabilities.max_request_size", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("capabilities.max_request_size", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("max_response_size")) {
-            cc.max_response_size = parseJsonSize<size_t>(j["max_response_size"], "max_response_size");
+            try {
+                cc.max_response_size = parseJsonSize<size_t>(j["max_response_size"], "max_response_size");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("capabilities.max_response_size", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("capabilities.max_response_size", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("request_timeout_ms")) {
-            cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout_ms"], "request_timeout_ms");
+            try {
+                cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout_ms"], "request_timeout_ms");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("capabilities.request_timeout_ms", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("capabilities.request_timeout_ms", 
+                    "Parse error: " + std::string(e.what()));
+            }
         } else if (j.contains("request_timeout")) {
             // Also support "request_timeout" without _ms suffix
-            cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout"], "request_timeout");
+            try {
+                cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout"], "request_timeout");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("capabilities.request_timeout", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("capabilities.request_timeout", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         return cc;
@@ -1278,45 +1490,113 @@ struct ServerConfig {
         ServerConfig sc;
         
         if (j.contains("name")) {
-            sc.name = j["name"].get<std::string>();
+            try {
+                sc.name = j["name"].get<std::string>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("server.name", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("version")) {
-            sc.version = ConfigVersion::parse(j["version"].get<std::string>());
+            try {
+                std::string ver_str = j["version"].get<std::string>();
+                sc.version = ConfigVersion::parse(ver_str);
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("server.version", "Type error: " + std::string(e.what()));
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError("server.version", e.reason());
+            }
         }
         
         if (j.contains("capabilities")) {
-            sc.capabilities = CapabilitiesConfig::fromJson(j["capabilities"]);
+            try {
+                sc.capabilities = CapabilitiesConfig::fromJson(j["capabilities"]);
+            } catch (const ConfigValidationError& e) {
+                throw ConfigValidationError("server.capabilities." + e.field(), e.reason());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("server.capabilities", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("max_sessions")) {
-            sc.max_sessions = j["max_sessions"].get<uint32_t>();
+            try {
+                sc.max_sessions = j["max_sessions"].get<uint32_t>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("server.max_sessions", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("session_timeout_ms")) {
-            sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout_ms"], "session_timeout_ms");
+            try {
+                sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout_ms"], "session_timeout_ms");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("server.session_timeout_ms", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("server.session_timeout_ms", 
+                    "Parse error: " + std::string(e.what()));
+            }
         } else if (j.contains("session_timeout")) {
             // Also support "session_timeout" without _ms suffix
-            sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout"], "session_timeout");
+            try {
+                sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout"], "session_timeout");
+            } catch (const UnitParseError& e) {
+                throw ConfigValidationError("server.session_timeout", e.what());
+            } catch (const std::exception& e) {
+                throw ConfigValidationError("server.session_timeout", 
+                    "Parse error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("worker_threads")) {
-            sc.worker_threads = j["worker_threads"].get<uint32_t>();
+            try {
+                sc.worker_threads = j["worker_threads"].get<uint32_t>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("server.worker_threads", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("event_threads")) {
-            sc.event_threads = j["event_threads"].get<uint32_t>();
+            try {
+                sc.event_threads = j["event_threads"].get<uint32_t>();
+            } catch (const nlohmann::json::exception& e) {
+                throw ConfigValidationError("server.event_threads", "Type error: " + std::string(e.what()));
+            }
         }
         
         if (j.contains("transports") && j["transports"].is_array()) {
+            size_t idx = 0;
             for (const auto& transport_json : j["transports"]) {
-                sc.transports.push_back(TransportConfig::fromJson(transport_json));
+                try {
+                    sc.transports.push_back(TransportConfig::fromJson(transport_json));
+                } catch (const ConfigValidationError& e) {
+                    throw ConfigValidationError(
+                        "server.transports[" + std::to_string(idx) + "]." + e.field(),
+                        e.reason());
+                } catch (const std::exception& e) {
+                    throw ConfigValidationError(
+                        "server.transports[" + std::to_string(idx) + "]",
+                        "Parse error: " + std::string(e.what()));
+                }
+                idx++;
             }
         }
         
         if (j.contains("filter_chains") && j["filter_chains"].is_array()) {
+            size_t idx = 0;
             for (const auto& chain_json : j["filter_chains"]) {
-                sc.filter_chains.push_back(FilterChainConfig::fromJson(chain_json));
+                try {
+                    sc.filter_chains.push_back(FilterChainConfig::fromJson(chain_json));
+                } catch (const ConfigValidationError& e) {
+                    throw ConfigValidationError(
+                        "server.filter_chains[" + std::to_string(idx) + "]." + e.field(),
+                        e.reason());
+                } catch (const std::exception& e) {
+                    throw ConfigValidationError(
+                        "server.filter_chains[" + std::to_string(idx) + "]",
+                        "Parse error: " + std::string(e.what()));
+                }
+                idx++;
             }
         }
         
