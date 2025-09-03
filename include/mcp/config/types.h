@@ -20,6 +20,7 @@
 #include <cctype>
 
 #include <nlohmann/json.hpp>
+#include "mcp/config/units.h"  // For unit parsing
 
 namespace mcp {
 namespace config {
@@ -1119,15 +1120,18 @@ struct CapabilitiesConfig {
         }
         
         if (j.contains("max_request_size")) {
-            cc.max_request_size = j["max_request_size"].get<size_t>();
+            cc.max_request_size = parseJsonSize<size_t>(j["max_request_size"], "max_request_size");
         }
         
         if (j.contains("max_response_size")) {
-            cc.max_response_size = j["max_response_size"].get<size_t>();
+            cc.max_response_size = parseJsonSize<size_t>(j["max_response_size"], "max_response_size");
         }
         
         if (j.contains("request_timeout_ms")) {
-            cc.request_timeout_ms = j["request_timeout_ms"].get<uint32_t>();
+            cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout_ms"], "request_timeout_ms");
+        } else if (j.contains("request_timeout")) {
+            // Also support "request_timeout" without _ms suffix
+            cc.request_timeout_ms = parseJsonDuration<uint32_t>(j["request_timeout"], "request_timeout");
         }
         
         return cc;
@@ -1281,7 +1285,10 @@ struct ServerConfig {
         }
         
         if (j.contains("session_timeout_ms")) {
-            sc.session_timeout_ms = j["session_timeout_ms"].get<uint32_t>();
+            sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout_ms"], "session_timeout_ms");
+        } else if (j.contains("session_timeout")) {
+            // Also support "session_timeout" without _ms suffix
+            sc.session_timeout_ms = parseJsonDuration<uint32_t>(j["session_timeout"], "session_timeout");
         }
         
         if (j.contains("worker_threads")) {
