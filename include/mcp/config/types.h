@@ -1222,16 +1222,25 @@ struct ServerConfig {
             }
         }
         
-        // Check that referenced filter chains exist
+        // Check for duplicate filter chain names and build set of available chains
         std::set<std::string> chain_names;
-        for (const auto& chain : filter_chains) {
-            chain_names.insert(chain.name);
+        for (size_t i = 0; i < filter_chains.size(); ++i) {
+            const auto& chain_name = filter_chains[i].name;
+            if (chain_names.find(chain_name) != chain_names.end()) {
+                throw ConfigValidationError(
+                    "server.filter_chains[" + std::to_string(i) + "].name",
+                    "Duplicate filter chain name: " + chain_name);
+            }
+            chain_names.insert(chain_name);
         }
         
-        for (const auto& transport : transports) {
-            if (chain_names.find(transport.filter_chain) == chain_names.end()) {
-                throw ConfigValidationError("server.transports", 
-                    "Transport references non-existent filter chain: " + transport.filter_chain);
+        // Check that referenced filter chains exist
+        for (size_t i = 0; i < transports.size(); ++i) {
+            const auto& filter_chain_ref = transports[i].filter_chain;
+            if (chain_names.find(filter_chain_ref) == chain_names.end()) {
+                throw ConfigValidationError(
+                    "server.transports[" + std::to_string(i) + "].filter_chain",
+                    "Transport references non-existent filter chain: " + filter_chain_ref);
             }
         }
     }
