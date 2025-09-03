@@ -512,9 +512,18 @@ std::string ConfigurationManager::generateVersionId() {
 }
 
 void ConfigurationManager::notifyListeners(const ConfigChangeEvent& event) {
-    std::lock_guard<std::mutex> lock(listeners_mutex_);
+    // Copy listeners to avoid holding lock during callbacks
+    std::vector<ConfigChangeListener> listeners_copy;
+    {
+        std::lock_guard<std::mutex> lock(listeners_mutex_);
+        listeners_copy.reserve(listeners_.size());
+        for (const auto& [id, listener] : listeners_) {
+            listeners_copy.push_back(listener);
+        }
+    }
     
-    for (const auto& [id, listener] : listeners_) {
+    // Invoke callbacks without holding the lock
+    for (const auto& listener : listeners_copy) {
         try {
             listener(event);
         } catch (const std::exception& e) {
