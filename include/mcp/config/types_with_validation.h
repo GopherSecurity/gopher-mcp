@@ -147,7 +147,8 @@ struct ServerConfigWithValidation : public ServerConfig {
         
         // Parse nested objects with validation
         if (j.contains("capabilities")) {
-            PathScope scope(const_cast<std::string&>(ctx.getUnknownFields()[0]), "capabilities");
+            // Note: We already validated unknown fields at the capabilities level
+            // when we called validateJsonFields for the server level
             config.capabilities = CapabilitiesConfigWithValidation::fromJson(j["capabilities"], ctx);
         }
         
