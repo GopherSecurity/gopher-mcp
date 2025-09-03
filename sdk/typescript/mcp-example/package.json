@@ -2,13 +2,12 @@
   "name": "mcp-example",
   "version": "1.0.0",
   "description": "Example MCP (Model Context Protocol) implementation using TypeScript",
-  "main": "dist/index.js",
+  "main": "dist/mcp-calculator-server.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "server": "ts-node src/mcp-server.ts",
-    "client": "ts-node src/mcp-client.ts",
+    "start": "node dist/mcp-calculator-server.js",
+    "server": "ts-node src/mcp-calculator-server.ts",
+    "client": "ts-node src/mcp-calculator-client.ts",
     "filter-demo": "ts-node src/filter-demo.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
