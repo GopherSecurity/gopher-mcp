@@ -52,6 +52,10 @@ export class GopherTransport implements Transport {
   private config: GopherTransportConfig;
   private isConnected: boolean = false;
   private isDestroyed: boolean = false;
+  private server: any = null; // For server mode
+  private client: any = null; // For client mode
+  private connections: Map<string, any> = new Map(); // Active connections
+  private messageBuffers: Map<string, string> = new Map(); // Message buffers for each connection
 
   // Transport event handlers
   onclose?: (() => void) | undefined;
@@ -177,6 +181,9 @@ export class GopherTransport implements Transport {
         this.setProtocolVersion("2024-11-05");
       }
 
+      // Start transport based on protocol
+      await this.startTransport();
+
       this.isConnected = true;
       console.log("✅ GopherTransport started successfully");
     } catch (error) {
@@ -226,10 +233,16 @@ export class GopherTransport implements Transport {
       console.log(`✅ Message processed through filters: ${processedInfo}`);
 
       // FilterManager processing complete - message ready for actual transport
-      console.log(`✅ Message ready for transport: ${JSON.stringify(processedMessage, null, 2)}`);
-      
-      // In a real implementation, you would send the processedMessage over your chosen transport
-      // (TCP, WebSocket, HTTP, etc.) here
+      console.log(
+        `✅ Message ready for transport: ${JSON.stringify(
+          processedMessage,
+          null,
+          2
+        )}`
+      );
+
+      // Send the processed message through the actual transport
+      await this.sendThroughTransport(processedMessage);
     } catch (error) {
       const errorMsg = `Failed to send message: ${error}`;
       console.error("❌", errorMsg);
@@ -251,6 +264,26 @@ export class GopherTransport implements Transport {
       console.log("🔌 Closing GopherTransport connection");
 
       this.isConnected = false;
+
+      // Close transport connections
+      if (this.client) {
+        this.client.destroy();
+        this.client = null;
+      }
+
+      if (this.server) {
+        this.server.close();
+        this.server = null;
+      }
+
+      // Close all active connections
+      for (const [connectionId, connection] of this.connections) {
+        if (connection.destroy) {
+          connection.destroy();
+        }
+      }
+      this.connections.clear();
+      this.messageBuffers.clear();
 
       // Clean up FilterManager resources
       this.filterManager.destroy();
@@ -316,8 +349,6 @@ export class GopherTransport implements Transport {
     }
   }
 
-
-
   /**
    * Generate a unique session ID
    */
@@ -336,6 +367,289 @@ export class GopherTransport implements Transport {
       isDestroyed: this.isDestroyed,
       sessionId: this.sessionId,
       config: this.config,
+      connections: this.connections.size,
     };
+  }
+
+  /**
+   * Start the actual transport layer based on protocol
+   */
+  private async startTransport(): Promise<void> {
+    switch (this.config.protocol) {
+      case "stdio":
+        await this.startStdioTransport();
+        break;
+      case "tcp":
+        await this.startTcpTransport();
+        break;
+      case "udp":
+        await this.startUdpTransport();
+        break;
+      default:
+        throw new Error(`Unsupported protocol: ${this.config.protocol}`);
+    }
+  }
+
+  /**
+   * Start stdio transport (for direct communication)
+   */
+  private async startStdioTransport(): Promise<void> {
+    console.log("📡 Starting stdio transport");
+
+    // For stdio, we'll use process.stdin/stdout for real communication
+    process.stdin.setEncoding("utf8");
+
+    let buffer = "";
+
+    process.stdin.on("data", async (chunk: string) => {
+      buffer += chunk;
+
+      // Process complete messages (delimited by newlines)
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const message = JSON.parse(line.trim());
+            await this.processReceivedMessage(message);
+          } catch (error) {
+            console.error("❌ Error processing stdio message:", error);
+          }
+        }
+      }
+    });
+
+    process.stdin.on("end", () => {
+      console.log("📡 Stdio input ended");
+      if (this.onclose) {
+        this.onclose();
+      }
+    });
+
+    console.log("✅ Stdio transport ready for input");
+  }
+
+  /**
+   * Start TCP transport
+   */
+  private async startTcpTransport(): Promise<void> {
+    console.log(
+      `📡 Starting TCP transport on ${this.config.host}:${this.config.port}`
+    );
+
+    // Import net module for TCP
+    const net = await import("net");
+
+    if (this.config.host && this.config.port) {
+      // Client mode - connect to server
+      this.client = new net.Socket();
+
+      this.client.on("connect", () => {
+        console.log("🔗 Connected to TCP server");
+      });
+
+      this.client.on("data", async (data: Buffer) => {
+        await this.processTcpData(data, "client");
+      });
+
+      this.client.on("close", () => {
+        console.log("🔌 TCP connection closed");
+        if (this.onclose) {
+          this.onclose();
+        }
+      });
+
+      this.client.on("error", (error: Error) => {
+        console.error("❌ TCP client error:", error);
+        if (this.onerror) {
+          this.onerror(error);
+        }
+      });
+
+      // Connect to server
+      await new Promise<void>((resolve, reject) => {
+        this.client.connect(
+          this.config.port!,
+          this.config.host!,
+          (error?: Error) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          }
+        );
+      });
+    } else {
+      // Server mode - listen for connections
+      this.server = net.createServer((socket) => {
+        const connectionId = `${socket.remoteAddress}:${socket.remotePort}`;
+        console.log(`🔗 New TCP connection: ${connectionId}`);
+
+        this.connections.set(connectionId, socket);
+
+        socket.on("data", async (data: Buffer) => {
+          await this.processTcpData(data, connectionId);
+        });
+
+        socket.on("close", () => {
+          console.log(`🔌 TCP connection closed: ${connectionId}`);
+          this.connections.delete(connectionId);
+          this.messageBuffers.delete(connectionId);
+        });
+
+        socket.on("error", (error: Error) => {
+          console.error(`❌ TCP connection error (${connectionId}):`, error);
+          this.connections.delete(connectionId);
+          this.messageBuffers.delete(connectionId);
+        });
+      });
+
+      const port = this.config.port || 8080;
+      await new Promise<void>((resolve, reject) => {
+        this.server.listen(port, (error?: Error) => {
+          if (error) {
+            reject(error);
+          } else {
+            console.log(`🚀 TCP server listening on port ${port}`);
+            resolve();
+          }
+        });
+      });
+    }
+  }
+
+  /**
+   * Start UDP transport
+   */
+  private async startUdpTransport(): Promise<void> {
+    console.log(
+      `📡 Starting UDP transport on ${this.config.host}:${this.config.port}`
+    );
+
+    // Import dgram module for UDP
+    const dgram = await import("dgram");
+
+    if (this.config.host && this.config.port) {
+      // Client mode
+      this.client = dgram.createSocket("udp4");
+
+      this.client.on("message", async (msg: Buffer, rinfo: any) => {
+        try {
+          const message = JSON.parse(msg.toString());
+          await this.processReceivedMessage(message);
+        } catch (error) {
+          console.error("❌ Error processing received UDP data:", error);
+        }
+      });
+
+      this.client.on("error", (error: Error) => {
+        console.error("❌ UDP client error:", error);
+        if (this.onerror) {
+          this.onerror(error);
+        }
+      });
+    } else {
+      // Server mode
+      this.server = dgram.createSocket("udp4");
+
+      this.server.on("message", async (msg: Buffer, rinfo: any) => {
+        try {
+          const message = JSON.parse(msg.toString());
+          const connectionId = `${rinfo.address}:${rinfo.port}`;
+          this.connections.set(connectionId, rinfo);
+          await this.processReceivedMessage(message);
+        } catch (error) {
+          console.error("❌ Error processing received UDP data:", error);
+        }
+      });
+
+      this.server.on("error", (error: Error) => {
+        console.error("❌ UDP server error:", error);
+        if (this.onerror) {
+          this.onerror(error);
+        }
+      });
+
+      const port = this.config.port || 8080;
+      this.server.bind(port, () => {
+        console.log(`🚀 UDP server listening on port ${port}`);
+      });
+    }
+  }
+
+  /**
+   * Process TCP data with proper message delimiters
+   */
+  private async processTcpData(
+    data: Buffer,
+    connectionId: string
+  ): Promise<void> {
+    // Get or create buffer for this connection
+    let buffer = this.messageBuffers.get(connectionId) || "";
+    buffer += data.toString();
+
+    // Process complete messages (delimited by newlines)
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || ""; // Keep incomplete line in buffer
+    this.messageBuffers.set(connectionId, buffer);
+
+    for (const line of lines) {
+      if (line.trim()) {
+        try {
+          const message = JSON.parse(line.trim());
+          await this.processReceivedMessage(message);
+        } catch (error) {
+          console.error(
+            `❌ Error processing TCP message from ${connectionId}:`,
+            error
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Send message through the actual transport
+   */
+  private async sendThroughTransport(message: JSONRPCMessage): Promise<void> {
+    const messageData = JSON.stringify(message) + "\n"; // Add newline delimiter
+
+    switch (this.config.protocol) {
+      case "stdio":
+        // For stdio, write to stdout
+        process.stdout.write(messageData);
+        break;
+
+      case "tcp":
+        if (this.client) {
+          // Client mode - send to server
+          this.client.write(messageData);
+        } else if (this.server) {
+          // Server mode - broadcast to all connections
+          for (const [connectionId, socket] of this.connections) {
+            socket.write(messageData);
+          }
+        }
+        break;
+
+      case "udp":
+        if (this.client) {
+          // Client mode - send to server
+          this.client.send(messageData, this.config.port!, this.config.host!);
+        } else if (this.server) {
+          // Server mode - broadcast to all connections
+          for (const [connectionId, rinfo] of this.connections) {
+            this.server.send(messageData, rinfo.port, rinfo.address);
+          }
+        }
+        break;
+
+      default:
+        throw new Error(
+          `Unsupported protocol for sending: ${this.config.protocol}`
+        );
+    }
   }
 }
