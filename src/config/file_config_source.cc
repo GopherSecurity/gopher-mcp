@@ -465,6 +465,10 @@ class FileConfigSource : public ConfigSource {
             context.files_parsed_count = include_context.files_parsed_count;
             context.includes_processed_count =
                 include_context.includes_processed_count;
+            // Propagate the latest modification time from includes
+            if (include_context.latest_mtime > context.latest_mtime) {
+              context.latest_mtime = include_context.latest_mtime;
+            }
           }
         }
       }
@@ -525,6 +529,10 @@ class FileConfigSource : public ConfigSource {
           context.files_parsed_count = include_context.files_parsed_count;
           context.includes_processed_count =
               include_context.includes_processed_count;
+          // Propagate the latest modification time from includes
+          if (include_context.latest_mtime > context.latest_mtime) {
+            context.latest_mtime = include_context.latest_mtime;
+          }
         }
       } else {
         LOG_WARNING()
@@ -628,6 +636,10 @@ class FileConfigSource : public ConfigSource {
             overlay_context.includes_processed_count;
         context.env_vars_expanded_count =
             overlay_context.env_vars_expanded_count;
+        // Propagate the latest modification time from overlays
+        if (overlay_context.latest_mtime > context.latest_mtime) {
+          context.latest_mtime = overlay_context.latest_mtime;
+        }
       } catch (const std::exception& e) {
         LOG_ERROR() << "Failed to process overlay " << overlay_file << ": "
                     << e.what();
