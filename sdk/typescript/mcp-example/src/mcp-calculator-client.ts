@@ -133,6 +133,120 @@ async function main() {
         //   useThreadLocal: true,
         //   zeroOnAlloc: false,
         // },
+
+        // NEW: CApiFilter integration for real-time message processing
+        customCallbacks: {
+          onMessageReceived: (message) => {
+            console.log(
+              `🔍 [CApiFilter DEBUG] Client onMessageReceived called!`
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] Original message:`,
+              JSON.stringify(message, null, 2)
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] Message type: ${
+                message.method || "notification"
+              }`
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
+            );
+
+            // Add client-specific metadata
+            if ("id" in message) {
+              const processedMessage = {
+                ...message,
+                clientMetadata: {
+                  receivedAt: Date.now(),
+                  clientId: "calculator-client-001",
+                  sessionId:
+                    "session-" + Math.random().toString(36).substr(2, 9),
+                  processedBy: "CApiFilter-onMessageReceived",
+                },
+              };
+              console.log(
+                `🔍 [CApiFilter DEBUG] Processed message:`,
+                JSON.stringify(processedMessage, null, 2)
+              );
+              console.log(
+                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
+              );
+              return processedMessage;
+            }
+            return null; // No modification
+          },
+          onMessageSent: (message) => {
+            console.log(`🔍 [CApiFilter DEBUG] Client onMessageSent called!`);
+            console.log(
+              `🔍 [CApiFilter DEBUG] Original message:`,
+              JSON.stringify(message, null, 2)
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] Message type: ${
+                message.method || "notification"
+              }`
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
+            );
+            console.log(
+              `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
+            );
+
+            // Add client-specific metadata
+            if ("id" in message) {
+              const processedMessage = {
+                ...message,
+                clientMetadata: {
+                  sentAt: Date.now(),
+                  clientId: "calculator-client-001",
+                  sessionId:
+                    "session-" + Math.random().toString(36).substr(2, 9),
+                  processedBy: "CApiFilter-onMessageSent",
+                },
+              };
+              console.log(
+                `🔍 [CApiFilter DEBUG] Processed message:`,
+                JSON.stringify(processedMessage, null, 2)
+              );
+              console.log(
+                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
+              );
+              return processedMessage;
+            }
+            return null; // No modification
+          },
+          onConnectionEstablished: (connectionId) => {
+            console.log(
+              `🔍 [CApiFilter DEBUG] Client onConnectionEstablished called!`
+            );
+            console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
+            console.log(
+              `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
+            );
+          },
+          onConnectionClosed: (connectionId) => {
+            console.log(
+              `🔍 [CApiFilter DEBUG] Client onConnectionClosed called!`
+            );
+            console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
+            console.log(
+              `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
+            );
+          },
+          onError: (error, context) => {
+            console.log(`🔍 [CApiFilter DEBUG] Client onError called!`);
+            console.log(`🔍 [CApiFilter DEBUG] Error:`, error.message);
+            console.log(`🔍 [CApiFilter DEBUG] Context: ${context}`);
+            console.log(
+              `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
+            );
+          },
+        },
       },
     };
 
