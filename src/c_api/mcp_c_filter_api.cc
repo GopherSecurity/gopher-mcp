@@ -103,8 +103,13 @@ class CApiFilter : public network::NetworkFilterBase {
       : callbacks_(callbacks), handle_(0) {}
 
   void setHandle(mcp_filter_t h) { handle_ = h; }
+  
+  // Add setter for callbacks
+  void setCallbacks(const mcp_filter_callbacks_t& callbacks) {
+    callbacks_ = callbacks;
+  }
 
-  // ReadFilter interface
+  // ReadFilter interface - original signature for base class compatibility
   network::FilterStatus onData(Buffer& data, bool end_stream) override {
     if (!callbacks_.on_data) {
       return network::FilterStatus::Continue;
@@ -120,6 +125,21 @@ class CApiFilter : public network::NetworkFilterBase {
 
     // Release temporary handle
     g_buffer_manager.release(buffer_handle);
+
+    return (status == MCP_FILTER_CONTINUE)
+               ? network::FilterStatus::Continue
+               : network::FilterStatus::StopIteration;
+  }
+
+  // New method for direct buffer handle processing
+  network::FilterStatus onDataWithHandle(uint64_t buffer_handle, bool end_stream) {
+    if (!callbacks_.on_data) {
+      return network::FilterStatus::Continue;
+    }
+
+    // Call callback in dispatcher thread with the buffer handle
+    mcp_filter_status_t status = callbacks_.on_data(
+        buffer_handle, end_stream ? MCP_TRUE : MCP_FALSE, callbacks_.user_data);
 
     return (status == MCP_FILTER_CONTINUE)
                ? network::FilterStatus::Continue
@@ -373,8 +393,8 @@ MCP_API mcp_result_t mcp_filter_set_callbacks(
   // If it's a CApiFilter, update callbacks
   auto capi_filter = std::dynamic_pointer_cast<CApiFilter>(filter_ptr);
   if (capi_filter) {
-    // We'd need to add a setter method for this
-    // For now, return success
+    // Actually update the callbacks using the new setter method
+    capi_filter->setCallbacks(*callbacks);
     return MCP_OK;
   }
 
@@ -662,10 +682,45 @@ MCP_API mcp_result_t mcp_filter_post_data(mcp_filter_t filter,
   if (!filter_ptr)
     return MCP_ERROR_NOT_FOUND;
 
-  // TODO: Post to dispatcher thread
-  // This would use mcp_dispatcher_post internally
-
-  return MCP_OK;
+  try {
+    // Cast to CApiFilter to access onData method
+    auto capi_filter = std::dynamic_pointer_cast<CApiFilter>(filter_ptr);
+    if (capi_filter) {
+      // Create a buffer from the input data
+      auto buffer = std::make_shared<mcp::OwnedBuffer>();
+      if (data && length > 0) {
+        buffer->add(data, length);
+      }
+      
+      // Create a buffer handle and pass it to the callback
+      auto buffer_handle = g_buffer_manager.store(buffer);
+      
+      // Call the filter's onDataWithHandle method to trigger callback execution
+      auto status = capi_filter->onDataWithHandle(buffer_handle, false); // end_stream = false
+      
+      // If callback was provided, call it with the result
+      if (callback) {
+        mcp_result_t result = (status == mcp::network::FilterStatus::Continue) 
+                              ? MCP_OK 
+                              : MCP_ERROR_INVALID_STATE;
+        callback(result, user_data);
+      }
+      
+      return MCP_OK;
+    } else {
+      // For non-CApiFilter filters, just return success for now
+      if (callback) {
+        callback(MCP_OK, user_data);
+      }
+      return MCP_OK;
+    }
+  } catch (...) {
+    // Handle any exceptions
+    if (callback) {
+      callback(MCP_ERROR_IO_ERROR, user_data);
+    }
+    return MCP_ERROR_IO_ERROR;
+  }
 }
 
 // Memory Management
