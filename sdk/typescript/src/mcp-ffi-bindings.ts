@@ -8,42 +8,100 @@
 
 import koffi from "koffi";
 import { arch, platform } from "os";
+import { join } from "path";
+import { existsSync } from "fs";
 
 // Library configuration for different platforms and architectures
 const LIBRARY_CONFIG = {
   darwin: {
     x64: {
-      path: "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
       name: "libgopher_mcp_c.dylib",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
+        join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
+        // System installation paths
+        "/usr/local/lib/libgopher_mcp_c.dylib",
+        "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+        "/usr/lib/libgopher_mcp_c.dylib",
+      ],
     },
     arm64: {
-      path: "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
       name: "libgopher_mcp_c.dylib",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
+        join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
+        // System installation paths
+        "/usr/local/lib/libgopher_mcp_c.dylib",
+        "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+        "/usr/lib/libgopher_mcp_c.dylib",
+      ],
     },
   },
   linux: {
     x64: {
-      path: "/usr/local/lib/libgopher_mcp_c.so",
       name: "libgopher_mcp_c.so",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.so"),
+        join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.so"),
+        // System installation paths
+        "/usr/local/lib/libgopher_mcp_c.so",
+        "/usr/lib/x86_64-linux-gnu/libgopher_mcp_c.so",
+        "/usr/lib64/libgopher_mcp_c.so",
+        "/usr/lib/libgopher_mcp_c.so",
+      ],
     },
     arm64: {
-      path: "/usr/local/lib/libgopher_mcp_c.so",
       name: "libgopher_mcp_c.so",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.so"),
+        join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.so"),
+        // System installation paths
+        "/usr/local/lib/libgopher_mcp_c.so",
+        "/usr/lib/aarch64-linux-gnu/libgopher_mcp_c.so",
+        "/usr/lib64/libgopher_mcp_c.so",
+        "/usr/lib/libgopher_mcp_c.so",
+      ],
     },
   },
   win32: {
     x64: {
-      path: "C:\\Program Files\\gopher-mcp\\bin\\gopher_mcp_c.dll",
       name: "gopher_mcp_c.dll",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/gopher_mcp_c.dll"),
+        join(__dirname, "../../../../build/src/c_api/gopher_mcp_c.dll"),
+        // System installation paths
+        "C:\\Program Files\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+        "C:\\Program Files\\gopher-mcp\\lib\\gopher_mcp_c.dll",
+        "C:\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+      ],
     },
     ia32: {
-      path: "C:\\Program Files (x86)\\gopher-mcp\\bin\\gopher_mcp_c.dll",
       name: "gopher_mcp_c.dll",
+      searchPaths: [
+        // Development build path (relative to this file)
+        join(__dirname, "../../../build/src/c_api/gopher_mcp_c.dll"),
+        join(__dirname, "../../../../build/src/c_api/gopher_mcp_c.dll"),
+        // System installation paths
+        "C:\\Program Files (x86)\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+        "C:\\Program Files (x86)\\gopher-mcp\\lib\\gopher_mcp_c.dll",
+        "C:\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+      ],
     },
   },
 } as const;
 
 function getLibraryPath(): string {
+  // Check for environment variable override first
+  const envPath = process.env["MCP_LIBRARY_PATH"];
+  if (envPath && existsSync(envPath)) {
+    return envPath;
+  }
+
   const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
   const currentArch = arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
 
@@ -51,7 +109,23 @@ function getLibraryPath(): string {
     throw new Error(`Unsupported platform: ${currentPlatform} ${currentArch}`);
   }
 
-  return LIBRARY_CONFIG[currentPlatform][currentArch].path;
+  const config = LIBRARY_CONFIG[currentPlatform][currentArch];
+  
+  // Search through the paths to find the first one that exists
+  for (const searchPath of config.searchPaths) {
+    if (existsSync(searchPath)) {
+      return searchPath;
+    }
+  }
+
+  // If no path found, throw an error with helpful information
+  const searchedPaths = config.searchPaths.join(", ");
+  throw new Error(
+    `MCP C API library not found. Searched paths: ${searchedPaths}\n` +
+    `Please ensure the library is built and available at one of these locations.\n` +
+    `You can build it by running: make build\n` +
+    `Or set MCP_LIBRARY_PATH environment variable to the library path.`
+  );
 }
 
 function getLibraryName(): string {
@@ -63,6 +137,28 @@ function getLibraryName(): string {
   }
 
   return LIBRARY_CONFIG[currentPlatform][currentArch].name;
+}
+
+/**
+ * Get all possible library paths for the current platform/architecture
+ * Useful for debugging library loading issues
+ */
+export function getAllPossibleLibraryPaths(): string[] {
+  const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
+  const currentArch = arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
+
+  if (!LIBRARY_CONFIG[currentPlatform] || !LIBRARY_CONFIG[currentPlatform][currentArch]) {
+    return [];
+  }
+
+  return [...LIBRARY_CONFIG[currentPlatform][currentArch].searchPaths];
+}
+
+/**
+ * Check if a library path exists
+ */
+export function checkLibraryPath(path: string): boolean {
+  return existsSync(path);
 }
 
 // MCP Filter Library interface - using real C API functions
