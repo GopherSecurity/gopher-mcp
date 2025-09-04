@@ -1,274 +1,431 @@
-/**
- * @file test_units.cc
- * @brief Unit tests for configuration unit parsing
- */
-
 #include <gtest/gtest.h>
+
 #include "mcp/config/units.h"
-#include <nlohmann/json.hpp>
+#include "mcp/json/json_bridge.h"
+#include "mcp/logging/logger_registry.h"
+#include "mcp/logging/log_sink.h"
 
-using namespace mcp::config;
+#include <memory>
+#include <vector>
 
-class UnitParsingTest : public ::testing::Test {
-protected:
-    void SetUp() override {}
-    void TearDown() override {}
+// Test logging sink to verify log output
+namespace mcp {
+namespace logging {
+
+class TestLogSink : public LogSink {
+ public:
+  void log(const LogMessage& msg) override {
+    messages_.push_back(msg);
+  }
+
+  void flush() override {}
+
+  bool hasMessage(LogLevel level, const std::string& substr) {
+    for (const auto& msg : messages_) {
+      if (msg.level == level && msg.message.find(substr) != std::string::npos) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void clear() { messages_.clear(); }
+
+ private:
+  std::vector<LogMessage> messages_;
 };
 
-// Duration parsing tests
-TEST_F(UnitParsingTest, ParseDurationPlainNumber) {
-    EXPECT_EQ(parseDuration("1000"), 1000);
-    EXPECT_EQ(parseDuration("0"), 0);
-    EXPECT_EQ(parseDuration("42"), 42);
-    EXPECT_EQ(parseDuration("999999"), 999999);
-}
+}  // namespace logging
+}  // namespace mcp
 
-TEST_F(UnitParsingTest, ParseDurationMilliseconds) {
-    EXPECT_EQ(parseDuration("100ms"), 100);
-    EXPECT_EQ(parseDuration("100MS"), 100);
-    EXPECT_EQ(parseDuration("1500ms"), 1500);
-    EXPECT_EQ(parseDuration("0ms"), 0);
-    EXPECT_EQ(parseDuration("100 ms"), 100);  // With space
-    EXPECT_EQ(parseDuration("100milliseconds"), 100);
-}
+namespace mcp {
+namespace config {
+namespace test {
 
-TEST_F(UnitParsingTest, ParseDurationSeconds) {
-    EXPECT_EQ(parseDuration("1s"), 1000);
-    EXPECT_EQ(parseDuration("30s"), 30000);
-    EXPECT_EQ(parseDuration("30S"), 30000);
-    EXPECT_EQ(parseDuration("0.5s"), 500);
-    EXPECT_EQ(parseDuration("1.5s"), 1500);
-    EXPECT_EQ(parseDuration("10 s"), 10000);  // With space
-    EXPECT_EQ(parseDuration("5seconds"), 5000);
-    EXPECT_EQ(parseDuration("1second"), 1000);
-}
+using json::JsonValue;
 
-TEST_F(UnitParsingTest, ParseDurationMinutes) {
-    EXPECT_EQ(parseDuration("1m"), 60000);
-    EXPECT_EQ(parseDuration("5m"), 300000);
-    EXPECT_EQ(parseDuration("5M"), 300000);
-    EXPECT_EQ(parseDuration("0.5m"), 30000);
-    EXPECT_EQ(parseDuration("1.5m"), 90000);
-    EXPECT_EQ(parseDuration("2 m"), 120000);  // With space
-    EXPECT_EQ(parseDuration("3minutes"), 180000);
-    EXPECT_EQ(parseDuration("1minute"), 60000);
-}
+class UnitsTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_sink_ = std::make_shared<logging::TestLogSink>();
+    auto& registry = logging::LoggerRegistry::getInstance();
+    auto logger = registry.getLogger("config.units");
+    logger->setSink(test_sink_);
+    logger->setLevel(logging::LogLevel::Debug);
+  }
 
-TEST_F(UnitParsingTest, ParseDurationHours) {
-    EXPECT_EQ(parseDuration("1h"), 3600000);
-    EXPECT_EQ(parseDuration("2h"), 7200000);
-    EXPECT_EQ(parseDuration("2H"), 7200000);
-    EXPECT_EQ(parseDuration("0.5h"), 1800000);
-    EXPECT_EQ(parseDuration("1.5h"), 5400000);
-    EXPECT_EQ(parseDuration("24h"), 86400000);
-    EXPECT_EQ(parseDuration("1hour"), 3600000);
-    EXPECT_EQ(parseDuration("2hours"), 7200000);
-}
+  std::shared_ptr<logging::TestLogSink> test_sink_;
+};
 
-TEST_F(UnitParsingTest, ParseDurationDays) {
-    EXPECT_EQ(parseDuration("1d"), 86400000);
-    EXPECT_EQ(parseDuration("7d"), 604800000);
-    EXPECT_EQ(parseDuration("1D"), 86400000);
-    EXPECT_EQ(parseDuration("0.5d"), 43200000);
-    EXPECT_EQ(parseDuration("1day"), 86400000);
-    EXPECT_EQ(parseDuration("2days"), 172800000);
-}
+// ============================================================================
+// Duration Tests
+// ============================================================================
 
-TEST_F(UnitParsingTest, ParseDurationInvalid) {
-    EXPECT_THROW(parseDuration(""), UnitParseError);
-    EXPECT_THROW(parseDuration("abc"), UnitParseError);
-    EXPECT_THROW(parseDuration("10x"), UnitParseError);
-    EXPECT_THROW(parseDuration("s10"), UnitParseError);
-    EXPECT_THROW(parseDuration("-5s"), UnitParseError);
-}
+TEST_F(UnitsTest, DurationValidCases) {
+  // Table-driven test for valid durations
+  struct TestCase {
+    std::string input;
+    int64_t expected_ms;
+    std::string description;
+  };
 
-// Size parsing tests
-TEST_F(UnitParsingTest, ParseSizePlainNumber) {
-    EXPECT_EQ(parseSize("1024"), 1024);
-    EXPECT_EQ(parseSize("0"), 0);
-    EXPECT_EQ(parseSize("42"), 42);
-    EXPECT_EQ(parseSize("1000000"), 1000000);
-}
+  std::vector<TestCase> cases = {
+    {"0ms", 0, "zero milliseconds"},
+    {"1ms", 1, "single millisecond"},
+    {"100ms", 100, "hundred milliseconds"},
+    {"1s", 1000, "one second"},
+    {"30s", 30000, "thirty seconds"},
+    {"1m", 60000, "one minute"},
+    {"5m", 300000, "five minutes"},
+    {"1h", 3600000, "one hour"},
+    {"24h", 86400000, "twenty-four hours"},
+    {"999ms", 999, "max three-digit milliseconds"},
+    {"59s", 59000, "fifty-nine seconds"},
+    {"59m", 3540000, "fifty-nine minutes"},
+    {"168h", 604800000, "one week in hours"},
+  };
 
-TEST_F(UnitParsingTest, ParseSizeBytes) {
-    EXPECT_EQ(parseSize("100B"), 100);
-    EXPECT_EQ(parseSize("100b"), 100);
-    EXPECT_EQ(parseSize("1500B"), 1500);
-    EXPECT_EQ(parseSize("0B"), 0);
-    EXPECT_EQ(parseSize("100 B"), 100);  // With space
-    EXPECT_EQ(parseSize("100bytes"), 100);
-    EXPECT_EQ(parseSize("1byte"), 1);
-}
-
-TEST_F(UnitParsingTest, ParseSizeKilobytes) {
-    EXPECT_EQ(parseSize("1KB"), 1000);
-    EXPECT_EQ(parseSize("1kb"), 1000);
-    EXPECT_EQ(parseSize("1K"), 1000);
-    EXPECT_EQ(parseSize("1k"), 1000);
-    EXPECT_EQ(parseSize("10KB"), 10000);
-    EXPECT_EQ(parseSize("1.5KB"), 1500);
-    EXPECT_EQ(parseSize("0.5KB"), 500);
+  for (const auto& tc : cases) {
+    test_sink_->clear();
+    auto [success, duration] = Duration::parse(tc.input);
+    EXPECT_TRUE(success) << "Failed to parse: " << tc.input << " (" << tc.description << ")";
+    EXPECT_EQ(duration.count(), tc.expected_ms) 
+        << "Wrong value for: " << tc.input << " (" << tc.description << ")";
     
-    // Binary kilobytes
-    EXPECT_EQ(parseSize("1KiB"), 1024);
-    EXPECT_EQ(parseSize("1kib"), 1024);
-    EXPECT_EQ(parseSize("10KiB"), 10240);
+    // Verify debug logging
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Debug, "Successfully parsed duration"));
+  }
 }
 
-TEST_F(UnitParsingTest, ParseSizeMegabytes) {
-    EXPECT_EQ(parseSize("1MB"), 1000000);
-    EXPECT_EQ(parseSize("1mb"), 1000000);
-    EXPECT_EQ(parseSize("1M"), 1000000);
-    EXPECT_EQ(parseSize("1m"), 1000000);
-    EXPECT_EQ(parseSize("10MB"), 10000000);
-    EXPECT_EQ(parseSize("1.5MB"), 1500000);
-    EXPECT_EQ(parseSize("0.5MB"), 500000);
+TEST_F(UnitsTest, DurationInvalidCases) {
+  // Table-driven test for invalid durations
+  std::vector<std::string> invalid_cases = {
+    "",           // Empty string
+    "10",         // Missing unit
+    "ms",         // Missing number
+    "10 ms",      // Space between number and unit
+    "-5s",        // Negative value
+    "1.5s",       // Decimal not supported
+    "10sec",      // Wrong unit format
+    "10S",        // Wrong case
+    "10MS",       // Wrong case
+    "1d",         // Days not supported
+    "abc",        // Non-numeric
+    "10sm",       // Invalid unit order
+    "10m30s",     // Combined units not supported
+    "10x",        // Invalid unit
+  };
+
+  for (const auto& input : invalid_cases) {
+    test_sink_->clear();
+    std::string error_message;
+    auto [success, duration] = Duration::parseWithError(input, error_message);
+    EXPECT_FALSE(success) << "Should have failed to parse: " << input;
+    EXPECT_FALSE(error_message.empty()) << "Should have error message for: " << input;
     
-    // Binary megabytes
-    EXPECT_EQ(parseSize("1MiB"), 1048576);
-    EXPECT_EQ(parseSize("1mib"), 1048576);
-    EXPECT_EQ(parseSize("10MiB"), 10485760);
+    // Verify error logging
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, ""));
+  }
 }
 
-TEST_F(UnitParsingTest, ParseSizeGigabytes) {
-    EXPECT_EQ(parseSize("1GB"), 1000000000);
-    EXPECT_EQ(parseSize("1gb"), 1000000000);
-    EXPECT_EQ(parseSize("1G"), 1000000000);
-    EXPECT_EQ(parseSize("1g"), 1000000000);
-    EXPECT_EQ(parseSize("2GB"), 2000000000);
-    EXPECT_EQ(parseSize("1.5GB"), 1500000000);
-    
-    // Binary gigabytes
-    EXPECT_EQ(parseSize("1GiB"), 1073741824);
-    EXPECT_EQ(parseSize("1gib"), 1073741824);
-    EXPECT_EQ(parseSize("2GiB"), 2147483648);
+TEST_F(UnitsTest, DurationFromJsonValue) {
+  // Test parsing from JsonValue (string)
+  {
+    JsonValue value("30s");
+    auto [success, duration] = Duration::parse(value);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(duration.count(), 30000);
+  }
+
+  // Test parsing from JsonValue (number - assumed milliseconds)
+  {
+    JsonValue value(5000);
+    auto [success, duration] = Duration::parse(value);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(duration.count(), 5000);
+  }
+
+  // Test parsing from JsonValue (double - assumed milliseconds)
+  {
+    JsonValue value(1500.0);
+    auto [success, duration] = Duration::parse(value);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(duration.count(), 1500);
+  }
+
+  // Test invalid type
+  {
+    JsonValue value = JsonValue::array();
+    auto [success, duration] = Duration::parse(value);
+    EXPECT_FALSE(success);
+  }
 }
 
-TEST_F(UnitParsingTest, ParseSizeTerabytes) {
-    EXPECT_EQ(parseSize("1TB"), 1000000000000);
-    EXPECT_EQ(parseSize("1tb"), 1000000000000);
-    EXPECT_EQ(parseSize("1T"), 1000000000000);
-    EXPECT_EQ(parseSize("1t"), 1000000000000);
-    
-    // Binary terabytes
-    EXPECT_EQ(parseSize("1TiB"), 1099511627776);
-    EXPECT_EQ(parseSize("1tib"), 1099511627776);
+TEST_F(UnitsTest, DurationToString) {
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(0)), "0ms");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(500)), "500ms");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(1000)), "1s");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(60000)), "1m");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(3600000)), "1h");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(7200000)), "2h");
+  
+  // Non-round values
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(1500)), "1500ms");
+  EXPECT_EQ(Duration::toString(std::chrono::milliseconds(61000)), "61s");
 }
 
-TEST_F(UnitParsingTest, ParseSizeInvalid) {
-    EXPECT_THROW(parseSize(""), UnitParseError);
-    EXPECT_THROW(parseSize("abc"), UnitParseError);
-    EXPECT_THROW(parseSize("10X"), UnitParseError);
-    EXPECT_THROW(parseSize("MB10"), UnitParseError);
-    EXPECT_THROW(parseSize("-5MB"), UnitParseError);
+TEST_F(UnitsTest, DurationValidation) {
+  // Valid formats
+  EXPECT_TRUE(Duration::isValid("10ms"));
+  EXPECT_TRUE(Duration::isValid("5s"));
+  EXPECT_TRUE(Duration::isValid("2m"));
+  EXPECT_TRUE(Duration::isValid("1h"));
+  
+  // Invalid formats
+  EXPECT_FALSE(Duration::isValid("10"));
+  EXPECT_FALSE(Duration::isValid("10 ms"));
+  EXPECT_FALSE(Duration::isValid(""));
+  EXPECT_FALSE(Duration::isValid("ms"));
 }
 
-// JSON parsing tests
-TEST_F(UnitParsingTest, ParseJsonDurationNumber) {
-    nlohmann::json j = 5000;
-    EXPECT_EQ(parseJsonDuration<uint32_t>(j, "timeout"), 5000);
+// ============================================================================
+// Size Tests
+// ============================================================================
+
+TEST_F(UnitsTest, SizeValidCases) {
+  // Table-driven test for valid sizes
+  struct TestCase {
+    std::string input;
+    size_t expected_bytes;
+    std::string description;
+  };
+
+  std::vector<TestCase> cases = {
+    {"0B", 0, "zero bytes"},
+    {"1B", 1, "single byte"},
+    {"1024B", 1024, "1024 bytes"},
+    {"1KB", 1024, "one kilobyte"},
+    {"10KB", 10240, "ten kilobytes"},
+    {"1MB", 1048576, "one megabyte"},
+    {"100MB", 104857600, "hundred megabytes"},
+    {"1GB", 1073741824, "one gigabyte"},
+    {"2GB", 2147483648, "two gigabytes"},
+    {"512KB", 524288, "512 kilobytes"},
+    {"256MB", 268435456, "256 megabytes"},
+  };
+
+  for (const auto& tc : cases) {
+    test_sink_->clear();
+    auto [success, size] = Size::parse(tc.input);
+    EXPECT_TRUE(success) << "Failed to parse: " << tc.input << " (" << tc.description << ")";
+    EXPECT_EQ(size, tc.expected_bytes) 
+        << "Wrong value for: " << tc.input << " (" << tc.description << ")";
+    
+    // Verify debug logging
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Debug, "Successfully parsed size"));
+  }
 }
 
-TEST_F(UnitParsingTest, ParseJsonDurationString) {
-    nlohmann::json j = "30s";
-    EXPECT_EQ(parseJsonDuration<uint32_t>(j, "timeout"), 30000);
+TEST_F(UnitsTest, SizeInvalidCases) {
+  // Table-driven test for invalid sizes
+  std::vector<std::string> invalid_cases = {
+    "",           // Empty string
+    "10",         // Missing unit
+    "KB",         // Missing number
+    "10 KB",      // Space between number and unit
+    "-5MB",       // Negative value
+    "1.5GB",      // Decimal not supported
+    "10mb",       // Wrong case
+    "10Mb",       // Wrong case
+    "10kb",       // Wrong case
+    "1TB",        // Terabytes not supported
+    "abc",        // Non-numeric
+    "10BK",       // Invalid unit order
+    "10X",        // Invalid unit
+  };
+
+  for (const auto& input : invalid_cases) {
+    test_sink_->clear();
+    std::string error_message;
+    auto [success, size] = Size::parseWithError(input, error_message);
+    EXPECT_FALSE(success) << "Should have failed to parse: " << input;
+    EXPECT_FALSE(error_message.empty()) << "Should have error message for: " << input;
     
-    j = "5m";
-    EXPECT_EQ(parseJsonDuration<uint32_t>(j, "timeout"), 300000);
-    
-    j = "1.5h";
-    EXPECT_EQ(parseJsonDuration<uint32_t>(j, "timeout"), 5400000);
+    // Verify error logging
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, ""));
+  }
 }
 
-TEST_F(UnitParsingTest, ParseJsonSizeNumber) {
-    nlohmann::json j = 1048576;
-    EXPECT_EQ(parseJsonSize<size_t>(j, "max_size"), 1048576);
+TEST_F(UnitsTest, SizeFromJsonValue) {
+  // Test parsing from JsonValue (string)
+  {
+    JsonValue value("10MB");
+    auto [success, size] = Size::parse(value);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(size, 10485760);
+  }
+
+  // Test parsing from JsonValue (number - assumed bytes)
+  {
+    JsonValue value(1024);
+    auto [success, size] = Size::parse(value);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(size, 1024);
+  }
+
+  // Test invalid type
+  {
+    JsonValue value = JsonValue::object();
+    auto [success, size] = Size::parse(value);
+    EXPECT_FALSE(success);
+  }
 }
 
-TEST_F(UnitParsingTest, ParseJsonSizeString) {
-    nlohmann::json j = "10MB";
-    EXPECT_EQ(parseJsonSize<size_t>(j, "max_size"), 10000000);
-    
-    j = "1GB";
-    EXPECT_EQ(parseJsonSize<size_t>(j, "max_size"), 1000000000);
-    
-    j = "512KB";
-    EXPECT_EQ(parseJsonSize<size_t>(j, "max_size"), 512000);
-    
-    j = "1.5MiB";
-    EXPECT_EQ(parseJsonSize<size_t>(j, "max_size"), 1572864);
+TEST_F(UnitsTest, SizeToString) {
+  EXPECT_EQ(Size::toString(0), "0B");
+  EXPECT_EQ(Size::toString(512), "512B");
+  EXPECT_EQ(Size::toString(1024), "1KB");
+  EXPECT_EQ(Size::toString(10240), "10KB");
+  EXPECT_EQ(Size::toString(1048576), "1MB");
+  EXPECT_EQ(Size::toString(1073741824), "1GB");
+  
+  // Non-round values
+  EXPECT_EQ(Size::toString(1025), "1025B");
+  EXPECT_EQ(Size::toString(1048577), "1048577B");
 }
 
-TEST_F(UnitParsingTest, ParseJsonInvalidType) {
-    nlohmann::json j = true;  // Boolean
-    EXPECT_THROW(parseJsonDuration<uint32_t>(j, "timeout"), UnitParseError);
-    EXPECT_THROW(parseJsonSize<size_t>(j, "max_size"), UnitParseError);
-    
-    j = nlohmann::json::array();  // Array
-    EXPECT_THROW(parseJsonDuration<uint32_t>(j, "timeout"), UnitParseError);
-    EXPECT_THROW(parseJsonSize<size_t>(j, "max_size"), UnitParseError);
+TEST_F(UnitsTest, SizeValidation) {
+  // Valid formats
+  EXPECT_TRUE(Size::isValid("10B"));
+  EXPECT_TRUE(Size::isValid("5KB"));
+  EXPECT_TRUE(Size::isValid("2MB"));
+  EXPECT_TRUE(Size::isValid("1GB"));
+  
+  // Invalid formats
+  EXPECT_FALSE(Size::isValid("10"));
+  EXPECT_FALSE(Size::isValid("10 KB"));
+  EXPECT_FALSE(Size::isValid(""));
+  EXPECT_FALSE(Size::isValid("KB"));
 }
 
-// Formatting tests
-TEST_F(UnitParsingTest, FormatDuration) {
-    EXPECT_EQ(formatDuration(0), "0ms");
-    EXPECT_EQ(formatDuration(500), "500ms");
-    EXPECT_EQ(formatDuration(1000), "1s");
-    EXPECT_EQ(formatDuration(1500), "1.5s");
-    EXPECT_EQ(formatDuration(60000), "1m");
-    EXPECT_EQ(formatDuration(90000), "1.5m");
-    EXPECT_EQ(formatDuration(3600000), "1h");
-    EXPECT_EQ(formatDuration(5400000), "1.5h");
-    EXPECT_EQ(formatDuration(86400000), "1d");
+// ============================================================================
+// UnitValidator Tests
+// ============================================================================
+
+TEST_F(UnitsTest, SuspiciousValueDetection) {
+  test_sink_->clear();
+  
+  // Suspicious duration values
+  {
+    JsonValue value(5000);  // Large number, likely milliseconds
+    EXPECT_TRUE(UnitValidator::isSuspiciousValue(value, "connection_timeout"));
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Warning, "Suspicious duration value"));
+  }
+  
+  test_sink_->clear();
+  
+  // Suspicious size values
+  {
+    JsonValue value(10485760);  // 10MB in bytes
+    EXPECT_TRUE(UnitValidator::isSuspiciousValue(value, "buffer_size"));
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Warning, "Suspicious size value"));
+  }
+  
+  test_sink_->clear();
+  
+  // Values with spaces (incorrect format)
+  {
+    JsonValue value("10 ms");
+    EXPECT_TRUE(UnitValidator::isSuspiciousValue(value, "timeout"));
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Warning, "contains spaces"));
+  }
+  
+  // Non-suspicious values
+  {
+    JsonValue value(100);  // Small number
+    EXPECT_FALSE(UnitValidator::isSuspiciousValue(value, "retry_count"));
+    
+    JsonValue value2("30s");  // Proper format
+    EXPECT_FALSE(UnitValidator::isSuspiciousValue(value2, "timeout"));
+  }
 }
 
-TEST_F(UnitParsingTest, FormatSize) {
-    EXPECT_EQ(formatSize(0), "0B");
-    EXPECT_EQ(formatSize(500), "500B");
-    EXPECT_EQ(formatSize(1000), "1KB");
-    EXPECT_EQ(formatSize(1500), "1.5KB");
-    EXPECT_EQ(formatSize(1000000), "1MB");
-    EXPECT_EQ(formatSize(1500000), "1.5MB");
-    EXPECT_EQ(formatSize(1000000000), "1GB");
-    EXPECT_EQ(formatSize(1500000000), "1.5GB");
+TEST_F(UnitsTest, FriendlyErrorMessages) {
+  // Test error message formatting
+  std::string error;
+  
+  // Missing unit
+  error = UnitValidator::formatUnitError("1000", "server.timeout", 
+                                         "^[0-9]+(ms|s|m|h)$");
+  EXPECT_TRUE(error.find("Plain numbers should include units") != std::string::npos);
+  
+  // Space in value
+  error = UnitValidator::formatUnitError("10 ms", "server.timeout", 
+                                         "^[0-9]+(ms|s|m|h)$");
+  EXPECT_TRUE(error.find("no spaces") != std::string::npos);
+  
+  // Wrong case
+  error = UnitValidator::formatUnitError("10mb", "server.buffer_size", 
+                                         "^[0-9]+(B|KB|MB|GB)$");
+  EXPECT_TRUE(error.find("must be uppercase") != std::string::npos);
 }
 
-// Integration test with config types
-TEST_F(UnitParsingTest, ConfigIntegration) {
-    nlohmann::json config = {
-        {"capabilities", {
-            {"max_request_size", "10MB"},
-            {"max_response_size", "5MB"},
-            {"request_timeout", "30s"}
-        }},
-        {"session_timeout", "5m"}
-    };
-    
-    // These values should parse correctly
-    auto max_req = parseJsonSize<size_t>(config["capabilities"]["max_request_size"], "max_request_size");
-    EXPECT_EQ(max_req, 10000000);
-    
-    auto max_resp = parseJsonSize<size_t>(config["capabilities"]["max_response_size"], "max_response_size");
-    EXPECT_EQ(max_resp, 5000000);
-    
-    auto req_timeout = parseJsonDuration<uint32_t>(config["capabilities"]["request_timeout"], "request_timeout");
-    EXPECT_EQ(req_timeout, 30000);
-    
-    auto session_timeout = parseJsonDuration<uint32_t>(config["session_timeout"], "session_timeout");
-    EXPECT_EQ(session_timeout, 300000);
+TEST_F(UnitsTest, SchemaPatterns) {
+  // Verify schema patterns are correct
+  std::string duration_pattern = Duration::getSchemaPattern();
+  EXPECT_EQ(duration_pattern, "^[0-9]+(ms|s|m|h)$");
+  
+  std::string size_pattern = Size::getSchemaPattern();
+  EXPECT_EQ(size_pattern, "^[0-9]+(B|KB|MB|GB)$");
 }
 
-TEST_F(UnitParsingTest, MixedFormats) {
-    // Test that we can handle both numeric and string formats in the same config
-    nlohmann::json config = {
-        {"timeout1", 5000},      // Plain number
-        {"timeout2", "5s"},      // String with unit
-        {"size1", 1048576},      // Plain number  
-        {"size2", "1MB"}         // String with unit
-    };
-    
-    EXPECT_EQ(parseJsonDuration<uint32_t>(config["timeout1"], "timeout1"), 5000);
-    EXPECT_EQ(parseJsonDuration<uint32_t>(config["timeout2"], "timeout2"), 5000);
-    EXPECT_EQ(parseJsonSize<size_t>(config["size1"], "size1"), 1048576);
-    EXPECT_EQ(parseJsonSize<size_t>(config["size2"], "size2"), 1000000);
+TEST_F(UnitsTest, UnitConversions) {
+  // Test duration conversions
+  EXPECT_EQ(UnitConversion::toMilliseconds(std::chrono::seconds(5)), 5000);
+  EXPECT_EQ(UnitConversion::toSeconds(std::chrono::milliseconds(3000)), 3);
+  
+  // Test size conversions
+  EXPECT_EQ(UnitConversion::KILOBYTE, 1024);
+  EXPECT_EQ(UnitConversion::MEGABYTE, 1048576);
+  EXPECT_EQ(UnitConversion::GIGABYTE, 1073741824);
+  
+  EXPECT_DOUBLE_EQ(UnitConversion::toKilobytes(2048), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toMegabytes(2097152), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toGigabytes(2147483648), 2.0);
 }
+
+TEST_F(UnitsTest, YamlQuotingGuidance) {
+  std::string guidance = UnitValidator::getYamlQuotingGuidance();
+  EXPECT_TRUE(guidance.find("YAML Quoting Guidance") != std::string::npos);
+  EXPECT_TRUE(guidance.find("timeout: \"30s\"") != std::string::npos);
+  EXPECT_TRUE(guidance.find("CORRECT:") != std::string::npos);
+  EXPECT_TRUE(guidance.find("INCORRECT:") != std::string::npos);
+}
+
+// ============================================================================
+// Edge Cases and Error Handling
+// ============================================================================
+
+TEST_F(UnitsTest, OverflowHandling) {
+  // Test overflow detection for durations
+  {
+    std::string error;
+    auto [success, duration] = Duration::parseWithError("999999999999h", error);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(error.find("overflow") != std::string::npos || 
+                error.find("too large") != std::string::npos);
+  }
+  
+  // Test overflow detection for sizes  
+  {
+    std::string error;
+    auto [success, size] = Size::parseWithError("999999999999GB", error);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(error.find("overflow") != std::string::npos || 
+                error.find("too large") != std::string::npos);
+  }
+}
+
+}  // namespace test
+}  // namespace config
+}  // namespace mcp
