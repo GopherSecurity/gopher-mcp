@@ -1,9 +1,4 @@
 import {
-  JSONRPCMessage as FilterJSONRPCMessage,
-  FilterManager,
-  FilterManagerConfig,
-} from "@mcp/filter-sdk";
-import {
   Transport,
   TransportSendOptions,
 } from "@modelcontextprotocol/sdk/shared/transport";
@@ -11,6 +6,11 @@ import {
   JSONRPCMessage,
   MessageExtraInfo,
 } from "@modelcontextprotocol/sdk/types";
+import {
+  JSONRPCMessage as FilterJSONRPCMessage,
+  FilterManager,
+  FilterManagerConfig,
+} from "../../src/mcp-filter-manager";
 
 // Type adapter to convert between MCP SDK and FilterManager JSONRPCMessage types
 type MCPJSONRPCMessage = JSONRPCMessage;
@@ -58,13 +58,11 @@ export class GopherTransport implements Transport {
   private messageBuffers: Map<string, string> = new Map(); // Message buffers for each connection
 
   // Transport event handlers
-  onclose?: (() => void) | undefined;
-  onerror?: ((error: Error) => void) | undefined;
-  onmessage?:
-    | ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void)
-    | undefined;
-  sessionId?: string | undefined;
-  setProtocolVersion?: ((version: string) => void) | undefined;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+  sessionId?: string;
+  setProtocolVersion?: (version: string) => void;
 
   constructor(config: GopherTransportConfig = {}) {
     this.config = {
@@ -200,7 +198,7 @@ export class GopherTransport implements Transport {
 
   async send(
     message: JSONRPCMessage,
-    options?: TransportSendOptions
+    _options?: TransportSendOptions
   ): Promise<void> {
     if (this.isDestroyed) {
       throw new Error("GopherTransport has been destroyed");
@@ -277,7 +275,7 @@ export class GopherTransport implements Transport {
       }
 
       // Close all active connections
-      for (const [connectionId, connection] of this.connections) {
+      for (const [_connectionId, connection] of this.connections) {
         if (connection.destroy) {
           connection.destroy();
         }
@@ -535,7 +533,7 @@ export class GopherTransport implements Transport {
       // Client mode
       this.client = dgram.createSocket("udp4");
 
-      this.client.on("message", async (msg: Buffer, rinfo: any) => {
+      this.client.on("message", async (msg: Buffer, _rinfo: any) => {
         try {
           const message = JSON.parse(msg.toString());
           await this.processReceivedMessage(message);
@@ -628,7 +626,7 @@ export class GopherTransport implements Transport {
           this.client.write(messageData);
         } else if (this.server) {
           // Server mode - broadcast to all connections
-          for (const [connectionId, socket] of this.connections) {
+          for (const [_connectionId, socket] of this.connections) {
             socket.write(messageData);
           }
         }
@@ -640,7 +638,7 @@ export class GopherTransport implements Transport {
           this.client.send(messageData, this.config.port!, this.config.host!);
         } else if (this.server) {
           // Server mode - broadcast to all connections
-          for (const [connectionId, rinfo] of this.connections) {
+          for (const [_connectionId, rinfo] of this.connections) {
             this.server.send(messageData, rinfo.port, rinfo.address);
           }
         }
