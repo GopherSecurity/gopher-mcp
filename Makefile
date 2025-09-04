@@ -106,16 +106,70 @@ rebuild: clean all
 verbose:
 	@./build.sh --verbose
 
-# Format all source files
+# Format all source files (C++ and TypeScript)
 format:
-	@echo "Formatting all source files with clang-format..."
-	@find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i
-	@echo "Formatting complete."
+	@echo "Formatting all source files..."
+	@echo "Formatting C++ files with clang-format..."
+	@if command -v clang-format >/dev/null 2>&1; then \
+		find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i; \
+		echo "C++ formatting complete."; \
+	else \
+		echo "Warning: clang-format not found, skipping C++ formatting."; \
+		echo "Install clang-format to format C++ files: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	fi
+	@echo "Formatting TypeScript files with prettier..."
+	@if [ -d "sdk/typescript" ]; then \
+		cd sdk/typescript && \
+		if [ ! -f "node_modules/.bin/prettier" ]; then \
+			echo "Installing prettier for TypeScript formatting..."; \
+			npm install --save-dev prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin; \
+		fi; \
+		./node_modules/.bin/prettier --write "src/**/*.ts" "examples/**/*.ts" "mcp-example/src/**/*.ts" "**/*.json" "**/*.md" --ignore-path .gitignore; \
+		echo "TypeScript formatting complete."; \
+	else \
+		echo "TypeScript SDK directory not found, skipping TypeScript formatting."; \
+	fi
+	@echo "All formatting complete."
+
+# Format only TypeScript files
+format-ts:
+	@echo "Formatting TypeScript files with prettier..."
+	@if [ -d "sdk/typescript" ]; then \
+		cd sdk/typescript && \
+		if [ ! -f "node_modules/.bin/prettier" ]; then \
+			echo "Installing prettier for TypeScript formatting..."; \
+			npm install --save-dev prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin; \
+		fi; \
+		./node_modules/.bin/prettier --write "src/**/*.ts" "examples/**/*.ts" "mcp-example/src/**/*.ts" "**/*.json" "**/*.md" --ignore-path .gitignore; \
+		echo "TypeScript formatting complete."; \
+	else \
+		echo "TypeScript SDK directory not found."; \
+		exit 1; \
+	fi
 
 # Check formatting without modifying files
 check-format:
 	@echo "Checking source file formatting..."
-	@find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format --dry-run --Werror
+	@echo "Checking C++ file formatting..."
+	@if command -v clang-format >/dev/null 2>&1; then \
+		find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format --dry-run --Werror; \
+		echo "C++ formatting check complete."; \
+	else \
+		echo "Warning: clang-format not found, skipping C++ formatting check."; \
+		echo "Install clang-format to check C++ formatting: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	fi
+	@echo "Checking TypeScript file formatting..."
+	@if [ -d "sdk/typescript" ]; then \
+		cd sdk/typescript && \
+		if [ ! -f "node_modules/.bin/prettier" ]; then \
+			echo "Installing prettier for TypeScript formatting check..."; \
+			npm install --save-dev prettier @typescript-eslint/parser @typescript-eslint/eslint-plugin; \
+		fi; \
+		./node_modules/.bin/prettier --check "src/**/*.ts" "examples/**/*.ts" "mcp-example/src/**/*.ts" "**/*.json" "**/*.md" --ignore-path .gitignore; \
+		echo "TypeScript formatting check complete."; \
+	else \
+		echo "TypeScript SDK directory not found, skipping TypeScript formatting check."; \
+	fi
 
 # Install all components (C++ SDK and C API if built)
 install:
@@ -231,7 +285,8 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files with clang-format    │"
+	@echo "│ make format        Auto-format all source files (C++ and TypeScript) │"
+	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
@@ -249,7 +304,8 @@ help:
 	@echo "│   $$ sudo make install                                                │"
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
-	@echo "│   $$ make format          # Format code                              │"
+	@echo "│   $$ make format          # Format all code (C++ and TypeScript)     │"
+	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
 	@echo "│   $$ make build           # Build without tests                      │"
 	@echo "│   $$ make test-parallel   # Run tests quickly                        │"
 	@echo "│                                                                       │"
