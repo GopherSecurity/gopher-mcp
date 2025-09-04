@@ -1081,6 +1081,8 @@ add_executable(test_validation_policy config/test_validation_policy.cc)
 add_executable(test_file_config_source config/test_file_config_source.cc)
 add_executable(test_file_config_source_enhanced config/test_file_config_source_enhanced.cc)
 add_executable(test_file_source_interface config/test_file_source_interface.cc)
+add_executable(test_file_source_yaml_env_includes config/test_file_source_yaml_env_includes.cc)
+add_executable(test_merge_and_validate config/test_merge_and_validate.cc)
 
 # Logging tests
 add_executable(test_bloom_filter logging/test_bloom_filter.cc)
@@ -1162,6 +1164,22 @@ target_link_libraries(test_file_source_interface
     nlohmann_json::nlohmann_json
 )
 
+target_link_libraries(test_file_source_yaml_env_includes
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_merge_and_validate
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
 # Link logging test libraries
 target_link_libraries(test_bloom_filter
     gopher-mcp-logging-static
@@ -1218,6 +1236,8 @@ add_test(NAME ValidationPolicyTest COMMAND test_validation_policy)
 add_test(NAME FileConfigSourceTest COMMAND test_file_config_source)
 add_test(NAME FileConfigSourceEnhancedTest COMMAND test_file_config_source_enhanced)
 add_test(NAME FileSourceInterfaceTest COMMAND test_file_source_interface)
+add_test(NAME FileSourceYamlEnvIncludesTest COMMAND test_file_source_yaml_env_includes)
+add_test(NAME MergeAndValidateTest COMMAND test_merge_and_validate)
 
 # Add logging tests to CTest
 add_test(NAME test_bloom_filter COMMAND test_bloom_filter)
