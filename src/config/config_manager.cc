@@ -29,68 +29,7 @@ namespace config {
 std::once_flag ConfigurationManager::init_flag_;
 std::unique_ptr<ConfigurationManager> ConfigurationManager::instance_;
 
-// FileConfigSource implementation
-FileConfigSource::FileConfigSource(const std::string& filepath,
-                                   Priority priority)
-    : filepath_(filepath),
-      priority_(priority),
-      last_check_(std::chrono::system_clock::now()),
-      last_modified_(std::chrono::system_clock::time_point()) {}
-
-std::string FileConfigSource::getName() const { return "file:" + filepath_; }
-
-bool FileConfigSource::hasConfiguration() const {
-  struct stat file_stat;
-  return stat(filepath_.c_str(), &file_stat) == 0;
-}
-
-nlohmann::json FileConfigSource::loadConfiguration() {
-  std::ifstream file(filepath_);
-  if (!file.is_open()) {
-    return nlohmann::json();
-  }
-
-  nlohmann::json config;
-  try {
-    file >> config;
-
-    // Update last modified time
-    struct stat file_stat;
-    if (stat(filepath_.c_str(), &file_stat) == 0) {
-      last_modified_ =
-          std::chrono::system_clock::from_time_t(file_stat.st_mtime);
-    }
-  } catch (const nlohmann::json::exception& e) {
-    throw ConfigParseError("Failed to parse JSON from " + filepath_ + ": " +
-                           e.what());
-  }
-
-  return config;
-}
-
-bool FileConfigSource::hasChanged() const {
-  auto now = std::chrono::system_clock::now();
-
-  // Rate limit checks to once per second
-  if (now - last_check_ < std::chrono::seconds(1)) {
-    return false;
-  }
-
-  last_check_ = now;
-
-  struct stat file_stat;
-  if (stat(filepath_.c_str(), &file_stat) != 0) {
-    return false;
-  }
-
-  auto file_time = std::chrono::system_clock::from_time_t(file_stat.st_mtime);
-  return file_time > last_modified_;
-}
-
-std::chrono::system_clock::time_point FileConfigSource::getLastModified()
-    const {
-  return last_modified_;
-}
+// Note: FileConfigSource implementation moved to file_config_source.cc
 
 // JsonConfigSource implementation
 JsonConfigSource::JsonConfigSource(const std::string& name,
@@ -207,8 +146,8 @@ bool ConfigurationManager::initialize(
   // Add default sources if none provided
   if (sources.empty()) {
     // Add default file source
-    auto file_source = std::make_shared<FileConfigSource>(
-        "/etc/mcp/config.json", ConfigSource::Priority::FILE);
+    auto file_source = createFileConfigSource(
+        "default", ConfigSource::Priority::FILE, "/etc/mcp/config.json");
     if (file_source->hasConfiguration()) {
       sources_.push_back(file_source);
     }
