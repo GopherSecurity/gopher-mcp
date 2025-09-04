@@ -314,7 +314,7 @@ class ConfigurationManager {
   static std::unique_ptr<ConfigurationManager> instance_;
 
   // Configuration state
-  mutable std::shared_mutex config_mutex_;
+  mutable std::shared_timed_mutex config_mutex_;
   std::atomic<bool> initialized_{false};
   ConfigSnapshot current_config_;
 
