@@ -7,8 +7,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "test": "jest --no-cache --no-coverage",
+    "test:watch": "jest --watch --no-cache",
+    "test:debug": "jest --no-cache --no-coverage --verbose --runInBand",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "clean": "rm -rf dist",
@@ -32,7 +33,7 @@
     "url": "https://github.com/modelcontextprovider/gopher-mcp.git"
   },
   "dependencies": {
-    "koffi": "^2.14.0"
+    "koffi": "^2.13.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
