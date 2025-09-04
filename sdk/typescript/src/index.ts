@@ -10,19 +10,19 @@
  */
 
 // Core Filter API (mcp_c_filter_api.h)
-export * from "./filter-api";
+export * from "./mcp-filter-api";
 
 // Advanced Filter Chain Management (mcp_c_filter_chain.h)
-export * from "./filter-chain";
+export * from "./mcp-filter-chain";
 
 // Advanced Buffer Operations (mcp_c_filter_buffer.h)
-export * from "./filter-buffer";
+export * from "./mcp-filter-buffer";
 
 // Filter Manager for JSONRPCMessage processing
-export * from "./filter-manager";
+export * from "./mcp-filter-manager";
 
 // FFI bindings for C++ integration
-export * from "./ffi-bindings";
+export * from "./mcp-ffi-bindings";
 
 // C struct conversion utilities (selective exports to avoid conflicts)
 export {
@@ -33,7 +33,7 @@ export {
   createFilterNodeStruct,
   createProtocolMetadataStruct,
   freeStruct,
-} from "./c-structs";
+} from "./mcp-c-structs";
 
 // Type definitions
 export * from "./types";
