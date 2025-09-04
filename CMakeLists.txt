@@ -117,6 +117,7 @@ endif()
 #Find packages
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 #Find libevent
 find_package(PkgConfig)
@@ -393,6 +394,8 @@ set(MCP_CORE_SOURCES
     src/filter/protocol_detection_filter.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
+    src/config/config_manager.cc
+    src/config/file_config_source.cc
 )
 
 # Client and server sources that need event library
@@ -505,6 +508,7 @@ foreach(lib_target ${REAL_TARGETS})
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
+                yaml-cpp
         )
         if(LIBEVENT_LIBRARY_DIRS)
             target_link_directories(${lib_target} PRIVATE ${LIBEVENT_LIBRARY_DIRS})
