@@ -1085,6 +1085,7 @@ add_executable(test_file_source_yaml_env_includes config/test_file_source_yaml_e
 add_executable(test_merge_and_validate config/test_merge_and_validate.cc)
 add_executable(test_search_precedence config/test_search_precedence.cc)
 add_executable(test_units config/test_units.cc)
+add_executable(test_merge_semantics config/test_merge_semantics.cc)
 
 # Logging tests
 add_executable(test_bloom_filter logging/test_bloom_filter.cc)
@@ -1198,6 +1199,14 @@ target_link_libraries(test_units
     nlohmann_json::nlohmann_json
 )
 
+target_link_libraries(test_merge_semantics
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
 # Link logging test libraries
 target_link_libraries(test_bloom_filter
     gopher-mcp-logging-static
@@ -1258,6 +1267,7 @@ add_test(NAME FileSourceYamlEnvIncludesTest COMMAND test_file_source_yaml_env_in
 add_test(NAME MergeAndValidateTest COMMAND test_merge_and_validate)
 add_test(NAME SearchPrecedenceTest COMMAND test_search_precedence)
 add_test(NAME UnitsTest COMMAND test_units)
+add_test(NAME MergeSemanticsTest COMMAND test_merge_semantics)
 
 # Add logging tests to CTest
 add_test(NAME test_bloom_filter COMMAND test_bloom_filter)
