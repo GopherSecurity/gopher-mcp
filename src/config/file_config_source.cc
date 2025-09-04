@@ -1,5 +1,6 @@
 #define GOPHER_LOG_COMPONENT "config.file"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -15,10 +16,21 @@
 #include "mcp/config/config_manager.h"
 #include "mcp/logging/log_macros.h"
 
+// Platform-specific includes
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#endif
+
 namespace mcp {
 namespace config {
 
 namespace fs = std::filesystem;
+
+// Constants for file handling limits
+constexpr size_t MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;  // 20 MB
+constexpr int MAX_INCLUDE_DEPTH = 8;
 
 // Helper function to convert YAML to JSON
 nlohmann::json yamlToJson(const YAML::Node& node) {
@@ -75,6 +87,8 @@ class FileConfigSource : public ConfigSource {
     std::vector<std::string> allowed_include_roots;
     bool enable_environment_substitution = true;
     std::string trace_id;
+    size_t max_file_size = MAX_FILE_SIZE_BYTES;
+    int max_include_depth = MAX_INCLUDE_DEPTH;
   };
 
   FileConfigSource(const std::string& name,
@@ -88,7 +102,15 @@ class FileConfigSource : public ConfigSource {
   std::string getName() const override { return name_; }
   int getPriority() const override { return priority_; }
 
-  nlohmann::json load() override {
+  bool hasConfiguration() const override {
+    // Use discovery to check if configuration is available
+    std::string config_path = const_cast<FileConfigSource*>(this)->findConfigFile();
+    return !config_path.empty();
+  }
+
+  nlohmann::json loadConfiguration() override {
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "config.search"
     LOG_INFO() << "Starting configuration discovery for source: " << name_
                << (options_.trace_id.empty()
                        ? ""
@@ -102,27 +124,86 @@ class FileConfigSource : public ConfigSource {
       return nlohmann::json::object();
     }
 
-    LOG_INFO() << "Configuration file chosen: " << config_path
-               << " for source: " << name_;
+    LOG_INFO() << "Base configuration file chosen: " << config_path;
+
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "config.file"
 
     // Load and parse the main configuration file
     ParseContext context;
     context.base_dir = fs::path(config_path).parent_path();
     context.processed_files.insert(fs::canonical(config_path));
+    context.max_include_depth = options_.max_include_depth;
 
     auto config = loadFile(config_path, context);
+
+    // Process config.d overlays if directory exists
+    fs::path config_dir = fs::path(config_path).parent_path() / "config.d";
+    if (fs::exists(config_dir) && fs::is_directory(config_dir)) {
+      config = processConfigDOverlays(config, config_dir, context);
+    }
+
+    // Store the latest modification time
+    last_modified_ = context.latest_mtime;
+    base_config_path_ = config_path;
 
     LOG_INFO() << "Configuration discovery completed: files_parsed="
                << context.files_parsed_count
                << " includes_processed=" << context.includes_processed_count
-               << " for source: " << name_;
+               << " env_vars_expanded=" << context.env_vars_expanded_count
+               << " overlays_applied=" << context.overlays_applied.size();
+
+    // Log overlay list (filenames only)
+    if (!context.overlays_applied.empty()) {
+      LOG_DEBUG() << "Overlays applied in order:";
+      for (const auto& overlay : context.overlays_applied) {
+        LOG_DEBUG() << "  - " << fs::path(overlay).filename().string();
+      }
+    }
 
     return config;
   }
 
-  bool hasChanges() const override {
-    // Stub for file change detection - will be implemented in Phase 5
+  bool hasChanged() const override {
+    if (base_config_path_.empty()) {
+      return false;  // No config loaded yet
+    }
+    
+    // Check if base config has changed
+    if (fs::exists(base_config_path_)) {
+      auto current_mtime = fs::last_write_time(base_config_path_);
+      auto current_time_t = decltype(current_mtime)::clock::to_time_t(current_mtime);
+      auto current_time = std::chrono::system_clock::from_time_t(current_time_t);
+      
+      if (current_time > last_modified_) {
+        return true;
+      }
+    }
+    
+    // Check config.d directory for changes (simplified for now)
+    // Full implementation would track all loaded files
+    fs::path config_dir = fs::path(base_config_path_).parent_path() / "config.d";
+    if (fs::exists(config_dir) && fs::is_directory(config_dir)) {
+      for (const auto& entry : fs::directory_iterator(config_dir)) {
+        if (entry.is_regular_file()) {
+          auto ext = entry.path().extension().string();
+          if (ext == ".yaml" || ext == ".yml" || ext == ".json") {
+            auto mtime = fs::last_write_time(entry.path());
+            auto time_t = decltype(mtime)::clock::to_time_t(mtime);
+            auto time = std::chrono::system_clock::from_time_t(time_t);
+            if (time > last_modified_) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    
     return false;
+  }
+
+  std::chrono::system_clock::time_point getLastModified() const override {
+    return last_modified_;
   }
 
   void setConfigPath(const std::string& path) { explicit_config_path_ = path; }
@@ -133,8 +214,11 @@ class FileConfigSource : public ConfigSource {
     std::set<fs::path> processed_files;
     size_t files_parsed_count = 0;
     size_t includes_processed_count = 0;
+    size_t env_vars_expanded_count = 0;
+    std::vector<std::string> overlays_applied;
     int include_depth = 0;
-    static constexpr int MAX_INCLUDE_DEPTH = 10;
+    int max_include_depth = MAX_INCLUDE_DEPTH;
+    std::chrono::system_clock::time_point latest_mtime = std::chrono::system_clock::time_point();
   };
 
   std::string findConfigFile() {
@@ -177,13 +261,29 @@ class FileConfigSource : public ConfigSource {
   nlohmann::json loadFile(const std::string& filepath, ParseContext& context) {
     context.files_parsed_count++;
 
-    // Get file metadata
+    // Check file size before loading
+    auto file_size = fs::file_size(filepath);
+    if (file_size > options_.max_file_size) {
+      LOG_ERROR() << "File exceeds maximum size limit: " << filepath
+                  << " size=" << file_size
+                  << " limit=" << options_.max_file_size;
+      throw std::runtime_error("File too large: " + filepath + " (" +
+                               std::to_string(file_size) + " bytes)");
+    }
+
+    // Get file metadata and track latest modification time
     auto last_modified = fs::last_write_time(filepath);
     auto last_modified_time_t =
         decltype(last_modified)::clock::to_time_t(last_modified);
+    auto file_mtime = std::chrono::system_clock::from_time_t(last_modified_time_t);
+    
+    // Update latest modification time
+    if (file_mtime > context.latest_mtime) {
+      context.latest_mtime = file_mtime;
+    }
 
     LOG_DEBUG() << "Loading configuration file: " << filepath
-                << " source_name=" << name_
+                << " size=" << file_size
                 << " last_modified=" << last_modified_time_t;
 
     std::ifstream file(filepath);
@@ -197,7 +297,7 @@ class FileConfigSource : public ConfigSource {
 
     // Perform environment variable substitution if enabled
     if (options_.enable_environment_substitution) {
-      content = substituteEnvironmentVariables(content);
+      content = substituteEnvironmentVariables(content, context);
     }
 
     // Parse based on file extension
@@ -261,39 +361,54 @@ class FileConfigSource : public ConfigSource {
     }
   }
 
-  std::string substituteEnvironmentVariables(const std::string& content) {
-    std::regex env_regex(R"(\$\{([A-Za-z_][A-Za-z0-9_]*):?([^}]*)\})");
+  std::string substituteEnvironmentVariables(const std::string& content,
+                                             ParseContext& context) {
+    std::regex env_regex(R"(\$\{([A-Za-z_][A-Za-z0-9_]*)(:(-)?([^}]*))?\})");
     std::string result = content;
+    size_t vars_expanded = 0;
 
     std::smatch match;
     std::string::const_iterator search_start(content.cbegin());
-    std::vector<std::pair<size_t, std::string>> replacements;
+    std::vector<std::tuple<size_t, std::string, std::string>> replacements;
 
     while (std::regex_search(search_start, content.cend(), match, env_regex)) {
       std::string var_name = match[1].str();
-      std::string default_value = match[2].str();
-
-      // Remove leading '-' from default value if present
-      if (!default_value.empty() && default_value[0] == '-') {
-        default_value = default_value.substr(1);
-      }
+      bool has_default = match[2].matched;
+      std::string default_value = has_default ? match[4].str() : "";
 
       const char* env_value = std::getenv(var_name.c_str());
+
+      if (!env_value && !has_default) {
+        LOG_ERROR() << "Undefined environment variable without default: ${"
+                    << var_name << "}";
+        throw std::runtime_error("Undefined environment variable: " + var_name);
+      }
+
       std::string replacement = env_value ? env_value : default_value;
+      vars_expanded++;
 
       size_t pos =
           match.position(0) + std::distance(content.cbegin(), search_start);
-      replacements.push_back({pos, replacement});
+      replacements.push_back({pos, match[0].str(), replacement});
 
       search_start = match.suffix().first;
     }
 
     // Apply replacements in reverse order to maintain positions
     for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
-      std::smatch m;
-      if (std::regex_search(result, m, env_regex)) {
-        result.replace(m.position(0), m.length(0), it->second);
+      size_t pos = std::get<0>(*it);
+      const std::string& pattern = std::get<1>(*it);
+      const std::string& replacement = std::get<2>(*it);
+
+      size_t found = result.find(pattern, pos);
+      if (found != std::string::npos) {
+        result.replace(found, pattern.length(), replacement);
       }
+    }
+
+    context.env_vars_expanded_count += vars_expanded;
+    if (vars_expanded > 0) {
+      LOG_DEBUG() << "Expanded " << vars_expanded << " environment variables";
     }
 
     return result;
@@ -301,10 +416,13 @@ class FileConfigSource : public ConfigSource {
 
   nlohmann::json processIncludes(const nlohmann::json& config,
                                  ParseContext& context) {
-    if (++context.include_depth > ParseContext::MAX_INCLUDE_DEPTH) {
+    if (++context.include_depth > context.max_include_depth) {
       LOG_ERROR() << "Maximum include depth exceeded: "
-                  << ParseContext::MAX_INCLUDE_DEPTH;
-      throw std::runtime_error("Maximum include depth exceeded");
+                  << context.max_include_depth << " at depth "
+                  << context.include_depth;
+      throw std::runtime_error("Maximum include depth (" +
+                               std::to_string(context.max_include_depth) +
+                               ") exceeded");
     }
 
     nlohmann::json result = config;
@@ -463,10 +581,69 @@ class FileConfigSource : public ConfigSource {
     }
   }
 
+  // Process config.d overlay directory
+  nlohmann::json processConfigDOverlays(const nlohmann::json& base_config,
+                                        const fs::path& overlay_dir,
+                                        ParseContext& context) {
+    LOG_INFO() << "Processing config.d overlays from: " << overlay_dir;
+
+    nlohmann::json result = base_config;
+    std::vector<fs::path> overlay_files;
+
+    // Collect all .yaml and .json files
+    for (const auto& entry : fs::directory_iterator(overlay_dir)) {
+      if (entry.is_regular_file()) {
+        auto ext = entry.path().extension().string();
+        if (ext == ".yaml" || ext == ".yml" || ext == ".json") {
+          overlay_files.push_back(entry.path());
+        }
+      }
+    }
+
+    // Sort lexicographically for deterministic order
+    std::sort(overlay_files.begin(), overlay_files.end());
+
+    LOG_DEBUG() << "Found " << overlay_files.size() << " overlay files";
+
+    for (const auto& overlay_file : overlay_files) {
+      if (context.processed_files.count(fs::canonical(overlay_file)) > 0) {
+        LOG_DEBUG() << "Skipping already processed overlay: " << overlay_file;
+        continue;
+      }
+
+      context.processed_files.insert(fs::canonical(overlay_file));
+
+      LOG_DEBUG() << "Applying overlay: " << overlay_file.filename();
+
+      ParseContext overlay_context = context;
+      overlay_context.base_dir = overlay_file.parent_path();
+
+      try {
+        auto overlay_config = loadFile(overlay_file.string(), overlay_context);
+        mergeConfigs(result, overlay_config);
+
+        context.overlays_applied.push_back(overlay_file.string());
+        context.files_parsed_count = overlay_context.files_parsed_count;
+        context.includes_processed_count =
+            overlay_context.includes_processed_count;
+        context.env_vars_expanded_count =
+            overlay_context.env_vars_expanded_count;
+      } catch (const std::exception& e) {
+        LOG_ERROR() << "Failed to process overlay " << overlay_file << ": "
+                    << e.what();
+        // Continue with other overlays
+      }
+    }
+
+    return result;
+  }
+
   std::string name_;
   int priority_;
   Options options_;
   std::string explicit_config_path_;
+  std::string base_config_path_;  // Path to the base config file that was loaded
+  mutable std::chrono::system_clock::time_point last_modified_;  // Latest mtime across all loaded files
   mutable std::map<std::string, std::time_t>
       file_timestamps_;  // For future change detection
 };
