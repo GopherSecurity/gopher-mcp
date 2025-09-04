@@ -1,5 +1,29 @@
 #define GOPHER_LOG_COMPONENT "config.file"
 
+// Configuration File Source Implementation
+//
+// Search Order and Precedence:
+// 1. --config CLI argument (highest precedence)
+// 2. MCP_CONFIG environment variable
+// 3. Local directory: ./config/config.{yaml,json}, ./config.{yaml,json}
+// 4. System directory: /etc/gopher-mcp/config.{yaml,json}
+//
+// Atomic File Update Guidance for Configuration Authors:
+// To safely update configuration files in production:
+// 1. Write new configuration to a temporary file (e.g., config.yaml.tmp)
+// 2. Validate the temporary file
+// 3. Use atomic rename (rename(2)) to replace the old file
+// 4. This ensures readers never see partial writes
+// Example:
+//   echo "$new_config" > /etc/gopher-mcp/config.yaml.tmp
+//   mv -f /etc/gopher-mcp/config.yaml.tmp /etc/gopher-mcp/config.yaml
+//
+// Include Resolution Security:
+// - Relative paths are resolved relative to the including file's directory
+// - Absolute paths must be within configured allowed roots
+// - Circular includes are detected and prevented
+// - Maximum include depth is enforced (default: 8)
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -223,16 +247,23 @@ class FileConfigSource : public ConfigSource {
 
   std::string findConfigFile() {
     std::vector<std::string> search_paths;
+    std::string source_type;
 
     // 1. Explicit path (--config CLI argument)
     if (!explicit_config_path_.empty()) {
       search_paths.push_back(explicit_config_path_);
+      LOG_INFO() << "CLI override detected: --config specified";
+      source_type = "CLI";
     }
 
     // 2. MCP_CONFIG environment variable
     const char* env_config = std::getenv("MCP_CONFIG");
     if (env_config && *env_config) {
       search_paths.push_back(env_config);
+      if (source_type.empty()) {
+        LOG_INFO() << "Environment override detected: MCP_CONFIG set";
+        source_type = "ENV";
+      }
     }
 
     // 3. Local config directory
@@ -248,9 +279,20 @@ class FileConfigSource : public ConfigSource {
     LOG_DEBUG() << "Configuration search order: " << search_paths.size()
                 << " paths to check";
 
-    for (const auto& path : search_paths) {
+    for (size_t i = 0; i < search_paths.size(); ++i) {
+      const auto& path = search_paths[i];
       if (fs::exists(path)) {
-        LOG_DEBUG() << "Configuration file found at: " << path;
+        // Determine which source won
+        if (i == 0 && !explicit_config_path_.empty()) {
+          LOG_INFO() << "Configuration source won: CLI --config=" << path;
+        } else if ((i == 0 || i == 1) && env_config) {
+          LOG_INFO() << "Configuration source won: MCP_CONFIG environment variable";
+        } else if (path.find("./config") != std::string::npos || 
+                   path.find("./config.") != std::string::npos) {
+          LOG_INFO() << "Configuration source won: local directory at " << path;
+        } else {
+          LOG_INFO() << "Configuration source won: system directory at " << path;
+        }
         return path;
       }
     }
@@ -593,7 +635,7 @@ class FileConfigSource : public ConfigSource {
   nlohmann::json processConfigDOverlays(const nlohmann::json& base_config,
                                         const fs::path& overlay_dir,
                                         ParseContext& context) {
-    LOG_INFO() << "Processing config.d overlays from: " << overlay_dir;
+    LOG_INFO() << "Scanning config.d directory: " << overlay_dir;
 
     nlohmann::json result = base_config;
     std::vector<fs::path> overlay_files;
@@ -611,7 +653,16 @@ class FileConfigSource : public ConfigSource {
     // Sort lexicographically for deterministic order
     std::sort(overlay_files.begin(), overlay_files.end());
 
-    LOG_DEBUG() << "Found " << overlay_files.size() << " overlay files";
+    LOG_INFO() << "Directory scan results: found " << overlay_files.size() 
+               << " configuration overlay files";
+    
+    // Log overlay list in order
+    if (!overlay_files.empty()) {
+      LOG_INFO() << "Overlay files in lexicographic order:";
+      for (const auto& file : overlay_files) {
+        LOG_INFO() << "  - " << file.filename().string();
+      }
+    }
 
     for (const auto& overlay_file : overlay_files) {
       if (context.processed_files.count(fs::canonical(overlay_file)) > 0) {
