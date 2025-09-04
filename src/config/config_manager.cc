@@ -145,9 +145,13 @@ bool ConfigurationManager::initialize(
 
   // Add default sources if none provided
   if (sources.empty()) {
-    // Add default file source
+    // Add default file source with discovery logic
+    // Pass empty path to trigger automatic discovery based on precedence:
+    // 1. MCP_CONFIG environment variable
+    // 2. Current directory: config/config.{json,yaml}, config.{json,yaml}
+    // 3. System directories: /etc/mcp/config.{json,yaml}
     auto file_source = createFileConfigSource(
-        "default", ConfigSource::Priority::FILE, "/etc/mcp/config.json");
+        "default", ConfigSource::Priority::FILE, "");
     if (file_source->hasConfiguration()) {
       sources_.push_back(file_source);
     }
