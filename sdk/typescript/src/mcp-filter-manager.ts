@@ -1234,7 +1234,7 @@ export class FilterManager {
     if (customCallbacks.onMessageReceived) {
       console.log(`🔍 [CApiFilter DEBUG] Creating message received filter with CApiFilter`);
       const messageReceivedFilter = createCustomFilter(dispatcher, {
-        onData: (buffer: number, _endStream: boolean, _userData: any) => {
+        onData: (_buffer: number, _endStream: boolean, _userData: any) => {
           try {
             console.log(`🔍 [CApiFilter DEBUG] onData callback called!`);
 

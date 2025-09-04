@@ -6,10 +6,10 @@
  * to the C API functions. It uses koffi for cross-platform compatibility.
  */
 
+import { existsSync } from "fs";
 import koffi from "koffi";
 import { arch, platform } from "os";
 import { join } from "path";
-import { existsSync } from "fs";
 
 // Library configuration for different platforms and architectures
 const LIBRARY_CONFIG = {
@@ -110,7 +110,7 @@ function getLibraryPath(): string {
   }
 
   const config = LIBRARY_CONFIG[currentPlatform][currentArch];
-  
+
   // Search through the paths to find the first one that exists
   for (const searchPath of config.searchPaths) {
     if (existsSync(searchPath)) {
@@ -122,9 +122,9 @@ function getLibraryPath(): string {
   const searchedPaths = config.searchPaths.join(", ");
   throw new Error(
     `MCP C API library not found. Searched paths: ${searchedPaths}\n` +
-    `Please ensure the library is built and available at one of these locations.\n` +
-    `You can build it by running: make build\n` +
-    `Or set MCP_LIBRARY_PATH environment variable to the library path.`
+      `Please ensure the library is built and available at one of these locations.\n` +
+      `You can build it by running: make build\n` +
+      `Or set MCP_LIBRARY_PATH environment variable to the library path.`
   );
 }
 
