@@ -23,11 +23,7 @@ interface TestResult {
 
 const testResults: TestResult[] = [];
 
-function runTest(
-  name: string,
-  testFn: (...args: any[]) => any,
-  ...args: any[]
-): TestResult {
+function runTest(name: string, testFn: (...args: any[]) => any, ...args: any[]): TestResult {
   console.log(`🧪 Running test: ${name}`);
 
   try {
@@ -312,10 +308,10 @@ async function runIntegrationTests() {
   console.log("📊 TEST SUMMARY");
   console.log("=".repeat(60));
 
-  const passedTests = testResults.filter((r) => r.passed).length;
+  const passedTests = testResults.filter(r => r.passed).length;
   const totalTests = testResults.length;
 
-  testResults.forEach((result) => {
+  testResults.forEach(result => {
     const status = result.passed ? "✅ PASS" : "❌ FAIL";
     console.log(`${status} ${result.name}`);
     if (!result.passed && result.error) {
@@ -327,9 +323,7 @@ async function runIntegrationTests() {
   console.log(`🎯 RESULTS: ${passedTests}/${totalTests} tests passed`);
 
   if (passedTests === totalTests) {
-    console.log(
-      "🎉 ALL TESTS PASSED! Integration with shared library successful!"
-    );
+    console.log("🎉 ALL TESTS PASSED! Integration with shared library successful!");
     return 0;
   } else {
     console.log("💥 Some tests failed. Check the errors above.");
@@ -340,8 +334,8 @@ async function runIntegrationTests() {
 // Run the integration tests
 if (require.main === module) {
   runIntegrationTests()
-    .then((exitCode) => process.exit(exitCode))
-    .catch((error) => {
+    .then(exitCode => process.exit(exitCode))
+    .catch(error => {
       console.error("💥 Integration test suite failed:", error);
       process.exit(1);
     });

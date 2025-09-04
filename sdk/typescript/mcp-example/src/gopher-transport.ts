@@ -1,11 +1,5 @@
-import {
-  Transport,
-  TransportSendOptions,
-} from "@modelcontextprotocol/sdk/shared/transport";
-import {
-  JSONRPCMessage,
-  MessageExtraInfo,
-} from "@modelcontextprotocol/sdk/types";
+import { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport";
+import { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk/types";
 import {
   JSONRPCMessage as FilterJSONRPCMessage,
   FilterManager,
@@ -16,15 +10,11 @@ import {
 type MCPJSONRPCMessage = JSONRPCMessage;
 type AdapterJSONRPCMessage = FilterJSONRPCMessage;
 
-function adaptToFilterMessage(
-  mcpMessage: MCPJSONRPCMessage
-): AdapterJSONRPCMessage {
+function adaptToFilterMessage(mcpMessage: MCPJSONRPCMessage): AdapterJSONRPCMessage {
   return mcpMessage as AdapterJSONRPCMessage;
 }
 
-function adaptToMCPMessage(
-  filterMessage: AdapterJSONRPCMessage
-): MCPJSONRPCMessage {
+function adaptToMCPMessage(filterMessage: AdapterJSONRPCMessage): MCPJSONRPCMessage {
   return filterMessage as MCPJSONRPCMessage;
 }
 
@@ -152,9 +142,7 @@ export class GopherTransport implements Transport {
     };
 
     this.filterManager = new FilterManager(filterConfig);
-    console.log(
-      `🔧 GopherTransport initialized with FilterManager (${this.config.name})`
-    );
+    console.log(`🔧 GopherTransport initialized with FilterManager (${this.config.name})`);
   }
 
   async start(): Promise<void> {
@@ -196,10 +184,7 @@ export class GopherTransport implements Transport {
     }
   }
 
-  async send(
-    message: JSONRPCMessage,
-    _options?: TransportSendOptions
-  ): Promise<void> {
+  async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
     if (this.isDestroyed) {
       throw new Error("GopherTransport has been destroyed");
     }
@@ -217,9 +202,7 @@ export class GopherTransport implements Transport {
 
       // Process message through FilterManager
       const filterMessage = adaptToFilterMessage(message);
-      const processedFilterMessage = await this.filterManager.process(
-        filterMessage
-      );
+      const processedFilterMessage = await this.filterManager.process(filterMessage);
       const processedMessage = adaptToMCPMessage(processedFilterMessage);
 
       const processedInfo =
@@ -231,13 +214,7 @@ export class GopherTransport implements Transport {
       console.log(`✅ Message processed through filters: ${processedInfo}`);
 
       // FilterManager processing complete - message ready for actual transport
-      console.log(
-        `✅ Message ready for transport: ${JSON.stringify(
-          processedMessage,
-          null,
-          2
-        )}`
-      );
+      console.log(`✅ Message ready for transport: ${JSON.stringify(processedMessage, null, 2)}`);
 
       // Send the processed message through the actual transport
       await this.sendThroughTransport(processedMessage);
@@ -304,10 +281,7 @@ export class GopherTransport implements Transport {
    * Process a received message through FilterManager
    * In a real implementation, this would be called when receiving data from the network
    */
-  async processReceivedMessage(
-    message: JSONRPCMessage,
-    extra?: MessageExtraInfo
-  ): Promise<void> {
+  async processReceivedMessage(message: JSONRPCMessage, extra?: MessageExtraInfo): Promise<void> {
     if (!this.isConnected || this.isDestroyed) {
       return;
     }
@@ -321,9 +295,7 @@ export class GopherTransport implements Transport {
 
       // Process response through FilterManager
       const filterMessage = adaptToFilterMessage(message);
-      const processedFilterMessage = await this.filterManager.processResponse(
-        filterMessage
-      );
+      const processedFilterMessage = await this.filterManager.processResponse(filterMessage);
       const processedMessage = adaptToMCPMessage(processedFilterMessage);
 
       const processedInfo =
@@ -432,9 +404,7 @@ export class GopherTransport implements Transport {
    * Start TCP transport
    */
   private async startTcpTransport(): Promise<void> {
-    console.log(
-      `📡 Starting TCP transport on ${this.config.host}:${this.config.port}`
-    );
+    console.log(`📡 Starting TCP transport on ${this.config.host}:${this.config.port}`);
 
     // Import net module for TCP
     const net = await import("net");
@@ -467,21 +437,17 @@ export class GopherTransport implements Transport {
 
       // Connect to server
       await new Promise<void>((resolve, reject) => {
-        this.client.connect(
-          this.config.port!,
-          this.config.host!,
-          (error?: Error) => {
-            if (error) {
-              reject(error);
-            } else {
-              resolve();
-            }
+        this.client.connect(this.config.port!, this.config.host!, (error?: Error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
           }
-        );
+        });
       });
     } else {
       // Server mode - listen for connections
-      this.server = net.createServer((socket) => {
+      this.server = net.createServer(socket => {
         const connectionId = `${socket.remoteAddress}:${socket.remotePort}`;
         console.log(`🔗 New TCP connection: ${connectionId}`);
 
@@ -522,9 +488,7 @@ export class GopherTransport implements Transport {
    * Start UDP transport
    */
   private async startUdpTransport(): Promise<void> {
-    console.log(
-      `📡 Starting UDP transport on ${this.config.host}:${this.config.port}`
-    );
+    console.log(`📡 Starting UDP transport on ${this.config.host}:${this.config.port}`);
 
     // Import dgram module for UDP
     const dgram = await import("dgram");
@@ -580,10 +544,7 @@ export class GopherTransport implements Transport {
   /**
    * Process TCP data with proper message delimiters
    */
-  private async processTcpData(
-    data: Buffer,
-    connectionId: string
-  ): Promise<void> {
+  private async processTcpData(data: Buffer, connectionId: string): Promise<void> {
     // Get or create buffer for this connection
     let buffer = this.messageBuffers.get(connectionId) || "";
     buffer += data.toString();
@@ -599,10 +560,7 @@ export class GopherTransport implements Transport {
           const message = JSON.parse(line.trim());
           await this.processReceivedMessage(message);
         } catch (error) {
-          console.error(
-            `❌ Error processing TCP message from ${connectionId}:`,
-            error
-          );
+          console.error(`❌ Error processing TCP message from ${connectionId}:`, error);
         }
       }
     }
@@ -645,9 +603,7 @@ export class GopherTransport implements Transport {
         break;
 
       default:
-        throw new Error(
-          `Unsupported protocol for sending: ${this.config.protocol}`
-        );
+        throw new Error(`Unsupported protocol for sending: ${this.config.protocol}`);
     }
   }
 }

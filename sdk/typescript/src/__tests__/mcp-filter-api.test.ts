@@ -26,10 +26,7 @@ import {
   retainFilter,
 } from "../mcp-filter-api";
 
-import {
-  buildFilterChain,
-  destroyFilterChainBuilder,
-} from "../mcp-filter-chain";
+import { buildFilterChain, destroyFilterChainBuilder } from "../mcp-filter-chain";
 
 // Use real C++ library instead of mocks
 

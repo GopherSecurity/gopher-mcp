@@ -51,12 +51,7 @@ describe("CApiFilter Integration", () => {
           console.log("Custom filter onNewConnection called");
           return FilterStatus.CONTINUE;
         },
-        onError: (
-          _filter: number,
-          _error: number,
-          message: string,
-          _userData: any
-        ) => {
+        onError: (_filter: number, _error: number, message: string, _userData: any) => {
           console.error("Custom filter onError called:", message);
         },
       });
@@ -117,17 +112,17 @@ describe("CApiFilter Integration", () => {
               processed: true,
             };
           },
-          onMessageSent: (message) => {
+          onMessageSent: message => {
             console.log("Message sent:", message.method);
             return {
               ...message,
               sent: true,
             };
           },
-          onConnectionEstablished: (connectionId) => {
+          onConnectionEstablished: connectionId => {
             console.log("Connection established:", connectionId);
           },
-          onConnectionClosed: (connectionId) => {
+          onConnectionClosed: connectionId => {
             console.log("Connection closed:", connectionId);
           },
           onError: (error, context) => {

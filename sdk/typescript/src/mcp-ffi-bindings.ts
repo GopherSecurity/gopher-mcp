@@ -45,13 +45,9 @@ const LIBRARY_CONFIG = {
 
 function getLibraryPath(): string {
   const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
-  const currentArch =
-    arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
+  const currentArch = arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
 
-  if (
-    !LIBRARY_CONFIG[currentPlatform] ||
-    !LIBRARY_CONFIG[currentPlatform][currentArch]
-  ) {
+  if (!LIBRARY_CONFIG[currentPlatform] || !LIBRARY_CONFIG[currentPlatform][currentArch]) {
     throw new Error(`Unsupported platform: ${currentPlatform} ${currentArch}`);
   }
 
@@ -60,13 +56,9 @@ function getLibraryPath(): string {
 
 function getLibraryName(): string {
   const currentPlatform = platform() as keyof typeof LIBRARY_CONFIG;
-  const currentArch =
-    arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
+  const currentArch = arch() as keyof (typeof LIBRARY_CONFIG)[typeof currentPlatform];
 
-  if (
-    !LIBRARY_CONFIG[currentPlatform] ||
-    !LIBRARY_CONFIG[currentPlatform][currentArch]
-  ) {
+  if (!LIBRARY_CONFIG[currentPlatform] || !LIBRARY_CONFIG[currentPlatform][currentArch]) {
     throw new Error(`Unsupported platform: ${currentPlatform} ${currentArch}`);
   }
 
@@ -453,11 +445,7 @@ try {
   // Try to bind each function
   for (const func of functionList) {
     try {
-      availableFunctions[func.name] = library.func(
-        func.name,
-        func.signature,
-        func.args
-      );
+      availableFunctions[func.name] = library.func(func.name, func.signature, func.args);
       console.log(`✓ Bound function: ${func.name}`);
     } catch (error) {
       console.log(`✗ Failed to bind function: ${func.name} - ${error}`);
@@ -467,9 +455,7 @@ try {
   mcpFilterLib = availableFunctions;
 
   const boundCount = Object.keys(availableFunctions).length;
-  console.log(
-    `Successfully bound ${boundCount} out of ${functionList.length} functions`
-  );
+  console.log(`Successfully bound ${boundCount} out of ${functionList.length} functions`);
 
   if (boundCount === 0) {
     throw new Error("No functions could be bound from the library");
@@ -550,10 +536,7 @@ export function fromCString(ptr: Buffer): string {
 /**
  * Create a C struct from JavaScript object
  */
-export function createStruct<T extends Record<string, any>>(
-  structType: any,
-  data: T
-): Buffer {
+export function createStruct<T extends Record<string, any>>(structType: any, data: T): Buffer {
   // Get the size of the struct
   const structSize = koffi.sizeof(structType);
 

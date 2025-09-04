@@ -57,10 +57,7 @@ export interface McpBufferStats {
 /**
  * Drain tracker for monitoring buffer consumption
  */
-export type McpDrainTrackerCallback = (
-  bytesDrained: number,
-  userData: any
-) => void;
+export type McpDrainTrackerCallback = (bytesDrained: number, userData: any) => void;
 
 /**
  * Drain tracker structure
@@ -261,10 +258,7 @@ export type McpBufferEventCallback = (event: McpBufferEvent) => void;
 /**
  * Check if buffer has specific ownership
  */
-export function hasOwnership(
-  ownership: McpBufferOwnership,
-  type: McpBufferOwnership
-): boolean {
+export function hasOwnership(ownership: McpBufferOwnership, type: McpBufferOwnership): boolean {
   return ownership === type;
 }
 
@@ -299,10 +293,7 @@ export function isExternal(ownership: McpBufferOwnership): boolean {
 /**
  * Create buffer range from start and length
  */
-export function createBufferRange(
-  start: number,
-  length: number
-): McpBufferRange {
+export function createBufferRange(start: number, length: number): McpBufferRange {
   return {
     start,
     length,
@@ -320,10 +311,7 @@ export function isValidBufferRange(range: McpBufferRange): boolean {
 /**
  * Check if position is within buffer range
  */
-export function isInBufferRange(
-  position: number,
-  range: McpBufferRange
-): boolean {
+export function isInBufferRange(position: number, range: McpBufferRange): boolean {
   return position >= range.start && position < range.end;
 }
 

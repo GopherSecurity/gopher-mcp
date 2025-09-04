@@ -85,9 +85,7 @@ describe("Filter Buffer API", () => {
   describe("Buffer Creation and Management", () => {
     it("should create owned buffer", () => {
       const mockBufferHandle = 12345;
-      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = createBufferOwned(1024, BufferOwnership.SHARED);
 
@@ -102,9 +100,7 @@ describe("Filter Buffer API", () => {
       const mockBufferHandle = 67890;
       const data = new Uint8Array([1, 2, 3, 4]);
 
-      (mcpFilterLib.mcp_buffer_create_view as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_buffer_create_view as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = createBufferView(data, 4);
 
@@ -119,9 +115,7 @@ describe("Filter Buffer API", () => {
         size: 3,
       };
 
-      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = createBufferFromFragment(fragment);
 
@@ -137,9 +131,7 @@ describe("Filter Buffer API", () => {
       const mockBufferHandle = 22222;
       const sourceBuffer = 12345;
 
-      (mcpFilterLib.mcp_buffer_clone as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_buffer_clone as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = cloneBuffer(sourceBuffer);
 
@@ -158,11 +150,7 @@ describe("Filter Buffer API", () => {
       const result = addDataToBuffer(bufferHandle, data, 4);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_add).toHaveBeenCalledWith(
-        bufferHandle,
-        data,
-        4
-      );
+      expect(mcpFilterLib.mcp_buffer_add).toHaveBeenCalledWith(bufferHandle, data, 4);
     });
 
     it("should add string to buffer", () => {
@@ -174,10 +162,7 @@ describe("Filter Buffer API", () => {
       const result = addStringToBuffer(bufferHandle, str);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_add_string).toHaveBeenCalledWith(
-        bufferHandle,
-        str
-      );
+      expect(mcpFilterLib.mcp_buffer_add_string).toHaveBeenCalledWith(bufferHandle, str);
     });
 
     it("should add buffer to buffer", () => {
@@ -189,10 +174,7 @@ describe("Filter Buffer API", () => {
       const result = addBufferToBuffer(destBuffer, sourceBuffer);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_add_buffer).toHaveBeenCalledWith(
-        destBuffer,
-        sourceBuffer
-      );
+      expect(mcpFilterLib.mcp_buffer_add_buffer).toHaveBeenCalledWith(destBuffer, sourceBuffer);
     });
   });
 
@@ -206,10 +188,7 @@ describe("Filter Buffer API", () => {
       const result = drainBuffer(bufferHandle, size);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_drain).toHaveBeenCalledWith(
-        bufferHandle,
-        size
-      );
+      expect(mcpFilterLib.mcp_buffer_drain).toHaveBeenCalledWith(bufferHandle, size);
     });
 
     it("should move buffer data", () => {
@@ -222,11 +201,7 @@ describe("Filter Buffer API", () => {
       const result = moveBufferData(sourceBuffer, destBuffer, length);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_move).toHaveBeenCalledWith(
-        sourceBuffer,
-        destBuffer,
-        length
-      );
+      expect(mcpFilterLib.mcp_buffer_move).toHaveBeenCalledWith(sourceBuffer, destBuffer, length);
     });
   });
 
@@ -264,13 +239,7 @@ describe("Filter Buffer API", () => {
 
       (mcpFilterLib.mcp_buffer_get_contiguous as jest.Mock).mockReturnValue(0);
 
-      const result = getBufferContiguous(
-        bufferHandle,
-        offset,
-        length,
-        data,
-        actualLength
-      );
+      const result = getBufferContiguous(bufferHandle, offset, length, data, actualLength);
 
       expect(result).toBe(0);
       expect(mcpFilterLib.mcp_buffer_get_contiguous).toHaveBeenCalledWith(
@@ -294,11 +263,7 @@ describe("Filter Buffer API", () => {
       const result = writeBufferLittleEndianInt(bufferHandle, value, size);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_write_le_int).toHaveBeenCalledWith(
-        bufferHandle,
-        value,
-        size
-      );
+      expect(mcpFilterLib.mcp_buffer_write_le_int).toHaveBeenCalledWith(bufferHandle, value, size);
     });
 
     it("should write big-endian integer", () => {
@@ -311,11 +276,7 @@ describe("Filter Buffer API", () => {
       const result = writeBufferBigEndianInt(bufferHandle, value, size);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_write_be_int).toHaveBeenCalledWith(
-        bufferHandle,
-        value,
-        size
-      );
+      expect(mcpFilterLib.mcp_buffer_write_be_int).toHaveBeenCalledWith(bufferHandle, value, size);
     });
 
     it("should read little-endian integer", () => {
@@ -328,11 +289,7 @@ describe("Filter Buffer API", () => {
       const result = readBufferLittleEndianInt(bufferHandle, size, value);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_read_le_int).toHaveBeenCalledWith(
-        bufferHandle,
-        size,
-        value
-      );
+      expect(mcpFilterLib.mcp_buffer_read_le_int).toHaveBeenCalledWith(bufferHandle, size, value);
     });
 
     it("should read big-endian integer", () => {
@@ -345,11 +302,7 @@ describe("Filter Buffer API", () => {
       const result = readBufferBigEndianInt(bufferHandle, size, value);
 
       expect(result).toBe(0);
-      expect(mcpFilterLib.mcp_buffer_read_be_int).toHaveBeenCalledWith(
-        bufferHandle,
-        size,
-        value
-      );
+      expect(mcpFilterLib.mcp_buffer_read_be_int).toHaveBeenCalledWith(bufferHandle, size, value);
     });
   });
 
@@ -363,13 +316,7 @@ describe("Filter Buffer API", () => {
 
       (mcpFilterLib.mcp_buffer_search as jest.Mock).mockReturnValue(0);
 
-      const result = searchBuffer(
-        bufferHandle,
-        pattern,
-        patternSize,
-        startPosition,
-        position
-      );
+      const result = searchBuffer(bufferHandle, pattern, patternSize, startPosition, position);
 
       expect(result).toBe(0);
       expect(mcpFilterLib.mcp_buffer_search).toHaveBeenCalledWith(
@@ -416,32 +363,24 @@ describe("Filter Buffer API", () => {
       const bufferHandle = 12345;
       const mockCapacity = 2048;
 
-      (mcpFilterLib.mcp_buffer_capacity as jest.Mock).mockReturnValue(
-        mockCapacity
-      );
+      (mcpFilterLib.mcp_buffer_capacity as jest.Mock).mockReturnValue(mockCapacity);
 
       const result = getBufferCapacity(bufferHandle);
 
       expect(result).toBe(mockCapacity);
-      expect(mcpFilterLib.mcp_buffer_capacity).toHaveBeenCalledWith(
-        bufferHandle
-      );
+      expect(mcpFilterLib.mcp_buffer_capacity).toHaveBeenCalledWith(bufferHandle);
     });
 
     it("should check if buffer is empty", () => {
       const bufferHandle = 12345;
       const mockEmpty = true;
 
-      (mcpFilterLib.mcp_buffer_is_empty as jest.Mock).mockReturnValue(
-        mockEmpty
-      );
+      (mcpFilterLib.mcp_buffer_is_empty as jest.Mock).mockReturnValue(mockEmpty);
 
       const result = isBufferEmpty(bufferHandle);
 
       expect(result).toBe(mockEmpty);
-      expect(mcpFilterLib.mcp_buffer_is_empty).toHaveBeenCalledWith(
-        bufferHandle
-      );
+      expect(mcpFilterLib.mcp_buffer_is_empty).toHaveBeenCalledWith(bufferHandle);
     });
   });
 
@@ -450,9 +389,7 @@ describe("Filter Buffer API", () => {
       const mockBufferHandle = 12345;
       const str = "test string";
 
-      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = createBufferFromString(str, BufferOwnership.SHARED);
 
@@ -467,9 +404,7 @@ describe("Filter Buffer API", () => {
     it("should read string from buffer", () => {
       const bufferHandle = 12345;
       const mockLength = 11;
-      const mockData = new Uint8Array([
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103,
-      ]); // "test string"
+      const mockData = new Uint8Array([116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103]); // "test string"
 
       (mcpFilterLib.mcp_buffer_length as jest.Mock).mockReturnValue(mockLength);
       (mcpFilterLib.mcp_buffer_peek as jest.Mock).mockImplementation(
@@ -496,9 +431,7 @@ describe("Filter Buffer API", () => {
       const mockBufferHandle = 12345;
       const obj = { test: "value", number: 42 };
 
-      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_filter_buffer_create as jest.Mock).mockReturnValue(mockBufferHandle);
 
       const result = createBufferFromJson(obj, BufferOwnership.SHARED);
 
@@ -526,19 +459,14 @@ describe("Filter Buffer API", () => {
         .mockReturnValueOnce(5) // Second buffer
         .mockReturnValueOnce(5) // Third buffer
         .mockReturnValueOnce(15); // Result buffer
-      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(
-        mockBufferHandle
-      );
+      (mcpFilterLib.mcp_buffer_create_owned as jest.Mock).mockReturnValue(mockBufferHandle);
       (mcpFilterLib.mcp_buffer_get_contiguous as jest.Mock).mockReturnValue(0);
       (mcpFilterLib.mcp_buffer_add as jest.Mock).mockReturnValue(0);
 
       const result = concatenateBuffers(buffers);
 
       expect(result).toBe(mockBufferHandle);
-      expect(mcpFilterLib.mcp_buffer_create_owned).toHaveBeenCalledWith(
-        15,
-        BufferOwnership.SHARED
-      );
+      expect(mcpFilterLib.mcp_buffer_create_owned).toHaveBeenCalledWith(15, BufferOwnership.SHARED);
     });
 
     it("should compare two buffers", () => {

@@ -7,12 +7,14 @@ A comprehensive TypeScript SDK for the MCP (Model Context Protocol) Filter C API
 This SDK provides both **filter infrastructure** and **transport layer implementation**:
 
 ### **Filter Infrastructure:**
+
 - **Filter Lifecycle Management**: Create, configure, and manage filters
 - **Filter Chain Composition**: Build complex processing pipelines
 - **Advanced Buffer Operations**: Zero-copy operations and memory management
 - **FilterManager**: High-level message processing with comprehensive filter support
 
 ### **Transport Layer:**
+
 - **GopherTransport**: Complete MCP transport implementation
 - **Protocol Support**: TCP, UDP, and stdio protocols
 - **Enterprise Features**: Security, observability, traffic management
@@ -275,7 +277,11 @@ const serverConfig: GopherTransportConfig = {
       },
     },
     observability: {
-      accessLog: { enabled: true, format: "json", fields: ["timestamp", "method", "sessionId", "duration"] },
+      accessLog: {
+        enabled: true,
+        format: "json",
+        fields: ["timestamp", "method", "sessionId", "duration"],
+      },
       metrics: { enabled: true, labels: { component: "mcp-server", service: "calculator" } },
       tracing: { enabled: true, serviceName: "mcp-server", samplingRate: 0.5 },
     },
@@ -325,31 +331,37 @@ npm test -- --testPathPattern=filter-buffer.test.ts
 ### **Available Filter Types (All 15 C++ Filters)**
 
 **Network Filters:**
+
 - `TCP_PROXY` - TCP proxy functionality
 - `UDP_PROXY` - UDP proxy functionality
 
 **HTTP Filters:**
+
 - `HTTP_CODEC` - HTTP encoding/decoding
 - `HTTP_ROUTER` - HTTP request routing
 - `HTTP_COMPRESSION` - HTTP compression (gzip, deflate, brotli)
 
 **Security Filters:**
+
 - `TLS_TERMINATION` - TLS/SSL termination
 - `AUTHENTICATION` - Authentication (JWT, API key, OAuth2)
 - `AUTHORIZATION` - Authorization and access control
 
 **Observability Filters:**
+
 - `ACCESS_LOG` - Access logging
 - `METRICS` - Metrics collection
 - `TRACING` - Distributed tracing
 
 **Traffic Management Filters:**
+
 - `RATE_LIMIT` - Rate limiting
 - `CIRCUIT_BREAKER` - Circuit breaker pattern
 - `RETRY` - Retry logic with backoff
 - `LOAD_BALANCER` - Load balancing
 
 **Custom Filters:**
+
 - `CUSTOM` - User-defined filters
 
 ### **Chain Execution Modes**

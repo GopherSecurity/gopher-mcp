@@ -18,8 +18,7 @@ jest.mock("../mcp-filter-api", () => ({
   releaseFilterChain: jest.fn(), // Added missing function
   createBufferFromString: jest.fn(() => 11111),
   readStringFromBuffer: jest.fn(
-    () =>
-      '{"jsonrpc":"2.0","id":"1","method":"test/method","params":{"test":true}}'
+    () => '{"jsonrpc":"2.0","id":"1","method":"test/method","params":{"test":true}}'
   ),
   postDataToFilter: jest.fn((_filter: any, _data: any, callback: any) => {
     // Always succeed for basic tests
@@ -68,9 +67,7 @@ jest.mock("../mcp-filter-buffer", () => ({
   createBufferPoolEx: jest.fn(() => 11111),
   destroyBufferPool: jest.fn(),
   createBufferFromString: jest.fn(() => 11111),
-  readStringFromBuffer: jest.fn(
-    () => '{"jsonrpc":"2.0","id":1,"result":"test"}'
-  ),
+  readStringFromBuffer: jest.fn(() => '{"jsonrpc":"2.0","id":1,"result":"test"}'),
 }));
 
 describe("FilterManager - Core Functionality", () => {
@@ -114,9 +111,7 @@ describe("FilterManager - Core Functionality", () => {
       ).rejects.toThrow("Invalid JSON-RPC version");
 
       // Test null message
-      await expect(filterManager.process(null as any)).rejects.toThrow(
-        "Message cannot be null"
-      );
+      await expect(filterManager.process(null as any)).rejects.toThrow("Message cannot be null");
     });
   });
 
@@ -140,9 +135,7 @@ describe("FilterManager - Core Functionality", () => {
       filterManager.destroy();
       filterManager.destroy(); // Second destruction
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "FilterManager is already destroyed"
-      );
+      expect(consoleSpy).toHaveBeenCalledWith("FilterManager is already destroyed");
       consoleSpy.mockRestore();
     });
   });
@@ -236,10 +229,7 @@ describe("FilterManager - Core Functionality", () => {
         result: { success: true },
       };
 
-      const result = await filterManager.processRequestResponse(
-        request,
-        response
-      );
+      const result = await filterManager.processRequestResponse(request, response);
       expect(result.processedRequest).toBeDefined();
       expect(result.processedResponse).toBeDefined();
     });

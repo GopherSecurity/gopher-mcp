@@ -3,7 +3,7 @@
 /**
  * @file filter-demo.ts
  * @brief Pure FilterManager demonstration without network simulation
- * 
+ *
  * This example demonstrates the core FilterManager functionality:
  * - Real C++ library integration
  * - Filter chain processing
@@ -11,11 +11,7 @@
  * - Authentication, logging, and traffic management
  */
 
-import {
-  FilterManager,
-  JSONRPCMessage,
-  FilterManagerConfig,
-} from "@mcp/filter-sdk";
+import { FilterManager, JSONRPCMessage, FilterManagerConfig } from "@mcp/filter-sdk";
 
 async function demonstrateFilterManager() {
   console.log("🔧 FilterManager Demonstration");
@@ -88,12 +84,13 @@ async function demonstrateFilterManager() {
 
     for (let i = 0; i < testMessages.length; i++) {
       const message = testMessages[i];
-      const messageInfo = "method" in message 
-        ? `${message.method} (id: ${"id" in message ? message.id : "N/A"})`
-        : "notification";
+      const messageInfo =
+        "method" in message
+          ? `${message.method} (id: ${"id" in message ? message.id : "N/A"})`
+          : "notification";
 
       console.log(`\n📤 Processing message ${i + 1}: ${messageInfo}`);
-      
+
       try {
         const processedMessage = await filterManager.process(message);
         console.log(`✅ Message processed successfully`);
@@ -140,7 +137,6 @@ async function demonstrateFilterManager() {
     console.log("✅ Filter chain processing functional");
     console.log("✅ Authentication, logging, and traffic management active");
     console.log("✅ Buffer operations using actual C++ implementation");
-
   } catch (error) {
     console.error("❌ Demonstration failed:", error);
     process.exit(1);

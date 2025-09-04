@@ -39,14 +39,8 @@
       "@/utils/*": ["utils/*"]
     }
   },
-  "include": [
-    "src/**/*",
-    "examples/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ],
+  "include": ["src/**/*", "examples/**/*"],
+  "exclude": ["node_modules", "dist"],
   "ts-node": {
     "esm": true
   }

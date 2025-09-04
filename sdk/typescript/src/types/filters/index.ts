@@ -245,18 +245,12 @@ export type McpFilterWriteCallback = (
 /**
  * Connection event callback
  */
-export type McpFilterEventCallback = (
-  state: McpConnectionState,
-  userData: any
-) => McpFilterStatus;
+export type McpFilterEventCallback = (state: McpConnectionState, userData: any) => McpFilterStatus;
 
 /**
  * Watermark callbacks
  */
-export type McpFilterWatermarkCallback = (
-  filter: McpFilter,
-  userData: any
-) => void;
+export type McpFilterWatermarkCallback = (filter: McpFilter, userData: any) => void;
 
 /**
  * Error callback
@@ -271,18 +265,12 @@ export type McpFilterErrorCallback = (
 /**
  * Completion callback for async operations
  */
-export type McpFilterCompletionCallback = (
-  result: McpResult,
-  userData: any
-) => void;
+export type McpFilterCompletionCallback = (result: McpResult, userData: any) => void;
 
 /**
  * Post completion callback
  */
-export type McpPostCompletionCallback = (
-  result: McpResult,
-  userData: any
-) => void;
+export type McpPostCompletionCallback = (result: McpResult, userData: any) => void;
 
 /**
  * Request callback for server
@@ -384,12 +372,8 @@ export function shouldStop(status: McpFilterStatus): boolean {
 /**
  * Create a filter status from boolean
  */
-export function createFilterStatus(
-  continueProcessing: boolean
-): McpFilterStatus {
-  return continueProcessing
-    ? McpFilterStatus.CONTINUE
-    : McpFilterStatus.STOP_ITERATION;
+export function createFilterStatus(continueProcessing: boolean): McpFilterStatus {
+  return continueProcessing ? McpFilterStatus.CONTINUE : McpFilterStatus.STOP_ITERATION;
 }
 
 /**

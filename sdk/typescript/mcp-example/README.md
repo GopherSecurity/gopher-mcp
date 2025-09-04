@@ -52,6 +52,7 @@ npm run filter-demo
 ```
 
 This demonstrates:
+
 - Real C++ library integration (93 functions bound)
 - Filter chain processing (authentication, logging, rate limiting)
 - Buffer operations using actual C++ implementation

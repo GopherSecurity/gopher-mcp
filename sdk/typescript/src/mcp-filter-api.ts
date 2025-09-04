@@ -159,12 +159,7 @@ export interface FilterCallbacks {
   onNewConnection?: (state: number, userData: any) => FilterStatus;
   onHighWatermark?: (filter: number, userData: any) => void;
   onLowWatermark?: (filter: number, userData: any) => void;
-  onError?: (
-    filter: number,
-    error: FilterError,
-    message: string,
-    userData: any
-  ) => void;
+  onError?: (filter: number, error: FilterError, message: string, userData: any) => void;
   userData?: any;
 }
 
@@ -175,10 +170,7 @@ export interface FilterCallbacks {
 /**
  * Create a new filter
  */
-export function createFilter(
-  dispatcher: number,
-  _config: FilterConfig
-): number {
+export function createFilter(dispatcher: number, _config: FilterConfig): number {
   // For now, pass null as config since the C++ function expects a pointer to C struct
   // TODO: Implement proper C struct conversion when the C++ side is ready
   return mcpFilterLib.mcp_filter_create(dispatcher, null) as number;
@@ -221,12 +213,7 @@ export function createCustomFilter(
     onData?: (buffer: number, endStream: boolean, userData: any) => number;
     onWrite?: (buffer: number, endStream: boolean, userData: any) => number;
     onNewConnection?: (state: number, userData: any) => number;
-    onError?: (
-      filter: number,
-      error: number,
-      message: string,
-      userData: any
-    ) => void;
+    onError?: (filter: number, error: number, message: string, userData: any) => void;
   },
   _userData?: any
 ): number {
@@ -283,25 +270,14 @@ export function createBuiltinFilterWithCallbacks(
     onData?: (buffer: number, endStream: boolean, userData: any) => number;
     onWrite?: (buffer: number, endStream: boolean, userData: any) => number;
     onNewConnection?: (state: number, userData: any) => number;
-    onError?: (
-      filter: number,
-      error: number,
-      message: string,
-      userData: any
-    ) => void;
+    onError?: (filter: number, error: number, message: string, userData: any) => void;
   },
   _userData?: any
 ): number {
   // 1. Create built-in filter
   // Convert config to a buffer if it's not already
-  const configBuffer = Buffer.isBuffer(config)
-    ? config
-    : Buffer.from(JSON.stringify(config || {}));
-  const filterHandle = mcpFilterLib.mcp_filter_create_builtin(
-    dispatcher,
-    type,
-    configBuffer
-  );
+  const configBuffer = Buffer.isBuffer(config) ? config : Buffer.from(JSON.stringify(config || {}));
+  const filterHandle = mcpFilterLib.mcp_filter_create_builtin(dispatcher, type, configBuffer);
   if (filterHandle === 0) {
     throw new Error(`Failed to create built-in filter of type ${type}`);
   }
@@ -349,10 +325,7 @@ export function releaseFilter(filter: number): void {
 /**
  * Set filter callbacks
  */
-export function setFilterCallbacks(
-  filter: number,
-  callbacks: FilterCallbacks
-): number {
+export function setFilterCallbacks(filter: number, callbacks: FilterCallbacks): number {
   // Create callback wrappers for each callback type
   const callbackWrappers: any = {};
 
@@ -370,9 +343,7 @@ export function setFilterCallbacks(
   }
 
   if (callbacks.onWrite) {
-    const WriteCallback = koffi.proto(
-      "int WriteCallback(uint64_t, int, void*)"
-    );
+    const WriteCallback = koffi.proto("int WriteCallback(uint64_t, int, void*)");
     const jsOnWrite = (buffer: number, endStream: number, userData: any) => {
       try {
         return callbacks.onWrite!(buffer, endStream === 1, userData);
@@ -394,22 +365,12 @@ export function setFilterCallbacks(
         return FilterStatus.STOP_ITERATION;
       }
     };
-    callbackWrappers.onNewConnection = koffi.register(
-      jsOnNewConnection,
-      EventCallback
-    );
+    callbackWrappers.onNewConnection = koffi.register(jsOnNewConnection, EventCallback);
   }
 
   if (callbacks.onError) {
-    const ErrorCallback = koffi.proto(
-      "void ErrorCallback(uint64_t, int, string, void*)"
-    );
-    const jsOnError = (
-      filter: number,
-      error: number,
-      message: string,
-      userData: any
-    ) => {
+    const ErrorCallback = koffi.proto("void ErrorCallback(uint64_t, int, string, void*)");
+    const jsOnError = (filter: number, error: number, message: string, userData: any) => {
       try {
         callbacks.onError!(filter, error, message, userData);
       } catch (error) {
@@ -423,7 +384,7 @@ export function setFilterCallbacks(
   if (!globalCallbackStore) {
     globalCallbackStore = new Set();
   }
-  Object.values(callbackWrappers).forEach((callback) => {
+  Object.values(callbackWrappers).forEach(callback => {
     globalCallbackStore!.add(callback);
   });
 
@@ -435,10 +396,7 @@ export function setFilterCallbacks(
 /**
  * Set protocol metadata for filter
  */
-export function setFilterProtocolMetadata(
-  filter: number,
-  _metadata: ProtocolMetadata
-): number {
+export function setFilterProtocolMetadata(filter: number, _metadata: ProtocolMetadata): number {
   // For now, pass null as metadata since the C++ function expects a pointer to C struct
   // TODO: Implement proper C struct conversion when the C++ side is ready
   return mcpFilterLib.mcp_filter_set_protocol_metadata(filter, null) as number;
@@ -447,14 +405,8 @@ export function setFilterProtocolMetadata(
 /**
  * Get protocol metadata from filter
  */
-export function getFilterProtocolMetadata(
-  filter: number,
-  metadata: ProtocolMetadata
-): number {
-  return mcpFilterLib.mcp_filter_get_protocol_metadata(
-    filter,
-    metadata
-  ) as number;
+export function getFilterProtocolMetadata(filter: number, metadata: ProtocolMetadata): number {
+  return mcpFilterLib.mcp_filter_get_protocol_metadata(filter, metadata) as number;
 }
 
 // ============================================================================
@@ -506,14 +458,8 @@ export function releaseFilterChain(chain: number): void {
 /**
  * Create filter manager
  */
-export function createFilterManager(
-  connection: number,
-  dispatcher: number
-): number {
-  return mcpFilterLib.mcp_filter_manager_create(
-    connection,
-    dispatcher
-  ) as number;
+export function createFilterManager(connection: number, dispatcher: number): number {
+  return mcpFilterLib.mcp_filter_manager_create(connection, dispatcher) as number;
 }
 
 /**
@@ -551,26 +497,14 @@ export function releaseFilterManager(manager: number): void {
 /**
  * Get buffer slices for zero-copy access
  */
-export function getBufferSlices(
-  buffer: number,
-  slices: BufferSlice[],
-  sliceCount: number
-): number {
-  return mcpFilterLib.mcp_filter_get_buffer_slices(
-    buffer,
-    slices,
-    sliceCount
-  ) as number;
+export function getBufferSlices(buffer: number, slices: BufferSlice[], sliceCount: number): number {
+  return mcpFilterLib.mcp_filter_get_buffer_slices(buffer, slices, sliceCount) as number;
 }
 
 /**
  * Reserve buffer space for writing
  */
-export function reserveBuffer(
-  buffer: number,
-  size: number,
-  slice: BufferSlice
-): number {
+export function reserveBuffer(buffer: number, size: number, slice: BufferSlice): number {
   return mcpFilterLib.mcp_filter_reserve_buffer(buffer, size, slice) as number;
 }
 
@@ -585,11 +519,7 @@ export function commitBuffer(buffer: number, bytesWritten: number): number {
  * Create buffer handle from data
  */
 export function createBufferFromData(data: Uint8Array, flags: number): number {
-  return mcpFilterLib.mcp_filter_buffer_create(
-    data,
-    data.length,
-    flags
-  ) as number;
+  return mcpFilterLib.mcp_filter_buffer_create(data, data.length, flags) as number;
 }
 
 // Buffer functions are exported from mcp-filter-buffer.ts to avoid conflicts
@@ -767,19 +697,15 @@ export function getBufferContent(bufferHandle: number): string {
     const sliceCount = new Uint32Array(1);
     sliceCount[0] = 10; // Max slices
 
-    const result = mcpFilterLib.mcp_filter_get_buffer_slices(
-      bufferHandle,
-      slices,
-      sliceCount
-    );
+    const result = mcpFilterLib.mcp_filter_get_buffer_slices(bufferHandle, slices, sliceCount);
 
     if (result !== 0) {
       throw new Error(`Buffer read failed: ${result}`);
     }
 
     return slices
-      .filter((slice) => slice.data !== null)
-      .map((slice) => {
+      .filter(slice => slice.data !== null)
+      .map(slice => {
         const buffer = Buffer.allocUnsafe(slice.length);
         buffer.set(slice.data!.subarray(0, slice.length));
         return buffer.toString("utf8");
@@ -794,10 +720,7 @@ export function getBufferContent(bufferHandle: number): string {
 /**
  * Update buffer content (zero-copy operation)
  */
-export function updateBufferContent(
-  bufferHandle: number,
-  content: string
-): void {
+export function updateBufferContent(bufferHandle: number, content: string): void {
   // Validate buffer handle
   if (bufferHandle === 0) {
     throw new Error("Invalid buffer handle: 0");
@@ -806,17 +729,11 @@ export function updateBufferContent(
   try {
     // Use mcp_filter_reserve_buffer for zero-copy writing
     const slice: BufferSlice = { data: null, length: 0, flags: 0 };
-    const result = mcpFilterLib.mcp_filter_reserve_buffer(
-      bufferHandle,
-      content.length,
-      slice
-    );
+    const result = mcpFilterLib.mcp_filter_reserve_buffer(bufferHandle, content.length, slice);
 
     if (result === 0 && slice.data !== null) {
       const buffer = Buffer.from(content, "utf8");
-      slice.data.set(
-        buffer.subarray(0, Math.min(content.length, slice.length))
-      );
+      slice.data.set(buffer.subarray(0, Math.min(content.length, slice.length)));
       mcpFilterLib.mcp_filter_commit_buffer(bufferHandle, content.length);
     } else {
       throw new Error(`Buffer write failed: ${result}`);

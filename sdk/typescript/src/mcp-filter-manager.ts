@@ -352,12 +352,8 @@ export class FilterManager {
 
       // Process through filter chain using filter-chain.ts
       console.log(`🔍 [CApiFilter DEBUG] Processing through filter chain`);
-      const processedBuffer = await this.processThroughFilterChain(
-        messageBuffer
-      );
-      console.log(
-        `🔍 [CApiFilter DEBUG] Filter chain result buffer: ${processedBuffer}`
-      );
+      const processedBuffer = await this.processThroughFilterChain(messageBuffer);
+      console.log(`🔍 [CApiFilter DEBUG] Filter chain result buffer: ${processedBuffer}`);
 
       // Convert back to JSON-RPC message using filter-buffer.ts
       const resultStr = BufferModule.readStringFromBuffer(processedBuffer);
@@ -400,14 +396,10 @@ export class FilterManager {
       );
 
       // Process through response-specific filters using filter-chain.ts
-      const processedBuffer = await this.processThroughResponseChain(
-        responseBuffer
-      );
+      const processedBuffer = await this.processThroughResponseChain(responseBuffer);
 
       // Convert back to JSON-RPC message using filter-buffer.ts
-      const processedResponse = JSON.parse(
-        BufferModule.readStringFromBuffer(processedBuffer)
-      );
+      const processedResponse = JSON.parse(BufferModule.readStringFromBuffer(processedBuffer));
 
       return processedResponse;
     } catch (error) {
@@ -491,9 +483,7 @@ export class FilterManager {
    */
   [Symbol.dispose](): void {
     if (!this._isDestroyed) {
-      console.warn(
-        "FilterManager was not properly destroyed, cleaning up automatically"
-      );
+      console.warn("FilterManager was not properly destroyed, cleaning up automatically");
       this.destroy();
     }
   }
@@ -503,9 +493,7 @@ export class FilterManager {
    */
   private ensureNotDestroyed(): void {
     if (this._isDestroyed) {
-      throw new Error(
-        "FilterManager has been destroyed and cannot process messages"
-      );
+      throw new Error("FilterManager has been destroyed and cannot process messages");
     }
   }
 
@@ -551,10 +539,7 @@ export class FilterManager {
   /**
    * Add filters to chain using filter-chain.ts
    */
-  private addFiltersToChain(
-    chainBuilder: any,
-    config: FilterManagerConfig
-  ): void {
+  private addFiltersToChain(chainBuilder: any, config: FilterManagerConfig): void {
     // Network filters
     this.addNetworkFiltersToChain(chainBuilder, config.network);
 
@@ -568,10 +553,7 @@ export class FilterManager {
     this.addObservabilityFiltersToChain(chainBuilder, config.observability);
 
     // Traffic management filters
-    this.addTrafficManagementFiltersToChain(
-      chainBuilder,
-      config.trafficManagement
-    );
+    this.addTrafficManagementFiltersToChain(chainBuilder, config.trafficManagement);
 
     // Custom filters
     this.addCustomFiltersToChain(chainBuilder, config.customFilters);
@@ -586,24 +568,17 @@ export class FilterManager {
   /**
    * Add network filters to chain using filter-chain.ts
    */
-  private addNetworkFiltersToChain(
-    chainBuilder: any,
-    networkConfig?: NetworkFilterConfig
-  ): void {
+  private addNetworkFiltersToChain(chainBuilder: any, networkConfig?: NetworkFilterConfig): void {
     if (!networkConfig) return;
 
     // TCP Proxy filter
     if (networkConfig.tcpProxy?.enabled) {
-      const tcpProxyFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.TCP_PROXY,
-        {
-          upstreamHost: networkConfig.tcpProxy.upstreamHost,
-          upstreamPort: networkConfig.tcpProxy.upstreamPort,
-          bindAddress: networkConfig.tcpProxy.bindAddress || "0.0.0.0",
-          bindPort: networkConfig.tcpProxy.bindPort || 8080,
-        }
-      );
+      const tcpProxyFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.TCP_PROXY, {
+        upstreamHost: networkConfig.tcpProxy.upstreamHost,
+        upstreamPort: networkConfig.tcpProxy.upstreamPort,
+        bindAddress: networkConfig.tcpProxy.bindAddress || "0.0.0.0",
+        bindPort: networkConfig.tcpProxy.bindPort || 8080,
+      });
 
       const filterNode: FilterNode = {
         filter: tcpProxyFilter,
@@ -619,16 +594,12 @@ export class FilterManager {
 
     // UDP Proxy filter
     if (networkConfig.udpProxy?.enabled) {
-      const udpProxyFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.UDP_PROXY,
-        {
-          upstreamHost: networkConfig.udpProxy.upstreamHost,
-          upstreamPort: networkConfig.udpProxy.upstreamPort,
-          bindAddress: networkConfig.udpProxy.bindAddress || "0.0.0.0",
-          bindPort: networkConfig.udpProxy.bindPort || 8080,
-        }
-      );
+      const udpProxyFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.UDP_PROXY, {
+        upstreamHost: networkConfig.udpProxy.upstreamHost,
+        upstreamPort: networkConfig.udpProxy.upstreamPort,
+        bindAddress: networkConfig.udpProxy.bindAddress || "0.0.0.0",
+        bindPort: networkConfig.udpProxy.bindPort || 8080,
+      });
 
       const filterNode: FilterNode = {
         filter: udpProxyFilter,
@@ -646,23 +617,16 @@ export class FilterManager {
   /**
    * Add HTTP filters to chain using filter-chain.ts
    */
-  private addHttpFiltersToChain(
-    chainBuilder: any,
-    httpConfig?: HttpFilterConfig
-  ): void {
+  private addHttpFiltersToChain(chainBuilder: any, httpConfig?: HttpFilterConfig): void {
     if (!httpConfig) return;
 
     // HTTP Codec filter
     if (httpConfig.codec?.enabled) {
-      const httpCodecFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.HTTP_CODEC,
-        {
-          compressionLevel: httpConfig.codec.compressionLevel || 6,
-          maxRequestSize: httpConfig.codec.maxRequestSize || 1024 * 1024,
-          maxResponseSize: httpConfig.codec.maxResponseSize || 1024 * 1024,
-        }
-      );
+      const httpCodecFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.HTTP_CODEC, {
+        compressionLevel: httpConfig.codec.compressionLevel || 6,
+        maxRequestSize: httpConfig.codec.maxRequestSize || 1024 * 1024,
+        maxResponseSize: httpConfig.codec.maxResponseSize || 1024 * 1024,
+      });
 
       const filterNode: FilterNode = {
         filter: httpCodecFilter,
@@ -740,10 +704,7 @@ export class FilterManager {
           certPath: securityConfig.tlsTermination.certPath,
           keyPath: securityConfig.tlsTermination.keyPath,
           caPath: securityConfig.tlsTermination.caPath,
-          protocols: securityConfig.tlsTermination.protocols || [
-            "TLSv1.2",
-            "TLSv1.3",
-          ],
+          protocols: securityConfig.tlsTermination.protocols || ["TLSv1.2", "TLSv1.3"],
         }
       );
 
@@ -820,20 +781,11 @@ export class FilterManager {
 
     // Access Log filter
     if (observabilityConfig.accessLog?.enabled) {
-      const accessLogFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.ACCESS_LOG,
-        {
-          format: observabilityConfig.accessLog.format || "json",
-          fields: observabilityConfig.accessLog.fields || [
-            "timestamp",
-            "method",
-            "path",
-            "status",
-          ],
-          output: observabilityConfig.accessLog.output || "console",
-        }
-      );
+      const accessLogFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.ACCESS_LOG, {
+        format: observabilityConfig.accessLog.format || "json",
+        fields: observabilityConfig.accessLog.fields || ["timestamp", "method", "path", "status"],
+        output: observabilityConfig.accessLog.output || "console",
+      });
 
       const filterNode: FilterNode = {
         filter: accessLogFilter,
@@ -849,15 +801,11 @@ export class FilterManager {
 
     // Metrics filter
     if (observabilityConfig.metrics?.enabled) {
-      const metricsFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.METRICS,
-        {
-          endpoint: observabilityConfig.metrics.endpoint,
-          interval: observabilityConfig.metrics.interval || 60000,
-          labels: observabilityConfig.metrics.labels || {},
-        }
-      );
+      const metricsFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.METRICS, {
+        endpoint: observabilityConfig.metrics.endpoint,
+        interval: observabilityConfig.metrics.interval || 60000,
+        labels: observabilityConfig.metrics.labels || {},
+      });
 
       const filterNode: FilterNode = {
         filter: metricsFilter,
@@ -873,15 +821,11 @@ export class FilterManager {
 
     // Tracing filter
     if (observabilityConfig.tracing?.enabled) {
-      const tracingFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.TRACING,
-        {
-          serviceName: observabilityConfig.tracing.serviceName,
-          endpoint: observabilityConfig.tracing.endpoint,
-          samplingRate: observabilityConfig.tracing.samplingRate || 1.0,
-        }
-      );
+      const tracingFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.TRACING, {
+        serviceName: observabilityConfig.tracing.serviceName,
+        endpoint: observabilityConfig.tracing.endpoint,
+        samplingRate: observabilityConfig.tracing.samplingRate || 1.0,
+      });
 
       const filterNode: FilterNode = {
         filter: tracingFilter,
@@ -907,15 +851,11 @@ export class FilterManager {
 
     // Rate Limiting filter
     if (trafficConfig.rateLimit?.enabled) {
-      const rateLimitFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.RATE_LIMIT,
-        {
-          requestsPerMinute: trafficConfig.rateLimit.requestsPerMinute,
-          burstSize: trafficConfig.rateLimit.burstSize || 10,
-          keyExtractor: trafficConfig.rateLimit.keyExtractor || "ip",
-        }
-      );
+      const rateLimitFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.RATE_LIMIT, {
+        requestsPerMinute: trafficConfig.rateLimit.requestsPerMinute,
+        burstSize: trafficConfig.rateLimit.burstSize || 10,
+        keyExtractor: trafficConfig.rateLimit.keyExtractor || "ip",
+      });
 
       const filterNode: FilterNode = {
         filter: rateLimitFilter,
@@ -955,16 +895,12 @@ export class FilterManager {
 
     // Retry filter
     if (trafficConfig.retry?.enabled) {
-      const retryFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.RETRY,
-        {
-          maxAttempts: trafficConfig.retry.maxAttempts,
-          backoffStrategy: trafficConfig.retry.backoffStrategy,
-          baseDelay: trafficConfig.retry.baseDelay || 1000,
-          maxDelay: trafficConfig.retry.maxDelay || 30000,
-        }
-      );
+      const retryFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.RETRY, {
+        maxAttempts: trafficConfig.retry.maxAttempts,
+        backoffStrategy: trafficConfig.retry.backoffStrategy,
+        baseDelay: trafficConfig.retry.baseDelay || 1000,
+        maxDelay: trafficConfig.retry.maxDelay || 30000,
+      });
 
       const filterNode: FilterNode = {
         filter: retryFilter,
@@ -1005,10 +941,7 @@ export class FilterManager {
   /**
    * Add custom filters to chain using filter-chain.ts
    */
-  private addCustomFiltersToChain(
-    chainBuilder: any,
-    customFilters?: CustomFilterConfig[]
-  ): void {
+  private addCustomFiltersToChain(chainBuilder: any, customFilters?: CustomFilterConfig[]): void {
     if (!customFilters) return;
 
     for (const customFilter of customFilters) {
@@ -1036,21 +969,14 @@ export class FilterManager {
   /**
    * Add legacy filters to chain using filter-chain.ts
    */
-  private addLegacyFiltersToChain(
-    chainBuilder: any,
-    config: FilterManagerConfig
-  ): void {
+  private addLegacyFiltersToChain(chainBuilder: any, config: FilterManagerConfig): void {
     // Legacy Authentication filter
     if (config.auth) {
-      const authFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.AUTHENTICATION,
-        {
-          method: config.auth.method,
-          secret: config.auth.secret,
-          key: config.auth.key,
-        }
-      );
+      const authFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.AUTHENTICATION, {
+        method: config.auth.method,
+        secret: config.auth.secret,
+        key: config.auth.key,
+      });
 
       const filterNode: FilterNode = {
         filter: authFilter,
@@ -1066,14 +992,10 @@ export class FilterManager {
 
     // Legacy Rate limiting filter
     if (config.rateLimit) {
-      const rateLimitFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.RATE_LIMIT,
-        {
-          requestsPerMinute: config.rateLimit.requestsPerMinute,
-          burstSize: config.rateLimit.burstSize || 10,
-        }
-      );
+      const rateLimitFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.RATE_LIMIT, {
+        requestsPerMinute: config.rateLimit.requestsPerMinute,
+        burstSize: config.rateLimit.burstSize || 10,
+      });
 
       const filterNode: FilterNode = {
         filter: rateLimitFilter,
@@ -1109,11 +1031,7 @@ export class FilterManager {
 
     // Legacy Metrics filter
     if (config.metrics) {
-      const metricsFilter = createBuiltinFilterAdvanced(
-        0,
-        AdvancedBuiltinFilterType.METRICS,
-        {}
-      );
+      const metricsFilter = createBuiltinFilterAdvanced(0, AdvancedBuiltinFilterType.METRICS, {});
 
       const filterNode: FilterNode = {
         filter: metricsFilter,
@@ -1132,9 +1050,7 @@ export class FilterManager {
    * Process message through filter chain using filter-chain.ts
    */
   private async processThroughFilterChain(buffer: number): Promise<number> {
-    console.log(
-      `🔍 [CApiFilter DEBUG] processThroughFilterChain called with buffer: ${buffer}`
-    );
+    console.log(`🔍 [CApiFilter DEBUG] processThroughFilterChain called with buffer: ${buffer}`);
     console.log(`🔍 [CApiFilter DEBUG] Filter chain: ${this.filterChain}`);
 
     // Use the filter chain to process the buffer
@@ -1219,10 +1135,7 @@ export class FilterManager {
 
     // Validate error handling configuration
     if (config.errorHandling) {
-      if (
-        config.errorHandling.retryAttempts &&
-        config.errorHandling.retryAttempts < 0
-      ) {
+      if (config.errorHandling.retryAttempts && config.errorHandling.retryAttempts < 0) {
         throw new Error("Retry attempts must be non-negative");
       }
     }
@@ -1242,8 +1155,7 @@ export class FilterManager {
 
     // Check if it's a request or response
     const isRequest = message.method !== undefined;
-    const isResponse =
-      message.result !== undefined || message.error !== undefined;
+    const isResponse = message.result !== undefined || message.error !== undefined;
 
     if (!isRequest && !isResponse) {
       throw new Error(
@@ -1259,21 +1171,15 @@ export class FilterManager {
   /**
    * Handle processing errors based on configuration
    */
-  private handleProcessingError(
-    error: any,
-    originalMessage: JSONRPCMessage
-  ): JSONRPCMessage {
-    const fallbackBehavior =
-      this.config.errorHandling?.fallbackBehavior ?? "reject";
+  private handleProcessingError(error: any, originalMessage: JSONRPCMessage): JSONRPCMessage {
+    const fallbackBehavior = this.config.errorHandling?.fallbackBehavior ?? "reject";
 
     switch (fallbackBehavior) {
       case "reject":
         throw new Error(`Filter processing failed: ${error}`);
 
       case "passthrough":
-        console.warn(
-          `Filter processing failed, returning original message: ${error}`
-        );
+        console.warn(`Filter processing failed, returning original message: ${error}`);
         return originalMessage;
 
       case "default":
@@ -1319,19 +1225,14 @@ export class FilterManager {
     );
 
     // Import the new CApiFilter functions
-    const {
-      createCustomFilter,
-      createDispatcher,
-    } = require("./mcp-filter-api");
+    const { createCustomFilter, createDispatcher } = require("./mcp-filter-api");
 
     // Create a dispatcher for filter operations
     const dispatcher = createDispatcher();
 
     // Create message received filter if callback provided
     if (customCallbacks.onMessageReceived) {
-      console.log(
-        `🔍 [CApiFilter DEBUG] Creating message received filter with CApiFilter`
-      );
+      console.log(`🔍 [CApiFilter DEBUG] Creating message received filter with CApiFilter`);
       const messageReceivedFilter = createCustomFilter(dispatcher, {
         onData: (buffer: number, _endStream: boolean, _userData: any) => {
           try {
@@ -1340,9 +1241,7 @@ export class FilterManager {
             // For now, we'll just log that the callback was called
             // The C++ side is passing a void* pointer, not a buffer handle
             // So we can't directly read the buffer content
-            console.log(
-              `🔍 [CApiFilter DEBUG] CApiFilter onData callback executed successfully`
-            );
+            console.log(`🔍 [CApiFilter DEBUG] CApiFilter onData callback executed successfully`);
 
             return FilterStatus.CONTINUE;
           } catch (error) {
@@ -1350,12 +1249,7 @@ export class FilterManager {
             return FilterStatus.STOP_ITERATION;
           }
         },
-        onError: (
-          _filter: number,
-          _error: number,
-          message: string,
-          _userData: any
-        ) => {
+        onError: (_filter: number, _error: number, message: string, _userData: any) => {
           if (customCallbacks.onError) {
             customCallbacks.onError(new Error(message), "messageReceived");
           }
@@ -1376,17 +1270,12 @@ export class FilterManager {
 
     // Create message sent filter if callback provided
     if (customCallbacks.onMessageSent) {
-      console.log(
-        `🔍 [CApiFilter DEBUG] Creating message sent filter with CApiFilter`
-      );
+      console.log(`🔍 [CApiFilter DEBUG] Creating message sent filter with CApiFilter`);
       const messageSentFilter = createCustomFilter(dispatcher, {
         onWrite: (buffer: number, _endStream: boolean, _userData: any) => {
           try {
             // Get buffer content
-            const {
-              getBufferContent,
-              updateBufferContent,
-            } = require("./mcp-filter-api");
+            const { getBufferContent, updateBufferContent } = require("./mcp-filter-api");
             const messageStr = getBufferContent(buffer);
             const message = JSON.parse(messageStr);
 
@@ -1404,12 +1293,7 @@ export class FilterManager {
             return FilterStatus.STOP_ITERATION;
           }
         },
-        onError: (
-          _filter: number,
-          _error: number,
-          message: string,
-          _userData: any
-        ) => {
+        onError: (_filter: number, _error: number, message: string, _userData: any) => {
           if (customCallbacks.onError) {
             customCallbacks.onError(new Error(message), "messageSent");
           }
@@ -1429,17 +1313,12 @@ export class FilterManager {
     }
 
     // Create connection filter if callbacks provided
-    if (
-      customCallbacks.onConnectionEstablished ||
-      customCallbacks.onConnectionClosed
-    ) {
+    if (customCallbacks.onConnectionEstablished || customCallbacks.onConnectionClosed) {
       const connectionFilter = createCustomFilter(dispatcher, {
         onNewConnection: (_state: number, _userData: any) => {
           try {
             if (customCallbacks.onConnectionEstablished) {
-              customCallbacks.onConnectionEstablished(
-                `connection-${Date.now()}`
-              );
+              customCallbacks.onConnectionEstablished(`connection-${Date.now()}`);
             }
             return FilterStatus.CONTINUE;
           } catch (error) {
@@ -1447,12 +1326,7 @@ export class FilterManager {
             return FilterStatus.STOP_ITERATION;
           }
         },
-        onError: (
-          _filter: number,
-          _error: number,
-          message: string,
-          _userData: any
-        ) => {
+        onError: (_filter: number, _error: number, message: string, _userData: any) => {
           if (customCallbacks.onError) {
             customCallbacks.onError(new Error(message), "connection");
           }

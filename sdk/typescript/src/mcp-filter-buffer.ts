@@ -74,14 +74,8 @@ export interface BufferPoolConfig {
 /**
  * Create a new buffer
  */
-export function createBufferOwned(
-  initialCapacity: number,
-  ownership: BufferOwnership
-): number {
-  return mcpFilterLib.mcp_buffer_create_owned(
-    initialCapacity,
-    ownership
-  ) as number;
+export function createBufferOwned(initialCapacity: number, ownership: BufferOwnership): number {
+  return mcpFilterLib.mcp_buffer_create_owned(initialCapacity, ownership) as number;
 }
 
 /**
@@ -135,11 +129,7 @@ export function createCopyOnWriteBuffer(buffer: number): number {
 /**
  * Add data to buffer
  */
-export function addDataToBuffer(
-  buffer: number,
-  data: Uint8Array,
-  length: number
-): number {
+export function addDataToBuffer(buffer: number, data: Uint8Array, length: number): number {
   return mcpFilterLib.mcp_buffer_add(buffer, data, length) as number;
 }
 
@@ -160,21 +150,14 @@ export function addBufferToBuffer(buffer: number, source: number): number {
 /**
  * Add buffer fragment (zero-copy)
  */
-export function addFragmentToBuffer(
-  buffer: number,
-  fragment: BufferFragment
-): number {
+export function addFragmentToBuffer(buffer: number, fragment: BufferFragment): number {
   return mcpFilterLib.mcp_buffer_add_fragment(buffer, fragment) as number;
 }
 
 /**
  * Prepend data to buffer
  */
-export function prependDataToBuffer(
-  buffer: number,
-  data: Uint8Array,
-  length: number
-): number {
+export function prependDataToBuffer(buffer: number, data: Uint8Array, length: number): number {
   return mcpFilterLib.mcp_buffer_prepend(buffer, data, length) as number;
 }
 
@@ -192,21 +175,14 @@ export function drainBuffer(buffer: number, size: number): number {
 /**
  * Move data from one buffer to another
  */
-export function moveBufferData(
-  source: number,
-  destination: number,
-  length: number = 0
-): number {
+export function moveBufferData(source: number, destination: number, length: number = 0): number {
   return mcpFilterLib.mcp_buffer_move(source, destination, length) as number;
 }
 
 /**
  * Set drain tracker for buffer
  */
-export function setBufferDrainTracker(
-  buffer: number,
-  tracker: DrainTracker
-): number {
+export function setBufferDrainTracker(buffer: number, tracker: DrainTracker): number {
   return mcpFilterLib.mcp_buffer_set_drain_tracker(buffer, tracker) as number;
 }
 
@@ -222,11 +198,7 @@ export function reserveBufferSpace(
   minSize: number,
   reservation: BufferReservation
 ): number {
-  return mcpFilterLib.mcp_buffer_reserve(
-    buffer,
-    minSize,
-    reservation
-  ) as number;
+  return mcpFilterLib.mcp_buffer_reserve(buffer, minSize, reservation) as number;
 }
 
 /**
@@ -238,12 +210,7 @@ export function reserveBufferIovec(
   iovecCount: number,
   reserved: number
 ): number {
-  return mcpFilterLib.mcp_buffer_reserve_iovec(
-    buffer,
-    iovecs,
-    iovecCount,
-    reserved
-  ) as number;
+  return mcpFilterLib.mcp_buffer_reserve_iovec(buffer, iovecs, iovecCount, reserved) as number;
 }
 
 /**
@@ -253,18 +220,13 @@ export function commitBufferReservation(
   reservation: BufferReservation,
   bytesWritten: number
 ): number {
-  return mcpFilterLib.mcp_buffer_commit_reservation(
-    reservation,
-    bytesWritten
-  ) as number;
+  return mcpFilterLib.mcp_buffer_commit_reservation(reservation, bytesWritten) as number;
 }
 
 /**
  * Cancel reservation
  */
-export function cancelBufferReservation(
-  reservation: BufferReservation
-): number {
+export function cancelBufferReservation(reservation: BufferReservation): number {
   return mcpFilterLib.mcp_buffer_cancel_reservation(reservation) as number;
 }
 
@@ -294,11 +256,7 @@ export function getBufferContiguous(
 /**
  * Linearize buffer (ensure contiguous memory)
  */
-export function linearizeBuffer(
-  buffer: number,
-  size: number,
-  data: Uint8Array
-): number {
+export function linearizeBuffer(buffer: number, size: number, data: Uint8Array): number {
   return mcpFilterLib.mcp_buffer_linearize(buffer, size, data) as number;
 }
 
@@ -321,44 +279,28 @@ export function peekBufferData(
 /**
  * Write integer with little-endian byte order
  */
-export function writeBufferLittleEndianInt(
-  buffer: number,
-  value: number,
-  size: number
-): number {
+export function writeBufferLittleEndianInt(buffer: number, value: number, size: number): number {
   return mcpFilterLib.mcp_buffer_write_le_int(buffer, value, size) as number;
 }
 
 /**
  * Write integer with big-endian byte order
  */
-export function writeBufferBigEndianInt(
-  buffer: number,
-  value: number,
-  size: number
-): number {
+export function writeBufferBigEndianInt(buffer: number, value: number, size: number): number {
   return mcpFilterLib.mcp_buffer_write_be_int(buffer, value, size) as number;
 }
 
 /**
  * Read integer with little-endian byte order
  */
-export function readBufferLittleEndianInt(
-  buffer: number,
-  size: number,
-  value: number
-): number {
+export function readBufferLittleEndianInt(buffer: number, size: number, value: number): number {
   return mcpFilterLib.mcp_buffer_read_le_int(buffer, size, value) as number;
 }
 
 /**
  * Read integer with big-endian byte order
  */
-export function readBufferBigEndianInt(
-  buffer: number,
-  size: number,
-  value: number
-): number {
+export function readBufferBigEndianInt(buffer: number, size: number, value: number): number {
   return mcpFilterLib.mcp_buffer_read_be_int(buffer, size, value) as number;
 }
 
@@ -388,16 +330,8 @@ export function searchBuffer(
 /**
  * Find delimiter in buffer
  */
-export function findByteInBuffer(
-  buffer: number,
-  delimiter: number,
-  position: number
-): number {
-  return mcpFilterLib.mcp_buffer_find_byte(
-    buffer,
-    delimiter,
-    position
-  ) as number;
+export function findByteInBuffer(buffer: number, delimiter: number, position: number): number {
+  return mcpFilterLib.mcp_buffer_find_byte(buffer, delimiter, position) as number;
 }
 
 // ============================================================================
@@ -525,10 +459,7 @@ export function createBufferFromString(
 /**
  * Read string data from buffer
  */
-export function readStringFromBuffer(
-  buffer: number,
-  encoding: string = "utf8"
-): string {
+export function readStringFromBuffer(buffer: number, encoding: string = "utf8"): string {
   // Validate buffer handle
   if (buffer === 0) {
     throw new Error("Invalid buffer handle: 0");
@@ -583,11 +514,7 @@ export function readJsonFromBuffer(buffer: number): any {
 /**
  * Create a buffer slice (zero-copy view)
  */
-export function createBufferSlice(
-  buffer: number,
-  offset: number,
-  length: number
-): number {
+export function createBufferSlice(buffer: number, offset: number, length: number): number {
   const data = new Uint8Array(length);
   const result = getBufferContiguous(buffer, offset, length, data, length);
   if (result !== 0) {
@@ -639,10 +566,7 @@ export function concatenateBuffers(buffers: number[]): number {
 /**
  * Split buffer at position
  */
-export function splitBuffer(
-  buffer: number,
-  position: number
-): [number, number] {
+export function splitBuffer(buffer: number, position: number): [number, number] {
   const totalLength = getBufferLength(buffer);
   if (position <= 0) {
     return [createBufferOwned(0, BufferOwnership.SHARED), cloneBuffer(buffer)];

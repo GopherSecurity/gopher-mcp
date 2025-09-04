@@ -63,10 +63,7 @@ describe("Buffer Operations", () => {
 
     it("should handle large string buffers", () => {
       const largeString = "A".repeat(10000); // 10KB string
-      const buffer = createBufferFromString(
-        largeString,
-        BufferOwnership.SHARED
-      );
+      const buffer = createBufferFromString(largeString, BufferOwnership.SHARED);
 
       expect(buffer).toBeGreaterThan(0);
 
@@ -99,18 +96,9 @@ describe("Buffer Operations", () => {
     it("should create buffer with different ownership types", () => {
       const testString = "Ownership test";
 
-      const sharedBuffer = createBufferFromString(
-        testString,
-        BufferOwnership.SHARED
-      );
-      const exclusiveBuffer = createBufferFromString(
-        testString,
-        BufferOwnership.EXCLUSIVE
-      );
-      const externalBuffer = createBufferFromString(
-        testString,
-        BufferOwnership.EXTERNAL
-      );
+      const sharedBuffer = createBufferFromString(testString, BufferOwnership.SHARED);
+      const exclusiveBuffer = createBufferFromString(testString, BufferOwnership.EXCLUSIVE);
+      const externalBuffer = createBufferFromString(testString, BufferOwnership.EXTERNAL);
 
       expect(sharedBuffer).toBeGreaterThan(0);
       expect(exclusiveBuffer).toBeGreaterThan(0);
@@ -149,10 +137,7 @@ describe("Buffer Operations", () => {
 
       // Create multiple buffers
       for (let i = 0; i < 10; i++) {
-        const buffer = createBufferFromString(
-          `Buffer ${i}`,
-          BufferOwnership.SHARED
-        );
+        const buffer = createBufferFromString(`Buffer ${i}`, BufferOwnership.SHARED);
         buffers.push(buffer);
         expect(buffer).toBeGreaterThan(0);
       }

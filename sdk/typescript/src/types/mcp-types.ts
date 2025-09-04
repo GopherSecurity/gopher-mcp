@@ -253,11 +253,7 @@ export function fromBoolean(value: boolean): McpBool {
 /**
  * Create a result wrapper from a result code
  */
-export function createResult<T>(
-  result: McpResult,
-  data?: T,
-  error?: string
-): McpResultWrapper<T> {
+export function createResult<T>(result: McpResult, data?: T, error?: string): McpResultWrapper<T> {
   return { result, data: data || undefined, error: error || undefined };
 }
 
@@ -271,9 +267,6 @@ export function createSuccess<T>(data: T): McpResultWrapper<T> {
 /**
  * Create an error result wrapper
  */
-export function createError<T>(
-  result: McpResult,
-  error: string
-): McpResultWrapper<T> {
+export function createError<T>(result: McpResult, error: string): McpResultWrapper<T> {
   return { result, data: undefined, error };
 }

@@ -9,11 +9,7 @@
  * - Error handling and recovery
  */
 
-import {
-  FilterManager,
-  FilterManagerConfig,
-  JSONRPCMessage,
-} from "../mcp-filter-manager";
+import { FilterManager, FilterManagerConfig, JSONRPCMessage } from "../mcp-filter-manager";
 
 // Use real C++ library instead of mocks
 describe("End-to-End Integration", () => {
@@ -75,9 +71,7 @@ describe("End-to-End Integration", () => {
                 ...message,
                 processingMetadata: {
                   receivedAt: Date.now(),
-                  processingId: `proc-${Math.random()
-                    .toString(36)
-                    .substr(2, 9)}`,
+                  processingId: `proc-${Math.random().toString(36).substr(2, 9)}`,
                   stage: "received",
                 },
               };
@@ -157,10 +151,7 @@ describe("End-to-End Integration", () => {
 
       for (const message of testMessages) {
         try {
-          console.log(
-            "🔄 E2E: Processing message:",
-            message.method || "response"
-          );
+          console.log("🔄 E2E: Processing message:", message.method || "response");
           const result = await filterManager.process(message);
 
           // Verify the message was processed
@@ -176,10 +167,7 @@ describe("End-to-End Integration", () => {
           console.log("✅ E2E: Message processed successfully");
         } catch (error) {
           // Expected for now since we don't have a real C++ filter chain running
-          console.log(
-            "⚠️ E2E: Expected error (no real C++ filter chain):",
-            error
-          );
+          console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
         }
       }
     });
@@ -243,10 +231,7 @@ describe("End-to-End Integration", () => {
 
         console.log("✅ E2E: Message transformation successful");
       } catch (error) {
-        console.log(
-          "⚠️ E2E: Expected error (no real C++ filter chain):",
-          error
-        );
+        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
       }
     });
   });
@@ -264,12 +249,7 @@ describe("End-to-End Integration", () => {
           },
 
           onError: (error: Error, context: string) => {
-            console.log(
-              "🛡️ E2E: Error handled in",
-              context,
-              ":",
-              error.message
-            );
+            console.log("🛡️ E2E: Error handled in", context, ":", error.message);
             expect(error.message).toBe("Simulated callback error");
             expect(context).toBe("messageReceived");
           },
@@ -298,10 +278,7 @@ describe("End-to-End Integration", () => {
         expect(result).toBeDefined();
         console.log("✅ E2E: Error handling successful");
       } catch (error) {
-        console.log(
-          "⚠️ E2E: Expected error (no real C++ filter chain):",
-          error
-        );
+        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
       }
     });
 
@@ -365,25 +342,18 @@ describe("End-to-End Integration", () => {
 
       try {
         // Process all messages concurrently
-        const promises = messages.map((message) =>
-          filterManager.process(message)
-        );
+        const promises = messages.map(message => filterManager.process(message));
         const results = await Promise.allSettled(promises);
 
         const endTime = Date.now();
         const duration = endTime - startTime;
 
-        console.log(
-          `✅ E2E: Processed ${messages.length} messages in ${duration}ms`
-        );
+        console.log(`✅ E2E: Processed ${messages.length} messages in ${duration}ms`);
 
         // Verify all messages were processed (or failed gracefully)
         expect(results.length).toBe(messages.length);
       } catch (error) {
-        console.log(
-          "⚠️ E2E: Expected error (no real C++ filter chain):",
-          error
-        );
+        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
       }
     });
   });

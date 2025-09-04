@@ -26,26 +26,11 @@ mcpServer.registerTool(
       "A comprehensive calculator that can perform basic arithmetic operations with validation",
     inputSchema: {
       operation: z
-        .enum([
-          "add",
-          "subtract",
-          "multiply",
-          "divide",
-          "power",
-          "sqrt",
-          "factorial",
-        ])
+        .enum(["add", "subtract", "multiply", "divide", "power", "sqrt", "factorial"])
         .describe("The arithmetic operation to perform"),
       a: z.number().describe("First number"),
-      b: z
-        .number()
-        .optional()
-        .describe("Second number (required for binary operations)"),
-      precision: z
-        .number()
-        .optional()
-        .default(2)
-        .describe("Decimal precision for results"),
+      b: z.number().optional().describe("Second number (required for binary operations)"),
+      precision: z.number().optional().default(2).describe("Decimal precision for results"),
     },
   },
   async ({ operation, a, b, precision = 2 }) => {
@@ -57,53 +42,45 @@ mcpServer.registerTool(
     try {
       switch (operation) {
         case "add":
-          if (b === undefined)
-            throw new Error("Second number is required for addition");
+          if (b === undefined) throw new Error("Second number is required for addition");
           result = a + b;
           operationDescription = `${a} + ${b}`;
           break;
 
         case "subtract":
-          if (b === undefined)
-            throw new Error("Second number is required for subtraction");
+          if (b === undefined) throw new Error("Second number is required for subtraction");
           result = a - b;
           operationDescription = `${a} - ${b}`;
           break;
 
         case "multiply":
-          if (b === undefined)
-            throw new Error("Second number is required for multiplication");
+          if (b === undefined) throw new Error("Second number is required for multiplication");
           result = a * b;
           operationDescription = `${a} × ${b}`;
           break;
 
         case "divide":
-          if (b === undefined)
-            throw new Error("Second number is required for division");
+          if (b === undefined) throw new Error("Second number is required for division");
           if (b === 0) throw new Error("Division by zero is not allowed");
           result = a / b;
           operationDescription = `${a} ÷ ${b}`;
           break;
 
         case "power":
-          if (b === undefined)
-            throw new Error("Second number is required for power operation");
+          if (b === undefined) throw new Error("Second number is required for power operation");
           result = Math.pow(a, b);
           operationDescription = `${a}^${b}`;
           break;
 
         case "sqrt":
-          if (a < 0)
-            throw new Error("Square root of negative number is not allowed");
+          if (a < 0) throw new Error("Square root of negative number is not allowed");
           result = Math.sqrt(a);
           operationDescription = `√${a}`;
           break;
 
         case "factorial":
-          if (a < 0)
-            throw new Error("Factorial of negative number is not allowed");
-          if (a !== Math.floor(a))
-            throw new Error("Factorial requires integer input");
+          if (a < 0) throw new Error("Factorial of negative number is not allowed");
+          if (a !== Math.floor(a)) throw new Error("Factorial requires integer input");
           if (a > 170) throw new Error("Factorial too large (max 170)");
 
           result = 1;
@@ -118,12 +95,9 @@ mcpServer.registerTool(
       }
 
       // Round result to specified precision
-      const roundedResult =
-        Math.round(result * Math.pow(10, precision)) / Math.pow(10, precision);
+      const roundedResult = Math.round(result * Math.pow(10, precision)) / Math.pow(10, precision);
 
-      console.log(
-        `✅ Calculation result: ${operationDescription} = ${roundedResult}`
-      );
+      console.log(`✅ Calculation result: ${operationDescription} = ${roundedResult}`);
 
       return {
         content: [
@@ -135,8 +109,7 @@ mcpServer.registerTool(
         isError: false,
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`❌ Calculator error: ${errorMessage}`);
 
       return {
@@ -344,22 +317,14 @@ async function main() {
 
         // NEW: CApiFilter integration for real-time message processing
         customCallbacks: {
-          onMessageReceived: (message) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Server onMessageReceived called!`
-            );
+          onMessageReceived: message => {
+            console.log(`🔍 [CApiFilter DEBUG] Server onMessageReceived called!`);
             console.log(
               `🔍 [CApiFilter DEBUG] Original message:`,
               JSON.stringify(message, null, 2)
             );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message type: ${
-                message.method || "notification"
-              }`
-            );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
-            );
+            console.log(`🔍 [CApiFilter DEBUG] Message type: ${message.method || "notification"}`);
+            console.log(`🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
@@ -379,27 +344,19 @@ async function main() {
                 `🔍 [CApiFilter DEBUG] Processed message:`,
                 JSON.stringify(processedMessage, null, 2)
               );
-              console.log(
-                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
-              );
+              console.log(`🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`);
               return processedMessage;
             }
             return null; // No modification
           },
-          onMessageSent: (message) => {
+          onMessageSent: message => {
             console.log(`🔍 [CApiFilter DEBUG] Server onMessageSent called!`);
             console.log(
               `🔍 [CApiFilter DEBUG] Original message:`,
               JSON.stringify(message, null, 2)
             );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message type: ${
-                message.method || "notification"
-              }`
-            );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
-            );
+            console.log(`🔍 [CApiFilter DEBUG] Message type: ${message.method || "notification"}`);
+            console.log(`🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
@@ -419,26 +376,20 @@ async function main() {
                 `🔍 [CApiFilter DEBUG] Processed message:`,
                 JSON.stringify(processedMessage, null, 2)
               );
-              console.log(
-                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
-              );
+              console.log(`🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`);
               return processedMessage;
             }
             return null; // No modification
           },
-          onConnectionEstablished: (connectionId) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Server onConnectionEstablished called!`
-            );
+          onConnectionEstablished: connectionId => {
+            console.log(`🔍 [CApiFilter DEBUG] Server onConnectionEstablished called!`);
             console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
           },
-          onConnectionClosed: (connectionId) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Server onConnectionClosed called!`
-            );
+          onConnectionClosed: connectionId => {
+            console.log(`🔍 [CApiFilter DEBUG] Server onConnectionClosed called!`);
             console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
@@ -468,9 +419,7 @@ async function main() {
     console.log("📡 Server listening on TCP port 8080");
     console.log("🔐 Security: JWT authentication enabled");
     console.log("📊 Observability: Logging, metrics, and tracing enabled");
-    console.log(
-      "⚡ Traffic Management: Rate limiting, circuit breaker, retry enabled"
-    );
+    console.log("⚡ Traffic Management: Rate limiting, circuit breaker, retry enabled");
     console.log(`📊 Transport stats:`, transport.getStats());
 
     // Keep the server running
@@ -507,7 +456,7 @@ async function main() {
 }
 
 // Start the server
-main().catch((error) => {
+main().catch(error => {
   console.error("❌ Failed to start server:", error);
   process.exit(1);
 });

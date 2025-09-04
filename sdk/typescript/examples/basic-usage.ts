@@ -36,21 +36,9 @@ async function createHttpPipeline() {
 
   try {
     // Create filters for different stages
-    const authFilter = createBuiltinFilter(
-      0,
-      BuiltinFilterType.AUTHENTICATION,
-      {}
-    );
-    const rateLimitFilter = createBuiltinFilter(
-      0,
-      BuiltinFilterType.RATE_LIMIT,
-      {}
-    );
-    const accessLogFilter = createBuiltinFilter(
-      0,
-      BuiltinFilterType.ACCESS_LOG,
-      {}
-    );
+    const authFilter = createBuiltinFilter(0, BuiltinFilterType.AUTHENTICATION, {});
+    const rateLimitFilter = createBuiltinFilter(0, BuiltinFilterType.RATE_LIMIT, {});
+    const accessLogFilter = createBuiltinFilter(0, BuiltinFilterType.ACCESS_LOG, {});
 
     console.log(
       `✅ Created filters: auth=${authFilter}, rateLimit=${rateLimitFilter}, accessLog=${accessLogFilter}`
@@ -106,10 +94,7 @@ async function demonstrateBufferOperations() {
 
   try {
     // Create a buffer from string data
-    const buffer = createBufferFromString(
-      "Hello, MCP Filter SDK!",
-      BufferOwnership.SHARED
-    );
+    const buffer = createBufferFromString("Hello, MCP Filter SDK!", BufferOwnership.SHARED);
     console.log(`✅ Created buffer: ${buffer}`);
 
     // Read the string back from the buffer
@@ -136,11 +121,7 @@ async function demonstrateAdvancedChains() {
   try {
     // Create different types of filters
     const tcpFilter = createBuiltinFilter(0, BuiltinFilterType.TCP_PROXY, {});
-    const tlsFilter = createBuiltinFilter(
-      0,
-      BuiltinFilterType.TLS_TERMINATION,
-      {}
-    );
+    const tlsFilter = createBuiltinFilter(0, BuiltinFilterType.TLS_TERMINATION, {});
     const httpFilter = createBuiltinFilter(0, BuiltinFilterType.HTTP_CODEC, {});
 
     console.log(
@@ -194,9 +175,7 @@ async function main() {
     console.log("🎉 All examples completed successfully!");
     console.log("\n📊 Summary:");
     console.log(`- HTTP Pipeline: ${httpPipeline.chain} filters`);
-    console.log(
-      `- Parallel Pipeline: ${parallelPipeline.filters.length} filters`
-    );
+    console.log(`- Parallel Pipeline: ${parallelPipeline.filters.length} filters`);
     console.log(`- Buffer Operations: ${bufferOps.content}`);
     console.log(`- Advanced Chains: ${advancedChains.chain} filters`);
   } catch (error) {

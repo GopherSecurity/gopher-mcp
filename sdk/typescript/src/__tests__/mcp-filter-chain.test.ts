@@ -212,11 +212,7 @@ describe("Filter Chain API", () => {
         },
       ];
 
-      const result = createConditionalChain(
-        0,
-        conditions,
-        "test-conditional-chain"
-      );
+      const result = createConditionalChain(0, conditions, "test-conditional-chain");
 
       // With real library, we expect a valid chain handle or 0 for error
       expect(typeof result).toBe("number");

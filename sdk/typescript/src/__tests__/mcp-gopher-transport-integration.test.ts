@@ -6,10 +6,7 @@
  * by passing through customCallbacks to the FilterManager.
  */
 
-import {
-  GopherTransport,
-  GopherTransportConfig,
-} from "../../mcp-example/src/gopher-transport";
+import { GopherTransport, GopherTransportConfig } from "../../mcp-example/src/gopher-transport";
 
 describe("GopherTransport CApiFilter Integration", () => {
   let transport: GopherTransport;

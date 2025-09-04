@@ -130,10 +130,7 @@ export type FilterMatchCallback = (
 /**
  * Create chain builder with configuration
  */
-export function createChainBuilderEx(
-  dispatcher: number,
-  _config: ChainConfig
-): any {
+export function createChainBuilderEx(dispatcher: number, _config: ChainConfig): any {
   // For now, use the basic chain builder since the advanced one requires a valid C struct
   // The advanced config will be implemented later when proper C struct conversion is ready
   // TODO: Implement proper C struct conversion when the C++ side is ready
@@ -173,28 +170,16 @@ export function addConditionalFilter(
 ): number {
   // For now, pass null as condition since the C++ function expects a pointer to C struct
   // TODO: Implement proper C struct conversion when the C++ side is ready
-  return mcpFilterLib.mcp_chain_builder_add_conditional(
-    builder,
-    null,
-    filter
-  ) as number;
+  return mcpFilterLib.mcp_chain_builder_add_conditional(builder, null, filter) as number;
 }
 
 /**
  * Add parallel filter group
  */
-export function addParallelFilterGroup(
-  builder: any,
-  filters: number[],
-  count: number
-): number {
+export function addParallelFilterGroup(builder: any, filters: number[], count: number): number {
   // Convert JavaScript array to C array using koffi
   const filtersArray = koffi.as(filters, "uint64_t *");
-  return mcpFilterLib.mcp_chain_builder_add_parallel_group(
-    builder,
-    filtersArray,
-    count
-  ) as number;
+  return mcpFilterLib.mcp_chain_builder_add_parallel_group(builder, filtersArray, count) as number;
 }
 
 /**
@@ -205,11 +190,7 @@ export function setChainBuilderRouter(
   router: RoutingFunction,
   userData: any
 ): number {
-  return mcpFilterLib.mcp_chain_builder_set_router(
-    builder,
-    router,
-    userData
-  ) as number;
+  return mcpFilterLib.mcp_chain_builder_set_router(builder, router, userData) as number;
 }
 
 // ============================================================================
@@ -247,16 +228,8 @@ export function resetChain(chain: number): number {
 /**
  * Enable/disable filter in chain
  */
-export function setFilterEnabled(
-  chain: number,
-  filterName: string,
-  enabled: boolean
-): number {
-  return mcpFilterLib.mcp_chain_set_filter_enabled(
-    chain,
-    filterName,
-    enabled
-  ) as number;
+export function setFilterEnabled(chain: number, filterName: string, enabled: boolean): number {
+  return mcpFilterLib.mcp_chain_set_filter_enabled(chain, filterName, enabled) as number;
 }
 
 /**
@@ -274,11 +247,7 @@ export function setChainEventCallback(
   callback: ChainEventCallback,
   userData: any
 ): number {
-  return mcpFilterLib.mcp_chain_set_event_callback(
-    chain,
-    callback,
-    userData
-  ) as number;
+  return mcpFilterLib.mcp_chain_set_event_callback(chain, callback, userData) as number;
 }
 
 // ============================================================================
@@ -288,14 +257,8 @@ export function setChainEventCallback(
 /**
  * Create dynamic chain from JSON configuration
  */
-export function createChainFromJson(
-  dispatcher: number,
-  jsonConfig: any
-): number {
-  return mcpFilterLib.mcp_chain_create_from_json(
-    dispatcher,
-    jsonConfig
-  ) as number;
+export function createChainFromJson(dispatcher: number, jsonConfig: any): number {
+  return mcpFilterLib.mcp_chain_create_from_json(dispatcher, jsonConfig) as number;
 }
 
 /**
@@ -315,11 +278,7 @@ export function cloneChain(chain: number): number {
 /**
  * Merge two chains
  */
-export function mergeChains(
-  chain1: number,
-  chain2: number,
-  mode: ChainExecutionMode
-): number {
+export function mergeChains(chain1: number, chain2: number, mode: ChainExecutionMode): number {
   return mcpFilterLib.mcp_chain_merge(chain1, chain2, mode) as number;
 }
 
@@ -342,26 +301,14 @@ export function addRouteToRouter(
   condition: FilterMatchCallback,
   chain: number
 ): number {
-  return mcpFilterLib.mcp_chain_router_add_route(
-    router,
-    condition,
-    chain
-  ) as number;
+  return mcpFilterLib.mcp_chain_router_add_route(router, condition, chain) as number;
 }
 
 /**
  * Route buffer through appropriate chain
  */
-export function routeBuffer(
-  router: any,
-  buffer: number,
-  metadata: ProtocolMetadata
-): number {
-  return mcpFilterLib.mcp_chain_router_route(
-    router,
-    buffer,
-    metadata
-  ) as number;
+export function routeBuffer(router: any, buffer: number, metadata: ProtocolMetadata): number {
+  return mcpFilterLib.mcp_chain_router_route(router, buffer, metadata) as number;
 }
 
 /**
@@ -409,12 +356,7 @@ export function getChainPoolStats(
   idle: number,
   totalProcessed: number
 ): number {
-  return mcpFilterLib.mcp_chain_pool_get_stats(
-    pool,
-    active,
-    idle,
-    totalProcessed
-  ) as number;
+  return mcpFilterLib.mcp_chain_pool_get_stats(pool, active, idle, totalProcessed) as number;
 }
 
 /**
@@ -451,12 +393,7 @@ export function profileChain(
   iterations: number,
   report: any
 ): number {
-  return mcpFilterLib.mcp_chain_profile(
-    chain,
-    testBuffer,
-    iterations,
-    report
-  ) as number;
+  return mcpFilterLib.mcp_chain_profile(chain, testBuffer, iterations, report) as number;
 }
 
 // ============================================================================

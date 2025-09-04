@@ -300,10 +300,7 @@ export function isChainError(state: McpChainState): boolean {
  * Check if chain execution mode supports parallel processing
  */
 export function supportsParallel(mode: McpChainExecutionMode): boolean {
-  return (
-    mode === McpChainExecutionMode.PARALLEL ||
-    mode === McpChainExecutionMode.PIPELINE
-  );
+  return mode === McpChainExecutionMode.PARALLEL || mode === McpChainExecutionMode.PIPELINE;
 }
 
 /**

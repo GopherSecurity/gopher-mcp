@@ -9,10 +9,7 @@
 
 import { ChainExecutionMode, RoutingStrategy } from "@mcp/filter-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import {
-  CallToolResultSchema,
-  ListToolsResultSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { GopherTransport, GopherTransportConfig } from "./gopher-transport";
 
 async function main() {
@@ -60,14 +57,7 @@ async function main() {
           accessLog: {
             enabled: true,
             format: "json",
-            fields: [
-              "timestamp",
-              "method",
-              "sessionId",
-              "duration",
-              "clientId",
-              "operation",
-            ],
+            fields: ["timestamp", "method", "sessionId", "duration", "clientId", "operation"],
             output: "console",
           },
           metrics: {
@@ -136,22 +126,14 @@ async function main() {
 
         // NEW: CApiFilter integration for real-time message processing
         customCallbacks: {
-          onMessageReceived: (message) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Client onMessageReceived called!`
-            );
+          onMessageReceived: message => {
+            console.log(`🔍 [CApiFilter DEBUG] Client onMessageReceived called!`);
             console.log(
               `🔍 [CApiFilter DEBUG] Original message:`,
               JSON.stringify(message, null, 2)
             );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message type: ${
-                message.method || "notification"
-              }`
-            );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
-            );
+            console.log(`🔍 [CApiFilter DEBUG] Message type: ${message.method || "notification"}`);
+            console.log(`🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
@@ -163,8 +145,7 @@ async function main() {
                 clientMetadata: {
                   receivedAt: Date.now(),
                   clientId: "calculator-client-001",
-                  sessionId:
-                    "session-" + Math.random().toString(36).substr(2, 9),
+                  sessionId: "session-" + Math.random().toString(36).substr(2, 9),
                   processedBy: "CApiFilter-onMessageReceived",
                 },
               };
@@ -172,27 +153,19 @@ async function main() {
                 `🔍 [CApiFilter DEBUG] Processed message:`,
                 JSON.stringify(processedMessage, null, 2)
               );
-              console.log(
-                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
-              );
+              console.log(`🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`);
               return processedMessage;
             }
             return null; // No modification
           },
-          onMessageSent: (message) => {
+          onMessageSent: message => {
             console.log(`🔍 [CApiFilter DEBUG] Client onMessageSent called!`);
             console.log(
               `🔍 [CApiFilter DEBUG] Original message:`,
               JSON.stringify(message, null, 2)
             );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message type: ${
-                message.method || "notification"
-              }`
-            );
-            console.log(
-              `🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`
-            );
+            console.log(`🔍 [CApiFilter DEBUG] Message type: ${message.method || "notification"}`);
+            console.log(`🔍 [CApiFilter DEBUG] Message ID: ${message.id || "N/A"}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
@@ -204,8 +177,7 @@ async function main() {
                 clientMetadata: {
                   sentAt: Date.now(),
                   clientId: "calculator-client-001",
-                  sessionId:
-                    "session-" + Math.random().toString(36).substr(2, 9),
+                  sessionId: "session-" + Math.random().toString(36).substr(2, 9),
                   processedBy: "CApiFilter-onMessageSent",
                 },
               };
@@ -213,26 +185,20 @@ async function main() {
                 `🔍 [CApiFilter DEBUG] Processed message:`,
                 JSON.stringify(processedMessage, null, 2)
               );
-              console.log(
-                `🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`
-              );
+              console.log(`🔍 [CApiFilter DEBUG] Returning processed message to C++ filter chain`);
               return processedMessage;
             }
             return null; // No modification
           },
-          onConnectionEstablished: (connectionId) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Client onConnectionEstablished called!`
-            );
+          onConnectionEstablished: connectionId => {
+            console.log(`🔍 [CApiFilter DEBUG] Client onConnectionEstablished called!`);
             console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
             );
           },
-          onConnectionClosed: (connectionId) => {
-            console.log(
-              `🔍 [CApiFilter DEBUG] Client onConnectionClosed called!`
-            );
+          onConnectionClosed: connectionId => {
+            console.log(`🔍 [CApiFilter DEBUG] Client onConnectionClosed called!`);
             console.log(`🔍 [CApiFilter DEBUG] Connection ID: ${connectionId}`);
             console.log(
               `🔍 [CApiFilter DEBUG] This callback is executing in C++ filter chain context!`
@@ -267,9 +233,7 @@ async function main() {
     console.log("✅ Connected to Calculator MCP Server via GopherTransport");
     console.log("🔐 Security: JWT authentication enabled");
     console.log("📊 Observability: Logging, metrics, and tracing enabled");
-    console.log(
-      "⚡ Traffic Management: Rate limiting, circuit breaker, retry enabled"
-    );
+    console.log("⚡ Traffic Management: Rate limiting, circuit breaker, retry enabled");
     console.log(`📊 Transport stats:`, transport.getStats());
 
     // List available tools
@@ -394,14 +358,14 @@ async function main() {
             },
             CallToolResultSchema
           )
-          .catch((error) => ({ error: error.message }))
+          .catch(error => ({ error: error.message }))
       );
     }
 
     const rateLimitResults = await Promise.all(rateLimitPromises);
     console.log(`Rate limit test: ${rateLimitResults.length} requests sent`);
-    const successCount = rateLimitResults.filter((r) => !r.error).length;
-    const errorCount = rateLimitResults.filter((r) => r.error).length;
+    const successCount = rateLimitResults.filter(r => !r.error).length;
+    const errorCount = rateLimitResults.filter(r => r.error).length;
     console.log(`  ✅ Successful: ${successCount}`);
     console.log(`  ❌ Failed: ${errorCount}`);
 
@@ -424,7 +388,7 @@ async function main() {
 }
 
 // Start the client
-main().catch((error) => {
+main().catch(error => {
   console.error("❌ Failed to start client:", error);
   process.exit(1);
 });

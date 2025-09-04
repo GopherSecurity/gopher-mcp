@@ -176,7 +176,7 @@ async function comprehensiveFilterManagerDemo() {
     method: "comprehensive/process",
     params: {
       data: "comprehensive test data",
-      headers: { "Authorization": "Bearer token123" },
+      headers: { Authorization: "Bearer token123" },
     },
   };
 
@@ -186,10 +186,7 @@ async function comprehensiveFilterManagerDemo() {
     // Process the message through all filters
     const processedMessage = await filterManager.process(jsonrpcMessage);
 
-    console.log(
-      "📤 Processed message:",
-      JSON.stringify(processedMessage, null, 2)
-    );
+    console.log("📤 Processed message:", JSON.stringify(processedMessage, null, 2));
     console.log("✅ Comprehensive FilterManager processing completed successfully!");
 
     return processedMessage;
@@ -239,10 +236,7 @@ async function basicFilterManagerDemo() {
     // Process the message through filters
     const processedMessage = await filterManager.process(jsonrpcMessage);
 
-    console.log(
-      "📤 Processed message:",
-      JSON.stringify(processedMessage, null, 2)
-    );
+    console.log("📤 Processed message:", JSON.stringify(processedMessage, null, 2));
     console.log("✅ FilterManager processing completed successfully!");
 
     return processedMessage;
@@ -328,10 +322,7 @@ async function errorHandlingDemo() {
       },
     });
   } catch (error) {
-    console.log(
-      "✅ Configuration validation caught invalid rate limit:",
-      (error as Error).message
-    );
+    console.log("✅ Configuration validation caught invalid rate limit:", (error as Error).message);
   }
 
   // Test invalid message
@@ -349,10 +340,7 @@ async function errorHandlingDemo() {
 
     await resilientManager.process(invalidMessage);
   } catch (error) {
-    console.log(
-      "✅ Message validation caught invalid JSON-RPC version:",
-      (error as Error).message
-    );
+    console.log("✅ Message validation caught invalid JSON-RPC version:", (error as Error).message);
   }
 
   console.log("✅ Error handling demos completed");
@@ -405,14 +393,8 @@ async function requestResponseDemo() {
     const processedRequest = await filterManager.process(request);
     const processedResponse = await filterManager.processResponse(response);
 
-    console.log(
-      "✅ Processed request:",
-      JSON.stringify(processedRequest, null, 2)
-    );
-    console.log(
-      "✅ Processed response:",
-      JSON.stringify(processedResponse, null, 2)
-    );
+    console.log("✅ Processed request:", JSON.stringify(processedRequest, null, 2));
+    console.log("✅ Processed response:", JSON.stringify(processedResponse, null, 2));
 
     // Process both together
     const { processedRequest: req, processedResponse: res } =
@@ -481,10 +463,7 @@ async function resourceCleanupDemo() {
     await filterManager.process(testMessage);
     console.log("❌ This should not happen - processing after destruction");
   } catch (error) {
-    console.log(
-      "✅ Correctly prevented processing after destruction:",
-      (error as Error).message
-    );
+    console.log("✅ Correctly prevented processing after destruction:", (error as Error).message);
   }
 
   // Try to destroy again (should warn)

@@ -67,18 +67,15 @@ const AppProtocol = {
 
 // Chain configuration struct - use unique name to avoid conflicts
 const uniqueId = Math.random().toString(36).substring(2, 15);
-export const ChainConfigStruct = koffi.struct(
-  `mcp_chain_config_ts_${uniqueId}`,
-  {
-    name: "string",
-    mode: "int",
-    routing: "int",
-    max_parallel: "uint32",
-    buffer_size: "uint32",
-    timeout_ms: "uint32",
-    stop_on_error: "int",
-  }
-);
+export const ChainConfigStruct = koffi.struct(`mcp_chain_config_ts_${uniqueId}`, {
+  name: "string",
+  mode: "int",
+  routing: "int",
+  max_parallel: "uint32",
+  buffer_size: "uint32",
+  timeout_ms: "uint32",
+  stop_on_error: "int",
+});
 
 // Filter node struct - use unique name to avoid conflicts
 export const FilterNodeStruct = koffi.struct(`mcp_filter_node_ts_${uniqueId}`, {
@@ -91,90 +88,75 @@ export const FilterNodeStruct = koffi.struct(`mcp_filter_node_ts_${uniqueId}`, {
 });
 
 // Filter condition struct
-export const FilterConditionStruct = koffi.struct(
-  `mcp_filter_condition_${uniqueId}`,
-  {
-    match_type: "int",
-    field: "string",
-    value: "string",
-    target_filter: "uint64",
-  }
-);
+export const FilterConditionStruct = koffi.struct(`mcp_filter_condition_${uniqueId}`, {
+  match_type: "int",
+  field: "string",
+  value: "string",
+  target_filter: "uint64",
+});
 
 // Filter configuration struct
-export const FilterConfigStruct = koffi.struct(
-  `mcp_filter_config_${uniqueId}`,
-  {
-    name: "string",
-    type: "int",
-    settings: "void*", // JSON value
-    layer: "int",
-    memory_pool: "uint64",
-  }
-);
+export const FilterConfigStruct = koffi.struct(`mcp_filter_config_${uniqueId}`, {
+  name: "string",
+  type: "int",
+  settings: "void*", // JSON value
+  layer: "int",
+  memory_pool: "uint64",
+});
 
 // Protocol metadata struct
-export const ProtocolMetadataStruct = koffi.struct(
-  `mcp_protocol_metadata_${uniqueId}`,
-  {
-    layer: "int",
-    data: koffi.struct(`protocol_data_${uniqueId}`, {
-      l3: koffi.struct(`l3_data_${uniqueId}`, {
-        src_ip: "uint32",
-        dst_ip: "uint32",
-        protocol: "uint8",
-        ttl: "uint8",
-      }),
-      l4: koffi.struct(`l4_data_${uniqueId}`, {
-        src_port: "uint16",
-        dst_port: "uint16",
-        protocol: "int",
-        sequence_num: "uint32",
-      }),
-      l5: koffi.struct(`l5_data_${uniqueId}`, {
-        is_tls: "int",
-        alpn: "string",
-        sni: "string",
-        session_id: "uint32",
-      }),
-      l7: koffi.struct(`l7_data_${uniqueId}`, {
-        protocol: "int",
-        headers: "void*", // Map
-        method: "string",
-        path: "string",
-        status_code: "uint32",
-      }),
+export const ProtocolMetadataStruct = koffi.struct(`mcp_protocol_metadata_${uniqueId}`, {
+  layer: "int",
+  data: koffi.struct(`protocol_data_${uniqueId}`, {
+    l3: koffi.struct(`l3_data_${uniqueId}`, {
+      src_ip: "uint32",
+      dst_ip: "uint32",
+      protocol: "uint8",
+      ttl: "uint8",
     }),
-  }
-);
+    l4: koffi.struct(`l4_data_${uniqueId}`, {
+      src_port: "uint16",
+      dst_port: "uint16",
+      protocol: "int",
+      sequence_num: "uint32",
+    }),
+    l5: koffi.struct(`l5_data_${uniqueId}`, {
+      is_tls: "int",
+      alpn: "string",
+      sni: "string",
+      session_id: "uint32",
+    }),
+    l7: koffi.struct(`l7_data_${uniqueId}`, {
+      protocol: "int",
+      headers: "void*", // Map
+      method: "string",
+      path: "string",
+      status_code: "uint32",
+    }),
+  }),
+});
 
 // Filter callbacks struct - use unique name to avoid conflicts
-export const FilterCallbacksStruct = koffi.struct(
-  `mcp_filter_callbacks_ts_${uniqueId}`,
-  {
-    on_data: "void*",
-    on_write: "void*",
-    on_new_connection: "void*",
-    on_high_watermark: "void*",
-    on_low_watermark: "void*",
-    on_error: "void*",
-    user_data: "void*",
-  }
-);
+export const FilterCallbacksStruct = koffi.struct(`mcp_filter_callbacks_ts_${uniqueId}`, {
+  on_data: "void*",
+  on_write: "void*",
+  on_new_connection: "void*",
+  on_high_watermark: "void*",
+  on_low_watermark: "void*",
+  on_error: "void*",
+  user_data: "void*",
+});
 
 // Alternative struct for JavaScript object casting
-export const FilterCallbacksJSStruct = koffi.struct(
-  `mcp_filter_callbacks_js_${uniqueId}`,
-  {
-    on_data: "void*",
-    on_write: "void*",
-    on_new_connection: "void*",
-    on_high_watermark: "void*",
-    on_low_watermark: "void*",
-    on_error: "void*",
-    user_data: "void*",
-  }
-);
+export const FilterCallbacksJSStruct = koffi.struct(`mcp_filter_callbacks_js_${uniqueId}`, {
+  on_data: "void*",
+  on_write: "void*",
+  on_new_connection: "void*",
+  on_high_watermark: "void*",
+  on_low_watermark: "void*",
+  on_error: "void*",
+  user_data: "void*",
+});
 
 // ============================================================================
 // Conversion Functions
@@ -266,10 +248,7 @@ export function createFilterConfigStruct(config: {
 /**
  * Convert JavaScript ProtocolMetadata to C struct
  */
-export function createProtocolMetadataStruct(metadata: {
-  layer?: number;
-  data?: any;
-}): any {
+export function createProtocolMetadataStruct(metadata: { layer?: number; data?: any }): any {
   const result: any = {
     layer: metadata.layer || ProtocolLayer.APPLICATION,
     data: {},
@@ -298,10 +277,7 @@ export function createProtocolMetadataStruct(metadata: {
         sni: metadata.data.l5.sni || "",
         session_id: metadata.data.l5.session_id || 0,
       };
-    } else if (
-      metadata.layer === ProtocolLayer.APPLICATION &&
-      metadata.data.l7
-    ) {
+    } else if (metadata.layer === ProtocolLayer.APPLICATION && metadata.data.l7) {
       result.data.l7 = {
         protocol: metadata.data.l7.protocol || AppProtocol.HTTP,
         headers: null, // TODO: Convert JS object to Map
@@ -325,20 +301,15 @@ export function createFilterCallbacksStruct(callbacks: any): any {
   }
 
   // Define callback prototypes using koffi.proto() with unique names
-  const structId =
-    Date.now().toString(36) + Math.random().toString(36).substring(2);
+  const structId = Date.now().toString(36) + Math.random().toString(36).substring(2);
   const DataCallback = koffi.proto(
     `int DataCallback_${structId}(void *buffer, bool endStream, void *user_data)`
   );
   const WriteCallback = koffi.proto(
     `int WriteCallback_${structId}(void *buffer, bool endStream, void *user_data)`
   );
-  const ConnCallback = koffi.proto(
-    `int ConnCallback_${structId}(int state, void *user_data)`
-  );
-  const MarkCallback = koffi.proto(
-    `void MarkCallback_${structId}(void *user_data)`
-  );
+  const ConnCallback = koffi.proto(`int ConnCallback_${structId}(int state, void *user_data)`);
+  const MarkCallback = koffi.proto(`void MarkCallback_${structId}(void *user_data)`);
   const ErrorCallback = koffi.proto(
     `void ErrorCallback_${structId}(uint64_t filter, int code, const char *msg, void *user_data)`
   );
