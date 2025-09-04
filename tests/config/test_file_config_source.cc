@@ -93,7 +93,7 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
   // Test 1: CLI config takes precedence
   {
     auto source = createFileConfigSource("test", 1, cli_config.string());
-    auto config = source->load();
+    auto config = source->loadConfiguration();
     EXPECT_EQ(config["source"], "cli");
   }
 
@@ -101,7 +101,7 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
   {
     setenv("MCP_CONFIG", env_config.string().c_str(), 1);
     auto source = createFileConfigSource("test", 1, "");
-    auto config = source->load();
+    auto config = source->loadConfiguration();
     EXPECT_EQ(config["source"], "env");
     unsetenv("MCP_CONFIG");
   }
@@ -113,7 +113,7 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
     fs::current_path(test_dir_);
 
     auto source = createFileConfigSource("test", 1, "");
-    auto config = source->load();
+    auto config = source->loadConfiguration();
     EXPECT_EQ(config["source"], "local");
 
     fs::current_path(original_dir);
@@ -133,7 +133,7 @@ TEST_F(FileConfigSourceTest, EnvironmentVariableSubstitution) {
   createConfigFile(config_file, config);
 
   auto source = createFileConfigSource("test", 1, config_file.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   // TEST_HOST not set, should use default
   EXPECT_EQ(result["host"], "localhost");
@@ -171,7 +171,7 @@ TEST_F(FileConfigSourceTest, IncludeFileResolution) {
   createConfigFile(main_config, main);
 
   auto source = createFileConfigSource("test", 1, main_config.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   // Check that includes were processed and merged
   EXPECT_EQ(result["app"], "test");
@@ -203,7 +203,7 @@ TEST_F(FileConfigSourceTest, DirectoryScanning) {
   createConfigFile(main_config, main);
 
   auto source = createFileConfigSource("test", 1, main_config.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   // Check that all files were included (sorted order)
   EXPECT_EQ(result["app"], "test");
@@ -237,7 +237,7 @@ server:
   createYamlFile(yaml_file, yaml_content);
 
   auto source = createFileConfigSource("test", 1, yaml_file.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   EXPECT_EQ(result["node"]["id"], "test-node");
   EXPECT_EQ(result["node"]["cluster"], "production");
@@ -263,7 +263,7 @@ TEST_F(FileConfigSourceTest, ParseErrorHandling) {
   EXPECT_THROW(
       {
         try {
-          json_source->load();
+          json_source->loadConfiguration();
         } catch (const std::exception& e) {
           std::string error = e.what();
           // Should contain parse error location info
@@ -281,7 +281,7 @@ TEST_F(FileConfigSourceTest, ParseErrorHandling) {
   EXPECT_THROW(
       {
         try {
-          yaml_source->load();
+          yaml_source->loadConfiguration();
         } catch (const std::exception& e) {
           std::string error = e.what();
           // Should contain line/column info
@@ -307,7 +307,7 @@ TEST_F(FileConfigSourceTest, CircularIncludeDetection) {
   createConfigFile(config2, json2);
 
   auto source = createFileConfigSource("test", 1, config1.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   // Should handle circular includes gracefully
   // Each file should be included only once
@@ -335,7 +335,7 @@ TEST_F(FileConfigSourceTest, MaxIncludeDepth) {
       createFileConfigSource("test", 1, (base / "config0.json").string());
 
   // Should throw when max depth exceeded
-  EXPECT_THROW({ source->load(); }, std::runtime_error);
+  EXPECT_THROW({ source->loadConfiguration(); }, std::runtime_error);
 }
 
 // Test missing file handling
@@ -346,7 +346,7 @@ TEST_F(FileConfigSourceTest, MissingFileHandling) {
 
   // Should return empty config or throw
   try {
-    auto result = source->load();
+    auto result = source->loadConfiguration();
     // If it doesn't throw, should return empty
     EXPECT_TRUE(result.empty() || result.is_object());
   } catch (const std::exception& e) {
@@ -386,7 +386,7 @@ TEST_F(FileConfigSourceTest, MergeSemantics) {
   createConfigFile(main_config, main);
 
   auto source = createFileConfigSource("test", 1, main_config.string());
-  auto result = source->load();
+  auto result = source->loadConfiguration();
 
   // Check merge results
   EXPECT_EQ(result["server"]["port"], 9090);           // Overridden
@@ -436,7 +436,7 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
     createConfigFile(config_file, {{"test", "value"}});
 
     auto source = createFileConfigSource("test", 1, config_file.string());
-    source->load();
+    source->loadConfiguration();
 
     // Should have INFO logs for discovery start/end
     EXPECT_TRUE(test_sink->hasMessage("Starting configuration discovery",
@@ -455,7 +455,7 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
 
     auto source = createFileConfigSource("test", 1, bad_file.string());
 
-    EXPECT_THROW(source->load(), std::exception);
+    EXPECT_THROW(source->loadConfiguration(), std::exception);
 
     // Should have ERROR log
     EXPECT_TRUE(test_sink->hasMessage("Failed to parse",
