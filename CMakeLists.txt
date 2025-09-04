@@ -309,6 +309,18 @@ message(STATUS "Downloading nlohmann/json... This may take a moment depending on
 FetchContent_MakeAvailable(nlohmann_json)
 message(STATUS "nlohmann/json download complete.")
 
+# json-schema-validator (header-only) for schema validation
+if(NOT TARGET nlohmann_json_schema_validator)
+    FetchContent_Declare(
+        json_schema_validator
+        GIT_REPOSITORY https://github.com/pboettch/json-schema-validator.git
+        GIT_TAG v2.3.0
+    )
+    message(STATUS "Downloading json-schema-validator... This may take a moment depending on your connection speed.")
+    FetchContent_MakeAvailable(json_schema_validator)
+    message(STATUS "json-schema-validator download complete.")
+endif()
+
 # Google Test
 FetchContent_Declare(
     googletest
@@ -513,6 +525,10 @@ foreach(lib_target ${REAL_TARGETS})
                 ${LIBEVENT_LIBRARIES}
                 yaml-cpp
         )
+        # Link json-schema-validator if available
+        if(TARGET nlohmann_json_schema_validator)
+            target_link_libraries(${lib_target} PRIVATE nlohmann_json_schema_validator)
+        endif()
         if(LIBEVENT_LIBRARY_DIRS)
             target_link_directories(${lib_target} PRIVATE ${LIBEVENT_LIBRARY_DIRS})
         endif()
