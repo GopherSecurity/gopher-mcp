@@ -7,16 +7,16 @@ namespace GopherMcp
     /// P/Invoke bindings for MCP types manipulation functions
     /// Provides access to functions for creating, accessing, and destroying MCP types
     /// </summary>
-    internal static partial class McpTypesApi
+    public static partial class McpTypesApi
     {
         #if WINDOWS
-        private const string LibraryName = "gopher-mcp.0.1.0";
+        private const string LibraryName = "gopher_mcp_c";
         #elif LINUX
-        private const string LibraryName = "gopher-mcp.so.0.1.0";
+        private const string LibraryName = "gopher_mcp_c";
         #elif OSX
-        private const string LibraryName = "gopher-mcp.0.1.0";
+        private const string LibraryName = "gopher_mcp_c";
         #else
-        private const string LibraryName = "gopher-mcp";
+        private const string LibraryName = "gopher_mcp_c";
         #endif
 
         #region Request ID Functions
