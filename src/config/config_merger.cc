@@ -196,29 +196,45 @@ class ConfigMerger {
         // Determine merge strategy based on key category
         if (isFilterList(key)) {
           // Filter lists: replace by default
+          LOG_DEBUG() << "Category chosen for '" << current_path 
+                      << "': REPLACE (filter list)";
           if (base_value != overlay_value) {
             context.conflicts_resolved.insert(current_path);
+            LOG_DEBUG() << "Conflict detected at '" << current_path 
+                        << "': replacing entire array";
           }
           result[key] = overlay_value;
         } else if (isNamedResourceArray(key) && 
                    base_value.isArray() && overlay_value.isArray()) {
           // Named resources: merge by name
+          LOG_DEBUG() << "Category chosen for '" << current_path 
+                      << "': MERGE-BY-NAME (named resource array)";
           result[key] = mergeNamedResourceArrays(
               base_value, overlay_value, context, current_path);
         } else if (base_value.isObject() && overlay_value.isObject()) {
           // Nested objects: deep merge
+          LOG_DEBUG() << "Category chosen for '" << current_path 
+                      << "': DEEP-MERGE (nested objects)";
           result[key] = mergeObjects(
               base_value, overlay_value, context, current_path);
         } else if (base_value.isArray() && overlay_value.isArray()) {
           // Other arrays: replace by default
+          LOG_DEBUG() << "Category chosen for '" << current_path 
+                      << "': REPLACE (default array behavior)";
           if (base_value != overlay_value) {
             context.conflicts_resolved.insert(current_path);
+            LOG_DEBUG() << "Conflict detected at '" << current_path 
+                        << "': replacing array";
           }
           result[key] = overlay_value;
         } else {
           // Different types or primitives: overlay wins
+          LOG_DEBUG() << "Category chosen for '" << current_path 
+                      << "': OVERRIDE (scalar/type mismatch)";
           if (base_value != overlay_value) {
             context.conflicts_resolved.insert(current_path);
+            LOG_DEBUG() << "Conflict detected at '" << current_path 
+                        << "': overlay value wins";
           }
           result[key] = overlay_value;
         }
@@ -259,6 +275,8 @@ class ConfigMerger {
             overlay_item.isMember("name") &&
             overlay_item["name"].getString() == name) {
           // Found matching named resource - merge them
+          LOG_DEBUG() << "Merging named resource '" << name 
+                      << "' at " << path;
           result.push_back(mergeObjects(
               base_item, overlay_item, context, 
               path + "[name=" + name + "]"));
@@ -286,6 +304,8 @@ class ConfigMerger {
       std::string name = overlay_item["name"].getString();
       if (processed_names.find(name) == processed_names.end()) {
         // New named resource from overlay
+        LOG_DEBUG() << "Adding new named resource '" << name 
+                    << "' from overlay at " << path;
         result.push_back(overlay_item);
       }
     }
