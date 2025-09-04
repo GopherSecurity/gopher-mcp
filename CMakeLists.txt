@@ -396,6 +396,8 @@ set(MCP_CORE_SOURCES
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
     src/config/file_config_source.cc
+    src/config/config_merger.cc
+    src/config/config_validator.cc
 )
 
 # Client and server sources that need event library
