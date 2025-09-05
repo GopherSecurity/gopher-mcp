@@ -1,10 +1,10 @@
 package com.gopher.mcp.filter;
 
+import com.gopher.mcp.util.BufferUtils;
 import com.gopher.mcp.filter.type.*;
 import com.gopher.mcp.filter.type.buffer.BufferSlice;
 import com.gopher.mcp.jna.McpFilterLibrary;
 import com.gopher.mcp.jna.type.filter.*;
-import com.sun.jna.Native;
 import com.sun.jna.NativeLong;
 import com.sun.jna.Pointer;
 import com.sun.jna.ptr.IntByReference;
@@ -37,43 +37,6 @@ public class McpFilter implements AutoCloseable {
 
     protected McpFilter(McpFilterLibrary library) {
         this.lib = library;
-    }
-
-    // ============================================================================
-    // Utility Methods for ByteBuffer <-> Pointer conversion
-    // ============================================================================
-
-    /**
-     * Convert JNA Pointer to ByteBuffer
-     * @param pointer JNA Pointer
-     * @param size Size in bytes
-     * @return ByteBuffer or empty buffer if null
-     */
-    private static ByteBuffer toByteBuffer(Pointer pointer, long size) {
-        if (pointer == null || size <= 0) {
-            return ByteBuffer.allocate(0);
-        }
-        return pointer.getByteBuffer(0, size);
-    }
-
-    /**
-     * Convert ByteBuffer to JNA Pointer
-     * @param buffer ByteBuffer to convert
-     * @return JNA Pointer or null if buffer is null
-     */
-    private static Pointer toPointer(ByteBuffer buffer) {
-        if (buffer == null) {
-            return null;
-        }
-        if (buffer.isDirect()) {
-            return Native.getDirectBufferPointer(buffer);
-        } else {
-            // For heap buffers, copy to direct buffer
-            ByteBuffer direct = ByteBuffer.allocateDirect(buffer.remaining());
-            direct.put(buffer.duplicate());
-            direct.flip();
-            return Native.getDirectBufferPointer(direct);
-        }
     }
 
     // ============================================================================
@@ -326,8 +289,8 @@ public class McpFilter implements AutoCloseable {
             int actualCount = sliceCount.getValue();
             BufferSlice[] slices = new BufferSlice[actualCount];
             for (int i = 0; i < actualCount; i++) {
-                // Convert Pointer to ByteBuffer using the utility method
-                ByteBuffer dataBuffer = toByteBuffer(nativeSlices[i].data, nativeSlices[i].size);
+                // Convert Pointer to ByteBuffer using the utility class
+                ByteBuffer dataBuffer = BufferUtils.toByteBuffer(nativeSlices[i].data, nativeSlices[i].size);
                 slices[i] = new BufferSlice(
                     dataBuffer,
                     nativeSlices[i].size,
@@ -349,8 +312,8 @@ public class McpFilter implements AutoCloseable {
         McpBufferSlice.ByReference slice = new McpBufferSlice.ByReference();
         int result = lib.mcp_filter_reserve_buffer(buffer, new NativeLong(size), slice);
         if (result == ResultCode.OK.getValue()) {
-            // Convert Pointer to ByteBuffer using the utility method
-            ByteBuffer dataBuffer = toByteBuffer(slice.data, slice.size);
+            // Convert Pointer to ByteBuffer using the utility class
+            ByteBuffer dataBuffer = BufferUtils.toByteBuffer(slice.data, slice.size);
             return new BufferSlice(dataBuffer, slice.size, slice.flags);
         }
         return null;
