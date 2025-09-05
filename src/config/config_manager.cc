@@ -97,11 +97,11 @@ nlohmann::json EnvironmentConfigSource::parseEnvironmentVariables() {
                          val;  // Can be string with units
                    }}};
 
-  for (const auto& [env_var, setter] : mappings) {
-    const char* value = std::getenv(env_var.c_str());
+  for (const auto& mapping : mappings) {
+    const char* value = std::getenv(mapping.first.c_str());
     if (value) {
       try {
-        setter(value, config);
+        mapping.second(value, config);
       } catch (const std::exception& e) {
         // Log error but continue processing other variables
         // In production, use proper logging
@@ -127,7 +127,7 @@ ConfigurationManager& ConfigurationManager::getInstance() {
 bool ConfigurationManager::initialize(
     const std::vector<std::shared_ptr<ConfigSource>>& sources,
     UnknownFieldPolicy policy) {
-  std::unique_lock<std::shared_mutex> config_lock(config_mutex_);
+  std::unique_lock<std::shared_timed_mutex> config_lock(config_mutex_);
   std::lock_guard<std::mutex> sources_lock(sources_mutex_);
 
   if (initialized_.load()) {
@@ -135,11 +135,10 @@ bool ConfigurationManager::initialize(
     reset();
   }
 
-  LOG_INFO() << "[config.search] Initializing ConfigurationManager: "
-                "unknown_field_policy="
-             << (policy == UnknownFieldPolicy::STRICT ? "STRICT"
-                 : policy == UnknownFieldPolicy::WARN ? "WARN"
-                                                      : "PERMISSIVE");
+  LOG_INFO("[config.search] Initializing ConfigurationManager: unknown_field_policy=%s",
+           (policy == UnknownFieldPolicy::STRICT ? "STRICT"
+            : policy == UnknownFieldPolicy::WARN ? "WARN"
+                                                 : "PERMISSIVE"));
 
   validation_context_.setUnknownFieldPolicy(policy);
 
@@ -167,11 +166,11 @@ bool ConfigurationManager::initialize(
     return a->getPriority() < b->getPriority();
   });
 
-  LOG_INFO() << "[config.search] Configuration sources added: count="
-             << sources_.size();
+  LOG_INFO("[config.search] Configuration sources added: count=%zu",
+           sources_.size());
   for (const auto& source : sources_) {
-    LOG_DEBUG() << "[config.search] source_name=" << source->getName()
-                << " priority=" << source->getPriority();
+    LOG_DEBUG("[config.search] source_name=%s priority=%d",
+              source->getName().c_str(), static_cast<int>(source->getPriority()));
   }
 
   initialized_ = true;
@@ -185,19 +184,19 @@ void ConfigurationManager::loadConfiguration() {
     throw std::runtime_error("ConfigurationManager not initialized");
   }
 
-  LOG_INFO() << "[config.reload] Loading configuration: starting merge from "
-             << sources_.size() << " sources";
+  LOG_INFO("[config.reload] Loading configuration: starting merge from %zu sources",
+           sources_.size());
 
   auto merged = mergeConfigurations();
 
   size_t key_count = merged.is_object() ? merged.size() : 0;
-  LOG_INFO() << "[config.reload] Configuration merge completed: merged_keys="
-             << key_count;
+  LOG_INFO("[config.reload] Configuration merge completed: merged_keys=%zu",
+           key_count);
   auto snapshot = parseConfiguration(merged);
 
   // Atomic update under write lock
   {
-    std::unique_lock<std::shared_mutex> lock(config_mutex_);
+    std::unique_lock<std::shared_timed_mutex> lock(config_mutex_);
 
     std::string old_version = current_config_.version_id;
     current_config_ = snapshot;
@@ -212,8 +211,8 @@ void ConfigurationManager::loadConfiguration() {
     event.new_version = snapshot.version_id;
     event.timestamp = std::chrono::system_clock::now();
 
-    LOG_INFO() << "[config.reload] Configuration loaded: version_id="
-               << snapshot.version_id;
+    LOG_INFO("[config.reload] Configuration loaded: version_id=%lld",
+             snapshot.version_id);
 
     lock.unlock();
     notifyListeners(event);
@@ -225,7 +224,7 @@ bool ConfigurationManager::reload() {
     return false;
   }
 
-  LOG_DEBUG() << "[config.reload] Checking for configuration changes";
+  LOG_DEBUG("[config.reload] Checking for configuration changes");
 
   // Check if any source has changed
   bool has_changes = false;
@@ -242,12 +241,12 @@ bool ConfigurationManager::reload() {
   }
 
   if (!has_changes) {
-    LOG_DEBUG() << "[config.reload] No configuration changes detected";
+    LOG_DEBUG("[config.reload] No configuration changes detected");
     return false;
   }
 
-  LOG_INFO() << "[config.reload] Configuration changes detected in source: "
-             << changed_source;
+  LOG_INFO("[config.reload] Configuration changes detected in source: %s",
+           changed_source.c_str());
 
   // Load new configuration
   auto merged = mergeConfigurations();
@@ -255,7 +254,7 @@ bool ConfigurationManager::reload() {
 
   // Update configuration
   {
-    std::unique_lock<std::shared_mutex> lock(config_mutex_);
+    std::unique_lock<std::shared_timed_mutex> lock(config_mutex_);
 
     std::string old_version = current_config_.version_id;
     current_config_ = snapshot;
@@ -271,9 +270,8 @@ bool ConfigurationManager::reload() {
     event.new_version = snapshot.version_id;
     event.timestamp = std::chrono::system_clock::now();
 
-    LOG_INFO() << "[config.reload] Configuration reloaded: old_version="
-               << old_version << " new_version=" << snapshot.version_id
-               << " reload_count=" << reload_count_;
+    LOG_INFO("[config.reload] Configuration reloaded: old_version=%lld new_version=%lld reload_count=%lu",
+             old_version, snapshot.version_id, reload_count_.load());
 
     lock.unlock();
     notifyListeners(event);
@@ -284,18 +282,18 @@ bool ConfigurationManager::reload() {
 
 std::shared_ptr<const BootstrapConfig>
 ConfigurationManager::getBootstrapConfig() const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
   return current_config_.bootstrap;
 }
 
 std::shared_ptr<const ServerConfig> ConfigurationManager::getServerConfig()
     const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
   return current_config_.server;
 }
 
 ConfigSnapshot ConfigurationManager::getSnapshot() const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
   return current_config_;
 }
 
@@ -339,12 +337,12 @@ bool ConfigurationManager::removeChangeListener(size_t listener_id) {
 }
 
 std::string ConfigurationManager::getCurrentVersion() const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
   return current_config_.version_id;
 }
 
 std::vector<std::string> ConfigurationManager::getVersionHistory() const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
 
   std::vector<std::string> versions;
   for (const auto& snapshot : version_history_) {
@@ -354,7 +352,7 @@ std::vector<std::string> ConfigurationManager::getVersionHistory() const {
 }
 
 bool ConfigurationManager::rollback(const std::string& version_id) {
-  std::unique_lock<std::shared_mutex> lock(config_mutex_);
+  std::unique_lock<std::shared_timed_mutex> lock(config_mutex_);
 
   // Find the version in history
   auto it = std::find_if(version_history_.begin(), version_history_.end(),
@@ -383,18 +381,18 @@ bool ConfigurationManager::rollback(const std::string& version_id) {
 }
 
 size_t ConfigurationManager::getVersionCount() const {
-  std::shared_lock<std::shared_mutex> lock(config_mutex_);
+  std::shared_lock<std::shared_timed_mutex> lock(config_mutex_);
   return version_history_.size();
 }
 
 void ConfigurationManager::setMaxVersionHistory(size_t max_versions) {
-  std::unique_lock<std::shared_mutex> lock(config_mutex_);
+  std::unique_lock<std::shared_timed_mutex> lock(config_mutex_);
   max_version_history_ = max_versions;
   trimVersionHistory();
 }
 
 void ConfigurationManager::reset() {
-  std::unique_lock<std::shared_mutex> config_lock(config_mutex_);
+  std::unique_lock<std::shared_timed_mutex> config_lock(config_mutex_);
   std::lock_guard<std::mutex> sources_lock(sources_mutex_);
   std::lock_guard<std::mutex> listeners_lock(listeners_mutex_);
 
@@ -427,9 +425,8 @@ nlohmann::json ConfigurationManager::mergeConfigurations() {
           merged.merge_patch(config);
         }
       } catch (const std::exception& e) {
-        LOG_ERROR()
-            << "[config.reload] Failed to load configuration from source: "
-            << source->getName() << " error=" << e.what();
+        LOG_ERROR("[config.reload] Failed to load configuration from source: %s error=%s",
+                  source->getName().c_str(), e.what());
         // Continue with other sources
       }
     }
@@ -464,18 +461,17 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
     field_count++;
   if (config.contains("server"))
     field_count++;
-  LOG_DEBUG() << "[config.validate] Parsing configuration: fields_present="
-              << field_count;
+  LOG_DEBUG("[config.validate] Parsing configuration: fields_present=%zu",
+            field_count);
 
   if (config.contains("node")) {
     try {
       snapshot.bootstrap->node =
           NodeConfigWithValidation::fromJson(config["node"], ctx);
-      LOG_DEBUG() << "[config.validate] Node configuration parsed successfully";
+      LOG_DEBUG("[config.validate] Node configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR()
-          << "[config.validate] Node configuration validation failed: field="
-          << e.getFieldPath() << " reason=" << e.what();
+      LOG_ERROR("[config.validate] Node configuration validation failed: field=%s reason=%s",
+                e.field().c_str(), e.what());
       throw;
     }
   }
@@ -483,12 +479,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
     try {
       snapshot.bootstrap->admin =
           AdminConfigWithValidation::fromJson(config["admin"], ctx);
-      LOG_DEBUG()
-          << "[config.validate] Admin configuration parsed successfully";
+      LOG_DEBUG("[config.validate] Admin configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR()
-          << "[config.validate] Admin configuration validation failed: field="
-          << e.getFieldPath() << " reason=" << e.what();
+      LOG_ERROR("[config.validate] Admin configuration validation failed: field=%s reason=%s",
+                e.field().c_str(), e.what());
       throw;
     }
   }
@@ -507,12 +501,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
     try {
       *snapshot.server =
           ServerConfigWithValidation::fromJson(config["server"], ctx);
-      LOG_DEBUG()
-          << "[config.validate] Server configuration parsed successfully";
+      LOG_DEBUG("[config.validate] Server configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR()
-          << "[config.validate] Server configuration validation failed: field="
-          << e.getFieldPath() << " reason=" << e.what();
+      LOG_ERROR("[config.validate] Server configuration validation failed: field=%s reason=%s",
+                e.field().c_str(), e.what());
       throw;
     }
   }
@@ -520,11 +512,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
   // Validate configurations
   try {
     snapshot.bootstrap->validate();
-    LOG_DEBUG()
-        << "[config.validate] Bootstrap configuration validation successful";
+    LOG_DEBUG("[config.validate] Bootstrap configuration validation successful");
   } catch (const ConfigValidationError& e) {
-    LOG_ERROR() << "[config.validate] Bootstrap validation failed: field="
-                << e.getFieldPath() << " reason=" << e.what();
+    LOG_ERROR("[config.validate] Bootstrap validation failed: field=%s reason=%s",
+              e.field().c_str(), e.what());
     throw;
   }
 
@@ -540,18 +531,17 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
       }
     }
     if (duplicate_count > 0) {
-      LOG_WARNING()
-          << "[config.validate] Duplicate filter chain names detected: count="
-          << duplicate_count;
+      LOG_WARNING("[config.validate] Duplicate filter chain names detected: count=%zu",
+                  duplicate_count);
     }
 
     // Log missing chain references
     size_t missing_refs = 0;
     for (const auto& transport : snapshot.server->transports) {
-      if (!transport.filter_chain_name.empty()) {
+      if (!transport.filter_chain.empty()) {
         bool found = false;
         for (const auto& chain : snapshot.server->filter_chains) {
-          if (chain.name == transport.filter_chain_name) {
+          if (chain.name == transport.filter_chain) {
             found = true;
             break;
           }
@@ -561,24 +551,22 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
       }
     }
     if (missing_refs > 0) {
-      LOG_WARNING()
-          << "[config.validate] Missing filter chain references: count="
-          << missing_refs;
+      LOG_WARNING("[config.validate] Missing filter chain references: count=%zu",
+                  missing_refs);
     }
 
-    LOG_DEBUG()
-        << "[config.validate] Server configuration validation successful";
+    LOG_DEBUG("[config.validate] Server configuration validation successful");
   } catch (const ConfigValidationError& e) {
-    LOG_ERROR() << "[config.validate] Server validation failed: field="
-                << e.getFieldPath() << " reason=" << e.what();
+    LOG_ERROR("[config.validate] Server validation failed: field=%s reason=%s",
+              e.field().c_str(), e.what());
     throw;
   }
 
   // Report on unknown fields if any were encountered
   if (ctx.hasUnknownFields()) {
     const auto& unknownFields = ctx.getUnknownFields();
-    LOG_WARNING() << "[config.validate] Unknown fields encountered: count="
-                  << unknownFields.size();
+    LOG_WARNING("[config.validate] Unknown fields encountered: count=%zu",
+                unknownFields.size());
     // Details would have already been reported via the warning handler
     // during parsing based on the policy
   }
@@ -622,8 +610,8 @@ void ConfigurationManager::notifyListeners(const ConfigChangeEvent& event) {
   {
     std::lock_guard<std::mutex> lock(listeners_mutex_);
     listeners_copy.reserve(listeners_.size());
-    for (const auto& [id, listener] : listeners_) {
-      listeners_copy.push_back(listener);
+    for (const auto& pair : listeners_) {
+      listeners_copy.push_back(pair.second);
     }
   }
 
