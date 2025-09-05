@@ -15,7 +15,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
+#include <shared_mutex>  // C++14: std::shared_timed_mutex
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -274,9 +274,11 @@ class ConfigurationManager {
     return validation_context_;
   }
 
+ public:
+  ~ConfigurationManager();
+
  private:
   ConfigurationManager();
-  ~ConfigurationManager();
 
   /**
    * @brief Merge configurations from multiple sources
