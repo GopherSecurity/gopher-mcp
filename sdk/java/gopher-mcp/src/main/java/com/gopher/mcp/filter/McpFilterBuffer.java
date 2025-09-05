@@ -1,5 +1,6 @@
 package com.gopher.mcp.filter;
 
+import com.gopher.mcp.util.BufferUtils;
 import com.gopher.mcp.filter.type.buffer.BufferOwnership;
 import com.gopher.mcp.filter.type.buffer.*;
 import com.gopher.mcp.jna.McpFilterBufferLibrary;
@@ -53,51 +54,6 @@ public class McpFilterBuffer implements AutoCloseable {
     }
 
     // ============================================================================
-    // Utility Methods for ByteBuffer <-> Pointer conversion
-    // ============================================================================
-
-    /**
-     * Convert ByteBuffer to JNA Pointer
-     */
-    private static Pointer toPointer(ByteBuffer buffer) {
-        if (buffer == null) {
-            return null;
-        }
-        if (buffer.isDirect()) {
-            return Native.getDirectBufferPointer(buffer);
-        } else {
-            // For heap buffers, copy to direct buffer
-            ByteBuffer direct = ByteBuffer.allocateDirect(buffer.remaining());
-            direct.put(buffer.duplicate());
-            direct.flip();
-            return Native.getDirectBufferPointer(direct);
-        }
-    }
-
-    /**
-     * Convert JNA Pointer to ByteBuffer
-     */
-    private static ByteBuffer toByteBuffer(Pointer pointer, long size) {
-        if (pointer == null || size <= 0) {
-            return ByteBuffer.allocate(0);
-        }
-        return pointer.getByteBuffer(0, size);
-    }
-
-    /**
-     * Convert byte array to JNA Pointer
-     */
-    private static Pointer toPointer(byte[] data) {
-        if (data == null || data.length == 0) {
-            return null;
-        }
-        ByteBuffer buffer = ByteBuffer.allocateDirect(data.length);
-        buffer.put(data);
-        buffer.flip();
-        return Native.getDirectBufferPointer(buffer);
-    }
-
-    // ============================================================================
     // Buffer Creation and Management
     // ============================================================================
 
@@ -125,7 +81,7 @@ public class McpFilterBuffer implements AutoCloseable {
             return createOwned(0, BufferOwnership.NONE);
         }
 
-        Pointer dataPtr = toPointer(data);
+        Pointer dataPtr = BufferUtils.toPointer(data);
         long handle = lib.mcp_buffer_create_view(dataPtr, new NativeLong(data.length));
 
         if (this.bufferHandle == null && handle != 0) {
@@ -144,7 +100,7 @@ public class McpFilterBuffer implements AutoCloseable {
             return createOwned(0, BufferOwnership.NONE);
         }
 
-        Pointer dataPtr = toPointer(data);
+        Pointer dataPtr = BufferUtils.toPointer(data);
         long handle = lib.mcp_buffer_create_view(dataPtr, new NativeLong(data.remaining()));
 
         if (this.bufferHandle == null && handle != 0) {
@@ -167,13 +123,13 @@ public class McpFilterBuffer implements AutoCloseable {
         }
 
         McpBufferFragment.ByReference nativeFragment = new McpBufferFragment.ByReference();
-        nativeFragment.data = toPointer(fragment.getData());
+        nativeFragment.data = BufferUtils.toPointer(fragment.getData());
         nativeFragment.size = fragment.getLength();
         // Note: release_callback is null - memory lifecycle managed by Java GC
         nativeFragment.release_callback = null;
         // Store the data pointer as user_data to maintain reference and prevent GC
         // Note: fragment.getUserData() (Object) cannot be directly converted to Pointer
-        nativeFragment.user_data = toPointer(fragment.getData());
+        nativeFragment.user_data = BufferUtils.toPointer(fragment.getData());
 
         long handle = lib.mcp_buffer_create_from_fragment(nativeFragment);
 
@@ -215,7 +171,7 @@ public class McpFilterBuffer implements AutoCloseable {
         if (data == null || data.length == 0) {
             return -1;
         }
-        Pointer dataPtr = toPointer(data);
+        Pointer dataPtr = BufferUtils.toPointer(data);
         return lib.mcp_buffer_add(buffer, dataPtr, new NativeLong(data.length));
     }
 
@@ -229,7 +185,7 @@ public class McpFilterBuffer implements AutoCloseable {
         if (data == null || !data.hasRemaining()) {
             return -1;
         }
-        Pointer dataPtr = toPointer(data);
+        Pointer dataPtr = BufferUtils.toPointer(data);
         return lib.mcp_buffer_add(buffer, dataPtr, new NativeLong(data.remaining()));
     }
 
@@ -271,13 +227,13 @@ public class McpFilterBuffer implements AutoCloseable {
         }
 
         McpBufferFragment.ByReference nativeFragment = new McpBufferFragment.ByReference();
-        nativeFragment.data = toPointer(fragment.getData());
+        nativeFragment.data = BufferUtils.toPointer(fragment.getData());
         nativeFragment.size = fragment.getLength();
         // Note: release_callback is null - memory lifecycle managed by Java GC
         nativeFragment.release_callback = null;
         // Store the data pointer as user_data to maintain reference and prevent GC
         // Note: fragment.getUserData() (Object) cannot be directly converted to Pointer
-        nativeFragment.user_data = toPointer(fragment.getData());
+        nativeFragment.user_data = BufferUtils.toPointer(fragment.getData());
 
         return lib.mcp_buffer_add_fragment(buffer, nativeFragment);
     }
@@ -292,7 +248,7 @@ public class McpFilterBuffer implements AutoCloseable {
         if (data == null || data.length == 0) {
             return -1;
         }
-        Pointer dataPtr = toPointer(data);
+        Pointer dataPtr = BufferUtils.toPointer(data);
         return lib.mcp_buffer_prepend(buffer, dataPtr, new NativeLong(data.length));
     }
 
@@ -371,7 +327,7 @@ public class McpFilterBuffer implements AutoCloseable {
 
         BufferReservation reservation = new BufferReservation();
         if (nativeReservation.data != null && nativeReservation.capacity > 0) {
-            reservation.setData(toByteBuffer(nativeReservation.data, nativeReservation.capacity));
+            reservation.setData(BufferUtils.toByteBuffer(nativeReservation.data, nativeReservation.capacity));
             reservation.setCapacity(nativeReservation.capacity);
             reservation.setBuffer(nativeReservation.buffer);
             reservation.setReservationId(nativeReservation.reservation_id);
@@ -392,7 +348,7 @@ public class McpFilterBuffer implements AutoCloseable {
         }
 
         McpBufferReservation.ByReference nativeRes = new McpBufferReservation.ByReference();
-        nativeRes.data = toPointer(reservation.getData());
+        nativeRes.data = BufferUtils.toPointer(reservation.getData());
         nativeRes.capacity = reservation.getCapacity();
         nativeRes.buffer = reservation.getBuffer();
         nativeRes.reservation_id = reservation.getReservationId();
@@ -411,7 +367,7 @@ public class McpFilterBuffer implements AutoCloseable {
         }
 
         McpBufferReservation.ByReference nativeRes = new McpBufferReservation.ByReference();
-        nativeRes.data = toPointer(reservation.getData());
+        nativeRes.data = BufferUtils.toPointer(reservation.getData());
         nativeRes.capacity = reservation.getCapacity();
         nativeRes.buffer = reservation.getBuffer();
         nativeRes.reservation_id = reservation.getReservationId();
@@ -455,7 +411,7 @@ public class McpFilterBuffer implements AutoCloseable {
         long len = Pointer.nativeValue(actualLengthPtr.getValue());
 
         if (len > 0 && data != null) {
-            contData.setData(toByteBuffer(data, len));
+            contData.setData(BufferUtils.toByteBuffer(data, len));
             contData.setLength(len);
         } else {
             contData.setData(ByteBuffer.allocate(0));
@@ -483,7 +439,7 @@ public class McpFilterBuffer implements AutoCloseable {
             return null;
         }
 
-        return toByteBuffer(dataPtr.getValue(), size);
+        return BufferUtils.toByteBuffer(dataPtr.getValue(), size);
     }
 
     /**
@@ -593,7 +549,7 @@ public class McpFilterBuffer implements AutoCloseable {
         }
 
         PointerByReference positionPtr = new PointerByReference();
-        Pointer patternPtr = toPointer(pattern);
+        Pointer patternPtr = BufferUtils.toPointer(pattern);
 
         int result = lib.mcp_buffer_search(
             buffer,
