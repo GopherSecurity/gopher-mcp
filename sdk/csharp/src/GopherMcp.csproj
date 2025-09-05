@@ -1,0 +1,118 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Multi-targeting configuration -->
+    <TargetFrameworks>net8.0;net7.0;net6.0;netstandard2.1</TargetFrameworks>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    
+    <!-- Package metadata -->
+    <PackageId>GopherMcp</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>MCP Team</Authors>
+    <Company>Gopher MCP</Company>
+    <Description>C# SDK for Model Context Protocol (MCP) Filter System - High-performance filter infrastructure with C++ backend</Description>
+    <PackageTags>MCP;Filter;Network;Proxy;Gateway;AI;LLM;Model-Context-Protocol;SDK;FFI</PackageTags>
+    <PackageProjectUrl>https://github.com/gopher-mcp/mcp-cpp-sdk</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/gopher-mcp/mcp-cpp-sdk</RepositoryUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <Copyright>Copyright © 2024 MCP Team</Copyright>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    
+    <!-- Build configuration -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    
+    <!-- Runtime identifiers for native library support -->
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64;linux-x64;linux-arm64;linux-musl-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+
+  <!-- Dependencies -->
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
+    
+    <!-- Additional dependencies for compatibility -->
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
+    <PackageReference Include="System.Collections.Immutable" Version="8.0.0" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
+  </ItemGroup>
+
+  <!-- Native library packaging -->
+  <ItemGroup>
+    <!-- Windows x64 -->
+    <None Include="runtimes\win-x64\native\gopher_mcp_c.dll" 
+             Pack="true" 
+             PackagePath="runtimes\win-x64\native\" 
+             Condition="Exists('runtimes\win-x64\native\gopher_mcp_c.dll')" />
+    
+    <!-- Windows x86 -->
+    <None Include="runtimes\win-x86\native\gopher_mcp_c.dll" 
+             Pack="true" 
+             PackagePath="runtimes\win-x86\native\" 
+             Condition="Exists('runtimes\win-x86\native\gopher_mcp_c.dll')" />
+    
+    <!-- Linux x64 -->
+    <None Include="runtimes\linux-x64\native\libgopher_mcp_c.so" 
+             Pack="true" 
+             PackagePath="runtimes\linux-x64\native\" 
+             Condition="Exists('runtimes\linux-x64\native\libgopher_mcp_c.so')" />
+    
+    <!-- Linux ARM64 -->
+    <None Include="runtimes\linux-arm64\native\libgopher_mcp_c.so" 
+             Pack="true" 
+             PackagePath="runtimes\linux-arm64\native\" 
+             Condition="Exists('runtimes\linux-arm64\native\libgopher_mcp_c.so')" />
+    
+    <!-- macOS x64 -->
+    <None Include="runtimes\osx-x64\native\libgopher_mcp_c.dylib" 
+             Pack="true" 
+             PackagePath="runtimes\osx-x64\native\" 
+             Condition="Exists('runtimes\osx-x64\native\libgopher_mcp_c.dylib')" />
+    
+    <!-- macOS ARM64 (Apple Silicon) -->
+    <None Include="runtimes\osx-arm64\native\libgopher_mcp_c.dylib" 
+             Pack="true" 
+             PackagePath="runtimes\osx-arm64\native\" 
+             Condition="Exists('runtimes\osx-arm64\native\libgopher_mcp_c.dylib')" />
+  </ItemGroup>
+
+  <!-- Package README inclusion -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" Condition="Exists('..\README.md')" />
+    
+    <!-- Windows ARM64 -->
+    <None Include="runtimes\win-arm64\native\gopher_mcp_c.dll" 
+          Pack="true" 
+          PackagePath="runtimes\win-arm64\native\" 
+          Condition="Exists('runtimes\win-arm64\native\gopher_mcp_c.dll')" />
+    
+    <!-- Linux musl x64 (Alpine) -->
+    <None Include="runtimes\linux-musl-x64\native\libgopher_mcp_c.so" 
+          Pack="true" 
+          PackagePath="runtimes\linux-musl-x64\native\" 
+          Condition="Exists('runtimes\linux-musl-x64\native\libgopher_mcp_c.so')" />
+  </ItemGroup>
+
+  <!-- Source Link support for debugging -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- Deterministic build for reproducibility -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true' OR '$(CI)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+</Project>
