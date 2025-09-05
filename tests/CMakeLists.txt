@@ -1071,12 +1071,141 @@ add_custom_target(run_tests
 # Logging Framework Tests
 # ============================================================================
 
+# Configuration tests
+add_executable(test_config_merge config/test_config_merge.cc)
+add_executable(test_parse_error config/test_parse_error.cc)
+add_executable(test_server_types config/test_server_types.cc)
+add_executable(test_types config/test_types.cc)
+add_executable(test_units config/test_units.cc)
+add_executable(test_validation_policy config/test_validation_policy.cc)
+add_executable(test_file_config_source config/test_file_config_source.cc)
+add_executable(test_file_config_source_enhanced config/test_file_config_source_enhanced.cc)
+add_executable(test_file_source_interface config/test_file_source_interface.cc)
+add_executable(test_file_source_yaml_env_includes config/test_file_source_yaml_env_includes.cc)
+add_executable(test_merge_and_validate config/test_merge_and_validate.cc)
+add_executable(test_search_precedence config/test_search_precedence.cc)
+add_executable(test_units config/test_units.cc)
+add_executable(test_merge_semantics config/test_merge_semantics.cc)
+
 # Logging tests
 add_executable(test_bloom_filter logging/test_bloom_filter.cc)
 add_executable(test_log_level logging/test_log_level.cc)
 add_executable(test_log_sink logging/test_log_sink.cc)
 add_executable(test_logger logging/test_logger.cc)
 add_executable(test_logger_registry logging/test_logger_registry.cc)
+
+# Link configuration test libraries
+target_link_libraries(test_config_merge
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_parse_error
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_server_types
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_types
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_units
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_validation_policy
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_file_config_source
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_file_config_source_enhanced
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_file_source_interface
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_file_source_yaml_env_includes
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_merge_and_validate
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_search_precedence
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_units
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_merge_semantics
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
 
 # Link logging test libraries
 target_link_libraries(test_bloom_filter
@@ -1123,6 +1252,22 @@ target_link_libraries(test_logger_registry
     gtest_main
     Threads::Threads
 )
+
+# Add configuration tests to CTest
+add_test(NAME ConfigMergeTest COMMAND test_config_merge)
+add_test(NAME ParseErrorTest COMMAND test_parse_error)
+add_test(NAME ServerTypesTest COMMAND test_server_types)
+add_test(NAME TypesTest COMMAND test_types)
+add_test(NAME UnitsTest COMMAND test_units)
+add_test(NAME ValidationPolicyTest COMMAND test_validation_policy)
+add_test(NAME FileConfigSourceTest COMMAND test_file_config_source)
+add_test(NAME FileConfigSourceEnhancedTest COMMAND test_file_config_source_enhanced)
+add_test(NAME FileSourceInterfaceTest COMMAND test_file_source_interface)
+add_test(NAME FileSourceYamlEnvIncludesTest COMMAND test_file_source_yaml_env_includes)
+add_test(NAME MergeAndValidateTest COMMAND test_merge_and_validate)
+add_test(NAME SearchPrecedenceTest COMMAND test_search_precedence)
+add_test(NAME UnitsTest COMMAND test_units)
+add_test(NAME MergeSemanticsTest COMMAND test_merge_semantics)
 
 # Add logging tests to CTest
 add_test(NAME test_bloom_filter COMMAND test_bloom_filter)

@@ -117,6 +117,7 @@ endif()
 #Find packages
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 #Find libevent
 find_package(PkgConfig)
@@ -300,6 +301,18 @@ message(STATUS "Downloading nlohmann/json... This may take a moment depending on
 FetchContent_MakeAvailable(nlohmann_json)
 message(STATUS "nlohmann/json download complete.")
 
+# json-schema-validator (header-only) for schema validation
+if(NOT TARGET nlohmann_json_schema_validator)
+    FetchContent_Declare(
+        json_schema_validator
+        GIT_REPOSITORY https://github.com/pboettch/json-schema-validator.git
+        GIT_TAG v2.3.0
+    )
+    message(STATUS "Downloading json-schema-validator... This may take a moment depending on your connection speed.")
+    FetchContent_MakeAvailable(json_schema_validator)
+    message(STATUS "json-schema-validator download complete.")
+endif()
+
 # Google Test
 FetchContent_Declare(
     googletest
@@ -385,6 +398,11 @@ set(MCP_CORE_SOURCES
     src/filter/protocol_detection_filter.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
+    src/config/config_manager.cc
+    src/config/file_config_source.cc
+    src/config/config_merger.cc
+    src/config/config_validator.cc
+    src/config/units.cc
 )
 
 # Client and server sources that need event library
@@ -497,7 +515,12 @@ foreach(lib_target ${REAL_TARGETS})
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
+                yaml-cpp
         )
+        # Link json-schema-validator if available
+        if(TARGET nlohmann_json_schema_validator)
+            target_link_libraries(${lib_target} PRIVATE nlohmann_json_schema_validator)
+        endif()
         if(LIBEVENT_LIBRARY_DIRS)
             target_link_directories(${lib_target} PRIVATE ${LIBEVENT_LIBRARY_DIRS})
         endif()
