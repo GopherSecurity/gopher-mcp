@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using GopherMcp.Core;
 using GopherMcp.Types;
@@ -481,14 +482,61 @@ namespace GopherMcp.Filters
             _filtersLock.EnterReadLock();
             try
             {
-                filters = _filters.ToArray();
+                filters = _filters.Where(f => f.Config.Enabled).ToArray();
             }
             finally
             {
                 _filtersLock.ExitReadLock();
             }
             
-            // Process through each filter sequentially
+            FilterResult result;
+            
+            // Process based on execution mode
+            var executionMode = _config?.ExecutionMode ?? ChainExecutionMode.Sequential;
+            
+            switch (executionMode)
+            {
+                case ChainExecutionMode.Sequential:
+                    result = await ProcessSequentialAsync(filters, buffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                    
+                case ChainExecutionMode.Parallel:
+                    result = await ProcessParallelAsync(filters, buffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                    
+                case ChainExecutionMode.Conditional:
+                    result = await ProcessConditionalAsync(filters, buffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                    
+                case ChainExecutionMode.Pipeline:
+                    result = await ProcessPipelineAsync(filters, buffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                    
+                default:
+                    result = await ProcessSequentialAsync(filters, buffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+            }
+            
+            // Raise processing complete event
+            OnProcessingComplete?.Invoke(this, new ChainEventArgs(Name, FilterCount));
+            
+            return result;
+        }
+        
+        /// <summary>
+        /// Processes filters sequentially
+        /// </summary>
+        private async Task<FilterResult> ProcessSequentialAsync(
+            Filter[] filters,
+            byte[] buffer,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
             var currentBuffer = buffer;
             FilterResult lastResult = null;
             
@@ -506,10 +554,6 @@ namespace GopherMcp.Filters
                 
                 try
                 {
-                    // Skip disabled filters
-                    if (!filter.Config.Enabled)
-                        continue;
-                    
                     var result = await filter.ProcessAsync(currentBuffer, context, cancellationToken)
                         .ConfigureAwait(false);
                     
@@ -524,14 +568,9 @@ namespace GopherMcp.Filters
                     // Check for errors
                     if (result.IsError)
                     {
-                        // Raise filter error event
                         OnFilterError?.Invoke(this, new ChainFilterErrorEventArgs(
-                            Name, 
-                            filter.Name, 
-                            result.ErrorCode,
-                            result.ErrorMessage));
+                            Name, filter.Name, result.ErrorCode, result.ErrorMessage));
                         
-                        // Check if we should bypass on error
                         if (!filter.Config.BypassOnError)
                         {
                             return result;
@@ -547,12 +586,8 @@ namespace GopherMcp.Filters
                 }
                 catch (Exception ex)
                 {
-                    // Raise filter error event
                     OnFilterError?.Invoke(this, new ChainFilterErrorEventArgs(
-                        Name,
-                        filter.Name,
-                        FilterError.ProcessingFailed,
-                        ex.Message));
+                        Name, filter.Name, FilterError.ProcessingFailed, ex.Message));
                     
                     if (!filter.Config.BypassOnError)
                     {
@@ -566,10 +601,6 @@ namespace GopherMcp.Filters
                 }
             }
             
-            // Raise processing complete event
-            OnProcessingComplete?.Invoke(this, new ChainEventArgs(Name, FilterCount));
-            
-            // Return the last result or a success result
             return lastResult ?? new FilterResult
             {
                 Status = FilterStatus.Continue,
@@ -577,6 +608,332 @@ namespace GopherMcp.Filters
                 Offset = 0,
                 Length = currentBuffer.Length
             };
+        }
+        
+        /// <summary>
+        /// Processes filters in parallel
+        /// </summary>
+        private async Task<FilterResult> ProcessParallelAsync(
+            Filter[] filters,
+            byte[] buffer,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
+            if (filters.Length == 0)
+            {
+                return new FilterResult
+                {
+                    Status = FilterStatus.Continue,
+                    Data = buffer,
+                    Offset = 0,
+                    Length = buffer.Length
+                };
+            }
+            
+            // Process all filters in parallel
+            var tasks = filters.Select(filter => 
+                ProcessFilterSafelyAsync(filter, buffer, context, cancellationToken))
+                .ToArray();
+            
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            
+            // Aggregate results
+            var errors = results.Where(r => r.IsError).ToArray();
+            if (errors.Length > 0)
+            {
+                // Return first error
+                return errors[0];
+            }
+            
+            // Return the last successful result
+            var successResults = results.Where(r => !r.IsError).ToArray();
+            if (successResults.Length > 0)
+            {
+                return successResults[successResults.Length - 1];
+            }
+            
+            return new FilterResult
+            {
+                Status = FilterStatus.Continue,
+                Data = buffer,
+                Offset = 0,
+                Length = buffer.Length
+            };
+        }
+        
+        /// <summary>
+        /// Processes filters conditionally based on conditions
+        /// </summary>
+        private async Task<FilterResult> ProcessConditionalAsync(
+            Filter[] filters,
+            byte[] buffer,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
+            var currentBuffer = buffer;
+            FilterResult lastResult = null;
+            
+            foreach (var filter in filters)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new FilterResult
+                    {
+                        Status = FilterStatus.Error,
+                        ErrorCode = FilterError.Timeout,
+                        ErrorMessage = "Chain processing cancelled"
+                    };
+                }
+                
+                // Evaluate condition (using metadata or context)
+                bool shouldProcess = EvaluateFilterCondition(filter, context, lastResult);
+                
+                if (!shouldProcess)
+                    continue;
+                
+                try
+                {
+                    var result = await filter.ProcessAsync(currentBuffer, context, cancellationToken)
+                        .ConfigureAwait(false);
+                    
+                    lastResult = result;
+                    
+                    if (result.Status == FilterStatus.StopIteration)
+                    {
+                        break;
+                    }
+                    
+                    if (result.IsError && !filter.Config.BypassOnError)
+                    {
+                        return result;
+                    }
+                    
+                    if (result.Data != null && result.Length > 0)
+                    {
+                        currentBuffer = new byte[result.Length];
+                        Array.Copy(result.Data, result.Offset, currentBuffer, 0, result.Length);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (!filter.Config.BypassOnError)
+                    {
+                        return new FilterResult
+                        {
+                            Status = FilterStatus.Error,
+                            ErrorCode = FilterError.ProcessingFailed,
+                            ErrorMessage = $"Filter '{filter.Name}' failed: {ex.Message}"
+                        };
+                    }
+                }
+            }
+            
+            return lastResult ?? new FilterResult
+            {
+                Status = FilterStatus.Continue,
+                Data = currentBuffer,
+                Offset = 0,
+                Length = currentBuffer.Length
+            };
+        }
+        
+        /// <summary>
+        /// Processes filters using pipeline pattern with channels
+        /// </summary>
+        private async Task<FilterResult> ProcessPipelineAsync(
+            Filter[] filters,
+            byte[] buffer,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
+            if (filters.Length == 0)
+            {
+                return new FilterResult
+                {
+                    Status = FilterStatus.Continue,
+                    Data = buffer,
+                    Offset = 0,
+                    Length = buffer.Length
+                };
+            }
+            
+            // Create channels for pipeline
+            var channels = new Channel<FilterData>[filters.Length + 1];
+            for (int i = 0; i <= filters.Length; i++)
+            {
+                channels[i] = Channel.CreateUnbounded<FilterData>(new UnboundedChannelOptions
+                {
+                    SingleReader = true,
+                    SingleWriter = true
+                });
+            }
+            
+            // Start pipeline stages
+            var tasks = new Task[filters.Length];
+            for (int i = 0; i < filters.Length; i++)
+            {
+                int filterIndex = i;
+                var filter = filters[filterIndex];
+                var inputChannel = channels[filterIndex];
+                var outputChannel = channels[filterIndex + 1];
+                
+                tasks[filterIndex] = Task.Run(async () =>
+                {
+                    await foreach (var data in inputChannel.Reader.ReadAllAsync(cancellationToken))
+                    {
+                        try
+                        {
+                            var result = await filter.ProcessAsync(data.Buffer, context, cancellationToken)
+                                .ConfigureAwait(false);
+                            
+                            if (result.IsError && !filter.Config.BypassOnError)
+                            {
+                                await outputChannel.Writer.WriteAsync(new FilterData
+                                {
+                                    Buffer = data.Buffer,
+                                    Result = result,
+                                    IsError = true
+                                }, cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
+                            
+                            var outputBuffer = result.Data != null && result.Length > 0
+                                ? ExtractBuffer(result)
+                                : data.Buffer;
+                            
+                            await outputChannel.Writer.WriteAsync(new FilterData
+                            {
+                                Buffer = outputBuffer,
+                                Result = result,
+                                IsError = false
+                            }, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            await outputChannel.Writer.WriteAsync(new FilterData
+                            {
+                                Buffer = data.Buffer,
+                                Result = new FilterResult
+                                {
+                                    Status = FilterStatus.Error,
+                                    ErrorCode = FilterError.ProcessingFailed,
+                                    ErrorMessage = ex.Message
+                                },
+                                IsError = true
+                            }, cancellationToken).ConfigureAwait(false);
+                            break;
+                        }
+                    }
+                    
+                    outputChannel.Writer.Complete();
+                }, cancellationToken);
+            }
+            
+            // Write initial data
+            await channels[0].Writer.WriteAsync(new FilterData { Buffer = buffer }, cancellationToken)
+                .ConfigureAwait(false);
+            channels[0].Writer.Complete();
+            
+            // Read final result
+            FilterData finalData = null;
+            await foreach (var data in channels[filters.Length].Reader.ReadAllAsync(cancellationToken))
+            {
+                finalData = data;
+            }
+            
+            // Wait for all pipeline stages to complete
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+            
+            if (finalData?.Result != null)
+            {
+                return finalData.Result;
+            }
+            
+            return new FilterResult
+            {
+                Status = FilterStatus.Continue,
+                Data = finalData?.Buffer ?? buffer,
+                Offset = 0,
+                Length = finalData?.Buffer?.Length ?? buffer.Length
+            };
+        }
+        
+        /// <summary>
+        /// Safely processes a single filter with exception handling
+        /// </summary>
+        private async Task<FilterResult> ProcessFilterSafelyAsync(
+            Filter filter,
+            byte[] buffer,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await filter.ProcessAsync(buffer, context, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                OnFilterError?.Invoke(this, new ChainFilterErrorEventArgs(
+                    Name, filter.Name, FilterError.ProcessingFailed, ex.Message));
+                
+                return new FilterResult
+                {
+                    Status = FilterStatus.Error,
+                    ErrorCode = FilterError.ProcessingFailed,
+                    ErrorMessage = $"Filter '{filter.Name}' failed: {ex.Message}"
+                };
+            }
+        }
+        
+        /// <summary>
+        /// Evaluates whether a filter should be processed based on conditions
+        /// </summary>
+        private bool EvaluateFilterCondition(Filter filter, ProcessingContext context, FilterResult previousResult)
+        {
+            // Check filter settings for condition
+            if (filter.Config.Settings?.TryGetValue("Condition", out var condition) == true)
+            {
+                // Evaluate condition based on context or previous result
+                if (condition is string conditionStr)
+                {
+                    // Simple condition evaluation
+                    if (conditionStr == "OnError" && previousResult?.IsError == true)
+                        return true;
+                    if (conditionStr == "OnSuccess" && previousResult?.IsError == false)
+                        return true;
+                    if (conditionStr == "Always")
+                        return true;
+                    if (conditionStr == "Never")
+                        return false;
+                }
+            }
+            
+            // Default: process the filter
+            return true;
+        }
+        
+        /// <summary>
+        /// Extracts buffer from filter result
+        /// </summary>
+        private byte[] ExtractBuffer(FilterResult result)
+        {
+            if (result.Data == null || result.Length == 0)
+                return new byte[0];
+            
+            var buffer = new byte[result.Length];
+            Array.Copy(result.Data, result.Offset, buffer, 0, result.Length);
+            return buffer;
+        }
+        
+        /// <summary>
+        /// Internal class for pipeline data
+        /// </summary>
+        private class FilterData
+        {
+            public byte[] Buffer { get; set; }
+            public FilterResult Result { get; set; }
+            public bool IsError { get; set; }
         }
         
         /// <summary>
