@@ -1,6 +1,8 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using GopherMcp.Core;
 using GopherMcp.Types;
 
@@ -17,6 +19,7 @@ namespace GopherMcp.Filters
         private GCHandle _pinnedHandle;
         private readonly BufferOwnership _ownership;
         private readonly object _syncLock = new object();
+        private int _referenceCount = 1;
         private bool _disposed;
         
         /// <summary>
@@ -96,6 +99,11 @@ namespace GopherMcp.Filters
         /// Gets whether the buffer has been disposed
         /// </summary>
         public bool IsDisposed => _disposed;
+        
+        /// <summary>
+        /// Gets the current reference count
+        /// </summary>
+        public int ReferenceCount => _referenceCount;
         
         /// <summary>
         /// Initializes a new instance of FilterBuffer with specified capacity
@@ -438,6 +446,198 @@ namespace GopherMcp.Filters
         }
         
         /// <summary>
+        /// Copies data from this buffer to a destination Memory<byte>
+        /// </summary>
+        /// <param name="destination">Destination memory</param>
+        /// <returns>Number of bytes copied</returns>
+        public int CopyTo(Memory<byte> destination)
+        {
+            ThrowIfDisposed();
+            
+            int bytesToCopy = Math.Min(Size, destination.Length);
+            _memory.Slice(0, bytesToCopy).CopyTo(destination);
+            return bytesToCopy;
+        }
+        
+        /// <summary>
+        /// Copies data from this buffer to a destination Span<byte>
+        /// </summary>
+        /// <param name="destination">Destination span</param>
+        /// <returns>Number of bytes copied</returns>
+        public int CopyTo(Span<byte> destination)
+        {
+            ThrowIfDisposed();
+            
+            int bytesToCopy = Math.Min(Size, destination.Length);
+            _memory.Span.Slice(0, bytesToCopy).CopyTo(destination);
+            return bytesToCopy;
+        }
+        
+        /// <summary>
+        /// Copies data from a source Memory<byte> to this buffer
+        /// </summary>
+        /// <param name="source">Source memory</param>
+        /// <param name="offset">Offset in this buffer</param>
+        /// <returns>Number of bytes copied</returns>
+        public int CopyFrom(ReadOnlyMemory<byte> source, int offset = 0)
+        {
+            ThrowIfDisposed();
+            ThrowIfReadOnly();
+            
+            if (offset < 0 || offset > Capacity)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            
+            int bytesToCopy = Math.Min(source.Length, Capacity - offset);
+            source.Slice(0, bytesToCopy).CopyTo(_memory.Slice(offset, bytesToCopy));
+            
+            lock (_syncLock)
+            {
+                Size = Math.Max(Size, offset + bytesToCopy);
+            }
+            
+            return bytesToCopy;
+        }
+        
+        /// <summary>
+        /// Copies data from a source Span<byte> to this buffer
+        /// </summary>
+        /// <param name="source">Source span</param>
+        /// <param name="offset">Offset in this buffer</param>
+        /// <returns>Number of bytes copied</returns>
+        public int CopyFrom(ReadOnlySpan<byte> source, int offset = 0)
+        {
+            ThrowIfDisposed();
+            ThrowIfReadOnly();
+            
+            if (offset < 0 || offset > Capacity)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            
+            int bytesToCopy = Math.Min(source.Length, Capacity - offset);
+            source.Slice(0, bytesToCopy).CopyTo(_memory.Span.Slice(offset, bytesToCopy));
+            
+            lock (_syncLock)
+            {
+                Size = Math.Max(Size, offset + bytesToCopy);
+            }
+            
+            return bytesToCopy;
+        }
+        
+        /// <summary>
+        /// Performs a scatter operation, distributing buffer data to multiple destinations
+        /// </summary>
+        /// <param name="destinations">List of destination buffers with offsets and lengths</param>
+        /// <returns>Total bytes scattered</returns>
+        public int Scatter(IList<ScatterGatherEntry> destinations)
+        {
+            ThrowIfDisposed();
+            
+            if (destinations == null)
+                throw new ArgumentNullException(nameof(destinations));
+            
+            int totalBytes = 0;
+            int sourceOffset = 0;
+            
+            foreach (var entry in destinations)
+            {
+                if (sourceOffset >= Size)
+                    break;
+                
+                int bytesToCopy = Math.Min(entry.Length, Size - sourceOffset);
+                bytesToCopy = Math.Min(bytesToCopy, entry.Buffer.Length - entry.Offset);
+                
+                if (bytesToCopy > 0)
+                {
+                    Array.Copy(_managedBuffer, sourceOffset, entry.Buffer, entry.Offset, bytesToCopy);
+                    sourceOffset += bytesToCopy;
+                    totalBytes += bytesToCopy;
+                }
+            }
+            
+            return totalBytes;
+        }
+        
+        /// <summary>
+        /// Performs a gather operation, collecting data from multiple sources into this buffer
+        /// </summary>
+        /// <param name="sources">List of source buffers with offsets and lengths</param>
+        /// <returns>Total bytes gathered</returns>
+        public int Gather(IList<ScatterGatherEntry> sources)
+        {
+            ThrowIfDisposed();
+            ThrowIfReadOnly();
+            
+            if (sources == null)
+                throw new ArgumentNullException(nameof(sources));
+            
+            int totalBytes = 0;
+            int destOffset = 0;
+            
+            foreach (var entry in sources)
+            {
+                if (destOffset >= Capacity)
+                    break;
+                
+                int bytesToCopy = Math.Min(entry.Length, Capacity - destOffset);
+                bytesToCopy = Math.Min(bytesToCopy, entry.Buffer.Length - entry.Offset);
+                
+                if (bytesToCopy > 0)
+                {
+                    Array.Copy(entry.Buffer, entry.Offset, _managedBuffer, destOffset, bytesToCopy);
+                    destOffset += bytesToCopy;
+                    totalBytes += bytesToCopy;
+                }
+            }
+            
+            lock (_syncLock)
+            {
+                Size = Math.Max(Size, destOffset);
+            }
+            
+            return totalBytes;
+        }
+        
+        /// <summary>
+        /// Increments the reference count
+        /// </summary>
+        /// <returns>The new reference count</returns>
+        public int AddRef()
+        {
+            ThrowIfDisposed();
+            
+            return Interlocked.Increment(ref _referenceCount);
+        }
+        
+        /// <summary>
+        /// Decrements the reference count and disposes if it reaches zero
+        /// </summary>
+        /// <returns>The new reference count</returns>
+        public int Release()
+        {
+            int newCount = Interlocked.Decrement(ref _referenceCount);
+            
+            if (newCount == 0)
+            {
+                Dispose();
+            }
+            
+            return newCount;
+        }
+        
+        /// <summary>
+        /// Creates a shared reference to this buffer
+        /// </summary>
+        /// <returns>A new FilterBuffer that shares the same underlying data</returns>
+        public FilterBuffer Share()
+        {
+            ThrowIfDisposed();
+            
+            AddRef();
+            
+            return new SharedFilterBuffer(this);
+        }
+        
+        /// <summary>
         /// Throws if the buffer is read-only
         /// </summary>
         private void ThrowIfReadOnly()
@@ -537,6 +737,29 @@ namespace GopherMcp.Filters
         public static implicit operator Span<byte>(FilterBuffer buffer)
         {
             return buffer?.Span ?? Span<byte>.Empty;
+        }
+        
+        /// <summary>
+        /// Inner class for shared buffer references
+        /// </summary>
+        private class SharedFilterBuffer : FilterBuffer
+        {
+            private readonly FilterBuffer _parent;
+            
+            public SharedFilterBuffer(FilterBuffer parent) 
+                : base(parent._managedBuffer, BufferOwnership.Borrowed, false)
+            {
+                _parent = parent;
+            }
+            
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    _parent?.Release();
+                }
+                base.Dispose(disposing);
+            }
         }
     }
 }
