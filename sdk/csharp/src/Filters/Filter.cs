@@ -402,38 +402,225 @@ namespace GopherMcp.Filters
         }
         
         /// <summary>
-        /// Raises the OnInitialize event
+        /// Raises the OnInitialize event with thread safety and exception handling
         /// </summary>
         protected virtual void RaiseOnInitialize()
         {
-            OnInitialize?.Invoke(this, new FilterEventArgs(Name, Type));
+            var handler = OnInitialize;
+            if (handler != null)
+            {
+                var args = new FilterEventArgs(Name, Type);
+                var exceptions = new List<Exception>();
+                
+                foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        singleHandler(this, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        exceptions.Add(ex);
+                    }
+                }
+                
+                if (exceptions.Count > 0)
+                {
+                    throw new AggregateException("One or more event handlers threw exceptions", exceptions);
+                }
+            }
         }
         
         /// <summary>
-        /// Raises the OnDestroy event
+        /// Raises the OnInitialize event asynchronously
+        /// </summary>
+        protected virtual async Task RaiseOnInitializeAsync()
+        {
+            var handler = OnInitialize;
+            if (handler != null)
+            {
+                var args = new FilterEventArgs(Name, Type);
+                var tasks = new List<Task>();
+                
+                foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    tasks.Add(Task.Run(() => singleHandler(this, args)));
+                }
+                
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+        }
+        
+        /// <summary>
+        /// Raises the OnDestroy event with thread safety and exception handling
         /// </summary>
         protected virtual void RaiseOnDestroy()
         {
-            OnDestroy?.Invoke(this, new FilterEventArgs(Name, Type));
+            var handler = OnDestroy;
+            if (handler != null)
+            {
+                var args = new FilterEventArgs(Name, Type);
+                var exceptions = new List<Exception>();
+                
+                foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        singleHandler(this, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        exceptions.Add(ex);
+                    }
+                }
+                
+                // Don't throw during disposal
+                if (exceptions.Count > 0 && !_disposed)
+                {
+                    throw new AggregateException("One or more event handlers threw exceptions", exceptions);
+                }
+            }
         }
         
         /// <summary>
-        /// Raises the OnData event
+        /// Raises the OnDestroy event asynchronously
+        /// </summary>
+        protected virtual async Task RaiseOnDestroyAsync()
+        {
+            var handler = OnDestroy;
+            if (handler != null)
+            {
+                var args = new FilterEventArgs(Name, Type);
+                var tasks = new List<Task>();
+                
+                foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    tasks.Add(Task.Run(() => singleHandler(this, args)));
+                }
+                
+                try
+                {
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Ignore exceptions during disposal
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Raises the OnData event with thread safety and exception handling
         /// </summary>
         protected virtual void RaiseOnData(byte[] buffer, int offset, int length, FilterStatus status)
         {
-            OnData?.Invoke(this, new FilterDataEventArgs(Name, Type, buffer, offset, length)
+            var handler = OnData;
+            if (handler != null)
             {
-                Status = status
-            });
+                var args = new FilterDataEventArgs(Name, Type, buffer, offset, length)
+                {
+                    Status = status
+                };
+                var exceptions = new List<Exception>();
+                
+                foreach (EventHandler<FilterDataEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        singleHandler(this, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        exceptions.Add(ex);
+                    }
+                }
+                
+                if (exceptions.Count > 0)
+                {
+                    throw new AggregateException("One or more event handlers threw exceptions", exceptions);
+                }
+            }
         }
         
         /// <summary>
-        /// Raises the OnError event
+        /// Raises the OnData event asynchronously
+        /// </summary>
+        protected virtual async Task RaiseOnDataAsync(byte[] buffer, int offset, int length, FilterStatus status)
+        {
+            var handler = OnData;
+            if (handler != null)
+            {
+                var args = new FilterDataEventArgs(Name, Type, buffer, offset, length)
+                {
+                    Status = status
+                };
+                var tasks = new List<Task>();
+                
+                foreach (EventHandler<FilterDataEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    tasks.Add(Task.Run(() => singleHandler(this, args)));
+                }
+                
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+        }
+        
+        /// <summary>
+        /// Raises the OnError event with thread safety and exception handling
         /// </summary>
         protected virtual void RaiseOnError(Exception exception)
         {
-            OnError?.Invoke(this, new FilterErrorEventArgs(Name, Type, exception));
+            var handler = OnError;
+            if (handler != null)
+            {
+                var args = new FilterErrorEventArgs(Name, Type, exception);
+                var exceptions = new List<Exception>();
+                
+                foreach (EventHandler<FilterErrorEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        singleHandler(this, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        exceptions.Add(ex);
+                    }
+                }
+                
+                // Log exceptions but don't throw during error handling
+                if (exceptions.Count > 0)
+                {
+                    Debug.WriteLine($"Error handlers threw {exceptions.Count} exceptions");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Raises the OnError event asynchronously
+        /// </summary>
+        protected virtual async Task RaiseOnErrorAsync(Exception exception)
+        {
+            var handler = OnError;
+            if (handler != null)
+            {
+                var args = new FilterErrorEventArgs(Name, Type, exception);
+                var tasks = new List<Task>();
+                
+                foreach (EventHandler<FilterErrorEventArgs> singleHandler in handler.GetInvocationList())
+                {
+                    tasks.Add(Task.Run(() => singleHandler(this, args)));
+                }
+                
+                try
+                {
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Ignore exceptions during error handling
+                }
+            }
         }
         
         /// <summary>
@@ -445,6 +632,37 @@ namespace GopherMcp.Filters
             if (_disposed)
                 throw new ObjectDisposedException(Name);
         }
+        
+        /// <summary>
+        /// Clears all event subscriptions
+        /// </summary>
+        public void ClearEventSubscriptions()
+        {
+            OnInitialize = null;
+            OnDestroy = null;
+            OnData = null;
+            OnError = null;
+        }
+        
+        /// <summary>
+        /// Gets the number of Initialize event subscribers
+        /// </summary>
+        public int InitializeEventSubscriberCount => OnInitialize?.GetInvocationList().Length ?? 0;
+        
+        /// <summary>
+        /// Gets the number of Destroy event subscribers
+        /// </summary>
+        public int DestroyEventSubscriberCount => OnDestroy?.GetInvocationList().Length ?? 0;
+        
+        /// <summary>
+        /// Gets the number of Data event subscribers
+        /// </summary>
+        public int DataEventSubscriberCount => OnData?.GetInvocationList().Length ?? 0;
+        
+        /// <summary>
+        /// Gets the number of Error event subscribers
+        /// </summary>
+        public int ErrorEventSubscriberCount => OnError?.GetInvocationList().Length ?? 0;
         
         // ============================================================================
         // Abstract methods for derived classes
