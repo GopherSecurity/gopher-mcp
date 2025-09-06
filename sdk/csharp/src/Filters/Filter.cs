@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -151,10 +152,107 @@ namespace GopherMcp.Filters
         /// <param name="context">Processing context</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Filter processing result</returns>
-        public abstract Task<FilterResult> ProcessAsync(
+        public virtual async Task<FilterResult> ProcessAsync(
             byte[] buffer, 
             ProcessingContext context = null, 
-            CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default)
+        {
+            // Validate input parameters
+            if (buffer == null)
+                throw new ArgumentNullException(nameof(buffer));
+            
+            // Check disposed state
+            ThrowIfDisposed();
+            
+            if (!_initialized)
+                throw new InvalidOperationException($"Filter '{Name}' is not initialized");
+            
+            var stopwatch = Stopwatch.StartNew();
+            FilterResult result = null;
+            bool success = false;
+            
+            try
+            {
+                // Merge cancellation tokens
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken, 
+                    CancellationToken);
+                
+                // Call ProcessInternal on thread pool
+                result = await Task.Run(async () =>
+                {
+                    return await ProcessInternal(buffer, context, linkedCts.Token).ConfigureAwait(false);
+                }, linkedCts.Token).ConfigureAwait(false);
+                
+                success = result?.IsSuccess == true;
+                
+                // Raise OnData event
+                if (result != null && result.Data != null)
+                {
+                    RaiseOnData(result.Data, result.Offset, result.Length, result.Status);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Handle cancellation
+                lock (_syncLock)
+                {
+                    _statistics.TimeoutCount++;
+                }
+                
+                result = new FilterResult
+                {
+                    Status = FilterStatus.Error,
+                    ErrorCode = FilterError.Timeout,
+                    ErrorMessage = "Processing cancelled or timed out"
+                };
+            }
+            catch (Exception ex)
+            {
+                // Handle exceptions and convert to FilterResult
+                RaiseOnError(ex);
+                
+                result = new FilterResult
+                {
+                    Status = FilterStatus.Error,
+                    ErrorCode = FilterError.ProcessingFailed,
+                    ErrorMessage = ex.Message
+                };
+                
+                // Store exception details in metadata
+                if (result.Metadata == null)
+                    result.Metadata = new Dictionary<string, object>();
+                
+                result.Metadata["Exception"] = ex;
+                result.Metadata["ExceptionType"] = ex.GetType().Name;
+                result.Metadata["StackTrace"] = ex.StackTrace;
+            }
+            finally
+            {
+                stopwatch.Stop();
+                
+                // Update statistics
+                UpdateStatistics(
+                    buffer.Length, 
+                    stopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency, 
+                    success);
+                
+                if (!success && result?.ErrorCode == FilterError.Bypass)
+                {
+                    lock (_syncLock)
+                    {
+                        _statistics.BypassCount++;
+                    }
+                }
+            }
+            
+            return result ?? new FilterResult
+            {
+                Status = FilterStatus.Error,
+                ErrorCode = FilterError.ProcessingFailed,
+                ErrorMessage = "Processing failed without result"
+            };
+        }
         
         /// <summary>
         /// Gets the current filter statistics
@@ -351,6 +449,18 @@ namespace GopherMcp.Filters
         // ============================================================================
         // Abstract methods for derived classes
         // ============================================================================
+        
+        /// <summary>
+        /// Internal processing method to be implemented by derived classes
+        /// </summary>
+        /// <param name="buffer">Input buffer</param>
+        /// <param name="context">Processing context</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Filter processing result</returns>
+        protected abstract Task<FilterResult> ProcessInternal(
+            byte[] buffer, 
+            ProcessingContext context, 
+            CancellationToken cancellationToken);
         
         /// <summary>
         /// Called when the filter is being initialized
