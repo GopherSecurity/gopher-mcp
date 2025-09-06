@@ -99,6 +99,11 @@ namespace GopherMcp.Filters
         public event EventHandler<ChainFilterErrorEventArgs> OnFilterError;
         
         /// <summary>
+        /// Event raised when the chain is modified
+        /// </summary>
+        public event EventHandler<ChainModifiedEventArgs> OnChainModified;
+        
+        /// <summary>
         /// Initializes a new instance of the FilterChain class
         /// </summary>
         public FilterChain() : this(null)
@@ -135,7 +140,8 @@ namespace GopherMcp.Filters
         /// Adds a filter to the chain
         /// </summary>
         /// <param name="filter">Filter to add</param>
-        public void AddFilter(Filter filter)
+        /// <param name="position">Position to add the filter (default: Last)</param>
+        public void AddFilter(Filter filter, FilterPosition position = FilterPosition.Last)
         {
             ThrowIfDisposed();
             
@@ -148,13 +154,129 @@ namespace GopherMcp.Filters
                 if (_filters.Contains(filter))
                     throw new InvalidOperationException($"Filter '{filter.Name}' is already in the chain");
                 
-                _filters.Add(filter);
+                // Add filter based on position
+                switch (position)
+                {
+                    case FilterPosition.First:
+                        _filters.Insert(0, filter);
+                        break;
+                    
+                    case FilterPosition.Last:
+                        _filters.Add(filter);
+                        break;
+                    
+                    default:
+                        _filters.Add(filter);
+                        break;
+                }
                 
                 // Sort by priority if configured
                 if (_config?.SortByPriority == true)
                 {
                     _filters.Sort((a, b) => a.Config.Priority.CompareTo(b.Config.Priority));
                 }
+                
+                // Update native chain via P/Invoke if handle is valid
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    UpdateNativeChain();
+                }
+                
+                // Raise chain modified event
+                OnChainModified?.Invoke(this, new ChainModifiedEventArgs(
+                    Name,
+                    ChainModificationType.FilterAdded,
+                    filter.Name));
+            }
+            finally
+            {
+                _filtersLock.ExitWriteLock();
+            }
+        }
+        
+        /// <summary>
+        /// Adds a filter before another filter
+        /// </summary>
+        /// <param name="filter">Filter to add</param>
+        /// <param name="beforeFilterName">Name of the filter to insert before</param>
+        public void AddFilterBefore(Filter filter, string beforeFilterName)
+        {
+            ThrowIfDisposed();
+            
+            if (filter == null)
+                throw new ArgumentNullException(nameof(filter));
+            
+            if (string.IsNullOrEmpty(beforeFilterName))
+                throw new ArgumentNullException(nameof(beforeFilterName));
+            
+            _filtersLock.EnterWriteLock();
+            try
+            {
+                if (_filters.Contains(filter))
+                    throw new InvalidOperationException($"Filter '{filter.Name}' is already in the chain");
+                
+                var index = _filters.FindIndex(f => f.Name == beforeFilterName);
+                if (index < 0)
+                    throw new InvalidOperationException($"Filter '{beforeFilterName}' not found in chain");
+                
+                _filters.Insert(index, filter);
+                
+                // Update native chain via P/Invoke if handle is valid
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    UpdateNativeChain();
+                }
+                
+                // Raise chain modified event
+                OnChainModified?.Invoke(this, new ChainModifiedEventArgs(
+                    Name,
+                    ChainModificationType.FilterAdded,
+                    filter.Name));
+            }
+            finally
+            {
+                _filtersLock.ExitWriteLock();
+            }
+        }
+        
+        /// <summary>
+        /// Adds a filter after another filter
+        /// </summary>
+        /// <param name="filter">Filter to add</param>
+        /// <param name="afterFilterName">Name of the filter to insert after</param>
+        public void AddFilterAfter(Filter filter, string afterFilterName)
+        {
+            ThrowIfDisposed();
+            
+            if (filter == null)
+                throw new ArgumentNullException(nameof(filter));
+            
+            if (string.IsNullOrEmpty(afterFilterName))
+                throw new ArgumentNullException(nameof(afterFilterName));
+            
+            _filtersLock.EnterWriteLock();
+            try
+            {
+                if (_filters.Contains(filter))
+                    throw new InvalidOperationException($"Filter '{filter.Name}' is already in the chain");
+                
+                var index = _filters.FindIndex(f => f.Name == afterFilterName);
+                if (index < 0)
+                    throw new InvalidOperationException($"Filter '{afterFilterName}' not found in chain");
+                
+                _filters.Insert(index + 1, filter);
+                
+                // Update native chain via P/Invoke if handle is valid
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    UpdateNativeChain();
+                }
+                
+                // Raise chain modified event
+                OnChainModified?.Invoke(this, new ChainModifiedEventArgs(
+                    Name,
+                    ChainModificationType.FilterAdded,
+                    filter.Name));
             }
             finally
             {
@@ -177,7 +299,24 @@ namespace GopherMcp.Filters
             _filtersLock.EnterWriteLock();
             try
             {
-                return _filters.Remove(filter);
+                bool removed = _filters.Remove(filter);
+                
+                if (removed)
+                {
+                    // Update native chain via P/Invoke if handle is valid
+                    if (_handle != null && !_handle.IsInvalid)
+                    {
+                        UpdateNativeChain();
+                    }
+                    
+                    // Raise chain modified event
+                    OnChainModified?.Invoke(this, new ChainModifiedEventArgs(
+                        Name,
+                        ChainModificationType.FilterRemoved,
+                        filter.Name));
+                }
+                
+                return removed;
             }
             finally
             {
@@ -224,6 +363,18 @@ namespace GopherMcp.Filters
             try
             {
                 _filters.Clear();
+                
+                // Update native chain via P/Invoke if handle is valid
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    UpdateNativeChain();
+                }
+                
+                // Raise chain modified event
+                OnChainModified?.Invoke(this, new ChainModifiedEventArgs(
+                    Name,
+                    ChainModificationType.ChainCleared,
+                    null));
             }
             finally
             {
@@ -500,6 +651,19 @@ namespace GopherMcp.Filters
         }
         
         /// <summary>
+        /// Updates the native chain via P/Invoke
+        /// </summary>
+        private void UpdateNativeChain()
+        {
+            if (_handle == null || _handle.IsInvalid)
+                return;
+            
+            // This would call the native API to update the chain
+            // For now, it's a placeholder for when P/Invoke is fully implemented
+            // Example: McpFilterChainApi.mcp_chain_update(_handle, ...);
+        }
+        
+        /// <summary>
         /// Throws if the chain has been disposed
         /// </summary>
         private void ThrowIfDisposed()
@@ -631,6 +795,58 @@ namespace GopherMcp.Filters
             ErrorCode = errorCode;
             ErrorMessage = errorMessage;
         }
+    }
+    
+    /// <summary>
+    /// Event arguments for chain modification events
+    /// </summary>
+    public class ChainModifiedEventArgs : ChainEventArgs
+    {
+        /// <summary>
+        /// Gets the type of modification
+        /// </summary>
+        public ChainModificationType ModificationType { get; }
+        
+        /// <summary>
+        /// Gets the name of the affected filter
+        /// </summary>
+        public string FilterName { get; }
+        
+        /// <summary>
+        /// Initializes a new instance of ChainModifiedEventArgs
+        /// </summary>
+        public ChainModifiedEventArgs(string chainName, ChainModificationType modificationType, string filterName)
+            : base(chainName, 0)
+        {
+            ModificationType = modificationType;
+            FilterName = filterName;
+        }
+    }
+    
+    /// <summary>
+    /// Types of chain modifications
+    /// </summary>
+    public enum ChainModificationType
+    {
+        /// <summary>
+        /// A filter was added to the chain
+        /// </summary>
+        FilterAdded,
+        
+        /// <summary>
+        /// A filter was removed from the chain
+        /// </summary>
+        FilterRemoved,
+        
+        /// <summary>
+        /// The chain was cleared
+        /// </summary>
+        ChainCleared,
+        
+        /// <summary>
+        /// The chain order was modified
+        /// </summary>
+        ChainReordered
     }
     
     /// <summary>
