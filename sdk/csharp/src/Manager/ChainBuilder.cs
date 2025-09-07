@@ -254,6 +254,44 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Adds a rate limit filter with specified parameters.
+        /// </summary>
+        /// <param name="requestsPerMinute">Maximum requests per minute.</param>
+        /// <param name="burstSize">Maximum burst size.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder AddRateLimit(int requestsPerMinute, int burstSize)
+        {
+            if (requestsPerMinute <= 0)
+                throw new ArgumentException("Requests per minute must be positive", nameof(requestsPerMinute));
+            if (burstSize <= 0)
+                throw new ArgumentException("Burst size must be positive", nameof(burstSize));
+
+            // Create RateLimitConfig
+            var config = new RateLimitConfig
+            {
+                RequestsPerMinute = requestsPerMinute,
+                BurstSize = burstSize,
+                Enabled = true,
+                Algorithm = RateLimitAlgorithm.TokenBucket
+            };
+
+            // Create RateLimitFilter
+            var filter = new RateLimitFilter(config);
+
+            // Add to filter list
+            var descriptor = new FilterDescriptor
+            {
+                Filter = filter,
+                Position = FilterPosition.Last,
+                Configuration = config,
+                Enabled = true
+            };
+
+            _filterDescriptors.Add(descriptor);
+            return this;
+        }
+
+        /// <summary>
         /// Adds a filter by ID from the manager's registry.
         /// </summary>
         /// <param name="filterId">The filter ID.</param>
