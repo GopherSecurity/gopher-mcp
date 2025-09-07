@@ -26,7 +26,7 @@ namespace GopherMcp.Filters
         /// <summary>
         /// Gets the native filter handle
         /// </summary>
-        protected McpFilterHandle Handle
+        internal McpFilterHandle Handle
         {
             get
             {

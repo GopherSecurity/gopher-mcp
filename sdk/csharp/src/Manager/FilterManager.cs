@@ -577,6 +577,12 @@ namespace GopherMcp.Manager
             _registryLock.EnterWriteLock();
             try
             {
+                // Check if filter is already registered
+                if (_filterRegistry.Values.Contains(filter))
+                {
+                    throw new ArgumentException("Filter is already registered");
+                }
+
                 _filterRegistry[filterId] = filter;
             }
             finally
@@ -584,22 +590,133 @@ namespace GopherMcp.Manager
                 _registryLock.ExitWriteLock();
             }
 
-            // Set filter's manager reference (if supported)
-            // This would require Filter class to have a Manager property
-
-            // Configure filter with defaults from manager config
-            if (_config.EnableStatistics)
+            try
             {
-                // Enable statistics on the filter
+                // Set filter's manager reference
+                SetFilterManagerReference(filter, this);
+
+                // Configure filter with defaults from manager config
+                ConfigureFilterDefaults(filter);
+
+                // Initialize filter
+                var initTask = InitializeFilterAsync(filter);
+                initTask.Wait(_config.DefaultTimeout);
+
+                // Register with native manager if available
+                if (_handle != null && !_handle.IsInvalid)
+                {
+                    var result = McpFilterApi.mcp_filter_manager_add_filter(
+                        _handle.DangerousGetHandle().ToUInt64(),
+                        filter.Handle?.DangerousGetHandle().ToUInt64() ?? 0,
+                        filterId.ToString()
+                    );
+
+                    if (result != 0)
+                    {
+                        // Rollback on native registration failure
+                        _registryLock.EnterWriteLock();
+                        try
+                        {
+                            _filterRegistry.Remove(filterId);
+                        }
+                        finally
+                        {
+                            _registryLock.ExitWriteLock();
+                        }
+
+                        throw new McpException($"Failed to register filter with native manager");
+                    }
+                }
+
+                // Raise filter registered event
+                OnFilterRegistered(new FilterRegisteredEventArgs(filterId, filter));
+
+                return filterId;
+            }
+            catch
+            {
+                // Clean up on failure
+                _registryLock.EnterWriteLock();
+                try
+                {
+                    _filterRegistry.Remove(filterId);
+                }
+                finally
+                {
+                    _registryLock.ExitWriteLock();
+                }
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Sets the manager reference on a filter if supported.
+        /// </summary>
+        private void SetFilterManagerReference(Filter filter, FilterManager manager)
+        {
+            // Use reflection to set Manager property if it exists
+            var managerProperty = filter.GetType().GetProperty("Manager", 
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (managerProperty != null && managerProperty.CanWrite && 
+                managerProperty.PropertyType.IsAssignableFrom(typeof(FilterManager)))
+            {
+                managerProperty.SetValue(filter, manager);
+            }
+        }
+
+        /// <summary>
+        /// Configures filter with default settings from manager config.
+        /// </summary>
+        private void ConfigureFilterDefaults(Filter filter)
+        {
+            // Apply default configuration
+            if (_config.EnableStatistics && filter.Config != null)
+            {
+                filter.Config.EnableStatistics = true;
             }
 
-            // Initialize filter if needed
-            // filter.Initialize() would be called here if it exists
+            // Set default timeout
+            if (filter.Config != null)
+            {
+                filter.Config.Timeout = _config.DefaultTimeout;
+            }
 
-            // Raise filter registered event
-            OnFilterRegistered(new FilterRegisteredEventArgs(filterId, filter));
+            // Apply any additional default settings
+            foreach (var setting in _config.Settings)
+            {
+                filter.Config?.SetSetting(setting.Key, setting.Value);
+            }
+        }
 
-            return filterId;
+        /// <summary>
+        /// Initializes a filter asynchronously.
+        /// </summary>
+        private async Task InitializeFilterAsync(Filter filter)
+        {
+            // Call Initialize if it exists
+            var initMethod = filter.GetType().GetMethod("InitializeAsync", 
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (initMethod != null && initMethod.ReturnType == typeof(Task))
+            {
+                var task = initMethod.Invoke(filter, null) as Task;
+                if (task != null)
+                {
+                    await task.ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                // Try synchronous Initialize
+                var syncInitMethod = filter.GetType().GetMethod("Initialize", 
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                
+                if (syncInitMethod != null)
+                {
+                    syncInitMethod.Invoke(filter, null);
+                }
+            }
         }
 
         /// <summary>
