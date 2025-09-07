@@ -477,6 +477,132 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Creates a new filter chain with the specified name and configuration.
+        /// </summary>
+        /// <param name="chainName">The unique name for the chain.</param>
+        /// <param name="config">Optional chain configuration.</param>
+        /// <returns>The created filter chain.</returns>
+        public FilterChain CreateChain(string chainName, ChainConfig? config = null)
+        {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(chainName);
+
+            // Validate chain name is unique
+            _chainsLock.EnterReadLock();
+            try
+            {
+                if (_chains.Any(c => c.Name == chainName))
+                {
+                    throw new ArgumentException($"Chain with name '{chainName}' already exists");
+                }
+            }
+            finally
+            {
+                _chainsLock.ExitReadLock();
+            }
+
+            // Create new FilterChain instance
+            var chainConfig = config ?? new ChainConfig
+            {
+                Name = chainName,
+                ExecutionMode = ChainExecutionMode.Sequential,
+                EnableStatistics = _config.EnableStatistics,
+                MaxConcurrency = _config.MaxConcurrency,
+                DefaultTimeout = _config.DefaultTimeout
+            };
+
+            // Ensure the name matches
+            chainConfig.Name = chainName;
+
+            var chain = new FilterChain(chainConfig);
+
+            // Add to internal chain list
+            _chainsLock.EnterWriteLock();
+            try
+            {
+                _chains.Add(chain);
+            }
+            finally
+            {
+                _chainsLock.ExitWriteLock();
+            }
+
+            // Register with native manager if needed
+            if (_handle != null && !_handle.IsInvalid)
+            {
+                var result = McpFilterApi.mcp_filter_manager_add_chain(
+                    _handle.DangerousGetHandle().ToUInt64(),
+                    chain.Handle.DangerousGetHandle().ToUInt64(),
+                    chainName
+                );
+
+                if (result != 0)
+                {
+                    // Remove from list if native registration failed
+                    _chainsLock.EnterWriteLock();
+                    try
+                    {
+                        _chains.Remove(chain);
+                    }
+                    finally
+                    {
+                        _chainsLock.ExitWriteLock();
+                    }
+
+                    chain.Dispose();
+                    throw new McpException($"Failed to register chain '{chainName}' with native manager");
+                }
+            }
+
+            // Raise chain created event
+            OnChainCreated(new ChainCreatedEventArgs(chainName, chain));
+
+            return chain;
+        }
+
+        /// <summary>
+        /// Registers a filter with the manager.
+        /// </summary>
+        /// <param name="filter">The filter to register.</param>
+        /// <returns>The unique ID assigned to the filter.</returns>
+        public Guid RegisterFilter(Filter filter)
+        {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(filter);
+
+            // Generate unique ID for filter
+            var filterId = Guid.NewGuid();
+
+            // Add to filter registry
+            _registryLock.EnterWriteLock();
+            try
+            {
+                _filterRegistry[filterId] = filter;
+            }
+            finally
+            {
+                _registryLock.ExitWriteLock();
+            }
+
+            // Set filter's manager reference (if supported)
+            // This would require Filter class to have a Manager property
+
+            // Configure filter with defaults from manager config
+            if (_config.EnableStatistics)
+            {
+                // Enable statistics on the filter
+            }
+
+            // Initialize filter if needed
+            // filter.Initialize() would be called here if it exists
+
+            // Raise filter registered event
+            OnFilterRegistered(new FilterRegisteredEventArgs(filterId, filter));
+
+            return filterId;
+        }
+
+        /// <summary>
         /// Processes a message with fallback strategy.
         /// </summary>
         private async Task<ProcessingResult> ProcessWithFallbackAsync(

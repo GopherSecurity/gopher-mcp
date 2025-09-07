@@ -24,7 +24,7 @@ namespace GopherMcp.Filters
         /// <summary>
         /// Gets the native chain handle
         /// </summary>
-        protected McpChainHandle Handle
+        internal McpChainHandle Handle
         {
             get
             {
