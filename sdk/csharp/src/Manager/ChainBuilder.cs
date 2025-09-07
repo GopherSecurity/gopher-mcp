@@ -163,6 +163,32 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Creates and adds a filter of type T with configuration.
+        /// </summary>
+        /// <typeparam name="T">The filter type.</typeparam>
+        /// <param name="configAction">Optional configuration action.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder AddFilter<T>(Action<T> configAction = null) where T : Filter, new()
+        {
+            // Create new instance of filter type T
+            var filter = new T();
+
+            // Apply configuration if provided
+            configAction?.Invoke(filter);
+
+            // Add to filter descriptor list
+            var descriptor = new FilterDescriptor
+            {
+                Filter = filter,
+                Position = FilterPosition.Last,
+                Enabled = true
+            };
+
+            _filterDescriptors.Add(descriptor);
+            return this;
+        }
+
+        /// <summary>
         /// Adds a filter by ID from the manager's registry.
         /// </summary>
         /// <param name="filterId">The filter ID.</param>
