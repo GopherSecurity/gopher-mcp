@@ -1671,56 +1671,6 @@ namespace GopherMcp.Manager
         }
     }
 
-    /// <summary>
-    /// Configuration for FilterManager.
-    /// </summary>
-    public class FilterManagerConfig
-    {
-        /// <summary>
-        /// Gets or sets the manager name.
-        /// </summary>
-        public string Name { get; set; } = "DefaultManager";
-
-        /// <summary>
-        /// Gets or sets whether to enable statistics collection.
-        /// </summary>
-        public bool EnableStatistics { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets the maximum number of concurrent operations.
-        /// </summary>
-        public int MaxConcurrency { get; set; } = Environment.ProcessorCount;
-
-        /// <summary>
-        /// Gets or sets the default timeout for operations.
-        /// </summary>
-        public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
-
-        /// <summary>
-        /// Gets or sets whether to enable logging.
-        /// </summary>
-        public bool EnableLogging { get; set; } = false;
-
-        /// <summary>
-        /// Gets or sets the log level.
-        /// </summary>
-        public McpLogLevel LogLevel { get; set; } = McpLogLevel.Info;
-
-        /// <summary>
-        /// Gets or sets whether to enable default filters.
-        /// </summary>
-        public bool EnableDefaultFilters { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets whether to enable fallback processing.
-        /// </summary>
-        public bool EnableFallback { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets additional settings.
-        /// </summary>
-        public Dictionary<string, object> Settings { get; set; } = new();
-    }
 
     /// <summary>
     /// Manager statistics.
