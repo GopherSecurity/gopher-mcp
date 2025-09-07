@@ -89,6 +89,14 @@ namespace GopherMcp.Core
             ulong filter);
         
         /// <summary>
+        /// Remove filter from manager
+        /// </summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mcp_filter_manager_remove_filter(
+            ulong manager,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string filterId);
+        
+        /// <summary>
         /// Add filter chain to manager
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]

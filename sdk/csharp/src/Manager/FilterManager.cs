@@ -694,8 +694,7 @@ namespace GopherMcp.Manager
                 {
                     var result = McpFilterApi.mcp_filter_manager_add_filter(
                         _handle.DangerousGetHandle().ToUInt64(),
-                        filter.Handle?.DangerousGetHandle().ToUInt64() ?? 0,
-                        filterId.ToString()
+                        filter.Handle?.DangerousGetHandle().ToUInt64() ?? 0
                     );
 
                     if (result != 0)
@@ -1099,49 +1098,195 @@ namespace GopherMcp.Manager
             {
                 if (disposing)
                 {
-                    // Dispose all chains
-                    _chainsLock.EnterWriteLock();
                     try
                     {
-                        foreach (var chain in _chains)
-                        {
-                            chain.Dispose();
-                        }
-                        _chains.Clear();
+                        // Step 1: Stop all active processing
+                        // Cancel any pending operations
+                        // This would cancel any active ProcessAsync operations if we tracked them
+                        
+                        // Step 2: Dispose all chains first (they may reference filters)
+                        DisposeChains();
+                        
+                        // Step 3: Dispose all registered filters
+                        DisposeFilters();
+                        
+                        // Step 4: Clean up event handlers to prevent memory leaks
+                        ClearEventHandlers();
+                        
+                        // Step 5: Release native manager handle
+                        ReleaseNativeHandle();
+                        
+                        // Step 6: Dispose callback manager
+                        _callbackManager?.Dispose();
+                        
+                        // Step 7: Dispose locks
+                        DisposeLocks();
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        _chainsLock.ExitWriteLock();
+                        // Log disposal errors but don't throw
+                        Console.WriteLine($"Error during FilterManager disposal: {ex.Message}");
                     }
-
-                    // Clear filter registry
-                    _registryLock.EnterWriteLock();
-                    try
-                    {
-                        foreach (var filter in _filterRegistry.Values)
-                        {
-                            filter.Dispose();
-                        }
-                        _filterRegistry.Clear();
-                    }
-                    finally
-                    {
-                        _registryLock.ExitWriteLock();
-                    }
-
-                    // Dispose locks
-                    _registryLock.Dispose();
-                    _chainsLock.Dispose();
-
-                    // Dispose callback manager
-                    _callbackManager.Dispose();
-
-                    // Dispose native handle
-                    _handle?.Dispose();
                 }
 
                 _disposed = true;
             }
+        }
+
+        /// <summary>
+        /// Disposes all filter chains.
+        /// </summary>
+        private void DisposeChains()
+        {
+            List<FilterChain> chainsToDispose = null;
+            
+            _chainsLock.EnterWriteLock();
+            try
+            {
+                if (_chains.Count > 0)
+                {
+                    chainsToDispose = new List<FilterChain>(_chains);
+                    _chains.Clear();
+                }
+            }
+            finally
+            {
+                _chainsLock.ExitWriteLock();
+            }
+
+            // Dispose chains outside of lock to avoid deadlocks
+            if (chainsToDispose != null)
+            {
+                foreach (var chain in chainsToDispose)
+                {
+                    try
+                    {
+                        chain.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing chain '{chain.Name}': {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Disposes all registered filters.
+        /// </summary>
+        private void DisposeFilters()
+        {
+            Dictionary<Guid, Filter> filtersToDispose = null;
+            
+            _registryLock.EnterWriteLock();
+            try
+            {
+                if (_filterRegistry.Count > 0)
+                {
+                    filtersToDispose = new Dictionary<Guid, Filter>(_filterRegistry);
+                    _filterRegistry.Clear();
+                }
+            }
+            finally
+            {
+                _registryLock.ExitWriteLock();
+            }
+
+            // Dispose filters outside of lock to avoid deadlocks
+            if (filtersToDispose != null)
+            {
+                foreach (var kvp in filtersToDispose)
+                {
+                    try
+                    {
+                        // Unregister from native manager first
+                        if (_handle != null && !_handle.IsInvalid)
+                        {
+                            // Ignore errors during cleanup
+                            try
+                            {
+                                McpFilterApi.mcp_filter_manager_remove_filter(
+                                    _handle.DangerousGetHandle().ToUInt64(),
+                                    kvp.Key.ToString()
+                                );
+                            }
+                            catch { }
+                        }
+                        
+                        kvp.Value.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing filter {kvp.Key}: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clears all event handlers.
+        /// </summary>
+        private void ClearEventHandlers()
+        {
+            FilterRegistered = null;
+            FilterUnregistered = null;
+            ChainCreated = null;
+            ChainRemoved = null;
+            ProcessingStart = null;
+            ProcessingComplete = null;
+            ProcessingError = null;
+            ConfigurationUpdated = null;
+        }
+
+        /// <summary>
+        /// Releases the native manager handle.
+        /// </summary>
+        private void ReleaseNativeHandle()
+        {
+            if (_handle != null && !_handle.IsInvalid)
+            {
+                try
+                {
+                    // Release native resources
+                    _handle.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error releasing native handle: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Disposes synchronization locks.
+        /// </summary>
+        private void DisposeLocks()
+        {
+            try
+            {
+                _registryLock?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error disposing registry lock: {ex.Message}");
+            }
+
+            try
+            {
+                _chainsLock?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error disposing chains lock: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Finalizer for FilterManager.
+        /// </summary>
+        ~FilterManager()
+        {
+            Dispose(false);
         }
 
         /// <summary>
