@@ -814,7 +814,6 @@ namespace GopherMcp.Transport
 
         public void Dispose()
         {
-            // Implementation will be added in prompt #76
             Dispose(true);
             GC.SuppressFinalize(this);
         }
@@ -825,12 +824,78 @@ namespace GopherMcp.Transport
             {
                 if (disposing)
                 {
-                    // Dispose managed resources
-                    _shutdownTokenSource?.Cancel();
-                    _shutdownTokenSource?.Dispose();
-                    _stateLock?.Dispose();
-                    _filterManager?.Dispose();
-                    _protocolTransport?.Dispose();
+                    try
+                    {
+                        // Stop transport if running
+                        if (State == ConnectionState.Connected || State == ConnectionState.Connecting)
+                        {
+                            try
+                            {
+                                // Use a separate cancellation token for disposal with timeout
+                                using var disposeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                                StopAsync(disposeCts.Token).GetAwaiter().GetResult();
+                            }
+                            catch (Exception ex)
+                            {
+                                // Log but don't throw during disposal
+                                OnError(ex, "Error stopping transport during disposal");
+                            }
+                        }
+
+                        // Cancel all operations
+                        _shutdownTokenSource?.Cancel();
+
+                        // Wait for background tasks to complete
+                        var tasksToWait = new List<Task>();
+                        if (_receiveLoopTask != null && !_receiveLoopTask.IsCompleted)
+                        {
+                            tasksToWait.Add(_receiveLoopTask);
+                        }
+                        if (_sendLoopTask != null && !_sendLoopTask.IsCompleted)
+                        {
+                            tasksToWait.Add(_sendLoopTask);
+                        }
+
+                        if (tasksToWait.Count > 0)
+                        {
+                            try
+                            {
+                                Task.WaitAll(tasksToWait.ToArray(), TimeSpan.FromSeconds(2));
+                            }
+                            catch
+                            {
+                                // Ignore errors during task cleanup
+                            }
+                        }
+
+                        // Complete the channels
+                        _receiveQueue?.Writer.TryComplete();
+                        _sendQueue?.Writer.TryComplete();
+
+                        // Dispose managed resources
+                        _shutdownTokenSource?.Dispose();
+                        _stateLock?.Dispose();
+                        _filterManager?.Dispose();
+                        _protocolTransport?.Dispose();
+
+                        // Clear event handlers to prevent memory leaks
+                        MessageReceived = null;
+                        Error = null;
+                        Connected = null;
+                        Disconnected = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Suppress exceptions during disposal but try to log them
+                        try
+                        {
+                            OnError(ex, "Unexpected error during disposal");
+                        }
+                        catch
+                        {
+                            // Even error logging failed, nothing we can do
+                        }
+                    }
                 }
 
                 _disposed = true;
