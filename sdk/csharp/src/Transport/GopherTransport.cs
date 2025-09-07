@@ -80,20 +80,30 @@ namespace GopherMcp.Transport
 
         public GopherTransport(TransportConfig config)
         {
-            // Implementation will be added in prompt #71
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _shutdownTokenSource = new CancellationTokenSource();
             _stateLock = new SemaphoreSlim(1, 1);
             _state = ConnectionState.Disconnected;
 
-            // Create channels for message queuing
-            var channelOptions = new UnboundedChannelOptions
+            // Validate configuration
+            ValidateConfiguration();
+
+            // Create channels for message queuing with proper options
+            var receiveChannelOptions = new UnboundedChannelOptions
             {
                 SingleReader = true,
-                SingleWriter = false
+                SingleWriter = false,
+                AllowSynchronousContinuations = false
             };
-            _receiveQueue = Channel.CreateUnbounded<JsonRpcMessage>(channelOptions);
-            _sendQueue = Channel.CreateUnbounded<JsonRpcMessage>(channelOptions);
+            _receiveQueue = Channel.CreateUnbounded<JsonRpcMessage>(receiveChannelOptions);
+
+            var sendChannelOptions = new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false
+            };
+            _sendQueue = Channel.CreateUnbounded<JsonRpcMessage>(sendChannelOptions);
 
             // Initialize filter manager if configured
             if (_config.Filters != null)
@@ -101,8 +111,41 @@ namespace GopherMcp.Transport
                 _filterManager = new FilterManager(_config.Filters);
             }
 
-            // Select protocol implementation
+            // Select protocol implementation based on configuration
             SelectProtocolImplementation();
+        }
+
+        private void ValidateConfiguration()
+        {
+            if (_config.Port <= 0 || _config.Port > 65535)
+            {
+                throw new ArgumentException($"Invalid port number: {_config.Port}", nameof(_config));
+            }
+
+            if (string.IsNullOrWhiteSpace(_config.Host) && _config.Protocol != TransportProtocol.Stdio)
+            {
+                throw new ArgumentException("Host cannot be empty for non-stdio protocols", nameof(_config));
+            }
+
+            if (_config.MaxMessageSize <= 0)
+            {
+                throw new ArgumentException("MaxMessageSize must be greater than 0", nameof(_config));
+            }
+
+            if (_config.ConnectTimeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("ConnectTimeout must be greater than 0", nameof(_config));
+            }
+
+            if (_config.SendTimeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("SendTimeout must be greater than 0", nameof(_config));
+            }
+
+            if (_config.ReceiveTimeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("ReceiveTimeout must be greater than 0", nameof(_config));
+            }
         }
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
