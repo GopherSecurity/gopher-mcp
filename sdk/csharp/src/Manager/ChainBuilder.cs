@@ -219,6 +219,41 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Adds an authentication filter with specified method and secret.
+        /// </summary>
+        /// <param name="method">The authentication method.</param>
+        /// <param name="secret">The authentication secret or key.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder AddAuthentication(AuthenticationMethod method, string secret)
+        {
+            ArgumentNullException.ThrowIfNull(secret);
+
+            // Create AuthenticationConfig
+            var config = new AuthenticationConfig
+            {
+                Method = method,
+                Secret = secret,
+                Enabled = true,
+                AllowAnonymous = false
+            };
+
+            // Create AuthenticationFilter
+            var filter = new AuthenticationFilter(config);
+
+            // Add to filter list
+            var descriptor = new FilterDescriptor
+            {
+                Filter = filter,
+                Position = FilterPosition.Last,
+                Configuration = config,
+                Enabled = true
+            };
+
+            _filterDescriptors.Add(descriptor);
+            return this;
+        }
+
+        /// <summary>
         /// Adds a filter by ID from the manager's registry.
         /// </summary>
         /// <param name="filterId">The filter ID.</param>
