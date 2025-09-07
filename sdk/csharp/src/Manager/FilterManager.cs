@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GopherMcp.Core;
@@ -344,6 +345,200 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Processes a message through the appropriate filter chain.
+        /// </summary>
+        /// <param name="message">The JSON-RPC message to process.</param>
+        /// <param name="chainName">Optional chain name to use.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The processed result.</returns>
+        public async Task<ProcessingResult> ProcessAsync(
+            JsonRpcMessage message,
+            string? chainName = null,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(message);
+
+            var startTime = DateTime.UtcNow;
+            var context = new ProcessingContext
+            {
+                SessionId = Guid.NewGuid().ToString(),
+                Timestamp = startTime,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["MessageType"] = message.GetType().Name,
+                    ["ManagerName"] = _config.Name
+                }
+            };
+
+            // Select appropriate filter chain
+            FilterChain? chain = null;
+            if (!string.IsNullOrEmpty(chainName))
+            {
+                chain = FindChain(chainName);
+                if (chain == null)
+                {
+                    var error = new ChainException($"Chain '{chainName}' not found");
+                    OnProcessingError(new ProcessingErrorEventArgs(chainName ?? "default", context, error));
+                    throw error;
+                }
+            }
+            else
+            {
+                // Select default chain or first available
+                _chainsLock.EnterReadLock();
+                try
+                {
+                    chain = _chains.FirstOrDefault(c => c.Name == "default") ?? _chains.FirstOrDefault();
+                }
+                finally
+                {
+                    _chainsLock.ExitReadLock();
+                }
+            }
+
+            if (chain == null)
+            {
+                var error = new ChainException("No filter chain available for processing");
+                OnProcessingError(new ProcessingErrorEventArgs("none", context, error));
+                throw error;
+            }
+
+            try
+            {
+                // Raise processing start event
+                OnProcessingStart(new ProcessingStartEventArgs(chain.Name, context));
+
+                // Serialize message to buffer
+                var messageJson = await JsonSerializer.SerializeAsync(message, cancellationToken);
+                var buffer = System.Text.Encoding.UTF8.GetBytes(messageJson);
+
+                // Process through chain
+                var result = await chain.ProcessAsync(buffer, context, cancellationToken);
+
+                // Deserialize result if successful
+                ProcessingResult processingResult;
+                if (result.IsSuccess && result.Data != null)
+                {
+                    var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
+                    var responseMessage = await JsonSerializer.DeserializeAsync<JsonRpcMessage>(
+                        resultJson, cancellationToken);
+                    
+                    processingResult = new ProcessingResult
+                    {
+                        Success = true,
+                        Message = responseMessage,
+                        Context = context,
+                        Duration = DateTime.UtcNow - startTime
+                    };
+                }
+                else
+                {
+                    processingResult = new ProcessingResult
+                    {
+                        Success = false,
+                        Error = result.Error,
+                        Context = context,
+                        Duration = DateTime.UtcNow - startTime
+                    };
+                }
+
+                // Update statistics
+                if (_config.EnableStatistics)
+                {
+                    // Statistics are updated by the chain
+                }
+
+                // Raise processing complete event
+                var duration = DateTime.UtcNow - startTime;
+                OnProcessingComplete(new ProcessingCompleteEventArgs(
+                    chain.Name, context, result, duration));
+
+                return processingResult;
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is not an error
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Handle errors with fallback
+                OnProcessingError(new ProcessingErrorEventArgs(
+                    chain?.Name ?? "unknown", context, ex));
+
+                if (_config.EnableFallback)
+                {
+                    return await ProcessWithFallbackAsync(message, context, cancellationToken);
+                }
+
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Processes a message with fallback strategy.
+        /// </summary>
+        private async Task<ProcessingResult> ProcessWithFallbackAsync(
+            JsonRpcMessage message,
+            ProcessingContext context,
+            CancellationToken cancellationToken)
+        {
+            // Try to find a fallback chain
+            FilterChain? fallbackChain = null;
+            
+            _chainsLock.EnterReadLock();
+            try
+            {
+                fallbackChain = _chains.FirstOrDefault(c => c.Name == "fallback");
+            }
+            finally
+            {
+                _chainsLock.ExitReadLock();
+            }
+
+            if (fallbackChain != null)
+            {
+                try
+                {
+                    var messageJson = await JsonSerializer.SerializeAsync(message, cancellationToken);
+                    var buffer = System.Text.Encoding.UTF8.GetBytes(messageJson);
+                    var result = await fallbackChain.ProcessAsync(buffer, context, cancellationToken);
+
+                    if (result.IsSuccess && result.Data != null)
+                    {
+                        var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
+                        var responseMessage = await JsonSerializer.DeserializeAsync<JsonRpcMessage>(
+                            resultJson, cancellationToken);
+                        
+                        return new ProcessingResult
+                        {
+                            Success = true,
+                            Message = responseMessage,
+                            Context = context,
+                            Duration = DateTime.UtcNow - context.Timestamp,
+                            WasFallback = true
+                        };
+                    }
+                }
+                catch
+                {
+                    // Fallback also failed
+                }
+            }
+
+            // Return error result
+            return new ProcessingResult
+            {
+                Success = false,
+                Error = "All processing attempts failed",
+                Context = context,
+                Duration = DateTime.UtcNow - context.Timestamp,
+                WasFallback = true
+            };
+        }
+
+        /// <summary>
         /// Disposes the manager and all managed resources.
         /// </summary>
         public void Dispose()
@@ -561,6 +756,11 @@ namespace GopherMcp.Manager
         public bool EnableDefaultFilters { get; set; } = true;
 
         /// <summary>
+        /// Gets or sets whether to enable fallback processing.
+        /// </summary>
+        public bool EnableFallback { get; set; } = true;
+
+        /// <summary>
         /// Gets or sets additional settings.
         /// </summary>
         public Dictionary<string, object> Settings { get; set; } = new();
@@ -686,6 +886,135 @@ namespace GopherMcp.Manager
             ChainName = chainName;
             Context = context;
             Error = error;
+        }
+    }
+
+    /// <summary>
+    /// Result of message processing.
+    /// </summary>
+    public class ProcessingResult
+    {
+        /// <summary>
+        /// Gets or sets whether processing was successful.
+        /// </summary>
+        public bool Success { get; set; }
+
+        /// <summary>
+        /// Gets or sets the processed message.
+        /// </summary>
+        public JsonRpcMessage? Message { get; set; }
+
+        /// <summary>
+        /// Gets or sets the error message if processing failed.
+        /// </summary>
+        public string? Error { get; set; }
+
+        /// <summary>
+        /// Gets or sets the processing context.
+        /// </summary>
+        public ProcessingContext Context { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the processing duration.
+        /// </summary>
+        public TimeSpan Duration { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether fallback was used.
+        /// </summary>
+        public bool WasFallback { get; set; }
+    }
+
+    /// <summary>
+    /// Base class for JSON-RPC messages.
+    /// </summary>
+    public abstract class JsonRpcMessage
+    {
+        /// <summary>
+        /// Gets or sets the JSON-RPC version.
+        /// </summary>
+        public string JsonRpc { get; set; } = "2.0";
+
+        /// <summary>
+        /// Gets or sets the message ID.
+        /// </summary>
+        public object? Id { get; set; }
+    }
+
+    /// <summary>
+    /// JSON-RPC request message.
+    /// </summary>
+    public class JsonRpcRequest : JsonRpcMessage
+    {
+        /// <summary>
+        /// Gets or sets the method name.
+        /// </summary>
+        public string Method { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the method parameters.
+        /// </summary>
+        public object? Params { get; set; }
+    }
+
+    /// <summary>
+    /// JSON-RPC response message.
+    /// </summary>
+    public class JsonRpcResponse : JsonRpcMessage
+    {
+        /// <summary>
+        /// Gets or sets the result.
+        /// </summary>
+        public object? Result { get; set; }
+
+        /// <summary>
+        /// Gets or sets the error.
+        /// </summary>
+        public JsonRpcError? Error { get; set; }
+    }
+
+    /// <summary>
+    /// JSON-RPC error.
+    /// </summary>
+    public class JsonRpcError
+    {
+        /// <summary>
+        /// Gets or sets the error code.
+        /// </summary>
+        public int Code { get; set; }
+
+        /// <summary>
+        /// Gets or sets the error message.
+        /// </summary>
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets additional error data.
+        /// </summary>
+        public object? Data { get; set; }
+    }
+
+    /// <summary>
+    /// JSON-RPC notification message.
+    /// </summary>
+    public class JsonRpcNotification : JsonRpcMessage
+    {
+        /// <summary>
+        /// Gets or sets the method name.
+        /// </summary>
+        public string Method { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the method parameters.
+        /// </summary>
+        public object? Params { get; set; }
+
+        /// <summary>
+        /// Initializes a new instance of JsonRpcNotification.
+        /// </summary>
+        public JsonRpcNotification()
+        {
+            Id = null; // Notifications don't have IDs
         }
     }
 }
