@@ -720,6 +720,20 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Creates a new chain builder for fluent chain configuration.
+        /// </summary>
+        /// <param name="chainName">The name for the chain to build.</param>
+        /// <returns>A new ChainBuilder instance.</returns>
+        public ChainBuilder BuildChain(string chainName)
+        {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(chainName);
+
+            // Return new ChainBuilder instance
+            return new ChainBuilder(this, chainName);
+        }
+
+        /// <summary>
         /// Processes a message with fallback strategy.
         /// </summary>
         private async Task<ProcessingResult> ProcessWithFallbackAsync(
