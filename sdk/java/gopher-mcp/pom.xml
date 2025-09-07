@@ -4,20 +4,22 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
+    <parent>
+        <groupId>com.gopher.mcp</groupId>
+        <artifactId>gopher-mcp-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
     <groupId>com.gopher.mcp</groupId>
     <artifactId>gopher-mcp</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>Gopher MCP Java Bindings</name>
+    <name>Gopher MCP SDK</name>
     <description>Java bindings for libgopher-mcp filter API</description>
 
     <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <junit.version>5.10.0</junit.version>
     </properties>
 
     <dependencies>
@@ -27,27 +29,6 @@
             <artifactId>jna</artifactId>
             <version>5.14.0</version>
         </dependency>
-
-        <!-- JUnit 5 for testing -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.platform</groupId>
-            <artifactId>junit-platform-launcher</artifactId>
-            <version>1.10.0</version>
-            <scope>test</scope>
-        </dependency>
-
     </dependencies>
 
     <build>
