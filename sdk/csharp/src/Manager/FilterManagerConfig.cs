@@ -241,8 +241,281 @@ namespace GopherMcp.Manager
             return System.Text.Json.JsonSerializer.Deserialize<FilterManagerConfig>(json);
         }
 
-        // Nested configuration classes will be added in subsequent prompts
-        public class SecurityConfig { public static SecurityConfig Default => new(); public SecurityConfig Merge(SecurityConfig other) => this; }
+        /// <summary>
+        /// Security configuration settings.
+        /// </summary>
+        public class SecurityConfig
+        {
+            /// <summary>
+            /// Gets or sets the authentication configuration.
+            /// </summary>
+            [JsonPropertyName("authentication")]
+            public AuthenticationConfig Authentication { get; set; } = new();
+
+            /// <summary>
+            /// Gets or sets the authorization configuration.
+            /// </summary>
+            [JsonPropertyName("authorization")]
+            public AuthorizationConfig Authorization { get; set; } = new();
+
+            /// <summary>
+            /// Gets or sets the TLS configuration.
+            /// </summary>
+            [JsonPropertyName("tls")]
+            public TlsConfig Tls { get; set; } = new();
+
+            /// <summary>
+            /// Gets the default security configuration.
+            /// </summary>
+            public static SecurityConfig Default => new()
+            {
+                Authentication = new AuthenticationConfig
+                {
+                    Enabled = false,
+                    Method = AuthenticationMethod.None,
+                    RequireAuthentication = false,
+                    AllowAnonymous = true
+                },
+                Authorization = new AuthorizationConfig
+                {
+                    Enabled = false,
+                    RequireAuthorization = false,
+                    DefaultPolicy = "Allow"
+                },
+                Tls = new TlsConfig
+                {
+                    Enabled = false,
+                    RequireTls = false,
+                    MinimumVersion = TlsVersion.Tls12,
+                    VerifyPeer = true
+                }
+            };
+
+            /// <summary>
+            /// Merges this configuration with another.
+            /// </summary>
+            public SecurityConfig Merge(SecurityConfig other)
+            {
+                if (other == null) return this;
+                
+                return new SecurityConfig
+                {
+                    Authentication = Authentication?.Merge(other.Authentication) ?? other.Authentication,
+                    Authorization = Authorization?.Merge(other.Authorization) ?? other.Authorization,
+                    Tls = Tls?.Merge(other.Tls) ?? other.Tls
+                };
+            }
+
+            /// <summary>
+            /// Authentication configuration.
+            /// </summary>
+            public class AuthenticationConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; }
+
+                [JsonPropertyName("method")]
+                [JsonConverter(typeof(JsonStringEnumConverter))]
+                public AuthenticationMethod Method { get; set; } = AuthenticationMethod.None;
+
+                [JsonPropertyName("tokenEndpoint")]
+                public string TokenEndpoint { get; set; } = "";
+
+                [JsonPropertyName("clientId")]
+                public string ClientId { get; set; } = "";
+
+                [JsonPropertyName("clientSecret")]
+                public string ClientSecret { get; set; } = "";
+
+                [JsonPropertyName("scope")]
+                public string Scope { get; set; } = "";
+
+                [JsonPropertyName("audience")]
+                public string Audience { get; set; } = "";
+
+                [JsonPropertyName("requireAuthentication")]
+                public bool RequireAuthentication { get; set; }
+
+                [JsonPropertyName("allowAnonymous")]
+                public bool AllowAnonymous { get; set; } = true;
+
+                [JsonPropertyName("tokenExpiration")]
+                [JsonConverter(typeof(TimeSpanJsonConverter))]
+                public TimeSpan TokenExpiration { get; set; } = TimeSpan.FromHours(1);
+
+                [JsonPropertyName("refreshTokenExpiration")]
+                [JsonConverter(typeof(TimeSpanJsonConverter))]
+                public TimeSpan RefreshTokenExpiration { get; set; } = TimeSpan.FromDays(30);
+
+                public AuthenticationConfig Merge(AuthenticationConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    return new AuthenticationConfig
+                    {
+                        Enabled = other.Enabled,
+                        Method = other.Method != AuthenticationMethod.None ? other.Method : Method,
+                        TokenEndpoint = !string.IsNullOrEmpty(other.TokenEndpoint) ? other.TokenEndpoint : TokenEndpoint,
+                        ClientId = !string.IsNullOrEmpty(other.ClientId) ? other.ClientId : ClientId,
+                        ClientSecret = !string.IsNullOrEmpty(other.ClientSecret) ? other.ClientSecret : ClientSecret,
+                        Scope = !string.IsNullOrEmpty(other.Scope) ? other.Scope : Scope,
+                        Audience = !string.IsNullOrEmpty(other.Audience) ? other.Audience : Audience,
+                        RequireAuthentication = other.RequireAuthentication,
+                        AllowAnonymous = other.AllowAnonymous,
+                        TokenExpiration = other.TokenExpiration > TimeSpan.Zero ? other.TokenExpiration : TokenExpiration,
+                        RefreshTokenExpiration = other.RefreshTokenExpiration > TimeSpan.Zero ? other.RefreshTokenExpiration : RefreshTokenExpiration
+                    };
+                }
+            }
+
+            /// <summary>
+            /// Authorization configuration.
+            /// </summary>
+            public class AuthorizationConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; }
+
+                [JsonPropertyName("requireAuthorization")]
+                public bool RequireAuthorization { get; set; }
+
+                [JsonPropertyName("defaultPolicy")]
+                public string DefaultPolicy { get; set; } = "Allow";
+
+                [JsonPropertyName("policies")]
+                public Dictionary<string, PolicyConfig> Policies { get; set; } = new();
+
+                [JsonPropertyName("roles")]
+                public List<string> Roles { get; set; } = new();
+
+                [JsonPropertyName("permissions")]
+                public List<string> Permissions { get; set; } = new();
+
+                public AuthorizationConfig Merge(AuthorizationConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    var merged = new AuthorizationConfig
+                    {
+                        Enabled = other.Enabled,
+                        RequireAuthorization = other.RequireAuthorization,
+                        DefaultPolicy = !string.IsNullOrEmpty(other.DefaultPolicy) ? other.DefaultPolicy : DefaultPolicy,
+                        Policies = new Dictionary<string, PolicyConfig>(Policies),
+                        Roles = new List<string>(Roles),
+                        Permissions = new List<string>(Permissions)
+                    };
+
+                    // Merge policies
+                    foreach (var policy in other.Policies)
+                    {
+                        merged.Policies[policy.Key] = policy.Value;
+                    }
+
+                    // Merge roles and permissions
+                    merged.Roles.AddRange(other.Roles);
+                    merged.Permissions.AddRange(other.Permissions);
+
+                    return merged;
+                }
+
+                public class PolicyConfig
+                {
+                    [JsonPropertyName("name")]
+                    public string Name { get; set; } = "";
+
+                    [JsonPropertyName("requiredRoles")]
+                    public List<string> RequiredRoles { get; set; } = new();
+
+                    [JsonPropertyName("requiredPermissions")]
+                    public List<string> RequiredPermissions { get; set; } = new();
+
+                    [JsonPropertyName("requireAll")]
+                    public bool RequireAll { get; set; }
+                }
+            }
+
+            /// <summary>
+            /// TLS configuration.
+            /// </summary>
+            public class TlsConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; }
+
+                [JsonPropertyName("requireTls")]
+                public bool RequireTls { get; set; }
+
+                [JsonPropertyName("minimumVersion")]
+                [JsonConverter(typeof(JsonStringEnumConverter))]
+                public TlsVersion MinimumVersion { get; set; } = TlsVersion.Tls12;
+
+                [JsonPropertyName("certificatePath")]
+                public string CertificatePath { get; set; } = "";
+
+                [JsonPropertyName("keyPath")]
+                public string KeyPath { get; set; } = "";
+
+                [JsonPropertyName("caPath")]
+                public string CaPath { get; set; } = "";
+
+                [JsonPropertyName("verifyPeer")]
+                public bool VerifyPeer { get; set; } = true;
+
+                [JsonPropertyName("verifyHostname")]
+                public bool VerifyHostname { get; set; } = true;
+
+                [JsonPropertyName("allowedCiphers")]
+                public List<string> AllowedCiphers { get; set; } = new();
+
+                [JsonPropertyName("clientCertificateRequired")]
+                public bool ClientCertificateRequired { get; set; }
+
+                public TlsConfig Merge(TlsConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    return new TlsConfig
+                    {
+                        Enabled = other.Enabled,
+                        RequireTls = other.RequireTls,
+                        MinimumVersion = other.MinimumVersion != TlsVersion.Tls12 ? other.MinimumVersion : MinimumVersion,
+                        CertificatePath = !string.IsNullOrEmpty(other.CertificatePath) ? other.CertificatePath : CertificatePath,
+                        KeyPath = !string.IsNullOrEmpty(other.KeyPath) ? other.KeyPath : KeyPath,
+                        CaPath = !string.IsNullOrEmpty(other.CaPath) ? other.CaPath : CaPath,
+                        VerifyPeer = other.VerifyPeer,
+                        VerifyHostname = other.VerifyHostname,
+                        AllowedCiphers = other.AllowedCiphers?.Count > 0 ? new List<string>(other.AllowedCiphers) : new List<string>(AllowedCiphers),
+                        ClientCertificateRequired = other.ClientCertificateRequired
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Authentication method enumeration.
+        /// </summary>
+        public enum AuthenticationMethod
+        {
+            None,
+            Basic,
+            Bearer,
+            OAuth2,
+            ApiKey,
+            Certificate,
+            Kerberos,
+            NTLM
+        }
+
+        /// <summary>
+        /// TLS version enumeration.
+        /// </summary>
+        public enum TlsVersion
+        {
+            Tls10,
+            Tls11,
+            Tls12,
+            Tls13
+        }
         public class ObservabilityConfig { public static ObservabilityConfig Default => new(); public ObservabilityConfig Merge(ObservabilityConfig other) => this; }
         public class TrafficManagementConfig { public static TrafficManagementConfig Default => new(); public TrafficManagementConfig Merge(TrafficManagementConfig other) => this; }
         public class HttpConfig { public static HttpConfig Default => new(); public HttpConfig Merge(HttpConfig other) => this; }
