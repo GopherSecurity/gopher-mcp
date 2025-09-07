@@ -292,6 +292,45 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Sets the chain execution mode to Sequential.
+        /// </summary>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder Sequential()
+        {
+            _config.ExecutionMode = ChainExecutionMode.Sequential;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the chain execution mode to Parallel with specified concurrency.
+        /// </summary>
+        /// <param name="maxConcurrency">Maximum concurrent filter executions.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder Parallel(int maxConcurrency = 0)
+        {
+            _config.ExecutionMode = ChainExecutionMode.Parallel;
+            if (maxConcurrency > 0)
+            {
+                _config.MaxConcurrency = maxConcurrency;
+            }
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the chain execution mode to Conditional with a predicate.
+        /// </summary>
+        /// <param name="predicate">The condition predicate for filter execution.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder Conditional(Func<ProcessingContext, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+            
+            _config.ExecutionMode = ChainExecutionMode.Conditional;
+            _config.ConditionPredicate = predicate;
+            return this;
+        }
+
+        /// <summary>
         /// Adds a filter by ID from the manager's registry.
         /// </summary>
         /// <param name="filterId">The filter ID.</param>
