@@ -6,13 +6,44 @@ using GopherMcp.Types;
 namespace GopherMcp.Manager
 {
     /// <summary>
+    /// Descriptor for a filter to be added to a chain.
+    /// </summary>
+    public class FilterDescriptor
+    {
+        /// <summary>
+        /// Gets or sets the filter instance.
+        /// </summary>
+        public Filter Filter { get; set; }
+
+        /// <summary>
+        /// Gets or sets the filter position.
+        /// </summary>
+        public FilterPosition Position { get; set; } = FilterPosition.Last;
+
+        /// <summary>
+        /// Gets or sets the reference filter ID for relative positioning.
+        /// </summary>
+        public Guid? ReferenceFilterId { get; set; }
+
+        /// <summary>
+        /// Gets or sets the filter configuration.
+        /// </summary>
+        public FilterConfig Configuration { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether the filter is enabled.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+    }
+
+    /// <summary>
     /// Fluent builder for creating filter chains.
     /// </summary>
     public class ChainBuilder
     {
         private readonly FilterManager _manager;
         private readonly string _chainName;
-        private readonly List<Filter> _filters;
+        private readonly List<FilterDescriptor> _filterDescriptors;
         private ChainConfig _config;
 
         /// <summary>
@@ -24,7 +55,7 @@ namespace GopherMcp.Manager
         {
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _chainName = chainName ?? throw new ArgumentNullException(nameof(chainName));
-            _filters = new List<Filter>();
+            _filterDescriptors = new List<FilterDescriptor>();
             _config = new ChainConfig
             {
                 Name = chainName,
@@ -106,12 +137,28 @@ namespace GopherMcp.Manager
         {
             ArgumentNullException.ThrowIfNull(filter);
             
-            if (_filters.Contains(filter))
+            var descriptor = new FilterDescriptor
             {
-                throw new ArgumentException("Filter is already in the chain", nameof(filter));
-            }
+                Filter = filter,
+                Position = FilterPosition.Last,
+                Enabled = true
+            };
 
-            _filters.Add(filter);
+            _filterDescriptors.Add(descriptor);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a filter with a descriptor.
+        /// </summary>
+        /// <param name="descriptor">The filter descriptor.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder AddFilterDescriptor(FilterDescriptor descriptor)
+        {
+            ArgumentNullException.ThrowIfNull(descriptor);
+            ArgumentNullException.ThrowIfNull(descriptor.Filter);
+
+            _filterDescriptors.Add(descriptor);
             return this;
         }
 
@@ -257,10 +304,27 @@ namespace GopherMcp.Manager
             // Create the chain
             var chain = _manager.CreateChain(_chainName, _config);
 
-            // Add filters to the chain
-            foreach (var filter in _filters)
+            // Add filters to the chain based on descriptors
+            foreach (var descriptor in _filterDescriptors)
             {
-                chain.AddFilter(filter, FilterPosition.Last);
+                if (!descriptor.Enabled)
+                    continue;
+
+                // Apply configuration if provided
+                if (descriptor.Configuration != null)
+                {
+                    descriptor.Filter.UpdateConfig(descriptor.Configuration);
+                }
+
+                // Add filter with specified position
+                if (descriptor.ReferenceFilterId.HasValue)
+                {
+                    chain.AddFilterRelative(descriptor.Filter, descriptor.Position, descriptor.ReferenceFilterId.Value);
+                }
+                else
+                {
+                    chain.AddFilter(descriptor.Filter, descriptor.Position);
+                }
             }
 
             return chain;
