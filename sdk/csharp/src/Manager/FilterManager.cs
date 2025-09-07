@@ -23,6 +23,7 @@ namespace GopherMcp.Manager
         private readonly ReaderWriterLockSlim _registryLock;
         private readonly ReaderWriterLockSlim _chainsLock;
         private readonly CallbackManager _callbackManager;
+        private readonly DateTime _startTime;
         private bool _disposed;
 
         /// <summary>
@@ -44,6 +45,7 @@ namespace GopherMcp.Manager
             _registryLock = new ReaderWriterLockSlim();
             _chainsLock = new ReaderWriterLockSlim();
             _callbackManager = new CallbackManager();
+            _startTime = DateTime.UtcNow;
 
             // Create native manager handle via P/Invoke
             var handle = McpFilterApi.mcp_filter_manager_create(
@@ -162,19 +164,61 @@ namespace GopherMcp.Manager
                 FilterCount = FilterCount,
                 ChainCount = ChainCount,
                 TotalProcessed = 0,
-                TotalErrors = 0
+                TotalErrors = 0,
+                TotalBytesProcessed = 0,
+                AverageLatency = TimeSpan.Zero,
+                MinLatency = TimeSpan.MaxValue,
+                MaxLatency = TimeSpan.Zero,
+                MemoryUsage = GetMemoryUsage(),
+                StartTime = _startTime,
+                Uptime = DateTime.UtcNow - _startTime
             };
 
             // Aggregate statistics from all chains
             _chainsLock.EnterReadLock();
             try
             {
+                long totalLatencyTicks = 0;
+                int latencyCount = 0;
+
                 foreach (var chain in _chains)
                 {
                     var chainStats = chain.GetStatistics();
-                    stats.TotalProcessed += chainStats.TotalProcessed;
-                    stats.TotalErrors += chainStats.TotalErrors;
-                    stats.TotalProcessingTime += chainStats.TotalProcessingTime;
+                    stats.TotalProcessed += (long)chainStats.TotalPacketsProcessed;
+                    stats.TotalErrors += (long)chainStats.TotalErrors;
+                    stats.TotalBytesProcessed += (long)chainStats.TotalBytesProcessed;
+                    
+                    // Convert microseconds to TimeSpan
+                    var processingTime = TimeSpan.FromMicroseconds(chainStats.TotalProcessingTimeUs);
+                    stats.TotalProcessingTime += processingTime;
+
+                    // Track latency metrics
+                    if (chainStats.AverageProcessingTimeUs > 0)
+                    {
+                        var avgLatency = TimeSpan.FromMicroseconds(chainStats.AverageProcessingTimeUs);
+                        totalLatencyTicks += avgLatency.Ticks * (long)chainStats.TotalPacketsProcessed;
+                        latencyCount += (int)chainStats.TotalPacketsProcessed;
+
+                        // Use average as approximation for min/max
+                        if (avgLatency < stats.MinLatency)
+                            stats.MinLatency = avgLatency;
+                        
+                        if (avgLatency > stats.MaxLatency)
+                            stats.MaxLatency = avgLatency;
+                    }
+
+                    // Add chain-specific stats
+                    stats.ChainStatistics[chain.Name] = chainStats;
+                }
+
+                // Calculate average latency
+                if (latencyCount > 0)
+                {
+                    stats.AverageLatency = new TimeSpan(totalLatencyTicks / latencyCount);
+                }
+                else
+                {
+                    stats.MinLatency = TimeSpan.Zero;
                 }
             }
             finally
@@ -182,7 +226,50 @@ namespace GopherMcp.Manager
                 _chainsLock.ExitReadLock();
             }
 
+            // Aggregate statistics from all filters
+            _registryLock.EnterReadLock();
+            try
+            {
+                foreach (var kvp in _filterRegistry)
+                {
+                    var filterStats = kvp.Value.GetStatistics();
+                    stats.FilterStatistics[kvp.Key] = filterStats;
+                    
+                    // Add filter processing counts
+                    stats.TotalFilterInvocations += filterStats.ProcessCount;
+                }
+            }
+            finally
+            {
+                _registryLock.ExitReadLock();
+            }
+
+            // Calculate throughput
+            if (stats.Uptime.TotalSeconds > 0)
+            {
+                stats.Throughput = stats.TotalProcessed / stats.Uptime.TotalSeconds;
+                stats.ByteThroughput = stats.TotalBytesProcessed / stats.Uptime.TotalSeconds;
+            }
+
+            // Calculate error rate
+            if (stats.TotalProcessed > 0)
+            {
+                stats.ErrorRate = (double)stats.TotalErrors / stats.TotalProcessed;
+            }
+
             return stats;
+        }
+
+        /// <summary>
+        /// Gets the current memory usage.
+        /// </summary>
+        private long GetMemoryUsage()
+        {
+            // Get current process memory usage
+            using (var process = System.Diagnostics.Process.GetCurrentProcess())
+            {
+                return process.WorkingSet64;
+            }
         }
 
         /// <summary>
@@ -1026,13 +1113,97 @@ namespace GopherMcp.Manager
     /// <summary>
     /// Manager statistics.
     /// </summary>
-    public struct ManagerStatistics
+    public class ManagerStatistics
     {
+        /// <summary>
+        /// Gets or sets the number of filters.
+        /// </summary>
         public int FilterCount { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of chains.
+        /// </summary>
         public int ChainCount { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total messages processed.
+        /// </summary>
         public long TotalProcessed { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total errors encountered.
+        /// </summary>
         public long TotalErrors { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total bytes processed.
+        /// </summary>
+        public long TotalBytesProcessed { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total filter invocations.
+        /// </summary>
+        public long TotalFilterInvocations { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total processing time.
+        /// </summary>
         public TimeSpan TotalProcessingTime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the average latency.
+        /// </summary>
+        public TimeSpan AverageLatency { get; set; }
+
+        /// <summary>
+        /// Gets or sets the minimum latency.
+        /// </summary>
+        public TimeSpan MinLatency { get; set; }
+
+        /// <summary>
+        /// Gets or sets the maximum latency.
+        /// </summary>
+        public TimeSpan MaxLatency { get; set; }
+
+        /// <summary>
+        /// Gets or sets the memory usage in bytes.
+        /// </summary>
+        public long MemoryUsage { get; set; }
+
+        /// <summary>
+        /// Gets or sets the manager start time.
+        /// </summary>
+        public DateTime StartTime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the manager uptime.
+        /// </summary>
+        public TimeSpan Uptime { get; set; }
+
+        /// <summary>
+        /// Gets or sets the throughput (messages per second).
+        /// </summary>
+        public double Throughput { get; set; }
+
+        /// <summary>
+        /// Gets or sets the byte throughput (bytes per second).
+        /// </summary>
+        public double ByteThroughput { get; set; }
+
+        /// <summary>
+        /// Gets or sets the error rate (0.0 to 1.0).
+        /// </summary>
+        public double ErrorRate { get; set; }
+
+        /// <summary>
+        /// Gets the chain-specific statistics.
+        /// </summary>
+        public Dictionary<string, ChainStatistics> ChainStatistics { get; } = new();
+
+        /// <summary>
+        /// Gets the filter-specific statistics.
+        /// </summary>
+        public Dictionary<Guid, FilterStatistics> FilterStatistics { get; } = new();
     }
 
     /// <summary>
