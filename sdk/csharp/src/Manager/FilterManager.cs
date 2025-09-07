@@ -807,6 +807,205 @@ namespace GopherMcp.Manager
         }
 
         /// <summary>
+        /// Updates the manager configuration dynamically.
+        /// </summary>
+        /// <param name="newConfig">The new configuration to apply.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public async Task UpdateConfigurationAsync(FilterManagerConfig newConfig)
+        {
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(newConfig);
+
+            // Validate new configuration
+            ValidateConfiguration(newConfig);
+
+            var oldConfig = _config;
+            
+            try
+            {
+                // Update configuration
+                _config = newConfig;
+
+                // Apply changes to existing filters
+                await ApplyConfigurationToFiltersAsync(newConfig);
+
+                // Update chain configurations
+                await UpdateChainConfigurationsAsync(newConfig);
+
+                // Add/remove filters as needed
+                await ReconfigureFiltersAsync(oldConfig, newConfig);
+
+                // Update logging configuration
+                if (newConfig.EnableLogging != oldConfig.EnableLogging || 
+                    newConfig.LogLevel != oldConfig.LogLevel)
+                {
+                    ConfigureLogging();
+                }
+
+                // Trigger reconfiguration events
+                OnConfigurationUpdated(new ConfigurationUpdatedEventArgs(oldConfig, newConfig));
+            }
+            catch (Exception ex)
+            {
+                // Rollback on failure
+                _config = oldConfig;
+                throw new ConfigurationException("Failed to update configuration", ex);
+            }
+        }
+
+        /// <summary>
+        /// Validates a configuration.
+        /// </summary>
+        private void ValidateConfiguration(FilterManagerConfig config)
+        {
+            if (string.IsNullOrWhiteSpace(config.Name))
+            {
+                throw new ArgumentException("Manager name is required", nameof(config));
+            }
+
+            if (config.MaxConcurrency <= 0)
+            {
+                throw new ArgumentException("MaxConcurrency must be positive", nameof(config));
+            }
+
+            if (config.DefaultTimeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("DefaultTimeout must be positive", nameof(config));
+            }
+        }
+
+        /// <summary>
+        /// Applies configuration to existing filters.
+        /// </summary>
+        private async Task ApplyConfigurationToFiltersAsync(FilterManagerConfig config)
+        {
+            var filters = GetFilters();
+            var tasks = new List<Task>();
+
+            foreach (var filter in filters)
+            {
+                tasks.Add(Task.Run(() =>
+                {
+                    ConfigureFilterDefaults(filter);
+                    
+                    // Update filter-specific settings
+                    if (filter.Config != null)
+                    {
+                        filter.Config.EnableStatistics = config.EnableStatistics;
+                        filter.Config.Timeout = config.DefaultTimeout;
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+        }
+
+        /// <summary>
+        /// Updates chain configurations.
+        /// </summary>
+        private async Task UpdateChainConfigurationsAsync(FilterManagerConfig config)
+        {
+            var chains = GetChains();
+            var tasks = new List<Task>();
+
+            foreach (var chain in chains)
+            {
+                tasks.Add(Task.Run(() =>
+                {
+                    if (chain.Config != null)
+                    {
+                        chain.Config.EnableStatistics = config.EnableStatistics;
+                        chain.Config.MaxConcurrency = config.MaxConcurrency;
+                        chain.Config.DefaultTimeout = config.DefaultTimeout;
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+        }
+
+        /// <summary>
+        /// Reconfigures filters based on configuration changes.
+        /// </summary>
+        private async Task ReconfigureFiltersAsync(FilterManagerConfig oldConfig, FilterManagerConfig newConfig)
+        {
+            // Add new default filters if enabled
+            if (!oldConfig.EnableDefaultFilters && newConfig.EnableDefaultFilters)
+            {
+                InitializeDefaultFilters();
+            }
+
+            // Remove default filters if disabled
+            if (oldConfig.EnableDefaultFilters && !newConfig.EnableDefaultFilters)
+            {
+                await RemoveDefaultFiltersAsync();
+            }
+
+            // Handle other filter additions/removals based on config changes
+            // This is extensible for custom filter management
+        }
+
+        /// <summary>
+        /// Removes default filters.
+        /// </summary>
+        private async Task RemoveDefaultFiltersAsync()
+        {
+            // Find and remove default filters
+            var filtersToRemove = new List<Guid>();
+            
+            _registryLock.EnterReadLock();
+            try
+            {
+                foreach (var kvp in _filterRegistry)
+                {
+                    // Check if filter is a default filter (by name or type)
+                    if (IsDefaultFilter(kvp.Value))
+                    {
+                        filtersToRemove.Add(kvp.Key);
+                    }
+                }
+            }
+            finally
+            {
+                _registryLock.ExitReadLock();
+            }
+
+            // Remove identified filters
+            foreach (var filterId in filtersToRemove)
+            {
+                UnregisterFilter(filterId);
+            }
+
+            await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Checks if a filter is a default filter.
+        /// </summary>
+        private bool IsDefaultFilter(Filter filter)
+        {
+            // Check by filter name or type
+            var filterName = filter.Config?.Name ?? "";
+            return filterName.StartsWith("Default") || 
+                   filterName.Contains("Authentication") ||
+                   filterName.Contains("Metrics") ||
+                   filterName.Contains("RateLimit");
+        }
+
+        /// <summary>
+        /// Raises the ConfigurationUpdated event.
+        /// </summary>
+        protected virtual void OnConfigurationUpdated(ConfigurationUpdatedEventArgs e)
+        {
+            ConfigurationUpdated?.Invoke(this, e);
+        }
+
+        /// <summary>
+        /// Occurs when configuration is updated.
+        /// </summary>
+        public event EventHandler<ConfigurationUpdatedEventArgs>? ConfigurationUpdated;
+
+        /// <summary>
         /// Creates a new chain builder for fluent chain configuration.
         /// </summary>
         /// <param name="chainName">The name for the chain to build.</param>
@@ -1443,6 +1642,31 @@ namespace GopherMcp.Manager
         public JsonRpcNotification()
         {
             Id = null; // Notifications don't have IDs
+        }
+    }
+
+    /// <summary>
+    /// Event args for configuration updates.
+    /// </summary>
+    public class ConfigurationUpdatedEventArgs : EventArgs
+    {
+        /// <summary>
+        /// Gets the old configuration.
+        /// </summary>
+        public FilterManagerConfig OldConfiguration { get; }
+
+        /// <summary>
+        /// Gets the new configuration.
+        /// </summary>
+        public FilterManagerConfig NewConfiguration { get; }
+
+        /// <summary>
+        /// Initializes a new instance of ConfigurationUpdatedEventArgs.
+        /// </summary>
+        public ConfigurationUpdatedEventArgs(FilterManagerConfig oldConfig, FilterManagerConfig newConfig)
+        {
+            OldConfiguration = oldConfig;
+            NewConfiguration = newConfig;
         }
     }
 }
