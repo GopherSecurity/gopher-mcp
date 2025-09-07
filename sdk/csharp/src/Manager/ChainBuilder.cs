@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GopherMcp.Filters;
+using GopherMcp.Filters.BuiltinFilters;
 using GopherMcp.Types;
 
 namespace GopherMcp.Manager
@@ -181,6 +182,35 @@ namespace GopherMcp.Manager
             {
                 Filter = filter,
                 Position = FilterPosition.Last,
+                Enabled = true
+            };
+
+            _filterDescriptors.Add(descriptor);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a TCP proxy filter with configuration.
+        /// </summary>
+        /// <param name="configAction">Configuration action for TCP proxy.</param>
+        /// <returns>The builder for method chaining.</returns>
+        public ChainBuilder AddTcpProxy(Action<TcpProxyConfig> configAction)
+        {
+            ArgumentNullException.ThrowIfNull(configAction);
+
+            // Create and configure TcpProxyConfig
+            var config = new TcpProxyConfig();
+            configAction(config);
+
+            // Create TcpProxyFilter with config
+            var filter = new TcpProxyFilter(config);
+
+            // Add to filter list
+            var descriptor = new FilterDescriptor
+            {
+                Filter = filter,
+                Position = FilterPosition.Last,
+                Configuration = config,
                 Enabled = true
             };
 
