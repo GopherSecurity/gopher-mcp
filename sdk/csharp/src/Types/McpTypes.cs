@@ -105,6 +105,40 @@ namespace GopherMcp.Types
     /// <summary>
     /// Logging levels
     /// </summary>
+    public enum McpLogLevel : int
+    {
+        /// <summary>No logging</summary>
+        None = -1,
+        
+        /// <summary>Debug level logging</summary>
+        Debug = 0,
+        
+        /// <summary>Informational messages</summary>
+        Info = 1,
+        
+        /// <summary>Normal but significant condition</summary>
+        Notice = 2,
+        
+        /// <summary>Warning conditions</summary>
+        Warning = 3,
+        
+        /// <summary>Error conditions</summary>
+        Error = 4,
+        
+        /// <summary>Critical conditions</summary>
+        Critical = 5,
+        
+        /// <summary>Action must be taken immediately</summary>
+        Alert = 6,
+        
+        /// <summary>System is unusable</summary>
+        Emergency = 7
+    }
+    
+    /// <summary>
+    /// Logging levels (deprecated, use McpLogLevel)
+    /// </summary>
+    [Obsolete("Use McpLogLevel instead")]
     public enum McpLoggingLevel : int
     {
         /// <summary>Debug level logging</summary>
@@ -256,6 +290,36 @@ namespace GopherMcp.Types
         
         /// <summary>Resource reference</summary>
         Resource = 2
+    }
+    
+    /// <summary>
+    /// Built-in filter types
+    /// </summary>
+    public enum McpBuiltinFilterType : int
+    {
+        /// <summary>Validation filter</summary>
+        Validation = 0,
+        
+        /// <summary>Logging filter</summary>
+        Logging = 1,
+        
+        /// <summary>Metrics filter</summary>
+        Metrics = 2,
+        
+        /// <summary>Rate limiting filter</summary>
+        RateLimit = 3,
+        
+        /// <summary>Compression filter</summary>
+        Compression = 4,
+        
+        /// <summary>Encryption filter</summary>
+        Encryption = 5,
+        
+        /// <summary>Authentication filter</summary>
+        Authentication = 6,
+        
+        /// <summary>Caching filter</summary>
+        Caching = 7
     }
     
     /// <summary>
@@ -576,6 +640,36 @@ namespace GopherMcp.Types
     }
     
     /// <summary>
+    /// Filter configuration structure for P/Invoke
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct McpFilterConfig
+    {
+        /// <summary>Filter name</summary>
+        [MarshalAs(UnmanagedType.LPUTF8Str)]
+        public string Name;
+        
+        /// <summary>Filter type</summary>
+        [MarshalAs(UnmanagedType.LPUTF8Str)]
+        public string Type;
+        
+        /// <summary>Priority level</summary>
+        public int Priority;
+        
+        /// <summary>Whether the filter is enabled</summary>
+        public McpBool Enabled;
+        
+        /// <summary>Maximum buffer size</summary>
+        public uint MaxBufferSize;
+        
+        /// <summary>Timeout in milliseconds</summary>
+        public uint TimeoutMs;
+        
+        /// <summary>User data pointer</summary>
+        public IntPtr UserData;
+    }
+    
+    /// <summary>
     /// Server configuration structure
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -695,5 +789,22 @@ namespace GopherMcp.Types
     public delegate void McpNotificationCallback(
         IntPtr client,
         IntPtr notification,
+        IntPtr userData);
+    
+    /// <summary>
+    /// Callback for logging messages
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void McpLogCallback(
+        McpLogLevel level,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string message,
+        IntPtr context);
+    
+    /// <summary>
+    /// Callback for process completion
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void McpProcessCallback(
+        McpResult result,
         IntPtr userData);
 }

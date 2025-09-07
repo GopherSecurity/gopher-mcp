@@ -25,6 +25,53 @@ namespace GopherMcp.Manager
         private bool _disposed;
 
         /// <summary>
+        /// Initializes a new instance of the FilterManager class with default configuration.
+        /// </summary>
+        public FilterManager() : this(new FilterManagerConfig())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the FilterManager class with specified configuration.
+        /// </summary>
+        /// <param name="config">The manager configuration.</param>
+        public FilterManager(FilterManagerConfig? config)
+        {
+            _config = config ?? new FilterManagerConfig();
+            _filterRegistry = new Dictionary<Guid, Filter>();
+            _chains = new List<FilterChain>();
+            _registryLock = new ReaderWriterLockSlim();
+            _chainsLock = new ReaderWriterLockSlim();
+            _callbackManager = new CallbackManager();
+
+            // Create native manager handle via P/Invoke
+            var handle = McpFilterApi.mcp_filter_manager_create(
+                _config.Name,
+                _config.MaxConcurrency,
+                _config.EnableStatistics ? McpBool.True : McpBool.False
+            );
+
+            if (handle == 0)
+            {
+                throw new McpException("Failed to create native filter manager");
+            }
+
+            _handle = McpManagerHandle.FromULong(handle);
+
+            // Set up logging if configured
+            if (_config.EnableLogging)
+            {
+                ConfigureLogging();
+            }
+
+            // Initialize default filters if configured
+            if (_config.EnableDefaultFilters)
+            {
+                InitializeDefaultFilters();
+            }
+        }
+
+        /// <summary>
         /// Gets the manager configuration.
         /// </summary>
         public FilterManagerConfig Configuration => _config;
@@ -424,6 +471,52 @@ namespace GopherMcp.Manager
         protected virtual void OnProcessingError(ProcessingErrorEventArgs e)
         {
             ProcessingError?.Invoke(this, e);
+        }
+
+        /// <summary>
+        /// Configures logging for the manager.
+        /// </summary>
+        private void ConfigureLogging()
+        {
+            // Set log level via P/Invoke
+            McpFilterApi.mcp_filter_manager_set_log_level(
+                _handle.DangerousGetHandle().ToUInt64(),
+                _config.LogLevel
+            );
+
+            // Register log callback if needed
+            if (_config.LogLevel != McpLogLevel.None)
+            {
+                var logCallback = new McpLogCallback((level, message, context) =>
+                {
+                    // Forward to .NET logging system
+                    Console.WriteLine($"[{level}] {message}");
+                });
+
+                _callbackManager.RegisterCallback("log", logCallback);
+                
+                McpFilterApi.mcp_filter_manager_set_log_callback(
+                    _handle.DangerousGetHandle().ToUInt64(),
+                    logCallback,
+                    IntPtr.Zero
+                );
+            }
+        }
+
+        /// <summary>
+        /// Initializes default filters based on configuration.
+        /// </summary>
+        private void InitializeDefaultFilters()
+        {
+            // Create and register default filters
+            // This would typically include:
+            // - Validation filter
+            // - Logging filter
+            // - Metrics filter
+            // - Error handling filter
+            
+            // For now, this is a placeholder for future implementation
+            // when we have specific filter implementations
         }
     }
 

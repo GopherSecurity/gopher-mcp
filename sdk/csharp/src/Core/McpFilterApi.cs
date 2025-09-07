@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using GopherMcp.Types;
 
 namespace GopherMcp.Core
 {
@@ -106,6 +107,23 @@ namespace GopherMcp.Core
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_manager_release(ulong manager);
+        
+        /// <summary>
+        /// Set log level for filter manager
+        /// </summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mcp_filter_manager_set_log_level(
+            ulong manager,
+            McpLogLevel level);
+        
+        /// <summary>
+        /// Set log callback for filter manager
+        /// </summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mcp_filter_manager_set_log_callback(
+            ulong manager,
+            McpLogCallback callback,
+            IntPtr context);
         
         // ============================================================================
         // Statistics and Monitoring
