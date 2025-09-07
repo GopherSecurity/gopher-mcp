@@ -150,8 +150,94 @@ namespace GopherMcp.Transport
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
-            // Implementation will be added in prompt #72
-            await Task.CompletedTask;
+            ThrowIfDisposed();
+
+            await _stateLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (State == ConnectionState.Connected || State == ConnectionState.Connecting)
+                {
+                    return; // Already connected or connecting
+                }
+
+                State = ConnectionState.Connecting;
+            }
+            finally
+            {
+                _stateLock.Release();
+            }
+
+            try
+            {
+                // Connect via selected protocol
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                connectCts.CancelAfter(_config.ConnectTimeout);
+
+                if (_protocolTransport == null)
+                {
+                    throw new InvalidOperationException("Protocol transport not initialized");
+                }
+
+                await _protocolTransport.ConnectAsync(connectCts.Token);
+
+                // Start receive loop task
+                _receiveLoopTask = Task.Run(async () => await ReceiveLoop(), _shutdownTokenSource.Token);
+
+                // Start send loop task
+                _sendLoopTask = Task.Run(async () => await SendLoop(), _shutdownTokenSource.Token);
+
+                // Initialize connection state
+                await _stateLock.WaitAsync(cancellationToken);
+                try
+                {
+                    State = ConnectionState.Connected;
+                }
+                finally
+                {
+                    _stateLock.Release();
+                }
+
+                // Raise Connected event
+                OnConnectionStateChanged(ConnectionState.Connected, ConnectionState.Connecting);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await HandleConnectionFailureAsync("Connection cancelled");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await HandleConnectionFailureAsync($"Connection failed: {ex.Message}");
+                OnError(ex, "Failed to start transport");
+                throw new InvalidOperationException("Failed to start transport", ex);
+            }
+        }
+
+        private async Task HandleConnectionFailureAsync(string reason)
+        {
+            await _stateLock.WaitAsync();
+            try
+            {
+                State = ConnectionState.Failed;
+                OnConnectionStateChanged(ConnectionState.Failed, ConnectionState.Connecting);
+            }
+            finally
+            {
+                _stateLock.Release();
+            }
+
+            // Clean up any partial connection
+            try
+            {
+                if (_protocolTransport?.IsConnected == true)
+                {
+                    await _protocolTransport.DisconnectAsync(CancellationToken.None);
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
