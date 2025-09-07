@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -580,9 +582,169 @@ namespace GopherMcp.Transport
 
         private async Task ReceiveLoop()
         {
-            // Implementation will be added in prompt #75
-            await Task.CompletedTask;
+            while (!_shutdownTokenSource.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    // Continuous receive from protocol
+                    if (_protocolTransport == null || !_protocolTransport.IsConnected)
+                    {
+                        await Task.Delay(100, _shutdownTokenSource.Token);
+                        continue;
+                    }
+
+                    // Receive message from protocol transport with timeout
+                    using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownTokenSource.Token);
+                    receiveCts.CancelAfter(_config.ReceiveTimeout);
+
+                    JsonRpcMessage receivedMessage;
+                    try
+                    {
+                        receivedMessage = await _protocolTransport.ReceiveAsync(receiveCts.Token);
+                    }
+                    catch (OperationCanceledException) when (receiveCts.IsCancellationRequested && !_shutdownTokenSource.Token.IsCancellationRequested)
+                    {
+                        // Receive timeout - continue loop
+                        continue;
+                    }
+
+                    if (receivedMessage == null)
+                    {
+                        // Null message might indicate disconnection
+                        await HandleDisconnectionAsync("Null message received");
+                        break;
+                    }
+
+                    // Process through FilterManager if configured
+                    JsonRpcMessage messageToDeliver = receivedMessage;
+                    
+                    if (_filterManager != null)
+                    {
+                        var messageBytes = SerializeMessage(receivedMessage);
+                        var context = new Types.ProcessingContext
+                        {
+                            Direction = Types.ProcessingDirection.Inbound
+                        };
+
+                        // Store message metadata in context
+                        context.SetProperty("MessageId", receivedMessage.Id);
+                        context.SetProperty("Method", receivedMessage.Method);
+                        context.SetProperty("IsRequest", receivedMessage.IsRequest);
+                        context.SetProperty("IsNotification", receivedMessage.IsNotification);
+                        context.SetProperty("IsResponse", receivedMessage.IsResponse);
+
+                        try
+                        {
+                            var result = await _filterManager.ProcessAsync(messageBytes, context, _shutdownTokenSource.Token);
+                            
+                            if (!result.IsSuccess)
+                            {
+                                OnError(new InvalidOperationException($"Filter processing failed: {result.ErrorMessage}"), "Receive filter error");
+                                continue; // Skip this message
+                            }
+
+                            // Deserialize filtered message
+                            messageToDeliver = DeserializeMessage(result.Data);
+                        }
+                        catch (Exception ex)
+                        {
+                            OnError(ex, "Error processing received message through filters");
+                            continue; // Skip this message
+                        }
+                    }
+
+                    // Add to receive queue
+                    await _receiveQueue.Writer.WriteAsync(messageToDeliver, _shutdownTokenSource.Token);
+
+                    // Raise MessageReceived event
+                    OnMessageReceived(messageToDeliver);
+
+                    // Update statistics
+                    UpdateReceiveStatistics(messageToDeliver);
+                }
+                catch (OperationCanceledException) when (_shutdownTokenSource.Token.IsCancellationRequested)
+                {
+                    // Normal shutdown
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    OnError(ex, "Receive loop error");
+
+                    // Check if this is a fatal error that requires disconnection
+                    if (IsFatalError(ex))
+                    {
+                        await HandleDisconnectionAsync($"Fatal error in receive loop: {ex.Message}");
+                        break;
+                    }
+
+                    // Non-fatal error - continue after a short delay
+                    try
+                    {
+                        await Task.Delay(100, _shutdownTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            // Mark receive queue as completed
+            _receiveQueue.Writer.TryComplete();
         }
+
+        private async Task HandleDisconnectionAsync(string reason)
+        {
+            await _stateLock.WaitAsync();
+            try
+            {
+                if (State == ConnectionState.Connected)
+                {
+                    State = ConnectionState.Disconnected;
+                    OnConnectionStateChanged(ConnectionState.Disconnected, ConnectionState.Connected);
+                }
+            }
+            finally
+            {
+                _stateLock.Release();
+            }
+
+            // Cancel shutdown to stop all loops
+            _shutdownTokenSource.Cancel();
+        }
+
+        private bool IsFatalError(Exception ex)
+        {
+            // Determine if the error is fatal and requires disconnection
+            return ex is IOException ||
+                   ex is InvalidOperationException ||
+                   ex is ObjectDisposedException ||
+                   ex.InnerException is IOException ||
+                   ex.InnerException is ObjectDisposedException;
+        }
+
+        private void UpdateReceiveStatistics(JsonRpcMessage message)
+        {
+            // Update internal statistics
+            if (message.IsRequest)
+            {
+                Interlocked.Increment(ref _totalRequestsReceived);
+            }
+            else if (message.IsNotification)
+            {
+                Interlocked.Increment(ref _totalNotificationsReceived);
+            }
+            else if (message.IsResponse)
+            {
+                Interlocked.Increment(ref _totalResponsesReceived);
+            }
+        }
+
+        // Additional statistics fields
+        private long _totalRequestsReceived;
+        private long _totalNotificationsReceived;
+        private long _totalResponsesReceived;
 
         private async Task SendLoop()
         {
