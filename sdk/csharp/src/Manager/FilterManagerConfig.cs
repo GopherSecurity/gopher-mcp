@@ -516,7 +516,326 @@ namespace GopherMcp.Manager
             Tls12,
             Tls13
         }
-        public class ObservabilityConfig { public static ObservabilityConfig Default => new(); public ObservabilityConfig Merge(ObservabilityConfig other) => this; }
+        /// <summary>
+        /// Observability configuration settings.
+        /// </summary>
+        public class ObservabilityConfig
+        {
+            /// <summary>
+            /// Gets or sets the access log configuration.
+            /// </summary>
+            [JsonPropertyName("accessLog")]
+            public AccessLogConfig AccessLog { get; set; } = new();
+
+            /// <summary>
+            /// Gets or sets the metrics configuration.
+            /// </summary>
+            [JsonPropertyName("metrics")]
+            public MetricsConfig Metrics { get; set; } = new();
+
+            /// <summary>
+            /// Gets or sets the tracing configuration.
+            /// </summary>
+            [JsonPropertyName("tracing")]
+            public TracingConfig Tracing { get; set; } = new();
+
+            /// <summary>
+            /// Gets the default observability configuration.
+            /// </summary>
+            public static ObservabilityConfig Default => new()
+            {
+                AccessLog = new AccessLogConfig
+                {
+                    Enabled = false,
+                    Format = LogFormat.Json,
+                    IncludeHeaders = false,
+                    IncludeBody = false
+                },
+                Metrics = new MetricsConfig
+                {
+                    Enabled = true,
+                    CollectSystemMetrics = true,
+                    CollectProcessMetrics = true,
+                    ExportInterval = TimeSpan.FromMinutes(1)
+                },
+                Tracing = new TracingConfig
+                {
+                    Enabled = false,
+                    SamplingRate = 0.1,
+                    PropagateContext = true
+                }
+            };
+
+            /// <summary>
+            /// Merges this configuration with another.
+            /// </summary>
+            public ObservabilityConfig Merge(ObservabilityConfig other)
+            {
+                if (other == null) return this;
+                
+                return new ObservabilityConfig
+                {
+                    AccessLog = AccessLog?.Merge(other.AccessLog) ?? other.AccessLog,
+                    Metrics = Metrics?.Merge(other.Metrics) ?? other.Metrics,
+                    Tracing = Tracing?.Merge(other.Tracing) ?? other.Tracing
+                };
+            }
+
+            /// <summary>
+            /// Access log configuration.
+            /// </summary>
+            public class AccessLogConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; }
+
+                [JsonPropertyName("format")]
+                [JsonConverter(typeof(JsonStringEnumConverter))]
+                public LogFormat Format { get; set; } = LogFormat.Json;
+
+                [JsonPropertyName("outputPath")]
+                public string OutputPath { get; set; } = "logs/access.log";
+
+                [JsonPropertyName("rotationSize")]
+                public long RotationSize { get; set; } = 100 * 1024 * 1024; // 100MB
+
+                [JsonPropertyName("rotationInterval")]
+                [JsonConverter(typeof(TimeSpanJsonConverter))]
+                public TimeSpan RotationInterval { get; set; } = TimeSpan.FromDays(1);
+
+                [JsonPropertyName("retentionDays")]
+                public int RetentionDays { get; set; } = 30;
+
+                [JsonPropertyName("includeHeaders")]
+                public bool IncludeHeaders { get; set; }
+
+                [JsonPropertyName("includeBody")]
+                public bool IncludeBody { get; set; }
+
+                [JsonPropertyName("includeTiming")]
+                public bool IncludeTiming { get; set; } = true;
+
+                [JsonPropertyName("excludePaths")]
+                public List<string> ExcludePaths { get; set; } = new() { "/health", "/metrics" };
+
+                [JsonPropertyName("sanitizeHeaders")]
+                public List<string> SanitizeHeaders { get; set; } = new() { "Authorization", "Cookie", "X-Api-Key" };
+
+                public AccessLogConfig Merge(AccessLogConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    return new AccessLogConfig
+                    {
+                        Enabled = other.Enabled,
+                        Format = other.Format != LogFormat.Json ? other.Format : Format,
+                        OutputPath = !string.IsNullOrEmpty(other.OutputPath) ? other.OutputPath : OutputPath,
+                        RotationSize = other.RotationSize > 0 ? other.RotationSize : RotationSize,
+                        RotationInterval = other.RotationInterval > TimeSpan.Zero ? other.RotationInterval : RotationInterval,
+                        RetentionDays = other.RetentionDays > 0 ? other.RetentionDays : RetentionDays,
+                        IncludeHeaders = other.IncludeHeaders,
+                        IncludeBody = other.IncludeBody,
+                        IncludeTiming = other.IncludeTiming,
+                        ExcludePaths = other.ExcludePaths?.Count > 0 ? new List<string>(other.ExcludePaths) : new List<string>(ExcludePaths),
+                        SanitizeHeaders = other.SanitizeHeaders?.Count > 0 ? new List<string>(other.SanitizeHeaders) : new List<string>(SanitizeHeaders)
+                    };
+                }
+            }
+
+            /// <summary>
+            /// Metrics configuration.
+            /// </summary>
+            public class MetricsConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; } = true;
+
+                [JsonPropertyName("endpoint")]
+                public string Endpoint { get; set; } = "/metrics";
+
+                [JsonPropertyName("exportFormat")]
+                [JsonConverter(typeof(JsonStringEnumConverter))]
+                public MetricsFormat ExportFormat { get; set; } = MetricsFormat.Prometheus;
+
+                [JsonPropertyName("exportInterval")]
+                [JsonConverter(typeof(TimeSpanJsonConverter))]
+                public TimeSpan ExportInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+                [JsonPropertyName("collectSystemMetrics")]
+                public bool CollectSystemMetrics { get; set; } = true;
+
+                [JsonPropertyName("collectProcessMetrics")]
+                public bool CollectProcessMetrics { get; set; } = true;
+
+                [JsonPropertyName("collectFilterMetrics")]
+                public bool CollectFilterMetrics { get; set; } = true;
+
+                [JsonPropertyName("collectChainMetrics")]
+                public bool CollectChainMetrics { get; set; } = true;
+
+                [JsonPropertyName("histogramBuckets")]
+                public List<double> HistogramBuckets { get; set; } = new() { 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 };
+
+                [JsonPropertyName("customMetrics")]
+                public Dictionary<string, MetricDefinition> CustomMetrics { get; set; } = new();
+
+                public MetricsConfig Merge(MetricsConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    var merged = new MetricsConfig
+                    {
+                        Enabled = other.Enabled,
+                        Endpoint = !string.IsNullOrEmpty(other.Endpoint) ? other.Endpoint : Endpoint,
+                        ExportFormat = other.ExportFormat != MetricsFormat.Prometheus ? other.ExportFormat : ExportFormat,
+                        ExportInterval = other.ExportInterval > TimeSpan.Zero ? other.ExportInterval : ExportInterval,
+                        CollectSystemMetrics = other.CollectSystemMetrics,
+                        CollectProcessMetrics = other.CollectProcessMetrics,
+                        CollectFilterMetrics = other.CollectFilterMetrics,
+                        CollectChainMetrics = other.CollectChainMetrics,
+                        HistogramBuckets = other.HistogramBuckets?.Count > 0 ? new List<double>(other.HistogramBuckets) : new List<double>(HistogramBuckets),
+                        CustomMetrics = new Dictionary<string, MetricDefinition>(CustomMetrics)
+                    };
+
+                    // Merge custom metrics
+                    foreach (var metric in other.CustomMetrics)
+                    {
+                        merged.CustomMetrics[metric.Key] = metric.Value;
+                    }
+
+                    return merged;
+                }
+
+                public class MetricDefinition
+                {
+                    [JsonPropertyName("name")]
+                    public string Name { get; set; } = "";
+
+                    [JsonPropertyName("type")]
+                    [JsonConverter(typeof(JsonStringEnumConverter))]
+                    public MetricType Type { get; set; } = MetricType.Counter;
+
+                    [JsonPropertyName("description")]
+                    public string Description { get; set; } = "";
+
+                    [JsonPropertyName("unit")]
+                    public string Unit { get; set; } = "";
+
+                    [JsonPropertyName("labels")]
+                    public List<string> Labels { get; set; } = new();
+                }
+            }
+
+            /// <summary>
+            /// Tracing configuration.
+            /// </summary>
+            public class TracingConfig
+            {
+                [JsonPropertyName("enabled")]
+                public bool Enabled { get; set; }
+
+                [JsonPropertyName("serviceName")]
+                public string ServiceName { get; set; } = "mcp-filter-manager";
+
+                [JsonPropertyName("endpoint")]
+                public string Endpoint { get; set; } = "http://localhost:4317";
+
+                [JsonPropertyName("protocol")]
+                [JsonConverter(typeof(JsonStringEnumConverter))]
+                public TracingProtocol Protocol { get; set; } = TracingProtocol.Otlp;
+
+                [JsonPropertyName("samplingRate")]
+                public double SamplingRate { get; set; } = 0.1;
+
+                [JsonPropertyName("propagateContext")]
+                public bool PropagateContext { get; set; } = true;
+
+                [JsonPropertyName("exportBatchSize")]
+                public int ExportBatchSize { get; set; } = 512;
+
+                [JsonPropertyName("exportTimeout")]
+                [JsonConverter(typeof(TimeSpanJsonConverter))]
+                public TimeSpan ExportTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+                [JsonPropertyName("resourceAttributes")]
+                public Dictionary<string, string> ResourceAttributes { get; set; } = new();
+
+                [JsonPropertyName("excludeOperations")]
+                public List<string> ExcludeOperations { get; set; } = new();
+
+                public TracingConfig Merge(TracingConfig other)
+                {
+                    if (other == null) return this;
+                    
+                    var merged = new TracingConfig
+                    {
+                        Enabled = other.Enabled,
+                        ServiceName = !string.IsNullOrEmpty(other.ServiceName) ? other.ServiceName : ServiceName,
+                        Endpoint = !string.IsNullOrEmpty(other.Endpoint) ? other.Endpoint : Endpoint,
+                        Protocol = other.Protocol != TracingProtocol.Otlp ? other.Protocol : Protocol,
+                        SamplingRate = other.SamplingRate > 0 ? other.SamplingRate : SamplingRate,
+                        PropagateContext = other.PropagateContext,
+                        ExportBatchSize = other.ExportBatchSize > 0 ? other.ExportBatchSize : ExportBatchSize,
+                        ExportTimeout = other.ExportTimeout > TimeSpan.Zero ? other.ExportTimeout : ExportTimeout,
+                        ResourceAttributes = new Dictionary<string, string>(ResourceAttributes),
+                        ExcludeOperations = other.ExcludeOperations?.Count > 0 ? new List<string>(other.ExcludeOperations) : new List<string>(ExcludeOperations)
+                    };
+
+                    // Merge resource attributes
+                    foreach (var attr in other.ResourceAttributes)
+                    {
+                        merged.ResourceAttributes[attr.Key] = attr.Value;
+                    }
+
+                    return merged;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Log format enumeration.
+        /// </summary>
+        public enum LogFormat
+        {
+            Text,
+            Json,
+            Csv,
+            Common,
+            Combined
+        }
+
+        /// <summary>
+        /// Metrics format enumeration.
+        /// </summary>
+        public enum MetricsFormat
+        {
+            Prometheus,
+            OpenTelemetry,
+            StatsD,
+            Json
+        }
+
+        /// <summary>
+        /// Metric type enumeration.
+        /// </summary>
+        public enum MetricType
+        {
+            Counter,
+            Gauge,
+            Histogram,
+            Summary
+        }
+
+        /// <summary>
+        /// Tracing protocol enumeration.
+        /// </summary>
+        public enum TracingProtocol
+        {
+            Otlp,
+            Jaeger,
+            Zipkin,
+            XRay
+        }
         public class TrafficManagementConfig { public static TrafficManagementConfig Default => new(); public TrafficManagementConfig Merge(TrafficManagementConfig other) => this; }
         public class HttpConfig { public static HttpConfig Default => new(); public HttpConfig Merge(HttpConfig other) => this; }
         public class NetworkConfig { public static NetworkConfig Default => new(); public NetworkConfig Merge(NetworkConfig other) => this; }
