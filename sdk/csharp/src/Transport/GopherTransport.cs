@@ -392,9 +392,159 @@ namespace GopherMcp.Transport
 
         public async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
-            // Implementation will be added in prompt #74
-            await Task.CompletedTask;
+            ThrowIfDisposed();
+            ThrowIfNotConnected();
+
+            if (message == null)
+            {
+                throw new ArgumentNullException(nameof(message));
+            }
+
+            // Validate message
+            ValidateMessage(message);
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _shutdownTokenSource.Token);
+
+            try
+            {
+                // Process message through FilterManager if configured
+                JsonRpcMessage messageToSend = message;
+                
+                if (_filterManager != null)
+                {
+                    var messageBytes = SerializeMessage(message);
+                    var context = new Types.ProcessingContext
+                    {
+                        Direction = Types.ProcessingDirection.Outbound
+                    };
+                    
+                    // Store message metadata in context
+                    context.SetProperty("MessageId", message.Id);
+                    context.SetProperty("Method", message.Method);
+                    context.SetProperty("IsRequest", message.IsRequest);
+                    context.SetProperty("IsNotification", message.IsNotification);
+                    context.SetProperty("IsResponse", message.IsResponse);
+
+                    var result = await _filterManager.ProcessAsync(messageBytes, context, linkedCts.Token);
+                    
+                    if (!result.IsSuccess)
+                    {
+                        throw new InvalidOperationException($"Filter processing failed: {result.ErrorMessage}");
+                    }
+
+                    // Deserialize filtered message
+                    messageToSend = DeserializeMessage(result.Data);
+                }
+
+                // Add to send queue
+                await _sendQueue.Writer.WriteAsync(messageToSend, linkedCts.Token);
+
+                // Update statistics
+                UpdateSendStatistics(messageToSend);
+            }
+            catch (OperationCanceledException) when (_shutdownTokenSource.Token.IsCancellationRequested)
+            {
+                throw new ObjectDisposedException(nameof(GopherTransport), "Transport is shutting down");
+            }
+            catch (Exception ex)
+            {
+                OnError(ex, "Error sending message");
+                throw;
+            }
         }
+
+        private void ValidateMessage(JsonRpcMessage message)
+        {
+            // Validate JSON-RPC version
+            if (string.IsNullOrEmpty(message.JsonRpc))
+            {
+                message.JsonRpc = "2.0";
+            }
+            else if (message.JsonRpc != "2.0")
+            {
+                throw new ArgumentException($"Invalid JSON-RPC version: {message.JsonRpc}", nameof(message));
+            }
+
+            // Validate message type
+            bool hasMethod = !string.IsNullOrEmpty(message.Method);
+            bool hasResult = message.Result != null;
+            bool hasError = message.Error != null;
+
+            if (hasMethod && (hasResult || hasError))
+            {
+                throw new ArgumentException("Request/notification cannot have result or error", nameof(message));
+            }
+
+            if (!hasMethod && !hasResult && !hasError)
+            {
+                throw new ArgumentException("Response must have either result or error", nameof(message));
+            }
+
+            if (hasResult && hasError)
+            {
+                throw new ArgumentException("Response cannot have both result and error", nameof(message));
+            }
+
+            // Validate request
+            if (hasMethod)
+            {
+                if (string.IsNullOrWhiteSpace(message.Method))
+                {
+                    throw new ArgumentException("Method name cannot be empty", nameof(message));
+                }
+
+                if (message.Method.StartsWith("rpc."))
+                {
+                    throw new ArgumentException("Method names starting with 'rpc.' are reserved", nameof(message));
+                }
+            }
+
+            // Validate error
+            if (hasError)
+            {
+                if (string.IsNullOrWhiteSpace(message.Error.Message))
+                {
+                    throw new ArgumentException("Error message cannot be empty", nameof(message));
+                }
+            }
+        }
+
+        private byte[] SerializeMessage(JsonRpcMessage message)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(message);
+            return System.Text.Encoding.UTF8.GetBytes(json);
+        }
+
+        private JsonRpcMessage DeserializeMessage(byte[] data)
+        {
+            var json = System.Text.Encoding.UTF8.GetString(data);
+            return System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json) 
+                ?? throw new InvalidOperationException("Failed to deserialize message");
+        }
+
+        private void UpdateSendStatistics(JsonRpcMessage message)
+        {
+            // Update internal statistics (can be extended as needed)
+            if (message.IsRequest)
+            {
+                Interlocked.Increment(ref _totalRequestsSent);
+            }
+            else if (message.IsNotification)
+            {
+                Interlocked.Increment(ref _totalNotificationsSent);
+            }
+            else if (message.IsResponse)
+            {
+                Interlocked.Increment(ref _totalResponsesSent);
+            }
+        }
+
+        // Statistics fields
+        private long _totalRequestsSent;
+        private long _totalNotificationsSent;
+        private long _totalResponsesSent;
 
         public async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken = default)
         {
