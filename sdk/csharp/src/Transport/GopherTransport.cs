@@ -242,8 +242,152 @@ namespace GopherMcp.Transport
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
-            // Implementation will be added in prompt #73
-            await Task.CompletedTask;
+            ThrowIfDisposed();
+
+            await _stateLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (State == ConnectionState.Disconnected || State == ConnectionState.Disconnecting)
+                {
+                    return; // Already disconnected or disconnecting
+                }
+
+                State = ConnectionState.Disconnecting;
+            }
+            finally
+            {
+                _stateLock.Release();
+            }
+
+            try
+            {
+                // Cancel receive loop
+                _shutdownTokenSource.Cancel();
+
+                // Wait for loops to complete with timeout
+                var loopTasks = new List<Task>();
+                if (_receiveLoopTask != null)
+                {
+                    loopTasks.Add(_receiveLoopTask);
+                }
+                if (_sendLoopTask != null)
+                {
+                    loopTasks.Add(_sendLoopTask);
+                }
+
+                if (loopTasks.Count > 0)
+                {
+                    using var stopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    stopCts.CancelAfter(TimeSpan.FromSeconds(5)); // 5 second timeout for loops to stop
+
+                    try
+                    {
+                        await Task.WhenAll(loopTasks).WaitAsync(stopCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Loops didn't stop in time, but we'll continue with cleanup
+                    }
+                    catch (Exception ex)
+                    {
+                        OnError(ex, "Error stopping message loops");
+                    }
+                }
+
+                // Flush pending messages
+                await FlushPendingMessagesAsync(cancellationToken);
+
+                // Close protocol connection
+                if (_protocolTransport?.IsConnected == true)
+                {
+                    try
+                    {
+                        using var disconnectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        disconnectCts.CancelAfter(TimeSpan.FromSeconds(5));
+                        await _protocolTransport.DisconnectAsync(disconnectCts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        OnError(ex, "Error disconnecting protocol transport");
+                    }
+                }
+
+                // Update state
+                await _stateLock.WaitAsync(cancellationToken);
+                try
+                {
+                    State = ConnectionState.Disconnected;
+                }
+                finally
+                {
+                    _stateLock.Release();
+                }
+
+                // Raise Disconnected event
+                OnConnectionStateChanged(ConnectionState.Disconnected, ConnectionState.Disconnecting);
+            }
+            catch (Exception ex)
+            {
+                OnError(ex, "Error during transport stop");
+                
+                // Force state to disconnected
+                await _stateLock.WaitAsync();
+                try
+                {
+                    State = ConnectionState.Disconnected;
+                }
+                finally
+                {
+                    _stateLock.Release();
+                }
+                
+                throw;
+            }
+            finally
+            {
+                // Cleanup resources
+                CleanupResources();
+            }
+        }
+
+        private async Task FlushPendingMessagesAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Try to send any remaining messages in the send queue
+                while (_sendQueue.Reader.TryRead(out var message))
+                {
+                    if (_protocolTransport?.IsConnected == true)
+                    {
+                        try
+                        {
+                            using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                            sendCts.CancelAfter(TimeSpan.FromSeconds(1));
+                            await _protocolTransport.SendAsync(message, sendCts.Token);
+                        }
+                        catch
+                        {
+                            // Best effort - ignore failures during flush
+                        }
+                    }
+                }
+
+                // Clear receive queue
+                while (_receiveQueue.Reader.TryRead(out _))
+                {
+                    // Just drain the queue
+                }
+            }
+            catch (Exception ex)
+            {
+                OnError(ex, "Error flushing pending messages");
+            }
+        }
+
+        private void CleanupResources()
+        {
+            _receiveLoopTask = null;
+            _sendLoopTask = null;
         }
 
         public async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
