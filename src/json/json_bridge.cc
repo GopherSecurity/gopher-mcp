@@ -95,6 +95,14 @@ bool JsonValue::isString() const { return impl_->json_.is_string(); }
 bool JsonValue::isArray() const { return impl_->json_.is_array(); }
 bool JsonValue::isObject() const { return impl_->json_.is_object(); }
 
+bool JsonValue::empty() const {
+  if (isNull()) return true;
+  if (isString()) return impl_->json_.get<std::string>().empty();
+  if (isArray() || isObject()) return impl_->json_.empty();
+  // Numbers and booleans are not considered empty
+  return false;
+}
+
 // Value getters
 bool JsonValue::getBool() const {
   if (!isBoolean()) {
