@@ -5,27 +5,10 @@
 
 #include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/config/config_validator.h"
+#include "mcp/config/config_merger.h"
 
-// Forward declarations for merger and validator
-namespace mcp {
-namespace config {
-
-class ConfigMerger;
-std::unique_ptr<ConfigMerger> createConfigMerger();
-
-class Validator;
-class RangeValidator;
-class CompositeValidator;
-
-std::unique_ptr<Validator> createSchemaValidator(
-    const std::string& name,
-    const mcp::json::JsonValue& schema);
-std::unique_ptr<RangeValidator> createRangeValidator(const std::string& name);
-std::unique_ptr<CompositeValidator> createCompositeValidator(
-    const std::string& name);
-
-}  // namespace config
-}  // namespace mcp
+// validator interfaces are provided by config_validator.h
 
 namespace mcp {
 namespace config {

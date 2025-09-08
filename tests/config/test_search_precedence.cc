@@ -34,6 +34,8 @@ class TestLogSink : public LogSink {
 
   void flush() override {}
 
+  SinkType type() const override { return SinkType::External; }
+
   bool hasMessage(const std::string& content, LogLevel level = LogLevel::Info) {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& msg : messages_) {
@@ -81,12 +83,12 @@ class SearchPrecedenceTest : public ::testing::Test {
     
     // Set up test logging sink
     test_sink_ = std::make_shared<logging::TestLogSink>();
-    auto& registry = logging::LoggerRegistry::getInstance();
-    auto logger = registry.getLogger("config.search");
+    auto& registry = logging::LoggerRegistry::instance();
+    auto logger = registry.getOrCreateLogger("config.search");
     logger->setSink(test_sink_);
     logger->setLevel(logging::LogLevel::Debug);
     
-    auto file_logger = registry.getLogger("config.file");
+    auto file_logger = registry.getOrCreateLogger("config.file");
     file_logger->setSink(test_sink_);
     file_logger->setLevel(logging::LogLevel::Debug);
   }
@@ -176,7 +178,7 @@ TEST_F(SearchPrecedenceTest, PrecedenceOrderCLI) {
   auto source = createFileConfigSource("test", 1, test_dir_ + "/cli.json");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["source"], "cli");
+  EXPECT_EQ(std::string("cli"), config["source"].getString());
   EXPECT_TRUE(test_sink_->hasMessage("CLI override detected", logging::LogLevel::Info));
   EXPECT_TRUE(test_sink_->hasMessage("Configuration source won: CLI", logging::LogLevel::Info));
 }
@@ -199,7 +201,7 @@ TEST_F(SearchPrecedenceTest, PrecedenceOrderENV) {
   auto source = createFileConfigSource("test", 1, "");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["source"], "env");
+  EXPECT_EQ(std::string("env"), config["source"].getString());
   EXPECT_TRUE(test_sink_->hasMessage("Environment override detected", logging::LogLevel::Info));
   EXPECT_TRUE(test_sink_->hasMessage("Configuration source won: MCP_CONFIG", logging::LogLevel::Info));
 }
@@ -220,7 +222,7 @@ TEST_F(SearchPrecedenceTest, PrecedenceOrderLocal) {
   auto source = createFileConfigSource("test", 1, "");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["source"], "local");
+  EXPECT_EQ(std::string("local"), config["source"].getString());
   EXPECT_TRUE(test_sink_->hasMessage("Configuration source won: local directory", logging::LogLevel::Info));
 }
 
@@ -252,10 +254,10 @@ TEST_F(SearchPrecedenceTest, ConfigDOverlayOrder) {
   auto config = source->loadConfiguration();
   
   // Check that overlays were applied in order
-  EXPECT_EQ(config["server"]["port"], 9092);  // Last overlay wins
-  EXPECT_EQ(config["feature1"], true);
-  EXPECT_EQ(config["feature2"], true);
-  EXPECT_EQ(config["feature3"], true);
+  EXPECT_EQ(9092, config["server"]["port"].getInt());  // Last overlay wins
+  EXPECT_TRUE(config["feature1"].getBool());
+  EXPECT_TRUE(config["feature2"].getBool());
+  EXPECT_TRUE(config["feature3"].getBool());
   
   // Check logs for overlay processing
   EXPECT_TRUE(test_sink_->hasMessage("Scanning config.d directory", logging::LogLevel::Info));
@@ -288,7 +290,7 @@ TEST_F(SearchPrecedenceTest, IncludeResolutionSecurity) {
   try {
     auto config = source->loadConfiguration();
     // Relative include should work
-    EXPECT_EQ(config["relative"], "loaded");
+    EXPECT_EQ(std::string("loaded"), config["relative"].getString());
   } catch (const std::exception& e) {
     // Expected if absolute path is not in allowed roots
     std::string error = e.what();
