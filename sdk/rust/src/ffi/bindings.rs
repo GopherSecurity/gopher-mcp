@@ -10,6 +10,7 @@ use std::os::raw::{c_int, c_void};
 use std::sync::Arc;
 
 /// FFI bindings that use the real C++ library
+#[derive(Debug)]
 pub struct FfiBindings {
     loader: Arc<EnhancedLibraryLoader>,
 }
