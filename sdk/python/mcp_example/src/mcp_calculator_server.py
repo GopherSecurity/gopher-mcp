@@ -335,8 +335,50 @@ class CalculatorServer:
                     retry_attempts=3,
                     fallback_behavior=FallbackBehavior.PASSTHROUGH
                 )
-            )
+            ),
+            
+            # CApiFilter integration
+            custom_callbacks=self._create_custom_callbacks()
         )
+    
+    def _create_custom_callbacks(self) -> Dict[str, Any]:
+        """Create custom callbacks for CApiFilter integration."""
+        def on_message_received(buf, end_stream, user_data):
+            """Callback for when a message is received."""
+            print(f"🔍 [CApiFilter DEBUG] onMessageReceived callback called! Buffer: {buf}, EndStream: {end_stream}")
+            return 0  # MCP_FILTER_CONTINUE
+        
+        def on_message_sent(buf, end_stream, user_data):
+            """Callback for when a message is sent."""
+            print(f"🔍 [CApiFilter DEBUG] onMessageSent callback called! Buffer: {buf}, EndStream: {end_stream}")
+            return 0  # MCP_FILTER_CONTINUE
+        
+        def on_connection_established(user_data, fd):
+            """Callback for when a connection is established."""
+            print(f"🔍 [CApiFilter DEBUG] onConnectionEstablished callback called! FD: {fd}")
+        
+        def on_high_watermark(user_data):
+            """Callback for high watermark."""
+            print(f"🔍 [CApiFilter DEBUG] onHighWatermark callback called!")
+        
+        def on_low_watermark(user_data):
+            """Callback for low watermark."""
+            print(f"🔍 [CApiFilter DEBUG] onLowWatermark callback called!")
+        
+        def on_error(user_data, code, msg):
+            """Callback for errors."""
+            message = msg.value.decode('utf-8') if msg else "Unknown error"
+            print(f"🔍 [CApiFilter DEBUG] onError callback called! Code: {code}, Message: {message}")
+        
+        return {
+            "on_data": on_message_received,
+            "on_write": on_message_sent,
+            "on_new_connection": on_connection_established,
+            "on_high_watermark": on_high_watermark,
+            "on_low_watermark": on_low_watermark,
+            "on_error": on_error,
+            "user_data": None,
+        }
     
     async def stop(self):
         """Stop the calculator server."""
