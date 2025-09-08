@@ -1148,6 +1148,8 @@ target_link_libraries(test_file_config_source
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_file_config_source_enhanced
@@ -1156,6 +1158,8 @@ target_link_libraries(test_file_config_source_enhanced
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_file_source_interface
@@ -1164,6 +1168,8 @@ target_link_libraries(test_file_source_interface
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_file_source_yaml_env_includes
@@ -1180,6 +1186,8 @@ target_link_libraries(test_merge_and_validate
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_search_precedence
@@ -1188,6 +1196,8 @@ target_link_libraries(test_search_precedence
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_units
@@ -1196,6 +1206,8 @@ target_link_libraries(test_units
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 target_link_libraries(test_merge_semantics
@@ -1204,6 +1216,8 @@ target_link_libraries(test_merge_semantics
     gtest_main
     Threads::Threads
     nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
 )
 
 # Link logging test libraries
@@ -1273,4 +1287,3 @@ add_test(NAME test_log_level COMMAND test_log_level)
 add_test(NAME test_log_sink COMMAND test_log_sink)
 add_test(NAME test_logger COMMAND test_logger)
 add_test(NAME test_logger_registry COMMAND test_logger_registry)
-
