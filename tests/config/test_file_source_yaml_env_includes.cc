@@ -127,12 +127,12 @@ features:
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.yaml");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["server"]["host"], "localhost");
-  EXPECT_EQ(config["server"]["port"], 8080);
-  EXPECT_EQ(config["server"]["ssl"]["enabled"], true);
-  EXPECT_EQ(config["database"]["connections"], 10);
-  EXPECT_EQ(config["features"][0], "auth");
-  EXPECT_EQ(config["features"][2], "metrics");
+  EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
+  EXPECT_EQ(8080, config["server"]["port"].getInt());
+  EXPECT_TRUE(config["server"]["ssl"]["enabled"].getBool());
+  EXPECT_EQ(10, config["database"]["connections"].getInt());
+  EXPECT_EQ(std::string("auth"), config["features"][0].getString());
+  EXPECT_EQ(std::string("metrics"), config["features"][2].getString());
 }
 
 TEST_F(FileSourceCompleteTest, InvalidYamlParsing) {
@@ -201,11 +201,12 @@ TEST_F(FileSourceCompleteTest, EnvironmentSubstitution) {
     auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
     auto config = source->loadConfiguration();
     
-    EXPECT_EQ(config["server"]["host"], "production.example.com");
-    EXPECT_EQ(config["server"]["port"], "9090");
-    EXPECT_EQ(config["server"]["mode"], "production");
-    EXPECT_EQ(config["database"]["url"], 
-              "postgres://dbadmin:secret@localhost/mydb");
+    EXPECT_EQ(std::string("production.example.com"),
+              config["server"]["host"].getString());
+    EXPECT_EQ(std::string("9090"), config["server"]["port"].getString());
+    EXPECT_EQ(std::string("production"), config["server"]["mode"].getString());
+    EXPECT_EQ(std::string("postgres://dbadmin:secret@localhost/mydb"),
+              config["database"]["url"].getString());
   }
 }
 
@@ -246,12 +247,12 @@ features:
   auto config = source->loadConfiguration();
   
   // Check merged configuration
-  EXPECT_EQ(config["app"], "myapp");
-  EXPECT_EQ(config["server"]["host"], "localhost");
-  EXPECT_EQ(config["server"]["port"], 9090);  // Overridden
-  EXPECT_EQ(config["server"]["ssl_enabled"], true);  // Added
-  EXPECT_EQ(config["database"]["pool_size"], 20);  // Overridden
-  EXPECT_EQ(config["features"]["new_feature"], "enabled");
+  EXPECT_EQ(std::string("myapp"), config["app"].getString());
+  EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
+  EXPECT_EQ(9090, config["server"]["port"].getInt());  // Overridden
+  EXPECT_TRUE(config["server"]["ssl_enabled"].getBool());  // Added
+  EXPECT_EQ(20, config["database"]["pool_size"].getInt());  // Overridden
+  EXPECT_EQ(std::string("enabled"), config["features"]["new_feature"].getString());
 }
 
 // Test circular include detection
@@ -347,14 +348,14 @@ feature2: enabled
   auto config = source->loadConfiguration();
   
   // Check that overlays were applied in order
-  EXPECT_EQ(config["app"], "myapp");
-  EXPECT_EQ(config["server"]["host"], "localhost");
-  EXPECT_EQ(config["server"]["port"], 9092);  // Last overlay wins
-  EXPECT_EQ(config["server"]["ssl"], true);
-  EXPECT_EQ(config["server"]["workers"], 4);
-  EXPECT_EQ(config["feature1"], "enabled");
-  EXPECT_EQ(config["feature2"], "enabled");
-  EXPECT_EQ(config["feature3"], "enabled");
+  EXPECT_EQ(std::string("myapp"), config["app"].getString());
+  EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
+  EXPECT_EQ(9092, config["server"]["port"].getInt());  // Last overlay wins
+  EXPECT_TRUE(config["server"]["ssl"].getBool());
+  EXPECT_EQ(4, config["server"]["workers"].getInt());
+  EXPECT_EQ(std::string("enabled"), config["feature1"].getString());
+  EXPECT_EQ(std::string("enabled"), config["feature2"].getString());
+  EXPECT_EQ(std::string("enabled"), config["feature3"].getString());
 }
 
 // Test search/precedence policy
@@ -372,7 +373,7 @@ TEST_F(FileSourceCompleteTest, SearchPrecedence) {
   {
     auto source = createFileConfigSource("test", 1, test_dir_ + "/cli.json");
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "cli");
+    EXPECT_EQ(std::string("cli"), config["source"].getString());
   }
   
   // Test 2: ENV config takes precedence when no CLI
@@ -380,7 +381,7 @@ TEST_F(FileSourceCompleteTest, SearchPrecedence) {
     setenv("MCP_CONFIG", (test_dir_ + "/env.json").c_str(), 1);
     auto source = createFileConfigSource("test", 1, "");
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "env");
+    EXPECT_EQ(std::string("env"), config["source"].getString());
     unsetenv("MCP_CONFIG");
   }
   
@@ -389,7 +390,7 @@ TEST_F(FileSourceCompleteTest, SearchPrecedence) {
     chdir(test_dir_.c_str());
     auto source = createFileConfigSource("test", 1, "");
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "local");
+    EXPECT_EQ(std::string("local"), config["source"].getString());
   }
 }
 
@@ -453,11 +454,11 @@ database:
   auto config = source->loadConfiguration();
   
   // Check merged result
-  EXPECT_EQ(config["app"], "myapp");
-  EXPECT_EQ(config["server"]["host"], "localhost");
-  EXPECT_EQ(config["server"]["port"], 9090);
-  EXPECT_EQ(config["server"]["ssl"]["enabled"], true);
-  EXPECT_EQ(config["database"]["host"], "dbhost");
+  EXPECT_EQ(std::string("myapp"), config["app"].getString());
+  EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
+  EXPECT_EQ(9090, config["server"]["port"].getInt());
+  EXPECT_TRUE(config["server"]["ssl"]["enabled"].getBool());
+  EXPECT_EQ(std::string("dbhost"), config["database"]["host"].getString());
   EXPECT_EQ(config["features"].size(), 3);
 }
 
@@ -480,11 +481,11 @@ database:
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.yaml");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["server"]["host"], "prod.example.com");
-  EXPECT_EQ(config["server"]["port"], 8080);  // Uses default
-  EXPECT_EQ(config["server"]["mode"], "development");  // Uses default
-  EXPECT_EQ(config["database"]["url"], 
-            "postgres://user@localhost:5433/db");
+  EXPECT_EQ(std::string("prod.example.com"), config["server"]["host"].getString());
+  EXPECT_EQ(8080, config["server"]["port"].getInt());  // Uses default
+  EXPECT_EQ(std::string("development"), config["server"]["mode"].getString());  // Uses default
+  EXPECT_EQ(std::string("postgres://user@localhost:5433/db"),
+            config["database"]["url"].getString());
 }
 
 // Test include with environment substitution
@@ -510,9 +511,9 @@ TEST_F(FileSourceCompleteTest, IncludeWithEnvironmentSubstitution) {
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
   auto config = source->loadConfiguration();
   
-  EXPECT_EQ(config["app"], "production-app");
-  EXPECT_EQ(config["server"]["host"], "localhost");
-  EXPECT_EQ(config["server"]["port"], "9090");
+  EXPECT_EQ(std::string("production-app"), config["app"].getString());
+  EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
+  EXPECT_EQ(std::string("9090"), config["server"]["port"].getString());
 }
 
 }  // namespace test

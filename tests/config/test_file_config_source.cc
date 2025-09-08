@@ -5,36 +5,38 @@
 
 #include <atomic>
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <thread>
 
 #include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
 
 #include "mcp/config/config_manager.h"
 #include "mcp/logging/log_sink.h"
 #include "mcp/logging/logger_registry.h"
+#include "mcp/json/json_bridge.h"
+#include "test_filesystem_utils.h"
+#include "test_json_helpers.h"
 
 namespace mcp {
 namespace config {
 namespace testing {
 
-namespace fs = std::filesystem;
+using namespace fs_utils;
+using mcp::json::JsonValue;
+using test::makeJsonObject;
+using test::makeJsonArray;
+using test::str;
+using test::num;
+using test::boolean;
 
 // Test fixture for FileConfigSource tests
 class FileConfigSourceTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // Create temporary test directory
-    test_dir_ =
-        fs::temp_directory_path() / "mcp_test" /
-        ("test_" + std::to_string(getpid()) + "_" +
-         std::to_string(
-             std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(test_dir_);
+    test_dir_ = createUniqueTempDirectory("mcp_test");
 
     // Set up test environment variable
     setenv("TEST_VAR", "test_value", 1);
@@ -46,8 +48,8 @@ class FileConfigSourceTest : public ::testing::Test {
 
   void TearDown() override {
     // Clean up test directory
-    if (fs::exists(test_dir_)) {
-      fs::remove_all(test_dir_);
+    if (pathExists(test_dir_)) {
+      removeDirectoryRecursive(test_dir_);
     }
 
     // Clean up environment variables
@@ -57,34 +59,34 @@ class FileConfigSourceTest : public ::testing::Test {
   }
 
   // Helper to create a test config file
-  void createConfigFile(const fs::path& path, const nlohmann::json& content) {
-    fs::create_directories(path.parent_path());
+  void createConfigFile(const std::string& path, const JsonValue& content) {
+    createDirectoryRecursive(getParentDirectory(path));
     std::ofstream file(path);
-    file << content.dump(2);
+    file << content.toString(true);  // pretty=true for formatting
     file.close();
   }
 
-  void createYamlFile(const fs::path& path, const std::string& content) {
-    fs::create_directories(path.parent_path());
+  void createYamlFile(const std::string& path, const std::string& content) {
+    createDirectoryRecursive(getParentDirectory(path));
     std::ofstream file(path);
     file << content;
     file.close();
   }
 
  protected:
-  fs::path test_dir_;
+  std::string test_dir_;
 };
 
 // Test search order resolution
 TEST_F(FileConfigSourceTest, SearchOrderResolution) {
   // Create config files in different locations
-  fs::path cli_config = test_dir_ / "cli_config.json";
-  fs::path env_config = test_dir_ / "env_config.json";
-  fs::path local_config = test_dir_ / "config" / "config.json";
+  std::string cli_config = joinPath(test_dir_, "cli_config.json");
+  std::string env_config = joinPath(test_dir_, "env_config.json");
+  std::string local_config = joinPath(joinPath(test_dir_, "config"), "config.json");
 
-  nlohmann::json cli_json = {{"source", "cli"}};
-  nlohmann::json env_json = {{"source", "env"}};
-  nlohmann::json local_json = {{"source", "local"}};
+  JsonValue cli_json = makeJsonObject({{"source", str("cli")}});
+  JsonValue env_json = makeJsonObject({{"source", str("env")}});
+  JsonValue local_json = makeJsonObject({{"source", str("local")}});
 
   createConfigFile(cli_config, cli_json);
   createConfigFile(env_config, env_json);
@@ -92,93 +94,96 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
 
   // Test 1: CLI config takes precedence
   {
-    auto source = createFileConfigSource("test", 1, cli_config.string());
+    auto source = createFileConfigSource("test", 1, cli_config);
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "cli");
+    EXPECT_EQ(std::string("cli"), config["source"].getString());
   }
 
   // Test 2: ENV config used when no CLI config
   {
-    setenv("MCP_CONFIG", env_config.string().c_str(), 1);
+    setenv("MCP_CONFIG", env_config.c_str(), 1);
     auto source = createFileConfigSource("test", 1, "");
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "env");
+    EXPECT_EQ(std::string("env"), config["source"].getString());
     unsetenv("MCP_CONFIG");
   }
 
   // Test 3: Local config used as fallback
   {
     // Change to test directory so ./config/config.json is found
-    auto original_dir = fs::current_path();
-    fs::current_path(test_dir_);
+    WorkingDirectoryGuard dir_guard(test_dir_);
 
     auto source = createFileConfigSource("test", 1, "");
     auto config = source->loadConfiguration();
-    EXPECT_EQ(config["source"], "local");
-
-    fs::current_path(original_dir);
+    EXPECT_EQ(std::string("local"), config["source"].getString());
   }
 }
 
 // Test environment variable substitution
 TEST_F(FileConfigSourceTest, EnvironmentVariableSubstitution) {
-  fs::path config_file = test_dir_ / "config.json";
+  std::string config_file = joinPath(test_dir_, "config.json");
 
-  nlohmann::json config = {{"host", "${TEST_HOST:-localhost}"},
-                           {"port", "${TEST_PORT}"},
-                           {"path", "/api/${TEST_VAR}/endpoint"},
-                           {"timeout", "${UNDEFINED_VAR:-30}"},
-                           {"nested", {{"value", "${TEST_VAR}"}}}};
+  JsonValue config = makeJsonObject({
+    {"host", str("${TEST_HOST:-localhost}")},
+    {"port", str("${TEST_PORT}")},
+    {"path", str("/api/${TEST_VAR}/endpoint")},
+    {"timeout", str("${UNDEFINED_VAR:-30}")},
+    {"nested", makeJsonObject({{"value", str("${TEST_VAR}")}})}
+  });
 
   createConfigFile(config_file, config);
 
-  auto source = createFileConfigSource("test", 1, config_file.string());
+  auto source = createFileConfigSource("test", 1, config_file);
   auto result = source->loadConfiguration();
 
   // TEST_HOST not set, should use default
-  EXPECT_EQ(result["host"], "localhost");
+  EXPECT_EQ(std::string("localhost"), result["host"].getString());
 
   // TEST_PORT is set to 8080
-  EXPECT_EQ(result["port"], "8080");
+  EXPECT_EQ(std::string("8080"), result["port"].getString());
 
   // TEST_VAR is set to test_value
-  EXPECT_EQ(result["path"], "/api/test_value/endpoint");
+  EXPECT_EQ(std::string("/api/test_value/endpoint"), result["path"].getString());
 
   // UNDEFINED_VAR not set, should use default
-  EXPECT_EQ(result["timeout"], "30");
+  EXPECT_EQ(std::string("30"), result["timeout"].getString());
 
   // Nested substitution
-  EXPECT_EQ(result["nested"]["value"], "test_value");
+  EXPECT_EQ(std::string("test_value"), result["nested"]["value"].getString());
 }
 
 // Test include file resolution
 TEST_F(FileConfigSourceTest, IncludeFileResolution) {
-  fs::path main_config = test_dir_ / "main.json";
-  fs::path include1 = test_dir_ / "includes" / "db.json";
-  fs::path include2 = test_dir_ / "includes" / "server.json";
+  std::string main_config = joinPath(test_dir_, "main.json");
+  std::string include1 = joinPath(joinPath(test_dir_, "includes"), "db.json");
+  std::string include2 = joinPath(joinPath(test_dir_, "includes"), "server.json");
 
-  nlohmann::json db_config = {
-      {"database", {{"host", "localhost"}, {"port", 5432}}}};
+  JsonValue db_config = makeJsonObject({
+    {"database", makeJsonObject({{"host", str("localhost")}, {"port", num(5432)}})}
+  });
 
-  nlohmann::json server_config = {{"server", {{"port", 8080}, {"workers", 4}}}};
+  JsonValue server_config = makeJsonObject({
+    {"server", makeJsonObject({{"port", num(8080)}, {"workers", num(4)}})}
+  });
 
-  nlohmann::json main = {
-      {"app", "test"},
-      {"include", {"includes/db.json", "includes/server.json"}}};
+  JsonValue main = makeJsonObject({
+    {"app", str("test")},
+    {"include", makeJsonArray({str("includes/db.json"), str("includes/server.json")})}
+  });
 
   createConfigFile(include1, db_config);
   createConfigFile(include2, server_config);
   createConfigFile(main_config, main);
 
-  auto source = createFileConfigSource("test", 1, main_config.string());
+  auto source = createFileConfigSource("test", 1, main_config);
   auto result = source->loadConfiguration();
 
   // Check that includes were processed and merged
-  EXPECT_EQ(result["app"], "test");
-  EXPECT_EQ(result["database"]["host"], "localhost");
-  EXPECT_EQ(result["database"]["port"], 5432);
-  EXPECT_EQ(result["server"]["port"], 8080);
-  EXPECT_EQ(result["server"]["workers"], 4);
+  EXPECT_EQ(std::string("test"), result["app"].getString());
+  EXPECT_EQ(std::string("localhost"), result["database"]["host"].getString());
+  EXPECT_EQ(5432, result["database"]["port"].getInt());
+  EXPECT_EQ(8080, result["server"]["port"].getInt());
+  EXPECT_EQ(4, result["server"]["workers"].getInt());
 
   // Include directive should be removed
   EXPECT_FALSE(result.contains("include"));
@@ -186,30 +191,30 @@ TEST_F(FileConfigSourceTest, IncludeFileResolution) {
 
 // Test directory scanning (config.d pattern)
 TEST_F(FileConfigSourceTest, DirectoryScanning) {
-  fs::path main_config = test_dir_ / "main.json";
-  fs::path config_dir = test_dir_ / "conf.d";
+  std::string main_config = joinPath(test_dir_, "main.json");
+  std::string config_dir = joinPath(test_dir_, "conf.d");
 
   // Create multiple config files in directory
-  nlohmann::json config1 = {{"module1", {{"enabled", true}}}};
-  nlohmann::json config2 = {{"module2", {{"timeout", 30}}}};
-  nlohmann::json config3 = {{"module3", {{"max_connections", 100}}}};
+  JsonValue config1 = makeJsonObject({{"module1", makeJsonObject({{"enabled", boolean(true)}})}});
+  JsonValue config2 = makeJsonObject({{"module2", makeJsonObject({{"timeout", num(30)}})}});
+  JsonValue config3 = makeJsonObject({{"module3", makeJsonObject({{"max_connections", num(100)}})}});
 
-  createConfigFile(config_dir / "01-module1.json", config1);
-  createConfigFile(config_dir / "02-module2.json", config2);
-  createConfigFile(config_dir / "03-module3.yaml", config3);  // Mixed formats
+  createConfigFile(joinPath(config_dir, "01-module1.json"), config1);
+  createConfigFile(joinPath(config_dir, "02-module2.json"), config2);
+  createConfigFile(joinPath(config_dir, "03-module3.yaml"), config3);  // Mixed formats
 
-  nlohmann::json main = {{"app", "test"}, {"include_dir", "conf.d"}};
+  JsonValue main = makeJsonObject({{"app", str("test")}, {"include_dir", str("conf.d")}});
 
   createConfigFile(main_config, main);
 
-  auto source = createFileConfigSource("test", 1, main_config.string());
+  auto source = createFileConfigSource("test", 1, main_config);
   auto result = source->loadConfiguration();
 
   // Check that all files were included (sorted order)
-  EXPECT_EQ(result["app"], "test");
-  EXPECT_TRUE(result["module1"]["enabled"]);
-  EXPECT_EQ(result["module2"]["timeout"], 30);
-  EXPECT_EQ(result["module3"]["max_connections"], 100);
+  EXPECT_EQ(std::string("test"), result["app"].getString());
+  EXPECT_TRUE(result["module1"]["enabled"].getBool());
+  EXPECT_EQ(30, result["module2"]["timeout"].getInt());
+  EXPECT_EQ(100, result["module3"]["max_connections"].getInt());
 
   // Include_dir directive should be removed
   EXPECT_FALSE(result.contains("include_dir"));
@@ -217,7 +222,7 @@ TEST_F(FileConfigSourceTest, DirectoryScanning) {
 
 // Test YAML parsing
 TEST_F(FileConfigSourceTest, YamlParsing) {
-  fs::path yaml_file = test_dir_ / "config.yaml";
+  std::string yaml_file = joinPath(test_dir_, "config.yaml");
 
   std::string yaml_content = R"(
 node:
@@ -236,20 +241,20 @@ server:
 
   createYamlFile(yaml_file, yaml_content);
 
-  auto source = createFileConfigSource("test", 1, yaml_file.string());
+  auto source = createFileConfigSource("test", 1, yaml_file);
   auto result = source->loadConfiguration();
 
-  EXPECT_EQ(result["node"]["id"], "test-node");
-  EXPECT_EQ(result["node"]["cluster"], "production");
-  EXPECT_EQ(result["admin"]["bind_address"], "127.0.0.1");
-  EXPECT_EQ(result["admin"]["port"], 9001);
-  EXPECT_EQ(result["server"]["listeners"][0]["name"], "main");
+  EXPECT_EQ(std::string("test-node"), result["node"]["id"].getString());
+  EXPECT_EQ(std::string("production"), result["node"]["cluster"].getString());
+  EXPECT_EQ(std::string("127.0.0.1"), result["admin"]["address"].getString());
+  EXPECT_EQ(9001, result["admin"]["port"].getInt());
+  EXPECT_EQ(std::string("main"), result["server"]["listeners"][0]["name"].getString());
 }
 
 // Test parse error handling with line/column info
 TEST_F(FileConfigSourceTest, ParseErrorHandling) {
-  fs::path bad_json = test_dir_ / "bad.json";
-  fs::path bad_yaml = test_dir_ / "bad.yaml";
+  std::string bad_json = joinPath(test_dir_, "bad.json");
+  std::string bad_yaml = joinPath(test_dir_, "bad.yaml");
 
   // Invalid JSON
   std::ofstream json_file(bad_json);
@@ -259,7 +264,7 @@ TEST_F(FileConfigSourceTest, ParseErrorHandling) {
 })";
   json_file.close();
 
-  auto json_source = createFileConfigSource("test", 1, bad_json.string());
+  auto json_source = createFileConfigSource("test", 1, bad_json);
   EXPECT_THROW(
       {
         try {
@@ -277,7 +282,7 @@ TEST_F(FileConfigSourceTest, ParseErrorHandling) {
   // Invalid YAML
   createYamlFile(bad_yaml, "key: value\n  invalid indentation");
 
-  auto yaml_source = createFileConfigSource("test", 1, bad_yaml.string());
+  auto yaml_source = createFileConfigSource("test", 1, bad_yaml);
   EXPECT_THROW(
       {
         try {
@@ -295,44 +300,44 @@ TEST_F(FileConfigSourceTest, ParseErrorHandling) {
 
 // Test circular include detection
 TEST_F(FileConfigSourceTest, CircularIncludeDetection) {
-  fs::path config1 = test_dir_ / "config1.json";
-  fs::path config2 = test_dir_ / "config2.json";
+  std::string config1 = joinPath(test_dir_, "config1.json");
+  std::string config2 = joinPath(test_dir_, "config2.json");
 
   // Create circular includes
-  nlohmann::json json1 = {{"data1", "value1"}, {"include", "config2.json"}};
+  JsonValue json1 = makeJsonObject({{"data1", str("value1")}, {"include", str("config2.json")}});
 
-  nlohmann::json json2 = {{"data2", "value2"}, {"include", "config1.json"}};
+  JsonValue json2 = makeJsonObject({{"data2", str("value2")}, {"include", str("config1.json")}});
 
   createConfigFile(config1, json1);
   createConfigFile(config2, json2);
 
-  auto source = createFileConfigSource("test", 1, config1.string());
+  auto source = createFileConfigSource("test", 1, config1);
   auto result = source->loadConfiguration();
 
   // Should handle circular includes gracefully
   // Each file should be included only once
-  EXPECT_EQ(result["data1"], "value1");
-  EXPECT_EQ(result["data2"], "value2");
+  EXPECT_EQ(std::string("value1"), result["data1"].getString());
+  EXPECT_EQ(std::string("value2"), result["data2"].getString());
 }
 
 // Test max include depth
 TEST_F(FileConfigSourceTest, MaxIncludeDepth) {
   // Create a chain of includes exceeding max depth
-  fs::path base = test_dir_;
+  std::string base = test_dir_;
 
   for (int i = 0; i <= 12; i++) {  // Max depth is typically 10
-    fs::path config = base / ("config" + std::to_string(i) + ".json");
-    nlohmann::json content = {{"level", i}};
+    std::string config = joinPath(base, "config" + std::to_string(i) + ".json");
+    JsonValue content = makeJsonObject({{"level", num(i)}});
 
     if (i < 12) {
-      content["include"] = "config" + std::to_string(i + 1) + ".json";
+      content["include"] = JsonValue("config" + std::to_string(i + 1) + ".json");
     }
 
     createConfigFile(config, content);
   }
 
   auto source =
-      createFileConfigSource("test", 1, (base / "config0.json").string());
+      createFileConfigSource("test", 1, joinPath(base, "config0.json"));
 
   // Should throw when max depth exceeded
   EXPECT_THROW({ source->loadConfiguration(); }, std::runtime_error);
@@ -340,15 +345,15 @@ TEST_F(FileConfigSourceTest, MaxIncludeDepth) {
 
 // Test missing file handling
 TEST_F(FileConfigSourceTest, MissingFileHandling) {
-  fs::path nonexistent = test_dir_ / "nonexistent.json";
+  std::string nonexistent = joinPath(test_dir_, "nonexistent.json");
 
-  auto source = createFileConfigSource("test", 1, nonexistent.string());
+  auto source = createFileConfigSource("test", 1, nonexistent);
 
   // Should return empty config or throw
   try {
     auto result = source->loadConfiguration();
-    // If it doesn't throw, should return empty
-    EXPECT_TRUE(result.empty() || result.is_object());
+    // If it doesn't throw, should return empty or an object
+    EXPECT_TRUE(result.empty() || result.isObject());
   } catch (const std::exception& e) {
     // Throwing is also acceptable
     EXPECT_TRUE(std::string(e.what()).find("open") != std::string::npos ||
@@ -358,42 +363,44 @@ TEST_F(FileConfigSourceTest, MissingFileHandling) {
 
 // Test configuration merge semantics
 TEST_F(FileConfigSourceTest, MergeSemantics) {
-  fs::path base_config = test_dir_ / "base.json";
-  fs::path override_config = test_dir_ / "override.json";
+  std::string base_config = joinPath(test_dir_, "base.json");
+  std::string override_config = joinPath(test_dir_, "override.json");
 
-  nlohmann::json base = {
-      {"server", {{"port", 8080}, {"workers", 4}, {"timeout", 30}}},
-      {"database", {{"host", "localhost"}}}};
+  JsonValue base = makeJsonObject({
+    {"server", makeJsonObject({{"port", num(8080)}, {"workers", num(4)}, {"timeout", num(30)}})},
+    {"database", makeJsonObject({{"host", str("localhost")}})}
+  });
 
-  nlohmann::json override = {
-      {"server",
-       {
-           {"port", 9090},  // Override
-           {"workers", 8}   // Override
+  JsonValue override = makeJsonObject({
+    {"server", makeJsonObject({
+      {"port", num(9090)},  // Override
+      {"workers", num(8)}   // Override
                             // timeout not specified, should keep base value
-       }},
-      {"cache",
-       {// New section
-        {"enabled", true}}}};
+    })},
+    {"cache", makeJsonObject({// New section
+      {"enabled", boolean(true)}
+    })}
+  });
 
   createConfigFile(base_config, base);
   createConfigFile(override_config, override);
 
-  nlohmann::json main = {
-      {"include", {base_config.string(), override_config.string()}}};
+  JsonValue main = makeJsonObject({
+    {"include", makeJsonArray({str(base_config), str(override_config)})}
+  });
 
-  fs::path main_config = test_dir_ / "main.json";
+  std::string main_config = joinPath(test_dir_, "main.json");
   createConfigFile(main_config, main);
 
-  auto source = createFileConfigSource("test", 1, main_config.string());
+  auto source = createFileConfigSource("test", 1, main_config);
   auto result = source->loadConfiguration();
 
   // Check merge results
-  EXPECT_EQ(result["server"]["port"], 9090);           // Overridden
-  EXPECT_EQ(result["server"]["workers"], 8);           // Overridden
-  EXPECT_EQ(result["server"]["timeout"], 30);          // Kept from base
-  EXPECT_EQ(result["database"]["host"], "localhost");  // Kept from base
-  EXPECT_TRUE(result["cache"]["enabled"]);             // New from override
+  EXPECT_EQ(9090, result["server"]["port"].getInt());           // Overridden
+  EXPECT_EQ(8, result["server"]["workers"].getInt());           // Overridden
+  EXPECT_EQ(30, result["server"]["timeout"].getInt());          // Kept from base
+  EXPECT_EQ(std::string("localhost"), result["database"]["host"].getString());  // Kept from base
+  EXPECT_TRUE(result["cache"]["enabled"].getBool());             // New from override
 }
 
 // Test logging output
@@ -404,15 +411,15 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
     void log(const mcp::logging::LogMessage& message) override {
       messages_.push_back(message);
     }
+    
+    void flush() override {}
+    
+    mcp::logging::SinkType type() const override { return mcp::logging::SinkType::Null; }
 
     bool hasMessage(const std::string& substr, mcp::logging::LogLevel level) {
       for (const auto& msg : messages_) {
-        if (msg.level == level) {
-          std::stringstream ss;
-          ss << msg;
-          if (ss.str().find(substr) != std::string::npos) {
-            return true;
-          }
+        if (msg.level == level && msg.message.find(substr) != std::string::npos) {
+          return true;
         }
       }
       return false;
@@ -427,15 +434,15 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
   auto test_sink = std::make_shared<TestLogSink>();
   auto& registry = mcp::logging::LoggerRegistry::instance();
   auto logger = registry.getOrCreateLogger("config.file");
-  logger->addSink(test_sink);
+  logger->setSink(test_sink);
 
   // Test successful parse
   {
     test_sink->clear();
-    fs::path config_file = test_dir_ / "valid.json";
+    std::string config_file = joinPath(test_dir_, "valid.json");
     createConfigFile(config_file, {{"test", "value"}});
 
-    auto source = createFileConfigSource("test", 1, config_file.string());
+    auto source = createFileConfigSource("test", 1, config_file);
     source->loadConfiguration();
 
     // Should have INFO logs for discovery start/end
@@ -448,12 +455,12 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
   // Test parse error
   {
     test_sink->clear();
-    fs::path bad_file = test_dir_ / "bad.json";
+    std::string bad_file = joinPath(test_dir_, "bad.json");
     std::ofstream file(bad_file);
     file << "{ invalid json }";
     file.close();
 
-    auto source = createFileConfigSource("test", 1, bad_file.string());
+    auto source = createFileConfigSource("test", 1, bad_file);
 
     EXPECT_THROW(source->loadConfiguration(), std::exception);
 
@@ -465,11 +472,12 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
 
 // Test ConfigurationManager integration
 TEST_F(FileConfigSourceTest, ConfigurationManagerIntegration) {
-  fs::path config_file = test_dir_ / "manager_test.json";
+  std::string config_file = joinPath(test_dir_, "manager_test.json");
 
-  nlohmann::json config = {
-      {"node", {{"id", "test-node-${TEST_VAR}"}, {"cluster", "test-cluster"}}},
-      {"admin", {{"bind_address", "127.0.0.1"}, {"port", "${TEST_PORT}"}}}};
+  JsonValue config = makeJsonObject({
+    {"node", makeJsonObject({{"id", str("test-node-${TEST_VAR}")}, {"cluster", str("test-cluster")}})},
+    {"admin", makeJsonObject({{"address", str("127.0.0.1")}, {"port", str("${TEST_PORT}")}})}
+  });
 
   createConfigFile(config_file, config);
 
@@ -477,7 +485,7 @@ TEST_F(FileConfigSourceTest, ConfigurationManagerIntegration) {
 
   // Add file source
   std::vector<std::shared_ptr<ConfigSource>> sources;
-  sources.push_back(createFileConfigSource("file", 1, config_file.string()));
+  sources.push_back(createFileConfigSource("file", 1, config_file));
 
   EXPECT_TRUE(manager.initialize(sources, UnknownFieldPolicy::WARN));
   manager.loadConfiguration();
@@ -488,7 +496,7 @@ TEST_F(FileConfigSourceTest, ConfigurationManagerIntegration) {
   // Check environment substitution worked
   EXPECT_EQ(bootstrap->node.id, "test-node-test_value");
   EXPECT_EQ(bootstrap->node.cluster, "test-cluster");
-  EXPECT_EQ(bootstrap->admin.bind_address, "127.0.0.1");
+  EXPECT_EQ(bootstrap->admin.address, "127.0.0.1");
   EXPECT_EQ(bootstrap->admin.port, 8080);  // Converted from string "8080"
 }
 
