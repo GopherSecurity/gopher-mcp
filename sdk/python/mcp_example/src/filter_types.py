@@ -300,6 +300,9 @@ class GopherTransportConfig:
     # Filter configuration
     filters: Optional[FilterManagerConfig] = None
     
+    # CApiFilter integration
+    custom_callbacks: Optional[Dict[str, Any]] = None
+    
     # Session management
     session_timeout: int = 3600000  # 1 hour
     max_sessions: int = 1000
