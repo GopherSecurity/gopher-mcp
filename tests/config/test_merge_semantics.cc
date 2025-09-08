@@ -7,6 +7,7 @@
 #include "mcp/logging/log_macros.h"
 #include "mcp/logging/logger_registry.h"
 #include "mcp/logging/log_sink.h"
+#include "mcp/config/config_merger.h"
 
 // Forward declarations for merger
 namespace mcp {
@@ -29,6 +30,8 @@ class TestLogSink : public LogSink {
   }
 
   void flush() override {}
+
+  SinkType type() const override { return SinkType::External; }
 
   bool hasMessage(LogLevel level, const std::string& substr) {
     for (const auto& msg : messages_) {
@@ -71,8 +74,8 @@ class MergeSemanticsTest : public ::testing::Test {
     
     // Set up test logging
     test_sink_ = std::make_shared<logging::TestLogSink>();
-    auto& registry = logging::LoggerRegistry::getInstance();
-    auto logger = registry.getLogger("config.merge");
+    auto& registry = logging::LoggerRegistry::instance();
+    auto logger = registry.getOrCreateLogger("config.merge");
     logger->setSink(test_sink_);
     logger->setLevel(logging::LogLevel::Debug);
   }
