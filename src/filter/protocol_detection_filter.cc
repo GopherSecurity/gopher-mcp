@@ -213,7 +213,8 @@ bool ProtocolDetectionFilter::isJsonRpcRequest(const Buffer& data) {
 
   // Skip whitespace
   size_t pos = 0;
-  while (pos < data_len && std::isspace(bytes[pos])) {
+  while (pos < data_len &&
+         std::isspace(static_cast<unsigned char>(bytes[pos]))) {
     pos++;
   }
 
@@ -294,11 +295,13 @@ std::map<std::string, std::string> ProtocolDetectionFilter::extractHttpHeaders(
 
       // Extract header value (trim whitespace)
       const char* value_start = colon + 1;
-      while (value_start < line_end && std::isspace(*value_start)) {
+      while (value_start < line_end &&
+             std::isspace(static_cast<unsigned char>(*value_start))) {
         value_start++;
       }
       const char* value_end = line_start + line_len;
-      while (value_end > value_start && std::isspace(*(value_end - 1))) {
+      while (value_end > value_start &&
+             std::isspace(static_cast<unsigned char>(*(value_end - 1)))) {
         value_end--;
       }
 
