@@ -40,6 +40,9 @@ from ffi_bindings import (
     check_result,
     create_mock_dispatcher,
     create_mock_connection,
+    create_filter_manager,
+    initialize_filter_manager,
+    release_filter_manager,
 )
 
 from filter_api import (
