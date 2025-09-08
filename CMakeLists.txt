@@ -388,6 +388,9 @@ set(MCP_CORE_SOURCES
     src/filter/http_codec_factory.cc
     src/filter/sse_codec_factory.cc
     src/filter/json_rpc_factory.cc
+    src/filter/rate_limit_factory.cc
+    src/filter/circuit_breaker_factory.cc
+    src/filter/metrics_factory.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
