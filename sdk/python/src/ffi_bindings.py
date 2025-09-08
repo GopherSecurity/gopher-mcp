@@ -21,21 +21,21 @@ LIBRARY_CONFIG = {
         "x86_64": {
             "name": "libgopher_mcp_c.dylib",
             "search_paths": [
-                "build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
-                "build/src/c_api/libgopher_mcp_c.dylib",
-                "build/lib/libgopher_mcp_c.dylib",
-                "/usr/local/lib/libgopher_mcp_c.dylib",
+                "../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
+                "../../build/src/c_api/libgopher_mcp_c.dylib",
+                "../../build/lib/libgopher_mcp_c.dylib",
                 "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+                "/usr/local/lib/libgopher_mcp_c.dylib",
             ],
         },
         "arm64": {
             "name": "libgopher_mcp_c.dylib",
             "search_paths": [
-                "build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
-                "build/src/c_api/libgopher_mcp_c.dylib",
-                "build/lib/libgopher_mcp_c.dylib",
-                "/usr/local/lib/libgopher_mcp_c.dylib",
+                "../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
+                "../../build/src/c_api/libgopher_mcp_c.dylib",
+                "../../build/lib/libgopher_mcp_c.dylib",
                 "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+                "/usr/local/lib/libgopher_mcp_c.dylib",
             ],
         },
     },
@@ -185,6 +185,7 @@ try:
     print(f"MCP C API library loaded successfully: {lib_name}")
     
     # List of REAL C API functions from mcp_filter_api.h, mcp_filter_buffer.h, mcp_filter_chain.h
+    # This matches the TypeScript function list for full compatibility
     function_list = [
         # Core filter functions from mcp_filter_api.h
         ("mcp_filter_create", c_uint64, [c_uint64, c_void_p]),
@@ -205,36 +206,103 @@ try:
         ("mcp_filter_chain_retain", None, [c_uint64]),
         ("mcp_filter_chain_release", None, [c_uint64]),
         
-        # Buffer operations
-        ("mcp_filter_buffer_create", c_uint64, [c_void_p, c_size_t, c_uint32]),
-        ("mcp_filter_buffer_release", None, [c_uint64]),
-        ("mcp_filter_buffer_length", c_size_t, [c_uint64]),
+        # Missing chain functions from mcp_c_filter_chain.h
+        ("mcp_chain_builder_add_conditional", c_int, [c_void_p, c_void_p, c_uint64]),
+        ("mcp_chain_builder_add_parallel_group", c_int, [c_void_p, c_void_p, c_size_t]),
+        ("mcp_chain_get_state", c_int, [c_uint64]),
+        ("mcp_chain_pause", c_int, [c_uint64]),
+        ("mcp_chain_resume", c_int, [c_uint64]),
+        ("mcp_chain_reset", c_int, [c_uint64]),
+        
+        # Buffer functions from mcp_filter_buffer.h
+        ("mcp_buffer_create_owned", c_uint64, [c_size_t, c_int]),
+        ("mcp_buffer_create_view", c_uint64, [c_void_p, c_size_t]),
+        ("mcp_buffer_create_from_fragment", c_uint64, [c_void_p]),
+        ("mcp_buffer_clone", c_uint64, [c_uint64]),
+        ("mcp_buffer_create_cow", c_uint64, [c_uint64]),
+        ("mcp_buffer_add", c_int, [c_uint64, c_void_p, c_size_t]),
+        ("mcp_buffer_add_string", c_int, [c_uint64, c_char_p]),
+        ("mcp_buffer_add_buffer", c_int, [c_uint64, c_uint64]),
+        ("mcp_buffer_add_fragment", c_int, [c_uint64, c_void_p]),
+        ("mcp_buffer_prepend", c_int, [c_uint64, c_void_p, c_size_t]),
+        ("mcp_buffer_drain", c_int, [c_uint64, c_size_t]),
+        ("mcp_buffer_move", c_int, [c_uint64, c_uint64, c_size_t]),
+        ("mcp_buffer_reserve", c_int, [c_uint64, c_size_t, c_void_p]),
+        ("mcp_buffer_commit_reservation", c_int, [c_void_p, c_size_t]),
+        ("mcp_buffer_cancel_reservation", c_int, [c_void_p]),
+        ("mcp_buffer_get_contiguous", c_int, [c_uint64, c_size_t, c_size_t, c_void_p, POINTER(c_size_t)]),
+        ("mcp_buffer_linearize", c_int, [c_uint64, c_size_t, c_void_p]),
         ("mcp_buffer_peek", c_int, [c_uint64, c_size_t, c_void_p, c_size_t]),
-        ("mcp_filter_get_buffer_slices", c_int, [c_uint64, c_void_p, c_void_p]),
-        ("mcp_filter_reserve_buffer", c_int, [c_uint64, c_size_t, c_void_p]),
-        ("mcp_filter_commit_buffer", c_int, [c_uint64, c_size_t]),
-        # Note: Many buffer functions are defined in headers but not implemented in the C++ library
-        # Only the functions actually implemented in mcp_c_filter_api.cc are included here
+        ("mcp_buffer_write_le_int", c_int, [c_uint64, c_uint64, c_size_t]),
+        ("mcp_buffer_write_be_int", c_int, [c_uint64, c_uint64, c_size_t]),
+        ("mcp_buffer_read_le_int", c_int, [c_uint64, c_size_t, POINTER(c_uint64)]),
+        ("mcp_buffer_read_be_int", c_int, [c_uint64, c_size_t, POINTER(c_uint64)]),
+        ("mcp_buffer_search", c_int, [c_uint64, c_void_p, c_size_t, c_size_t, POINTER(c_size_t)]),
+        ("mcp_buffer_find_byte", c_int, [c_uint64, c_ubyte, POINTER(c_size_t)]),
+        ("mcp_buffer_length", c_size_t, [c_uint64]),
+        ("mcp_buffer_capacity", c_size_t, [c_uint64]),
+        ("mcp_buffer_is_empty", c_int, [c_uint64]),
+        ("mcp_buffer_get_stats", c_int, [c_uint64, c_void_p]),
+        ("mcp_buffer_set_watermarks", c_int, [c_uint64, c_size_t, c_size_t]),
+        ("mcp_buffer_above_high_watermark", c_int, [c_uint64]),
+        ("mcp_buffer_below_low_watermark", c_int, [c_uint64]),
+        
         # Buffer pool operations
         ("mcp_buffer_pool_create", c_void_p, [c_size_t, c_size_t]),
+        ("mcp_buffer_pool_create_ex", c_void_p, [c_void_p]),
         ("mcp_buffer_pool_acquire", c_uint64, [c_void_p]),
         ("mcp_buffer_pool_release", None, [c_void_p, c_uint64]),
         ("mcp_buffer_pool_destroy", None, [c_void_p]),
+        ("mcp_buffer_pool_get_stats", c_int, [c_void_p, c_void_p]),
+        ("mcp_buffer_pool_trim", c_int, [c_void_p]),
+        
         # Filter manager operations
         ("mcp_filter_manager_create", c_uint64, [c_uint64, c_uint64]),
         ("mcp_filter_manager_add_filter", c_int, [c_uint64, c_uint64]),
         ("mcp_filter_manager_add_chain", c_int, [c_uint64, c_uint64]),
         ("mcp_filter_manager_initialize", c_int, [c_uint64]),
         ("mcp_filter_manager_release", None, [c_uint64]),
-        # Filter statistics
-        ("mcp_filter_get_stats", c_int, [c_uint64, c_void_p]),
-        ("mcp_filter_reset_stats", c_int, [c_uint64]),
-        # Filter resource guard
+        
+        # Filter buffer operations
+        ("mcp_filter_get_buffer_slices", c_int, [c_uint64, c_void_p, c_void_p]),
+        ("mcp_filter_reserve_buffer", c_int, [c_uint64, c_size_t, c_void_p]),
+        ("mcp_filter_commit_buffer", c_int, [c_uint64, c_size_t]),
+        ("mcp_filter_buffer_create", c_uint64, [c_void_p, c_size_t, c_uint32]),
+        ("mcp_filter_buffer_release", None, [c_uint64]),
+        
+        # Client/Server operations
+        ("mcp_client_send_filtered", c_int, [c_uint64, c_void_p, c_size_t]),
+        ("mcp_server_process_filtered", c_int, [c_uint64, c_void_p, c_size_t]),
+        
+        # Filter operations
+        ("mcp_filter_post_data", c_int, [c_uint64, c_void_p, c_size_t, c_void_p, c_void_p]),
         ("mcp_filter_guard_create", c_void_p, [c_uint64]),
         ("mcp_filter_guard_add_filter", c_int, [c_void_p, c_uint64]),
         ("mcp_filter_guard_release", None, [c_void_p]),
-        # Thread-safe operations
-        ("mcp_filter_post_data", c_int, [c_uint64, c_void_p, c_size_t, c_void_p, c_void_p]),
+        ("mcp_filter_get_stats", c_int, [c_uint64, c_void_p]),
+        ("mcp_filter_reset_stats", c_int, [c_uint64]),
+        
+        # Memory pool operations
+        ("mcp_memory_pool_create", c_void_p, [c_size_t]),
+        ("mcp_memory_pool_destroy", None, [c_void_p]),
+        ("mcp_memory_pool_alloc", c_void_p, [c_void_p, c_size_t]),
+        
+        # JSON operations
+        ("mcp_json_create_object", c_void_p, []),
+        ("mcp_json_create_string", c_void_p, [c_char_p]),
+        ("mcp_json_create_number", c_void_p, [c_double]),
+        ("mcp_json_create_bool", c_void_p, [c_int]),
+        ("mcp_json_create_null", c_void_p, []),
+        ("mcp_json_free", None, [c_void_p]),
+        ("mcp_json_stringify", c_char_p, [c_void_p]),
+        
+        # Core MCP operations
+        ("mcp_init", c_int, []),
+        ("mcp_shutdown", None, []),
+        ("mcp_is_initialized", c_int, []),
+        ("mcp_get_version", c_char_p, []),
+        ("mcp_get_last_error", c_char_p, []),
+        ("mcp_clear_last_error", None, []),
     ]
     
     # Bind functions to the library
@@ -310,6 +378,179 @@ def check_result(result: int) -> bool:
     """Check if a result code indicates success."""
     return result == MCP_OK
 
+# Mock C API functions
+def mcp_filter_create(dispatcher: int, config: int) -> int:
+    """Mock filter creation."""
+    return 1
+
+def mcp_filter_create_builtin(dispatcher: int, filter_type: int, settings: int) -> int:
+    """Mock builtin filter creation."""
+    return 1
+
+def mcp_filter_retain(filter_handle: int) -> None:
+    """Mock filter retain."""
+    pass
+
+def mcp_filter_release(filter_handle: int) -> None:
+    """Mock filter release."""
+    pass
+
+def mcp_filter_set_callbacks(filter_handle: int, callbacks: int) -> int:
+    """Mock set callbacks."""
+    return MCP_OK
+
+def mcp_filter_set_protocol_metadata(filter_handle: int, metadata: int) -> int:
+    """Mock set protocol metadata."""
+    return MCP_OK
+
+def mcp_filter_get_protocol_metadata(filter_handle: int, metadata: int) -> int:
+    """Mock get protocol metadata."""
+    return MCP_OK
+
+def mcp_filter_chain_builder_create(dispatcher: int) -> int:
+    """Mock chain builder creation."""
+    return 1
+
+def mcp_filter_chain_builder_add_filter(builder: int, filter_handle: int) -> int:
+    """Mock add filter to chain."""
+    return MCP_OK
+
+def mcp_filter_chain_builder_build(builder: int) -> int:
+    """Mock build chain."""
+    return 1
+
+def mcp_filter_chain_builder_destroy(builder: int) -> None:
+    """Mock destroy chain builder."""
+    pass
+
+def mcp_filter_chain_retain(chain_handle: int) -> None:
+    """Mock chain retain."""
+    pass
+
+def mcp_filter_chain_release(chain_handle: int) -> None:
+    """Mock chain release."""
+    pass
+
+def mcp_filter_manager_create(connection: int, dispatcher: int) -> int:
+    """Mock manager creation."""
+    return 1
+
+def mcp_filter_manager_add_filter(manager: int, filter_handle: int) -> int:
+    """Mock add filter to manager."""
+    return MCP_OK
+
+def mcp_filter_manager_add_chain(manager: int, chain_handle: int) -> int:
+    """Mock add chain to manager."""
+    return MCP_OK
+
+def mcp_filter_manager_initialize(manager: int) -> int:
+    """Mock initialize manager."""
+    return MCP_OK
+
+def mcp_filter_manager_release(manager: int) -> None:
+    """Mock release manager."""
+    pass
+
+def mcp_filter_buffer_create(data: int, length: int) -> int:
+    """Mock buffer creation."""
+    return 1
+
+def mcp_filter_buffer_release(buffer_handle: int) -> None:
+    """Mock buffer release."""
+    pass
+
+def mcp_filter_buffer_length(buffer_handle: int) -> int:
+    """Mock buffer length."""
+    return 0
+
+def mcp_buffer_peek(buffer_handle: int, data: int, length: int) -> int:
+    """Mock buffer peek."""
+    return 0
+
+def mcp_filter_get_buffer_slices(buffer_handle: int, slices: int, max_slices: int) -> int:
+    """Mock get buffer slices."""
+    return 0
+
+def mcp_filter_reserve_buffer(buffer_handle: int, length: int) -> int:
+    """Mock reserve buffer."""
+    return 0
+
+def mcp_filter_commit_buffer(buffer_handle: int, length: int) -> int:
+    """Mock commit buffer."""
+    return MCP_OK
+
+def mcp_buffer_pool_create(config: int) -> int:
+    """Mock buffer pool creation."""
+    return 1
+
+def mcp_buffer_pool_acquire(pool: int) -> int:
+    """Mock acquire buffer from pool."""
+    return 1
+
+def mcp_buffer_pool_release(pool: int, buffer_handle: int) -> None:
+    """Mock release buffer to pool."""
+    pass
+
+def mcp_buffer_pool_destroy(pool: int) -> None:
+    """Mock destroy buffer pool."""
+    pass
+
+def mcp_filter_get_stats(filter_handle: int, stats: int) -> int:
+    """Mock get filter stats."""
+    return MCP_OK
+
+def mcp_filter_reset_stats(filter_handle: int) -> int:
+    """Mock reset filter stats."""
+    return MCP_OK
+
+def mcp_filter_post_data(filter_handle: int, data: int, length: int, callback: int, user_data: int) -> int:
+    """Mock post data to filter."""
+    return MCP_OK
+
+def mcp_filter_chain_create(dispatcher: int, config: int) -> int:
+    """Mock create filter chain."""
+    return 1
+
+def mcp_filter_chain_destroy(chain_handle: int) -> None:
+    """Mock destroy filter chain."""
+    pass
+
+def mcp_filter_chain_add_filter(chain_handle: int, filter_handle: int, position: int, config: int) -> int:
+    """Mock add filter to chain."""
+    return MCP_OK
+
+def mcp_filter_chain_remove_filter(chain_handle: int, filter_handle: int) -> int:
+    """Mock remove filter from chain."""
+    return MCP_OK
+
+def mcp_filter_chain_start(chain_handle: int) -> int:
+    """Mock start filter chain."""
+    return MCP_OK
+
+def mcp_filter_chain_stop(chain_handle: int) -> int:
+    """Mock stop filter chain."""
+    return MCP_OK
+
+def mcp_filter_chain_process(chain_handle: int, data: int, length: int) -> int:
+    """Mock process data through filter chain."""
+    return MCP_OK
+
+def mcp_filter_chain_build(chain_handle: int) -> int:
+    """Mock build filter chain."""
+    return MCP_OK
+
+def create_filter_manager(connection: int, dispatcher: int) -> int:
+    """Mock create filter manager."""
+    return 1
+
+def initialize_filter_manager(manager_handle: int) -> int:
+    """Mock initialize filter manager."""
+    return MCP_OK
+
+def release_filter_manager(manager_handle: int) -> None:
+    """Mock release filter manager."""
+    pass
+
 # Export the library and key functions
 __all__ = [
     "mcp_filter_lib",
@@ -319,6 +560,18 @@ __all__ = [
     "create_mock_connection", 
     "create_mock_memory_pool",
     "check_result",
+    # C API Functions
+    "mcp_filter_create", "mcp_filter_destroy", "mcp_filter_start", "mcp_filter_stop",
+    "mcp_filter_set_callbacks", "mcp_filter_post_data", "mcp_filter_chain_create",
+    "mcp_filter_chain_destroy", "mcp_filter_chain_add_filter", "mcp_filter_chain_remove_filter",
+    "mcp_filter_chain_start", "mcp_filter_chain_stop", "mcp_filter_chain_process", "mcp_filter_chain_build",
+    "mcp_filter_manager_create", "mcp_filter_manager_destroy", "mcp_filter_manager_add_filter",
+    "mcp_filter_manager_remove_filter", "mcp_filter_manager_start", "mcp_filter_manager_stop",
+    "mcp_filter_manager_process", "mcp_filter_get_buffer_content", "mcp_filter_update_buffer_content",
+    "mcp_filter_get_buffer_slices", "mcp_filter_reserve_buffer", "mcp_filter_commit_buffer",
+    "mcp_buffer_pool_create", "mcp_buffer_pool_acquire", "mcp_buffer_pool_release",
+    "mcp_buffer_pool_destroy", "mcp_filter_get_stats", "mcp_filter_reset_stats",
+    "create_filter_manager", "initialize_filter_manager", "release_filter_manager",
     # Constants
     "MCP_OK", "MCP_ERROR_INVALID_ARGUMENT", "MCP_ERROR_NOT_FOUND", 
     "MCP_ERROR_INVALID_STATE", "MCP_ERROR_RESOURCE_EXHAUSTED",
@@ -330,4 +583,4 @@ __all__ = [
     "MCP_FILTER_METRICS", "MCP_FILTER_TRACING", "MCP_FILTER_RATE_LIMIT",
     "MCP_FILTER_CIRCUIT_BREAKER", "MCP_FILTER_RETRY", "MCP_FILTER_LOAD_BALANCER",
     "MCP_FILTER_CUSTOM",
-] + [func_name for func_name, _, _ in function_list if func_name in globals()]
+]
