@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format check-format install uninstall
+.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python check-format install uninstall
 
 # Configuration detection
 OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
@@ -129,6 +129,20 @@ format:
 	else \
 		echo "TypeScript SDK directory not found, skipping TypeScript formatting."; \
 	fi
+	@echo "Formatting Python files with black..."
+	@if [ -d "sdk/python" ]; then \
+		if command -v black >/dev/null 2>&1; then \
+			cd sdk/python && black . --line-length 100 --target-version py38; \
+			echo "Python formatting complete."; \
+		else \
+			echo "Installing black for Python formatting..."; \
+			pip install black; \
+			cd sdk/python && black . --line-length 100 --target-version py38; \
+			echo "Python formatting complete."; \
+		fi; \
+	else \
+		echo "Python SDK directory not found, skipping Python formatting."; \
+	fi
 	@echo "All formatting complete."
 
 # Format only TypeScript files
@@ -145,6 +159,23 @@ format-ts:
 	else \
 		echo "TypeScript SDK directory not found."; \
 		exit 1; \
+	fi
+
+# Format only Python files
+format-python:
+	@echo "Formatting Python files with black..."
+	@if [ -d "sdk/python" ]; then \
+		if command -v black >/dev/null 2>&1; then \
+			cd sdk/python && black . --line-length 100 --target-version py38; \
+			echo "Python formatting complete."; \
+		else \
+			echo "Installing black for Python formatting..."; \
+			pip install black; \
+			cd sdk/python && black . --line-length 100 --target-version py38; \
+			echo "Python formatting complete."; \
+		fi; \
+	else \
+		echo "Python SDK directory not found, skipping Python formatting."; \
 	fi
 
 # Check formatting without modifying files
@@ -170,6 +201,22 @@ check-format:
 	else \
 		echo "TypeScript SDK directory not found, skipping TypeScript formatting check."; \
 	fi
+	@echo "Checking Python file formatting..."
+	@if [ -d "sdk/python" ]; then \
+		cd sdk/python && \
+		if command -v black >/dev/null 2>&1; then \
+			black . --check --line-length 100 --target-version py38; \
+			echo "Python formatting check complete."; \
+		else \
+			echo "Installing black for Python formatting check..."; \
+			pip install black; \
+			black . --check --line-length 100 --target-version py38; \
+			echo "Python formatting check complete."; \
+		fi; \
+	else \
+		echo "Python SDK directory not found, skipping Python formatting check."; \
+	fi
+	@echo "Formatting check complete."
 
 # Install all components (C++ SDK and C API if built)
 install:
@@ -285,8 +332,9 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files (C++ and TypeScript) │"
+	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python) │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
+	@echo "│ make format-python Format only Python files with black               │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
