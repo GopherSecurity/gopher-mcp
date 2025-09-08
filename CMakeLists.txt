@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
+# Set policy for FetchContent timestamp extraction
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
+
 #Prevent in - source builds
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed.
@@ -77,6 +82,9 @@ endif()
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
+
+# Set custom install prefix
+set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir")
 
 #Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -177,22 +185,22 @@ message(STATUS "")
 option(MCP_USE_LLHTTP "Use llhttp for HTTP/1.x parsing" ON)
 
 if(MCP_USE_LLHTTP)
-#Use a simpler approach - download just the release archive
+    # Use a simpler approach - download just the release archive
     FetchContent_Declare(
         llhttp
         URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.1.3.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     
-    FetchContent_GetProperties(llhttp)
-    if(NOT llhttp_POPULATED)
-        message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
-        FetchContent_Populate(llhttp)
-        message(STATUS "llhttp download complete.")
-
-#Build llhttp as a simple static library
-#The release archive contains pre - generated C files
-        file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
-        
+    message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
+    FetchContent_MakeAvailable(llhttp)
+    message(STATUS "llhttp download complete.")
+    
+    # Build llhttp as a simple static library
+    # The release archive contains pre-generated C files
+    file(GLOB LLHTTP_SOURCES ${llhttp_SOURCE_DIR}/src/*.c)
+    
+    if(NOT TARGET llhttp)
         add_library(llhttp STATIC ${LLHTTP_SOURCES})
         target_include_directories(llhttp PUBLIC ${llhttp_SOURCE_DIR}/include)
 
@@ -203,10 +211,10 @@ if(MCP_USE_LLHTTP)
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(llhttp PRIVATE -w)
         endif()
-        
-        set(LLHTTP_FOUND TRUE)
-        message(STATUS "llhttp successfully configured for build from source")
     endif()
+    
+    set(LLHTTP_FOUND TRUE)
+    message(STATUS "llhttp successfully configured for build from source")
 else()
     set(LLHTTP_FOUND FALSE)
     message(STATUS "llhttp support disabled")
@@ -289,15 +297,9 @@ else()
     message(STATUS "nghttp2 support disabled")
 endif()
 
-# fmt library for formatting
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG 10.1.1
-)
-message(STATUS "Downloading fmt... This may take a moment depending on your connection speed.")
-FetchContent_MakeAvailable(fmt)
-message(STATUS "fmt download complete.")
+# fmt library for formatting - use system-installed version
+find_package(fmt REQUIRED)
+message(STATUS "Found fmt: ${fmt_VERSION}")
 
 # nlohmann/json
 FetchContent_Declare(
@@ -314,7 +316,7 @@ if(NOT TARGET nlohmann_json_schema_validator)
     FetchContent_Declare(
         json_schema_validator
         GIT_REPOSITORY https://github.com/pboettch/json-schema-validator.git
-        GIT_TAG v2.3.0
+        GIT_TAG 2.3.0
     )
     message(STATUS "Downloading json-schema-validator... This may take a moment depending on your connection speed.")
     FetchContent_MakeAvailable(json_schema_validator)
@@ -339,30 +341,8 @@ message(STATUS "All dependencies ready. Configuring build...")
 message(STATUS "==================================================")
 message(STATUS "")
 
-# nlohmann/json - check if already available (when used as submodule)
-if(NOT TARGET nlohmann_json::nlohmann_json)
-    FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.3
-    )
-    FetchContent_MakeAvailable(nlohmann_json)
-endif()
-
-# Google Test - only fetch if not already available and not a submodule
-if(NOT GOPHER_MCP_IS_SUBMODULE)
-    # Check if Google Test is already available
-    if(NOT TARGET gtest AND NOT TARGET GTest::gtest)
-        FetchContent_Declare(
-            googletest
-            GIT_REPOSITORY https://github.com/google/googletest.git
-            GIT_TAG release-1.12.1
-        )
-        # For Windows: Prevent overriding the parent project's compiler/linker settings
-        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(googletest)
-    endif()
-endif()
+# Note: nlohmann/json already fetched above (lines 298-305)
+# Note: Google Test already fetched above (lines 319-329)
 
 # Source files - split core from client/server to avoid circular deps
 set(MCP_CORE_SOURCES
@@ -404,6 +384,7 @@ set(MCP_CORE_SOURCES
     src/filter/protocol_detection_filter_chain_factory.cc
     src/filter/http_routing_filter.cc
     src/filter/protocol_detection_filter.cc
+    src/filter/filter_registry.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
@@ -523,12 +504,12 @@ foreach(lib_target ${REAL_TARGETS})
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
-                yaml-cpp
+                yaml-cpp::yaml-cpp
+                $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+                $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
         )
-        # Link json-schema-validator if available
-        if(TARGET nlohmann_json_schema_validator)
-            target_link_libraries(${lib_target} PRIVATE nlohmann_json_schema_validator)
-        endif()
+        # Disable json-schema-validator by default to avoid export/link issues
+        target_compile_definitions(${lib_target} PUBLIC MCP_HAS_JSON_SCHEMA_VALIDATOR=0)
         if(LIBEVENT_LIBRARY_DIRS)
             target_link_directories(${lib_target} PRIVATE ${LIBEVENT_LIBRARY_DIRS})
         endif()
