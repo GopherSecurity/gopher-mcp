@@ -31,6 +31,12 @@ struct ValidationResult {
   std::set<std::string> failing_categories;
   std::set<std::string> unknown_fields;
 
+  // Helpers used by validator implementations
+  void addError(const std::string& path, const std::string& message,
+                const std::string& category = "");
+  void addWarning(const std::string& path, const std::string& message,
+                  const std::string& category = "");
+
   size_t getErrorCount() const;
   size_t getWarningCount() const;
 };
@@ -59,6 +65,10 @@ class RangeValidator : public Validator {
   ValidationResult validate(const mcp::json::JsonValue& config,
                             ValidationMode mode) override;
   std::string getName() const override;
+
+ private:
+  std::string name_;
+  std::vector<RangeRule> rules_;
 };
 
 class CompositeValidator : public Validator {
@@ -68,6 +78,10 @@ class CompositeValidator : public Validator {
   ValidationResult validate(const mcp::json::JsonValue& config,
                             ValidationMode mode) override;
   std::string getName() const override;
+
+ private:
+  std::string name_;
+  std::vector<std::unique_ptr<Validator>> validators_;
 };
 
 // Factory functions
