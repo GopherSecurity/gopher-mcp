@@ -32,6 +32,7 @@ from .filter_api import (
     # Filter lifecycle
     create_filter,
     create_builtin_filter,
+    create_custom_filter,
     retain_filter,
     release_filter,
     set_filter_callbacks,
@@ -48,6 +49,37 @@ from .filter_api import (
     # Statistics
     get_filter_stats,
     reset_filter_stats,
+)
+
+from .mcp_c_structs import (
+    # C struct types
+    McpFilterCallbacks,
+    McpProtocolMetadata,
+    McpFilterStats,
+    McpBufferSlice,
+    
+    # C function pointer types
+    DataCallback,
+    WriteCallback,
+    ConnCallback,
+    MarkCallback,
+    ErrorCallback,
+    
+    # Callback registration functions
+    register_python_callback,
+    create_callback_function_pointer,
+    create_default_callbacks,
+    validate_callback_signature,
+    
+    # C struct creation functions
+    create_filter_callbacks_struct,
+    create_protocol_metadata_struct,
+    create_filter_stats_struct,
+    
+    # Utility functions
+    cleanup_callbacks,
+    get_callback_count,
+    list_registered_callbacks,
 )
 
 from .filter_chain import (
@@ -280,11 +312,33 @@ __all__ = [
     # Filter lifecycle
     "create_filter",
     "create_builtin_filter",
+    "create_custom_filter",
     "retain_filter",
     "release_filter",
     "set_filter_callbacks",
     "set_protocol_metadata",
     "get_protocol_metadata",
+    
+    # CApiFilter integration
+    "McpFilterCallbacks",
+    "McpProtocolMetadata",
+    "McpFilterStats",
+    "McpBufferSlice",
+    "DataCallback",
+    "WriteCallback",
+    "ConnCallback",
+    "MarkCallback",
+    "ErrorCallback",
+    "register_python_callback",
+    "create_callback_function_pointer",
+    "create_default_callbacks",
+    "validate_callback_signature",
+    "create_filter_callbacks_struct",
+    "create_protocol_metadata_struct",
+    "create_filter_stats_struct",
+    "cleanup_callbacks",
+    "get_callback_count",
+    "list_registered_callbacks",
     
     # Filter types
     "BuiltinFilterType",
