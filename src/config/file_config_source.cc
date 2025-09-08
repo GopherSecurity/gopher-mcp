@@ -238,7 +238,7 @@ mcp::json::JsonValue yamlToJsonValue(const YAML::Node& node) {
     case YAML::NodeType::Map: {
       auto result = mcp::json::JsonValue::object();
       for (const auto& pair : node) {
-        result[pair.first.as<std::string>()] = yamlToJsonValue(pair.second);
+        result.set(pair.first.as<std::string>(), yamlToJsonValue(pair.second));
       }
       return result;
     }
@@ -284,8 +284,8 @@ class FileConfigSource : public ConfigSource {
   }
 
   mcp::json::JsonValue loadConfiguration() override {
-#undef GOPHER_LOG_COMPONENT
-#define GOPHER_LOG_COMPONENT "config.search"
+    // Keep logs under config.file so tests that attach a sink to
+    // "config.file" see discovery start/end messages.
     LOG_INFO("Starting configuration discovery for source: %s%s",
              name_.c_str(),
              (options_.trace_id.empty() ? "" : (" trace_id=" + options_.trace_id).c_str()));
@@ -299,9 +299,6 @@ class FileConfigSource : public ConfigSource {
     }
 
     LOG_INFO("Base configuration file chosen: %s", config_path.c_str());
-
-#undef GOPHER_LOG_COMPONENT
-#define GOPHER_LOG_COMPONENT "config.file"
 
     // Load and parse the main configuration file
     ParseContext context;
@@ -321,9 +318,31 @@ class FileConfigSource : public ConfigSource {
     last_modified_ = context.latest_mtime;
     base_config_path_ = config_path;
 
+    // Emit a brief summary and also dump top-level keys/types to aid debugging
     LOG_INFO("Configuration discovery completed: files_parsed=%zu includes_processed=%zu env_vars_expanded=%zu overlays_applied=%zu",
              context.files_parsed_count, context.includes_processed_count, 
              context.env_vars_expanded_count, context.overlays_applied.size());
+
+    if (config.isObject()) {
+      for (const auto& key : config.keys()) {
+        const auto& v = config[key];
+        const char* t = "unknown";
+        if (v.isNull()) t = "null";
+        else if (v.isBoolean()) t = "bool";
+        else if (v.isInteger()) t = "int";
+        else if (v.isFloat()) t = "float";
+        else if (v.isString()) t = "string";
+        else if (v.isArray()) t = "array";
+        else if (v.isObject()) t = "object";
+        LOG_DEBUG("  key='%s' type=%s", key.c_str(), t);
+      }
+      // Emit compact JSON for quick inspection
+      LOG_INFO("Top-level configuration JSON: %s", config.toString(false).c_str());
+      // Also print to stderr for test visibility when sinks are not attached
+      fprintf(stderr, "[config.file] Top-level JSON: %s\n", config.toString(false).c_str());
+    } else {
+      LOG_DEBUG("Loaded configuration is not an object (type summary not available)");
+    }
 
     // Log overlay list (filenames only)
     if (!context.overlays_applied.empty()) {
@@ -399,9 +418,9 @@ class FileConfigSource : public ConfigSource {
 
     // 1. Explicit path (--config CLI argument)
     if (!explicit_config_path_.empty()) {
-      search_paths.push_back(explicit_config_path_);
-      LOG_INFO("CLI override detected: --config specified");
-      source_type = "CLI";
+      // Prefer the explicit path unconditionally; downstream loadFile will
+      // report a precise error if it does not exist or cannot be parsed.
+      return explicit_config_path_;
     }
 
     // 2. MCP_CONFIG environment variable
@@ -497,7 +516,12 @@ class FileConfigSource : public ConfigSource {
 
     try {
       if (extension == ".yaml" || extension == ".yml") {
-        config = parseYaml(content, filepath);
+        // Some .yaml files may contain strict JSON; try JSON first, then YAML
+        try {
+          config = parseJson(content, filepath);
+        } catch (...) {
+          config = parseYaml(content, filepath);
+        }
       } else if (extension == ".json") {
         config = parseJson(content, filepath);
       } else {
@@ -514,6 +538,9 @@ class FileConfigSource : public ConfigSource {
       throw;
     }
 
+    // Normalize known field aliases (compat)
+    normalizeConfig(config);
+
     // Process includes if present
     if (config.isObject() && config.contains("include")) {
       config = processIncludes(config, context);
@@ -527,11 +554,78 @@ class FileConfigSource : public ConfigSource {
     return config;
   }
 
+  void normalizeConfig(mcp::json::JsonValue& config) {
+    if (!config.isObject()) return;
+    // Normalize admin.bind_address -> admin.address
+    if (config.contains("admin") && config["admin"].isObject()) {
+      auto admin = config["admin"]; // copy
+      if (admin.contains("bind_address") && !admin.contains("address")) {
+        mcp::json::JsonValue normalized = admin; // copy object
+        normalized.set("address", admin["bind_address"]);
+        config.set("admin", normalized);
+      }
+    }
+  }
+
   mcp::json::JsonValue parseYaml(const std::string& content,
                                  const std::string& filepath) {
+    // Heuristic guard: detect lines with dangling indentation that are not
+    // part of a block scalar or list item. This catches cases like:
+    //   key: value\n
+    //     invalid indentation
+    // which yaml-cpp may fold into a plain scalar instead of raising.
+    auto detect_dangling_indent = [](const std::string& txt) -> int {
+      int line_no = 0;
+      std::string prev;
+      for (size_t i = 0, n = txt.size(); i < n;) {
+        size_t j = txt.find('\n', i);
+        std::string line = (j == std::string::npos) ? txt.substr(i) : txt.substr(i, j - i);
+        line_no++;
+        // Trim right
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
+        // Compute left spaces
+        size_t left = 0;
+        while (left < line.size() && (line[left] == ' ' || line[left] == '\t')) left++;
+        std::string trimmed = line.substr(left);
+        auto is_empty = trimmed.empty();
+        if (!is_empty) {
+          bool prev_is_mapping = (prev.find(':') != std::string::npos) &&
+                                 !(prev.size() && (prev.back() == '|' || prev.back() == '>')) &&
+                                 (prev.find('-') != 0);
+          bool this_is_continuation = (left >= 2) && (trimmed.find(':') == std::string::npos) && (trimmed.find('-') != 0);
+          if (prev_is_mapping && this_is_continuation) {
+            return line_no;  // suspect dangling indentation
+          }
+          prev = trimmed;
+        }
+        if (j == std::string::npos) break;
+        i = j + 1;
+      }
+      return 0;
+    };
+    if (int bad_line = detect_dangling_indent(content)) {
+      std::ostringstream err;
+      err << "YAML parse error at line " << bad_line << ", column 1";
+      throw std::runtime_error(err.str());
+    }
     try {
       YAML::Node root = YAML::Load(content);
-      return yamlToJsonValue(root);
+      auto jv = yamlToJsonValue(root);
+      // Fallback: some JSON-valid content inside .yaml may be parsed into an
+      // undefined node by yaml-cpp in edge cases. If conversion yielded null
+      // but the content looks like JSON, try JSON parsing as a fallback.
+      if (jv.isNull()) {
+        auto has_json_braces = (content.find('{') != std::string::npos) ||
+                               (content.find('[') != std::string::npos);
+        if (has_json_braces) {
+          try {
+            return parseJson(content, filepath);
+          } catch (...) {
+            // fall through to structured YAML error below
+          }
+        }
+      }
+      return jv;
     } catch (const YAML::ParserException& e) {
       std::ostringstream error;
       error << "YAML parse error at line " << e.mark.line + 1 << ", column "
@@ -769,18 +863,26 @@ class FileConfigSource : public ConfigSource {
   }
 
   void mergeConfigs(mcp::json::JsonValue& target, const mcp::json::JsonValue& source) {
-    // Simple merge: source overwrites target for existing keys
-    // Arrays are replaced, not concatenated
-    if (source.isObject()) {
-      for (const auto& key : source.keys()) {
-        if (source[key].isObject() && target.contains(key) &&
-            target[key].isObject()) {
-          // Recursively merge objects
-          mergeConfigs(target[key], source[key]);
-        } else {
-          // Replace value
-          target[key] = source[key];
+    // Object merge: recursively merge objects; other types overwrite.
+    if (!source.isObject()) {
+      return;
+    }
+
+    for (const auto& key : source.keys()) {
+      const auto& src_val = source[key];
+      if (src_val.isObject() && target.contains(key)) {
+        // Pull current target subobject (by value), merge into it, then set back.
+        mcp::json::JsonValue tgt_sub = target.contains(key) ? target[key] : mcp::json::JsonValue::object();
+        if (!tgt_sub.isObject()) {
+          // If target key exists but is not object, overwrite entirely below
+          target.set(key, src_val);
+          continue;
         }
+        mergeConfigs(tgt_sub, src_val);
+        target.set(key, tgt_sub);
+      } else {
+        // Overwrite or create
+        target.set(key, src_val);
       }
     }
   }
