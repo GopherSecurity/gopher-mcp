@@ -1,0 +1,101 @@
+[package]
+name = "mcp-filter-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Rust SDK for MCP Filter C API integration"
+authors = ["MCP Team"]
+license = "MIT"
+repository = "https://github.com/modelcontextprovider/gopher-mcp.git"
+keywords = ["mcp", "filter", "network", "proxy", "gateway", "rust", "ffi", "c-api"]
+categories = ["network-programming", "api-bindings"]
+
+# Library configuration
+[lib]
+name = "mcp_filter_sdk"
+path = "src/lib.rs"
+
+# Binary examples
+[[bin]]
+name = "calculator_client"
+path = "src/examples/calculator_client.rs"
+
+[[bin]]
+name = "calculator_server"
+path = "src/examples/calculator_server.rs"
+
+[[bin]]
+name = "filter_demo"
+path = "src/examples/filter_demo.rs"
+
+[[bin]]
+name = "capifilter_demo"
+path = "src/examples/capifilter_demo.rs"
+
+[[bin]]
+name = "advanced_chain_demo"
+path = "src/examples/advanced_chain_demo.rs"
+
+[[bin]]
+name = "real_cpp_integration_demo"
+path = "src/examples/real_cpp_integration_demo.rs"
+
+# Dependencies
+[dependencies]
+# FFI and C integration
+libc = "0.2"
+libloading = "0.8"  # Dynamic library loading
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Development dependencies
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"
+proptest = "1.0"
+tempfile = "3.0"
+mockall = "0.12"
+
+# Build dependencies
+[build-dependencies]
+cbindgen = "0.26"
+
+# Features
+[features]
+default = ["std"]
+std = []
+no_std = []
+
+# Profile configurations
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Benchmark configuration
+[[bench]]
+name = "filter_benchmarks"
+harness = false
