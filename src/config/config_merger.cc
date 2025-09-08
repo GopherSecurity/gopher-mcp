@@ -5,8 +5,7 @@
 #include <sstream>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
+#include "mcp/config/config_merger.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
@@ -14,69 +13,10 @@
 namespace mcp {
 namespace config {
 
-// Local adapter functions for JSON conversion
-namespace {
+// Configuration merging now uses JsonValue directly
 
-// Convert from nlohmann::json to mcp::json::JsonValue
-mcp::json::JsonValue fromNlohmann(const nlohmann::json& nj) {
-  if (nj.is_null()) {
-    return mcp::json::JsonValue::null();
-  } else if (nj.is_boolean()) {
-    return mcp::json::JsonValue(nj.get<bool>());
-  } else if (nj.is_number_integer()) {
-    return mcp::json::JsonValue(nj.get<int64_t>());
-  } else if (nj.is_number_float()) {
-    return mcp::json::JsonValue(nj.get<double>());
-  } else if (nj.is_string()) {
-    return mcp::json::JsonValue(nj.get<std::string>());
-  } else if (nj.is_array()) {
-    mcp::json::JsonValue arr = mcp::json::JsonValue::array();
-    for (const auto& item : nj) {
-      arr.push_back(fromNlohmann(item));
-    }
-    return arr;
-  } else if (nj.is_object()) {
-    mcp::json::JsonValue obj = mcp::json::JsonValue::object();
-    for (auto it = nj.begin(); it != nj.end(); ++it) {
-      obj[it.key()] = fromNlohmann(it.value());
-    }
-    return obj;
-  }
-  return mcp::json::JsonValue::null();
-}
-
-// Convert from mcp::json::JsonValue to nlohmann::json
-nlohmann::json toNlohmann(const mcp::json::JsonValue& jv) {
-  if (jv.isNull()) {
-    return nullptr;
-  } else if (jv.isBool()) {
-    return jv.getBool();
-  } else if (jv.isInt()) {
-    return jv.getInt();
-  } else if (jv.isDouble()) {
-    return jv.getDouble();
-  } else if (jv.isString()) {
-    return jv.getString();
-  } else if (jv.isArray()) {
-    nlohmann::json arr = nlohmann::json::array();
-    for (size_t i = 0; i < jv.size(); ++i) {
-      arr.push_back(toNlohmann(jv[i]));
-    }
-    return arr;
-  } else if (jv.isObject()) {
-    nlohmann::json obj = nlohmann::json::object();
-    for (const auto& key : jv.getMemberNames()) {
-      obj[key] = toNlohmann(jv[key]);
-    }
-    return obj;
-  }
-  return nullptr;
-}
-
-}  // namespace
-
-// Configuration merger class
-class ConfigMerger {
+// Internal implementation hidden behind pimpl
+struct ConfigMerger::Impl {
  public:
   enum class ArrayMergeStrategy {
     REPLACE,        // Default: replace entire array
@@ -95,7 +35,7 @@ class ConfigMerger {
     static constexpr int MAX_MERGE_DEPTH = 100;
   };
 
-  ConfigMerger() = default;
+  Impl() = default;
 
   // Main merge function using JsonValue
   mcp::json::JsonValue merge(
@@ -108,18 +48,18 @@ class ConfigMerger {
     context.version_id = version_id;
     
     // Log source layering order
-    for (const auto& [source_name, _] : sources) {
-      context.source_order.push_back(source_name);
+    for (const auto& pair : sources) {
+      context.source_order.push_back(pair.first);
     }
     
-    LOG_INFO() << "Starting configuration merge:"
-               << " sources=" << sources.size()
-               << " order=[" << joinStrings(context.source_order, ", ") << "]"
-               << (snapshot_id.empty() ? "" : " snapshot_id=" + snapshot_id)
-               << (version_id.empty() ? "" : " version_id=" + version_id);
+    std::string order_str = joinStrings(context.source_order, ", ");
+    LOG_INFO("Starting configuration merge: sources=%zu order=[%s]%s%s",
+             sources.size(), order_str.c_str(),
+             snapshot_id.empty() ? "" : (" snapshot_id=" + snapshot_id).c_str(),
+             version_id.empty() ? "" : (" version_id=" + version_id).c_str());
     
     if (sources.empty()) {
-      LOG_WARNING() << "No configuration sources provided for merge";
+      LOG_WARNING("No configuration sources provided for merge");
       return mcp::json::JsonValue::object();
     }
     
@@ -131,29 +71,27 @@ class ConfigMerger {
       const auto& [source_name, overlay] = sources[i];
       context.overlay_count++;
       
-      LOG_DEBUG() << "Applying overlay: " << source_name 
-                  << " (overlay " << context.overlay_count << ")";
+      LOG_DEBUG("Applying overlay: %s (overlay %zu)", 
+                source_name.c_str(), context.overlay_count);
       
       result = mergeObjects(result, overlay, context);
     }
     
     // Log merge summary
-    LOG_INFO() << "Configuration merge completed:"
-               << " overlays_applied=" << context.overlay_count
-               << " conflicts_resolved=" << context.conflicts_resolved.size();
+    LOG_INFO("Configuration merge completed: overlays_applied=%zu conflicts_resolved=%zu",
+             context.overlay_count, context.conflicts_resolved.size());
     
     if (!context.conflicts_resolved.empty() && 
         context.conflicts_resolved.size() <= 10) {
-      LOG_DEBUG() << "Conflicts resolved for keys: [" 
-                  << joinStrings(context.conflicts_resolved, ", ") << "]";
+      std::string keys = joinStrings(context.conflicts_resolved, ", ");
+      LOG_DEBUG("Conflicts resolved for keys: [%s]", keys.c_str());
     } else if (context.conflicts_resolved.size() > 10) {
-      LOG_DEBUG() << "Conflicts resolved for " 
-                  << context.conflicts_resolved.size() 
-                  << " keys (showing first 10): ["
-                  << joinStrings(std::vector<std::string>(
-                        context.conflicts_resolved.begin(),
-                        std::next(context.conflicts_resolved.begin(), 10)), ", ")
-                  << ", ...]";
+      std::vector<std::string> first_ten(
+          context.conflicts_resolved.begin(),
+          std::next(context.conflicts_resolved.begin(), 10));
+      std::string keys = joinStrings(first_ten, ", ");
+      LOG_DEBUG("Conflicts resolved for %zu keys (showing first 10): [%s, ...]", 
+                context.conflicts_resolved.size(), keys.c_str());
     }
     
     return result;
@@ -166,13 +104,14 @@ class ConfigMerger {
                                     const std::string& path = "") {
     // Check recursion depth
     if (++context.merge_depth > context.MAX_MERGE_DEPTH) {
-      LOG_ERROR() << "Maximum merge depth exceeded at path: " << path;
+      LOG_ERROR("Maximum merge depth exceeded at path: %s", path.c_str());
       throw std::runtime_error("Configuration merge depth limit exceeded");
     }
     
     // Handle non-object cases
     if (!base.isObject() || !overlay.isObject()) {
-      if (base != overlay) {
+      // JsonValue doesn't support != directly, use string comparison as fallback
+      if (base.toString() != overlay.toString()) {
         context.conflicts_resolved.insert(path.empty() ? "root" : path);
       }
       context.merge_depth--;
@@ -182,10 +121,10 @@ class ConfigMerger {
     mcp::json::JsonValue result = base;
     
     // Merge each key from overlay
-    for (const auto& key : overlay.getMemberNames()) {
+    for (const auto& key : overlay.keys()) {
       std::string current_path = path.empty() ? key : path + "." + key;
       
-      if (!base.isMember(key)) {
+      if (!base.contains(key)) {
         // New key from overlay
         result[key] = overlay[key];
       } else {
@@ -196,45 +135,45 @@ class ConfigMerger {
         // Determine merge strategy based on key category
         if (isFilterList(key)) {
           // Filter lists: replace by default
-          LOG_DEBUG() << "Category chosen for '" << current_path 
-                      << "': REPLACE (filter list)";
-          if (base_value != overlay_value) {
+          LOG_DEBUG("Category chosen for '%s': REPLACE (filter list)", 
+                    current_path.c_str());
+          if (base_value.toString() != overlay_value.toString()) {
             context.conflicts_resolved.insert(current_path);
-            LOG_DEBUG() << "Conflict detected at '" << current_path 
-                        << "': replacing entire array";
+            LOG_DEBUG("Conflict detected at '%s': replacing entire array", 
+                      current_path.c_str());
           }
           result[key] = overlay_value;
         } else if (isNamedResourceArray(key) && 
                    base_value.isArray() && overlay_value.isArray()) {
           // Named resources: merge by name
-          LOG_DEBUG() << "Category chosen for '" << current_path 
-                      << "': MERGE-BY-NAME (named resource array)";
+          LOG_DEBUG("Category chosen for '%s': MERGE-BY-NAME (named resource array)", 
+                    current_path.c_str());
           result[key] = mergeNamedResourceArrays(
               base_value, overlay_value, context, current_path);
         } else if (base_value.isObject() && overlay_value.isObject()) {
           // Nested objects: deep merge
-          LOG_DEBUG() << "Category chosen for '" << current_path 
-                      << "': DEEP-MERGE (nested objects)";
+          LOG_DEBUG("Category chosen for '%s': DEEP-MERGE (nested objects)", 
+                    current_path.c_str());
           result[key] = mergeObjects(
               base_value, overlay_value, context, current_path);
         } else if (base_value.isArray() && overlay_value.isArray()) {
           // Other arrays: replace by default
-          LOG_DEBUG() << "Category chosen for '" << current_path 
-                      << "': REPLACE (default array behavior)";
-          if (base_value != overlay_value) {
+          LOG_DEBUG("Category chosen for '%s': REPLACE (default array behavior)", 
+                    current_path.c_str());
+          if (base_value.toString() != overlay_value.toString()) {
             context.conflicts_resolved.insert(current_path);
-            LOG_DEBUG() << "Conflict detected at '" << current_path 
-                        << "': replacing array";
+            LOG_DEBUG("Conflict detected at '%s': replacing array", 
+                      current_path.c_str());
           }
           result[key] = overlay_value;
         } else {
           // Different types or primitives: overlay wins
-          LOG_DEBUG() << "Category chosen for '" << current_path 
-                      << "': OVERRIDE (scalar/type mismatch)";
-          if (base_value != overlay_value) {
+          LOG_DEBUG("Category chosen for '%s': OVERRIDE (scalar/type mismatch)", 
+                    current_path.c_str());
+          if (base_value.toString() != overlay_value.toString()) {
             context.conflicts_resolved.insert(current_path);
-            LOG_DEBUG() << "Conflict detected at '" << current_path 
-                        << "': overlay value wins";
+            LOG_DEBUG("Conflict detected at '%s': overlay value wins", 
+                      current_path.c_str());
           }
           result[key] = overlay_value;
         }
@@ -258,7 +197,7 @@ class ConfigMerger {
     for (size_t i = 0; i < base_array.size(); ++i) {
       const auto& base_item = base_array[i];
       
-      if (!base_item.isObject() || !base_item.isMember("name")) {
+      if (!base_item.isObject() || !base_item.contains("name")) {
         // Not a named resource, keep as-is
         result.push_back(base_item);
         continue;
@@ -272,11 +211,11 @@ class ConfigMerger {
       for (size_t j = 0; j < overlay_array.size(); ++j) {
         const auto& overlay_item = overlay_array[j];
         if (overlay_item.isObject() && 
-            overlay_item.isMember("name") &&
+            overlay_item.contains("name") &&
             overlay_item["name"].getString() == name) {
           // Found matching named resource - merge them
-          LOG_DEBUG() << "Merging named resource '" << name 
-                      << "' at " << path;
+          LOG_DEBUG("Merging named resource '%s' at %s", 
+                    name.c_str(), path.c_str());
           result.push_back(mergeObjects(
               base_item, overlay_item, context, 
               path + "[name=" + name + "]"));
@@ -295,7 +234,7 @@ class ConfigMerger {
     for (size_t i = 0; i < overlay_array.size(); ++i) {
       const auto& overlay_item = overlay_array[i];
       
-      if (!overlay_item.isObject() || !overlay_item.isMember("name")) {
+      if (!overlay_item.isObject() || !overlay_item.contains("name")) {
         // Not a named resource, append
         result.push_back(overlay_item);
         continue;
@@ -304,8 +243,8 @@ class ConfigMerger {
       std::string name = overlay_item["name"].getString();
       if (processed_names.find(name) == processed_names.end()) {
         // New named resource from overlay
-        LOG_DEBUG() << "Adding new named resource '" << name 
-                    << "' from overlay at " << path;
+        LOG_DEBUG("Adding new named resource '%s' from overlay at %s", 
+                  name.c_str(), path.c_str());
         result.push_back(overlay_item);
       }
     }
@@ -351,6 +290,15 @@ class ConfigMerger {
                       delimiter);
   }
 };
+
+// Public facade methods
+ConfigMerger::ConfigMerger() : impl_(new Impl()) {}
+ConfigMerger::~ConfigMerger() = default;
+mcp::json::JsonValue ConfigMerger::merge(
+    const std::vector<std::pair<std::string, mcp::json::JsonValue>>& sources,
+    const std::string& snapshot_id, const std::string& version_id) {
+  return impl_->merge(sources, snapshot_id, version_id);
+}
 
 // Factory function for creating a merger
 std::unique_ptr<ConfigMerger> createConfigMerger() {
