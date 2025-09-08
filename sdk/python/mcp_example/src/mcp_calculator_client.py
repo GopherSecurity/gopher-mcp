@@ -24,13 +24,103 @@ class ListToolsResult:
 class Client:
     """Mock MCP Client for demonstration"""
     def __init__(self):
-        pass
+        self.transport = None
+    
+    async def connect(self, transport):
+        """Connect the client to a transport."""
+        self.transport = transport
+        print("🔗 Mock MCP Client connected to transport")
     
     async def list_tools(self) -> ListToolsResult:
-        return ListToolsResult(tools=[])
+        return ListToolsResult(tools=[
+            {
+                "name": "calculator",
+                "description": "Perform arithmetic calculations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["add", "subtract", "multiply", "divide", "power", "sqrt", "factorial"]},
+                        "a": {"type": "number"},
+                        "b": {"type": "number"},
+                        "precision": {"type": "integer", "default": 2}
+                    },
+                    "required": ["operation", "a"]
+                }
+            },
+            {
+                "name": "server_stats",
+                "description": "Get server statistics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        ])
     
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> CallToolResult:
-        return CallToolResult(content=[{"type": "text", "text": f"Tool {name} called with {arguments}"}])
+        if name == "calculator":
+            return self._handle_calculator(arguments)
+        elif name == "server_stats":
+            return self._handle_server_stats()
+        else:
+            return CallToolResult(content=[{"type": "text", "text": f"Unknown tool: {name}"}])
+    
+    def _handle_calculator(self, arguments: Dict[str, Any]) -> CallToolResult:
+        """Handle calculator tool calls."""
+        operation = arguments.get("operation", "add")
+        a = arguments.get("a", 0)
+        b = arguments.get("b", 0)
+        precision = arguments.get("precision", 2)
+        
+        try:
+            if operation == "add":
+                result = a + b
+            elif operation == "subtract":
+                result = a - b
+            elif operation == "multiply":
+                result = a * b
+            elif operation == "divide":
+                if b == 0:
+                    return CallToolResult(content=[{"type": "text", "text": "Error: Division by zero"}], isError=True)
+                result = a / b
+            elif operation == "power":
+                result = a ** b
+            elif operation == "sqrt":
+                if a < 0:
+                    return CallToolResult(content=[{"type": "text", "text": "Error: Square root of negative number"}], isError=True)
+                result = a ** 0.5
+            elif operation == "factorial":
+                if a < 0 or a != int(a):
+                    return CallToolResult(content=[{"type": "text", "text": "Error: Factorial of negative or non-integer number"}], isError=True)
+                result = 1
+                for i in range(1, int(a) + 1):
+                    result *= i
+            else:
+                return CallToolResult(content=[{"type": "text", "text": f"Error: Unknown operation '{operation}'"}], isError=True)
+            
+            # Format result with precision
+            if operation in ["divide", "sqrt"]:
+                result_text = f"{result:.{precision}f}"
+            else:
+                result_text = str(result)
+            
+            return CallToolResult(content=[{"type": "text", "text": result_text}])
+            
+        except Exception as e:
+            return CallToolResult(content=[{"type": "text", "text": f"Error: {str(e)}"}], isError=True)
+    
+    def _handle_server_stats(self) -> CallToolResult:
+        """Handle server statistics tool calls."""
+        import time
+        stats = {
+            "uptime": "1 hour 23 minutes",
+            "requests_processed": 42,
+            "active_connections": 1,
+            "memory_usage": "12.5 MB",
+            "cpu_usage": "5.2%",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        return CallToolResult(content=[{"type": "text", "text": f"Server Statistics: {json.dumps(stats, indent=2)}"}])
 
 # Import local components
 from gopher_transport import GopherTransport, gopher_transport_context
@@ -68,10 +158,7 @@ class CalculatorClient:
         print(f"🔗 Connecting to calculator server at {self.host}:{self.port}")
         
         # Create MCP client
-        self.client = Client(
-            name="calculator-client",
-            version="1.0.0"
-        )
+        self.client = Client()
         
         # Create transport configuration
         transport_config = self._create_transport_config()
@@ -90,7 +177,6 @@ class CalculatorClient:
         """Create transport configuration with comprehensive filters."""
         return GopherTransportConfig(
             name="calculator-client-transport",
-            version="1.0.0",
             protocol="tcp",
             host=self.host,
             port=self.port,
@@ -251,7 +337,7 @@ class CalculatorClient:
         result = await self.client.list_tools()
         print(f"✅ Found {len(result.tools)} tools:")
         for tool in result.tools:
-            print(f"   - {tool.name}: {tool.description}")
+            print(f"   - {tool['name']}: {tool['description']}")
         return result
     
     async def call_calculator(self, operation: str, a: float, b: float, precision: int = 2) -> str:
@@ -273,8 +359,8 @@ class CalculatorClient:
         # Extract result from the response
         if hasattr(result, 'content') and result.content:
             content = result.content[0]
-            if hasattr(content, 'text'):
-                result_text = content.text
+            if isinstance(content, dict) and 'text' in content:
+                result_text = content['text']
             else:
                 result_text = str(content)
         else:
@@ -297,8 +383,8 @@ class CalculatorClient:
         # Extract result from the response
         if hasattr(result, 'content') and result.content:
             content = result.content[0]
-            if hasattr(content, 'text'):
-                result_text = content.text
+            if isinstance(content, dict) and 'text' in content:
+                result_text = content['text']
             else:
                 result_text = str(content)
         else:
