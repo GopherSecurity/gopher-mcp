@@ -771,6 +771,110 @@ def read_string_from_buffer(buffer: AdvancedBuffer) -> str:
     return data.decode('utf-8')
 
 
+def get_buffer_content(buffer_handle: int) -> str:
+    """
+    Get buffer content using buffer handle with proper error handling.
+    
+    Args:
+        buffer_handle: Buffer handle from C API
+        
+    Returns:
+        Buffer content as string
+        
+    Raises:
+        ValueError: If buffer handle is invalid
+        RuntimeError: If buffer operation fails
+    """
+    # Validate buffer handle
+    if buffer_handle == 0:
+        raise ValueError("Invalid buffer handle: 0")
+    
+    try:
+        # Create buffer wrapper
+        buffer = AdvancedBuffer(buffer_handle)
+        
+        # Get buffer length
+        length = buffer.length()
+        if length == 0:
+            return ""
+        
+        # Read content
+        content = read_string_from_buffer(buffer)
+        return content
+        
+    except Exception as e:
+        # Re-throw the error instead of swallowing it
+        raise RuntimeError(f"Failed to get buffer content: {e}")
+
+
+def update_buffer_content(buffer_handle: int, content: str) -> None:
+    """
+    Update buffer content using buffer handle with proper error handling.
+    
+    Args:
+        buffer_handle: Buffer handle from C API
+        content: New content to write
+        
+    Raises:
+        ValueError: If buffer handle is invalid
+        RuntimeError: If buffer operation fails
+    """
+    # Validate buffer handle
+    if buffer_handle == 0:
+        raise ValueError("Invalid buffer handle: 0")
+    
+    try:
+        # Create buffer wrapper
+        buffer = AdvancedBuffer(buffer_handle)
+        
+        # Convert string to bytes
+        data = content.encode('utf-8')
+        
+        # Add data to buffer
+        buffer.add_data(data)
+        
+    except Exception as e:
+        # Re-throw the error instead of swallowing it
+        raise RuntimeError(f"Failed to update buffer content: {e}")
+
+
+def read_string_from_buffer_with_handle(buffer_handle: int, encoding: str = 'utf-8') -> str:
+    """
+    Read string from buffer using buffer handle with proper error handling.
+    
+    Args:
+        buffer_handle: Buffer handle from C API
+        encoding: String encoding (default: utf-8)
+        
+    Returns:
+        String content
+        
+    Raises:
+        ValueError: If buffer handle is invalid
+        RuntimeError: If buffer operation fails
+    """
+    # Validate buffer handle
+    if buffer_handle == 0:
+        raise ValueError("Invalid buffer handle: 0")
+    
+    try:
+        # Create buffer wrapper
+        buffer = AdvancedBuffer(buffer_handle)
+        
+        # Get buffer length
+        length = buffer.length()
+        if length == 0:
+            return ""
+        
+        # Read content with specified encoding
+        data, _ = buffer.get_contiguous(0, length)
+        return data.decode(encoding)
+        
+    except Exception as e:
+        # Re-throw the error instead of swallowing it
+        raise RuntimeError(f"Failed to read string from buffer: {e}")
+
+
 def create_buffer_from_json(obj: Any) -> AdvancedBuffer:
     """
     Create buffer from JSON object.
@@ -940,6 +1044,9 @@ __all__ = [
     # Utility functions
     "create_buffer_from_string",
     "read_string_from_buffer",
+    "get_buffer_content",
+    "update_buffer_content",
+    "read_string_from_buffer_with_handle",
     "create_buffer_from_json",
     "read_json_from_buffer",
     "create_buffer_slice",
