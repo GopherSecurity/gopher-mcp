@@ -159,3 +159,17 @@ target_link_libraries(test_request_validation_filter_simple
   Threads::Threads
 )
 add_test(NAME RequestValidationFilterSimpleTest COMMAND test_request_validation_filter_simple)
+
+# Filter Registry Test
+add_executable(test_filter_registry
+  test_filter_registry.cc
+)
+target_link_libraries(test_filter_registry
+  PRIVATE
+  gopher-mcp
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterRegistryTest COMMAND test_filter_registry)
