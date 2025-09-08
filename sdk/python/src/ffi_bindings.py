@@ -19,32 +19,66 @@ from ctypes import (
 LIBRARY_CONFIG = {
     "darwin": {
         "x86_64": {
-            "path": "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
             "name": "libgopher_mcp_c.dylib",
+            "search_paths": [
+                "build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
+                "build/src/c_api/libgopher_mcp_c.dylib",
+                "build/lib/libgopher_mcp_c.dylib",
+                "/usr/local/lib/libgopher_mcp_c.dylib",
+                "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+            ],
         },
         "arm64": {
-            "path": "/Users/divyanshingle/Project/modelcontextprovider/gopher/gopher-mcp/build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
             "name": "libgopher_mcp_c.dylib",
+            "search_paths": [
+                "build/src/c_api/libgopher_mcp_c.0.1.0.dylib",
+                "build/src/c_api/libgopher_mcp_c.dylib",
+                "build/lib/libgopher_mcp_c.dylib",
+                "/usr/local/lib/libgopher_mcp_c.dylib",
+                "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+            ],
         },
     },
     "linux": {
         "x86_64": {
-            "path": "/usr/local/lib/libgopher_mcp_c.so",
             "name": "libgopher_mcp_c.so",
+            "search_paths": [
+                "build/src/c_api/libgopher_mcp_c.so",
+                "build/lib/libgopher_mcp_c.so",
+                "/usr/local/lib/libgopher_mcp_c.so",
+                "/usr/lib/x86_64-linux-gnu/libgopher_mcp_c.so",
+                "/usr/lib64/libgopher_mcp_c.so",
+            ],
         },
         "aarch64": {
-            "path": "/usr/local/lib/libgopher_mcp_c.so",
             "name": "libgopher_mcp_c.so",
+            "search_paths": [
+                "build/src/c_api/libgopher_mcp_c.so",
+                "build/lib/libgopher_mcp_c.so",
+                "/usr/local/lib/libgopher_mcp_c.so",
+                "/usr/lib/aarch64-linux-gnu/libgopher_mcp_c.so",
+                "/usr/lib64/libgopher_mcp_c.so",
+            ],
         },
     },
     "win32": {
         "AMD64": {
-            "path": "C:\\Program Files\\gopher-mcp\\bin\\gopher_mcp_c.dll",
             "name": "gopher_mcp_c.dll",
+            "search_paths": [
+                "build/src/c_api/gopher_mcp_c.dll",
+                "build/bin/gopher_mcp_c.dll",
+                "C:\\Program Files\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+                "C:\\Program Files\\gopher-mcp\\lib\\gopher_mcp_c.dll",
+            ],
         },
         "x86": {
-            "path": "C:\\Program Files (x86)\\gopher-mcp\\bin\\gopher_mcp_c.dll",
             "name": "gopher_mcp_c.dll",
+            "search_paths": [
+                "build/src/c_api/gopher_mcp_c.dll",
+                "build/bin/gopher_mcp_c.dll",
+                "C:\\Program Files (x86)\\gopher-mcp\\bin\\gopher_mcp_c.dll",
+                "C:\\Program Files (x86)\\gopher-mcp\\lib\\gopher_mcp_c.dll",
+            ],
         },
     },
 }
@@ -68,7 +102,52 @@ def get_library_path() -> str:
     if current_arch not in LIBRARY_CONFIG[current_platform]:
         raise RuntimeError(f"Unsupported architecture: {current_arch} on {current_platform}")
     
-    return LIBRARY_CONFIG[current_platform][current_arch]["path"]
+    # Get search paths for current platform/architecture
+    config = LIBRARY_CONFIG[current_platform][current_arch]
+    search_paths = config["search_paths"]
+    
+    # Check MCP_LIBRARY_PATH environment variable first
+    env_path = os.environ.get("MCP_LIBRARY_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    
+    # Search through configured paths
+    for path in search_paths:
+        if os.path.exists(path):
+            return path
+    
+    # If no path found, raise error with helpful message
+    available_paths = "\n".join(f"  - {path}" for path in search_paths)
+    raise RuntimeError(
+        f"Could not find MCP library for {current_platform}/{current_arch}. "
+        f"Searched paths:\n{available_paths}\n"
+        f"Set MCP_LIBRARY_PATH environment variable to specify custom library path."
+    )
+
+def get_all_possible_library_paths() -> List[str]:
+    """Get all possible library paths for the current platform."""
+    current_platform = platform.system().lower()
+    current_arch = platform.machine().lower()
+    
+    # Normalize architecture names
+    if current_arch in ["x86_64", "amd64"]:
+        current_arch = "x86_64"
+    elif current_arch in ["aarch64", "arm64"]:
+        current_arch = "arm64" if current_platform == "darwin" else "aarch64"
+    elif current_arch in ["i386", "i686"]:
+        current_arch = "x86"
+    
+    if current_platform not in LIBRARY_CONFIG:
+        return []
+    
+    if current_arch not in LIBRARY_CONFIG[current_platform]:
+        return []
+    
+    return LIBRARY_CONFIG[current_platform][current_arch]["search_paths"]
+
+def check_library_path(path: str) -> bool:
+    """Check if a library path exists and is accessible."""
+    return os.path.exists(path) and os.access(path, os.R_OK)
 
 def get_library_name() -> str:
     """Get the name of the shared library for the current platform."""
