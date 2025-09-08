@@ -20,6 +20,8 @@ class TestLogSink : public LogSink {
 
   void flush() override {}
 
+  SinkType type() const override { return SinkType::External; }
+
   bool hasMessage(LogLevel level, const std::string& substr) {
     for (const auto& msg : messages_) {
       if (msg.level == level && msg.message.find(substr) != std::string::npos) {
@@ -48,8 +50,8 @@ class UnitsTest : public ::testing::Test {
  protected:
   void SetUp() override {
     test_sink_ = std::make_shared<logging::TestLogSink>();
-    auto& registry = logging::LoggerRegistry::getInstance();
-    auto logger = registry.getLogger("config.units");
+    auto& registry = logging::LoggerRegistry::instance();
+    auto logger = registry.getOrCreateLogger("config.units");
     logger->setSink(test_sink_);
     logger->setLevel(logging::LogLevel::Debug);
   }
