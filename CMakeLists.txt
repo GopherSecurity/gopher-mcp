@@ -385,6 +385,9 @@ set(MCP_CORE_SOURCES
     src/filter/http_routing_filter.cc
     src/filter/protocol_detection_filter.cc
     src/filter/filter_registry.cc
+    src/filter/http_codec_factory.cc
+    src/filter/sse_codec_factory.cc
+    src/filter/json_rpc_factory.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
