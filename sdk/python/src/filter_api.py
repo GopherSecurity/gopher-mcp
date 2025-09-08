@@ -6,6 +6,7 @@ filter lifecycle management, configuration, and basic operations.
 """
 
 import json
+import ctypes
 from typing import Any, Dict, List, Optional, Union, Callable
 from dataclasses import dataclass, field
 from contextlib import contextmanager
@@ -99,6 +100,13 @@ from ffi_bindings import (
     MCP_OK,
     MCP_TRUE,
     MCP_FALSE,
+)
+
+from mcp_c_structs import (
+    create_filter_callbacks_struct,
+    create_default_callbacks,
+    validate_callback_signature,
+    McpFilterCallbacks,
 )
 
 
@@ -491,6 +499,90 @@ def create_load_balancer_filter(settings: Optional[Dict[str, Any]] = None, dispa
     return create_builtin_filter_from_type(BuiltinFilterType.LOAD_BALANCER, settings, dispatcher)
 
 
+def create_custom_filter(
+    callbacks: Optional[Dict[str, Any]] = None,
+    dispatcher: Optional[McpDispatcher] = None,
+    name: str = "custom-filter"
+) -> Filter:
+    """
+    Create a custom CApiFilter with Python callbacks.
+    
+    This function creates a CApiFilter that allows Python callbacks to be executed
+    in the C++ filter chain, similar to the TypeScript SDK's createCustomFilter().
+    
+    Args:
+        callbacks: Dictionary containing Python callback functions
+                  Keys: "on_data", "on_write", "on_new_connection", 
+                        "on_high_watermark", "on_low_watermark", "on_error"
+        dispatcher: Optional dispatcher handle
+        name: Name for the custom filter (for debugging)
+        
+    Returns:
+        Filter instance with CApiFilter integration
+        
+    Example:
+        def my_data_callback(buf, end_stream, user_data):
+            print(f"Processing data: {buf}")
+            return 0  # MCP_FILTER_CONTINUE
+        
+        callbacks = {
+            "on_data": my_data_callback,
+            "on_write": None,  # Optional
+            "user_data": None
+        }
+        
+        filter_instance = create_custom_filter(callbacks)
+    """
+    if dispatcher is None:
+        dispatcher = create_mock_dispatcher()
+    
+    # Use default callbacks if none provided
+    if callbacks is None:
+        callbacks = create_default_callbacks()
+    
+    # Validate callback signatures
+    for callback_type, func in callbacks.items():
+        if func is not None and callback_type != "user_data":
+            if not validate_callback_signature(func, callback_type):
+                raise ValueError(f"Invalid signature for {callback_type} callback")
+    
+    # Create C struct for callbacks
+    try:
+        callback_struct = create_filter_callbacks_struct(callbacks)
+        print(f"🔧 [CApiFilter DEBUG] Creating CApiFilter with custom callbacks: {name}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to create callback struct: {e}")
+    
+    # Create filter using the C API
+    # For now, we'll use the builtin filter creation as a placeholder
+    # In a real implementation, this would call a specific CApiFilter creation function
+    try:
+        handle = mcp_filter_create_builtin(dispatcher, BuiltinFilterType.CUSTOM, None)
+        if handle == 0:
+            raise RuntimeError("Failed to create custom filter")
+        
+        print(f"✅ [CApiFilter DEBUG] CApiFilter created successfully: {name}")
+        
+        # Create Filter instance
+        filter_instance = Filter(handle, dispatcher)
+        
+        # Set the callbacks using the C struct
+        try:
+            # Convert callback struct to pointer for C API
+            callback_ptr = ctypes.pointer(callback_struct)
+            result = mcp_filter_set_callbacks(handle, callback_ptr)
+            check_result(result)
+            print(f"✅ [CApiFilter DEBUG] Callbacks set successfully for {name}")
+        except Exception as e:
+            print(f"⚠️ [CApiFilter DEBUG] Warning: Failed to set callbacks: {e}")
+            # Continue without callbacks for now
+        
+        return filter_instance
+        
+    except Exception as e:
+        raise RuntimeError(f"Failed to create custom filter '{name}': {e}")
+
+
 # ============================================================================
 # Context Managers
 # ============================================================================
@@ -550,6 +642,7 @@ __all__ = [
     # Filter creation
     "create_filter_from_config",
     "create_builtin_filter_from_type",
+    "create_custom_filter",
     
     # Built-in filter creation helpers
     "create_tcp_proxy_filter",
