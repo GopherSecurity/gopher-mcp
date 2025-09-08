@@ -20,7 +20,7 @@ namespace config {
  * @brief Enhanced NodeConfig with detailed error reporting
  */
 struct NodeConfigEnhanced : public NodeConfig {
-  static NodeConfigEnhanced fromJson(const nlohmann::json& j,
+  static NodeConfigEnhanced fromJson(const mcp::json::JsonValue& j,
                                      ParseContext& ctx) {
     NodeConfigEnhanced config;
 
@@ -31,13 +31,16 @@ struct NodeConfigEnhanced : public NodeConfig {
     // Optional fields
     if (j.contains("metadata")) {
       ParseContext::FieldScope scope(ctx, "metadata");
-      validateJsonType(j["metadata"], nlohmann::json::value_t::object,
+      validateJsonType(j["metadata"], mcp::json::JsonType::Object,
                        "metadata", ctx);
 
       try {
-        config.metadata =
-            j["metadata"].get<std::map<std::string, std::string>>();
-      } catch (const nlohmann::json::exception& e) {
+        std::map<std::string, std::string> meta;
+        for (const auto& key : j["metadata"].keys()) {
+          meta[key] = j["metadata"][key].getString();
+        }
+        config.metadata = meta;
+      } catch (const mcp::json::JsonException& e) {
         throw ctx.createError("Invalid metadata format: " +
                               std::string(e.what()));
       }
@@ -62,19 +65,23 @@ struct NodeConfigEnhanced : public NodeConfig {
  * @brief Enhanced CapabilitiesConfig with unit parsing and error reporting
  */
 struct CapabilitiesConfigEnhanced : public CapabilitiesConfig {
-  static CapabilitiesConfigEnhanced fromJson(const nlohmann::json& j,
+  static CapabilitiesConfigEnhanced fromJson(const mcp::json::JsonValue& j,
                                              ParseContext& ctx) {
     CapabilitiesConfigEnhanced config;
 
     // Features array
     if (j.contains("features")) {
       ParseContext::FieldScope scope(ctx, "features");
-      validateJsonType(j["features"], nlohmann::json::value_t::array,
+      validateJsonType(j["features"], mcp::json::JsonType::Array,
                        "features", ctx);
 
       try {
-        config.features = j["features"].get<std::vector<std::string>>();
-      } catch (const nlohmann::json::exception& e) {
+        std::vector<std::string> features;
+        for (size_t i = 0; i < j["features"].size(); ++i) {
+          features.push_back(j["features"][i].getString());
+        }
+        config.features = features;
+      } catch (const mcp::json::JsonException& e) {
         throw ctx.createError("Invalid features array: " +
                               std::string(e.what()));
       }
@@ -130,7 +137,7 @@ struct CapabilitiesConfigEnhanced : public CapabilitiesConfig {
  * @brief Enhanced FilterConfig with detailed error reporting
  */
 struct FilterConfigEnhanced : public FilterConfig {
-  static FilterConfigEnhanced fromJson(const nlohmann::json& j,
+  static FilterConfigEnhanced fromJson(const mcp::json::JsonValue& j,
                                        ParseContext& ctx) {
     FilterConfigEnhanced config;
 
@@ -141,7 +148,7 @@ struct FilterConfigEnhanced : public FilterConfig {
     // Optional config object
     if (j.contains("config")) {
       ParseContext::FieldScope scope(ctx, "config");
-      validateJsonType(j["config"], nlohmann::json::value_t::object, "config",
+      validateJsonType(j["config"], mcp::json::JsonType::Object, "config",
                        ctx);
       config.config = j["config"];
 
@@ -150,7 +157,7 @@ struct FilterConfigEnhanced : public FilterConfig {
         try {
           auto size =
               parseJsonSize<size_t>(config.config["max_size"], "max_size");
-          config.config["max_size"] = size;
+          config.config["max_size"] = mcp::json::JsonValue(static_cast<int64_t>(size));
         } catch (const UnitParseError& e) {
           throw ctx.createError("Invalid buffer size: " +
                                 std::string(e.what()));
@@ -162,7 +169,7 @@ struct FilterConfigEnhanced : public FilterConfig {
           try {
             auto duration = parseJsonDuration<uint32_t>(
                 config.config["window_duration"], "window_duration");
-            config.config["window_duration"] = duration;
+            config.config["window_duration"] = mcp::json::JsonValue(static_cast<int64_t>(duration));
           } catch (const UnitParseError& e) {
             throw ctx.createError("Invalid window duration: " +
                                   std::string(e.what()));
@@ -190,7 +197,7 @@ struct FilterConfigEnhanced : public FilterConfig {
  * @brief Enhanced ServerConfig with comprehensive error reporting
  */
 struct ServerConfigEnhanced : public ServerConfig {
-  static ServerConfigEnhanced fromJson(const nlohmann::json& j,
+  static ServerConfigEnhanced fromJson(const mcp::json::JsonValue& j,
                                        ParseContext& ctx) {
     ServerConfigEnhanced config;
 
@@ -201,12 +208,12 @@ struct ServerConfigEnhanced : public ServerConfig {
     if (j.contains("version")) {
       ParseContext::FieldScope scope(ctx, "version");
       try {
-        std::string version_str = j["version"].get<std::string>();
+        std::string version_str = j["version"].getString();
         config.version = ConfigVersion::parse(version_str);
       } catch (const ConfigValidationError& e) {
         throw ctx.createError("Invalid version format: " +
                               std::string(e.what()));
-      } catch (const nlohmann::json::exception& e) {
+      } catch (const mcp::json::JsonException& e) {
         throw ctx.createError("Version must be a string");
       }
     }
@@ -245,7 +252,7 @@ struct ServerConfigEnhanced : public ServerConfig {
     // Filter chains array
     if (j.contains("filter_chains")) {
       ParseContext::FieldScope scope(ctx, "filter_chains");
-      validateJsonType(j["filter_chains"], nlohmann::json::value_t::array,
+      validateJsonType(j["filter_chains"], mcp::json::JsonType::Array,
                        "filter_chains", ctx);
 
       const auto& chains = j["filter_chains"];
@@ -279,7 +286,7 @@ struct ServerConfigEnhanced : public ServerConfig {
     // Transports array
     if (j.contains("transports")) {
       ParseContext::FieldScope scope(ctx, "transports");
-      validateJsonType(j["transports"], nlohmann::json::value_t::array,
+      validateJsonType(j["transports"], mcp::json::JsonType::Array,
                        "transports", ctx);
 
       const auto& transports = j["transports"];
@@ -323,21 +330,13 @@ ConfigType loadEnhancedConfig(const std::string& filename) {
   std::string content((std::istreambuf_iterator<char>(file)),
                       std::istreambuf_iterator<char>());
 
-  nlohmann::json j;
+  mcp::json::JsonValue j;
   try {
-    j = nlohmann::json::parse(content);
-  } catch (const nlohmann::json::parse_error& e) {
-    // Calculate line number from byte position
-    int line = 1;
-    size_t pos = 0;
-    while (pos < e.byte && pos < content.length()) {
-      if (content[pos] == '\n')
-        line++;
-      pos++;
-    }
-
+    j = mcp::json::JsonValue::parse(content);
+  } catch (const mcp::json::JsonException& e) {
+    // JsonException doesn't provide byte position, so just report the error
     throw ConfigParseError("JSON syntax error: " + std::string(e.what()), "",
-                           filename, line);
+                           filename);
   }
 
   return ConfigParser<ConfigType>::parse(j, ctx);
@@ -347,7 +346,7 @@ ConfigType loadEnhancedConfig(const std::string& filename) {
  * @brief Try to parse config and provide helpful error messages
  */
 template <typename ConfigType>
-bool tryParseConfig(const nlohmann::json& j,
+bool tryParseConfig(const mcp::json::JsonValue& j,
                     ConfigType& result,
                     std::string& error_message) {
   ParseContext ctx;

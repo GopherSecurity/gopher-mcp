@@ -19,7 +19,7 @@
 #include <vector>
 
 #include <mcp/core/compat.h>  // For mcp::optional
-#include <nlohmann/json.hpp>
+#include "mcp/json/json_bridge.h"
 
 namespace mcp {
 namespace config {
@@ -96,8 +96,8 @@ struct NodeConfig {
   ConfigField<std::string> zone{""};
 
   void validate() const;
-  nlohmann::json toJson() const;
-  static NodeConfig fromJson(const nlohmann::json& j);
+  mcp::json::JsonValue toJson() const;
+  static NodeConfig fromJson(const mcp::json::JsonValue& j);
   void merge(const NodeConfig& other);
 
   bool operator==(const NodeConfig& other) const {
@@ -120,8 +120,8 @@ struct AdminConfig {
   ConfigField<std::vector<std::string>> cors_origins{{"*"}};
 
   void validate() const;
-  nlohmann::json toJson() const;
-  static AdminConfig fromJson(const nlohmann::json& j);
+  mcp::json::JsonValue toJson() const;
+  static AdminConfig fromJson(const mcp::json::JsonValue& j);
   void merge(const AdminConfig& other);
 
   bool operator==(const AdminConfig& other) const {
@@ -143,8 +143,8 @@ struct BootstrapConfig {
   ConfigField<std::string> config_path{""};
 
   void validate() const;
-  nlohmann::json toJson() const;
-  static BootstrapConfig fromJson(const nlohmann::json& j);
+  mcp::json::JsonValue toJson() const;
+  static BootstrapConfig fromJson(const mcp::json::JsonValue& j);
   void merge(const BootstrapConfig& other);
 
   bool operator==(const BootstrapConfig& other) const {
@@ -233,51 +233,58 @@ inline void NodeConfig::validate() const {
   }
 }
 
-inline nlohmann::json NodeConfig::toJson() const {
-  nlohmann::json j;
+inline mcp::json::JsonValue NodeConfig::toJson() const {
+  auto j = mcp::json::JsonValue::object();
 
   // Always include id and cluster
-  j["id"] = id.get();
-  j["cluster"] = cluster.get();
+  j["id"] = mcp::json::JsonValue(id.get());
+  j["cluster"] = mcp::json::JsonValue(cluster.get());
 
   // Only include optional fields if they are set
   if (metadata.is_set() && !metadata.get().empty()) {
-    j["metadata"] = metadata.get();
+    auto meta_obj = mcp::json::JsonValue::object();
+    for (const auto& pair : metadata.get()) {
+      meta_obj[pair.first] = mcp::json::JsonValue(pair.second);
+    }
+    j["metadata"] = meta_obj;
   }
 
   if (region.is_set() && !region.get().empty()) {
-    j["region"] = region.get();
+    j["region"] = mcp::json::JsonValue(region.get());
   }
 
   if (zone.is_set() && !zone.get().empty()) {
-    j["zone"] = zone.get();
+    j["zone"] = mcp::json::JsonValue(zone.get());
   }
 
   return j;
 }
 
-inline NodeConfig NodeConfig::fromJson(const nlohmann::json& j) {
+inline NodeConfig NodeConfig::fromJson(const mcp::json::JsonValue& j) {
   NodeConfig config;
 
   if (j.contains("id")) {
-    config.id.set(j["id"].get<std::string>());
+    config.id.set(j["id"].getString());
   }
 
   if (j.contains("cluster")) {
-    config.cluster.set(j["cluster"].get<std::string>());
+    config.cluster.set(j["cluster"].getString());
   }
 
-  if (j.contains("metadata") && j["metadata"].is_object()) {
-    config.metadata.set(
-        j["metadata"].get<std::map<std::string, std::string>>());
+  if (j.contains("metadata") && j["metadata"].isObject()) {
+    std::map<std::string, std::string> meta;
+    for (const auto& key : j["metadata"].keys()) {
+      meta[key] = j["metadata"][key].getString();
+    }
+    config.metadata.set(meta);
   }
 
   if (j.contains("region")) {
-    config.region.set(j["region"].get<std::string>());
+    config.region.set(j["region"].getString());
   }
 
   if (j.contains("zone")) {
-    config.zone.set(j["zone"].get<std::string>());
+    config.zone.set(j["zone"].getString());
   }
 
   return config;
@@ -317,55 +324,71 @@ inline void AdminConfig::validate() const {
   }
 }
 
-inline nlohmann::json AdminConfig::toJson() const {
-  nlohmann::json j;
+inline mcp::json::JsonValue AdminConfig::toJson() const {
+  auto j = mcp::json::JsonValue::object();
 
-  j["address"] = address.get();
-  j["port"] = port.get();
-  j["enabled"] = enabled.get();
-  j["path_prefix"] = path_prefix.get();
-  j["enable_cors"] = enable_cors.get();
+  j["address"] = mcp::json::JsonValue(address.get());
+  j["port"] = mcp::json::JsonValue(static_cast<int>(port.get()));
+  j["enabled"] = mcp::json::JsonValue(enabled.get());
+  j["path_prefix"] = mcp::json::JsonValue(path_prefix.get());
+  j["enable_cors"] = mcp::json::JsonValue(enable_cors.get());
 
   if (allowed_ips.is_set()) {
-    j["allowed_ips"] = allowed_ips.get();
+    auto ips_array = mcp::json::JsonValue::array();
+    for (const auto& ip : allowed_ips.get()) {
+      ips_array.push_back(mcp::json::JsonValue(ip));
+    }
+    j["allowed_ips"] = ips_array;
   }
 
   if (enable_cors.get() && cors_origins.is_set()) {
-    j["cors_origins"] = cors_origins.get();
+    auto origins_array = mcp::json::JsonValue::array();
+    for (const auto& origin : cors_origins.get()) {
+      origins_array.push_back(mcp::json::JsonValue(origin));
+    }
+    j["cors_origins"] = origins_array;
   }
 
   return j;
 }
 
-inline AdminConfig AdminConfig::fromJson(const nlohmann::json& j) {
+inline AdminConfig AdminConfig::fromJson(const mcp::json::JsonValue& j) {
   AdminConfig config;
 
   if (j.contains("address")) {
-    config.address.set(j["address"].get<std::string>());
+    config.address.set(j["address"].getString());
   }
 
   if (j.contains("port")) {
-    config.port.set(j["port"].get<uint16_t>());
+    config.port.set(static_cast<uint16_t>(j["port"].getInt()));
   }
 
-  if (j.contains("allowed_ips") && j["allowed_ips"].is_array()) {
-    config.allowed_ips.set(j["allowed_ips"].get<std::vector<std::string>>());
+  if (j.contains("allowed_ips") && j["allowed_ips"].isArray()) {
+    std::vector<std::string> ips;
+    for (size_t i = 0; i < j["allowed_ips"].size(); ++i) {
+      ips.push_back(j["allowed_ips"][i].getString());
+    }
+    config.allowed_ips.set(ips);
   }
 
   if (j.contains("enabled")) {
-    config.enabled.set(j["enabled"].get<bool>());
+    config.enabled.set(j["enabled"].getBool());
   }
 
   if (j.contains("path_prefix")) {
-    config.path_prefix.set(j["path_prefix"].get<std::string>());
+    config.path_prefix.set(j["path_prefix"].getString());
   }
 
   if (j.contains("enable_cors")) {
-    config.enable_cors.set(j["enable_cors"].get<bool>());
+    config.enable_cors.set(j["enable_cors"].getBool());
   }
 
-  if (j.contains("cors_origins") && j["cors_origins"].is_array()) {
-    config.cors_origins.set(j["cors_origins"].get<std::vector<std::string>>());
+  if (j.contains("cors_origins") && j["cors_origins"].isArray()) {
+    std::vector<std::string> origins;
+    for (size_t i = 0; i < j["cors_origins"].size(); ++i) {
+      origins.push_back(j["cors_origins"][i].getString());
+    }
+    config.cors_origins.set(origins);
   }
 
   return config;
@@ -402,37 +425,37 @@ inline void BootstrapConfig::validate() const {
   }
 }
 
-inline nlohmann::json BootstrapConfig::toJson() const {
-  nlohmann::json j;
+inline mcp::json::JsonValue BootstrapConfig::toJson() const {
+  auto j = mcp::json::JsonValue::object();
 
-  j["version"] = version.get();
+  j["version"] = mcp::json::JsonValue(version.get());
   j["node"] = node.toJson();
   j["admin"] = admin.toJson();
 
   if (config_path.is_set() && !config_path.get().empty()) {
-    j["config_path"] = config_path.get();
+    j["config_path"] = mcp::json::JsonValue(config_path.get());
   }
 
   return j;
 }
 
-inline BootstrapConfig BootstrapConfig::fromJson(const nlohmann::json& j) {
+inline BootstrapConfig BootstrapConfig::fromJson(const mcp::json::JsonValue& j) {
   BootstrapConfig config;
 
   if (j.contains("version")) {
-    config.version.set(j["version"].get<std::string>());
+    config.version.set(j["version"].getString());
   }
 
-  if (j.contains("node") && j["node"].is_object()) {
+  if (j.contains("node") && j["node"].isObject()) {
     config.node = NodeConfig::fromJson(j["node"]);
   }
 
-  if (j.contains("admin") && j["admin"].is_object()) {
+  if (j.contains("admin") && j["admin"].isObject()) {
     config.admin = AdminConfig::fromJson(j["admin"]);
   }
 
   if (j.contains("config_path")) {
-    config.config_path.set(j["config_path"].get<std::string>());
+    config.config_path.set(j["config_path"].getString());
   }
 
   return config;

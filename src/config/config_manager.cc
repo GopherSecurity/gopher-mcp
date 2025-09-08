@@ -17,13 +17,20 @@
 
 #include <sys/stat.h>
 
+#include "mcp/config/json_conversion.h"
 #include "mcp/config/parse_error.h"
 #include "mcp/config/types_with_validation.h"
 #include "mcp/config/units.h"
 #include "mcp/logging/log_macros.h"
 
+#if defined(__APPLE__)
+extern "C" char*** _NSGetEnviron(void);
+#endif
+
 namespace mcp {
 namespace config {
+
+// Use conversion utilities from json_conversion.h
 
 // Static members
 std::once_flag ConfigurationManager::init_flag_;
@@ -33,11 +40,11 @@ std::unique_ptr<ConfigurationManager> ConfigurationManager::instance_;
 
 // JsonConfigSource implementation
 JsonConfigSource::JsonConfigSource(const std::string& name,
-                                   const nlohmann::json& config,
+                                   const mcp::json::JsonValue& config,
                                    Priority priority)
     : name_(name), config_(config), priority_(priority) {}
 
-void JsonConfigSource::updateConfiguration(const nlohmann::json& config) {
+void JsonConfigSource::updateConfiguration(const mcp::json::JsonValue& config) {
   config_ = config;
 }
 
@@ -47,8 +54,16 @@ EnvironmentConfigSource::EnvironmentConfigSource(const std::string& prefix)
 
 bool EnvironmentConfigSource::hasConfiguration() const {
   // Check if any environment variables with the prefix exist
-  extern char** environ;
-  for (char** env = environ; *env; ++env) {
+#if defined(__APPLE__)
+  char** envp = *_NSGetEnviron();
+  for (char** env = envp; env && *env; ++env) {
+#elif defined(__linux__) || defined(__unix__)
+  extern char** environ;  // provided by C runtime
+  for (char** env = environ; env && *env; ++env) {
+#else
+  // Fallback: no portable way; report none
+  for (char** env = nullptr; env && *env; ++env) {
+#endif
     std::string var(*env);
     if (var.substr(0, prefix_.length()) == prefix_) {
       return true;
@@ -57,44 +72,65 @@ bool EnvironmentConfigSource::hasConfiguration() const {
   return false;
 }
 
-nlohmann::json EnvironmentConfigSource::loadConfiguration() {
+mcp::json::JsonValue EnvironmentConfigSource::loadConfiguration() {
   return parseEnvironmentVariables();
 }
 
-nlohmann::json EnvironmentConfigSource::parseEnvironmentVariables() {
-  nlohmann::json config;
+mcp::json::JsonValue EnvironmentConfigSource::parseEnvironmentVariables() {
+  auto config = mcp::json::JsonValue::object();
 
   // Common MCP environment variables mapping
   std::map<std::string,
-           std::function<void(const std::string&, nlohmann::json&)>>
+           std::function<void(const std::string&, mcp::json::JsonValue&)>>
       mappings = {{prefix_ + "NODE_ID",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["node"]["id"] = val;
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("node")) {
+                       j["node"] = mcp::json::JsonValue::object();
+                     }
+                     j["node"]["id"] = mcp::json::JsonValue(val);
                    }},
                   {prefix_ + "NODE_CLUSTER",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["node"]["cluster"] = val;
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("node")) {
+                       j["node"] = mcp::json::JsonValue::object();
+                     }
+                     j["node"]["cluster"] = mcp::json::JsonValue(val);
                    }},
                   {prefix_ + "ADMIN_PORT",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["admin"]["port"] = std::stoi(val);
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("admin")) {
+                       j["admin"] = mcp::json::JsonValue::object();
+                     }
+                     j["admin"]["port"] = mcp::json::JsonValue(std::stoi(val));
                    }},
                   {prefix_ + "ADMIN_ADDRESS",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["admin"]["address"] = val;
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("admin")) {
+                       j["admin"] = mcp::json::JsonValue::object();
+                     }
+                     j["admin"]["address"] = mcp::json::JsonValue(val);
                    }},
                   {prefix_ + "SERVER_NAME",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["server"]["name"] = val;
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("server")) {
+                       j["server"] = mcp::json::JsonValue::object();
+                     }
+                     j["server"]["name"] = mcp::json::JsonValue(val);
                    }},
                   {prefix_ + "MAX_SESSIONS",
-                   [](const std::string& val, nlohmann::json& j) {
-                     j["server"]["max_sessions"] = std::stoi(val);
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("server")) {
+                       j["server"] = mcp::json::JsonValue::object();
+                     }
+                     j["server"]["max_sessions"] = mcp::json::JsonValue(std::stoi(val));
                    }},
                   {prefix_ + "SESSION_TIMEOUT",
-                   [](const std::string& val, nlohmann::json& j) {
+                   [](const std::string& val, mcp::json::JsonValue& j) {
+                     if (!j.contains("server")) {
+                       j["server"] = mcp::json::JsonValue::object();
+                     }
                      j["server"]["session_timeout"] =
-                         val;  // Can be string with units
+                         mcp::json::JsonValue(val);  // Can be string with units
                    }}};
 
   for (const auto& mapping : mappings) {
@@ -189,7 +225,8 @@ void ConfigurationManager::loadConfiguration() {
 
   auto merged = mergeConfigurations();
 
-  size_t key_count = merged.is_object() ? merged.size() : 0;
+  // Count keys for logging
+  size_t key_count = merged.isObject() ? merged.keys().size() : 0;
   LOG_INFO("[config.reload] Configuration merge completed: merged_keys=%zu",
            key_count);
   auto snapshot = parseConfiguration(merged);
@@ -404,25 +441,27 @@ void ConfigurationManager::reset() {
   reload_count_ = 0;
 }
 
-nlohmann::json ConfigurationManager::mergeConfigurations() {
+mcp::json::JsonValue ConfigurationManager::mergeConfigurations() {
   std::lock_guard<std::mutex> lock(sources_mutex_);
 
-  nlohmann::json merged;
+  auto merged = mcp::json::JsonValue::object();
 
   // Merge in priority order (lowest to highest)
   // TODO: Implement deterministic merge semantics with:
   // - Named resource merge-by-name support
   // - Conflict detection and reporting
   // - Array merge strategies (replace/append/merge-by-key)
-  // Current implementation uses merge_patch which replaces arrays wholesale
+  // Current implementation does basic object merge where later sources override earlier ones
   for (const auto& source : sources_) {
     if (source->hasConfiguration()) {
       try {
         auto config = source->loadConfiguration();
-        if (!config.empty()) {
-          // Deep merge using JSON merge patch (RFC 7396)
-          // Note: Arrays are replaced entirely, not merged
-          merged.merge_patch(config);
+        if (!config.isNull() && config.isObject()) {
+          // Basic merge: copy all keys from config into merged
+          // Later sources override earlier ones
+          for (const auto& key : config.keys()) {
+            merged[key] = config[key];
+          }
         }
       } catch (const std::exception& e) {
         LOG_ERROR("[config.reload] Failed to load configuration from source: %s error=%s",
@@ -436,7 +475,7 @@ nlohmann::json ConfigurationManager::mergeConfigurations() {
 }
 
 ConfigSnapshot ConfigurationManager::parseConfiguration(
-    const nlohmann::json& config) {
+    const mcp::json::JsonValue& config) {
   ConfigSnapshot snapshot;
   snapshot.version_id = generateVersionId();
   snapshot.timestamp = std::chrono::system_clock::now();
@@ -450,6 +489,8 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
   // Check for unknown fields at root level
   static const std::set<std::string> root_fields = {"node", "admin", "version",
                                                     "server", "_config_path"};
+  
+  // Use JsonValue directly for field validation
   validateJsonFields(config, root_fields, "", ctx);
 
   size_t field_count = 0;
@@ -488,8 +529,8 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
   }
   if (config.contains("version")) {
     try {
-      snapshot.bootstrap->version = config["version"].get<std::string>();
-    } catch (const nlohmann::json::exception& e) {
+      snapshot.bootstrap->version = config["version"].getString();
+    } catch (const mcp::json::JsonException& e) {
       throw ConfigValidationError("version",
                                   "Type error: " + std::string(e.what()));
     }
