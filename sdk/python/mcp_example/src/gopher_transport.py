@@ -154,6 +154,11 @@ class GopherTransport(Transport):
             # Create default filter configuration
             filter_config = self._create_default_filter_config()
         
+        # Add custom callbacks to filter configuration
+        if self._config.custom_callbacks:
+            filter_config.custom_callbacks = self._config.custom_callbacks
+            print(f"🔧 [CApiFilter DEBUG] GopherTransport initialized with custom callbacks")
+        
         # Import FilterManager here to avoid circular imports
         try:
             from mcp_filter_sdk import FilterManager
