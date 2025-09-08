@@ -151,6 +151,82 @@ def create_callback_function_pointer(func: Callable, callback_type: str) -> Any:
     return register_python_callback(func, signature, callback_name)
 
 
+def create_default_callbacks() -> Dict[str, Any]:
+    """
+    Create default callback functions for testing and development.
+    
+    Returns:
+        Dictionary with default callback functions
+    """
+    def default_data_callback(buf: c_void_p, end_stream: bool, user_data: c_void_p) -> int:
+        """Default data callback that logs and returns CONTINUE."""
+        print(f"🔍 [CApiFilter DEBUG] onData callback called! Buffer: {buf}, EndStream: {end_stream}")
+        return 0  # MCP_FILTER_CONTINUE
+    
+    def default_write_callback(buf: c_void_p, end_stream: bool, user_data: c_void_p) -> int:
+        """Default write callback that logs and returns CONTINUE."""
+        print(f"🔍 [CApiFilter DEBUG] onWrite callback called! Buffer: {buf}, EndStream: {end_stream}")
+        return 0  # MCP_FILTER_CONTINUE
+    
+    def default_connection_callback(user_data: c_void_p, fd: int) -> None:
+        """Default connection callback that logs."""
+        print(f"🔍 [CApiFilter DEBUG] onNewConnection callback called! FD: {fd}")
+    
+    def default_mark_callback(user_data: c_void_p) -> None:
+        """Default watermark callback that logs."""
+        print(f"🔍 [CApiFilter DEBUG] onHighWatermark callback called!")
+    
+    def default_error_callback(user_data: c_void_p, code: int, msg: c_char_p) -> None:
+        """Default error callback that logs."""
+        message = msg.value.decode('utf-8') if msg else "Unknown error"
+        print(f"🔍 [CApiFilter DEBUG] onError callback called! Code: {code}, Message: {message}")
+    
+    return {
+        "on_data": default_data_callback,
+        "on_write": default_write_callback,
+        "on_new_connection": default_connection_callback,
+        "on_high_watermark": default_mark_callback,
+        "on_low_watermark": default_mark_callback,
+        "on_error": default_error_callback,
+        "user_data": None,
+    }
+
+
+def validate_callback_signature(func: Callable, expected_type: str) -> bool:
+    """
+    Validate that a Python function has the correct signature for a callback type.
+    
+    Args:
+        func: Python function to validate
+        expected_type: Expected callback type ("data", "write", "connection", "mark", "error")
+        
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    import inspect
+    
+    try:
+        sig = inspect.signature(func)
+        params = list(sig.parameters.values())
+        
+        if expected_type == "data" or expected_type == "write":
+            # Should have 3 parameters: buf, end_stream, user_data
+            return len(params) == 3
+        elif expected_type == "connection":
+            # Should have 2 parameters: user_data, fd
+            return len(params) == 2
+        elif expected_type == "mark":
+            # Should have 1 parameter: user_data
+            return len(params) == 1
+        elif expected_type == "error":
+            # Should have 3 parameters: user_data, code, msg
+            return len(params) == 3
+        
+        return False
+    except Exception:
+        return False
+
+
 # ============================================================================
 # C Struct Creation Functions
 # ============================================================================
@@ -297,6 +373,8 @@ __all__ = [
     # Callback registration functions
     "register_python_callback",
     "create_callback_function_pointer",
+    "create_default_callbacks",
+    "validate_callback_signature",
     
     # C struct creation functions
     "create_filter_callbacks_struct",
