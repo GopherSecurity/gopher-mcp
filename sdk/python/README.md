@@ -1,249 +1,141 @@
-# Python SDK for Gopher MCP
+# Python MCP SDK with CApiFilter Integration
 
-A comprehensive Python SDK for the Gopher Model Context Protocol (MCP) filter system, providing high-performance security, observability, and traffic management capabilities through FFI bindings to the C++ shared library.
+This Python SDK provides comprehensive integration with the MCP (Model Context Protocol) C++ library, including advanced CApiFilter functionality that allows Python callbacks to execute within the C++ filter chain.
 
 ## Features
 
-- **Complete Filter Support**: All 15 filter types from the C++ implementation
-- **High Performance**: Direct FFI bindings to optimized C++ code
-- **Type Safety**: Full type annotations and validation
-- **Easy Integration**: Simple API for MCP transport layers
-- **Comprehensive Testing**: Extensive test suite with 100+ test cases
-- **Production Ready**: Error handling, resource management, and monitoring
+- **CApiFilter Integration**: Execute Python callbacks in the C++ filter chain
+- **Comprehensive Filter Support**: All 15 available C++ filter types
+- **Zero-Copy Buffer Operations**: Efficient memory management
+- **Real-time Message Processing**: Process JSON-RPC messages through filter pipelines
+- **Cross-Platform Support**: Works on macOS, Linux, and Windows
+- **Comprehensive Testing**: Full test coverage with mock and integration tests
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.8 or higher
-- The C++ shared library (`libgopher_mcp_c.so` on Linux, `libgopher_mcp_c.dylib` on macOS, `libgopher_mcp_c.dll` on Windows)
+- MCP C++ library built and installed
+- Platform-specific dependencies (see below)
 
-### Install from Source
+### Platform-Specific Setup
 
+#### macOS
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd gopher-mcp/sdk/python
+# Install via Homebrew (if available)
+brew install gopher-mcp
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Install the SDK
-pip install -e .
+# Or build from source
+cd /path/to/gopher-mcp
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
 ```
 
-### Dependencies
+#### Linux
+```bash
+# Install system dependencies
+sudo apt-get update
+sudo apt-get install build-essential cmake
 
-- `ctypes` (built-in) - For FFI bindings
-- `typing` (built-in) - For type annotations
-- `json` (built-in) - For JSON handling
-- `asyncio` (built-in) - For async operations
-- `unittest` (built-in) - For testing
+# Build and install
+cd /path/to/gopher-mcp
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
+```
+
+#### Windows
+```cmd
+# Install Visual Studio Build Tools
+# Download and install from: https://visualstudio.microsoft.com/downloads/
+
+# Build using CMake
+cd C:\path\to\gopher-mcp
+mkdir build && cd build
+cmake .. -G "Visual Studio 16 2019" -A x64
+cmake --build . --config Release
+cmake --install . --config Release
+```
+
+### Python Package Installation
+
+```bash
+# Install the Python SDK
+pip install -e .
+
+# Or install in development mode
+pip install -e .[dev]
+```
 
 ## Quick Start
 
-### Basic Usage
+### Basic CApiFilter Usage
 
 ```python
-from gopher_mcp import FilterManager, FilterManagerConfig, JSONRPCMessage
+from mcp_c_structs import create_default_callbacks, create_filter_callbacks_struct
+from filter_api import create_custom_filter
+from filter_manager import FilterManager, FilterManagerConfig
 
-# Create filter configuration
-config = FilterManagerConfig(
-    name="my_filter_manager",
-    enabled=True,
-    security=SecurityFilterConfig(
-        authentication=AuthenticationConfig(
-            enabled=True,
-            method="jwt",
-            secret="your-secret-key"
-        )
-    ),
-    observability=ObservabilityFilterConfig(
-        access_log=AccessLogConfig(
-            enabled=True,
-            format="json"
-        )
-    )
-)
+# Create custom callbacks
+def my_data_callback(buf, end_stream, user_data):
+    print(f"Processing data: {buf}, EndStream: {end_stream}")
+    return 0  # MCP_FILTER_CONTINUE
 
-# Create and use filter manager
-with FilterManager(config) as manager:
-    # Process a request
-    request = JSONRPCMessage(
-        jsonrpc="2.0",
-        id=1,
-        method="tools/list",
-        params={}
-    )
+def my_write_callback(buf, end_stream, user_data):
+    print(f"Writing data: {buf}, EndStream: {end_stream}")
+    return 0  # MCP_FILTER_CONTINUE
 
-    processed_request = manager.process(request)
-    print(f"Processed request: {processed_request}")
+callbacks = {
+    "on_data": my_data_callback,
+    "on_write": my_write_callback,
+    "on_new_connection": None,  # Optional
+    "on_high_watermark": None,  # Optional
+    "on_low_watermark": None,   # Optional
+    "on_error": None,           # Optional
+    "user_data": None,          # Optional
+}
+
+# Create custom filter
+filter_instance = create_custom_filter(callbacks=callbacks, name="my-filter")
+
+# Use with FilterManager
+config = FilterManagerConfig(custom_callbacks=callbacks)
+manager = FilterManager(config)
 ```
 
-### MCP Transport Integration
+### Advanced Filter Configuration
 
 ```python
-from gopher_mcp import GopherTransport, GopherTransportConfig
-from mcp import McpClient, StdioClientTransport
-
-# Create transport with filters
-transport_config = GopherTransportConfig(
-    name="secure_client",
-    protocol="stdio",
-    filters=FilterManagerConfig(
-        name="client_filters",
-        enabled=True,
-        security=SecurityFilterConfig(
-            authentication=AuthenticationConfig(
-                enabled=True,
-                method="jwt",
-                secret="client-secret"
-            )
-        )
-    )
-)
-
-transport = GopherTransport(transport_config)
-await transport.start()
-
-# Use with MCP client
-client = McpClient(
-    name="filtered_client",
-    version="1.0.0"
-)
-
-await client.connect(transport)
-```
-
-## Architecture
-
-### Core Components
-
-1. **FFI Bindings** (`ffi_bindings.py`)
-
-   - Direct interface to C++ shared library
-   - Type-safe function bindings
-   - Error handling and validation
-
-2. **Filter API** (`filter_api.py`)
-
-   - Core filter operations
-   - Filter lifecycle management
-   - Protocol metadata handling
-
-3. **Filter Buffer** (`filter_buffer.py`)
-
-   - Advanced buffer operations
-   - Zero-copy data handling
-   - Buffer pooling and management
-
-4. **Filter Chain** (`filter_chain.py`)
-
-   - Chain management and routing
-   - Parallel and conditional execution
-   - Chain pooling and statistics
-
-5. **Filter Manager** (`filter_manager.py`)
-   - High-level filter orchestration
-   - JSON-RPC message processing
-   - Error handling and fallback
-
-### Filter Types
-
-The SDK supports all 15 filter types from the C++ implementation:
-
-#### Network Filters
-
-- **TCP Proxy**: TCP connection proxying and load balancing
-- **UDP Proxy**: UDP packet forwarding and routing
-
-#### HTTP Filters
-
-- **HTTP Codec**: HTTP/1.1 and HTTP/2 protocol handling
-- **HTTP Router**: Request routing and load balancing
-- **HTTP Compression**: Gzip, deflate, and brotli compression
-
-#### Security Filters
-
-- **TLS Termination**: SSL/TLS termination and certificate management
-- **Authentication**: JWT, OAuth, and custom authentication
-- **Authorization**: Role-based access control (RBAC)
-
-#### Observability Filters
-
-- **Access Log**: Request/response logging
-- **Metrics**: Prometheus-compatible metrics collection
-- **Tracing**: Distributed tracing with OpenTelemetry
-
-#### Traffic Management Filters
-
-- **Rate Limiting**: Request rate limiting and throttling
-- **Circuit Breaker**: Fault tolerance and failure handling
-- **Retry**: Automatic retry with exponential backoff
-- **Load Balancer**: Multiple load balancing strategies
-
-## Configuration
-
-### Filter Manager Configuration
-
-```python
-from gopher_mcp import (
+from filter_manager import (
     FilterManagerConfig,
-    NetworkFilterConfig,
-    HttpFilterConfig,
     SecurityFilterConfig,
     ObservabilityFilterConfig,
-    TrafficManagementFilterConfig
+    TrafficManagementFilterConfig,
+    AuthenticationConfig,
+    AuthorizationConfig,
+    AccessLogConfig,
+    MetricsConfig,
+    TracingConfig,
+    RateLimitConfig,
+    CircuitBreakerConfig,
+    RetryConfig,
 )
 
+# Create comprehensive filter configuration
 config = FilterManagerConfig(
-    name="production_filters",
-    enabled=True,
-
-    # Network filters
-    network=NetworkFilterConfig(
-        tcp_proxy=TcpProxyConfig(
-            enabled=True,
-            upstream_host="backend.example.com",
-            upstream_port=8080,
-            timeout_ms=30000,
-            keep_alive=True
-        )
-    ),
-
-    # HTTP filters
-    http=HttpFilterConfig(
-        codec=HttpCodecConfig(
-            enabled=True,
-            version="1.1",
-            max_header_size=8192,
-            max_body_size=1048576,
-            chunked_encoding=True
-        ),
-        router=HttpRouterConfig(
-            enabled=True,
-            routes=[
-                {"path": "/api/v1", "target": "backend-v1", "methods": ["GET", "POST"]},
-                {"path": "/api/v2", "target": "backend-v2", "methods": ["GET", "POST", "PUT", "DELETE"]}
-            ],
-            default_route="default-backend"
-        )
-    ),
-
     # Security filters
     security=SecurityFilterConfig(
-        tls_termination=TlsTerminationConfig(
-            enabled=True,
-            cert_file="/path/to/cert.pem",
-            key_file="/path/to/key.pem",
-            protocols=["TLSv1.2", "TLSv1.3"]
-        ),
         authentication=AuthenticationConfig(
             enabled=True,
             method="jwt",
             secret="your-secret-key",
-            issuer="your-issuer",
-            audience="your-audience"
+            issuer="your-service",
+            audience="your-clients",
+            algorithms=["HS256", "RS256"]
         ),
         authorization=AuthorizationConfig(
             enabled=True,
@@ -251,31 +143,34 @@ config = FilterManagerConfig(
             rules=[
                 {"resource": "/api/*", "action": "read", "role": "user"},
                 {"resource": "/admin/*", "action": "*", "role": "admin"}
-            ]
+            ],
+            default_action="deny"
         )
     ),
-
+    
     # Observability filters
     observability=ObservabilityFilterConfig(
         access_log=AccessLogConfig(
             enabled=True,
             format="json",
             include_headers=True,
-            include_body=False
+            include_body=False,
+            max_body_size=4096
         ),
         metrics=MetricsConfig(
             enabled=True,
-            namespace="mcp_filters",
-            labels={"environment": "production"}
+            labels={"service": "my-service", "version": "1.0.0"},
+            histogram_buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
         ),
         tracing=TracingConfig(
             enabled=True,
-            service_name="mcp-filter-service",
+            service_name="my-service",
             sampler_type="const",
-            sampler_param=1.0
+            sampler_param=1.0,
+            headers=["x-trace-id", "x-span-id"]
         )
     ),
-
+    
     # Traffic management filters
     traffic_management=TrafficManagementFilterConfig(
         rate_limit=RateLimitConfig(
@@ -286,165 +181,331 @@ config = FilterManagerConfig(
         ),
         circuit_breaker=CircuitBreakerConfig(
             enabled=True,
-            failure_threshold=5,
-            recovery_timeout=30000,
-            half_open_max_calls=3
+            failure_threshold=10,
+            recovery_timeout=60000,
+            half_open_max_calls=5,
+            slow_call_threshold=5000
         ),
         retry=RetryConfig(
             enabled=True,
             max_attempts=3,
             initial_delay=1000,
             max_delay=10000,
-            backoff_multiplier=2.0
+            backoff_multiplier=2.0,
+            retryable_status_codes=[500, 502, 503, 504, 408, 429]
         )
     ),
-
-    # Error handling
-    error_handling=ErrorHandlingConfig(
-        stop_on_error=False,
-        retry_attempts=3,
-        fallback_behavior=FallbackBehavior.PASSTHROUGH
-    )
+    
+    # CApiFilter integration
+    custom_callbacks=callbacks
 )
+
+# Create filter manager
+manager = FilterManager(config)
+```
+
+### Buffer Operations
+
+```python
+from filter_buffer import (
+    get_buffer_content,
+    update_buffer_content,
+    read_string_from_buffer_with_handle,
+    AdvancedBuffer,
+)
+
+# Get buffer content
+try:
+    content = get_buffer_content(buffer_handle)
+    print(f"Buffer content: {content}")
+except ValueError as e:
+    print(f"Invalid buffer handle: {e}")
+except RuntimeError as e:
+    print(f"Buffer operation failed: {e}")
+
+# Update buffer content
+try:
+    update_buffer_content(buffer_handle, "new content")
+    print("Buffer updated successfully")
+except ValueError as e:
+    print(f"Invalid buffer handle: {e}")
+except RuntimeError as e:
+    print(f"Buffer update failed: {e}")
+
+# Read with specific encoding
+try:
+    content = read_string_from_buffer_with_handle(buffer_handle, encoding='utf-8')
+    print(f"Buffer content (UTF-8): {content}")
+except ValueError as e:
+    print(f"Invalid buffer handle: {e}")
+except RuntimeError as e:
+    print(f"Buffer read failed: {e}")
+```
+
+### Client-Server Example
+
+```python
+import asyncio
+from mcp_example.src.mcp_calculator_client import CalculatorClient
+from mcp_example.src.mcp_calculator_server import CalculatorServer
+
+async def main():
+    # Start server
+    server = CalculatorServer()
+    await server.start()
+    
+    # Create client with custom callbacks
+    client = CalculatorClient(host="localhost", port=8080)
+    await client.connect()
+    
+    # Perform calculations
+    result = await client.call_calculator("add", 5, 3)
+    print(f"5 + 3 = {result}")
+    
+    result = await client.call_calculator("multiply", 4, 7)
+    print(f"4 * 7 = {result}")
+    
+    # Get server statistics
+    stats = await client.get_server_stats()
+    print(f"Server stats: {stats}")
+    
+    # Cleanup
+    await client.disconnect()
+    await server.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## API Reference
 
-### FilterManager
+### Core Classes
 
-The main class for managing and orchestrating filters.
-
-```python
-class FilterManager:
-    def __init__(self, config: FilterManagerConfig)
-    def process(self, message: JSONRPCMessage) -> JSONRPCMessage
-    def process_response(self, message: JSONRPCMessage) -> JSONRPCMessage
-    def process_request_response(self, request: JSONRPCMessage, response: JSONRPCMessage) -> JSONRPCMessage
-    def get_stats(self) -> Dict[str, Any]
-    def destroy(self) -> None
-    def __enter__(self) -> 'FilterManager'
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None
-```
-
-### GopherTransport
-
-Custom transport layer that integrates with the filter system.
+#### `McpFilterCallbacks`
+C struct for MCP filter callbacks.
 
 ```python
-class GopherTransport:
-    def __init__(self, config: GopherTransportConfig)
-    async def start(self) -> None
-    async def close(self) -> None
-    async def send(self, message: JSONRPCMessage) -> None
-    async def receive(self) -> JSONRPCMessage
-    def create_session(self, metadata: Dict[str, Any]) -> Session
-    def remove_session(self, session_id: str) -> None
-    def add_event_handler(self, handler: Callable) -> None
-    def remove_event_handler(self, handler: Callable) -> None
+from mcp_c_structs import McpFilterCallbacks
+
+# Fields:
+# - on_data: DataCallback
+# - on_write: WriteCallback  
+# - on_new_connection: ConnCallback
+# - on_high_watermark: MarkCallback
+# - on_low_watermark: MarkCallback
+# - on_error: ErrorCallback
+# - user_data: c_void_p
 ```
 
-## Examples
+#### `FilterManager`
+High-level filter manager for JSON-RPC message processing.
 
-### Basic Filter Usage
+```python
+from filter_manager import FilterManager, FilterManagerConfig
 
-See `examples/basic_usage.py` for a simple example of using the FilterManager.
+manager = FilterManager(config)
+await manager.process(message)
+await manager.process_response(response)
+```
 
-### Comprehensive Demo
+#### `AdvancedBuffer`
+Python wrapper for MCP Advanced Buffer.
 
-See `examples/filter_manager_demo.py` for a comprehensive demonstration of all filter types.
+```python
+from filter_buffer import AdvancedBuffer
 
-### MCP Integration
+buffer = AdvancedBuffer(handle)
+length = buffer.length()
+data, offset = buffer.get_contiguous(0, length)
+```
 
-See `mcp_example/` directory for complete MCP client and server examples with filter integration.
+### Callback Functions
+
+#### Data Callback
+```python
+def data_callback(buf, end_stream, user_data):
+    """
+    Callback for data processing.
+    
+    Args:
+        buf: Buffer handle (c_void_p)
+        end_stream: End of stream flag (bool)
+        user_data: User data pointer (c_void_p)
+    
+    Returns:
+        int: MCP_FILTER_CONTINUE (0) or MCP_FILTER_STOP_ITERATION (1)
+    """
+    return 0  # MCP_FILTER_CONTINUE
+```
+
+#### Write Callback
+```python
+def write_callback(buf, end_stream, user_data):
+    """
+    Callback for write operations.
+    
+    Args:
+        buf: Buffer handle (c_void_p)
+        end_stream: End of stream flag (bool)
+        user_data: User data pointer (c_void_p)
+    
+    Returns:
+        int: MCP_FILTER_CONTINUE (0) or MCP_FILTER_STOP_ITERATION (1)
+    """
+    return 0  # MCP_FILTER_CONTINUE
+```
+
+#### Connection Callback
+```python
+def connection_callback(user_data, fd):
+    """
+    Callback for new connections.
+    
+    Args:
+        user_data: User data pointer (c_void_p)
+        fd: File descriptor (int)
+    """
+    print(f"New connection: {fd}")
+```
+
+#### Watermark Callbacks
+```python
+def watermark_callback(user_data):
+    """
+    Callback for watermarks.
+    
+    Args:
+        user_data: User data pointer (c_void_p)
+    """
+    print("Watermark reached")
+```
+
+#### Error Callback
+```python
+def error_callback(user_data, code, msg):
+    """
+    Callback for errors.
+    
+    Args:
+        user_data: User data pointer (c_void_p)
+        code: Error code (int)
+        msg: Error message (c_char_p)
+    """
+    message = msg.value.decode('utf-8') if msg else "Unknown error"
+    print(f"Error {code}: {message}")
+```
+
+## Configuration
+
+### Environment Variables
+
+- `MCP_LIBRARY_PATH`: Override the default library path
+- `MCP_LOG_LEVEL`: Set logging level (DEBUG, INFO, WARN, ERROR)
+- `MCP_CONFIG_FILE`: Path to configuration file
+
+### Library Path Resolution
+
+The SDK automatically searches for the MCP library in the following locations:
+
+#### macOS
+- `build/src/c_api/libgopher_mcp_c.0.1.0.dylib`
+- `build/src/c_api/libgopher_mcp_c.dylib`
+- `build/lib/libgopher_mcp_c.dylib`
+- `/usr/local/lib/libgopher_mcp_c.dylib`
+- `/opt/homebrew/lib/libgopher_mcp_c.dylib`
+
+#### Linux
+- `build/src/c_api/libgopher_mcp_c.so`
+- `build/lib/libgopher_mcp_c.so`
+- `/usr/local/lib/libgopher_mcp_c.so`
+- `/usr/lib/x86_64-linux-gnu/libgopher_mcp_c.so`
+- `/usr/lib64/libgopher_mcp_c.so`
+
+#### Windows
+- `build/src/c_api/gopher_mcp_c.dll`
+- `build/bin/gopher_mcp_c.dll`
+- `C:\Program Files\gopher-mcp\bin\gopher_mcp_c.dll`
+- `C:\Program Files\gopher-mcp\lib\gopher_mcp_c.dll`
 
 ## Testing
 
-### Running Tests
-
+### Run All Tests
 ```bash
-# Run all tests
-python tests/run_tests.py
-
-# Run specific test suite
-python tests/run_tests.py --suite "Filter Manager Tests"
-
-# Generate detailed report
-python tests/run_tests.py --report --output test_report.json
+python -m pytest tests/
 ```
 
-### Test Coverage
+### Run Specific Test Suites
+```bash
+# CApiFilter tests
+python -m pytest tests/test_capifilter.py -v
 
-The test suite includes:
+# Buffer operations tests
+python -m pytest tests/test_buffer_operations.py -v
 
-- **Filter API Tests**: 50+ test cases for core filter operations
-- **Filter Buffer Tests**: 40+ test cases for buffer management
-- **Filter Chain Tests**: 30+ test cases for chain operations
-- **Filter Manager Tests**: 20+ test cases for high-level functionality
+# End-to-end integration tests
+python -m pytest tests/test_end_to_end.py -v
+```
 
-Total: 140+ test cases with comprehensive coverage of all functionality.
+### Run Examples
+```bash
+# Calculator client
+python mcp_example/src/mcp_calculator_client.py
 
-## Performance
+# Calculator server
+python mcp_example/src/mcp_calculator_server.py
+```
 
-### Benchmarks
+## Troubleshooting
 
-The Python SDK provides excellent performance through:
+### Common Issues
 
-- **Direct FFI bindings** to optimized C++ code
-- **Zero-copy operations** for buffer handling
-- **Efficient memory management** with buffer pooling
-- **Minimal Python overhead** in the critical path
+#### Library Not Found
+```
+RuntimeError: Could not find MCP library for darwin/x86_64
+```
 
-### Memory Usage
+**Solution**: Set the `MCP_LIBRARY_PATH` environment variable:
+```bash
+export MCP_LIBRARY_PATH="/path/to/your/libgopher_mcp_c.dylib"
+```
 
-- **Buffer pooling** reduces memory allocations
-- **Automatic cleanup** prevents memory leaks
-- **Efficient data structures** minimize overhead
+#### Callback Registration Failed
+```
+ValueError: Invalid signature for on_data callback
+```
 
-## Error Handling
+**Solution**: Ensure your callback has the correct signature:
+```python
+def data_callback(buf, end_stream, user_data):  # 3 parameters
+    return 0
+```
 
-### Error Types
+#### Buffer Operations Failed
+```
+ValueError: Invalid buffer handle: 0
+```
 
-The SDK provides comprehensive error handling:
+**Solution**: Ensure you're using a valid buffer handle from the C++ library.
 
-- **Configuration errors**: Invalid filter configurations
-- **Runtime errors**: Filter processing failures
-- **Resource errors**: Memory and handle management
-- **Network errors**: Connection and communication issues
+### Debug Mode
 
-### Fallback Behavior
+Enable debug logging to see detailed CApiFilter execution:
 
-Configurable fallback behavior for error scenarios:
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
-- **REJECT**: Reject requests on filter errors
-- **PASSTHROUGH**: Allow requests to pass through on errors
-- **DEFAULT**: Use default responses on errors
+# Your code here
+```
 
 ## Contributing
 
-### Development Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd gopher-mcp/sdk/python
-
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-python tests/run_tests.py
-
-# Run linting
-python -m flake8 src/
-python -m mypy src/
-```
-
-### Code Style
-
-- Follow PEP 8 style guidelines
-- Use type annotations for all functions
-- Write comprehensive docstrings
-- Include unit tests for all new functionality
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Run the test suite
+6. Submit a pull request
 
 ## License
 
@@ -452,19 +513,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Support
 
-For questions, issues, or contributions:
-
-1. Check the documentation and examples
-2. Run the test suite to verify functionality
-3. Create an issue with detailed information
-4. Submit a pull request for improvements
-
-## Changelog
-
-### Version 1.0.0
-
-- Initial release with complete filter support
-- FFI bindings to C++ shared library
-- Comprehensive test suite
-- MCP transport integration
-- Full documentation and examples
+For questions and support:
+- Create an issue on GitHub
+- Check the documentation
+- Review the test examples
