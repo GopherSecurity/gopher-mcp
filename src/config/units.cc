@@ -20,14 +20,14 @@ std::pair<bool, std::chrono::milliseconds> Duration::parse(const std::string& st
 std::pair<bool, std::chrono::milliseconds> Duration::parse(const json::JsonValue& value) {
   if (value.isString()) {
     return parse(value.getString());
-  } else if (value.isInt() || value.isDouble()) {
+  } else if (value.isInteger() || value.isFloat()) {
     // Assume milliseconds if no unit specified
-    int64_t ms = value.isInt() ? value.getInt() : static_cast<int64_t>(value.getDouble());
-    LOG_DEBUG() << "Parsing numeric value as milliseconds: " << ms;
+    int64_t ms = value.isInteger() ? value.getInt64() : static_cast<int64_t>(value.getFloat());
+    LOG_DEBUG("Parsing numeric value as milliseconds: %ld", static_cast<long>(ms));
     return {true, std::chrono::milliseconds(ms)};
   }
   
-  LOG_ERROR() << "Invalid duration value type: expected string or number";
+  LOG_ERROR("Invalid duration value type: expected string or number");
   return {false, std::chrono::milliseconds(0)};
 }
 
@@ -55,7 +55,7 @@ std::pair<bool, std::chrono::milliseconds> Duration::parseWithError(
   if (!std::regex_match(str, match, pattern)) {
     error_message = "Invalid duration format '" + str + 
                    "'. Expected format: <number><unit> where unit is ms, s, m, or h (e.g., '30s', '5m', '1h')";
-    LOG_ERROR() << error_message;
+    LOG_ERROR("%s", error_message.c_str());
     return {false, std::chrono::milliseconds(0)};
   }
   
@@ -65,7 +65,7 @@ std::pair<bool, std::chrono::milliseconds> Duration::parseWithError(
     
     if (value < 0) {
       error_message = "Duration value cannot be negative: " + str;
-      LOG_ERROR() << error_message;
+      LOG_ERROR("%s", error_message.c_str());
       return {false, std::chrono::milliseconds(0)};
     }
     
@@ -84,17 +84,17 @@ std::pair<bool, std::chrono::milliseconds> Duration::parseWithError(
     // Check for overflow
     if (result.count() < 0) {
       error_message = "Duration value too large (overflow): " + str;
-      LOG_ERROR() << error_message;
+      LOG_ERROR("%s", error_message.c_str());
       return {false, std::chrono::milliseconds(0)};
     }
     
-    LOG_DEBUG() << "Successfully parsed duration '" << str << "' to " 
-                << result.count() << " milliseconds";
+    LOG_DEBUG("Successfully parsed duration '%s' to %ld milliseconds",
+              str.c_str(), static_cast<long>(result.count()));
     return {true, result};
     
   } catch (const std::exception& e) {
     error_message = "Failed to parse duration value: " + std::string(e.what());
-    LOG_ERROR() << error_message;
+    LOG_ERROR("%s", error_message.c_str());
     return {false, std::chrono::milliseconds(0)};
   }
 }
@@ -108,14 +108,14 @@ std::pair<bool, size_t> Size::parse(const std::string& str) {
 std::pair<bool, size_t> Size::parse(const json::JsonValue& value) {
   if (value.isString()) {
     return parse(value.getString());
-  } else if (value.isInt() || value.isDouble()) {
+  } else if (value.isInteger() || value.isFloat()) {
     // Assume bytes if no unit specified
-    size_t bytes = value.isInt() ? value.getInt() : static_cast<size_t>(value.getDouble());
-    LOG_DEBUG() << "Parsing numeric value as bytes: " << bytes;
+    size_t bytes = value.isInteger() ? value.getInt64() : static_cast<size_t>(value.getFloat());
+    LOG_DEBUG("Parsing numeric value as bytes: %zu", bytes);
     return {true, bytes};
   }
   
-  LOG_ERROR() << "Invalid size value type: expected string or number";
+  LOG_ERROR("Invalid size value type: expected string or number");
   return {false, 0};
 }
 
@@ -148,7 +148,7 @@ std::pair<bool, size_t> Size::parseWithError(
   if (!std::regex_match(str, match, pattern)) {
     error_message = "Invalid size format '" + str + 
                    "'. Expected format: <number><unit> where unit is B, KB, MB, or GB (e.g., '1024B', '10MB', '2GB')";
-    LOG_ERROR() << error_message;
+    LOG_ERROR("%s", error_message.c_str());
     return {false, 0};
   }
   
@@ -164,7 +164,7 @@ std::pair<bool, size_t> Size::parseWithError(
       // Check for overflow before multiplication
       if (value > SIZE_MAX / UnitConversion::KILOBYTE) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR() << error_message;
+        LOG_ERROR("%s", error_message.c_str());
         return {false, 0};
       }
       result = value * UnitConversion::KILOBYTE;
@@ -172,7 +172,7 @@ std::pair<bool, size_t> Size::parseWithError(
       // Check for overflow before multiplication
       if (value > SIZE_MAX / UnitConversion::MEGABYTE) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR() << error_message;
+        LOG_ERROR("%s", error_message.c_str());
         return {false, 0};
       }
       result = value * UnitConversion::MEGABYTE;
@@ -180,19 +180,19 @@ std::pair<bool, size_t> Size::parseWithError(
       // Check for overflow before multiplication
       if (value > SIZE_MAX / UnitConversion::GIGABYTE) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR() << error_message;
+        LOG_ERROR("%s", error_message.c_str());
         return {false, 0};
       }
       result = value * UnitConversion::GIGABYTE;
     }
     
-    LOG_DEBUG() << "Successfully parsed size '" << str << "' to " 
-                << result << " bytes";
+    LOG_DEBUG("Successfully parsed size '%s' to %zu bytes",
+              str.c_str(), result);
     return {true, result};
     
   } catch (const std::exception& e) {
     error_message = "Failed to parse size value: " + std::string(e.what());
-    LOG_ERROR() << error_message;
+    LOG_ERROR("%s", error_message.c_str());
     return {false, 0};
   }
 }
@@ -220,22 +220,20 @@ bool UnitValidator::isSuspiciousValue(const json::JsonValue& value, const std::s
   }
   
   // Check if value is a large number without units
-  if (value.isInt() || value.isDouble()) {
-    double num_value = value.isInt() ? value.getInt() : value.getDouble();
+  if (value.isInteger() || value.isFloat()) {
+    double num_value = value.isInteger() ? value.getInt64() : value.getFloat();
     
     // Suspicious if it's a duration field with value > 1000 (likely milliseconds)
     if (is_duration_field && num_value > 1000) {
-      LOG_WARN() << "Suspicious duration value for field '" << field_name 
-                 << "': " << num_value 
-                 << " (large number without unit - assuming milliseconds)";
+      LOG_WARNING("Suspicious duration value for field '%s': %ld (large number without unit - assuming milliseconds)",
+                  field_name.c_str(), static_cast<long>(num_value));
       return true;
     }
     
     // Suspicious if it's a size field with value > 1048576 (1MB in bytes)
     if (is_size_field && num_value > 1048576) {
-      LOG_WARN() << "Suspicious size value for field '" << field_name 
-                 << "': " << num_value 
-                 << " (large number without unit - assuming bytes)";
+      LOG_WARNING("Suspicious size value for field '%s': %ld (large number without unit - assuming bytes)",
+                  field_name.c_str(), static_cast<long>(num_value));
       return true;
     }
   }
@@ -247,24 +245,21 @@ bool UnitValidator::isSuspiciousValue(const json::JsonValue& value, const std::s
     // Check if it's all digits (missing unit)
     if (!str_value.empty() && std::all_of(str_value.begin(), str_value.end(), ::isdigit)) {
       if (is_duration_field) {
-        LOG_WARN() << "Suspicious duration value for field '" << field_name 
-                   << "': '" << str_value 
-                   << "' (numeric string without unit)";
+        LOG_WARNING("Suspicious duration value for field '%s': '%s' (numeric string without unit)",
+                    field_name.c_str(), str_value.c_str());
         return true;
       }
       if (is_size_field) {
-        LOG_WARN() << "Suspicious size value for field '" << field_name 
-                   << "': '" << str_value 
-                   << "' (numeric string without unit)";
+        LOG_WARNING("Suspicious size value for field '%s': '%s' (numeric string without unit)",
+                    field_name.c_str(), str_value.c_str());
         return true;
       }
     }
     
     // Check for common mistakes
     if (str_value.find(" ") != std::string::npos) {
-      LOG_WARN() << "Suspicious value for field '" << field_name 
-                 << "': '" << str_value 
-                 << "' (contains spaces - units should be directly attached to number)";
+      LOG_WARNING("Suspicious value for field '%s': '%s' (contains spaces - units should be directly attached to number)",
+                  field_name.c_str(), str_value.c_str());
       return true;
     }
   }
@@ -305,7 +300,8 @@ std::string UnitValidator::formatUnitError(const std::string& value,
     error << "Note: Size units must be uppercase (KB, MB, GB).\n";
   }
   
-  LOG_ERROR() << error.str();
+  std::string error_msg = error.str();
+  LOG_ERROR("%s", error_msg.c_str());
   return error.str();
 }
 

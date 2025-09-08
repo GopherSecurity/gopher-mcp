@@ -95,6 +95,32 @@ For numeric values without units:
                                      const std::string& expected_format);
 };
 
+// Exception for unit parse errors
+class UnitParseError : public std::runtime_error {
+ public:
+  explicit UnitParseError(const std::string& message) : std::runtime_error(message) {}
+};
+
+// Helper functions for JSON parsing
+template<typename T>
+T parseJsonDuration(const json::JsonValue& value, const std::string& field_name) {
+  auto result = Duration::parse(value);
+  if (!result.first) {
+    throw UnitParseError("Invalid duration format for field '" + field_name + "'");
+  }
+  return static_cast<T>(result.second.count());
+}
+
+template<typename T>
+T parseJsonSize(const json::JsonValue& value, const std::string& field_name) {
+  auto result = Size::parse(value);
+  if (!result.first) {
+    throw UnitParseError("Invalid size format for field '" + field_name + "'");
+  }
+  return static_cast<T>(result.second);
+}
+
+
 // Common unit conversion utilities
 class UnitConversion {
  public:

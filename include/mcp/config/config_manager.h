@@ -18,9 +18,9 @@
 #include <shared_mutex>  // C++14: std::shared_timed_mutex
 #include <vector>
 
-#include <nlohmann/json.hpp>
 
 #include "mcp/config/types.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/config/validation_policy.h"
 
 namespace mcp {
@@ -94,7 +94,7 @@ class ConfigSource {
    * @brief Load configuration from this source
    * @return JSON configuration or empty if not available
    */
-  virtual nlohmann::json loadConfiguration() = 0;
+  virtual mcp::json::JsonValue loadConfiguration() = 0;
 
   /**
    * @brief Check if the source configuration has changed
@@ -122,19 +122,19 @@ std::shared_ptr<ConfigSource> createFileConfigSource(
 class JsonConfigSource : public ConfigSource {
  public:
   JsonConfigSource(const std::string& name,
-                   const nlohmann::json& config,
+                   const mcp::json::JsonValue& config,
                    Priority priority = Priority::OVERRIDE);
 
   std::string getName() const override { return name_; }
   int getPriority() const override { return priority_; }
-  bool hasConfiguration() const override { return !config_.empty(); }
-  nlohmann::json loadConfiguration() override { return config_; }
+  bool hasConfiguration() const override { return !config_.isNull(); }
+  mcp::json::JsonValue loadConfiguration() override { return config_; }
 
-  void updateConfiguration(const nlohmann::json& config);
+  void updateConfiguration(const mcp::json::JsonValue& config);
 
  private:
   std::string name_;
-  nlohmann::json config_;
+  mcp::json::JsonValue config_;
   int priority_;
 };
 
@@ -148,12 +148,12 @@ class EnvironmentConfigSource : public ConfigSource {
   std::string getName() const override { return "environment"; }
   int getPriority() const override { return Priority::ENVIRONMENT; }
   bool hasConfiguration() const override;
-  nlohmann::json loadConfiguration() override;
+  mcp::json::JsonValue loadConfiguration() override;
 
  private:
   std::string prefix_;
-
-  nlohmann::json parseEnvironmentVariables();
+  // Keep implementation internal to .cc; avoid exposing nlohmann::json here
+  mcp::json::JsonValue parseEnvironmentVariables();
 };
 
 /**
@@ -283,12 +283,14 @@ class ConfigurationManager {
   /**
    * @brief Merge configurations from multiple sources
    */
-  nlohmann::json mergeConfigurations();
+  // Return merged configuration as JsonValue to avoid exposing nlohmann types
+  mcp::json::JsonValue mergeConfigurations();
 
   /**
    * @brief Parse and validate configuration
    */
-  ConfigSnapshot parseConfiguration(const nlohmann::json& config);
+  // Accept JsonValue and convert internally where needed
+  ConfigSnapshot parseConfiguration(const mcp::json::JsonValue& config);
 
   /**
    * @brief Generate version ID

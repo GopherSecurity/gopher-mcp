@@ -28,99 +28,250 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
-#include <filesystem>
+#include <sys/stat.h>
+#ifndef _WIN32
+#include <unistd.h>
+#include <dirent.h>
+#endif
 #include <fstream>
 #include <regex>
 #include <set>
 #include <sstream>
 
-#include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include "mcp/config/config_manager.h"
+#include "mcp/config/json_conversion.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_macros.h"
 
 // Platform-specific includes
 #ifdef _WIN32
 #include <windows.h>
-#else
-#include <sys/stat.h>
 #endif
 
 namespace mcp {
 namespace config {
 
-namespace fs = std::filesystem;
+// C++14 compatible filesystem operations
+namespace {
+  std::string canonical(const std::string& path) {
+#ifdef _WIN32
+    // Simplified canonicalization for Windows: use GetFullPathNameA
+    char buffer[MAX_PATH];
+    DWORD len = GetFullPathNameA(path.c_str(), MAX_PATH, buffer, nullptr);
+    if (len > 0 && len < MAX_PATH) {
+      return std::string(buffer);
+    }
+    return path;
+#else
+    char* real = realpath(path.c_str(), nullptr);
+    if (real) {
+      std::string result(real);
+      free(real);
+      return result;
+    }
+    return path;
+#endif
+  }
+  
+  bool exists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+  }
+  
+  bool is_directory(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+  }
+  
+  std::string parent_path(const std::string& path) {
+    size_t pos = path.find_last_of('/');
+    if (pos != std::string::npos) {
+      return path.substr(0, pos);
+    }
+    return ".";
+  }
+  
+  // Simple path class for C++14 compatibility
+  class path {
+   public:
+    path() = default;
+    path(const std::string& p) : path_(p) {}
+    
+    std::string string() const { return path_; }
+    path parent_path() const { 
+      size_t pos = path_.find_last_of('/');
+      if (pos != std::string::npos) {
+        return path(path_.substr(0, pos));
+      }
+      return path(".");
+    }
+    
+    path filename() const {
+      size_t pos = path_.find_last_of('/');
+      if (pos != std::string::npos) {
+        return path(path_.substr(pos + 1));
+      }
+      return path(path_);
+    }
+    
+    bool is_absolute() const {
+      return !path_.empty() && path_[0] == '/';
+    }
+    
+    path operator/(const std::string& other) const {
+      if (path_.empty()) return path(other);
+      if (path_.back() == '/') return path(path_ + other);
+      return path(path_ + "/" + other);
+    }
+    
+    bool operator<(const path& other) const {
+      return path_ < other.path_;
+    }
+    
+    bool operator==(const path& other) const {
+      return path_ == other.path_;
+    }
+    
+   private:
+    std::string path_;
+  };
+  
+  std::time_t last_write_time(const std::string& filepath) {
+    struct stat st;
+    if (stat(filepath.c_str(), &st) == 0) {
+      return st.st_mtime;
+    }
+    return 0;
+  }
+  
+  // Simple directory iterator for C++14
+  std::vector<std::string> directory_files(const std::string& dir_path) {
+#ifdef _WIN32
+    // Windows stub: return empty list (full implementation can be added later)
+    (void)dir_path;
+    return {};
+#else
+    std::vector<std::string> files;
+    DIR* dir = opendir(dir_path.c_str());
+    if (dir) {
+      struct dirent* entry;
+      while ((entry = readdir(dir)) != nullptr) {
+        std::string name(entry->d_name);
+        if (name != "." && name != "..") {
+          std::string full_path = dir_path + "/" + name;
+          if (!is_directory(full_path)) {
+            files.push_back(full_path);
+          }
+        }
+      }
+      closedir(dir);
+    }
+    return files;
+#endif
+  }
+  
+  // Simple directory iterator that returns path objects
+  std::vector<path> directory_files_as_paths(const std::string& dir_path) {
+#ifdef _WIN32
+    (void)dir_path;
+    return {};
+#else
+    std::vector<path> files;
+    DIR* dir = opendir(dir_path.c_str());
+    if (dir) {
+      struct dirent* entry;
+      while ((entry = readdir(dir)) != nullptr) {
+        std::string name(entry->d_name);
+        if (name != "." && name != "..") {
+          std::string full_path = dir_path + "/" + name;
+          files.push_back(path(full_path));
+        }
+      }
+      closedir(dir);
+    }
+    return files;
+#endif
+  }
+}
 
 // Constants for file handling limits
 constexpr size_t MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;  // 20 MB
 constexpr int MAX_INCLUDE_DEPTH = 8;
 
-// Helper function to convert YAML to JSON
-nlohmann::json yamlToJson(const YAML::Node& node) {
-  nlohmann::json result;
+// Use conversion utilities from json_conversion.h when needed
 
+// Helper function to convert YAML to JsonValue
+mcp::json::JsonValue yamlToJsonValue(const YAML::Node& node) {
   switch (node.Type()) {
     case YAML::NodeType::Null:
-      result = nullptr;
-      break;
+      return mcp::json::JsonValue::null();
     case YAML::NodeType::Scalar:
       try {
         // Try to parse as boolean
         if (node.as<std::string>() == "true" ||
             node.as<std::string>() == "false") {
-          result = node.as<bool>();
+          return mcp::json::JsonValue(node.as<bool>());
         }
         // Try to parse as number
         else if (node.as<std::string>().find('.') != std::string::npos) {
-          result = node.as<double>();
+          return mcp::json::JsonValue(node.as<double>());
         } else {
           try {
-            result = node.as<int64_t>();
+            return mcp::json::JsonValue(node.as<int64_t>());
           } catch (...) {
-            result = node.as<std::string>();
+            return mcp::json::JsonValue(node.as<std::string>());
           }
         }
       } catch (...) {
-        result = node.as<std::string>();
+        return mcp::json::JsonValue(node.as<std::string>());
       }
       break;
-    case YAML::NodeType::Sequence:
-      result = nlohmann::json::array();
+    case YAML::NodeType::Sequence: {
+      auto result = mcp::json::JsonValue::array();
       for (const auto& item : node) {
-        result.push_back(yamlToJson(item));
+        result.push_back(yamlToJsonValue(item));
       }
-      break;
-    case YAML::NodeType::Map:
-      result = nlohmann::json::object();
+      return result;
+    }
+    case YAML::NodeType::Map: {
+      auto result = mcp::json::JsonValue::object();
       for (const auto& pair : node) {
-        result[pair.first.as<std::string>()] = yamlToJson(pair.second);
+        result[pair.first.as<std::string>()] = yamlToJsonValue(pair.second);
       }
-      break;
+      return result;
+    }
     default:
       break;
   }
 
-  return result;
+  return mcp::json::JsonValue::null();
 }
+
+// Use yamlToJsonValue instead of this legacy function
 
 // FileConfigSource implementation
 class FileConfigSource : public ConfigSource {
  public:
   struct Options {
     std::vector<std::string> allowed_include_roots;
-    bool enable_environment_substitution = true;
+    bool enable_environment_substitution;
     std::string trace_id;
-    size_t max_file_size = MAX_FILE_SIZE_BYTES;
-    int max_include_depth = MAX_INCLUDE_DEPTH;
+    size_t max_file_size;
+    int max_include_depth;
+    
+    Options() : enable_environment_substitution(true), 
+                max_file_size(MAX_FILE_SIZE_BYTES),
+                max_include_depth(MAX_INCLUDE_DEPTH) {}
   };
 
   FileConfigSource(const std::string& name,
                    int priority,
-                   const Options& opts = {})
+                   const Options& opts = Options{})
       : name_(name), priority_(priority), options_(opts) {
-    LOG_INFO() << "FileConfigSource created: name=" << name_
-               << " priority=" << priority_;
+    LOG_INFO("FileConfigSource created: name=%s priority=%d",
+             name_.c_str(), static_cast<int>(priority_));
   }
 
   std::string getName() const override { return name_; }
@@ -132,38 +283,37 @@ class FileConfigSource : public ConfigSource {
     return !config_path.empty();
   }
 
-  nlohmann::json loadConfiguration() override {
+  mcp::json::JsonValue loadConfiguration() override {
 #undef GOPHER_LOG_COMPONENT
 #define GOPHER_LOG_COMPONENT "config.search"
-    LOG_INFO() << "Starting configuration discovery for source: " << name_
-               << (options_.trace_id.empty()
-                       ? ""
-                       : " trace_id=" + options_.trace_id);
+    LOG_INFO("Starting configuration discovery for source: %s%s",
+             name_.c_str(),
+             (options_.trace_id.empty() ? "" : (" trace_id=" + options_.trace_id).c_str()));
 
     // Determine the config file path using deterministic search order
     std::string config_path = findConfigFile();
 
     if (config_path.empty()) {
-      LOG_WARNING() << "No configuration file found for source: " << name_;
-      return nlohmann::json::object();
+      LOG_WARNING("No configuration file found for source: %s", name_.c_str());
+      return mcp::json::JsonValue::object();
     }
 
-    LOG_INFO() << "Base configuration file chosen: " << config_path;
+    LOG_INFO("Base configuration file chosen: %s", config_path.c_str());
 
 #undef GOPHER_LOG_COMPONENT
 #define GOPHER_LOG_COMPONENT "config.file"
 
     // Load and parse the main configuration file
     ParseContext context;
-    context.base_dir = fs::path(config_path).parent_path();
-    context.processed_files.insert(fs::canonical(config_path));
+    context.base_dir = parent_path(config_path);
+    context.processed_files.insert(canonical(config_path));
     context.max_include_depth = options_.max_include_depth;
 
     auto config = loadFile(config_path, context);
 
     // Process config.d overlays if directory exists
-    fs::path config_dir = fs::path(config_path).parent_path() / "config.d";
-    if (fs::exists(config_dir) && fs::is_directory(config_dir)) {
+    std::string config_dir = parent_path(config_path) + "/config.d";
+    if (exists(config_dir) && is_directory(config_dir)) {
       config = processConfigDOverlays(config, config_dir, context);
     }
 
@@ -171,17 +321,15 @@ class FileConfigSource : public ConfigSource {
     last_modified_ = context.latest_mtime;
     base_config_path_ = config_path;
 
-    LOG_INFO() << "Configuration discovery completed: files_parsed="
-               << context.files_parsed_count
-               << " includes_processed=" << context.includes_processed_count
-               << " env_vars_expanded=" << context.env_vars_expanded_count
-               << " overlays_applied=" << context.overlays_applied.size();
+    LOG_INFO("Configuration discovery completed: files_parsed=%zu includes_processed=%zu env_vars_expanded=%zu overlays_applied=%zu",
+             context.files_parsed_count, context.includes_processed_count, 
+             context.env_vars_expanded_count, context.overlays_applied.size());
 
     // Log overlay list (filenames only)
     if (!context.overlays_applied.empty()) {
-      LOG_DEBUG() << "Overlays applied in order:";
+      LOG_DEBUG("Overlays applied in order:");
       for (const auto& overlay : context.overlays_applied) {
-        LOG_DEBUG() << "  - " << fs::path(overlay).filename().string();
+        LOG_DEBUG("  - %s", overlay.c_str());
       }
     }
 
@@ -194,10 +342,9 @@ class FileConfigSource : public ConfigSource {
     }
     
     // Check if base config has changed
-    if (fs::exists(base_config_path_)) {
-      auto current_mtime = fs::last_write_time(base_config_path_);
-      auto current_time_t = decltype(current_mtime)::clock::to_time_t(current_mtime);
-      auto current_time = std::chrono::system_clock::from_time_t(current_time_t);
+    if (exists(base_config_path_)) {
+      auto current_mtime = last_write_time(base_config_path_);
+      auto current_time = std::chrono::system_clock::from_time_t(current_mtime);
       
       if (current_time > last_modified_) {
         return true;
@@ -206,15 +353,16 @@ class FileConfigSource : public ConfigSource {
     
     // Check config.d directory for changes (simplified for now)
     // Full implementation would track all loaded files
-    fs::path config_dir = fs::path(base_config_path_).parent_path() / "config.d";
-    if (fs::exists(config_dir) && fs::is_directory(config_dir)) {
-      for (const auto& entry : fs::directory_iterator(config_dir)) {
-        if (entry.is_regular_file()) {
-          auto ext = entry.path().extension().string();
+    path config_dir = path(base_config_path_).parent_path() / "config.d";
+    if (exists(config_dir.string()) && is_directory(config_dir.string())) {
+      auto files = directory_files(config_dir.string());
+      for (const auto& file : files) {
+        size_t dot_pos = file.find_last_of('.');
+        if (dot_pos != std::string::npos) {
+          std::string ext = file.substr(dot_pos);
           if (ext == ".yaml" || ext == ".yml" || ext == ".json") {
-            auto mtime = fs::last_write_time(entry.path());
-            auto time_t = decltype(mtime)::clock::to_time_t(mtime);
-            auto time = std::chrono::system_clock::from_time_t(time_t);
+            auto mtime = last_write_time(file);
+            auto time = std::chrono::system_clock::from_time_t(mtime);
             if (time > last_modified_) {
               return true;
             }
@@ -234,8 +382,8 @@ class FileConfigSource : public ConfigSource {
 
  private:
   struct ParseContext {
-    fs::path base_dir;
-    std::set<fs::path> processed_files;
+    path base_dir;
+    std::set<std::string> processed_files;
     size_t files_parsed_count = 0;
     size_t includes_processed_count = 0;
     size_t env_vars_expanded_count = 0;
@@ -252,7 +400,7 @@ class FileConfigSource : public ConfigSource {
     // 1. Explicit path (--config CLI argument)
     if (!explicit_config_path_.empty()) {
       search_paths.push_back(explicit_config_path_);
-      LOG_INFO() << "CLI override detected: --config specified";
+      LOG_INFO("CLI override detected: --config specified");
       source_type = "CLI";
     }
 
@@ -261,7 +409,7 @@ class FileConfigSource : public ConfigSource {
     if (env_config && *env_config) {
       search_paths.push_back(env_config);
       if (source_type.empty()) {
-        LOG_INFO() << "Environment override detected: MCP_CONFIG set";
+        LOG_INFO("Environment override detected: MCP_CONFIG set");
         source_type = "ENV";
       }
     }
@@ -276,22 +424,22 @@ class FileConfigSource : public ConfigSource {
     search_paths.push_back("/etc/gopher-mcp/config.yaml");
     search_paths.push_back("/etc/gopher-mcp/config.json");
 
-    LOG_DEBUG() << "Configuration search order: " << search_paths.size()
-                << " paths to check";
+    LOG_DEBUG("Configuration search order: %zu paths to check", 
+              search_paths.size());
 
     for (size_t i = 0; i < search_paths.size(); ++i) {
       const auto& path = search_paths[i];
-      if (fs::exists(path)) {
+      if (exists(path)) {
         // Determine which source won
         if (i == 0 && !explicit_config_path_.empty()) {
-          LOG_INFO() << "Configuration source won: CLI --config=" << path;
+          LOG_INFO("Configuration source won: CLI --config=%s", path.c_str());
         } else if ((i == 0 || i == 1) && env_config) {
-          LOG_INFO() << "Configuration source won: MCP_CONFIG environment variable";
+          LOG_INFO("Configuration source won: MCP_CONFIG environment variable");
         } else if (path.find("./config") != std::string::npos || 
                    path.find("./config.") != std::string::npos) {
-          LOG_INFO() << "Configuration source won: local directory at " << path;
+          LOG_INFO("Configuration source won: local directory at %s", path.c_str());
         } else {
-          LOG_INFO() << "Configuration source won: system directory at " << path;
+          LOG_INFO("Configuration source won: system directory at %s", path.c_str());
         }
         return path;
       }
@@ -300,37 +448,37 @@ class FileConfigSource : public ConfigSource {
     return "";
   }
 
-  nlohmann::json loadFile(const std::string& filepath, ParseContext& context) {
+  mcp::json::JsonValue loadFile(const std::string& filepath, ParseContext& context) {
     context.files_parsed_count++;
 
     // Check file size before loading
-    auto file_size = fs::file_size(filepath);
+    struct stat st;
+    if (stat(filepath.c_str(), &st) != 0) {
+      throw std::runtime_error("Cannot stat file: " + filepath);
+    }
+    size_t file_size = st.st_size;
     if (file_size > options_.max_file_size) {
-      LOG_ERROR() << "File exceeds maximum size limit: " << filepath
-                  << " size=" << file_size
-                  << " limit=" << options_.max_file_size;
+      LOG_ERROR("File exceeds maximum size limit: %s size=%zu limit=%zu",
+                filepath.c_str(), file_size, options_.max_file_size);
       throw std::runtime_error("File too large: " + filepath + " (" +
                                std::to_string(file_size) + " bytes)");
     }
 
     // Get file metadata and track latest modification time
-    auto last_modified = fs::last_write_time(filepath);
-    auto last_modified_time_t =
-        decltype(last_modified)::clock::to_time_t(last_modified);
-    auto file_mtime = std::chrono::system_clock::from_time_t(last_modified_time_t);
+    auto last_modified = last_write_time(filepath);
+    auto file_mtime = std::chrono::system_clock::from_time_t(last_modified);
     
     // Update latest modification time
     if (file_mtime > context.latest_mtime) {
       context.latest_mtime = file_mtime;
     }
 
-    LOG_DEBUG() << "Loading configuration file: " << filepath
-                << " size=" << file_size
-                << " last_modified=" << last_modified_time_t;
+    LOG_DEBUG("Loading configuration file: %s size=%zu last_modified=%ld",
+              filepath.c_str(), file_size, static_cast<long>(last_modified));
 
     std::ifstream file(filepath);
     if (!file.is_open()) {
-      LOG_ERROR() << "Failed to open configuration file: " << filepath;
+      LOG_ERROR("Failed to open configuration file: %s", filepath.c_str());
       throw std::runtime_error("Cannot open config file: " + filepath);
     }
 
@@ -343,9 +491,9 @@ class FileConfigSource : public ConfigSource {
     }
 
     // Parse based on file extension
-    nlohmann::json config;
-    fs::path file_path(filepath);
-    std::string extension = file_path.extension().string();
+    mcp::json::JsonValue config;
+    size_t dot_pos = filepath.find_last_of('.');
+    std::string extension = (dot_pos != std::string::npos) ? filepath.substr(dot_pos) : "";
 
     try {
       if (extension == ".yaml" || extension == ".yml") {
@@ -361,29 +509,29 @@ class FileConfigSource : public ConfigSource {
         }
       }
     } catch (const std::exception& e) {
-      LOG_ERROR() << "Failed to parse configuration file: " << filepath
-                  << " reason=" << e.what();
+      LOG_ERROR("Failed to parse configuration file: %s reason=%s",
+                filepath.c_str(), e.what());
       throw;
     }
 
     // Process includes if present
-    if (config.contains("include")) {
+    if (config.isObject() && config.contains("include")) {
       config = processIncludes(config, context);
     }
 
     // Process config.d directory pattern if present
-    if (config.contains("include_dir")) {
+    if (config.isObject() && config.contains("include_dir")) {
       config = processIncludeDirectory(config, context);
     }
 
     return config;
   }
 
-  nlohmann::json parseYaml(const std::string& content,
-                           const std::string& filepath) {
+  mcp::json::JsonValue parseYaml(const std::string& content,
+                                 const std::string& filepath) {
     try {
       YAML::Node root = YAML::Load(content);
-      return yamlToJson(root);
+      return yamlToJsonValue(root);
     } catch (const YAML::ParserException& e) {
       std::ostringstream error;
       error << "YAML parse error at line " << e.mark.line + 1 << ", column "
@@ -392,13 +540,14 @@ class FileConfigSource : public ConfigSource {
     }
   }
 
-  nlohmann::json parseJson(const std::string& content,
-                           const std::string& filepath) {
+  mcp::json::JsonValue parseJson(const std::string& content,
+                                 const std::string& filepath) {
     try {
-      return nlohmann::json::parse(content);
-    } catch (const nlohmann::json::parse_error& e) {
+      // Use JsonValue's native JSON parsing
+      return mcp::json::JsonValue::parse(content);
+    } catch (const mcp::json::JsonException& e) {
       std::ostringstream error;
-      error << "JSON parse error at byte " << e.byte;
+      error << "JSON parse error: " << e.what();
       throw std::runtime_error(error.str());
     }
   }
@@ -421,8 +570,8 @@ class FileConfigSource : public ConfigSource {
       const char* env_value = std::getenv(var_name.c_str());
 
       if (!env_value && !has_default) {
-        LOG_ERROR() << "Undefined environment variable without default: ${"
-                    << var_name << "}";
+        LOG_ERROR("Undefined environment variable without default: ${%s}", 
+                  var_name.c_str());
         throw std::runtime_error("Undefined environment variable: " + var_name);
       }
 
@@ -450,50 +599,52 @@ class FileConfigSource : public ConfigSource {
 
     context.env_vars_expanded_count += vars_expanded;
     if (vars_expanded > 0) {
-      LOG_DEBUG() << "Expanded " << vars_expanded << " environment variables";
+      LOG_DEBUG("Expanded %zu environment variables", vars_expanded);
     }
 
     return result;
   }
 
-  nlohmann::json processIncludes(const nlohmann::json& config,
-                                 ParseContext& context) {
+  mcp::json::JsonValue processIncludes(const mcp::json::JsonValue& config,
+                                       ParseContext& context) {
     if (++context.include_depth > context.max_include_depth) {
-      LOG_ERROR() << "Maximum include depth exceeded: "
-                  << context.max_include_depth << " at depth "
-                  << context.include_depth;
+      LOG_ERROR("Maximum include depth exceeded: %d at depth %d",
+                context.max_include_depth, context.include_depth);
       throw std::runtime_error("Maximum include depth (" +
                                std::to_string(context.max_include_depth) +
                                ") exceeded");
     }
 
-    nlohmann::json result = config;
+    mcp::json::JsonValue result = config;
 
     if (config.contains("include")) {
       auto includes = config["include"];
-      if (includes.is_string()) {
-        includes = nlohmann::json::array({includes});
+      if (includes.isString()) {
+        auto array = mcp::json::JsonValue::array();
+        array.push_back(includes);
+        includes = array;
       }
 
-      if (includes.is_array()) {
-        for (const auto& include : includes) {
-          if (include.is_string()) {
-            std::string include_path = include.get<std::string>();
-            LOG_DEBUG() << "Processing include: " << include_path
-                        << " from base_dir=" << context.base_dir;
+      if (includes.isArray()) {
+        for (size_t i = 0; i < includes.size(); ++i) {
+          const auto& include = includes[i];
+          if (include.isString()) {
+            std::string include_path = include.getString();
+            LOG_DEBUG("Processing include: %s from base_dir=%s",
+                      include_path.c_str(), context.base_dir.string().c_str());
 
-            fs::path resolved_path = resolveIncludePath(include_path, context);
+            path resolved_path = resolveIncludePath(include_path, context);
 
-            if (context.processed_files.count(resolved_path) > 0) {
-              LOG_WARNING()
-                  << "Circular include detected, skipping: " << resolved_path;
+            if (context.processed_files.count(resolved_path.string()) > 0) {
+              LOG_WARNING("Circular include detected, skipping: %s", 
+                          resolved_path.string().c_str());
               continue;
             }
 
-            context.processed_files.insert(resolved_path);
+            context.processed_files.insert(resolved_path.string());
             context.includes_processed_count++;
 
-            LOG_INFO() << "Including configuration from: " << resolved_path;
+            LOG_INFO("Including configuration from: %s", resolved_path.string().c_str());
 
             ParseContext include_context = context;
             include_context.base_dir = resolved_path.parent_path();
@@ -523,25 +674,27 @@ class FileConfigSource : public ConfigSource {
     return result;
   }
 
-  nlohmann::json processIncludeDirectory(const nlohmann::json& config,
-                                         ParseContext& context) {
-    nlohmann::json result = config;
+  mcp::json::JsonValue processIncludeDirectory(const mcp::json::JsonValue& config,
+                                               ParseContext& context) {
+    mcp::json::JsonValue result = config;
 
     if (config.contains("include_dir")) {
-      std::string dir_pattern = config["include_dir"].get<std::string>();
-      fs::path dir_path = resolveIncludePath(dir_pattern, context);
+      std::string dir_pattern = config["include_dir"].getString();
+      path dir_path = resolveIncludePath(dir_pattern, context);
 
-      LOG_INFO() << "Scanning directory for configurations: " << dir_path;
+      LOG_INFO("Scanning directory for configurations: %s", dir_path.string().c_str());
 
-      if (fs::exists(dir_path) && fs::is_directory(dir_path)) {
-        std::vector<fs::path> config_files;
+      if (exists(dir_path.string()) && is_directory(dir_path.string())) {
+        std::vector<path> config_files;
 
         // Collect all .yaml and .json files
-        for (const auto& entry : fs::directory_iterator(dir_path)) {
-          if (entry.is_regular_file()) {
-            auto ext = entry.path().extension().string();
+        auto entries = directory_files_as_paths(dir_path.string());
+        for (const auto& file : entries) {
+          size_t dot_pos = file.string().find_last_of('.');
+          if (dot_pos != std::string::npos) {
+            std::string ext = file.string().substr(dot_pos);
             if (ext == ".yaml" || ext == ".yml" || ext == ".json") {
-              config_files.push_back(entry.path());
+              config_files.push_back(file);
             }
           }
         }
@@ -549,18 +702,18 @@ class FileConfigSource : public ConfigSource {
         // Sort for deterministic order
         std::sort(config_files.begin(), config_files.end());
 
-        LOG_DEBUG() << "Found " << config_files.size()
-                    << " configuration files in directory";
+        LOG_DEBUG("Found %zu configuration files in directory",
+                  config_files.size());
 
         for (const auto& file : config_files) {
-          if (context.processed_files.count(fs::canonical(file)) > 0) {
+          if (context.processed_files.count(canonical(file.string())) > 0) {
             continue;
           }
 
-          context.processed_files.insert(fs::canonical(file));
+          context.processed_files.insert(canonical(file.string()));
           context.includes_processed_count++;
 
-          LOG_INFO() << "Including configuration from directory: " << file;
+          LOG_INFO("Including configuration from directory: %s", file.string().c_str());
 
           ParseContext include_context = context;
           include_context.base_dir = file.parent_path();
@@ -577,9 +730,8 @@ class FileConfigSource : public ConfigSource {
           }
         }
       } else {
-        LOG_WARNING()
-            << "Include directory does not exist or is not a directory: "
-            << dir_path;
+        LOG_WARNING("Include directory does not exist or is not a directory: %s",
+                    dir_path.string().c_str());
       }
 
       result.erase("include_dir");
@@ -588,64 +740,68 @@ class FileConfigSource : public ConfigSource {
     return result;
   }
 
-  fs::path resolveIncludePath(const std::string& path,
+  path resolveIncludePath(const std::string& filepath,
                               const ParseContext& context) {
-    fs::path include_path(path);
+    path include_path(filepath);
 
     if (include_path.is_absolute()) {
       // Check if absolute path is under allowed roots
       if (!options_.allowed_include_roots.empty()) {
         bool allowed = false;
         for (const auto& root : options_.allowed_include_roots) {
-          fs::path root_path(root);
+          path root_path(root);
           if (include_path.string().find(root_path.string()) == 0) {
             allowed = true;
             break;
           }
         }
         if (!allowed) {
-          LOG_ERROR() << "Absolute include path not under allowed roots: "
-                      << path;
-          throw std::runtime_error("Include path not allowed: " + path);
+          LOG_ERROR("Absolute include path not under allowed roots: %s",
+                    filepath.c_str());
+          throw std::runtime_error("Include path not allowed: " + filepath);
         }
       }
-      return fs::canonical(include_path);
+      return path(canonical(include_path.string()));
     } else {
       // Relative paths resolve from including file's directory
-      return fs::canonical(context.base_dir / include_path);
+      return path(canonical((context.base_dir / include_path.string()).string()));
     }
   }
 
-  void mergeConfigs(nlohmann::json& target, const nlohmann::json& source) {
+  void mergeConfigs(mcp::json::JsonValue& target, const mcp::json::JsonValue& source) {
     // Simple merge: source overwrites target for existing keys
     // Arrays are replaced, not concatenated
-    for (auto it = source.begin(); it != source.end(); ++it) {
-      if (it.value().is_object() && target.contains(it.key()) &&
-          target[it.key()].is_object()) {
-        // Recursively merge objects
-        mergeConfigs(target[it.key()], it.value());
-      } else {
-        // Replace value
-        target[it.key()] = it.value();
+    if (source.isObject()) {
+      for (const auto& key : source.keys()) {
+        if (source[key].isObject() && target.contains(key) &&
+            target[key].isObject()) {
+          // Recursively merge objects
+          mergeConfigs(target[key], source[key]);
+        } else {
+          // Replace value
+          target[key] = source[key];
+        }
       }
     }
   }
 
   // Process config.d overlay directory
-  nlohmann::json processConfigDOverlays(const nlohmann::json& base_config,
-                                        const fs::path& overlay_dir,
-                                        ParseContext& context) {
-    LOG_INFO() << "Scanning config.d directory: " << overlay_dir;
+  mcp::json::JsonValue processConfigDOverlays(const mcp::json::JsonValue& base_config,
+                                              const path& overlay_dir,
+                                              ParseContext& context) {
+    LOG_INFO("Scanning config.d directory: %s", overlay_dir.string().c_str());
 
-    nlohmann::json result = base_config;
-    std::vector<fs::path> overlay_files;
+    mcp::json::JsonValue result = base_config;
+    std::vector<path> overlay_files;
 
     // Collect all .yaml and .json files
-    for (const auto& entry : fs::directory_iterator(overlay_dir)) {
-      if (entry.is_regular_file()) {
-        auto ext = entry.path().extension().string();
+    auto entries = directory_files_as_paths(overlay_dir.string());
+    for (const auto& file : entries) {
+      size_t dot_pos = file.string().find_last_of('.');
+      if (dot_pos != std::string::npos) {
+        std::string ext = file.string().substr(dot_pos);
         if (ext == ".yaml" || ext == ".yml" || ext == ".json") {
-          overlay_files.push_back(entry.path());
+          overlay_files.push_back(file);
         }
       }
     }
@@ -653,26 +809,26 @@ class FileConfigSource : public ConfigSource {
     // Sort lexicographically for deterministic order
     std::sort(overlay_files.begin(), overlay_files.end());
 
-    LOG_INFO() << "Directory scan results: found " << overlay_files.size() 
-               << " configuration overlay files";
+    LOG_INFO("Directory scan results: found %zu configuration overlay files",
+             overlay_files.size());
     
     // Log overlay list in order
     if (!overlay_files.empty()) {
-      LOG_INFO() << "Overlay files in lexicographic order:";
+      LOG_INFO("Overlay files in lexicographic order:");
       for (const auto& file : overlay_files) {
-        LOG_INFO() << "  - " << file.filename().string();
+        LOG_INFO("  - %s", file.filename().string().c_str());
       }
     }
 
     for (const auto& overlay_file : overlay_files) {
-      if (context.processed_files.count(fs::canonical(overlay_file)) > 0) {
-        LOG_DEBUG() << "Skipping already processed overlay: " << overlay_file;
+      if (context.processed_files.count(canonical(overlay_file.string())) > 0) {
+        LOG_DEBUG("Skipping already processed overlay: %s", overlay_file.string().c_str());
         continue;
       }
 
-      context.processed_files.insert(fs::canonical(overlay_file));
+      context.processed_files.insert(canonical(overlay_file.string()));
 
-      LOG_DEBUG() << "Applying overlay: " << overlay_file.filename();
+      LOG_DEBUG("Applying overlay: %s", overlay_file.filename().string().c_str());
 
       ParseContext overlay_context = context;
       overlay_context.base_dir = overlay_file.parent_path();
@@ -692,8 +848,8 @@ class FileConfigSource : public ConfigSource {
           context.latest_mtime = overlay_context.latest_mtime;
         }
       } catch (const std::exception& e) {
-        LOG_ERROR() << "Failed to process overlay " << overlay_file << ": "
-                    << e.what();
+        LOG_ERROR("Failed to process overlay %s: %s",
+                  overlay_file.string().c_str(), e.what());
         // Continue with other overlays
       }
     }
