@@ -912,8 +912,34 @@ class FilterManager:
     
     async def _process_through_filter(self, message: JSONRPCMessage, filter_name: str) -> JSONRPCMessage:
         """Process message through a specific filter."""
-        # TODO: Implement actual filter processing
-        # For now, just return the message unchanged
+        # Handle CApiFilter custom callbacks
+        if filter_name == "custom_callbacks" and "custom_callbacks" in self._custom_filters:
+            print(f"🔍 [CApiFilter DEBUG] Processing message through CApiFilter: {filter_name}")
+            
+            # Convert message to JSON string for processing
+            message_json = json.dumps(message.to_dict())
+            
+            # Simulate CApiFilter processing
+            # In a real implementation, this would call the C++ filter chain
+            print(f"🔍 [CApiFilter DEBUG] Message processed through CApiFilter: {message_json[:100]}...")
+            
+            # For now, just return the message unchanged
+            # TODO: Implement actual CApiFilter processing through C++ filter chain
+            return message
+        
+        # Handle other filters
+        if filter_name in self._filters:
+            # TODO: Implement actual filter processing for built-in filters
+            # For now, just return the message unchanged
+            return message
+        
+        # Handle custom filters
+        if filter_name in self._custom_filters:
+            # TODO: Implement actual custom filter processing
+            # For now, just return the message unchanged
+            return message
+        
+        # Default: return message unchanged
         return message
     
     def _validate_message(self, message: JSONRPCMessage) -> None:
