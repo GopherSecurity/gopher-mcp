@@ -4,7 +4,6 @@
  */
 
 #include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
 #include <fstream>
 #include <chrono>
 #include <thread>
@@ -14,10 +13,19 @@
 #include <dirent.h>
 
 #include "mcp/config/config_manager.h"
+#include "mcp/json/json_bridge.h"
+#include "test_json_helpers.h"
 
 namespace mcp {
 namespace config {
 namespace testing {
+
+using mcp::json::JsonValue;
+using test::makeJsonObject;
+using test::makeJsonArray;
+using test::str;
+using test::num;
+using test::boolean;
 
 class FileSourceInterfaceTest : public ::testing::Test {
 protected:
@@ -45,10 +53,10 @@ protected:
         unsetenv("MCP_CONFIG");
     }
     
-    void createJsonFile(const std::string& path, const nlohmann::json& content) {
+    void createJsonFile(const std::string& path, const JsonValue& content) {
         createDirectoryRecursive(getParentDirectory(path));
         std::ofstream file(path);
-        file << content.dump(2);
+        file << content.toString(true);  // pretty=true for formatting
         file.close();
     }
     
@@ -160,7 +168,7 @@ TEST_F(FileSourceInterfaceTest, HasConfigurationWithDiscovery) {
     {
         // Test with explicit file that exists
         std::string config_file = test_dir_ + "/exists.json";
-        createJsonFile(config_file, nlohmann::json{{"version", "1.0"}});
+        createJsonFile(config_file, makeJsonObject({{"version", str("1.0")}}));
         
         auto source = createFileConfigSource("test", ConfigSource::Priority::FILE, config_file);
         EXPECT_TRUE(source->hasConfiguration());
@@ -169,7 +177,7 @@ TEST_F(FileSourceInterfaceTest, HasConfigurationWithDiscovery) {
     {
         // Test with environment variable
         std::string env_config = test_dir_ + "/env.json";
-        createJsonFile(env_config, nlohmann::json{{"version", "1.0"}});
+        createJsonFile(env_config, makeJsonObject({{"version", str("1.0")}}));
         
         setenv("MCP_CONFIG", env_config.c_str(), 1);
         auto source = createFileConfigSource("test", ConfigSource::Priority::FILE, "");
@@ -183,7 +191,7 @@ TEST_F(FileSourceInterfaceTest, HasConfigurationWithDiscovery) {
         chdir(test_dir_.c_str());
         
         std::string local_config = test_dir_ + "/config/config.json";
-        createJsonFile(local_config, nlohmann::json{{"version", "1.0"}});
+        createJsonFile(local_config, makeJsonObject({{"version", str("1.0")}}));
         
         auto source = createFileConfigSource("test", ConfigSource::Priority::FILE, "");
         EXPECT_TRUE(source->hasConfiguration());
@@ -199,18 +207,18 @@ TEST_F(FileSourceInterfaceTest, LoadConfigurationWithIncludes) {
     std::string include_config = test_dir_ + "/include.json";
     
     // Create include file
-    nlohmann::json include_data = {
-        {"node", {
-            {"id", "included-node"}
-        }}
-    };
+    JsonValue include_data = makeJsonObject({
+        {"node", makeJsonObject({
+            {"id", str("included-node")}
+        })}
+    });
     createJsonFile(include_config, include_data);
     
     // Create base config with include
-    nlohmann::json base_data = {
-        {"version", "1.0"},
-        {"include", include_config}
-    };
+    JsonValue base_data = makeJsonObject({
+        {"version", str("1.0")},
+        {"include", str(include_config)}
+    });
     createJsonFile(base_config, base_data);
     
     auto source = createFileConfigSource("test", ConfigSource::Priority::FILE, base_config);
@@ -218,13 +226,18 @@ TEST_F(FileSourceInterfaceTest, LoadConfigurationWithIncludes) {
     
     auto config = source->loadConfiguration();
     EXPECT_FALSE(config.empty());
-    EXPECT_EQ("1.0", config["version"]);
-    EXPECT_EQ("included-node", config["node"]["id"]);
+    ASSERT_TRUE(config.isObject());
+    ASSERT_TRUE(config.contains("version"));
+    EXPECT_EQ(std::string("1.0"), config["version"].getString());
+    ASSERT_TRUE(config.contains("node"));
+    ASSERT_TRUE(config["node"].isObject());
+    ASSERT_TRUE(config["node"].contains("id"));
+    EXPECT_EQ(std::string("included-node"), config["node"]["id"].getString());
 }
 
 TEST_F(FileSourceInterfaceTest, ChangeDetection) {
     std::string config_file = test_dir_ + "/config.json";
-    createJsonFile(config_file, nlohmann::json{{"version", "1.0"}});
+    createJsonFile(config_file, makeJsonObject({{"version", str("1.0")}}));
     
     auto source = createFileConfigSource("test", ConfigSource::Priority::FILE, config_file);
     
@@ -240,7 +253,7 @@ TEST_F(FileSourceInterfaceTest, ChangeDetection) {
     
     // Wait a bit and modify file
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    createJsonFile(config_file, nlohmann::json{{"version", "2.0"}});
+    createJsonFile(config_file, makeJsonObject({{"version", str("2.0")}}));
     
     // Should detect change
     EXPECT_TRUE(source->hasChanged());
@@ -269,11 +282,17 @@ admin:
     
     auto config = source->loadConfiguration();
     EXPECT_FALSE(config.empty());
-    EXPECT_EQ("1.0", config["version"]);
-    EXPECT_EQ("yaml-node", config["node"]["id"]);
-    EXPECT_EQ("yaml-cluster", config["node"]["cluster"]);
-    EXPECT_EQ(true, config["admin"]["enabled"]);
-    EXPECT_EQ(9902, config["admin"]["port"]);
+    ASSERT_TRUE(config.isObject());
+    ASSERT_TRUE(config.contains("version"));
+    EXPECT_EQ(std::string("1.0"), config["version"].getString());
+    ASSERT_TRUE(config.contains("node"));
+    ASSERT_TRUE(config["node"].isObject());
+    EXPECT_EQ(std::string("yaml-node"), config["node"]["id"].getString());
+    EXPECT_EQ(std::string("yaml-cluster"), config["node"]["cluster"].getString());
+    ASSERT_TRUE(config.contains("admin"));
+    ASSERT_TRUE(config["admin"].isObject());
+    EXPECT_TRUE(config["admin"]["enabled"].getBool());
+    EXPECT_EQ(9902, config["admin"]["port"].getInt());
 }
 
 }  // namespace testing
