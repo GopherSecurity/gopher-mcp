@@ -46,7 +46,13 @@ from filter_api import (
     Filter,
     FilterConfig,
     create_builtin_filter_from_type,
+    create_custom_filter,
     BuiltinFilterType,
+)
+
+from mcp_c_structs import (
+    create_default_callbacks,
+    validate_callback_signature,
 )
 
 from filter_chain import (
@@ -321,6 +327,9 @@ class FilterManagerConfig:
     traffic_management: Optional[TrafficManagementFilterConfig] = None
     custom_filters: List[CustomFilterConfig] = field(default_factory=list)
     
+    # CApiFilter integration
+    custom_callbacks: Optional[Dict[str, Any]] = None
+    
     # Legacy configuration (for backward compatibility)
     auth: Optional[Dict[str, Any]] = None
     rate_limit: Optional[Dict[str, Any]] = None
@@ -423,6 +432,10 @@ class FilterManager:
         # Setup custom filters
         if self._config.custom_filters:
             self._setup_custom_filters()
+        
+        # Setup CApiFilter custom callbacks
+        if self._config.custom_callbacks:
+            self._setup_custom_callbacks()
         
         # Setup legacy filters for backward compatibility
         self._setup_legacy_filters()
@@ -674,6 +687,35 @@ class FilterManager:
             if filter_handle != 0:
                 self._custom_filters[custom_config.name] = filter_handle
                 add_filter_to_manager(self._manager_handle, filter_handle)
+    
+    def _setup_custom_callbacks(self) -> None:
+        """Setup CApiFilter custom callbacks."""
+        print(f"🔧 [CApiFilter DEBUG] Setting up custom callbacks for FilterManager")
+        
+        # Validate callback signatures
+        for callback_type, func in self._config.custom_callbacks.items():
+            if func is not None and callback_type != "user_data":
+                if not validate_callback_signature(func, callback_type):
+                    print(f"⚠️ [CApiFilter DEBUG] Warning: Invalid signature for {callback_type} callback")
+                    continue
+        
+        # Create custom filter with callbacks
+        try:
+            custom_filter = create_custom_filter(
+                callbacks=self._config.custom_callbacks,
+                dispatcher=self._dispatcher,
+                name="filter-manager-custom"
+            )
+            
+            # Add to custom filters
+            self._custom_filters["custom_callbacks"] = custom_filter.handle
+            add_filter_to_manager(self._manager_handle, custom_filter.handle)
+            
+            print(f"✅ [CApiFilter DEBUG] Custom callbacks filter added to FilterManager")
+            
+        except Exception as e:
+            print(f"❌ [CApiFilter DEBUG] Failed to setup custom callbacks: {e}")
+            # Continue without custom callbacks
     
     def _setup_legacy_filters(self) -> None:
         """Setup legacy filters for backward compatibility."""
