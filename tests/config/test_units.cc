@@ -126,7 +126,7 @@ TEST_F(UnitsTest, DurationInvalidCases) {
     EXPECT_FALSE(error_message.empty()) << "Should have error message for: " << input;
     
     // Verify error logging
-    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, ""));
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, "Invalid duration format"));
   }
 }
 
@@ -254,7 +254,7 @@ TEST_F(UnitsTest, SizeInvalidCases) {
     EXPECT_FALSE(error_message.empty()) << "Should have error message for: " << input;
     
     // Verify error logging
-    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, ""));
+    EXPECT_TRUE(test_sink_->hasMessage(logging::LogLevel::Error, "Invalid size format"));
   }
 }
 
@@ -387,13 +387,13 @@ TEST_F(UnitsTest, UnitConversions) {
   EXPECT_EQ(UnitConversion::toSeconds(std::chrono::milliseconds(3000)), 3);
   
   // Test size conversions
-  EXPECT_EQ(UnitConversion::KILOBYTE, 1024);
-  EXPECT_EQ(UnitConversion::MEGABYTE, 1048576);
-  EXPECT_EQ(UnitConversion::GIGABYTE, 1073741824);
+  EXPECT_EQ(UnitConversion::KILOBYTE, 1000);
+  EXPECT_EQ(UnitConversion::MEGABYTE, 1000000);
+  EXPECT_EQ(UnitConversion::GIGABYTE, 1000000000);
   
-  EXPECT_DOUBLE_EQ(UnitConversion::toKilobytes(2048), 2.0);
-  EXPECT_DOUBLE_EQ(UnitConversion::toMegabytes(2097152), 2.0);
-  EXPECT_DOUBLE_EQ(UnitConversion::toGigabytes(2147483648), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toKilobytes(2000), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toMegabytes(2000000), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toGigabytes(2000000000), 2.0);
 }
 
 TEST_F(UnitsTest, YamlQuotingGuidance) {
