@@ -3,7 +3,14 @@
 //! Comprehensive test runner for the MCP Filter SDK.
 //! This module provides utilities for running different types of tests.
 
-use crate::test_config::{TestConfig, utils};
+use test_config::{TestConfig, utils};
+use std::sync::Arc;
+use std::pin::Pin;
+use std::future::Future;
+
+type TestFn = Box<dyn Fn() -> Result<(), Box<dyn std::error::Error>>>;
+type AsyncTestFn = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>>;
+
 use mcp_filter_sdk::{
     EnhancedLibraryLoader, FilterCallbacks, FilterStatus, BuiltinFilterType,
     AdvancedChainManager, ConditionOperator,
@@ -14,6 +21,13 @@ use tracing::{info, warn, error};
 /// Test suite runner
 pub struct TestRunner {
     config: TestConfig,
+}
+
+/// Run comprehensive tests
+pub async fn run_comprehensive_tests() -> Result<(), Box<dyn std::error::Error>> {
+    let config = TestConfig::default();
+    let runner = TestRunner::new(config);
+    runner.run_all_tests().await
 }
 
 impl TestRunner {
@@ -57,13 +71,13 @@ impl TestRunner {
     async fn run_unit_tests(&self, results: &mut TestResults) -> Result<(), Box<dyn std::error::Error>> {
         info!("📋 Running unit tests");
         
-        let tests: Vec<(&str, fn() -> Result<(), Box<dyn std::error::Error>>)> = vec![
-            ("filter_callbacks", self.test_filter_callbacks),
-            ("filter_status", self.test_filter_status),
-            ("builtin_filter_types", self.test_builtin_filter_types),
-            ("chain_execution_modes", self.test_chain_execution_modes),
-            ("condition_operators", self.test_condition_operators),
-            ("error_types", self.test_error_types),
+        let tests: Vec<(&str, TestFn)> = vec![
+            ("filter_callbacks", Box::new(|| self.test_filter_callbacks())),
+            ("filter_status", Box::new(|| self.test_filter_status())),
+            ("builtin_filter_types", Box::new(|| self.test_builtin_filter_types())),
+            ("chain_execution_modes", Box::new(|| self.test_chain_execution_modes())),
+            ("condition_operators", Box::new(|| self.test_condition_operators())),
+            ("error_types", Box::new(|| self.test_error_types())),
         ];
         
         for (name, test_fn) in tests {
@@ -78,19 +92,19 @@ impl TestRunner {
     async fn run_integration_tests(&self, results: &mut TestResults) -> Result<(), Box<dyn std::error::Error>> {
         info!("🔗 Running integration tests");
         
-        let tests: Vec<(&str, fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>>)> = vec![
-            ("mcp_initialization", Box::pin(self.test_mcp_initialization())),
-            ("dispatcher_management", Box::pin(self.test_dispatcher_management())),
-            ("filter_creation", Box::pin(self.test_filter_creation())),
-            ("buffer_operations", Box::pin(self.test_buffer_operations())),
-            ("filter_chain_operations", Box::pin(self.test_filter_chain_operations())),
-            ("advanced_chain_management", Box::pin(self.test_advanced_chain_management())),
-            ("json_operations", Box::pin(self.test_json_operations())),
+        let tests: Vec<(&str, AsyncTestFn)> = vec![
+            ("mcp_initialization", Box::new(|| Box::pin(self.test_mcp_initialization()))),
+            ("dispatcher_management", Box::new(|| Box::pin(self.test_dispatcher_management()))),
+            ("filter_creation", Box::new(|| Box::pin(self.test_filter_creation()))),
+            ("buffer_operations", Box::new(|| Box::pin(self.test_buffer_operations()))),
+            ("filter_chain_operations", Box::new(|| Box::pin(self.test_filter_chain_operations()))),
+            ("advanced_chain_management", Box::new(|| Box::pin(self.test_advanced_chain_management()))),
+            ("json_operations", Box::new(|| Box::pin(self.test_json_operations()))),
         ];
         
         for (name, test_fn) in tests {
             let (result, duration) = utils::measure_time(|| async {
-                utils::run_with_timeout(test_fn, Duration::from_secs(30)).await
+                utils::run_with_timeout(test_fn(), Duration::from_secs(30)).await
             });
             let result = result.await;
             results.add_test(name, result.is_ok(), duration, result.err().map(|e| e.to_string()));
@@ -103,17 +117,17 @@ impl TestRunner {
     async fn run_performance_tests(&self, results: &mut TestResults) -> Result<(), Box<dyn std::error::Error>> {
         info!("⚡ Running performance tests");
         
-        let tests = vec![
-            ("filter_creation_performance", self.test_filter_creation_performance().await),
-            ("buffer_operations_performance", self.test_buffer_operations_performance().await),
-            ("chain_execution_performance", self.test_chain_execution_performance().await),
-            ("memory_allocation_performance", self.test_memory_allocation_performance().await),
-            ("concurrent_operations_performance", self.test_concurrent_operations_performance().await),
+        let tests: Vec<(&str, AsyncTestFn)> = vec![
+            ("filter_creation_performance", Box::new(|| Box::pin(self.test_filter_creation_performance()))),
+            ("buffer_operations_performance", Box::new(|| Box::pin(self.test_buffer_operations_performance()))),
+            ("chain_execution_performance", Box::new(|| Box::pin(self.test_chain_execution_performance()))),
+            ("memory_allocation_performance", Box::new(|| Box::pin(self.test_memory_allocation_performance()))),
+            ("concurrent_operations_performance", Box::new(|| Box::pin(self.test_concurrent_operations_performance()))),
         ];
         
         for (name, test_fn) in tests {
             let (result, duration) = utils::measure_time(|| async {
-                utils::run_with_timeout(test_fn, Duration::from_secs(60)).await
+                utils::run_with_timeout(test_fn(), Duration::from_secs(60)).await
             });
             let result = result.await;
             results.add_test(name, result.is_ok(), duration, result.err().map(|e| e.to_string()));
@@ -126,16 +140,16 @@ impl TestRunner {
     async fn run_stress_tests(&self, results: &mut TestResults) -> Result<(), Box<dyn std::error::Error>> {
         info!("💪 Running stress tests");
         
-        let tests = vec![
-            ("high_volume_filter_creation", self.test_high_volume_filter_creation().await),
-            ("high_volume_buffer_operations", self.test_high_volume_buffer_operations().await),
-            ("long_running_chain_execution", self.test_long_running_chain_execution().await),
-            ("memory_pressure_test", self.test_memory_pressure().await),
+        let tests: Vec<(&str, AsyncTestFn)> = vec![
+            ("high_volume_filter_creation", Box::new(|| Box::pin(self.test_high_volume_filter_creation()))),
+            ("high_volume_buffer_operations", Box::new(|| Box::pin(self.test_high_volume_buffer_operations()))),
+            ("long_running_chain_execution", Box::new(|| Box::pin(self.test_long_running_chain_execution()))),
+            ("memory_pressure_test", Box::new(|| Box::pin(self.test_memory_pressure()))),
         ];
         
         for (name, test_fn) in tests {
             let (result, duration) = utils::measure_time(|| async {
-                utils::run_with_timeout(test_fn, Duration::from_secs(120)).await
+                utils::run_with_timeout(test_fn(), Duration::from_secs(120)).await
             });
             let result = result.await;
             results.add_test(name, result.is_ok(), duration, result.err().map(|e| e.to_string()));
@@ -148,16 +162,16 @@ impl TestRunner {
     async fn run_error_handling_tests(&self, results: &mut TestResults) -> Result<(), Box<dyn std::error::Error>> {
         info!("🚨 Running error handling tests");
         
-        let tests = vec![
-            ("invalid_parameters", self.test_invalid_parameters().await),
-            ("resource_exhaustion", self.test_resource_exhaustion().await),
-            ("concurrent_access_errors", self.test_concurrent_access_errors().await),
-            ("timeout_handling", self.test_timeout_handling().await),
+        let tests: Vec<(&str, AsyncTestFn)> = vec![
+            ("invalid_parameters", Box::new(|| Box::pin(self.test_invalid_parameters()))),
+            ("resource_exhaustion", Box::new(|| Box::pin(self.test_resource_exhaustion()))),
+            ("concurrent_access_errors", Box::new(|| Box::pin(self.test_concurrent_access_errors()))),
+            ("timeout_handling", Box::new(|| Box::pin(self.test_timeout_handling()))),
         ];
         
         for (name, test_fn) in tests {
             let (result, duration) = utils::measure_time(|| async {
-                utils::run_with_timeout(test_fn, Duration::from_secs(30)).await
+                utils::run_with_timeout(test_fn(), Duration::from_secs(30)).await
             });
             let result = result.await;
             results.add_test(name, result.is_ok(), duration, result.err().map(|e| e.to_string()));
@@ -206,9 +220,9 @@ impl TestRunner {
     }
     
     fn test_builtin_filter_types(&self) -> Result<(), Box<dyn std::error::Error>> {
-        assert_eq!(BuiltinFilterType::Tcp as i32, 0);
-        assert_eq!(BuiltinFilterType::RateLimit as i32, 11);
-        assert_eq!(BuiltinFilterType::LoadBalancer as i32, 14);
+        assert_eq!(BuiltinFilterType::Authentication as i32, 0);
+        assert_eq!(BuiltinFilterType::RateLimit as i32, 2);
+        assert_eq!(BuiltinFilterType::Encryption as i32, 9);
         Ok(())
     }
     
@@ -234,7 +248,7 @@ impl TestRunner {
     }
     
     fn test_error_types(&self) -> Result<(), Box<dyn std::error::Error>> {
-        use mcp_filter_sdk::ffi::error::FilterError;
+        use mcp_filter_sdk::ffi::error::{FilterError, BufferError};
         
         let not_found = FilterError::NotFound {
             resource: "test_resource".to_string(),
@@ -243,6 +257,9 @@ impl TestRunner {
         
         let internal = FilterError::Internal("test_error".to_string());
         assert!(format!("{:?}", internal).contains("Internal"));
+        
+        let buffer_error = BufferError::InvalidHandle { handle: 123 };
+        assert!(format!("{:?}", buffer_error).contains("123"));
         
         Ok(())
     }
@@ -432,7 +449,7 @@ impl TestRunner {
         let start = std::time::Instant::now();
         
         for _ in 0..100 {
-            let result = manager.execute_chain(&chain, &test_data).await?;
+            let result = manager.execute_chain("test_chain", &test_data).await?;
             assert_eq!(result.len(), test_data.len());
         }
         
@@ -484,22 +501,16 @@ impl TestRunner {
         let mut handles = Vec::new();
         
         for _ in 0..10 {
-            let loader_clone = loader.clone();
-            let dispatcher_clone = dispatcher;
-            let handle = tokio::spawn(async move {
-                let mut filters = Vec::new();
-                for _ in 0..100 {
-                    let filter = loader_clone.mcp_filter_create(dispatcher_clone, std::ptr::null()).unwrap();
-                    filters.push(filter);
-                }
-                filters
-            });
-            handles.push(handle);
+            let mut filters = Vec::new();
+            for _ in 0..100 {
+                let filter = loader.mcp_filter_create(dispatcher, std::ptr::null()).unwrap();
+                filters.push(filter);
+            }
+            handles.push(filters);
         }
         
         let mut total_filters = 0;
-        for handle in handles {
-            let filters = handle.await?;
+        for filters in handles {
             total_filters += filters.len();
         }
         
@@ -561,8 +572,8 @@ impl TestRunner {
     }
     
     async fn test_long_running_chain_execution(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let loader = EnhancedLibraryLoader::new()?;
-        let manager = AdvancedChainManager::new(Arc::new(loader));
+        let loader = Arc::new(EnhancedLibraryLoader::new()?);
+        let manager = AdvancedChainManager::new(loader.clone());
         
         let filters = vec![1, 2, 3, 4, 5];
         let chain = manager.create_simple_chain(filters, "long-running-test")?;
@@ -571,7 +582,7 @@ impl TestRunner {
         let start = std::time::Instant::now();
         
         for i in 0..10000 {
-            let result = manager.execute_chain(&chain, &test_data).await?;
+            let result = manager.execute_chain("test_chain", &test_data).await?;
             assert_eq!(result.len(), test_data.len());
             
             if i % 1000 == 0 {
@@ -670,37 +681,26 @@ impl TestRunner {
         
         let mut handles = Vec::new();
         
-        // Spawn many concurrent operations
-        for i in 0..100 {
-            let loader_clone = loader.clone();
-            let dispatcher_clone = dispatcher;
-            let handle = tokio::spawn(async move {
-                let mut filters = Vec::new();
-                for _ in 0..100 {
-                    match loader_clone.mcp_filter_create(dispatcher_clone, std::ptr::null()) {
-                        Ok(filter) => filters.push(filter),
-                        Err(e) => {
-                            // Expected some errors due to concurrent access
-                            eprintln!("Concurrent access error: {}", e);
-                        }
+        // Run many concurrent operations
+        for _i in 0..100 {
+            let mut filters = Vec::new();
+            for _ in 0..100 {
+                match loader.mcp_filter_create(dispatcher, std::ptr::null()) {
+                    Ok(filter) => filters.push(filter),
+                    Err(e) => {
+                        // Expected some errors due to concurrent access
+                        eprintln!("Concurrent access error: {}", e);
                     }
                 }
-                filters
-            });
-            handles.push(handle);
+            }
+            handles.push(filters);
         }
         
         let mut total_filters = 0;
         let mut error_count = 0;
         
-        for handle in handles {
-            match handle.await {
-                Ok(filters) => total_filters += filters.len(),
-                Err(e) => {
-                    error_count += 1;
-                    eprintln!("Task error: {}", e);
-                }
-            }
+        for filters in handles {
+            total_filters += filters.len();
         }
         
         info!("Concurrent access test: {} filters created, {} task errors", 

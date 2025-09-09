@@ -237,7 +237,7 @@ fn test_error_types() {
     };
     
     let library_load = FilterError::LibraryLoad(libloading::Error::DlOpen {
-        desc: mcp_filter_sdk::ffi::error::DlDescription::Custom("test_dl_open_error".to_string()),
+        desc: libloading::DlDescription(std::ffi::CString::new("test_dl_open_error").unwrap()),
     });
     
     // Test error formatting
