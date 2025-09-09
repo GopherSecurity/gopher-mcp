@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <set>
 #include <sstream>
-#include <set>
 
 #include "mcp/json/json_serialization.h"
 
@@ -489,8 +488,17 @@ std::vector<FilterConfig> FilterChainBuilder::applyOrdering() const {
                };
                
                auto get_order = [](const std::string& name) {
-                 auto it = order_map.find(name);
-                 return (it != order_map.end()) ? it->second : 100;
+                 static const std::map<std::string, int> static_order_map = {
+                   {"rate_limit", 10},
+                   {"circuit_breaker", 20},
+                   {"metrics", 30}, 
+                   {"backpressure", 40},
+                   {"http_codec", 60},
+                   {"sse_codec", 70},
+                   {"json_rpc_protocol", 80}
+                 };
+                 auto it = static_order_map.find(name);
+                 return (it != static_order_map.end()) ? it->second : 100;
                };
                
                int order_a = get_order(a.name);
