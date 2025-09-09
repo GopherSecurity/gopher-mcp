@@ -142,6 +142,20 @@ format:
 		fi; \
 	else \
 		echo "Python SDK directory not found, skipping Python formatting."; \
+	@echo "Formatting Rust files with rustfmt..."
+	@if [ -d "sdk/rust" ]; then \
+		cd sdk/rust && \
+		if command -v rustfmt >/dev/null 2>&1; then \
+			rustfmt --edition 2021 src/**/*.rs; \
+			echo "Rust formatting complete."; \
+		else \
+			echo "Installing rustfmt for Rust formatting..."; \
+			rustup component add rustfmt; \
+			rustfmt --edition 2021 src/**/*.rs; \
+			echo "Rust formatting complete."; \
+		fi; \
+	else \
+		echo "Rust SDK directory not found, skipping Rust formatting."; \
 	fi
 	@echo "All formatting complete."
 
@@ -176,6 +190,23 @@ format-python:
 		fi; \
 	else \
 		echo "Python SDK directory not found, skipping Python formatting."; \
+# Format only Rust files
+format-rust:
+	@echo "Formatting Rust files with rustfmt..."
+	@if [ -d "sdk/rust" ]; then \
+		cd sdk/rust && \
+		if command -v rustfmt >/dev/null 2>&1; then \
+			rustfmt --edition 2021 src/**/*.rs; \
+			echo "Rust formatting complete."; \
+		else \
+			echo "Installing rustfmt for Rust formatting..."; \
+			rustup component add rustfmt; \
+			rustfmt --edition 2021 src/**/*.rs; \
+			echo "Rust formatting complete."; \
+		fi; \
+	else \
+		echo "Rust SDK directory not found."; \
+		exit 1; \
 	fi
 
 # Check formatting without modifying files
