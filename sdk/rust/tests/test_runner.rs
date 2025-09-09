@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::pin::Pin;
 use std::future::Future;
 
-type TestFn = Box<dyn Fn() -> Result<(), Box<dyn std::error::Error>>>;
-type AsyncTestFn = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>>;
-
 use mcp_filter_sdk::{
     EnhancedLibraryLoader, FilterCallbacks, FilterStatus, BuiltinFilterType,
     AdvancedChainManager, ConditionOperator,
 };
+
+type TestFn = Box<dyn Fn() -> Result<(), Box<dyn std::error::Error>>>;
+type AsyncTestFn = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>>>>;
 use std::time::Duration;
 use tracing::{info, warn, error};
 
