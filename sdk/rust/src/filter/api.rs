@@ -144,7 +144,7 @@ impl Filter {
 }
 
 /// Filter manager configuration
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct FilterManagerConfig {
     /// Maximum number of filters
     pub max_filters: usize,
