@@ -279,6 +279,9 @@ struct ServerConfigEnhanced : public ServerConfig {
         } catch (const ConfigValidationError& e) {
           throw ctx.createError("Invalid filter chain: " +
                                 std::string(e.what()));
+        } catch (const mcp::json::JsonException& e) {
+          throw ctx.createError("Invalid filter chain: " +
+                                std::string(e.what()));
         }
       }
     }
