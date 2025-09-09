@@ -1,0 +1,60 @@
+{
+  "filter_chains": [
+    {
+      "name": "server",
+      "filters": [
+        {
+          "type": "metrics",
+          "name": "metrics_collector",
+          "config": {
+            "track_methods": true,
+            "report_interval_ms": 5000,
+            "track_errors": true
+          }
+        },
+        {
+          "type": "rate_limit",
+          "name": "rate_limiter",
+          "config": {
+            "max_requests_per_second": 100,
+            "burst_size": 200,
+            "strategy": "token_bucket"
+          }
+        },
+        {
+          "type": "http_codec",
+          "name": "http_parser",
+          "config": {
+            "mode": "server",
+            "max_header_size": 8192,
+            "max_body_size": 1048576,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "type": "sse_codec",
+          "name": "sse_parser",
+          "config": {
+            "max_event_size": 65536,
+            "reconnect_time_ms": 3000,
+            "enable_compression": false
+          }
+        },
+        {
+          "type": "json_rpc",
+          "name": "json_rpc_protocol",
+          "config": {
+            "mode": "server",
+            "use_framing": true,
+            "max_message_size": 1048576,
+            "batch_enabled": true,
+            "batch_limit": 100,
+            "strict_mode": true,
+            "timeout_ms": 30000,
+            "validate_params": true
+          }
+        }
+      ]
+    }
+  ]
+}
