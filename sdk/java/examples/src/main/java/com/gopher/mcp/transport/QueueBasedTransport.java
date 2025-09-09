@@ -4,14 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.spec.McpSchema.JSONRPCMessage;
 import io.modelcontextprotocol.spec.McpTransport;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A custom queue-based transport implementation for MCP. This transport uses blocking
@@ -76,108 +75,111 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public abstract class QueueBasedTransport implements McpTransport {
 
-	protected final ObjectMapper objectMapper;
+  protected final ObjectMapper objectMapper;
 
-	protected final BlockingQueue<JSONRPCMessage> inboundQueue;
+  protected final BlockingQueue<JSONRPCMessage> inboundQueue;
 
-	protected final BlockingQueue<JSONRPCMessage> outboundQueue;
+  protected final BlockingQueue<JSONRPCMessage> outboundQueue;
 
-	protected final Sinks.Many<JSONRPCMessage> messageSink;
+  protected final Sinks.Many<JSONRPCMessage> messageSink;
 
-	protected final AtomicBoolean closed = new AtomicBoolean(false);
+  protected final AtomicBoolean closed = new AtomicBoolean(false);
 
-	protected final Scheduler inboundScheduler;
+  protected final Scheduler inboundScheduler;
 
-	protected QueueBasedTransport(BlockingQueue<JSONRPCMessage> inbound, BlockingQueue<JSONRPCMessage> outbound) {
-		this.objectMapper = new ObjectMapper();
-		this.inboundQueue = inbound;
-		this.outboundQueue = outbound;
-		this.messageSink = Sinks.many().multicast().onBackpressureBuffer();
-		this.inboundScheduler = Schedulers.newSingle("queue-transport-inbound");
-	}
+  protected QueueBasedTransport(
+      BlockingQueue<JSONRPCMessage> inbound, BlockingQueue<JSONRPCMessage> outbound) {
+    this.objectMapper = new ObjectMapper();
+    this.inboundQueue = inbound;
+    this.outboundQueue = outbound;
+    this.messageSink = Sinks.many().multicast().onBackpressureBuffer();
+    this.inboundScheduler = Schedulers.newSingle("queue-transport-inbound");
+  }
 
-	protected void startInboundProcessing() {
-		inboundScheduler.schedule(() -> {
-			while (!closed.get()) {
-				try {
-					JSONRPCMessage message = inboundQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
-					if (message != null && !closed.get()) {
-						messageSink.tryEmitNext(message);
-					}
-				}
-				catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					break;
-				}
-			}
-		});
-	}
+  protected void startInboundProcessing() {
+    inboundScheduler.schedule(
+        () -> {
+          while (!closed.get()) {
+            try {
+              JSONRPCMessage message =
+                  inboundQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+              if (message != null && !closed.get()) {
+                messageSink.tryEmitNext(message);
+              }
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              break;
+            }
+          }
+        });
+  }
 
-	@Override
-	public Mono<Void> sendMessage(JSONRPCMessage message) {
-		if (closed.get()) {
-			// Return empty instead of error to avoid error propagation when closing
-			return Mono.empty();
-		}
+  @Override
+  public Mono<Void> sendMessage(JSONRPCMessage message) {
+    if (closed.get()) {
+      // Return empty instead of error to avoid error propagation when closing
+      return Mono.empty();
+    }
 
-		return Mono.fromRunnable(() -> {
-			try {
-				if (!closed.get()) {
-					outboundQueue.put(message);
-				}
-			}
-			catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				// Don't throw if we're closing
-				if (!closed.get()) {
-					throw new RuntimeException("Failed to send message", e);
-				}
-			}
-		}).subscribeOn(Schedulers.boundedElastic()).then();
-	}
+    return Mono.fromRunnable(
+            () -> {
+              try {
+                if (!closed.get()) {
+                  outboundQueue.put(message);
+                }
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                // Don't throw if we're closing
+                if (!closed.get()) {
+                  throw new RuntimeException("Failed to send message", e);
+                }
+              }
+            })
+        .subscribeOn(Schedulers.boundedElastic())
+        .then();
+  }
 
-	@Override
-	public Mono<Void> closeGracefully() {
-		return Mono.fromRunnable(() -> {
-			if (closed.compareAndSet(false, true)) {
-				messageSink.tryEmitComplete();
-				inboundScheduler.dispose();
-				inboundQueue.clear();
-				outboundQueue.clear();
-			}
-		});
-	}
+  @Override
+  public Mono<Void> closeGracefully() {
+    return Mono.fromRunnable(
+        () -> {
+          if (closed.compareAndSet(false, true)) {
+            messageSink.tryEmitComplete();
+            inboundScheduler.dispose();
+            inboundQueue.clear();
+            outboundQueue.clear();
+          }
+        });
+  }
 
-	@Override
-	public <T> T unmarshalFrom(Object data, TypeReference<T> typeRef) {
-		return objectMapper.convertValue(data, typeRef);
-	}
+  @Override
+  public <T> T unmarshalFrom(Object data, TypeReference<T> typeRef) {
+    return objectMapper.convertValue(data, typeRef);
+  }
 
-	/**
-	 * Creates a paired set of transport queues for client-server communication.
-	 * @return TransportPair containing connected client and server queues
-	 */
-	public static TransportPair createPair() {
-		BlockingQueue<JSONRPCMessage> clientToServer = new LinkedBlockingQueue<>();
-		BlockingQueue<JSONRPCMessage> serverToClient = new LinkedBlockingQueue<>();
-		return new TransportPair(clientToServer, serverToClient);
-	}
+  /**
+   * Creates a paired set of transport queues for client-server communication.
+   *
+   * @return TransportPair containing connected client and server queues
+   */
+  public static TransportPair createPair() {
+    BlockingQueue<JSONRPCMessage> clientToServer = new LinkedBlockingQueue<>();
+    BlockingQueue<JSONRPCMessage> serverToClient = new LinkedBlockingQueue<>();
+    return new TransportPair(clientToServer, serverToClient);
+  }
 
-	/**
-	 * Container for paired transport queues.
-	 */
-	public static class TransportPair {
+  /** Container for paired transport queues. */
+  public static class TransportPair {
 
-		public final BlockingQueue<JSONRPCMessage> clientToServer;
+    public final BlockingQueue<JSONRPCMessage> clientToServer;
 
-		public final BlockingQueue<JSONRPCMessage> serverToClient;
+    public final BlockingQueue<JSONRPCMessage> serverToClient;
 
-		public TransportPair(BlockingQueue<JSONRPCMessage> clientToServer,
-				BlockingQueue<JSONRPCMessage> serverToClient) {
-			this.clientToServer = clientToServer;
-			this.serverToClient = serverToClient;
-		}
-
-	}
-
+    public TransportPair(
+        BlockingQueue<JSONRPCMessage> clientToServer,
+        BlockingQueue<JSONRPCMessage> serverToClient) {
+      this.clientToServer = clientToServer;
+      this.serverToClient = serverToClient;
+    }
+  }
 }

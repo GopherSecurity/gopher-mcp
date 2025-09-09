@@ -1,82 +1,86 @@
 package com.gopher.mcp.example.encryption.transport;
 
-import com.gopher.mcp.transport.CustomServerTransport;
 import com.gopher.mcp.example.encryption.util.EncryptionUtil;
+import com.gopher.mcp.transport.CustomServerTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
-
 public class EncryptServerTransport extends CustomServerTransport {
 
-    private final Logger LOGGER = LoggerFactory.getLogger(getClass());
+  private final Logger LOGGER = LoggerFactory.getLogger(getClass());
 
-    public EncryptServerTransport(BlockingQueue<McpSchema.JSONRPCMessage> inbound, BlockingQueue<McpSchema.JSONRPCMessage> outbound) {
-        super(inbound, outbound);
+  public EncryptServerTransport(
+      BlockingQueue<McpSchema.JSONRPCMessage> inbound,
+      BlockingQueue<McpSchema.JSONRPCMessage> outbound) {
+    super(inbound, outbound);
+  }
+
+  @Override
+  public Mono<Void> sendMessage(McpSchema.JSONRPCMessage message) {
+    // Check if transport is closed before processing
+    if (closed.get()) {
+      LOGGER.debug("[SERVER] Transport is closed, skipping message send");
+      return Mono.error(new IllegalStateException("Transport is closed"));
     }
 
-    @Override
-    public Mono<Void> sendMessage(McpSchema.JSONRPCMessage message) {
-        // Check if transport is closed before processing
-        if (closed.get()) {
-            LOGGER.debug("[SERVER] Transport is closed, skipping message send");
-            return Mono.error(new IllegalStateException("Transport is closed"));
-        }
-
-        try {
-            // INTERCEPT OUTGOING MESSAGES HERE
-            String messageType = getMessageType(message);
-            LOGGER.info("[SERVER] → Sending {} (will encrypt here)", messageType);
-            McpSchema.JSONRPCMessage encrypted = EncryptionUtil.encryptMessage(message);
-            return super.sendMessage(encrypted)
-                .onErrorMap(IllegalStateException.class, ex -> {
-                    LOGGER.debug("[SERVER] Transport closed during send operation: {}", ex.getMessage());
-                    return ex;
-                });
-        } catch (Exception e) {
-            LOGGER.error("[SERVER] Error processing outbound message: {}", e.getMessage(), e);
-            return Mono.error(e);
-        }
+    try {
+      // INTERCEPT OUTGOING MESSAGES HERE
+      String messageType = getMessageType(message);
+      LOGGER.info("[SERVER] → Sending {} (will encrypt here)", messageType);
+      McpSchema.JSONRPCMessage encrypted = EncryptionUtil.encryptMessage(message);
+      return super.sendMessage(encrypted)
+          .onErrorMap(
+              IllegalStateException.class,
+              ex -> {
+                LOGGER.debug(
+                    "[SERVER] Transport closed during send operation: {}", ex.getMessage());
+                return ex;
+              });
+    } catch (Exception e) {
+      LOGGER.error("[SERVER] Error processing outbound message: {}", e.getMessage(), e);
+      return Mono.error(e);
     }
+  }
 
-    @Override
-    protected void startInboundProcessing() {
-        inboundScheduler.schedule(() -> {
-            while (!closed.get()) {
+  @Override
+  protected void startInboundProcessing() {
+    inboundScheduler.schedule(
+        () -> {
+          while (!closed.get()) {
+            try {
+              McpSchema.JSONRPCMessage message = inboundQueue.poll(100, TimeUnit.MILLISECONDS);
+              if (message != null && !closed.get()) {
                 try {
-                    McpSchema.JSONRPCMessage message = inboundQueue.poll(100, TimeUnit.MILLISECONDS);
-                    if (message != null && !closed.get()) {
-                        try {
-                            // INTERCEPT INCOMING MESSAGES HERE
-                            String messageType = getMessageType(message);
-                            LOGGER.info("[SERVER] ← Receiving {} (will decrypt here)", messageType);
-                            McpSchema.JSONRPCMessage decrypted = EncryptionUtil.decryptMessage(message);
-                            messageSink.tryEmitNext(decrypted);
-                        } catch (Exception e) {
-                            LOGGER.error("[SERVER] Error processing inbound message: {}", e.getMessage(), e);
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+                  // INTERCEPT INCOMING MESSAGES HERE
+                  String messageType = getMessageType(message);
+                  LOGGER.info("[SERVER] ← Receiving {} (will decrypt here)", messageType);
+                  McpSchema.JSONRPCMessage decrypted = EncryptionUtil.decryptMessage(message);
+                  messageSink.tryEmitNext(decrypted);
+                } catch (Exception e) {
+                  LOGGER.error("[SERVER] Error processing inbound message: {}", e.getMessage(), e);
                 }
+              }
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              break;
             }
+          }
         });
-    }
+  }
 
-    // Helper to identify message type
-    private String getMessageType(McpSchema.JSONRPCMessage message) {
-        if (message instanceof McpSchema.JSONRPCRequest) {
-            return "request";
-        } else if (message instanceof McpSchema.JSONRPCResponse) {
-            return "response";
-        } else if (message instanceof McpSchema.JSONRPCNotification) {
-            return "notification";
-        }
-        return "message";
+  // Helper to identify message type
+  private String getMessageType(McpSchema.JSONRPCMessage message) {
+    if (message instanceof McpSchema.JSONRPCRequest) {
+      return "request";
+    } else if (message instanceof McpSchema.JSONRPCResponse) {
+      return "response";
+    } else if (message instanceof McpSchema.JSONRPCNotification) {
+      return "notification";
     }
-
+    return "message";
+  }
 }
