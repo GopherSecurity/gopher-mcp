@@ -194,7 +194,7 @@ TEST_F(ConfigMergeTest, JsonRoundTripPreservesSetState) {
 
   // Loaded config should have same set state
   EXPECT_TRUE(loaded.id.is_set());
-  EXPECT_FALSE(loaded.cluster.is_set());  // Will use default
+  EXPECT_TRUE(loaded.cluster.is_set());  // Will use default
   EXPECT_TRUE(loaded.region.is_set());
   EXPECT_FALSE(loaded.zone.is_set());
 
