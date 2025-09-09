@@ -173,3 +173,62 @@ target_link_libraries(test_filter_registry
   Threads::Threads
 )
 add_test(NAME FilterRegistryTest COMMAND test_filter_registry)
+
+# Core Filter Factories Test
+add_executable(test_core_factories
+  test_core_factories.cc
+)
+target_link_libraries(test_core_factories
+  PRIVATE
+  gopher-mcp
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME CoreFactoriesTest COMMAND test_core_factories)
+
+# QoS Filter Factories Test
+add_executable(test_qos_factories
+  test_qos_factories.cc
+)
+target_link_libraries(test_qos_factories
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME QosFactoriesTest COMMAND test_qos_factories)
+
+# Filter Chain Builder Test
+add_executable(test_filter_chain_builder
+  test_filter_chain_builder.cc
+)
+target_link_libraries(test_filter_chain_builder
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterChainBuilderTest COMMAND test_filter_chain_builder)
+
+# Configurable Filter Chain Test
+add_executable(test_configurable_filter_chain
+  test_configurable_filter_chain.cc
+)
+target_link_libraries(test_configurable_filter_chain
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME ConfigurableFilterChainTest COMMAND test_configurable_filter_chain)
