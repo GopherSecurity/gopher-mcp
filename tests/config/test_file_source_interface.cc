@@ -266,7 +266,7 @@ TEST_F(FileSourceInterfaceTest, ChangeDetection) {
 TEST_F(FileSourceInterfaceTest, YamlSupport) {
     std::string yaml_config = test_dir_ + "/config.yaml";
     std::string yaml_content = R"(
-version: "1.0"
+version: 1.0
 node:
   id: "yaml-node"
   cluster: "yaml-cluster"
@@ -284,7 +284,7 @@ admin:
     EXPECT_FALSE(config.empty());
     ASSERT_TRUE(config.isObject());
     ASSERT_TRUE(config.contains("version"));
-    EXPECT_EQ(std::string("1.0"), config["version"].getString());
+    EXPECT_EQ(1.0, config["version"].getFloat());
     ASSERT_TRUE(config.contains("node"));
     ASSERT_TRUE(config["node"].isObject());
     EXPECT_EQ(std::string("yaml-node"), config["node"]["id"].getString());
