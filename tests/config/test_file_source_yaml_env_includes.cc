@@ -49,6 +49,10 @@ class FileSourceCompleteTest : public ::testing::Test {
     unsetenv("TEST_HOST");
     unsetenv("TEST_PORT");
     unsetenv("TEST_MODE");
+    unsetenv("DB_USER");
+    unsetenv("SERVER_HOST");
+    unsetenv("APP_NAME");
+    unsetenv("SERVER_PORT");
   }
 
   void createFile(const std::string& path, const std::string& content) {
