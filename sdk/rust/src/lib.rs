@@ -45,6 +45,10 @@ pub mod filter;
 pub mod transport;
 pub mod types;
 
+// Test modules (only included in test configuration)
+#[cfg(test)]
+pub mod __tests__;
+
 // Re-export main types for convenience
 pub use filter::{
     advanced_chain::{AdvancedChainManager, AdvancedChainBuilder, ConditionOperator},
