@@ -108,7 +108,12 @@ JsonRpcProtocolFilter::JsonRpcProtocolFilter(MessageHandler& handler,
     : handler_(handler),
       dispatcher_(dispatcher),
       is_server_(is_server),
-      encoder_(std::make_unique<EncoderImpl>(*this)) {}
+      encoder_(std::make_unique<EncoderImpl>(*this)) {
+  std::cerr << "[JSON-RPC-FILTER] Created JsonRpcProtocolFilter - mode: " 
+            << (is_server_ ? "server" : "client") 
+            << ", framing: " << (use_framing_ ? "enabled" : "disabled")
+            << std::endl;
+}
 
 JsonRpcProtocolFilter::~JsonRpcProtocolFilter() {
   // Destructor defined here where EncoderImpl is complete
@@ -116,6 +121,12 @@ JsonRpcProtocolFilter::~JsonRpcProtocolFilter() {
 
 JsonRpcProtocolFilter::Encoder& JsonRpcProtocolFilter::encoder() {
   return *encoder_;
+}
+
+void JsonRpcProtocolFilter::setUseFraming(bool use_framing) {
+  use_framing_ = use_framing;
+  std::cerr << "[JSON-RPC-FILTER] Configuration applied - framing: " 
+            << (use_framing_ ? "enabled" : "disabled") << std::endl;
 }
 
 void JsonRpcProtocolFilter::initializeReadFilterCallbacks(
@@ -133,6 +144,8 @@ void JsonRpcProtocolFilter::initializeWriteFilterCallbacks(
 
 network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
                                                     bool end_stream) {
+  std::cerr << "[JSON-RPC-FILTER] onData called - buffer size: " << data.length() 
+            << ", end_stream: " << end_stream << std::endl;
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);

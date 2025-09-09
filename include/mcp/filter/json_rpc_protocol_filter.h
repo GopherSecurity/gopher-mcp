@@ -132,7 +132,7 @@ class JsonRpcProtocolFilter : public network::Filter {
    * Set message framing mode
    * @param use_framing True to use length-prefixed framing
    */
-  void setUseFraming(bool use_framing) { use_framing_ = use_framing; }
+  void setUseFraming(bool use_framing);
 
  private:
   class EncoderImpl;
