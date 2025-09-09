@@ -57,6 +57,15 @@ pub enum FilterError {
     Internal(String),
 }
 
+/// Description for dynamic library loading errors
+#[derive(Debug, Clone)]
+pub enum DlDescription {
+    /// Custom description
+    Custom(String),
+    /// System error description
+    System(String),
+}
+
 /// Buffer-specific errors
 #[derive(Error, Debug)]
 pub enum BufferError {
