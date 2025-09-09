@@ -17,12 +17,16 @@ impl CalculatorServer {
     pub fn new() -> Self {
         let config = GopherTransportConfig {
             name: "calculator-server".to_string(),
+            version: "1.0.0".to_string(),
             protocol: ProtocolType::Tcp,
             host: Some("localhost".to_string()),
             port: Some(8080),
-            timeout: Some(30000),
+            connect_timeout: Some(Duration::from_millis(30000)),
+            send_timeout: Some(Duration::from_millis(5000)),
+            receive_timeout: Some(Duration::from_millis(5000)),
             max_connections: Some(10),
             buffer_size: Some(8192),
+            filter_config: None,
         };
 
         Self {
