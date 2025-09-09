@@ -1,0 +1,53 @@
+[package]
+name = "mcp-example"
+version = "1.0.0"
+edition = "2021"
+description = "Example MCP (Model Context Protocol) implementation using Rust"
+authors = ["MCP Team"]
+license = "MIT"
+repository = "https://github.com/modelcontextprovider/gopher-mcp.git"
+keywords = ["mcp", "model-context-protocol", "rust", "example"]
+categories = ["network-programming", "api-bindings"]
+
+# Binary examples
+[[bin]]
+name = "mcp-calculator-server"
+path = "src/mcp-calculator-server.rs"
+
+[[bin]]
+name = "mcp-calculator-client"
+path = "src/mcp-calculator-client.rs"
+
+[[bin]]
+name = "filter-demo"
+path = "src/filter-demo.rs"
+
+# Dependencies
+[dependencies]
+# MCP SDK dependencies
+# mcp-protocol-sdk = "0.5.1"  # Original MCP SDK for Rust (requires newer Rust)
+mcp-filter-sdk = { path = "../" }  # Local filter SDK
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Development dependencies
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
