@@ -106,7 +106,7 @@ namespace McpCalculatorClient
 
             if (response != null)
             {
-                logger.LogInformation("Server info: {Name} v{Version}", 
+                logger.LogInformation("Server info: {Name} v{Version}",
                     response.ServerInfo?.Name ?? "Unknown",
                     response.ServerInfo?.Version ?? "Unknown");
                 logger.LogInformation("Protocol version: {Version}", response.ProtocolVersion);

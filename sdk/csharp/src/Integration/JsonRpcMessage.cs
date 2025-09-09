@@ -301,7 +301,7 @@ namespace GopherMcp.Integration
         /// </summary>
         public static JsonRpcError MethodNotFound(string? methodName = null)
         {
-            return new JsonRpcError(JsonRpcErrorCodes.MethodNotFound, 
+            return new JsonRpcError(JsonRpcErrorCodes.MethodNotFound,
                 $"Method not found{(methodName != null ? $": {methodName}" : "")}");
         }
 

@@ -10,11 +10,11 @@ namespace GopherMcp.Core
     public static class McpFilterApi
     {
         private const string LibraryName = "gopher_mcp_c";
-        
+
         // ============================================================================
         // Filter Lifecycle Management
         // ============================================================================
-        
+
         /// <summary>
         /// Create a new filter
         /// </summary>
@@ -22,7 +22,7 @@ namespace GopherMcp.Core
         public static extern ulong mcp_filter_create(
             ulong dispatcher,
             ref McpFilterConfig config);
-        
+
         /// <summary>
         /// Create a built-in filter
         /// </summary>
@@ -31,19 +31,19 @@ namespace GopherMcp.Core
             ulong dispatcher,
             McpBuiltinFilterType type,
             IntPtr config);
-        
+
         /// <summary>
         /// Retain filter (increment reference count)
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_retain(ulong filter);
-        
+
         /// <summary>
         /// Release filter (decrement reference count)
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_release(ulong filter);
-        
+
         /// <summary>
         /// Set filter callbacks
         /// </summary>
@@ -51,7 +51,7 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_set_callbacks(
             ulong filter,
             ref McpFilterCallbacks callbacks);
-        
+
         /// <summary>
         /// Set protocol metadata for filter
         /// </summary>
@@ -59,7 +59,7 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_set_protocol_metadata(
             ulong filter,
             ref McpProtocolMetadata metadata);
-        
+
         /// <summary>
         /// Get protocol metadata from filter
         /// </summary>
@@ -67,11 +67,11 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_get_protocol_metadata(
             ulong filter,
             out McpProtocolMetadata metadata);
-        
+
         // ============================================================================
         // Filter Manager
         // ============================================================================
-        
+
         /// <summary>
         /// Create filter manager
         /// </summary>
@@ -79,7 +79,7 @@ namespace GopherMcp.Core
         public static extern ulong mcp_filter_manager_create(
             ulong connection,
             ulong dispatcher);
-        
+
         /// <summary>
         /// Add filter to manager
         /// </summary>
@@ -87,7 +87,7 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_manager_add_filter(
             ulong manager,
             ulong filter);
-        
+
         /// <summary>
         /// Remove filter from manager
         /// </summary>
@@ -95,7 +95,7 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_manager_remove_filter(
             ulong manager,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string filterId);
-        
+
         /// <summary>
         /// Add filter chain to manager
         /// </summary>
@@ -103,19 +103,19 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_manager_add_chain(
             ulong manager,
             ulong chain);
-        
+
         /// <summary>
         /// Initialize filter manager
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_filter_manager_initialize(ulong manager);
-        
+
         /// <summary>
         /// Release filter manager
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_manager_release(ulong manager);
-        
+
         /// <summary>
         /// Set log level for filter manager
         /// </summary>
@@ -123,7 +123,7 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_manager_set_log_level(
             ulong manager,
             McpLogLevel level);
-        
+
         /// <summary>
         /// Set log callback for filter manager
         /// </summary>
@@ -132,11 +132,11 @@ namespace GopherMcp.Core
             ulong manager,
             McpLogCallback callback,
             IntPtr context);
-        
+
         // ============================================================================
         // Statistics and Monitoring
         // ============================================================================
-        
+
         /// <summary>
         /// Get filter statistics
         /// </summary>
@@ -144,17 +144,17 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_get_stats(
             ulong filter,
             out McpFilterStats stats);
-        
+
         /// <summary>
         /// Reset filter statistics
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_filter_reset_stats(ulong filter);
-        
+
         // ============================================================================
         // Thread-Safe Operations
         // ============================================================================
-        
+
         /// <summary>
         /// Post data to filter from any thread
         /// </summary>
@@ -165,17 +165,17 @@ namespace GopherMcp.Core
             UIntPtr length,
             McpPostCompletionCallback callback,
             IntPtr userData);
-        
+
         // ============================================================================
         // Resource Guard Management
         // ============================================================================
-        
+
         /// <summary>
         /// Create filter resource guard
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mcp_filter_guard_create(ulong dispatcher);
-        
+
         /// <summary>
         /// Add filter to resource guard
         /// </summary>
@@ -183,18 +183,18 @@ namespace GopherMcp.Core
         public static extern int mcp_filter_guard_add_filter(
             IntPtr guard,
             ulong filter);
-        
+
         /// <summary>
         /// Release resource guard (cleanup all tracked resources)
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_guard_release(IntPtr guard);
     }
-    
+
     // ============================================================================
     // Enumerations
     // ============================================================================
-    
+
     /// <summary>
     /// Filter status for processing control
     /// </summary>
@@ -203,7 +203,7 @@ namespace GopherMcp.Core
         Continue = 0,
         StopIteration = 1
     }
-    
+
     /// <summary>
     /// Filter position in chain
     /// </summary>
@@ -214,7 +214,7 @@ namespace GopherMcp.Core
         Before = 2,
         After = 3
     }
-    
+
     /// <summary>
     /// Protocol layers (OSI model)
     /// </summary>
@@ -226,7 +226,7 @@ namespace GopherMcp.Core
         Layer6Presentation = 6,
         Layer7Application = 7
     }
-    
+
     /// <summary>
     /// Transport protocols for L4
     /// </summary>
@@ -237,7 +237,7 @@ namespace GopherMcp.Core
         Quic = 2,
         Sctp = 3
     }
-    
+
     /// <summary>
     /// Application protocols for L7
     /// </summary>
@@ -252,7 +252,7 @@ namespace GopherMcp.Core
         JsonRpc = 6,
         Custom = 99
     }
-    
+
     /// <summary>
     /// Built-in filter types
     /// </summary>
@@ -261,32 +261,32 @@ namespace GopherMcp.Core
         // Network filters
         TcpProxy = 0,
         UdpProxy = 1,
-        
+
         // HTTP filters
         HttpCodec = 10,
         HttpRouter = 11,
         HttpCompression = 12,
-        
+
         // Security filters
         TlsTermination = 20,
         Authentication = 21,
         Authorization = 22,
-        
+
         // Observability
         AccessLog = 30,
         Metrics = 31,
         Tracing = 32,
-        
+
         // Traffic management
         RateLimit = 40,
         CircuitBreaker = 41,
         Retry = 42,
         LoadBalancer = 43,
-        
+
         // Custom filter
         Custom = 100
     }
-    
+
     /// <summary>
     /// Filter error codes
     /// </summary>
@@ -302,11 +302,11 @@ namespace GopherMcp.Core
         ResourceExhausted = -1006,
         InvalidState = -1007
     }
-    
+
     // ============================================================================
     // Structures
     // ============================================================================
-    
+
     /// <summary>
     /// Filter configuration
     /// </summary>
@@ -315,16 +315,16 @@ namespace GopherMcp.Core
     {
         [MarshalAs(UnmanagedType.LPUTF8Str)]
         public string Name;
-        
+
         public McpBuiltinFilterType Type;
-        
+
         public IntPtr Settings;  // mcp_json_value_t
-        
+
         public McpProtocolLayer Layer;
-        
+
         public ulong MemoryPool;  // mcp_memory_pool_t
     }
-    
+
     /// <summary>
     /// Protocol metadata for different layers
     /// </summary>
@@ -333,63 +333,63 @@ namespace GopherMcp.Core
     {
         [FieldOffset(0)]
         public McpProtocolLayer Layer;
-        
+
         // L3 - Network layer
         [FieldOffset(8)]
         public uint SrcIp;
-        
+
         [FieldOffset(12)]
         public uint DstIp;
-        
+
         [FieldOffset(16)]
         public byte Protocol;
-        
+
         [FieldOffset(17)]
         public byte Ttl;
-        
+
         // L4 - Transport layer (overlaps with L3)
         [FieldOffset(8)]
         public ushort SrcPort;
-        
+
         [FieldOffset(10)]
         public ushort DstPort;
-        
+
         [FieldOffset(12)]
         public McpTransportProtocol TransportProtocol;
-        
+
         [FieldOffset(16)]
         public uint SequenceNum;
-        
+
         // L5 - Session layer (overlaps with L3/L4)
         [FieldOffset(8)]
         public byte IsTls;
-        
+
         [FieldOffset(16)]
         public IntPtr Alpn;  // const char*
-        
+
         [FieldOffset(24)]
         public IntPtr Sni;   // const char*
-        
+
         [FieldOffset(32)]
         public uint SessionId;
-        
+
         // L7 - Application layer (overlaps with others)
         [FieldOffset(8)]
         public McpAppProtocol AppProtocol;
-        
+
         [FieldOffset(16)]
         public ulong Headers;  // mcp_map_t
-        
+
         [FieldOffset(24)]
         public IntPtr Method;  // const char*
-        
+
         [FieldOffset(32)]
         public IntPtr Path;    // const char*
-        
+
         [FieldOffset(40)]
         public uint StatusCode;
     }
-    
+
     /// <summary>
     /// Filter callbacks structure
     /// </summary>
@@ -404,7 +404,7 @@ namespace GopherMcp.Core
         public McpFilterErrorCallback OnError;
         public IntPtr UserData;
     }
-    
+
     /// <summary>
     /// Filter statistics
     /// </summary>
@@ -417,11 +417,11 @@ namespace GopherMcp.Core
         public ulong ProcessingTimeUs;
         public double ThroughputMbps;
     }
-    
+
     // ============================================================================
     // Callback Delegates
     // ============================================================================
-    
+
     /// <summary>
     /// Filter data callback
     /// </summary>
@@ -430,7 +430,7 @@ namespace GopherMcp.Core
         ulong buffer,
         byte endStream,
         IntPtr userData);
-    
+
     /// <summary>
     /// Filter write callback
     /// </summary>
@@ -439,7 +439,7 @@ namespace GopherMcp.Core
         ulong buffer,
         byte endStream,
         IntPtr userData);
-    
+
     /// <summary>
     /// Connection event callback
     /// </summary>
@@ -447,7 +447,7 @@ namespace GopherMcp.Core
     public delegate McpFilterStatus McpFilterEventCallback(
         int state,  // mcp_connection_state_t
         IntPtr userData);
-    
+
     /// <summary>
     /// Watermark callback
     /// </summary>
@@ -455,7 +455,7 @@ namespace GopherMcp.Core
     public delegate void McpFilterWatermarkCallback(
         ulong filter,
         IntPtr userData);
-    
+
     /// <summary>
     /// Error callback
     /// </summary>
@@ -465,7 +465,7 @@ namespace GopherMcp.Core
         McpFilterError error,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string message,
         IntPtr userData);
-    
+
     /// <summary>
     /// Completion callback for async operations
     /// </summary>
@@ -473,7 +473,7 @@ namespace GopherMcp.Core
     public delegate void McpFilterCompletionCallback(
         int result,
         IntPtr userData);
-    
+
     /// <summary>
     /// Post completion callback
     /// </summary>
@@ -481,7 +481,7 @@ namespace GopherMcp.Core
     public delegate void McpPostCompletionCallback(
         int result,
         IntPtr userData);
-    
+
     /// <summary>
     /// Request callback for server
     /// </summary>

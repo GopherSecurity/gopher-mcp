@@ -165,10 +165,10 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Get user principal from context (set by AuthenticationFilter)
                 var principal = context.GetProperty<ClaimsPrincipal>("User");
-                
+
                 // Determine which policy to apply
                 var policyName = DeterminePolicy(context);
-                
+
                 // Check if user is authenticated when required
                 if (_config.RequireAuthenticatedUser && (principal == null || !principal.Identity?.IsAuthenticated == true))
                 {
@@ -219,7 +219,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 return false;
             }
 
-            return _config.BypassPaths.Any(bypassPath => 
+            return _config.BypassPaths.Any(bypassPath =>
                 path.StartsWith(bypassPath, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -248,8 +248,8 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         private async Task<AuthorizationResult> AuthorizeWithPolicyAsync(
-            ClaimsPrincipal? principal, 
-            string policyName, 
+            ClaimsPrincipal? principal,
+            string policyName,
             ProcessingContext context,
             CancellationToken cancellationToken)
         {
@@ -419,7 +419,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
 
             var userRoles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-            
+
             foreach (var requiredRole in _requiredRoles)
             {
                 // Direct role check
@@ -492,8 +492,8 @@ namespace GopherMcp.Filters.BuiltinFilters
             try
             {
                 var result = _handler(principal, context);
-                return Task.FromResult(result 
-                    ? AuthorizationResult.Success() 
+                return Task.FromResult(result
+                    ? AuthorizationResult.Success()
                     : AuthorizationResult.Fail("Custom authorization handler denied access"));
             }
             catch (Exception ex)

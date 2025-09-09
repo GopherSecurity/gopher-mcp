@@ -21,27 +21,27 @@ namespace GopherMcp.Utils
         private readonly Timer _cleanupTimer;
         private readonly CallbackStatistics _statistics;
         private bool _disposed;
-        
+
         /// <summary>
         /// Default instance for shared usage
         /// </summary>
         public static CallbackManager Default { get; } = new CallbackManager();
-        
+
         /// <summary>
         /// Gets the current callback statistics
         /// </summary>
         public CallbackStatistics Statistics => _statistics.Clone();
-        
+
         /// <summary>
         /// Gets or sets whether to throw exceptions from callbacks
         /// </summary>
         public bool ThrowOnCallbackException { get; set; } = false;
-        
+
         /// <summary>
         /// Event raised when a callback exception occurs
         /// </summary>
         public event EventHandler<CallbackExceptionEventArgs> CallbackException;
-        
+
         /// <summary>
         /// Initializes a new instance of the CallbackManager class
         /// </summary>
@@ -51,11 +51,11 @@ namespace GopherMcp.Utils
             _weakCallbacks = new ConcurrentDictionary<IntPtr, WeakCallbackRegistration>();
             _callbackLock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
             _statistics = new CallbackStatistics();
-            
+
             // Start cleanup timer to remove dead weak references (every 30 seconds)
             _cleanupTimer = new Timer(CleanupDeadReferences, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
-        
+
         /// <summary>
         /// Registers a native callback delegate to prevent garbage collection
         /// </summary>
@@ -66,28 +66,28 @@ namespace GopherMcp.Utils
         public CallbackToken RegisterCallback<T>(T callback, object context = null) where T : Delegate
         {
             ThrowIfDisposed();
-            
+
             if (callback == null)
                 throw new ArgumentNullException(nameof(callback));
-            
+
             var token = Guid.NewGuid();
             var registration = new CallbackRegistration(callback, context, typeof(T));
-            
+
             if (!_callbacks.TryAdd(token, registration))
             {
                 throw new InvalidOperationException("Failed to register callback");
             }
-            
+
             // Pin the delegate to prevent GC
             var handle = GCHandle.Alloc(callback);
             registration.Handle = handle;
-            
+
             Interlocked.Increment(ref _statistics._totalRegistrations);
             Interlocked.Increment(ref _statistics._activeCallbacks);
-            
+
             return new CallbackToken(token, this);
         }
-        
+
         /// <summary>
         /// Registers a weak reference to a callback that can be garbage collected
         /// </summary>
@@ -98,27 +98,27 @@ namespace GopherMcp.Utils
         public CallbackToken RegisterWeakCallback<T>(T callback, object context = null) where T : Delegate
         {
             ThrowIfDisposed();
-            
+
             if (callback == null)
                 throw new ArgumentNullException(nameof(callback));
-            
+
             var token = Guid.NewGuid();
             var weakRef = new WeakReference(callback, false);
             var registration = new WeakCallbackRegistration(weakRef, context, typeof(T), token);
-            
+
             // Use callback's function pointer as key for weak callbacks
             var funcPtr = Marshal.GetFunctionPointerForDelegate(callback);
             if (!_weakCallbacks.TryAdd(funcPtr, registration))
             {
                 throw new InvalidOperationException("Weak callback already registered");
             }
-            
+
             Interlocked.Increment(ref _statistics._totalRegistrations);
             Interlocked.Increment(ref _statistics._weakCallbacks);
-            
+
             return new CallbackToken(token, this, true);
         }
-        
+
         /// <summary>
         /// Unregisters a callback using its token
         /// </summary>
@@ -127,9 +127,9 @@ namespace GopherMcp.Utils
         {
             if (token == null || token.IsInvalid)
                 return;
-            
+
             ThrowIfDisposed();
-            
+
             if (token.IsWeak)
             {
                 // Find and remove weak callback
@@ -153,15 +153,15 @@ namespace GopherMcp.Utils
                 {
                     registration.Handle?.Free();
                     registration.Dispose();
-                    
+
                     Interlocked.Decrement(ref _statistics._activeCallbacks);
                     Interlocked.Increment(ref _statistics._totalUnregistrations);
                 }
             }
-            
+
             token.Invalidate();
         }
-        
+
         /// <summary>
         /// Invokes a registered callback safely with exception handling
         /// </summary>
@@ -172,15 +172,15 @@ namespace GopherMcp.Utils
         public object InvokeCallback<T>(CallbackToken token, params object[] args) where T : Delegate
         {
             ThrowIfDisposed();
-            
+
             if (token == null || token.IsInvalid)
                 return null;
-            
+
             try
             {
                 Delegate callback = null;
                 object context = null;
-                
+
                 if (token.IsWeak)
                 {
                     // Find weak callback
@@ -193,7 +193,7 @@ namespace GopherMcp.Utils
                             break;
                         }
                     }
-                    
+
                     if (callback == null)
                     {
                         // Callback was garbage collected
@@ -210,25 +210,25 @@ namespace GopherMcp.Utils
                         context = registration.Context;
                     }
                 }
-                
+
                 if (callback == null)
                     return null;
-                
+
                 // Record invocation
                 Interlocked.Increment(ref _statistics._totalInvocations);
-                
+
                 // Invoke the callback
                 var stopwatch = Stopwatch.StartNew();
                 var result = callback.DynamicInvoke(args);
                 stopwatch.Stop();
-                
+
                 // Update statistics
                 Interlocked.Add(ref _statistics._totalInvocationTimeMs, stopwatch.ElapsedMilliseconds);
                 if (stopwatch.ElapsedMilliseconds > _statistics._maxInvocationTimeMs)
                 {
                     Interlocked.Exchange(ref _statistics._maxInvocationTimeMs, stopwatch.ElapsedMilliseconds);
                 }
-                
+
                 return result;
             }
             catch (Exception ex)
@@ -237,7 +237,7 @@ namespace GopherMcp.Utils
                 return null;
             }
         }
-        
+
         /// <summary>
         /// Invokes a callback asynchronously
         /// </summary>
@@ -249,7 +249,7 @@ namespace GopherMcp.Utils
         {
             return Task.Run(() => InvokeCallback<T>(token, args));
         }
-        
+
         /// <summary>
         /// Gets the context associated with a callback
         /// </summary>
@@ -258,10 +258,10 @@ namespace GopherMcp.Utils
         public object GetCallbackContext(CallbackToken token)
         {
             ThrowIfDisposed();
-            
+
             if (token == null || token.IsInvalid)
                 return null;
-            
+
             if (token.IsWeak)
             {
                 foreach (var kvp in _weakCallbacks)
@@ -275,10 +275,10 @@ namespace GopherMcp.Utils
                 if (_callbacks.TryGetValue(token.Id, out var registration))
                     return registration.Context;
             }
-            
+
             return null;
         }
-        
+
         /// <summary>
         /// Creates a native function pointer for a managed delegate
         /// </summary>
@@ -288,25 +288,25 @@ namespace GopherMcp.Utils
         public IntPtr CreateNativeFunctionPointer<T>(T callback) where T : Delegate
         {
             ThrowIfDisposed();
-            
+
             if (callback == null)
                 throw new ArgumentNullException(nameof(callback));
-            
+
             // Register the callback to prevent GC
             var token = RegisterCallback(callback);
-            
+
             // Get the function pointer
             var funcPtr = Marshal.GetFunctionPointerForDelegate(callback);
-            
+
             // Store the association for later cleanup
             if (_callbacks.TryGetValue(token.Id, out var registration))
             {
                 registration.FunctionPointer = funcPtr;
             }
-            
+
             return funcPtr;
         }
-        
+
         /// <summary>
         /// Cleans up dead weak references
         /// </summary>
@@ -314,9 +314,9 @@ namespace GopherMcp.Utils
         {
             if (_disposed)
                 return;
-            
+
             var deadRefs = new List<IntPtr>();
-            
+
             foreach (var kvp in _weakCallbacks)
             {
                 if (!kvp.Value.WeakReference.IsAlive)
@@ -324,7 +324,7 @@ namespace GopherMcp.Utils
                     deadRefs.Add(kvp.Key);
                 }
             }
-            
+
             foreach (var key in deadRefs)
             {
                 if (_weakCallbacks.TryRemove(key, out _))
@@ -334,23 +334,23 @@ namespace GopherMcp.Utils
                 }
             }
         }
-        
+
         /// <summary>
         /// Handles exceptions from callback invocations
         /// </summary>
         private void HandleCallbackException(Exception ex, CallbackToken token)
         {
             Interlocked.Increment(ref _statistics._failedInvocations);
-            
+
             var eventArgs = new CallbackExceptionEventArgs(ex, token);
             CallbackException?.Invoke(this, eventArgs);
-            
+
             if (ThrowOnCallbackException)
             {
                 throw new CallbackInvocationException("Callback invocation failed", ex, token);
             }
         }
-        
+
         /// <summary>
         /// Throws if the manager has been disposed
         /// </summary>
@@ -359,7 +359,7 @@ namespace GopherMcp.Utils
             if (_disposed)
                 throw new ObjectDisposedException(nameof(CallbackManager));
         }
-        
+
         /// <summary>
         /// Disposes the callback manager and releases all resources
         /// </summary>
@@ -367,12 +367,12 @@ namespace GopherMcp.Utils
         {
             if (_disposed)
                 return;
-            
+
             _disposed = true;
-            
+
             // Stop the cleanup timer
             _cleanupTimer?.Dispose();
-            
+
             // Unregister all callbacks
             foreach (var registration in _callbacks.Values)
             {
@@ -380,13 +380,13 @@ namespace GopherMcp.Utils
                 registration.Dispose();
             }
             _callbacks.Clear();
-            
+
             _weakCallbacks.Clear();
-            
+
             // Dispose the lock
             _callbackLock?.Dispose();
         }
-        
+
         /// <summary>
         /// Represents a registered callback
         /// </summary>
@@ -397,20 +397,20 @@ namespace GopherMcp.Utils
             public Type CallbackType { get; }
             public GCHandle? Handle { get; set; }
             public IntPtr FunctionPointer { get; set; }
-            
+
             public CallbackRegistration(Delegate callback, object context, Type callbackType)
             {
                 Callback = callback;
                 Context = context;
                 CallbackType = callbackType;
             }
-            
+
             public void Dispose()
             {
                 Handle?.Free();
             }
         }
-        
+
         /// <summary>
         /// Represents a weak callback registration
         /// </summary>
@@ -420,7 +420,7 @@ namespace GopherMcp.Utils
             public object Context { get; }
             public Type CallbackType { get; }
             public Guid Token { get; }
-            
+
             public WeakCallbackRegistration(WeakReference weakReference, object context, Type callbackType, Guid token)
             {
                 WeakReference = weakReference;
@@ -429,7 +429,7 @@ namespace GopherMcp.Utils
                 Token = token;
             }
         }
-        
+
         /// <summary>
         /// Token representing a registered callback
         /// </summary>
@@ -437,29 +437,29 @@ namespace GopherMcp.Utils
         {
             private readonly CallbackManager _manager;
             private bool _isInvalid;
-            
+
             /// <summary>
             /// Gets the unique identifier for this callback
             /// </summary>
             public Guid Id { get; }
-            
+
             /// <summary>
             /// Gets whether this is a weak callback reference
             /// </summary>
             public bool IsWeak { get; }
-            
+
             /// <summary>
             /// Gets whether the token is invalid
             /// </summary>
             public bool IsInvalid => _isInvalid;
-            
+
             internal CallbackToken(Guid id, CallbackManager manager, bool isWeak = false)
             {
                 Id = id;
                 _manager = manager;
                 IsWeak = isWeak;
             }
-            
+
             /// <summary>
             /// Unregisters this callback
             /// </summary>
@@ -467,13 +467,13 @@ namespace GopherMcp.Utils
             {
                 _manager?.UnregisterCallback(this);
             }
-            
+
             internal void Invalidate()
             {
                 _isInvalid = true;
             }
         }
-        
+
         /// <summary>
         /// Callback statistics
         /// </summary>
@@ -488,58 +488,58 @@ namespace GopherMcp.Utils
             internal long _garbageCollectedCallbacks;
             internal long _totalInvocationTimeMs;
             internal long _maxInvocationTimeMs;
-            
+
             /// <summary>
             /// Gets the total number of callback registrations
             /// </summary>
             public long TotalRegistrations => _totalRegistrations;
-            
+
             /// <summary>
             /// Gets the total number of callback unregistrations
             /// </summary>
             public long TotalUnregistrations => _totalUnregistrations;
-            
+
             /// <summary>
             /// Gets the number of active callbacks
             /// </summary>
             public long ActiveCallbacks => _activeCallbacks;
-            
+
             /// <summary>
             /// Gets the number of weak callbacks
             /// </summary>
             public long WeakCallbacks => _weakCallbacks;
-            
+
             /// <summary>
             /// Gets the total number of callback invocations
             /// </summary>
             public long TotalInvocations => _totalInvocations;
-            
+
             /// <summary>
             /// Gets the number of failed invocations
             /// </summary>
             public long FailedInvocations => _failedInvocations;
-            
+
             /// <summary>
             /// Gets the number of garbage collected callbacks
             /// </summary>
             public long GarbageCollectedCallbacks => _garbageCollectedCallbacks;
-            
+
             /// <summary>
             /// Gets the total invocation time in milliseconds
             /// </summary>
             public long TotalInvocationTimeMs => _totalInvocationTimeMs;
-            
+
             /// <summary>
             /// Gets the maximum invocation time in milliseconds
             /// </summary>
             public long MaxInvocationTimeMs => _maxInvocationTimeMs;
-            
+
             /// <summary>
             /// Gets the average invocation time in milliseconds
             /// </summary>
-            public double AverageInvocationTimeMs => 
+            public double AverageInvocationTimeMs =>
                 TotalInvocations > 0 ? (double)TotalInvocationTimeMs / TotalInvocations : 0;
-            
+
             /// <summary>
             /// Clones the statistics
             /// </summary>
@@ -558,7 +558,7 @@ namespace GopherMcp.Utils
                     _maxInvocationTimeMs = _maxInvocationTimeMs
                 };
             }
-            
+
             /// <summary>
             /// Gets a string representation of the statistics
             /// </summary>
@@ -569,7 +569,7 @@ namespace GopherMcp.Utils
                        $"AvgTime={AverageInvocationTimeMs:F2}ms";
             }
         }
-        
+
         /// <summary>
         /// Event arguments for callback exceptions
         /// </summary>
@@ -579,17 +579,17 @@ namespace GopherMcp.Utils
             /// Gets the exception that occurred
             /// </summary>
             public Exception Exception { get; }
-            
+
             /// <summary>
             /// Gets the callback token
             /// </summary>
             public CallbackToken Token { get; }
-            
+
             /// <summary>
             /// Gets the timestamp of the exception
             /// </summary>
             public DateTime Timestamp { get; }
-            
+
             /// <summary>
             /// Initializes a new instance of CallbackExceptionEventArgs
             /// </summary>
@@ -600,7 +600,7 @@ namespace GopherMcp.Utils
                 Timestamp = DateTime.UtcNow;
             }
         }
-        
+
         /// <summary>
         /// Exception thrown when callback invocation fails
         /// </summary>
@@ -610,7 +610,7 @@ namespace GopherMcp.Utils
             /// Gets the callback token
             /// </summary>
             public CallbackToken Token { get; }
-            
+
             /// <summary>
             /// Initializes a new instance of CallbackInvocationException
             /// </summary>

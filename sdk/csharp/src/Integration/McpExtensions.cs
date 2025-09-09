@@ -33,19 +33,19 @@ namespace GopherMcp.Integration
         /// Sends a request and waits for response
         /// </summary>
         public static async Task<JsonRpcMessage> RequestAsync(
-            this ITransport transport, 
-            string method, 
+            this ITransport transport,
+            string method,
             object? parameters = null,
             CancellationToken cancellationToken = default)
         {
             var request = JsonRpcMessage.CreateRequest(method, parameters);
             await transport.SendAsync(request, cancellationToken);
-            
+
             // Wait for response with matching ID
             var timeout = TimeSpan.FromSeconds(30);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
-            
+
             while (!cts.Token.IsCancellationRequested)
             {
                 var message = await transport.ReceiveAsync(cts.Token);
@@ -54,7 +54,7 @@ namespace GopherMcp.Integration
                     return message;
                 }
             }
-            
+
             throw new TimeoutException($"Timeout waiting for response to request {request.Id}");
         }
 
@@ -159,12 +159,12 @@ namespace GopherMcp.Integration
         {
             if (message.Params == null)
                 return default;
-            
+
             if (message.Params is JsonElement jsonElement)
             {
                 return jsonElement.Deserialize<T>();
             }
-            
+
             return (T)message.Params;
         }
 
@@ -175,12 +175,12 @@ namespace GopherMcp.Integration
         {
             if (message.Result == null)
                 return default;
-            
+
             if (message.Result is JsonElement jsonElement)
             {
                 return jsonElement.Deserialize<T>();
             }
-            
+
             return (T)message.Result;
         }
 
@@ -191,12 +191,12 @@ namespace GopherMcp.Integration
         {
             if (message.Error?.Data == null)
                 return default;
-            
+
             if (message.Error.Data is JsonElement jsonElement)
             {
                 return jsonElement.Deserialize<T>();
             }
-            
+
             return (T)message.Error.Data;
         }
 
@@ -207,14 +207,14 @@ namespace GopherMcp.Integration
         {
             if (string.IsNullOrEmpty(message.Method))
                 return false;
-            
+
             // Support wildcards
             if (pattern.EndsWith("*"))
             {
                 var prefix = pattern.Substring(0, pattern.Length - 1);
                 return message.Method.StartsWith(prefix);
             }
-            
+
             return message.Method == pattern;
         }
 
@@ -251,7 +251,7 @@ namespace GopherMcp.Integration
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
-            
+
             while (!cts.Token.IsCancellationRequested)
             {
                 var message = await transport.ReceiveAsync(cts.Token);
@@ -260,7 +260,7 @@ namespace GopherMcp.Integration
                     return message;
                 }
             }
-            
+
             throw new TimeoutException("Timeout waiting for message");
         }
 
@@ -293,7 +293,7 @@ namespace GopherMcp.Integration
                     version = clientInfo.Version
                 }
             };
-            
+
             var response = await client.InvokeAsync<InitializeResult>("initialize", parameters, cancellationToken);
             return response ?? new InitializeResult();
         }
@@ -310,7 +310,7 @@ namespace GopherMcp.Integration
             {
                 server.Info = serverInfo;
             }
-            
+
             await server.StartAsync(cancellationToken);
         }
 
@@ -426,7 +426,7 @@ namespace GopherMcp.Integration
         {
             var delay = initialDelay ?? TimeSpan.FromSeconds(1);
             Exception? lastException = null;
-            
+
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
                 try
@@ -436,7 +436,7 @@ namespace GopherMcp.Integration
                 catch (Exception ex)
                 {
                     lastException = ex;
-                    
+
                     if (attempt < maxAttempts - 1)
                     {
                         await Task.Delay(delay, cancellationToken);
@@ -444,7 +444,7 @@ namespace GopherMcp.Integration
                     }
                 }
             }
-            
+
             throw new AggregateException($"Operation failed after {maxAttempts} attempts", lastException!);
         }
 
@@ -458,12 +458,12 @@ namespace GopherMcp.Integration
         {
             using var cts = new CancellationTokenSource(timeout);
             var completedTask = await Task.WhenAny(task, Task.Delay(Timeout.Infinite, cts.Token));
-            
+
             if (completedTask == task)
             {
                 return await task;
             }
-            
+
             throw new TimeoutException(timeoutMessage ?? $"Operation timed out after {timeout}");
         }
     }

@@ -145,7 +145,7 @@ namespace GopherMcp.Manager
 #else
             ThrowIfNull(filter);
 #endif
-            
+
             var descriptor = new FilterDescriptor
             {
                 Filter = filter,
@@ -372,7 +372,7 @@ namespace GopherMcp.Manager
 #else
             ThrowIfNull(predicate);
 #endif
-            
+
             _config.ExecutionMode = ChainExecutionMode.Conditional;
             _config.ConditionPredicate = predicate;
             return this;

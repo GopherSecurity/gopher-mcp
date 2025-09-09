@@ -22,7 +22,7 @@ namespace GopherMcp.Filters
         private bool _disposed;
         private bool _initialized;
         private CancellationTokenSource _cancellationTokenSource;
-        
+
         /// <summary>
         /// Gets the native filter handle
         /// </summary>
@@ -41,7 +41,7 @@ namespace GopherMcp.Filters
                 }
             }
         }
-        
+
         /// <summary>
         /// Gets or sets the filter configuration
         /// </summary>
@@ -54,59 +54,59 @@ namespace GopherMcp.Filters
                 _config = value ?? throw new ArgumentNullException(nameof(value));
             }
         }
-        
+
         /// <summary>
         /// Gets the filter name
         /// </summary>
         public string Name => Config?.Name ?? GetType().Name;
-        
+
         /// <summary>
         /// Gets the filter type
         /// </summary>
         public string Type => Config?.Type ?? GetType().FullName;
-        
+
         /// <summary>
         /// Gets whether the filter is initialized
         /// </summary>
         public bool IsInitialized => _initialized;
-        
+
         /// <summary>
         /// Gets whether the filter is disposed
         /// </summary>
         public bool IsDisposed => _disposed;
-        
+
         /// <summary>
         /// Gets the cancellation token for this filter
         /// </summary>
         protected CancellationToken CancellationToken => _cancellationTokenSource?.Token ?? CancellationToken.None;
-        
+
         /// <summary>
         /// Event raised when the filter is initialized
         /// </summary>
         public event EventHandler<FilterEventArgs> OnInitialize;
-        
+
         /// <summary>
         /// Event raised when the filter is destroyed
         /// </summary>
         public event EventHandler<FilterEventArgs> OnDestroy;
-        
+
         /// <summary>
         /// Event raised when data is processed
         /// </summary>
         public event EventHandler<FilterDataEventArgs> OnData;
-        
+
         /// <summary>
         /// Event raised when an error occurs
         /// </summary>
         public event EventHandler<FilterErrorEventArgs> OnError;
-        
+
         /// <summary>
         /// Initializes a new instance of the Filter class
         /// </summary>
         protected Filter() : this(null)
         {
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the Filter class with configuration
         /// </summary>
@@ -126,24 +126,24 @@ namespace GopherMcp.Filters
             _statistics = new FilterStatistics();
             _cancellationTokenSource = new CancellationTokenSource();
         }
-        
+
         /// <summary>
         /// Initializes the filter
         /// </summary>
         public virtual async Task InitializeAsync()
         {
             ThrowIfDisposed();
-            
+
             if (_initialized)
                 throw new InvalidOperationException($"Filter '{Name}' is already initialized");
-            
+
             try
             {
                 // Call derived class initialization
                 await OnInitializeAsync().ConfigureAwait(false);
-                
+
                 _initialized = true;
-                
+
                 // Raise initialization event
                 RaiseOnInitialize();
             }
@@ -153,7 +153,7 @@ namespace GopherMcp.Filters
                 throw;
             }
         }
-        
+
         /// <summary>
         /// Process a JsonRpcMessage through the filter
         /// </summary>
@@ -176,11 +176,11 @@ namespace GopherMcp.Filters
             // Ensure context has the original message
             context ??= new ProcessingContext();
             context.SetProperty("JsonRpcMessage", message);
-            
+
             // Process through the byte array pipeline
             return await ProcessAsync(messageBytes, context, cancellationToken);
         }
-        
+
         /// <summary>
         /// Processes data through the filter
         /// </summary>
@@ -189,39 +189,39 @@ namespace GopherMcp.Filters
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Filter processing result</returns>
         public virtual async Task<FilterResult> ProcessAsync(
-            byte[] buffer, 
-            ProcessingContext context = null, 
+            byte[] buffer,
+            ProcessingContext context = null,
             CancellationToken cancellationToken = default)
         {
             // Validate input parameters
             if (buffer == null)
                 throw new ArgumentNullException(nameof(buffer));
-            
+
             // Check disposed state
             ThrowIfDisposed();
-            
+
             if (!_initialized)
                 throw new InvalidOperationException($"Filter '{Name}' is not initialized");
-            
+
             var stopwatch = Stopwatch.StartNew();
             FilterResult result = null;
             bool success = false;
-            
+
             try
             {
                 // Merge cancellation tokens
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken, 
+                    cancellationToken,
                     CancellationToken);
-                
+
                 // Call ProcessInternal on thread pool
                 result = await Task.Run(async () =>
                 {
                     return await ProcessInternal(buffer, context, linkedCts.Token).ConfigureAwait(false);
                 }, linkedCts.Token).ConfigureAwait(false);
-                
+
                 success = result?.IsSuccess == true;
-                
+
                 // Raise OnData event
                 if (result != null && result.Data != null)
                 {
@@ -235,7 +235,7 @@ namespace GopherMcp.Filters
                 {
                     _statistics.TimeoutCount++;
                 }
-                
+
                 result = new FilterResult
                 {
                     Status = FilterStatus.Error,
@@ -247,18 +247,18 @@ namespace GopherMcp.Filters
             {
                 // Handle exceptions and convert to FilterResult
                 RaiseOnError(ex);
-                
+
                 result = new FilterResult
                 {
                     Status = FilterStatus.Error,
                     ErrorCode = FilterError.ProcessingFailed,
                     ErrorMessage = ex.Message
                 };
-                
+
                 // Store exception details in metadata
                 if (result.Metadata == null)
                     result.Metadata = new Dictionary<string, object>();
-                
+
                 result.Metadata["Exception"] = ex;
                 result.Metadata["ExceptionType"] = ex.GetType().Name;
                 result.Metadata["StackTrace"] = ex.StackTrace;
@@ -266,13 +266,13 @@ namespace GopherMcp.Filters
             finally
             {
                 stopwatch.Stop();
-                
+
                 // Update statistics
                 UpdateStatistics(
-                    buffer.Length, 
-                    stopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency, 
+                    buffer.Length,
+                    stopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency,
                     success);
-                
+
                 if (!success && result?.ErrorCode == FilterError.Bypass)
                 {
                     lock (_syncLock)
@@ -281,7 +281,7 @@ namespace GopherMcp.Filters
                     }
                 }
             }
-            
+
             return result ?? new FilterResult
             {
                 Status = FilterStatus.Error,
@@ -289,7 +289,7 @@ namespace GopherMcp.Filters
                 ErrorMessage = "Processing failed without result"
             };
         }
-        
+
         /// <summary>
         /// Gets the current filter statistics
         /// </summary>
@@ -297,7 +297,7 @@ namespace GopherMcp.Filters
         public virtual FilterStatistics GetStatistics()
         {
             ThrowIfDisposed();
-            
+
             lock (_syncLock)
             {
                 // Return a copy to prevent external modification
@@ -318,20 +318,20 @@ namespace GopherMcp.Filters
                 };
             }
         }
-        
+
         /// <summary>
         /// Resets the filter statistics
         /// </summary>
         public virtual void ResetStatistics()
         {
             ThrowIfDisposed();
-            
+
             lock (_syncLock)
             {
                 _statistics = new FilterStatistics();
             }
         }
-        
+
         /// <summary>
         /// Updates the filter configuration
         /// </summary>
@@ -339,13 +339,13 @@ namespace GopherMcp.Filters
         public virtual async Task UpdateConfigAsync(FilterConfigBase config)
         {
             ThrowIfDisposed();
-            
+
             if (config == null)
                 throw new ArgumentNullException(nameof(config));
-            
+
             var oldConfig = _config;
             _config = config;
-            
+
             try
             {
                 // Call derived class configuration update
@@ -356,16 +356,16 @@ namespace GopherMcp.Filters
                 // Rollback on failure
                 _config = oldConfig;
                 RaiseOnError(new ConfigurationException(
-                    $"Failed to update configuration for filter '{Name}'", 
-                    "Filter", 
-                    Name, 
-                    config, 
-                    null, 
+                    $"Failed to update configuration for filter '{Name}'",
+                    "Filter",
+                    Name,
+                    config,
+                    null,
                     ex));
                 throw;
             }
         }
-        
+
         /// <summary>
         /// Validates the filter configuration
         /// </summary>
@@ -375,23 +375,23 @@ namespace GopherMcp.Filters
         {
             if (config == null)
                 return false;
-            
+
             if (string.IsNullOrWhiteSpace(config.Name))
                 return false;
-            
+
             if (string.IsNullOrWhiteSpace(config.Type))
                 return false;
-            
+
             if (config.MaxBufferSize <= 0)
                 return false;
-            
+
             if (config.TimeoutMs < 0)
                 return false;
-            
+
             // Call derived class validation
             return OnValidateConfig(config);
         }
-        
+
         /// <summary>
         /// Updates filter statistics after processing
         /// </summary>
@@ -404,39 +404,39 @@ namespace GopherMcp.Filters
             {
                 _statistics.BytesProcessed += (ulong)bytesProcessed;
                 _statistics.PacketsProcessed++;
-                
+
                 if (!success)
                 {
                     _statistics.ErrorCount++;
                 }
-                
+
                 _statistics.ProcessingTimeUs += (ulong)processingTimeUs;
-                
+
                 if (_statistics.PacketsProcessed > 0)
                 {
-                    _statistics.AverageProcessingTimeUs = 
+                    _statistics.AverageProcessingTimeUs =
                         (double)_statistics.ProcessingTimeUs / _statistics.PacketsProcessed;
                 }
-                
+
                 if (processingTimeUs > (long)_statistics.MaxProcessingTimeUs)
                 {
                     _statistics.MaxProcessingTimeUs = (ulong)processingTimeUs;
                 }
-                
+
                 if (_statistics.MinProcessingTimeUs == 0 || processingTimeUs < (long)_statistics.MinProcessingTimeUs)
                 {
                     _statistics.MinProcessingTimeUs = (ulong)processingTimeUs;
                 }
-                
+
                 // Calculate throughput (bytes per second)
                 if (_statistics.ProcessingTimeUs > 0)
                 {
-                    _statistics.ThroughputBps = 
+                    _statistics.ThroughputBps =
                         (_statistics.BytesProcessed * 1_000_000.0) / _statistics.ProcessingTimeUs;
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnInitialize event with thread safety and exception handling
         /// </summary>
@@ -447,7 +447,7 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterEventArgs(Name, Type);
                 var exceptions = new List<Exception>();
-                
+
                 foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     try
@@ -459,14 +459,14 @@ namespace GopherMcp.Filters
                         exceptions.Add(ex);
                     }
                 }
-                
+
                 if (exceptions.Count > 0)
                 {
                     throw new AggregateException("One or more event handlers threw exceptions", exceptions);
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnInitialize event asynchronously
         /// </summary>
@@ -477,16 +477,16 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterEventArgs(Name, Type);
                 var tasks = new List<Task>();
-                
+
                 foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     tasks.Add(Task.Run(() => singleHandler(this, args)));
                 }
-                
+
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
         }
-        
+
         /// <summary>
         /// Raises the OnDestroy event with thread safety and exception handling
         /// </summary>
@@ -497,7 +497,7 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterEventArgs(Name, Type);
                 var exceptions = new List<Exception>();
-                
+
                 foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     try
@@ -509,7 +509,7 @@ namespace GopherMcp.Filters
                         exceptions.Add(ex);
                     }
                 }
-                
+
                 // Don't throw during disposal
                 if (exceptions.Count > 0 && !_disposed)
                 {
@@ -517,7 +517,7 @@ namespace GopherMcp.Filters
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnDestroy event asynchronously
         /// </summary>
@@ -528,12 +528,12 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterEventArgs(Name, Type);
                 var tasks = new List<Task>();
-                
+
                 foreach (EventHandler<FilterEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     tasks.Add(Task.Run(() => singleHandler(this, args)));
                 }
-                
+
                 try
                 {
                     await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -544,7 +544,7 @@ namespace GopherMcp.Filters
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnData event with thread safety and exception handling
         /// </summary>
@@ -558,7 +558,7 @@ namespace GopherMcp.Filters
                     Status = status
                 };
                 var exceptions = new List<Exception>();
-                
+
                 foreach (EventHandler<FilterDataEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     try
@@ -570,14 +570,14 @@ namespace GopherMcp.Filters
                         exceptions.Add(ex);
                     }
                 }
-                
+
                 if (exceptions.Count > 0)
                 {
                     throw new AggregateException("One or more event handlers threw exceptions", exceptions);
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnData event asynchronously
         /// </summary>
@@ -591,16 +591,16 @@ namespace GopherMcp.Filters
                     Status = status
                 };
                 var tasks = new List<Task>();
-                
+
                 foreach (EventHandler<FilterDataEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     tasks.Add(Task.Run(() => singleHandler(this, args)));
                 }
-                
+
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
         }
-        
+
         /// <summary>
         /// Raises the OnError event with thread safety and exception handling
         /// </summary>
@@ -611,7 +611,7 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterErrorEventArgs(Name, Type, exception);
                 var exceptions = new List<Exception>();
-                
+
                 foreach (EventHandler<FilterErrorEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     try
@@ -623,7 +623,7 @@ namespace GopherMcp.Filters
                         exceptions.Add(ex);
                     }
                 }
-                
+
                 // Log exceptions but don't throw during error handling
                 if (exceptions.Count > 0)
                 {
@@ -631,7 +631,7 @@ namespace GopherMcp.Filters
                 }
             }
         }
-        
+
         /// <summary>
         /// Raises the OnError event asynchronously
         /// </summary>
@@ -642,12 +642,12 @@ namespace GopherMcp.Filters
             {
                 var args = new FilterErrorEventArgs(Name, Type, exception);
                 var tasks = new List<Task>();
-                
+
                 foreach (EventHandler<FilterErrorEventArgs> singleHandler in handler.GetInvocationList())
                 {
                     tasks.Add(Task.Run(() => singleHandler(this, args)));
                 }
-                
+
                 try
                 {
                     await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -658,7 +658,7 @@ namespace GopherMcp.Filters
                 }
             }
         }
-        
+
         /// <summary>
         /// Throws if the filter has been disposed
         /// </summary>
@@ -668,7 +668,7 @@ namespace GopherMcp.Filters
             if (_disposed)
                 throw new ObjectDisposedException(Name);
         }
-        
+
         /// <summary>
         /// Clears all event subscriptions
         /// </summary>
@@ -679,31 +679,31 @@ namespace GopherMcp.Filters
             OnData = null;
             OnError = null;
         }
-        
+
         /// <summary>
         /// Gets the number of Initialize event subscribers
         /// </summary>
         public int InitializeEventSubscriberCount => OnInitialize?.GetInvocationList().Length ?? 0;
-        
+
         /// <summary>
         /// Gets the number of Destroy event subscribers
         /// </summary>
         public int DestroyEventSubscriberCount => OnDestroy?.GetInvocationList().Length ?? 0;
-        
+
         /// <summary>
         /// Gets the number of Data event subscribers
         /// </summary>
         public int DataEventSubscriberCount => OnData?.GetInvocationList().Length ?? 0;
-        
+
         /// <summary>
         /// Gets the number of Error event subscribers
         /// </summary>
         public int ErrorEventSubscriberCount => OnError?.GetInvocationList().Length ?? 0;
-        
+
         // ============================================================================
         // Abstract methods for derived classes
         // ============================================================================
-        
+
         /// <summary>
         /// Internal processing method to be implemented by derived classes
         /// </summary>
@@ -712,8 +712,8 @@ namespace GopherMcp.Filters
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Filter processing result</returns>
         protected virtual Task<FilterResult> ProcessInternal(
-            byte[] buffer, 
-            ProcessingContext context, 
+            byte[] buffer,
+            ProcessingContext context,
             CancellationToken cancellationToken)
         {
             // Default implementation - pass through
@@ -725,7 +725,7 @@ namespace GopherMcp.Filters
                 Length = buffer?.Length ?? 0
             });
         }
-        
+
         /// <summary>
         /// Called when the filter is being initialized
         /// </summary>
@@ -733,7 +733,7 @@ namespace GopherMcp.Filters
         {
             return Task.CompletedTask;
         }
-        
+
         /// <summary>
         /// Updates the filter configuration
         /// </summary>
@@ -742,10 +742,10 @@ namespace GopherMcp.Filters
         {
             if (config == null)
                 throw new ArgumentNullException(nameof(config));
-            
+
             _config = config;
         }
-        
+
         /// <summary>
         /// Called when the filter configuration is being updated
         /// </summary>
@@ -755,7 +755,7 @@ namespace GopherMcp.Filters
         {
             return Task.CompletedTask;
         }
-        
+
         /// <summary>
         /// Called to validate filter configuration
         /// </summary>
@@ -765,7 +765,7 @@ namespace GopherMcp.Filters
         {
             return config != null;
         }
-        
+
         /// <summary>
         /// Called when the filter is being disposed
         /// </summary>
@@ -774,11 +774,11 @@ namespace GopherMcp.Filters
         {
             // Default cleanup
         }
-        
+
         // ============================================================================
         // IDisposable implementation
         // ============================================================================
-        
+
         /// <summary>
         /// Disposes the filter and releases all resources
         /// </summary>
@@ -787,7 +787,7 @@ namespace GopherMcp.Filters
             Dispose(true);
             GC.SuppressFinalize(this);
         }
-        
+
         /// <summary>
         /// Disposes the filter
         /// </summary>
@@ -796,7 +796,7 @@ namespace GopherMcp.Filters
         {
             if (_disposed)
                 return;
-            
+
             if (disposing)
             {
                 try
@@ -808,12 +808,12 @@ namespace GopherMcp.Filters
                 {
                     // Ignore exceptions during disposal
                 }
-                
+
                 // Cancel any pending operations
                 _cancellationTokenSource?.Cancel();
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
-                
+
                 // Call derived class disposal
                 try
                 {
@@ -823,15 +823,15 @@ namespace GopherMcp.Filters
                 {
                     // Ignore exceptions from derived disposal
                 }
-                
+
                 // Dispose native handle
                 _handle?.Dispose();
                 _handle = null;
             }
-            
+
             _disposed = true;
         }
-        
+
         /// <summary>
         /// Finalizer
         /// </summary>
@@ -840,7 +840,7 @@ namespace GopherMcp.Filters
             Dispose(false);
         }
     }
-    
+
     /// <summary>
     /// Event arguments for filter errors
     /// </summary>
@@ -850,20 +850,20 @@ namespace GopherMcp.Filters
         /// Gets the exception that occurred
         /// </summary>
         public Exception Exception { get; }
-        
+
         /// <summary>
         /// Gets the error code if available
         /// </summary>
         public FilterError ErrorCode { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of FilterErrorEventArgs
         /// </summary>
-        public FilterErrorEventArgs(string filterName, string filterType, Exception exception) 
+        public FilterErrorEventArgs(string filterName, string filterType, Exception exception)
             : base(filterName, filterType)
         {
             Exception = exception;
-            
+
             // Extract error code if it's a FilterException
             if (exception is FilterException filterEx)
             {

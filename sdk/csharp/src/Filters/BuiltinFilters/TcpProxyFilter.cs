@@ -162,9 +162,9 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             // Create new connection
             _logger?.LogDebug("Creating new connection to {Host}:{Port}", _config.UpstreamHost, _config.UpstreamPort);
-            
+
             var client = new TcpClient();
-            
+
             if (_config.EnableKeepAlive)
             {
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
@@ -184,7 +184,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
             await connectTask;
 #endif
-            
+
             return client;
         }
 
@@ -251,9 +251,9 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 using var client = new TcpClient();
                 using var cts = new CancellationTokenSource(_config.ConnectionTimeoutMs);
-                
+
 #if NET5_0_OR_GREATER
-            await client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort, cts.Token);
+                await client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort, cts.Token);
 #else
             var connectTask = client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort);
             if (await Task.WhenAny(connectTask, Task.Delay(_config.ConnectionTimeoutMs, cts.Token)) != connectTask)
@@ -262,7 +262,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
             await connectTask;
 #endif
-                
+
                 if (!_isHealthy)
                 {
                     _logger?.LogInformation("Upstream connection restored");

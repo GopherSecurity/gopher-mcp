@@ -168,7 +168,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _metrics = new ConcurrentDictionary<string, IMetric>();
             InitializeMetrics();
-            
+
             _collectionTimer = new Timer(
                 CollectMetrics,
                 null,
@@ -231,7 +231,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Collect error metrics
                 CollectErrorMetrics(ex, context);
-                
+
                 UpdateStatistics(0L, 0, false);
                 await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Metrics error: {ex.Message}", FilterError.InternalError);
@@ -313,7 +313,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     if (_metrics.TryGetValue(kvp.Key, out var metric))
                     {
                         var labels = CreateLabels(context);
-                        
+
                         switch (metric)
                         {
                             case Counter counter:
@@ -437,7 +437,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             sb.AppendLine($"# HELP {Name} {Description}");
             sb.AppendLine($"# TYPE {Name} counter");
-            
+
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
@@ -491,7 +491,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             sb.AppendLine($"# HELP {Name} {Description}");
             sb.AppendLine($"# TYPE {Name} gauge");
-            
+
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
@@ -549,21 +549,21 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             sb.AppendLine($"# HELP {Name} {Description}");
             sb.AppendLine($"# TYPE {Name} histogram");
-            
+
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
                 var buffer = kvp.Value;
                 var timestampStr = timestamp.HasValue ? $" {timestamp}" : "";
-                
+
                 foreach (var bucket in buffer.GetBuckets())
                 {
-                    var bucketLabel = string.IsNullOrEmpty(labelStr) 
+                    var bucketLabel = string.IsNullOrEmpty(labelStr)
                         ? $"{{le=\"{bucket.UpperBound}\" + (bucket.UpperBound == double.PositiveInfinity ? \"+Inf\" : bucket.UpperBound.ToString())}}"
                         : labelStr.TrimEnd('}') + $",le=\"{(bucket.UpperBound == double.PositiveInfinity ? "+Inf" : bucket.UpperBound.ToString())}\"}}";
                     sb.AppendLine($"{Name}_bucket{bucketLabel} {bucket.Count}{timestampStr}");
                 }
-                
+
                 sb.AppendLine($"{Name}_sum{labelStr} {buffer.Sum}{timestampStr}");
                 sb.AppendLine($"{Name}_count{labelStr} {buffer.Count}{timestampStr}");
             }
@@ -613,7 +613,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 {
                     _count++;
                     _sum += value;
-                    
+
                     for (int i = 0; i < _buckets.Length; i++)
                     {
                         if (value <= _buckets[i])
@@ -684,21 +684,21 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             sb.AppendLine($"# HELP {Name} {Description}");
             sb.AppendLine($"# TYPE {Name} summary");
-            
+
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
                 var buffer = kvp.Value;
                 var timestampStr = timestamp.HasValue ? $" {timestamp}" : "";
-                
+
                 foreach (var quantile in buffer.GetQuantiles())
                 {
-                    var quantileLabel = string.IsNullOrEmpty(labelStr) 
+                    var quantileLabel = string.IsNullOrEmpty(labelStr)
                         ? $"{{quantile=\"{quantile.Quantile}\"}}"
                         : labelStr.TrimEnd('}') + $",quantile=\"{quantile.Quantile}\"}}";
                     sb.AppendLine($"{Name}{quantileLabel} {quantile.Value}{timestampStr}");
                 }
-                
+
                 sb.AppendLine($"{Name}_sum{labelStr} {buffer.Sum}{timestampStr}");
                 sb.AppendLine($"{Name}_count{labelStr} {buffer.Count}{timestampStr}");
             }
@@ -748,7 +748,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     _count++;
                     _sum += value;
                     _values.Add(value);
-                    
+
                     // Simple implementation - in production use a proper sliding window
                     if (_values.Count > 10000)
                     {

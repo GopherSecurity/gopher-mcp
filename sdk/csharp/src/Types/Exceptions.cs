@@ -13,75 +13,75 @@ namespace GopherMcp.Types
         /// Gets the MCP error code associated with this exception
         /// </summary>
         public McpResult ErrorCode { get; }
-        
+
         /// <summary>
         /// Gets additional context information about the error
         /// </summary>
         public string Context { get; }
-        
+
         /// <summary>
         /// Gets the timestamp when the exception occurred
         /// </summary>
         public DateTime Timestamp { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class
         /// </summary>
-        public McpException() 
+        public McpException()
             : base("An MCP error occurred")
         {
             ErrorCode = McpResult.Unknown;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with a specified error message
         /// </summary>
         /// <param name="message">The error message</param>
-        public McpException(string message) 
+        public McpException(string message)
             : base(message)
         {
             ErrorCode = McpResult.Unknown;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with a specified error message and error code
         /// </summary>
         /// <param name="message">The error message</param>
         /// <param name="errorCode">The MCP error code</param>
-        public McpException(string message, McpResult errorCode) 
+        public McpException(string message, McpResult errorCode)
             : base(message)
         {
             ErrorCode = errorCode;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with a specified error message and inner exception
         /// </summary>
         /// <param name="message">The error message</param>
         /// <param name="innerException">The inner exception</param>
-        public McpException(string message, Exception innerException) 
+        public McpException(string message, Exception innerException)
             : base(message, innerException)
         {
             ErrorCode = McpResult.Unknown;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with a specified error message, error code, and inner exception
         /// </summary>
         /// <param name="message">The error message</param>
         /// <param name="errorCode">The MCP error code</param>
         /// <param name="innerException">The inner exception</param>
-        public McpException(string message, McpResult errorCode, Exception innerException) 
+        public McpException(string message, McpResult errorCode, Exception innerException)
             : base(message, innerException)
         {
             ErrorCode = errorCode;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with full details
         /// </summary>
@@ -96,20 +96,20 @@ namespace GopherMcp.Types
             Context = context;
             Timestamp = DateTime.UtcNow;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the McpException class with serialized data
         /// </summary>
         /// <param name="info">The serialization info</param>
         /// <param name="context">The streaming context</param>
-        protected McpException(SerializationInfo info, StreamingContext context) 
+        protected McpException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             ErrorCode = (McpResult)info.GetInt32(nameof(ErrorCode));
             Context = info.GetString(nameof(Context));
             Timestamp = info.GetDateTime(nameof(Timestamp));
         }
-        
+
         /// <summary>
         /// Sets the SerializationInfo with information about the exception
         /// </summary>
@@ -120,7 +120,7 @@ namespace GopherMcp.Types
             info.AddValue(nameof(Context), Context);
             info.AddValue(nameof(Timestamp), Timestamp);
         }
-        
+
         /// <summary>
         /// Creates an McpException from an MCP error info structure
         /// </summary>
@@ -129,7 +129,7 @@ namespace GopherMcp.Types
             var message = $"{errorInfo.Message} (File: {errorInfo.File}, Line: {errorInfo.Line})";
             return new McpException(message, errorInfo.Code);
         }
-        
+
         /// <summary>
         /// Creates an McpException from an MCP result code
         /// </summary>
@@ -138,7 +138,7 @@ namespace GopherMcp.Types
             var errorMessage = message ?? GetDefaultMessage(result);
             return new McpException(errorMessage, result);
         }
-        
+
         /// <summary>
         /// Gets the default error message for a result code
         /// </summary>
@@ -173,7 +173,7 @@ namespace GopherMcp.Types
             };
         }
     }
-    
+
     /// <summary>
     /// Exception for filter-specific errors
     /// </summary>
@@ -184,55 +184,55 @@ namespace GopherMcp.Types
         /// Gets the filter name associated with the error
         /// </summary>
         public string FilterName { get; }
-        
+
         /// <summary>
         /// Gets the filter type associated with the error
         /// </summary>
         public string FilterType { get; }
-        
+
         /// <summary>
         /// Gets the filter error code
         /// </summary>
         public FilterError FilterErrorCode { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class
         /// </summary>
-        public FilterException() 
+        public FilterException()
             : base("A filter error occurred")
         {
             FilterErrorCode = FilterError.ProcessingFailed;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class with a specified error message
         /// </summary>
-        public FilterException(string message) 
+        public FilterException(string message)
             : base(message)
         {
             FilterErrorCode = FilterError.ProcessingFailed;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class with filter details
         /// </summary>
-        public FilterException(string message, string filterName, string filterType) 
+        public FilterException(string message, string filterName, string filterType)
             : base(message)
         {
             FilterName = filterName;
             FilterType = filterType;
             FilterErrorCode = FilterError.ProcessingFailed;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class with a specified error message and inner exception
         /// </summary>
-        public FilterException(string message, Exception innerException) 
+        public FilterException(string message, Exception innerException)
             : base(message, innerException)
         {
             FilterErrorCode = FilterError.ProcessingFailed;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class with full details
         /// </summary>
@@ -243,18 +243,18 @@ namespace GopherMcp.Types
             FilterType = filterType;
             FilterErrorCode = filterErrorCode;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the FilterException class with serialized data
         /// </summary>
-        protected FilterException(SerializationInfo info, StreamingContext context) 
+        protected FilterException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             FilterName = info.GetString(nameof(FilterName));
             FilterType = info.GetString(nameof(FilterType));
             FilterErrorCode = (FilterError)info.GetInt32(nameof(FilterErrorCode));
         }
-        
+
         /// <summary>
         /// Sets the SerializationInfo with information about the exception
         /// </summary>
@@ -265,7 +265,7 @@ namespace GopherMcp.Types
             info.AddValue(nameof(FilterType), FilterType);
             info.AddValue(nameof(FilterErrorCode), (int)FilterErrorCode);
         }
-        
+
         /// <summary>
         /// Convert filter error to MCP result
         /// </summary>
@@ -287,7 +287,7 @@ namespace GopherMcp.Types
             };
         }
     }
-    
+
     /// <summary>
     /// Exception for chain processing errors
     /// </summary>
@@ -298,63 +298,63 @@ namespace GopherMcp.Types
         /// Gets the chain name associated with the error
         /// </summary>
         public string ChainName { get; }
-        
+
         /// <summary>
         /// Gets the current chain state
         /// </summary>
         public ChainState ChainState { get; }
-        
+
         /// <summary>
         /// Gets the filter node where the error occurred
         /// </summary>
         public string FailedNodeName { get; }
-        
+
         /// <summary>
         /// Gets the index of the failed node in the chain
         /// </summary>
         public int FailedNodeIndex { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class
         /// </summary>
-        public ChainException() 
+        public ChainException()
             : base("A chain processing error occurred")
         {
             ChainState = ChainState.Error;
             FailedNodeIndex = -1;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class with a specified error message
         /// </summary>
-        public ChainException(string message) 
+        public ChainException(string message)
             : base(message)
         {
             ChainState = ChainState.Error;
             FailedNodeIndex = -1;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class with chain details
         /// </summary>
-        public ChainException(string message, string chainName, ChainState chainState) 
+        public ChainException(string message, string chainName, ChainState chainState)
             : base(message)
         {
             ChainName = chainName;
             ChainState = chainState;
             FailedNodeIndex = -1;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class with a specified error message and inner exception
         /// </summary>
-        public ChainException(string message, Exception innerException) 
+        public ChainException(string message, Exception innerException)
             : base(message, innerException)
         {
             ChainState = ChainState.Error;
             FailedNodeIndex = -1;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class with full details
         /// </summary>
@@ -366,11 +366,11 @@ namespace GopherMcp.Types
             FailedNodeName = failedNodeName;
             FailedNodeIndex = failedNodeIndex;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ChainException class with serialized data
         /// </summary>
-        protected ChainException(SerializationInfo info, StreamingContext context) 
+        protected ChainException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             ChainName = info.GetString(nameof(ChainName));
@@ -378,7 +378,7 @@ namespace GopherMcp.Types
             FailedNodeName = info.GetString(nameof(FailedNodeName));
             FailedNodeIndex = info.GetInt32(nameof(FailedNodeIndex));
         }
-        
+
         /// <summary>
         /// Sets the SerializationInfo with information about the exception
         /// </summary>
@@ -391,7 +391,7 @@ namespace GopherMcp.Types
             info.AddValue(nameof(FailedNodeIndex), FailedNodeIndex);
         }
     }
-    
+
     /// <summary>
     /// Exception for transport layer errors
     /// </summary>
@@ -402,63 +402,63 @@ namespace GopherMcp.Types
         /// Gets the transport type
         /// </summary>
         public McpTransportType TransportType { get; }
-        
+
         /// <summary>
         /// Gets the connection state when the error occurred
         /// </summary>
         public McpConnectionState ConnectionState { get; }
-        
+
         /// <summary>
         /// Gets the endpoint associated with the error
         /// </summary>
         public string Endpoint { get; }
-        
+
         /// <summary>
         /// Gets the socket error code if applicable
         /// </summary>
         public int? SocketErrorCode { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class
         /// </summary>
-        public TransportException() 
+        public TransportException()
             : base("A transport error occurred")
         {
             ConnectionState = McpConnectionState.Error;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class with a specified error message
         /// </summary>
-        public TransportException(string message) 
+        public TransportException(string message)
             : base(message)
         {
             ConnectionState = McpConnectionState.Error;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class with transport details
         /// </summary>
-        public TransportException(string message, McpTransportType transportType, McpConnectionState connectionState) 
+        public TransportException(string message, McpTransportType transportType, McpConnectionState connectionState)
             : base(message)
         {
             TransportType = transportType;
             ConnectionState = connectionState;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class with a specified error message and inner exception
         /// </summary>
-        public TransportException(string message, Exception innerException) 
+        public TransportException(string message, Exception innerException)
             : base(message, innerException)
         {
             ConnectionState = McpConnectionState.Error;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class with full details
         /// </summary>
-        public TransportException(string message, McpTransportType transportType, McpConnectionState connectionState, 
+        public TransportException(string message, McpTransportType transportType, McpConnectionState connectionState,
             string endpoint, int? socketErrorCode = null, Exception innerException = null)
             : base(message, ConvertConnectionStateToMcpResult(connectionState), $"Transport: {transportType}, Endpoint: {endpoint}", innerException)
         {
@@ -467,11 +467,11 @@ namespace GopherMcp.Types
             Endpoint = endpoint;
             SocketErrorCode = socketErrorCode;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the TransportException class with serialized data
         /// </summary>
-        protected TransportException(SerializationInfo info, StreamingContext context) 
+        protected TransportException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             TransportType = (McpTransportType)info.GetInt32(nameof(TransportType));
@@ -479,7 +479,7 @@ namespace GopherMcp.Types
             Endpoint = info.GetString(nameof(Endpoint));
             SocketErrorCode = (int?)info.GetValue(nameof(SocketErrorCode), typeof(int?));
         }
-        
+
         /// <summary>
         /// Sets the SerializationInfo with information about the exception
         /// </summary>
@@ -491,7 +491,7 @@ namespace GopherMcp.Types
             info.AddValue(nameof(Endpoint), Endpoint);
             info.AddValue(nameof(SocketErrorCode), SocketErrorCode);
         }
-        
+
         /// <summary>
         /// Convert connection state to MCP result
         /// </summary>
@@ -505,7 +505,7 @@ namespace GopherMcp.Types
             };
         }
     }
-    
+
     /// <summary>
     /// Exception for configuration errors
     /// </summary>
@@ -516,60 +516,60 @@ namespace GopherMcp.Types
         /// Gets the configuration section that caused the error
         /// </summary>
         public string ConfigSection { get; }
-        
+
         /// <summary>
         /// Gets the configuration key that caused the error
         /// </summary>
         public string ConfigKey { get; }
-        
+
         /// <summary>
         /// Gets the invalid value that was provided
         /// </summary>
         public object InvalidValue { get; }
-        
+
         /// <summary>
         /// Gets the expected value or format description
         /// </summary>
         public string ExpectedValue { get; }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class
         /// </summary>
-        public ConfigurationException() 
+        public ConfigurationException()
             : base("A configuration error occurred", McpResult.InvalidArgument)
         {
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class with a specified error message
         /// </summary>
-        public ConfigurationException(string message) 
+        public ConfigurationException(string message)
             : base(message, McpResult.InvalidArgument)
         {
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class with configuration details
         /// </summary>
-        public ConfigurationException(string message, string configSection, string configKey) 
+        public ConfigurationException(string message, string configSection, string configKey)
             : base(message, McpResult.InvalidArgument)
         {
             ConfigSection = configSection;
             ConfigKey = configKey;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class with a specified error message and inner exception
         /// </summary>
-        public ConfigurationException(string message, Exception innerException) 
+        public ConfigurationException(string message, Exception innerException)
             : base(message, McpResult.InvalidArgument, innerException)
         {
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class with full details
         /// </summary>
-        public ConfigurationException(string message, string configSection, string configKey, 
+        public ConfigurationException(string message, string configSection, string configKey,
             object invalidValue, string expectedValue = null, Exception innerException = null)
             : base(message, McpResult.InvalidArgument, $"Section: {configSection}, Key: {configKey}", innerException)
         {
@@ -578,11 +578,11 @@ namespace GopherMcp.Types
             InvalidValue = invalidValue;
             ExpectedValue = expectedValue;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of the ConfigurationException class with serialized data
         /// </summary>
-        protected ConfigurationException(SerializationInfo info, StreamingContext context) 
+        protected ConfigurationException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             ConfigSection = info.GetString(nameof(ConfigSection));
@@ -590,7 +590,7 @@ namespace GopherMcp.Types
             InvalidValue = info.GetValue(nameof(InvalidValue), typeof(object));
             ExpectedValue = info.GetString(nameof(ExpectedValue));
         }
-        
+
         /// <summary>
         /// Sets the SerializationInfo with information about the exception
         /// </summary>
@@ -602,7 +602,7 @@ namespace GopherMcp.Types
             info.AddValue(nameof(InvalidValue), InvalidValue);
             info.AddValue(nameof(ExpectedValue), ExpectedValue);
         }
-        
+
         /// <summary>
         /// Creates a configuration exception for a missing required configuration
         /// </summary>
@@ -610,12 +610,12 @@ namespace GopherMcp.Types
         {
             return new ConfigurationException(
                 $"Required configuration '{configKey}' is missing from section '{configSection}'",
-                configSection, 
+                configSection,
                 configKey,
                 null,
                 "Non-null value required");
         }
-        
+
         /// <summary>
         /// Creates a configuration exception for an invalid value
         /// </summary>

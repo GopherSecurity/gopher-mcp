@@ -23,7 +23,7 @@ namespace GopherMcp.Transport
         private readonly Channel<JsonRpcMessage> _sendQueue;
         private readonly CancellationTokenSource _shutdownTokenSource;
         private readonly SemaphoreSlim _stateLock;
-        
+
         private IProtocolTransport? _protocolTransport;
         private ConnectionState _state;
         private Task? _receiveLoopTask;
@@ -37,7 +37,7 @@ namespace GopherMcp.Transport
             {
                 var oldState = _state;
                 _state = value;
-                
+
                 if (oldState != value)
                 {
                     OnConnectionStateChanged(value, oldState);
@@ -303,7 +303,7 @@ namespace GopherMcp.Transport
             catch (Exception ex)
             {
                 OnError(ex, "Error during transport stop");
-                
+
                 // Force state to disconnected
                 await _stateLock.WaitAsync();
                 try
@@ -314,7 +314,7 @@ namespace GopherMcp.Transport
                 {
                     _stateLock.Release();
                 }
-                
+
                 throw;
             }
             finally
@@ -385,7 +385,7 @@ namespace GopherMcp.Transport
             {
                 // Process message through FilterManager if configured
                 JsonRpcMessage messageToSend = message;
-                
+
                 if (_filterManager != null)
                 {
                     var messageBytes = SerializeMessage(message);
@@ -393,7 +393,7 @@ namespace GopherMcp.Transport
                     {
                         Direction = Types.ProcessingDirection.Outbound
                     };
-                    
+
                     // Store message metadata in context
                     context.SetProperty("MessageId", message.Id);
                     context.SetProperty("Method", message.Method);
@@ -402,7 +402,7 @@ namespace GopherMcp.Transport
                     context.SetProperty("IsResponse", message.IsResponse);
 
                     var result = await _filterManager.ProcessAsync(message, null, linkedCts.Token);
-                    
+
                     if (!result.IsSuccess)
                     {
                         throw new InvalidOperationException($"Filter processing failed: {result.ErrorMessage}");
@@ -494,7 +494,7 @@ namespace GopherMcp.Transport
         private JsonRpcMessage DeserializeMessage(byte[] data)
         {
             var json = System.Text.Encoding.UTF8.GetString(data);
-            return System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json) 
+            return System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json)
                 ?? throw new InvalidOperationException("Failed to deserialize message");
         }
 
@@ -526,7 +526,7 @@ namespace GopherMcp.Transport
             ThrowIfNotConnected();
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, 
+                cancellationToken,
                 _shutdownTokenSource.Token);
 
             try
@@ -589,7 +589,7 @@ namespace GopherMcp.Transport
 
                     // Process through FilterManager if configured
                     JsonRpcMessage messageToDeliver = receivedMessage;
-                    
+
                     if (_filterManager != null)
                     {
                         var messageBytes = SerializeMessage(receivedMessage);
@@ -608,7 +608,7 @@ namespace GopherMcp.Transport
                         try
                         {
                             var result = await _filterManager.ProcessAsync(receivedMessage, null, _shutdownTokenSource.Token);
-                            
+
                             if (!result.IsSuccess)
                             {
                                 OnError(new InvalidOperationException($"Filter processing failed: {result.ErrorMessage}"), "Receive filter error");
@@ -725,7 +725,7 @@ namespace GopherMcp.Transport
                 try
                 {
                     var message = await _sendQueue.Reader.ReadAsync(_shutdownTokenSource.Token);
-                    
+
                     if (_protocolTransport != null)
                     {
                         await _protocolTransport.SendAsync(message, _shutdownTokenSource.Token);
@@ -745,7 +745,7 @@ namespace GopherMcp.Transport
         private void OnConnectionStateChanged(ConnectionState newState, ConnectionState oldState)
         {
             var args = new ConnectionStateEventArgs(newState, oldState);
-            
+
             switch (newState)
             {
                 case ConnectionState.Connected:

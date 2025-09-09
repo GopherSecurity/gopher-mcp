@@ -24,7 +24,7 @@ namespace GopherMcp.Transport
         private readonly int _localPort;
         private readonly int _maxPacketSize;
         private readonly TimeSpan _receiveTimeout;
-        
+
         private UdpClient? _udpClient;
         private IPEndPoint? _remoteEndPoint;
         private ConnectionState _state;
@@ -46,7 +46,7 @@ namespace GopherMcp.Transport
         public event EventHandler<ConnectionStateEventArgs>? Connected;
         public event EventHandler<ConnectionStateEventArgs>? Disconnected;
 
-        public UdpTransport(string host, int port, int localPort = 0, int maxPacketSize = 65507, 
+        public UdpTransport(string host, int port, int localPort = 0, int maxPacketSize = 65507,
                            TimeSpan? receiveTimeout = null)
         {
             if (string.IsNullOrWhiteSpace(host))
@@ -55,7 +55,7 @@ namespace GopherMcp.Transport
                 throw new ArgumentException("Port must be between 1 and 65535", nameof(port));
             if (maxPacketSize <= 0 || maxPacketSize > 65507)
                 throw new ArgumentException("Max packet size must be between 1 and 65507", nameof(maxPacketSize));
-            
+
             _host = host;
             _port = port;
             _localPort = localPort;
@@ -66,7 +66,7 @@ namespace GopherMcp.Transport
             _shutdownTokenSource = new CancellationTokenSource();
             _sendLock = new SemaphoreSlim(1, 1);
             _fragmentBuffer = new ConcurrentDictionary<string, MessageFragment>();
-            
+
             // Cleanup old fragments every minute
             _fragmentCleanupTimer = new Timer(CleanupFragments, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
@@ -74,7 +74,7 @@ namespace GopherMcp.Transport
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Connected || _state == ConnectionState.Connecting)
                 return;
 
@@ -114,7 +114,7 @@ namespace GopherMcp.Transport
                     Method = "ping",
                     Id = Guid.NewGuid().ToString()
                 };
-                
+
                 await SendAsync(handshake, cancellationToken);
 
                 _state = ConnectionState.Connected;
@@ -133,7 +133,7 @@ namespace GopherMcp.Transport
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
                 return;
 
@@ -160,7 +160,7 @@ namespace GopherMcp.Transport
                 }
 
                 Cleanup();
-                
+
                 _state = ConnectionState.Disconnected;
                 OnConnectionStateChanged(ConnectionState.Disconnected, ConnectionState.Disconnecting);
             }
@@ -175,7 +175,7 @@ namespace GopherMcp.Transport
         public async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -216,7 +216,7 @@ namespace GopherMcp.Transport
         public async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -248,10 +248,10 @@ namespace GopherMcp.Transport
 
                     // Receive datagram
                     var result = await _udpClient.ReceiveAsync();
-                    
+
                     // Process received data
                     var json = Encoding.UTF8.GetString(result.Buffer);
-                    
+
                     // Check if this is a fragment
                     if (json.StartsWith("FRAG:"))
                     {
@@ -281,7 +281,7 @@ namespace GopherMcp.Transport
                 catch (Exception ex)
                 {
                     OnError(ex, "Error in receive loop");
-                    
+
                     // Continue unless it's a fatal error
                     if (IsFatalError(ex))
                         break;
@@ -304,14 +304,14 @@ namespace GopherMcp.Transport
                 // Create fragment header
                 var header = $"FRAG:{messageId}:{i}:{totalFragments}:";
                 var headerBytes = Encoding.UTF8.GetBytes(header);
-                
+
                 // Combine header and fragment
                 var packet = new byte[headerBytes.Length + fragment.Length];
                 Array.Copy(headerBytes, 0, packet, 0, headerBytes.Length);
                 Array.Copy(fragment, 0, packet, headerBytes.Length, fragment.Length);
 
                 await _udpClient!.SendAsync(packet, packet.Length, _remoteEndPoint);
-                
+
                 // Small delay between fragments to avoid overwhelming the receiver
                 if (i < totalFragments - 1)
                     await Task.Delay(1, cancellationToken);
@@ -334,7 +334,7 @@ namespace GopherMcp.Transport
 
                 // Get or create fragment buffer
                 var fragment = _fragmentBuffer.GetOrAdd(messageId, _ => new MessageFragment(total));
-                
+
                 // Add fragment
                 fragment.AddFragment(index, data);
 
@@ -342,10 +342,10 @@ namespace GopherMcp.Transport
                 if (fragment.IsComplete)
                 {
                     _fragmentBuffer.TryRemove(messageId, out _);
-                    
+
                     var completeJson = fragment.GetCompleteMessage();
                     var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(completeJson);
-                    
+
                     if (message != null)
                     {
                         _receiveQueue.Enqueue(message);
@@ -380,7 +380,7 @@ namespace GopherMcp.Transport
 
         private bool IsFatalError(Exception ex)
         {
-            return ex is SocketException socketEx && 
+            return ex is SocketException socketEx &&
                    (socketEx.SocketErrorCode == SocketError.NetworkDown ||
                     socketEx.SocketErrorCode == SocketError.NetworkUnreachable ||
                     socketEx.SocketErrorCode == SocketError.HostUnreachable);
@@ -403,7 +403,7 @@ namespace GopherMcp.Transport
         private void OnConnectionStateChanged(ConnectionState newState, ConnectionState oldState)
         {
             var args = new ConnectionStateEventArgs(newState, oldState);
-            
+
             if (newState == ConnectionState.Connected)
                 Connected?.Invoke(this, args);
             else if (newState == ConnectionState.Disconnected || newState == ConnectionState.Failed)
@@ -444,7 +444,7 @@ namespace GopherMcp.Transport
                 _shutdownTokenSource?.Dispose();
                 Cleanup();
                 _sendLock?.Dispose();
-                
+
                 _disposed = true;
             }
         }
@@ -453,7 +453,7 @@ namespace GopherMcp.Transport
         {
             private readonly string[] _fragments;
             private int _receivedCount;
-            
+
             public DateTime CreatedAt { get; }
             public bool IsComplete => _receivedCount == _fragments.Length;
 

@@ -136,7 +136,7 @@ namespace GopherMcp.Manager
         {
             var results = new List<ValidationResult>();
             var context = new ValidationContext(this);
-            
+
             // Validate this object
             Validator.TryValidateObject(this, context, results, true);
 
@@ -296,8 +296,9 @@ namespace GopherMcp.Manager
             /// </summary>
             public SecurityConfig Merge(SecurityConfig other)
             {
-                if (other == null) return this;
-                
+                if (other == null)
+                    return this;
+
                 return new SecurityConfig
                 {
                     Authentication = Authentication?.Merge(other.Authentication) ?? other.Authentication,
@@ -349,8 +350,9 @@ namespace GopherMcp.Manager
 
                 public AuthenticationConfig Merge(AuthenticationConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     return new AuthenticationConfig
                     {
                         Enabled = other.Enabled,
@@ -393,8 +395,9 @@ namespace GopherMcp.Manager
 
                 public AuthorizationConfig Merge(AuthorizationConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     var merged = new AuthorizationConfig
                     {
                         Enabled = other.Enabled,
@@ -472,8 +475,9 @@ namespace GopherMcp.Manager
 
                 public TlsConfig Merge(TlsConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     return new TlsConfig
                     {
                         Enabled = other.Enabled,
@@ -571,8 +575,9 @@ namespace GopherMcp.Manager
             /// </summary>
             public ObservabilityConfig Merge(ObservabilityConfig other)
             {
-                if (other == null) return this;
-                
+                if (other == null)
+                    return this;
+
                 return new ObservabilityConfig
                 {
                     AccessLog = AccessLog?.Merge(other.AccessLog) ?? other.AccessLog,
@@ -623,8 +628,9 @@ namespace GopherMcp.Manager
 
                 public AccessLogConfig Merge(AccessLogConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     return new AccessLogConfig
                     {
                         Enabled = other.Enabled,
@@ -681,8 +687,9 @@ namespace GopherMcp.Manager
 
                 public MetricsConfig Merge(MetricsConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     var merged = new MetricsConfig
                     {
                         Enabled = other.Enabled,
@@ -765,8 +772,9 @@ namespace GopherMcp.Manager
 
                 public TracingConfig Merge(TracingConfig other)
                 {
-                    if (other == null) return this;
-                    
+                    if (other == null)
+                        return this;
+
                     var merged = new TracingConfig
                     {
                         Enabled = other.Enabled,
@@ -878,7 +886,8 @@ namespace GopherMcp.Manager
 
             public TrafficManagementConfig Merge(TrafficManagementConfig other)
             {
-                if (other == null) return this;
+                if (other == null)
+                    return this;
                 return new TrafficManagementConfig
                 {
                     RateLimit = RateLimit?.Merge(other.RateLimit) ?? other.RateLimit,
@@ -908,7 +917,8 @@ namespace GopherMcp.Manager
 
                 public RateLimitConfig Merge(RateLimitConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new RateLimitConfig
                     {
                         Enabled = other.Enabled,
@@ -940,7 +950,8 @@ namespace GopherMcp.Manager
 
                 public CircuitBreakerConfig Merge(CircuitBreakerConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new CircuitBreakerConfig
                     {
                         Enabled = other.Enabled,
@@ -976,7 +987,8 @@ namespace GopherMcp.Manager
 
                 public RetryConfig Merge(RetryConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new RetryConfig
                     {
                         Enabled = other.Enabled,
@@ -1011,7 +1023,8 @@ namespace GopherMcp.Manager
 
                 public LoadBalancerConfig Merge(LoadBalancerConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new LoadBalancerConfig
                     {
                         Algorithm = other.Algorithm != LoadBalancingAlgorithm.RoundRobin ? other.Algorithm : Algorithm,
@@ -1059,7 +1072,8 @@ namespace GopherMcp.Manager
 
             public HttpConfig Merge(HttpConfig other)
             {
-                if (other == null) return this;
+                if (other == null)
+                    return this;
                 return new HttpConfig
                 {
                     Codec = Codec?.Merge(other.Codec) ?? other.Codec,
@@ -1088,7 +1102,8 @@ namespace GopherMcp.Manager
 
                 public CodecConfig Merge(CodecConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new CodecConfig
                     {
                         MaxMessageSize = other.MaxMessageSize > 0 ? other.MaxMessageSize : MaxMessageSize,
@@ -1116,7 +1131,8 @@ namespace GopherMcp.Manager
 
                 public RouterConfig Merge(RouterConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     var merged = new RouterConfig
                     {
                         Enabled = other.Enabled,
@@ -1161,7 +1177,8 @@ namespace GopherMcp.Manager
 
                 public CompressionConfig Merge(CompressionConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new CompressionConfig
                     {
                         Enabled = other.Enabled,
@@ -1209,7 +1226,8 @@ namespace GopherMcp.Manager
 
             public NetworkConfig Merge(NetworkConfig other)
             {
-                if (other == null) return this;
+                if (other == null)
+                    return this;
                 return new NetworkConfig
                 {
                     TcpProxy = TcpProxy?.Merge(other.TcpProxy) ?? other.TcpProxy,
@@ -1240,7 +1258,8 @@ namespace GopherMcp.Manager
 
                 public TcpProxyConfig Merge(TcpProxyConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new TcpProxyConfig
                     {
                         Enabled = other.Enabled,
@@ -1276,7 +1295,8 @@ namespace GopherMcp.Manager
 
                 public UdpProxyConfig Merge(UdpProxyConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new UdpProxyConfig
                     {
                         Enabled = other.Enabled,
@@ -1311,7 +1331,8 @@ namespace GopherMcp.Manager
 
                 public ConnectionPoolConfig Merge(ConnectionPoolConfig other)
                 {
-                    if (other == null) return this;
+                    if (other == null)
+                        return this;
                     return new ConnectionPoolConfig
                     {
                         MaxConnections = other.MaxConnections > 0 ? other.MaxConnections : MaxConnections,
@@ -1389,8 +1410,9 @@ namespace GopherMcp.Manager
 
             public ErrorHandlingConfig Merge(ErrorHandlingConfig other)
             {
-                if (other == null) return this;
-                
+                if (other == null)
+                    return this;
+
                 var merged = new ErrorHandlingConfig
                 {
                     StopOnError = other.StopOnError,
@@ -1472,7 +1494,7 @@ namespace GopherMcp.Manager
                 var value = reader.GetString();
                 if (TimeSpan.TryParse(value, out var timeSpan))
                     return timeSpan;
-                
+
                 // Try parsing as seconds if it's a number string
                 if (double.TryParse(value, out var seconds))
                     return TimeSpan.FromSeconds(seconds);

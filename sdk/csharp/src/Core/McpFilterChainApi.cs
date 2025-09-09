@@ -9,17 +9,17 @@ namespace GopherMcp.Core
     public static class McpFilterChainApi
     {
         private const string LibraryName = "gopher_mcp_c";
-        
+
         // ============================================================================
         // Basic Chain Builder
         // ============================================================================
-        
+
         /// <summary>
         /// Create filter chain builder
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mcp_filter_chain_builder_create(ulong dispatcher);
-        
+
         /// <summary>
         /// Add filter to chain builder
         /// </summary>
@@ -29,35 +29,35 @@ namespace GopherMcp.Core
             ulong filter,
             McpFilterPosition position,
             ulong referenceFilter);
-        
+
         /// <summary>
         /// Build filter chain
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern ulong mcp_filter_chain_build(IntPtr builder);
-        
+
         /// <summary>
         /// Destroy filter chain builder
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_chain_builder_destroy(IntPtr builder);
-        
+
         /// <summary>
         /// Retain filter chain
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_chain_retain(ulong chain);
-        
+
         /// <summary>
         /// Release filter chain
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_filter_chain_release(ulong chain);
-        
+
         // ============================================================================
         // Advanced Chain Builder
         // ============================================================================
-        
+
         /// <summary>
         /// Create chain builder with configuration
         /// </summary>
@@ -65,7 +65,7 @@ namespace GopherMcp.Core
         public static extern IntPtr mcp_chain_builder_create_ex(
             ulong dispatcher,
             ref McpChainConfig config);
-        
+
         /// <summary>
         /// Add filter node to chain
         /// </summary>
@@ -73,7 +73,7 @@ namespace GopherMcp.Core
         public static extern int mcp_chain_builder_add_node(
             IntPtr builder,
             ref McpFilterNode node);
-        
+
         /// <summary>
         /// Add conditional filter
         /// </summary>
@@ -82,7 +82,7 @@ namespace GopherMcp.Core
             IntPtr builder,
             ref McpFilterCondition condition,
             ulong filter);
-        
+
         /// <summary>
         /// Add parallel filter group
         /// </summary>
@@ -91,7 +91,7 @@ namespace GopherMcp.Core
             IntPtr builder,
             [In] ulong[] filters,
             UIntPtr count);
-        
+
         /// <summary>
         /// Set custom routing function
         /// </summary>
@@ -100,7 +100,7 @@ namespace GopherMcp.Core
             IntPtr builder,
             McpRoutingFunction router,
             IntPtr userData);
-        
+
         /// <summary>
         /// Set chain execution mode
         /// </summary>
@@ -108,35 +108,35 @@ namespace GopherMcp.Core
         public static extern int mcp_chain_builder_set_execution_mode(
             IntPtr builder,
             ChainExecutionMode mode);
-        
+
         // ============================================================================
         // Chain Management
         // ============================================================================
-        
+
         /// <summary>
         /// Get chain state
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern ChainState mcp_chain_get_state(ulong chain);
-        
+
         /// <summary>
         /// Pause chain execution
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_chain_pause(ulong chain);
-        
+
         /// <summary>
         /// Resume chain execution
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_chain_resume(ulong chain);
-        
+
         /// <summary>
         /// Reset chain to initial state
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_chain_reset(ulong chain);
-        
+
         /// <summary>
         /// Enable/disable filter in chain
         /// </summary>
@@ -145,7 +145,7 @@ namespace GopherMcp.Core
             ulong chain,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string filterName,
             byte enabled);
-        
+
         /// <summary>
         /// Get chain statistics
         /// </summary>
@@ -153,7 +153,7 @@ namespace GopherMcp.Core
         public static extern int mcp_chain_get_stats(
             ulong chain,
             out McpChainStats stats);
-        
+
         /// <summary>
         /// Set chain event callback
         /// </summary>
@@ -162,11 +162,11 @@ namespace GopherMcp.Core
             ulong chain,
             McpChainEventCallback callback,
             IntPtr userData);
-        
+
         // ============================================================================
         // Chain Processing
         // ============================================================================
-        
+
         /// <summary>
         /// Process buffer through chain
         /// </summary>
@@ -175,7 +175,7 @@ namespace GopherMcp.Core
             ulong chain,
             ulong buffer,
             byte endStream);
-        
+
         /// <summary>
         /// Process buffer asynchronously through chain
         /// </summary>
@@ -186,11 +186,11 @@ namespace GopherMcp.Core
             byte endStream,
             McpFilterCompletionCallback callback,
             IntPtr userData);
-        
+
         // ============================================================================
         // Dynamic Chain Composition
         // ============================================================================
-        
+
         /// <summary>
         /// Create dynamic chain from JSON configuration
         /// </summary>
@@ -198,19 +198,19 @@ namespace GopherMcp.Core
         public static extern ulong mcp_chain_create_from_json(
             ulong dispatcher,
             IntPtr jsonConfig);
-        
+
         /// <summary>
         /// Export chain configuration to JSON
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mcp_chain_export_to_json(ulong chain);
-        
+
         /// <summary>
         /// Clone a filter chain
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern ulong mcp_chain_clone(ulong chain);
-        
+
         /// <summary>
         /// Merge two chains
         /// </summary>
@@ -219,23 +219,23 @@ namespace GopherMcp.Core
             ulong chain1,
             ulong chain2,
             ChainExecutionMode mode);
-        
+
         // ============================================================================
         // Chain Optimization
         // ============================================================================
-        
+
         /// <summary>
         /// Optimize chain by removing redundant filters
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_chain_optimize(ulong chain);
-        
+
         /// <summary>
         /// Reorder filters for optimal performance
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mcp_chain_reorder_filters(ulong chain);
-        
+
         /// <summary>
         /// Profile chain performance
         /// </summary>
@@ -245,11 +245,11 @@ namespace GopherMcp.Core
             ulong testBuffer,
             UIntPtr iterations,
             out IntPtr report);
-        
+
         // ============================================================================
         // Chain Debugging
         // ============================================================================
-        
+
         /// <summary>
         /// Enable chain tracing
         /// </summary>
@@ -257,7 +257,7 @@ namespace GopherMcp.Core
         public static extern int mcp_chain_set_trace_level(
             ulong chain,
             uint traceLevel);
-        
+
         /// <summary>
         /// Dump chain structure
         /// </summary>
@@ -265,7 +265,7 @@ namespace GopherMcp.Core
         public static extern IntPtr mcp_chain_dump(
             ulong chain,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string format);
-        
+
         /// <summary>
         /// Validate chain configuration
         /// </summary>
@@ -273,17 +273,17 @@ namespace GopherMcp.Core
         public static extern int mcp_chain_validate(
             ulong chain,
             out IntPtr errors);
-        
+
         // ============================================================================
         // Chain Router
         // ============================================================================
-        
+
         /// <summary>
         /// Create chain router
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mcp_chain_router_create(ref McpRouterConfig config);
-        
+
         /// <summary>
         /// Add route to router
         /// </summary>
@@ -292,7 +292,7 @@ namespace GopherMcp.Core
             IntPtr router,
             McpFilterMatchCallback condition,
             ulong chain);
-        
+
         /// <summary>
         /// Route buffer through appropriate chain
         /// </summary>
@@ -301,17 +301,17 @@ namespace GopherMcp.Core
             IntPtr router,
             ulong buffer,
             ref McpProtocolMetadata metadata);
-        
+
         /// <summary>
         /// Destroy chain router
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_chain_router_destroy(IntPtr router);
-        
+
         // ============================================================================
         // Chain Pool
         // ============================================================================
-        
+
         /// <summary>
         /// Create chain pool for load balancing
         /// </summary>
@@ -320,13 +320,13 @@ namespace GopherMcp.Core
             ulong baseChain,
             UIntPtr poolSize,
             RoutingStrategy strategy);
-        
+
         /// <summary>
         /// Get next chain from pool
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern ulong mcp_chain_pool_get_next(IntPtr pool);
-        
+
         /// <summary>
         /// Return chain to pool
         /// </summary>
@@ -334,7 +334,7 @@ namespace GopherMcp.Core
         public static extern void mcp_chain_pool_return(
             IntPtr pool,
             ulong chain);
-        
+
         /// <summary>
         /// Get pool statistics
         /// </summary>
@@ -344,18 +344,18 @@ namespace GopherMcp.Core
             out UIntPtr active,
             out UIntPtr idle,
             out ulong totalProcessed);
-        
+
         /// <summary>
         /// Destroy chain pool
         /// </summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mcp_chain_pool_destroy(IntPtr pool);
     }
-    
+
     // ============================================================================
     // Enumerations
     // ============================================================================
-    
+
     /// <summary>
     /// Chain execution mode
     /// </summary>
@@ -366,7 +366,7 @@ namespace GopherMcp.Core
         Conditional = 2,
         Pipeline = 3
     }
-    
+
     /// <summary>
     /// Chain routing strategy
     /// </summary>
@@ -378,7 +378,7 @@ namespace GopherMcp.Core
         Priority = 3,
         Custom = 99
     }
-    
+
     /// <summary>
     /// Filter match condition
     /// </summary>
@@ -389,7 +389,7 @@ namespace GopherMcp.Core
         None = 2,
         Custom = 99
     }
-    
+
     /// <summary>
     /// Chain state
     /// </summary>
@@ -401,11 +401,11 @@ namespace GopherMcp.Core
         Error = 3,
         Completed = 4
     }
-    
+
     // ============================================================================
     // Structures
     // ============================================================================
-    
+
     /// <summary>
     /// Filter node in chain
     /// </summary>
@@ -413,19 +413,19 @@ namespace GopherMcp.Core
     public struct McpFilterNode
     {
         public ulong Filter;
-        
+
         [MarshalAs(UnmanagedType.LPUTF8Str)]
         public string Name;
-        
+
         public uint Priority;
-        
+
         public byte Enabled;
-        
+
         public byte BypassOnError;
-        
+
         public IntPtr Config;  // mcp_json_value_t
     }
-    
+
     /// <summary>
     /// Chain configuration
     /// </summary>
@@ -434,20 +434,20 @@ namespace GopherMcp.Core
     {
         [MarshalAs(UnmanagedType.LPUTF8Str)]
         public string Name;
-        
+
         public ChainExecutionMode Mode;
-        
+
         public RoutingStrategy Routing;
-        
+
         public uint MaxParallel;
-        
+
         public uint BufferSize;
-        
+
         public uint TimeoutMs;
-        
+
         public byte StopOnError;
     }
-    
+
     /// <summary>
     /// Filter condition for conditional execution
     /// </summary>
@@ -455,16 +455,16 @@ namespace GopherMcp.Core
     public struct McpFilterCondition
     {
         public MatchCondition MatchType;
-        
+
         [MarshalAs(UnmanagedType.LPUTF8Str)]
         public string Field;
-        
+
         [MarshalAs(UnmanagedType.LPUTF8Str)]
         public string Value;
-        
+
         public ulong TargetFilter;
     }
-    
+
     /// <summary>
     /// Chain statistics
     /// </summary>
@@ -479,7 +479,7 @@ namespace GopherMcp.Core
         public double ThroughputMbps;
         public uint ActiveFilters;
     }
-    
+
     /// <summary>
     /// Router configuration
     /// </summary>
@@ -487,18 +487,18 @@ namespace GopherMcp.Core
     public struct McpRouterConfig
     {
         public RoutingStrategy Strategy;
-        
+
         public uint HashSeed;
-        
+
         public ulong RouteTable;  // mcp_map_t
-        
+
         public IntPtr CustomRouterData;
     }
-    
+
     // ============================================================================
     // Callback Delegates
     // ============================================================================
-    
+
     /// <summary>
     /// Custom routing function
     /// </summary>
@@ -508,7 +508,7 @@ namespace GopherMcp.Core
         IntPtr nodes,
         UIntPtr nodeCount,
         IntPtr userData);
-    
+
     /// <summary>
     /// Chain event callback
     /// </summary>
@@ -518,7 +518,7 @@ namespace GopherMcp.Core
         ChainState oldState,
         ChainState newState,
         IntPtr userData);
-    
+
     /// <summary>
     /// Filter match function
     /// </summary>

@@ -16,47 +16,47 @@ namespace GopherMcp.Utils
         private static readonly Lazy<PlatformInfo> _platformInfo = new Lazy<PlatformInfo>(DetectPlatform);
         private static readonly Lazy<string> _runtimeIdentifier = new Lazy<string>(GenerateRuntimeIdentifier);
         private static readonly Lazy<Dictionary<string, string>> _environmentVariables = new Lazy<Dictionary<string, string>>(LoadEnvironmentVariables);
-        
+
         /// <summary>
         /// Gets the current platform information
         /// </summary>
         public static PlatformInfo Platform => _platformInfo.Value;
-        
+
         /// <summary>
         /// Gets the runtime identifier for the current platform
         /// </summary>
         public static string RuntimeIdentifier => _runtimeIdentifier.Value;
-        
+
         /// <summary>
         /// Gets whether the current platform is Windows
         /// </summary>
         public static bool IsWindows => Platform.OperatingSystem == OperatingSystemType.Windows;
-        
+
         /// <summary>
         /// Gets whether the current platform is Linux
         /// </summary>
         public static bool IsLinux => Platform.OperatingSystem == OperatingSystemType.Linux;
-        
+
         /// <summary>
         /// Gets whether the current platform is macOS
         /// </summary>
         public static bool IsMacOS => Platform.OperatingSystem == OperatingSystemType.MacOS;
-        
+
         /// <summary>
         /// Gets whether the current platform is Unix-like (Linux or macOS)
         /// </summary>
         public static bool IsUnix => IsLinux || IsMacOS;
-        
+
         /// <summary>
         /// Gets whether the current architecture is 64-bit
         /// </summary>
         public static bool Is64Bit => Platform.Architecture == ArchitectureType.X64 || Platform.Architecture == ArchitectureType.Arm64;
-        
+
         /// <summary>
         /// Gets whether the current architecture is ARM-based
         /// </summary>
         public static bool IsArm => Platform.Architecture == ArchitectureType.Arm || Platform.Architecture == ArchitectureType.Arm64;
-        
+
         /// <summary>
         /// Platform-specific constants
         /// </summary>
@@ -72,7 +72,7 @@ namespace GopherMcp.Utils
                 OperatingSystemType.MacOS => ".dylib",
                 _ => throw new PlatformNotSupportedException($"Unsupported platform: {Platform.OperatingSystem}")
             };
-            
+
             /// <summary>
             /// Gets the native library prefix for the current platform
             /// </summary>
@@ -83,33 +83,33 @@ namespace GopherMcp.Utils
                 OperatingSystemType.MacOS => "lib",
                 _ => ""
             };
-            
+
             /// <summary>
             /// Gets the path separator for the current platform
             /// </summary>
             public static char PathSeparator => Path.DirectorySeparatorChar;
-            
+
             /// <summary>
             /// Gets the environment variable path separator
             /// </summary>
             public static char EnvironmentPathSeparator => IsWindows ? ';' : ':';
-            
+
             /// <summary>
             /// Gets the line ending for the current platform
             /// </summary>
             public static string LineEnding => Environment.NewLine;
-            
+
             /// <summary>
             /// Gets the executable extension for the current platform
             /// </summary>
             public static string ExecutableExtension => IsWindows ? ".exe" : "";
-            
+
             /// <summary>
             /// Gets the script extension for the current platform
             /// </summary>
             public static string ScriptExtension => IsWindows ? ".bat" : ".sh";
         }
-        
+
         /// <summary>
         /// Detects the current platform information
         /// </summary>
@@ -124,7 +124,7 @@ namespace GopherMcp.Utils
             var processArch = RuntimeInformation.ProcessArchitecture;
             var osDescription = RuntimeInformation.OSDescription;
             var osArch = RuntimeInformation.OSArchitecture;
-            
+
             // Detect specific OS versions
             string osVersion = null;
             if (os == OperatingSystemType.Windows)
@@ -139,7 +139,7 @@ namespace GopherMcp.Utils
             {
                 osVersion = GetMacOSVersion();
             }
-            
+
             return new PlatformInfo
             {
                 OperatingSystem = os,
@@ -160,7 +160,7 @@ namespace GopherMcp.Utils
                 SystemDirectory = Environment.SystemDirectory
             };
         }
-        
+
         /// <summary>
         /// Detects the operating system type
         /// </summary>
@@ -168,21 +168,21 @@ namespace GopherMcp.Utils
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 return OperatingSystemType.Windows;
-            
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                 return OperatingSystemType.Linux;
-            
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 return OperatingSystemType.MacOS;
-            
+
 #if NET5_0_OR_GREATER
             if (RuntimeInformation.IsOSPlatform(OSPlatform.FreeBSD))
                 return OperatingSystemType.FreeBSD;
 #endif
-            
+
             return OperatingSystemType.Unknown;
         }
-        
+
         /// <summary>
         /// Detects the processor architecture
         /// </summary>
@@ -197,7 +197,7 @@ namespace GopherMcp.Utils
                 _ => ArchitectureType.Unknown
             };
         }
-        
+
         /// <summary>
         /// Generates the runtime identifier for the current platform
         /// </summary>
@@ -211,7 +211,7 @@ namespace GopherMcp.Utils
                 OperatingSystemType.FreeBSD => "freebsd",
                 _ => "unknown"
             };
-            
+
             var arch = Platform.Architecture switch
             {
                 ArchitectureType.X86 => "x86",
@@ -220,7 +220,7 @@ namespace GopherMcp.Utils
                 ArchitectureType.Arm64 => "arm64",
                 _ => "unknown"
             };
-            
+
             // Special cases for specific platforms
             if (Platform.OperatingSystem == OperatingSystemType.Linux)
             {
@@ -230,10 +230,10 @@ namespace GopherMcp.Utils
                     return $"linux-musl-{arch}";
                 }
             }
-            
+
             return $"{os}-{arch}";
         }
-        
+
         /// <summary>
         /// Resolves the native library path for a given library name
         /// </summary>
@@ -243,10 +243,10 @@ namespace GopherMcp.Utils
         {
             if (string.IsNullOrEmpty(libraryName))
                 throw new ArgumentNullException(nameof(libraryName));
-            
+
             var searchPaths = GetNativeLibrarySearchPaths();
             var fullLibraryName = $"{Constants.NativeLibraryPrefix}{libraryName}{Constants.NativeLibraryExtension}";
-            
+
             foreach (var path in searchPaths)
             {
                 var fullPath = Path.Combine(path, fullLibraryName);
@@ -254,7 +254,7 @@ namespace GopherMcp.Utils
                 {
                     return fullPath;
                 }
-                
+
                 // Also try without prefix
                 var alternativePath = Path.Combine(path, $"{libraryName}{Constants.NativeLibraryExtension}");
                 if (File.Exists(alternativePath))
@@ -262,26 +262,26 @@ namespace GopherMcp.Utils
                     return alternativePath;
                 }
             }
-            
+
             return null;
         }
-        
+
         /// <summary>
         /// Gets the native library search paths for the current platform
         /// </summary>
         public static IEnumerable<string> GetNativeLibrarySearchPaths()
         {
             var paths = new List<string>();
-            
+
             // 1. Current directory
             paths.Add(Environment.CurrentDirectory);
-            
+
             // 2. Application base directory
             var appBase = AppContext.BaseDirectory;
             if (!string.IsNullOrEmpty(appBase))
             {
                 paths.Add(appBase);
-                
+
                 // Add runtimes/{rid}/native subdirectory
                 var rid = RuntimeIdentifier;
                 var runtimesPath = Path.Combine(appBase, "runtimes", rid, "native");
@@ -290,14 +290,14 @@ namespace GopherMcp.Utils
                     paths.Add(runtimesPath);
                 }
             }
-            
+
             // 3. System paths based on platform
             if (IsWindows)
             {
                 // Windows system directories
                 paths.Add(Environment.SystemDirectory);
                 paths.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32"));
-                
+
                 // Add PATH environment variable
                 var pathEnv = GetEnvironmentVariable("PATH");
                 if (!string.IsNullOrEmpty(pathEnv))
@@ -311,20 +311,20 @@ namespace GopherMcp.Utils
                 paths.Add("/usr/local/lib");
                 paths.Add("/usr/lib");
                 paths.Add("/lib");
-                
+
                 var arch = Platform.Architecture switch
                 {
                     ArchitectureType.X64 => "x86_64-linux-gnu",
                     ArchitectureType.Arm64 => "aarch64-linux-gnu",
                     _ => null
                 };
-                
+
                 if (arch != null)
                 {
                     paths.Add($"/usr/lib/{arch}");
                     paths.Add($"/lib/{arch}");
                 }
-                
+
                 // LD_LIBRARY_PATH
                 var ldPath = GetEnvironmentVariable("LD_LIBRARY_PATH");
                 if (!string.IsNullOrEmpty(ldPath))
@@ -338,14 +338,14 @@ namespace GopherMcp.Utils
                 paths.Add("/usr/local/lib");
                 paths.Add("/opt/homebrew/lib"); // Apple Silicon homebrew
                 paths.Add("/usr/lib");
-                
+
                 // DYLD_LIBRARY_PATH
                 var dyldPath = GetEnvironmentVariable("DYLD_LIBRARY_PATH");
                 if (!string.IsNullOrEmpty(dyldPath))
                 {
                     paths.AddRange(dyldPath.Split(Constants.EnvironmentPathSeparator));
                 }
-                
+
                 // DYLD_FALLBACK_LIBRARY_PATH
                 var dyldFallbackPath = GetEnvironmentVariable("DYLD_FALLBACK_LIBRARY_PATH");
                 if (!string.IsNullOrEmpty(dyldFallbackPath))
@@ -353,21 +353,21 @@ namespace GopherMcp.Utils
                     paths.AddRange(dyldFallbackPath.Split(Constants.EnvironmentPathSeparator));
                 }
             }
-            
+
             // Remove duplicates and non-existent paths
             return paths.Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p)).Distinct();
         }
-        
+
         /// <summary>
         /// Gets an environment variable value
         /// </summary>
         public static string GetEnvironmentVariable(string name)
         {
-            return Environment.GetEnvironmentVariable(name) ?? 
-                   Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User) ?? 
+            return Environment.GetEnvironmentVariable(name) ??
+                   Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User) ??
                    Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.Machine);
         }
-        
+
         /// <summary>
         /// Checks if an environment variable is set
         /// </summary>
@@ -375,7 +375,7 @@ namespace GopherMcp.Utils
         {
             return !string.IsNullOrEmpty(GetEnvironmentVariable(name));
         }
-        
+
         /// <summary>
         /// Gets all environment variables
         /// </summary>
@@ -383,14 +383,14 @@ namespace GopherMcp.Utils
         {
             return _environmentVariables.Value;
         }
-        
+
         /// <summary>
         /// Loads all environment variables
         /// </summary>
         private static Dictionary<string, string> LoadEnvironmentVariables()
         {
             var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            
+
             foreach (var entry in Environment.GetEnvironmentVariables())
             {
                 if (entry is System.Collections.DictionaryEntry de)
@@ -398,10 +398,10 @@ namespace GopherMcp.Utils
                     vars[de.Key?.ToString() ?? ""] = de.Value?.ToString() ?? "";
                 }
             }
-            
+
             return vars;
         }
-        
+
         /// <summary>
         /// Gets the Windows version string
         /// </summary>
@@ -410,27 +410,27 @@ namespace GopherMcp.Utils
             try
             {
                 var version = Environment.OSVersion.Version;
-                
+
                 // Windows 11
                 if (version.Major == 10 && version.Build >= 22000)
                     return $"Windows 11 ({version})";
-                
+
                 // Windows 10
                 if (version.Major == 10 && version.Minor == 0)
                     return $"Windows 10 ({version})";
-                
+
                 // Windows 8.1
                 if (version.Major == 6 && version.Minor == 3)
                     return $"Windows 8.1 ({version})";
-                
+
                 // Windows 8
                 if (version.Major == 6 && version.Minor == 2)
                     return $"Windows 8 ({version})";
-                
+
                 // Windows 7
                 if (version.Major == 6 && version.Minor == 1)
                     return $"Windows 7 ({version})";
-                
+
                 return $"Windows {version}";
             }
             catch
@@ -438,7 +438,7 @@ namespace GopherMcp.Utils
                 return "Windows";
             }
         }
-        
+
         /// <summary>
         /// Gets the Linux distribution name
         /// </summary>
@@ -451,7 +451,7 @@ namespace GopherMcp.Utils
                 {
                     var lines = File.ReadAllLines("/etc/os-release");
                     var dict = new Dictionary<string, string>();
-                    
+
                     foreach (var line in lines)
                     {
                         var parts = line.Split('=', 2);
@@ -462,14 +462,14 @@ namespace GopherMcp.Utils
                             dict[key] = value;
                         }
                     }
-                    
+
                     if (dict.TryGetValue("PRETTY_NAME", out var prettyName))
                         return prettyName;
-                    
+
                     if (dict.TryGetValue("NAME", out var name))
                         return name;
                 }
-                
+
                 // Fallback to lsb_release
                 if (File.Exists("/etc/lsb-release"))
                 {
@@ -489,10 +489,10 @@ namespace GopherMcp.Utils
             {
                 // Ignore errors
             }
-            
+
             return "Linux";
         }
-        
+
         /// <summary>
         /// Gets the macOS version string
         /// </summary>
@@ -511,11 +511,11 @@ namespace GopherMcp.Utils
                         CreateNoWindow = true
                     }
                 };
-                
+
                 process.Start();
                 var version = process.StandardOutput.ReadToEnd().Trim();
                 process.WaitForExit();
-                
+
                 if (!string.IsNullOrEmpty(version))
                 {
                     return $"macOS {version}";
@@ -525,10 +525,10 @@ namespace GopherMcp.Utils
             {
                 // Ignore errors
             }
-            
+
             return "macOS";
         }
-        
+
         /// <summary>
         /// Platform information
         /// </summary>
@@ -538,82 +538,82 @@ namespace GopherMcp.Utils
             /// Gets or sets the operating system type
             /// </summary>
             public OperatingSystemType OperatingSystem { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the processor architecture
             /// </summary>
             public ArchitectureType Architecture { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the OS version
             /// </summary>
             public Version Version { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the OS version string
             /// </summary>
             public string VersionString { get; set; }
-            
+
             /// <summary>
             /// Gets or sets whether the process is 64-bit
             /// </summary>
             public bool Is64BitProcess { get; set; }
-            
+
             /// <summary>
             /// Gets or sets whether the OS is 64-bit
             /// </summary>
             public bool Is64BitOperatingSystem { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the framework description
             /// </summary>
             public string FrameworkDescription { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the process architecture
             /// </summary>
             public Architecture ProcessArchitecture { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the OS description
             /// </summary>
             public string OSDescription { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the OS architecture
             /// </summary>
             public Architecture OSArchitecture { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the processor count
             /// </summary>
             public int ProcessorCount { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the machine name
             /// </summary>
             public string MachineName { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the user name
             /// </summary>
             public string UserName { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the domain name
             /// </summary>
             public string DomainName { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the current directory
             /// </summary>
             public string CurrentDirectory { get; set; }
-            
+
             /// <summary>
             /// Gets or sets the system directory
             /// </summary>
             public string SystemDirectory { get; set; }
-            
+
             /// <summary>
             /// Gets a string representation of the platform info
             /// </summary>
@@ -622,7 +622,7 @@ namespace GopherMcp.Utils
                 return $"{VersionString} ({Architecture}, {FrameworkDescription})";
             }
         }
-        
+
         /// <summary>
         /// Operating system types
         /// </summary>
@@ -630,20 +630,20 @@ namespace GopherMcp.Utils
         {
             /// <summary>Unknown operating system</summary>
             Unknown = 0,
-            
+
             /// <summary>Microsoft Windows</summary>
             Windows = 1,
-            
+
             /// <summary>Linux</summary>
             Linux = 2,
-            
+
             /// <summary>Apple macOS</summary>
             MacOS = 3,
-            
+
             /// <summary>FreeBSD</summary>
             FreeBSD = 4
         }
-        
+
         /// <summary>
         /// Processor architecture types
         /// </summary>
@@ -651,16 +651,16 @@ namespace GopherMcp.Utils
         {
             /// <summary>Unknown architecture</summary>
             Unknown = 0,
-            
+
             /// <summary>32-bit x86</summary>
             X86 = 1,
-            
+
             /// <summary>64-bit x86 (AMD64/Intel 64)</summary>
             X64 = 2,
-            
+
             /// <summary>32-bit ARM</summary>
             Arm = 3,
-            
+
             /// <summary>64-bit ARM</summary>
             Arm64 = 4
         }

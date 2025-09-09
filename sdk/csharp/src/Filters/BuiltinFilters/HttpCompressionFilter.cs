@@ -102,10 +102,10 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // For now, just pass through the buffer
                 // In a real implementation, this would parse HTTP headers and compress/decompress the body
-                
+
                 // Check if this is an HTTP response based on context
                 var isResponse = context?.GetProperty<bool>("IsHttpResponse") ?? false;
-                
+
                 if (isResponse && !_config.CompressResponsesOnly)
                 {
                     // Would compress the response body here
@@ -116,7 +116,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     // Would decompress the request body here
                     _logger?.LogDebug("Would decompress HTTP request");
                 }
-                
+
                 await Task.CompletedTask; // Satisfy async requirement
                 return FilterResult.Success(buffer, 0, buffer.Length);
             }
@@ -156,7 +156,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             using var input = new MemoryStream(data);
             using var output = new MemoryStream();
-            
+
             Stream decompressionStream = algorithm switch
             {
                 CompressionAlgorithm.Gzip => new GZipStream(input, CompressionMode.Decompress),

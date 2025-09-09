@@ -23,7 +23,7 @@ namespace GopherMcp.Transport
         private readonly int _receiveBufferSize;
         private readonly bool _keepAlive;
         private readonly TimeSpan _keepAliveInterval;
-        
+
         private TcpClient? _tcpClient;
         private NetworkStream? _networkStream;
         private StreamReader? _reader;
@@ -41,14 +41,14 @@ namespace GopherMcp.Transport
         public event EventHandler<ConnectionStateEventArgs>? Connected;
         public event EventHandler<ConnectionStateEventArgs>? Disconnected;
 
-        public TcpTransport(string host, int port, int sendBufferSize = 8192, int receiveBufferSize = 8192, 
+        public TcpTransport(string host, int port, int sendBufferSize = 8192, int receiveBufferSize = 8192,
                            bool keepAlive = true, TimeSpan? keepAliveInterval = null)
         {
             if (string.IsNullOrWhiteSpace(host))
                 throw new ArgumentException("Host cannot be null or empty", nameof(host));
             if (port <= 0 || port > 65535)
                 throw new ArgumentException("Port must be between 1 and 65535", nameof(port));
-            
+
             _host = host;
             _port = port;
             _sendBufferSize = sendBufferSize;
@@ -63,7 +63,7 @@ namespace GopherMcp.Transport
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Connected || _state == ConnectionState.Connecting)
                 return;
 
@@ -83,9 +83,9 @@ namespace GopherMcp.Transport
                 // Connect with timeout
                 var connectTask = _tcpClient.ConnectAsync(_host, _port);
                 var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
-                
+
                 var completedTask = await Task.WhenAny(connectTask, timeoutTask);
-                
+
                 if (completedTask == timeoutTask)
                 {
                     _tcpClient.Close();
@@ -102,7 +102,7 @@ namespace GopherMcp.Transport
                 }
 
                 _networkStream = _tcpClient.GetStream();
-                _reader = new StreamReader(_networkStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, 
+                _reader = new StreamReader(_networkStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false,
                                          bufferSize: _receiveBufferSize, leaveOpen: true);
                 _writer = new StreamWriter(_networkStream, Encoding.UTF8, bufferSize: _sendBufferSize, leaveOpen: true)
                 {
@@ -125,7 +125,7 @@ namespace GopherMcp.Transport
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
                 return;
 
@@ -141,7 +141,7 @@ namespace GopherMcp.Transport
                 }
 
                 Cleanup();
-                
+
                 _state = ConnectionState.Disconnected;
                 OnConnectionStateChanged(ConnectionState.Disconnected, ConnectionState.Disconnecting);
             }
@@ -156,7 +156,7 @@ namespace GopherMcp.Transport
         public async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -170,7 +170,7 @@ namespace GopherMcp.Transport
                     throw new InvalidOperationException("Writer not initialized");
 
                 var json = JsonSerializer.Serialize(message);
-                
+
                 // Send message with newline delimiter for line-based protocol
                 await _writer.WriteLineAsync(json);
                 await _writer.FlushAsync();
@@ -189,7 +189,7 @@ namespace GopherMcp.Transport
         public async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -201,7 +201,7 @@ namespace GopherMcp.Transport
 
                 // Read line-based message
                 var json = await _reader.ReadLineAsync();
-                
+
                 if (json == null)
                 {
                     // End of stream - connection closed
@@ -241,12 +241,12 @@ namespace GopherMcp.Transport
                 // Windows TCP keep-alive
                 var keepAliveTime = (uint)_keepAliveInterval.TotalMilliseconds;
                 var keepAliveInterval = (uint)(_keepAliveInterval.TotalMilliseconds / 3);
-                
+
                 var input = BitConverter.GetBytes((uint)1)  // on/off
                     .Concat(BitConverter.GetBytes(keepAliveTime))
                     .Concat(BitConverter.GetBytes(keepAliveInterval))
                     .ToArray();
-                
+
                 _tcpClient.Client.IOControl(IOControlCode.KeepAliveValues, input, null);
             }
 #if NET5_0_OR_GREATER
@@ -300,7 +300,7 @@ namespace GopherMcp.Transport
         private void OnConnectionStateChanged(ConnectionState newState, ConnectionState oldState)
         {
             var args = new ConnectionStateEventArgs(newState, oldState);
-            
+
             if (newState == ConnectionState.Connected)
                 Connected?.Invoke(this, args);
             else if (newState == ConnectionState.Disconnected || newState == ConnectionState.Failed)
@@ -337,10 +337,10 @@ namespace GopherMcp.Transport
                 catch { }
 
                 Cleanup();
-                
+
                 _sendLock?.Dispose();
                 _receiveLock?.Dispose();
-                
+
                 _disposed = true;
             }
         }

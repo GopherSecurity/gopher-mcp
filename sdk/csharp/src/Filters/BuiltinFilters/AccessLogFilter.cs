@@ -147,7 +147,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                         {
                             AutoFlush = true
                         };
-                        
+
                         var fileInfo = new FileInfo(filePath);
                         _currentFileSize = fileInfo.Exists ? fileInfo.Length : 0;
                     }
@@ -199,7 +199,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Log after processing completes
                 stopwatch.Stop();
-                
+
                 if (_config.LogResponses || _config.LogRequests)
                 {
                     await LogAccessAsync(context, stopwatch.ElapsedMilliseconds, result, null, cancellationToken);

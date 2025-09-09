@@ -74,9 +74,9 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // For now, just pass through the buffer
                 // In a real implementation, this would parse/serialize HTTP messages
-                
+
                 var direction = context?.GetProperty<string>("Direction") ?? "unknown";
-                
+
                 if (direction == "encode")
                 {
                     // Would encode to HTTP format here
@@ -87,7 +87,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     // Would decode from HTTP format here
                     _logger?.LogDebug("Would decode from HTTP format");
                 }
-                
+
                 await Task.CompletedTask; // Satisfy async requirement
                 return FilterResult.Success(buffer, 0, buffer.Length);
             }
@@ -105,7 +105,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             var headers = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             string line;
-            
+
             while ((line = await reader.ReadLineAsync()) != null && !string.IsNullOrEmpty(line))
             {
                 var colonIndex = line.IndexOf(':');
@@ -113,12 +113,12 @@ namespace GopherMcp.Filters.BuiltinFilters
                 {
                     var name = line.Substring(0, colonIndex).Trim();
                     var value = line.Substring(colonIndex + 1).Trim();
-                    
+
                     if (_config.NormalizeHeaders)
                     {
                         name = NormalizeHeaderName(name);
                     }
-                    
+
                     if (!headers.ContainsKey(name))
                     {
                         headers[name] = new List<string>();
@@ -126,7 +126,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     headers[name].Add(value);
                 }
             }
-            
+
             return headers;
         }
 
@@ -154,7 +154,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             if (!_config.ValidateHeaders)
                 return true;
-            
+
             // Basic validation - check for required headers, invalid characters, etc.
             foreach (var header in headers)
             {
@@ -164,7 +164,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     _logger?.LogWarning("Invalid header name: {HeaderName}", header.Key);
                     return false;
                 }
-                
+
                 // Check for invalid characters in header values
                 foreach (var value in header.Value)
                 {
@@ -175,7 +175,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     }
                 }
             }
-            
+
             return true;
         }
     }

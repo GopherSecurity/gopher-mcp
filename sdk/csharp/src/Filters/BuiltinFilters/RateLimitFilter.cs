@@ -106,7 +106,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _limiters = new ConcurrentDictionary<string, IRateLimiter>();
             _concurrencyLimiter = new SemaphoreSlim(_config.MaxConcurrentRequests, _config.MaxConcurrentRequests);
-            
+
             _cleanupTimer = new Timer(
                 CleanupExpiredLimiters,
                 null,
@@ -124,13 +124,13 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Extract rate limit key
                 var key = ExtractKey(context);
-                
+
                 // Check whitelist/blacklist
                 if (IsWhitelisted(key))
                 {
                     return await ProcessWithoutRateLimitAsync(buffer, context, cancellationToken);
                 }
-                
+
                 if (IsBlacklisted(key))
                 {
                     Interlocked.Increment(ref _throttledRequests);
@@ -139,23 +139,23 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Get or create limiter for this key
                 var limiter = GetOrCreateLimiter(key);
-                
+
                 // Get current limit for this key
                 var limit = GetLimitForKey(key);
-                
+
                 // Try to acquire token
                 var acquireResult = await limiter.TryAcquireAsync(1, cancellationToken);
-                
+
                 if (!acquireResult.Allowed)
                 {
                     Interlocked.Increment(ref _throttledRequests);
-                    
+
                     // Add rate limit headers if configured
                     if (_config.ReturnRateLimitHeaders)
                     {
                         AddRateLimitHeaders(context, acquireResult);
                     }
-                    
+
                     return CreateRateLimitExceededResult(key, acquireResult.Remaining, limit, acquireResult.ResetAfterSeconds);
                 }
 
@@ -176,7 +176,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                     // Continue processing
                     var result = FilterResult.Continue(buffer);
-                    
+
                     UpdateStatistics(buffer.Length, 0, true);
                     await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                     return result;
@@ -205,21 +205,21 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 case RateLimitKeyExtractor.ClientIp:
                     return context.GetProperty<string>("ClientIp") ?? "unknown";
-                    
+
                 case RateLimitKeyExtractor.UserId:
                     return context.GetProperty<string>("UserId") ?? "anonymous";
-                    
+
                 case RateLimitKeyExtractor.ApiKey:
                     return context.GetProperty<string>("ApiKey") ?? "no-key";
-                    
+
                 case RateLimitKeyExtractor.Custom:
                     return _config.CustomKeyExtractor?.Invoke(context) ?? "custom";
-                    
+
                 case RateLimitKeyExtractor.Combined:
                     var clientIp = context.GetProperty<string>("ClientIp") ?? "unknown";
                     var userId = context.GetProperty<string>("UserId");
                     return string.IsNullOrEmpty(userId) ? clientIp : $"{userId}:{clientIp}";
-                    
+
                 default:
                     return "unknown";
             }
@@ -248,20 +248,20 @@ namespace GopherMcp.Filters.BuiltinFilters
                     _config.RequestsPerMinute,
                     _config.BurstSize,
                     _config.WindowSizeSeconds),
-                    
+
                 RateLimitAlgorithm.SlidingWindow => new SlidingWindowLimiter(
                     _config.RequestsPerMinute,
                     _config.WindowSizeSeconds),
-                    
+
                 RateLimitAlgorithm.FixedWindow => new FixedWindowLimiter(
                     _config.RequestsPerMinute,
                     _config.WindowSizeSeconds),
-                    
+
                 RateLimitAlgorithm.LeakyBucket => new LeakyBucketLimiter(
                     _config.RequestsPerMinute,
                     _config.BurstSize,
                     _config.WindowSizeSeconds),
-                    
+
                 _ => new TokenBucketLimiter(
                     _config.RequestsPerMinute,
                     _config.BurstSize,
@@ -298,16 +298,16 @@ namespace GopherMcp.Filters.BuiltinFilters
         private void AddRateLimitHeaders(ProcessingContext context, RateLimitResult result)
         {
             var headers = context.GetProperty<Dictionary<string, string>>("ResponseHeaders") ?? new Dictionary<string, string>();
-            
+
             headers[$"{_config.RateLimitHeaderPrefix}Limit"] = result.Limit.ToString();
             headers[$"{_config.RateLimitHeaderPrefix}Remaining"] = result.Remaining.ToString();
             headers[$"{_config.RateLimitHeaderPrefix}Reset"] = result.ResetAt.ToUnixTimeSeconds().ToString();
-            
+
             if (!result.Allowed)
             {
                 headers["Retry-After"] = result.ResetAfterSeconds.ToString();
             }
-            
+
             context.SetProperty("ResponseHeaders", headers);
         }
 
@@ -404,7 +404,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 var resetAt = _windowStart.AddSeconds(_windowSizeSeconds);
-                
+
                 return Task.FromResult(new RateLimitResult
                 {
                     Allowed = allowed,
@@ -472,7 +472,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     }
                 }
 
-                var resetAt = _requestTimes.Count > 0 
+                var resetAt = _requestTimes.Count > 0
                     ? _requestTimes.Peek().AddSeconds(_windowSizeSeconds)
                     : now.AddSeconds(_windowSizeSeconds);
 
@@ -490,7 +490,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             lock (_lock)
             {
-                return _requestTimes.Count == 0 || 
+                return _requestTimes.Count == 0 ||
                        _requestTimes.All(t => t < now.AddSeconds(-_windowSizeSeconds * 2));
             }
         }
@@ -517,7 +517,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             lock (_lock)
             {
                 var now = DateTimeOffset.UtcNow;
-                
+
                 // Reset window if expired
                 if (now >= _windowStart.AddSeconds(_windowSizeSeconds))
                 {

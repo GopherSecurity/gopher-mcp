@@ -20,27 +20,27 @@ namespace GopherMcp.Utils
         private static readonly Lazy<JsonSerializerOptions> _indentedOptions = new Lazy<JsonSerializerOptions>(CreateIndentedOptions);
         private static readonly Lazy<JsonSerializerOptions> _strictOptions = new Lazy<JsonSerializerOptions>(CreateStrictOptions);
         private static readonly Lazy<JsonSerializerOptions> _webOptions = new Lazy<JsonSerializerOptions>(CreateWebOptions);
-        
+
         /// <summary>
         /// Gets the default serializer options optimized for MCP
         /// </summary>
         public static JsonSerializerOptions DefaultOptions => _defaultOptions.Value;
-        
+
         /// <summary>
         /// Gets indented serializer options for human-readable output
         /// </summary>
         public static JsonSerializerOptions IndentedOptions => _indentedOptions.Value;
-        
+
         /// <summary>
         /// Gets strict serializer options with no null value handling
         /// </summary>
         public static JsonSerializerOptions StrictOptions => _strictOptions.Value;
-        
+
         /// <summary>
         /// Gets web-optimized serializer options with camelCase naming
         /// </summary>
         public static JsonSerializerOptions WebOptions => _webOptions.Value;
-        
+
         /// <summary>
         /// Serializes an object to JSON string
         /// </summary>
@@ -52,7 +52,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.Serialize(value, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Serializes an object to JSON bytes
         /// </summary>
@@ -64,7 +64,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Serializes an object to a stream
         /// </summary>
@@ -76,7 +76,7 @@ namespace GopherMcp.Utils
         {
             System.Text.Json.JsonSerializer.Serialize(stream, value, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Serializes an object to a stream asynchronously
         /// </summary>
@@ -89,7 +89,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.SerializeAsync(stream, value, options ?? DefaultOptions, cancellationToken);
         }
-        
+
         /// <summary>
         /// Serializes an object to a UTF-8 JSON writer
         /// </summary>
@@ -101,7 +101,7 @@ namespace GopherMcp.Utils
         {
             System.Text.Json.JsonSerializer.Serialize(writer, value, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Deserializes JSON string to an object
         /// </summary>
@@ -113,7 +113,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.Deserialize<T>(json, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Deserializes JSON bytes to an object
         /// </summary>
@@ -125,7 +125,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.Deserialize<T>(utf8Json, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Deserializes JSON from a stream
         /// </summary>
@@ -137,7 +137,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.Deserialize<T>(stream, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Deserializes JSON from a stream asynchronously
         /// </summary>
@@ -150,7 +150,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.DeserializeAsync<T>(stream, options ?? DefaultOptions, cancellationToken);
         }
-        
+
         /// <summary>
         /// Deserializes JSON from a UTF-8 JSON reader
         /// </summary>
@@ -162,7 +162,7 @@ namespace GopherMcp.Utils
         {
             return System.Text.Json.JsonSerializer.Deserialize<T>(ref reader, options ?? DefaultOptions);
         }
-        
+
         /// <summary>
         /// Tries to deserialize JSON string to an object
         /// </summary>
@@ -174,10 +174,10 @@ namespace GopherMcp.Utils
         public static bool TryDeserialize<T>(string json, out T result, JsonSerializerOptions options = null)
         {
             result = default;
-            
+
             if (string.IsNullOrEmpty(json))
                 return false;
-            
+
             try
             {
                 result = Deserialize<T>(json, options);
@@ -188,7 +188,7 @@ namespace GopherMcp.Utils
                 return false;
             }
         }
-        
+
         /// <summary>
         /// Clones an object using JSON serialization
         /// </summary>
@@ -200,11 +200,11 @@ namespace GopherMcp.Utils
         {
             if (value == null)
                 return default;
-            
+
             var json = Serialize(value, options);
             return Deserialize<T>(json, options);
         }
-        
+
         /// <summary>
         /// Converts a JSON element to a specific type
         /// </summary>
@@ -219,10 +219,10 @@ namespace GopherMcp.Utils
             {
                 element.WriteTo(writer);
             }
-            
+
             return Deserialize<T>(bufferWriter.WrittenSpan, options);
         }
-        
+
         /// <summary>
         /// Converts an object to a JSON element
         /// </summary>
@@ -236,7 +236,7 @@ namespace GopherMcp.Utils
             using var doc = JsonDocument.Parse(bytes);
             return doc.RootElement.Clone();
         }
-        
+
         /// <summary>
         /// Creates default serializer options optimized for MCP
         /// </summary>
@@ -255,7 +255,7 @@ namespace GopherMcp.Utils
                 DefaultBufferSize = 16384,
                 MaxDepth = 64
             };
-            
+
             // Add custom converters
             options.Converters.Add(new JsonStringEnumConverter());
             options.Converters.Add(new McpResultConverter());
@@ -263,10 +263,10 @@ namespace GopherMcp.Utils
             options.Converters.Add(new DateTimeConverter());
             options.Converters.Add(new TimeSpanConverter());
             options.Converters.Add(new GuidConverter());
-            
+
             return options;
         }
-        
+
         /// <summary>
         /// Creates indented serializer options
         /// </summary>
@@ -276,7 +276,7 @@ namespace GopherMcp.Utils
             options.WriteIndented = true;
             return options;
         }
-        
+
         /// <summary>
         /// Creates strict serializer options
         /// </summary>
@@ -295,11 +295,11 @@ namespace GopherMcp.Utils
                 DefaultBufferSize = 16384,
                 MaxDepth = 32
             };
-            
+
             options.Converters.Add(new JsonStringEnumConverter());
             return options;
         }
-        
+
         /// <summary>
         /// Creates web-optimized serializer options
         /// </summary>
@@ -310,13 +310,13 @@ namespace GopherMcp.Utils
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 NumberHandling = JsonNumberHandling.AllowReadingFromString
             };
-            
+
             options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
             options.Converters.Add(new DateTimeConverter());
-            
+
             return options;
         }
-        
+
         /// <summary>
         /// Custom converter for McpResult enum
         /// </summary>
@@ -328,7 +328,7 @@ namespace GopherMcp.Utils
                 {
                     return (McpResult)reader.GetInt32();
                 }
-                
+
                 if (reader.TokenType == JsonTokenType.String)
                 {
                     var str = reader.GetString();
@@ -337,16 +337,16 @@ namespace GopherMcp.Utils
                         return result;
                     }
                 }
-                
+
                 throw new JsonException($"Unable to convert {reader.GetString()} to McpResult");
             }
-            
+
             public override void Write(Utf8JsonWriter writer, McpResult value, JsonSerializerOptions options)
             {
                 writer.WriteStringValue(value.ToString());
             }
         }
-        
+
         /// <summary>
         /// Custom converter for McpBool enum
         /// </summary>
@@ -356,30 +356,30 @@ namespace GopherMcp.Utils
             {
                 if (reader.TokenType == JsonTokenType.True)
                     return McpBool.True;
-                
+
                 if (reader.TokenType == JsonTokenType.False)
                     return McpBool.False;
-                
+
                 if (reader.TokenType == JsonTokenType.Number)
                 {
                     return reader.GetInt32() != 0 ? McpBool.True : McpBool.False;
                 }
-                
+
                 if (reader.TokenType == JsonTokenType.String)
                 {
                     var str = reader.GetString()?.ToLowerInvariant();
                     return (str == "true" || str == "1" || str == "yes") ? McpBool.True : McpBool.False;
                 }
-                
+
                 return McpBool.False;
             }
-            
+
             public override void Write(Utf8JsonWriter writer, McpBool value, JsonSerializerOptions options)
             {
                 writer.WriteBooleanValue(value == McpBool.True);
             }
         }
-        
+
         /// <summary>
         /// Custom converter for DateTime with ISO 8601 format
         /// </summary>
@@ -392,21 +392,21 @@ namespace GopherMcp.Utils
                     var str = reader.GetString();
                     if (DateTime.TryParse(str, out var result))
                     {
-                        return result.Kind == DateTimeKind.Unspecified 
-                            ? DateTime.SpecifyKind(result, DateTimeKind.Utc) 
+                        return result.Kind == DateTimeKind.Unspecified
+                            ? DateTime.SpecifyKind(result, DateTimeKind.Utc)
                             : result;
                     }
                 }
-                
+
                 throw new JsonException($"Unable to convert {reader.GetString()} to DateTime");
             }
-            
+
             public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
             {
                 writer.WriteStringValue(value.ToUniversalTime().ToString("O"));
             }
         }
-        
+
         /// <summary>
         /// Custom converter for TimeSpan
         /// </summary>
@@ -422,22 +422,22 @@ namespace GopherMcp.Utils
                         return result;
                     }
                 }
-                
+
                 if (reader.TokenType == JsonTokenType.Number)
                 {
                     // Assume milliseconds
                     return TimeSpan.FromMilliseconds(reader.GetDouble());
                 }
-                
+
                 throw new JsonException($"Unable to convert {reader.GetString()} to TimeSpan");
             }
-            
+
             public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options)
             {
                 writer.WriteStringValue(value.ToString("c"));
             }
         }
-        
+
         /// <summary>
         /// Custom converter for Guid
         /// </summary>
@@ -453,23 +453,23 @@ namespace GopherMcp.Utils
                         return result;
                     }
                 }
-                
+
                 throw new JsonException($"Unable to convert {reader.GetString()} to Guid");
             }
-            
+
             public override void Write(Utf8JsonWriter writer, Guid value, JsonSerializerOptions options)
             {
                 writer.WriteStringValue(value.ToString("D"));
             }
         }
-        
+
         /// <summary>
         /// Builder for creating custom JsonSerializerOptions
         /// </summary>
         public class OptionsBuilder
         {
             private readonly JsonSerializerOptions _options;
-            
+
             /// <summary>
             /// Initializes a new instance of OptionsBuilder
             /// </summary>
@@ -477,7 +477,7 @@ namespace GopherMcp.Utils
             {
                 _options = new JsonSerializerOptions();
             }
-            
+
             /// <summary>
             /// Initializes a new instance of OptionsBuilder with base options
             /// </summary>
@@ -485,7 +485,7 @@ namespace GopherMcp.Utils
             {
                 _options = new JsonSerializerOptions(baseOptions);
             }
-            
+
             /// <summary>
             /// Sets the property naming policy
             /// </summary>
@@ -494,7 +494,7 @@ namespace GopherMcp.Utils
                 _options.PropertyNamingPolicy = policy;
                 return this;
             }
-            
+
             /// <summary>
             /// Sets whether to write indented JSON
             /// </summary>
@@ -503,7 +503,7 @@ namespace GopherMcp.Utils
                 _options.WriteIndented = writeIndented;
                 return this;
             }
-            
+
             /// <summary>
             /// Sets the default ignore condition
             /// </summary>
@@ -512,7 +512,7 @@ namespace GopherMcp.Utils
                 _options.DefaultIgnoreCondition = condition;
                 return this;
             }
-            
+
             /// <summary>
             /// Sets whether property names are case insensitive
             /// </summary>
@@ -521,7 +521,7 @@ namespace GopherMcp.Utils
                 _options.PropertyNameCaseInsensitive = caseInsensitive;
                 return this;
             }
-            
+
             /// <summary>
             /// Adds a custom converter
             /// </summary>
@@ -530,7 +530,7 @@ namespace GopherMcp.Utils
                 _options.Converters.Add(converter);
                 return this;
             }
-            
+
             /// <summary>
             /// Sets the maximum depth
             /// </summary>
@@ -539,7 +539,7 @@ namespace GopherMcp.Utils
                 _options.MaxDepth = maxDepth;
                 return this;
             }
-            
+
             /// <summary>
             /// Sets the buffer size
             /// </summary>
@@ -548,7 +548,7 @@ namespace GopherMcp.Utils
                 _options.DefaultBufferSize = bufferSize;
                 return this;
             }
-            
+
             /// <summary>
             /// Builds the JsonSerializerOptions
             /// </summary>
@@ -557,7 +557,7 @@ namespace GopherMcp.Utils
                 return _options;
             }
         }
-        
+
         /// <summary>
         /// Creates a new options builder
         /// </summary>
@@ -565,7 +565,7 @@ namespace GopherMcp.Utils
         {
             return new OptionsBuilder();
         }
-        
+
         /// <summary>
         /// Creates a new options builder with base options
         /// </summary>

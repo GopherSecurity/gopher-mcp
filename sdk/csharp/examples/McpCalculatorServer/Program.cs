@@ -102,7 +102,7 @@ namespace McpCalculatorServer
             logger.LogInformation("Registering calculator tools...");
 
             // Add tool
-            server.RegisterTool<AddParameters, double>("calculator.add", 
+            server.RegisterTool<AddParameters, double>("calculator.add",
                 "Adds two numbers together",
                 async (parameters) =>
                 {

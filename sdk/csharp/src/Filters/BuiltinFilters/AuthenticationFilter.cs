@@ -159,7 +159,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Extract authentication information from context
                 var authHeader = context?.GetProperty<string>("Authorization");
-                
+
                 if (string.IsNullOrEmpty(authHeader) && _config.Method != AuthenticationMethod.ApiKey)
                 {
                     _logger?.LogWarning("No authorization header found");
@@ -196,7 +196,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                             break;
 
                         case AuthenticationMethod.ApiKey:
-                            var apiKey = context?.GetProperty<string>(_config.ApiKeyHeader) ?? 
+                            var apiKey = context?.GetProperty<string>(_config.ApiKeyHeader) ??
                                         ExtractApiKeyFromAuth(authHeader);
                             isAuthenticated = ValidateApiKey(apiKey);
                             break;
@@ -289,7 +289,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 return false;
 
             var token = authHeader.Substring(7);
-            
+
             // Simple token validation - in production, validate with JWT or OAuth2 server
             await Task.CompletedTask;
             return !string.IsNullOrEmpty(token);
@@ -320,7 +320,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 return false;
 
             var token = authHeader.Substring(7);
-            
+
             // In production, validate with OAuth2 server
             // This is a placeholder implementation
             await Task.Delay(10, cancellationToken);
@@ -393,12 +393,12 @@ namespace GopherMcp.Filters.BuiltinFilters
             try
             {
                 _cache[key] = (isValid, DateTime.UtcNow.Add(_config.CacheDuration));
-                
+
                 // Clean expired entries
                 var expiredKeys = _cache.Where(kvp => kvp.Value.Expiry <= DateTime.UtcNow)
                                        .Select(kvp => kvp.Key)
                                        .ToList();
-                
+
                 foreach (var expiredKey in expiredKeys)
                 {
                     _cache.Remove(expiredKey);

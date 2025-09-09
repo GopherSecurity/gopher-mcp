@@ -123,7 +123,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             _completedSpans = new ConcurrentQueue<CompletedSpan>();
             _sampler = CreateSampler();
             _exporter = CreateExporter();
-            
+
             if (_config.EnableBatching)
             {
                 _exportTimer = new Timer(
@@ -163,29 +163,29 @@ namespace GopherMcp.Filters.BuiltinFilters
             ThrowIfDisposed();
 
             SpanContext? span = null;
-            
+
             try
             {
                 // Extract or create trace context
                 var traceContext = ExtractOrCreateTraceContext(context);
-                
+
                 // Make sampling decision
                 var shouldSample = _sampler.ShouldSample(traceContext, context);
-                
+
                 if (shouldSample)
                 {
                     // Create new span
                     span = CreateSpan(traceContext, context);
                     _activeSpans[span.SpanId] = span;
-                    
+
                     // Store span in context for downstream filters
                     context.SetProperty("TraceId", span.TraceId);
                     context.SetProperty("SpanId", span.SpanId);
                     context.SetProperty("ParentSpanId", span.ParentSpanId);
-                    
+
                     // Add span attributes
                     AddSpanAttributes(span, context);
-                    
+
                     // Record span start event
                     if (_config.RecordEvents)
                     {
@@ -210,7 +210,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 if (span != null)
                 {
                     span.End();
-                    
+
                     if (_config.RecordEvents)
                     {
                         span.AddEvent("filter.complete", new Dictionary<string, object>
@@ -219,7 +219,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                             ["result.buffer.size"] = result.Data?.Length ?? 0
                         });
                     }
-                    
+
                     RecordSpan(span);
                 }
 
@@ -254,12 +254,12 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
 
             // Check for other tracing headers (Jaeger, Zipkin, etc.)
-            var traceId = context.GetProperty<string>("X-Trace-Id") ?? 
+            var traceId = context.GetProperty<string>("X-Trace-Id") ??
                          context.GetProperty<string>("X-B3-TraceId");
-            
+
             if (!string.IsNullOrEmpty(traceId))
             {
-                var spanId = context.GetProperty<string>("X-Span-Id") ?? 
+                var spanId = context.GetProperty<string>("X-Span-Id") ??
                             context.GetProperty<string>("X-B3-SpanId");
                 return new TraceContext
                 {
@@ -358,7 +358,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             if (responseHeaders != null)
             {
                 responseHeaders["traceparent"] = traceParent;
-                
+
                 // Add tracestate if present
                 var traceState = context.GetProperty<string>("tracestate");
                 if (!string.IsNullOrEmpty(traceState))
@@ -371,7 +371,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         private void RecordSpan(SpanContext span)
         {
             _activeSpans.TryRemove(span.SpanId, out _);
-            
+
             var completedSpan = new CompletedSpan
             {
                 TraceId = span.TraceId,
@@ -405,7 +405,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         private void ExportSpans(object? state)
         {
             var spansToExport = new List<CompletedSpan>();
-            
+
             while (_completedSpans.TryDequeue(out var span) && spansToExport.Count < _config.BatchSize)
             {
                 spansToExport.Add(span);
@@ -445,7 +445,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Export remaining spans
                 ExportSpans(null);
-                
+
                 _exportTimer?.Dispose();
                 _exporter?.Dispose();
                 _activeSpans.Clear();
@@ -599,7 +599,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             lock (_lock)
             {
                 var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                
+
                 if (now != _currentSecond)
                 {
                     _currentSecond = now;

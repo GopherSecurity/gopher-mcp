@@ -53,7 +53,7 @@ namespace GopherMcp.Manager
             // In a real implementation, these would be provided through the config or constructor
             ulong connectionHandle = 0;  // Would be set from transport/connection
             ulong dispatcherHandle = 0;  // Would be set from message dispatcher
-            
+
             var handle = McpFilterApi.mcp_filter_manager_create(
                 connectionHandle,
                 dispatcherHandle
@@ -167,7 +167,7 @@ namespace GopherMcp.Manager
         public ManagerStatistics GetStatistics()
         {
             ThrowIfDisposed();
-            
+
             var stats = new ManagerStatistics
             {
                 FilterCount = FilterCount,
@@ -196,7 +196,7 @@ namespace GopherMcp.Manager
                     stats.TotalProcessed += (long)chainStats.TotalPacketsProcessed;
                     stats.TotalErrors += (long)chainStats.TotalErrors;
                     stats.TotalBytesProcessed += (long)chainStats.TotalBytesProcessed;
-                    
+
                     // Convert microseconds to TimeSpan
                     var processingTime = TimeSpan.FromTicks((long)(chainStats.TotalProcessingTimeUs * 10));
                     stats.TotalProcessingTime += processingTime;
@@ -211,7 +211,7 @@ namespace GopherMcp.Manager
                         // Use average as approximation for min/max
                         if (avgLatency < stats.MinLatency)
                             stats.MinLatency = avgLatency;
-                        
+
                         if (avgLatency > stats.MaxLatency)
                             stats.MaxLatency = avgLatency;
                     }
@@ -251,7 +251,7 @@ namespace GopherMcp.Manager
                 {
                     var filterStats = kvp.Value.GetStatistics();
                     stats.FilterStatistics[kvp.Key] = filterStats;
-                    
+
                     // Add filter processing counts
                     stats.TotalFilterInvocations += (long)filterStats.ProcessCount;
                 }
@@ -399,7 +399,7 @@ namespace GopherMcp.Manager
             ThrowIfDisposed();
 
             Filter? removedFilter = null;
-            
+
             _registryLock.EnterWriteLock();
             try
             {
@@ -471,12 +471,12 @@ namespace GopherMcp.Manager
         public FilterChain GetDefaultChain()
         {
             ThrowIfDisposed();
-            
+
             _chainsLock.EnterReadLock();
             try
             {
                 // Return the first chain or one named "default"
-                return _chains.FirstOrDefault(c => c.Name?.ToLower() == "default") ?? 
+                return _chains.FirstOrDefault(c => c.Name?.ToLower() == "default") ??
                        _chains.FirstOrDefault();
             }
             finally
@@ -484,7 +484,7 @@ namespace GopherMcp.Manager
                 _chainsLock.ExitReadLock();
             }
         }
-        
+
         /// <summary>
         /// Gets a filter chain by name.
         /// </summary>
@@ -493,10 +493,10 @@ namespace GopherMcp.Manager
         public FilterChain GetChain(string chainName)
         {
             ThrowIfDisposed();
-            
+
             if (string.IsNullOrEmpty(chainName))
                 return GetDefaultChain();
-            
+
             _chainsLock.EnterReadLock();
             try
             {
@@ -507,7 +507,7 @@ namespace GopherMcp.Manager
                 _chainsLock.ExitReadLock();
             }
         }
-        
+
         /// <summary>
         /// Processes a message through the appropriate filter chain.
         /// </summary>
@@ -594,7 +594,7 @@ namespace GopherMcp.Manager
                 {
                     var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
                     var responseMessage = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(resultJson);
-                    
+
                     processingResult = new ProcessingResult
                     {
                         Success = true,
@@ -842,10 +842,10 @@ namespace GopherMcp.Manager
         private void SetFilterManagerReference(Filter filter, FilterManager manager)
         {
             // Use reflection to set Manager property if it exists
-            var managerProperty = filter.GetType().GetProperty("Manager", 
+            var managerProperty = filter.GetType().GetProperty("Manager",
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            
-            if (managerProperty != null && managerProperty.CanWrite && 
+
+            if (managerProperty != null && managerProperty.CanWrite &&
                 managerProperty.PropertyType.IsAssignableFrom(typeof(FilterManager)))
             {
                 managerProperty.SetValue(filter, manager);
@@ -882,9 +882,9 @@ namespace GopherMcp.Manager
         private async Task InitializeFilterAsync(Filter filter)
         {
             // Call Initialize if it exists
-            var initMethod = filter.GetType().GetMethod("InitializeAsync", 
+            var initMethod = filter.GetType().GetMethod("InitializeAsync",
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            
+
             if (initMethod != null && initMethod.ReturnType == typeof(Task))
             {
                 var task = initMethod.Invoke(filter, null) as Task;
@@ -896,9 +896,9 @@ namespace GopherMcp.Manager
             else
             {
                 // Try synchronous Initialize
-                var syncInitMethod = filter.GetType().GetMethod("Initialize", 
+                var syncInitMethod = filter.GetType().GetMethod("Initialize",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                
+
                 if (syncInitMethod != null)
                 {
                     syncInitMethod.Invoke(filter, null);
@@ -928,7 +928,7 @@ namespace GopherMcp.Manager
             ValidateConfiguration(newConfig);
 
             var oldConfig = _config;
-            
+
             try
             {
                 // Update configuration
@@ -944,7 +944,7 @@ namespace GopherMcp.Manager
                 await ReconfigureFiltersAsync(oldConfig, newConfig);
 
                 // Update logging configuration
-                if (newConfig.EnableLogging != oldConfig.EnableLogging || 
+                if (newConfig.EnableLogging != oldConfig.EnableLogging ||
                     newConfig.LogLevel != oldConfig.LogLevel)
                 {
                     ConfigureLogging();
@@ -995,7 +995,7 @@ namespace GopherMcp.Manager
                 tasks.Add(Task.Run(() =>
                 {
                     ConfigureFilterDefaults(filter);
-                    
+
                     // Update filter-specific settings
                     if (filter.Config != null)
                     {
@@ -1060,7 +1060,7 @@ namespace GopherMcp.Manager
         {
             // Find and remove default filters
             var filtersToRemove = new List<Guid>();
-            
+
             _registryLock.EnterReadLock();
             try
             {
@@ -1094,7 +1094,7 @@ namespace GopherMcp.Manager
         {
             // Check by filter name or type
             var filterName = filter.Config?.Name ?? "";
-            return filterName.StartsWith("Default") || 
+            return filterName.StartsWith("Default") ||
                    filterName.Contains("Authentication") ||
                    filterName.Contains("Metrics") ||
                    filterName.Contains("RateLimit");
@@ -1145,7 +1145,7 @@ namespace GopherMcp.Manager
         {
             // Try to find a fallback chain
             FilterChain? fallbackChain = null;
-            
+
             _chainsLock.EnterReadLock();
             try
             {
@@ -1167,7 +1167,7 @@ namespace GopherMcp.Manager
                     {
                         var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
                         var responseMessage = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(resultJson);
-                        
+
                         return new ProcessingResult
                         {
                             Success = true,
@@ -1218,22 +1218,22 @@ namespace GopherMcp.Manager
                         // Step 1: Stop all active processing
                         // Cancel any pending operations
                         // This would cancel any active ProcessAsync operations if we tracked them
-                        
+
                         // Step 2: Dispose all chains first (they may reference filters)
                         DisposeChains();
-                        
+
                         // Step 3: Dispose all registered filters
                         DisposeFilters();
-                        
+
                         // Step 4: Clean up event handlers to prevent memory leaks
                         ClearEventHandlers();
-                        
+
                         // Step 5: Release native manager handle
                         ReleaseNativeHandle();
-                        
+
                         // Step 6: Dispose callback manager
                         _callbackManager?.Dispose();
-                        
+
                         // Step 7: Dispose locks
                         DisposeLocks();
                     }
@@ -1254,7 +1254,7 @@ namespace GopherMcp.Manager
         private void DisposeChains()
         {
             List<FilterChain> chainsToDispose = null;
-            
+
             _chainsLock.EnterWriteLock();
             try
             {
@@ -1292,7 +1292,7 @@ namespace GopherMcp.Manager
         private void DisposeFilters()
         {
             Dictionary<Guid, Filter> filtersToDispose = null;
-            
+
             _registryLock.EnterWriteLock();
             try
             {
@@ -1327,7 +1327,7 @@ namespace GopherMcp.Manager
                             }
                             catch { }
                         }
-                        
+
                         kvp.Value.Dispose();
                     }
                     catch (Exception ex)
@@ -1492,7 +1492,7 @@ namespace GopherMcp.Manager
                 });
 
                 _callbackManager.RegisterCallback(logCallback, "log");
-                
+
                 McpFilterApi.mcp_filter_manager_set_log_callback(
                     (ulong)_handle.DangerousGetHandle(),
                     logCallback,
@@ -1510,7 +1510,7 @@ namespace GopherMcp.Manager
             {
                 // Check config for enabled filters
                 var settings = _config.Settings;
-                
+
                 // Create Authentication filter if enabled
                 if (GetSettingBool(settings, "EnableAuthenticationFilter", false))
                 {
@@ -1631,7 +1631,7 @@ namespace GopherMcp.Manager
                 //     GopherMcp.Types.McpBuiltinFilterType.Metrics => new MetricsFilter(filterConfig),
                 //     // etc.
                 // };
-                
+
                 return null;
             }
             catch (Exception ex)
@@ -1671,37 +1671,37 @@ namespace GopherMcp.Manager
                     config.SetSetting("RequireAuth", true);
                     config.SetSetting("AuthMethod", "Bearer");
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.RateLimit:
                     config.SetSetting("RequestsPerSecond", 100);
                     config.SetSetting("BurstSize", 200);
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Metrics:
                     config.SetSetting("CollectLatency", true);
                     config.SetSetting("CollectThroughput", true);
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Logging:
                     config.SetSetting("LogLevel", _config.LogLevel);
                     config.SetSetting("IncludePayload", false);
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Compression:
                     config.SetSetting("Algorithm", "gzip");
                     config.SetSetting("Level", 6);
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Encryption:
                     config.SetSetting("Algorithm", "AES256");
                     config.SetSetting("Mode", "GCM");
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Caching:
                     config.SetSetting("MaxSize", 1000);
                     config.SetSetting("TTL", TimeSpan.FromMinutes(5));
                     break;
-                    
+
                 case GopherMcp.Types.McpBuiltinFilterType.Validation:
                     config.SetSetting("StrictMode", true);
                     config.SetSetting("ValidateSchema", true);
@@ -1710,7 +1710,7 @@ namespace GopherMcp.Manager
 
             // Apply any custom settings from config
             var customKey = $"{filterType}FilterSettings";
-            if (_config.Settings.TryGetValue(customKey, out var customSettings) && 
+            if (_config.Settings.TryGetValue(customKey, out var customSettings) &&
                 customSettings is Dictionary<string, object> settings)
             {
                 foreach (var kvp in settings)
@@ -1735,7 +1735,7 @@ namespace GopherMcp.Manager
 
                 // Add registered default filters in priority order
                 var defaultFilters = new List<(Guid id, Filter filter, int priority)>();
-                
+
                 _registryLock.EnterReadLock();
                 try
                 {

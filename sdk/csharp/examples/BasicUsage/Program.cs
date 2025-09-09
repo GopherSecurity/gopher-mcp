@@ -38,9 +38,9 @@ namespace BasicUsage
                 };
 
                 Console.WriteLine($"Processing message: {testMessage.Method}");
-                
+
                 var result = await manager.ProcessAsync(testMessage);
-                
+
                 if (result.IsSuccess)
                 {
                     Console.WriteLine($"Success! Result: {result.Data?.Method ?? "OK"}");

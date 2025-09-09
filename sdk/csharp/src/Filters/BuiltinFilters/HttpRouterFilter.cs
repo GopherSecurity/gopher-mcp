@@ -112,7 +112,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 // Extract path from context (would be parsed from HTTP request in real implementation)
                 var path = context?.GetProperty<string>("Path") ?? "/";
                 var method = context?.GetProperty<string>("Method") ?? "GET";
-                
+
                 // Handle method override if enabled
                 if (_config.EnableMethodOverride)
                 {
@@ -122,14 +122,14 @@ namespace GopherMcp.Filters.BuiltinFilters
                         method = overrideMethod;
                     }
                 }
-                
+
                 // Find matching route
                 var match = MatchRoute(path, method);
-                
+
                 if (match == null)
                 {
                     _logger?.LogWarning("No route found for {Method} {Path}", method, path);
-                    
+
                     if (!string.IsNullOrEmpty(_config.DefaultHandler))
                     {
                         context?.SetProperty("RouteTarget", _config.DefaultHandler);
@@ -146,16 +146,16 @@ namespace GopherMcp.Filters.BuiltinFilters
                     context?.SetProperty("MatchedRoute", match.Route.Pattern);
                     context?.SetProperty("RouteTarget", match.Route.Target);
                     context?.SetProperty("RouteParams", match.Parameters);
-                    
+
                     // Add route metadata to context
                     foreach (var metadata in match.Route.Metadata)
                     {
                         context?.SetProperty($"Route.{metadata.Key}", metadata.Value);
                     }
-                    
+
                     _logger?.LogInformation("Routed {Method} {Path} to {Target}", method, path, match.Route.Target);
                 }
-                
+
                 await Task.CompletedTask; // Satisfy async requirement
                 return FilterResult.Success(buffer, 0, buffer.Length);
             }
@@ -172,43 +172,43 @@ namespace GopherMcp.Filters.BuiltinFilters
         private List<CompiledRoute> CompileRoutes(List<RouteConfig> routes)
         {
             var compiled = new List<CompiledRoute>();
-            
+
             foreach (var route in routes)
             {
                 var pattern = route.Pattern;
                 var paramNames = new List<string>();
-                
+
                 // Extract parameter names and create regex pattern
                 // Example: /users/{id} -> /users/(?<id>[^/]+)
                 var regex = Regex.Replace(pattern, @"\{([^}]+)\}", match =>
                 {
                     var paramName = match.Groups[1].Value;
                     paramNames.Add(paramName);
-                    
+
                     // Apply constraint if specified
                     if (route.Constraints.TryGetValue(paramName, out var constraint))
                     {
                         return $"(?<{paramName}>{constraint})";
                     }
-                    
+
                     return $"(?<{paramName}>[^/]+)";
                 });
-                
+
                 // Handle trailing slashes
                 if (!_config.StrictSlashes)
                 {
                     regex = regex.TrimEnd('/') + "/?";
                 }
-                
+
                 compiled.Add(new CompiledRoute
                 {
                     Route = route,
-                    Pattern = new Regex($"^{regex}$", 
+                    Pattern = new Regex($"^{regex}$",
                         _config.CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase),
                     ParameterNames = paramNames
                 });
             }
-            
+
             return compiled;
         }
 
@@ -220,23 +220,23 @@ namespace GopherMcp.Filters.BuiltinFilters
             foreach (var compiledRoute in _compiledRoutes)
             {
                 // Check method constraint
-                if (compiledRoute.Route.Methods.Count > 0 && 
+                if (compiledRoute.Route.Methods.Count > 0 &&
                     !compiledRoute.Route.Methods.Contains(method, StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
                 }
-                
+
                 // Match path pattern
                 var match = compiledRoute.Pattern.Match(path);
                 if (match.Success)
                 {
                     var parameters = new Dictionary<string, string>();
-                    
+
                     foreach (var paramName in compiledRoute.ParameterNames)
                     {
                         parameters[paramName] = match.Groups[paramName].Value;
                     }
-                    
+
                     return new RouteMatch
                     {
                         Route = compiledRoute.Route,
@@ -244,7 +244,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     };
                 }
             }
-            
+
             return null;
         }
 

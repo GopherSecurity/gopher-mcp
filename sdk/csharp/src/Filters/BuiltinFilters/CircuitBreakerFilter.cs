@@ -108,7 +108,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _circuitBreakers = new ConcurrentDictionary<string, CircuitBreaker>();
-            
+
             _cleanupTimer = new Timer(
                 CleanupCircuitBreakers,
                 null,
@@ -142,13 +142,13 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Execute the operation
                 var result = await ExecuteWithCircuitBreakerAsync(buffer, context, circuitBreaker, key, cancellationToken);
-                
+
                 // Record success or failure
                 if (IsSuccessfulResult(result))
                 {
                     circuitBreaker.RecordSuccess();
-                    
-                    if (circuitBreaker.State == CircuitBreakerState.HalfOpen && 
+
+                    if (circuitBreaker.State == CircuitBreakerState.HalfOpen &&
                         circuitBreaker.ConsecutiveSuccesses >= _config.SuccessThreshold)
                     {
                         circuitBreaker.TransitionToClosed();
@@ -174,12 +174,12 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 UpdateStatistics(0L, 0, false);
                 await RaiseOnErrorAsync(ex);
-                
+
                 if (circuitBreaker.State == CircuitBreakerState.Open)
                 {
                     return FilterResult.Error($"Circuit breaker opened due to failures: {ex.Message}", FilterError.ServiceUnavailable);
                 }
-                
+
                 throw;
             }
         }
@@ -266,7 +266,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             // Check if should open circuit
             bool shouldOpen = _config.UseFailureRate
-                ? circuitBreaker.GetFailureRate() >= _config.FailureRateThreshold && 
+                ? circuitBreaker.GetFailureRate() >= _config.FailureRateThreshold &&
                   circuitBreaker.GetRequestCount() >= _config.MinimumRequestCount
                 : circuitBreaker.ConsecutiveFailures >= _config.FailureThreshold;
 
@@ -285,7 +285,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             foreach (var kvp in _circuitBreakers)
             {
-                if (kvp.Value.State == CircuitBreakerState.Closed && 
+                if (kvp.Value.State == CircuitBreakerState.Closed &&
                     now - kvp.Value.LastAccessTime > maxIdleTime)
                 {
                     keysToRemove.Add(kvp.Key);
@@ -357,7 +357,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         private DateTimeOffset _lastFailureTime;
         private DateTimeOffset _lastAccessTime;
         private readonly object _lock = new();
-        
+
         // For failure rate calculation
         private readonly Queue<RequestResult> _requestHistory;
         private readonly TimeSpan _samplingDuration;
@@ -387,7 +387,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 _lastAccessTime = DateTimeOffset.UtcNow;
                 _consecutiveSuccesses++;
                 _consecutiveFailures = 0;
-                
+
                 if (_config.UseFailureRate)
                 {
                     RecordRequest(true);
@@ -403,7 +403,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 _lastFailureTime = DateTimeOffset.UtcNow;
                 _consecutiveFailures++;
                 _consecutiveSuccesses = 0;
-                
+
                 if (_config.UseFailureRate)
                 {
                     RecordRequest(false);
@@ -458,7 +458,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             lock (_lock)
             {
                 CleanupOldRequests();
-                
+
                 if (_requestHistory.Count == 0)
                     return 0;
 
@@ -483,14 +483,14 @@ namespace GopherMcp.Filters.BuiltinFilters
                 Success = success,
                 Timestamp = DateTimeOffset.UtcNow
             });
-            
+
             CleanupOldRequests();
         }
 
         private void CleanupOldRequests()
         {
             var cutoff = DateTimeOffset.UtcNow - _samplingDuration;
-            
+
             while (_requestHistory.Count > 0 && _requestHistory.Peek().Timestamp < cutoff)
             {
                 _requestHistory.Dequeue();
@@ -513,7 +513,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         public DateTimeOffset? NextRetryTime { get; set; }
         public double FailureRate { get; set; }
         public int RequestCount { get; set; }
-        
+
         // Aggregated statistics
         public int CircuitBreakerCount { get; set; }
         public int OpenCircuits { get; set; }

@@ -16,14 +16,14 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.add", Description = "Adds two numbers together")]
         public static Task<CalculationResult> Add(
-            [Required] double a, 
+            [Required] double a,
             [Required] double b)
         {
             ValidateNumber(a, nameof(a));
             ValidateNumber(b, nameof(b));
 
             var result = a + b;
-            
+
             return Task.FromResult(new CalculationResult
             {
                 Operation = "add",
@@ -257,7 +257,7 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.factorial", Description = "Calculates factorial of a non-negative integer")]
         public static Task<CalculationResult> Factorial(
-            [Required] [Range(0, 20)] int n)
+            [Required][Range(0, 20)] int n)
         {
             if (n < 0)
             {
@@ -406,7 +406,7 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.average", Description = "Calculates average of a list of numbers")]
         public static Task<CalculationResult> Average(
-            [Required] [MinLength(1)] double[] numbers)
+            [Required][MinLength(1)] double[] numbers)
         {
             if (numbers == null || numbers.Length == 0)
             {
@@ -434,7 +434,7 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.sum", Description = "Calculates sum of a list of numbers")]
         public static Task<CalculationResult> Sum(
-            [Required] [MinLength(1)] double[] numbers)
+            [Required][MinLength(1)] double[] numbers)
         {
             if (numbers == null || numbers.Length == 0)
             {
@@ -462,7 +462,7 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.min", Description = "Finds minimum value from a list of numbers")]
         public static Task<CalculationResult> Minimum(
-            [Required] [MinLength(1)] double[] numbers)
+            [Required][MinLength(1)] double[] numbers)
         {
             if (numbers == null || numbers.Length == 0)
             {
@@ -490,7 +490,7 @@ namespace McpCalculatorServer
         /// </summary>
         [McpTool("calculator.max", Description = "Finds maximum value from a list of numbers")]
         public static Task<CalculationResult> Maximum(
-            [Required] [MinLength(1)] double[] numbers)
+            [Required][MinLength(1)] double[] numbers)
         {
             if (numbers == null || numbers.Length == 0)
             {

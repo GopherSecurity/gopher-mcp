@@ -56,11 +56,11 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Gets or sets the cipher suites preference.
         /// </summary>
-        #if NET5_0_OR_GREATER
+#if NET5_0_OR_GREATER
         public CipherSuitesPolicy CipherSuitesPolicy { get; set; }
-        #else
+#else
         public object CipherSuitesPolicy { get; set; }
-        #endif
+#endif
 
         /// <summary>
         /// Gets or sets the certificate validation callback.
@@ -133,7 +133,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// </summary>
         /// <param name="config">The TLS termination configuration.</param>
         /// <param name="logger">Optional logger.</param>
-        public TlsTerminationFilter(TlsTerminationConfig config, ILogger<TlsTerminationFilter> logger = null) 
+        public TlsTerminationFilter(TlsTerminationConfig config, ILogger<TlsTerminationFilter> logger = null)
             : base(config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -170,7 +170,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 // Check certificate expiration
                 if (_config.ServerCertificate.NotAfter < DateTime.UtcNow.AddDays(7))
                 {
-                    _logger?.LogWarning("Server certificate expires soon: {ExpirationDate}", 
+                    _logger?.LogWarning("Server certificate expires soon: {ExpirationDate}",
                         _config.ServerCertificate.NotAfter);
                 }
 
@@ -189,8 +189,8 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes buffer through the TLS termination filter.
         /// </summary>
         protected override async Task<FilterResult> ProcessInternal(
-            byte[] buffer, 
-            ProcessingContext context, 
+            byte[] buffer,
+            ProcessingContext context,
             CancellationToken cancellationToken)
         {
             try
@@ -247,8 +247,8 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes TLS handshake.
         /// </summary>
         private async Task<FilterResult> ProcessTlsHandshake(
-            byte[] buffer, 
-            TlsConnectionContext tlsContext, 
+            byte[] buffer,
+            TlsConnectionContext tlsContext,
             ProcessingContext context,
             CancellationToken cancellationToken)
         {
@@ -258,18 +258,18 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Parse TLS handshake messages
                 var handshakeType = ParseTlsHandshake(buffer);
-                
+
                 switch (handshakeType)
                 {
                     case TlsHandshakeType.ClientHello:
                         return await ProcessClientHello(buffer, tlsContext, cancellationToken);
-                    
+
                     case TlsHandshakeType.Certificate:
                         return await ProcessCertificate(buffer, tlsContext, cancellationToken);
-                    
+
                     case TlsHandshakeType.Finished:
                         return await ProcessHandshakeFinished(buffer, tlsContext, cancellationToken);
-                    
+
                     default:
                         return new FilterResult(FilterStatus.Continue);
                 }
@@ -285,7 +285,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes ClientHello message.
         /// </summary>
         private async Task<FilterResult> ProcessClientHello(
-            byte[] buffer, 
+            byte[] buffer,
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
@@ -294,7 +294,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             if (!string.IsNullOrEmpty(serverName))
             {
                 tlsContext.ServerName = serverName;
-                
+
                 // Select appropriate certificate for SNI
                 var certificate = await SelectCertificateForServerName(serverName, cancellationToken);
                 if (certificate != null)
@@ -310,7 +310,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes certificate message.
         /// </summary>
         private async Task<FilterResult> ProcessCertificate(
-            byte[] buffer, 
+            byte[] buffer,
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
@@ -320,7 +320,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 if (clientCert != null)
                 {
                     tlsContext.ClientCertificate = clientCert;
-                    
+
                     // Validate client certificate
                     var validationResult = await ValidateClientCertificate(clientCert, cancellationToken);
                     if (!validationResult)
@@ -343,7 +343,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes handshake finished message.
         /// </summary>
         private async Task<FilterResult> ProcessHandshakeFinished(
-            byte[] buffer, 
+            byte[] buffer,
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
@@ -360,14 +360,14 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Decrypts TLS application buffer.
         /// </summary>
         private async Task<byte[]> DecryptTlsData(
-            byte[] encryptedData, 
+            byte[] encryptedData,
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
             // Simulate TLS decryption
             // In a real implementation, this would use the SSL stream
             await Task.Delay(1, cancellationToken);
-            
+
             // For demonstration, return the buffer as-is
             return encryptedData;
         }
@@ -392,7 +392,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Selects certificate for server name (SNI).
         /// </summary>
         private async Task<X509Certificate2> SelectCertificateForServerName(
-            string serverName, 
+            string serverName,
             CancellationToken cancellationToken)
         {
             lock (_cacheLock)
@@ -413,18 +413,18 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Validates client certificate.
         /// </summary>
         private async Task<bool> ValidateClientCertificate(
-            X509Certificate2 clientCertificate, 
+            X509Certificate2 clientCertificate,
             CancellationToken cancellationToken)
         {
             try
             {
                 using var chain = new X509Chain();
-                chain.ChainPolicy.RevocationMode = _config.CheckCertificateRevocation 
-                    ? X509RevocationMode.Online 
+                chain.ChainPolicy.RevocationMode = _config.CheckCertificateRevocation
+                    ? X509RevocationMode.Online
                     : X509RevocationMode.NoCheck;
 
                 var result = chain.Build(clientCertificate);
-                
+
                 if (!result && _logger != null)
                 {
                     foreach (X509ChainElement element in chain.ChainElements)
@@ -452,7 +452,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         protected override async Task OnConfigurationUpdateAsync(FilterConfigBase oldConfig, FilterConfigBase newConfig)
         {
             _logger?.LogInformation("Updating TLS termination filter configuration");
-            
+
             // Clear certificate cache on config update
             lock (_cacheLock)
             {
@@ -462,7 +462,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
                 _certificateCache.Clear();
             }
-            
+
             await Task.CompletedTask;
         }
 

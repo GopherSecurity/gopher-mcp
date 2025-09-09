@@ -72,7 +72,7 @@ namespace AdvancedFiltering
             {
                 Console.WriteLine($"Processing: {message.Method}");
                 var result = await manager.ProcessAsync(message);
-                
+
                 if (result.IsSuccess)
                 {
                     Console.WriteLine($"  ✓ Success: {message.Method}");

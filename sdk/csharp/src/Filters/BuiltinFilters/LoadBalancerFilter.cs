@@ -29,12 +29,12 @@ namespace GopherMcp.Filters.BuiltinFilters
         public int Port { get; set; }
         public int Weight { get; set; } = 1;
         public bool IsHealthy { get; set; } = true;
-        
+
         // Use fields for thread-safe operations
         private int _activeConnections;
         private long _totalRequests;
         private long _failedRequests;
-        
+
         public int ActiveConnections => _activeConnections;
         public DateTimeOffset LastHealthCheck { get; set; }
         public DateTimeOffset LastUsed { get; set; }
@@ -44,7 +44,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         public Dictionary<string, string> Metadata { get; set; } = new();
 
         public string Address => $"{Host}:{Port}";
-        
+
         // Methods for thread-safe operations
         public void IncrementActiveConnections() => Interlocked.Increment(ref _activeConnections);
         public void DecrementActiveConnections() => Interlocked.Decrement(ref _activeConnections);
@@ -220,7 +220,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Get upstream server
                 var upstream = await SelectUpstreamAsync(context, cancellationToken);
-                
+
                 if (upstream == null)
                 {
                     Interlocked.Increment(ref _failedRequests);
@@ -232,7 +232,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 {
                     // Try to find another upstream
                     upstream = await FindAlternativeUpstreamAsync(upstream, context, cancellationToken);
-                    
+
                     if (upstream == null)
                     {
                         Interlocked.Increment(ref _failedRequests);
@@ -293,7 +293,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             // Select using load balancing algorithm
             var selected = await Task.Run(() => _loadBalancer.SelectUpstream(context), cancellationToken);
-            
+
             // Store session affinity if configured
             if (selected != null && _config.SessionAffinity)
             {
@@ -345,11 +345,11 @@ namespace GopherMcp.Filters.BuiltinFilters
             while (attemptsLeft > 0)
             {
                 usedUpstreams.Add(currentUpstream.Id);
-                
+
                 try
                 {
                     var result = await ProcessWithUpstreamAsync(buffer, context, currentUpstream, cancellationToken);
-                    
+
                     if (result.IsSuccess || !ShouldFailover(result))
                     {
                         return result;
@@ -362,7 +362,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 attemptsLeft--;
-                
+
                 if (attemptsLeft > 0)
                 {
                     // Find another upstream
@@ -434,12 +434,12 @@ namespace GopherMcp.Filters.BuiltinFilters
         private void RecordUpstreamFailure(UpstreamServer upstream)
         {
             upstream.IncrementFailedRequests();
-            
+
             // Simple health check: mark unhealthy if failure rate is too high
-            var failureRate = upstream.TotalRequests > 0 
-                ? (double)upstream.FailedRequests / upstream.TotalRequests 
+            var failureRate = upstream.TotalRequests > 0
+                ? (double)upstream.FailedRequests / upstream.TotalRequests
                 : 0;
-                
+
             if (failureRate > 0.5 && upstream.TotalRequests > 10)
             {
                 upstream.IsHealthy = false;
@@ -479,7 +479,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             try
             {
                 bool isHealthy;
-                
+
                 if (_config.HealthCheck.CustomHealthCheck != null)
                 {
                     isHealthy = await _config.HealthCheck.CustomHealthCheck(upstream);
@@ -556,7 +556,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 _healthCheckTimer?.Dispose();
                 _cleanupTimer?.Dispose();
-                
+
                 foreach (var pool in _connectionPools.Values)
                 {
                     pool.Dispose();
@@ -690,7 +690,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             var totalWeight = healthyUpstreams.Sum(u => u.Weight);
             var randomWeight = new Random().Next(totalWeight);
-            
+
             var currentWeight = 0;
             foreach (var upstream in healthyUpstreams)
             {
@@ -758,7 +758,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             // Find the first node with hash >= our hash
             var node = _hashRing.FirstOrDefault(kvp => kvp.Key >= hash);
-            
+
             // If no node found, wrap around to the first node
             if (node.Value == null)
             {
@@ -791,7 +791,7 @@ namespace GopherMcp.Filters.BuiltinFilters
     {
         private readonly Func<ProcessingContext, UpstreamServer?, UpstreamServer> _selector;
 
-        public CustomBalancer(List<UpstreamServer> upstreams, Func<ProcessingContext, UpstreamServer?, UpstreamServer> selector) 
+        public CustomBalancer(List<UpstreamServer> upstreams, Func<ProcessingContext, UpstreamServer?, UpstreamServer> selector)
             : base(upstreams)
         {
             _selector = selector;

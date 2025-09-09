@@ -77,7 +77,7 @@ namespace GopherMcp.Manager
                     Protocol = "jsonrpc",
                     SessionId = message.Id?.ToString() ?? Guid.NewGuid().ToString()
                 };
-                
+
                 // Process through chain using the JsonRpcMessage overload
                 var result = await chain.ProcessAsync(message, context, cancellationToken);
 
@@ -103,7 +103,7 @@ namespace GopherMcp.Manager
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The response messages.</returns>
         public async Task<List<JsonRpcMessage>> ProcessBatchAsync(
-            IEnumerable<JsonRpcMessage> messages, 
+            IEnumerable<JsonRpcMessage> messages,
             CancellationToken cancellationToken = default)
         {
 #if NET6_0_OR_GREATER
@@ -118,7 +118,7 @@ namespace GopherMcp.Manager
 
             var tasks = messages.Select(msg => ProcessAsync(msg, cancellationToken));
             var results = await Task.WhenAll(tasks);
-            
+
             // Filter out null responses (notifications don't generate responses)
             return results.Where(r => r != null).ToList();
         }
@@ -236,7 +236,7 @@ namespace GopherMcp.Manager
             {
                 // Try to get the processed message from the result
                 object resultData = null;
-                
+
                 if (result.Data != null && result.Data.Length > 0)
                 {
                     try
@@ -244,7 +244,7 @@ namespace GopherMcp.Manager
                         // Try to deserialize the result data as JsonRpcMessage
                         var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
                         var resultMessage = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(resultJson);
-                        
+
                         // If it's a response message, use its result
                         if (resultMessage != null && resultMessage.Result != null)
                         {
@@ -262,7 +262,7 @@ namespace GopherMcp.Manager
                         resultData = System.Text.Encoding.UTF8.GetString(result.Data);
                     }
                 }
-                
+
                 return new JsonRpcMessage
                 {
                     JsonRpc = "2.0",

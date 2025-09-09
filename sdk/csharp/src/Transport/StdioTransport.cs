@@ -20,7 +20,7 @@ namespace GopherMcp.Transport
         private readonly TextWriter _output;
         private readonly bool _ownsStreams;
         private readonly int _bufferSize;
-        
+
         private ConnectionState _state;
         private readonly ConcurrentQueue<JsonRpcMessage> _receiveQueue;
         private readonly CancellationTokenSource _shutdownTokenSource;
@@ -53,7 +53,7 @@ namespace GopherMcp.Transport
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Connected || _state == ConnectionState.Connecting)
                 return Task.CompletedTask;
 
@@ -68,7 +68,7 @@ namespace GopherMcp.Transport
 
                 _state = ConnectionState.Connected;
                 OnConnectionStateChanged(ConnectionState.Connected, ConnectionState.Connecting);
-                
+
                 return Task.CompletedTask;
             }
             catch (Exception ex)
@@ -83,7 +83,7 @@ namespace GopherMcp.Transport
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
                 return;
 
@@ -111,7 +111,7 @@ namespace GopherMcp.Transport
 
                 // Flush output
                 await _output.FlushAsync();
-                
+
                 _state = ConnectionState.Disconnected;
                 OnConnectionStateChanged(ConnectionState.Disconnected, ConnectionState.Disconnecting);
             }
@@ -126,7 +126,7 @@ namespace GopherMcp.Transport
         public async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -160,7 +160,7 @@ namespace GopherMcp.Transport
         public async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected");
 
@@ -193,7 +193,7 @@ namespace GopherMcp.Transport
                 {
                     // Read from input
                     string? line = null;
-                    
+
                     // Use async reading if available
                     if (_input is StreamReader streamReader)
                     {
@@ -230,7 +230,7 @@ namespace GopherMcp.Transport
                         // Not a complete JSON object, might be part of multi-line JSON
                         // This handles pretty-printed JSON
                         messageBuilder.Append(line);
-                        
+
                         // Simple JSON completion detection
                         foreach (char c in line)
                         {
@@ -297,7 +297,7 @@ namespace GopherMcp.Transport
                 catch (Exception ex)
                 {
                     OnError(ex, "Error in receive loop");
-                    
+
                     // Continue unless it's a fatal error
                     if (IsFatalError(ex))
                         break;
@@ -322,7 +322,7 @@ namespace GopherMcp.Transport
         private void OnConnectionStateChanged(ConnectionState newState, ConnectionState oldState)
         {
             var args = new ConnectionStateEventArgs(newState, oldState);
-            
+
             if (newState == ConnectionState.Connected)
                 Connected?.Invoke(this, args);
             else if (newState == ConnectionState.Disconnected || newState == ConnectionState.Failed)
@@ -360,7 +360,7 @@ namespace GopherMcp.Transport
 
                 _shutdownTokenSource?.Cancel();
                 _shutdownTokenSource?.Dispose();
-                
+
                 // Close streams if we own them
                 if (_ownsStreams)
                 {
@@ -385,7 +385,7 @@ namespace GopherMcp.Transport
                 _sendLock?.Dispose();
                 _receiveLock?.Dispose();
                 _receiveQueue.Clear();
-                
+
                 _disposed = true;
             }
         }

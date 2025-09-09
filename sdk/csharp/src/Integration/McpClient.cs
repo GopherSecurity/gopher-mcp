@@ -47,10 +47,10 @@ namespace GopherMcp.Integration
             _pendingRequests = new ConcurrentDictionary<object, TaskCompletionSource<JsonRpcMessage>>();
             _notificationHandlers = new ConcurrentDictionary<string, Func<JsonRpcMessage, Task<object?>>>();
             _requestTimeout = requestTimeout ?? TimeSpan.FromSeconds(30);
-            
+
             // Cleanup old pending requests every minute
             _cleanupTimer = new Timer(CleanupPendingRequests, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-            
+
             // Subscribe to transport events
             _transport.MessageReceived += OnTransportMessageReceived;
             _transport.Error += OnTransportError;
@@ -62,9 +62,9 @@ namespace GopherMcp.Integration
         public async Task ConnectAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             await _transport.StartAsync(cancellationToken);
-            
+
             // Start receive loop
             _receiveCancellationSource = new CancellationTokenSource();
             _receiveTask = Task.Run(() => ReceiveLoop(_receiveCancellationSource.Token));
@@ -76,7 +76,7 @@ namespace GopherMcp.Integration
         public async Task DisconnectAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             // Stop receive loop
             _receiveCancellationSource?.Cancel();
             if (_receiveTask != null)
@@ -87,9 +87,9 @@ namespace GopherMcp.Integration
                 }
                 catch { }
             }
-            
+
             await _transport.StopAsync(cancellationToken);
-            
+
             // Cancel all pending requests
             foreach (var pending in _pendingRequests.Values)
             {
@@ -104,16 +104,16 @@ namespace GopherMcp.Integration
         public async Task<T?> InvokeAsync<T>(string method, object? parameters = null, CancellationToken cancellationToken = default)
         {
             var response = await InvokeAsync(method, parameters, cancellationToken);
-            
+
             if (response.Result == null)
                 return default;
-            
+
             // Convert result to requested type
             if (response.Result is System.Text.Json.JsonElement jsonElement)
             {
                 return System.Text.Json.JsonSerializer.Deserialize<T>(jsonElement.GetRawText());
             }
-            
+
             return (T)response.Result;
         }
 
@@ -123,45 +123,45 @@ namespace GopherMcp.Integration
         public async Task<JsonRpcMessage> InvokeAsync(string method, object? parameters = null, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Client is not connected");
-            
+
             // Generate request ID
             var id = GenerateId();
-            
+
             // Create request message
             var request = JsonRpcMessage.CreateRequest(method, parameters, id);
-            
+
             // Create completion source for response
             var tcs = new TaskCompletionSource<JsonRpcMessage>();
             _pendingRequests[id] = tcs;
-            
+
             try
             {
                 // Send request
                 await _transport.SendAsync(request, cancellationToken);
-                
+
                 // Wait for response with timeout
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(_requestTimeout);
-                
+
                 var responseTask = tcs.Task;
                 var completedTask = await Task.WhenAny(responseTask, Task.Delay(_requestTimeout, cts.Token));
-                
+
                 if (completedTask != responseTask)
                 {
                     throw new TimeoutException($"Request timeout for method '{method}'");
                 }
-                
+
                 var response = await responseTask;
-                
+
                 // Check for error response
                 if (response.IsError)
                 {
                     throw new JsonRpcException(response.Error!);
                 }
-                
+
                 return response;
             }
             finally
@@ -176,10 +176,10 @@ namespace GopherMcp.Integration
         public async Task NotifyAsync(string method, object? parameters = null, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             if (!IsConnected)
                 throw new InvalidOperationException("Client is not connected");
-            
+
             var notification = JsonRpcMessage.CreateNotification(method, parameters);
             await _transport.SendAsync(notification, cancellationToken);
         }
@@ -283,7 +283,7 @@ namespace GopherMcp.Integration
                         message.Id,
                         JsonRpcErrorCodes.MethodNotFound,
                         "Client does not handle requests");
-                    
+
                     await _transport.SendAsync(errorResponse);
                 }
             }
@@ -306,7 +306,7 @@ namespace GopherMcp.Integration
                     OnError(ex, $"Error handling notification '{notification.Method}'");
                 }
             }
-            
+
             // Raise event
             NotificationReceived?.Invoke(this, new NotificationEventArgs(notification));
         }
@@ -336,7 +336,7 @@ namespace GopherMcp.Integration
         {
             var cutoff = DateTime.UtcNow - _requestTimeout;
             var timedOutRequests = new List<object>();
-            
+
             foreach (var kvp in _pendingRequests)
             {
                 if (kvp.Value.Task.CreationOptions.HasFlag(TaskCreationOptions.None))
@@ -346,7 +346,7 @@ namespace GopherMcp.Integration
                     timedOutRequests.Add(kvp.Key);
                 }
             }
-            
+
             foreach (var id in timedOutRequests)
             {
                 if (_pendingRequests.TryRemove(id, out var tcs))
@@ -371,10 +371,10 @@ namespace GopherMcp.Integration
                     DisconnectAsync().GetAwaiter().GetResult();
                 }
                 catch { }
-                
+
                 _cleanupTimer?.Dispose();
                 _receiveCancellationSource?.Dispose();
-                
+
                 // Unsubscribe from transport events
                 if (_transport != null)
                 {
@@ -382,7 +382,7 @@ namespace GopherMcp.Integration
                     _transport.Error -= OnTransportError;
                     _transport.Dispose();
                 }
-                
+
                 _disposed = true;
             }
         }
@@ -394,7 +394,7 @@ namespace GopherMcp.Integration
     public class NotificationEventArgs : EventArgs
     {
         public JsonRpcMessage Notification { get; }
-        
+
         public NotificationEventArgs(JsonRpcMessage notification)
         {
             Notification = notification;
@@ -408,7 +408,7 @@ namespace GopherMcp.Integration
     {
         public Exception Exception { get; }
         public string? Context { get; }
-        
+
         public ErrorEventArgs(Exception exception, string? context = null)
         {
             Exception = exception;
@@ -422,8 +422,8 @@ namespace GopherMcp.Integration
     public class JsonRpcException : Exception
     {
         public JsonRpcError Error { get; }
-        
-        public JsonRpcException(JsonRpcError error) 
+
+        public JsonRpcException(JsonRpcError error)
             : base(error.Message)
         {
             Error = error;

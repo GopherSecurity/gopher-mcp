@@ -289,7 +289,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             if (disposing)
             {
                 _sessionCleanupTimer?.Dispose();
-                
+
                 if (_config.EnableMulticast && _config.MulticastGroup != null)
                 {
                     try

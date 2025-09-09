@@ -43,7 +43,7 @@ namespace GopherMcp.Filters
         private int _priority = 100;
         private int _timeoutMs = 30000;
         private int _maxBufferSize = 65536;
-        
+
         /// <summary>
         /// Gets or sets the filter name
         /// </summary>
@@ -59,13 +59,13 @@ namespace GopherMcp.Filters
                 _name = value;
             }
         }
-        
+
         /// <summary>
         /// Gets or sets whether the filter is enabled
         /// </summary>
         [JsonPropertyName("enabled")]
         public virtual bool Enabled { get; set; } = true;
-        
+
         /// <summary>
         /// Gets or sets the filter priority (lower values = higher priority)
         /// </summary>
@@ -81,13 +81,13 @@ namespace GopherMcp.Filters
                 _priority = value;
             }
         }
-        
+
         /// <summary>
         /// Gets or sets the filter type
         /// </summary>
         [JsonPropertyName("type")]
         public virtual string Type { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the filter description
         /// </summary>
@@ -104,18 +104,18 @@ namespace GopherMcp.Filters
         /// Gets or sets the timeout as a TimeSpan
         /// </summary>
         [JsonIgnore]
-        public virtual TimeSpan Timeout 
-        { 
+        public virtual TimeSpan Timeout
+        {
             get => TimeSpan.FromMilliseconds(TimeoutMs);
             set => TimeoutMs = (int)value.TotalMilliseconds;
         }
-        
+
         /// <summary>
         /// Gets or sets the filter version
         /// </summary>
         [JsonPropertyName("version")]
         public virtual string Version { get; set; } = "1.0.0";
-        
+
         /// <summary>
         /// Gets or sets the filter timeout in milliseconds
         /// </summary>
@@ -131,13 +131,13 @@ namespace GopherMcp.Filters
                 _timeoutMs = value;
             }
         }
-        
+
         /// <summary>
         /// Gets or sets whether to bypass this filter on error
         /// </summary>
         [JsonPropertyName("bypassOnError")]
         public virtual bool BypassOnError { get; set; } = false;
-        
+
         /// <summary>
         /// Gets or sets the maximum buffer size for this filter
         /// </summary>
@@ -153,39 +153,39 @@ namespace GopherMcp.Filters
                 _maxBufferSize = value;
             }
         }
-        
+
         /// <summary>
         /// Gets or sets the filter layer
         /// </summary>
         [JsonPropertyName("layer")]
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public virtual FilterLayer Layer { get; set; } = FilterLayer.Application;
-        
+
         /// <summary>
         /// Gets or sets the filter position preference
         /// </summary>
         [JsonPropertyName("position")]
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public virtual FilterPosition Position { get; set; } = FilterPosition.Last;
-        
+
         /// <summary>
         /// Gets or sets additional configuration settings
         /// </summary>
         [JsonPropertyName("settings")]
         public virtual Dictionary<string, object> Settings { get; set; }
-        
+
         /// <summary>
         /// Gets or sets custom metadata
         /// </summary>
         [JsonPropertyName("metadata")]
         public virtual Dictionary<string, string> Metadata { get; set; }
-        
+
         /// <summary>
         /// Gets or sets tags for categorization
         /// </summary>
         [JsonPropertyName("tags")]
         public virtual List<string> Tags { get; set; }
-        
+
         /// <summary>
         /// Initializes a new instance of FilterConfigBase
         /// </summary>
@@ -196,7 +196,7 @@ namespace GopherMcp.Filters
             Tags = new List<string>();
             Type = GetType().Name.Replace("Config", "");
         }
-        
+
         /// <summary>
         /// Initializes a new instance of FilterConfigBase with a name
         /// </summary>
@@ -205,7 +205,7 @@ namespace GopherMcp.Filters
         {
             Name = name;
         }
-        
+
         /// <summary>
         /// Initializes a new instance of FilterConfigBase with a name and type
         /// </summary>
@@ -216,7 +216,7 @@ namespace GopherMcp.Filters
             Name = name;
             Type = type;
         }
-        
+
         /// <summary>
         /// Validates the configuration
         /// </summary>
@@ -227,7 +227,7 @@ namespace GopherMcp.Filters
             var results = new List<ValidationResult>();
             return Validator.TryValidateObject(this, context, results, true);
         }
-        
+
         /// <summary>
         /// Validates the configuration with detailed error output
         /// </summary>
@@ -238,7 +238,7 @@ namespace GopherMcp.Filters
             errors = new List<string>();
             var context = new ValidationContext(this);
             var results = new List<ValidationResult>();
-            
+
             if (!Validator.TryValidateObject(this, context, results, true))
             {
                 foreach (var result in results)
@@ -247,10 +247,10 @@ namespace GopherMcp.Filters
                 }
                 return false;
             }
-            
+
             return true;
         }
-        
+
         /// <summary>
         /// Validates the configuration and returns validation results
         /// </summary>
@@ -259,38 +259,38 @@ namespace GopherMcp.Filters
         public virtual IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
         {
             var results = new List<ValidationResult>();
-            
+
             // Validate basic properties
             if (string.IsNullOrWhiteSpace(Name))
             {
                 results.Add(new ValidationResult("Filter name is required", new[] { nameof(Name) }));
             }
-            
+
             if (Priority < 0)
             {
                 results.Add(new ValidationResult("Priority must be non-negative", new[] { nameof(Priority) }));
             }
-            
+
             if (TimeoutMs < 0)
             {
                 results.Add(new ValidationResult("Timeout must be non-negative", new[] { nameof(TimeoutMs) }));
             }
-            
+
             if (MaxBufferSize <= 0)
             {
                 results.Add(new ValidationResult("MaxBufferSize must be positive", new[] { nameof(MaxBufferSize) }));
             }
-            
+
             // Call derived class validation
             var derivedResults = ValidateCore(validationContext);
             if (derivedResults != null)
             {
                 results.AddRange(derivedResults);
             }
-            
+
             return results;
         }
-        
+
         /// <summary>
         /// Core validation to be implemented by derived classes
         /// </summary>
@@ -300,7 +300,7 @@ namespace GopherMcp.Filters
         {
             return Enumerable.Empty<ValidationResult>();
         }
-        
+
         /// <summary>
         /// Merges another configuration into this one
         /// </summary>
@@ -309,42 +309,42 @@ namespace GopherMcp.Filters
         {
             if (other == null)
                 return;
-            
+
             // Don't overwrite name unless it's null
             if (string.IsNullOrWhiteSpace(Name))
                 Name = other.Name;
-            
+
             // Merge simple properties
             if (other.Enabled != true)
                 Enabled = other.Enabled;
-            
+
             if (other.Priority != 100)
                 Priority = other.Priority;
-            
+
             if (!string.IsNullOrWhiteSpace(other.Type))
                 Type = other.Type;
-            
+
             if (!string.IsNullOrWhiteSpace(other.Description))
                 Description = other.Description;
-            
+
             if (other.Version != "1.0.0")
                 Version = other.Version;
-            
+
             if (other.TimeoutMs != 30000)
                 TimeoutMs = other.TimeoutMs;
-            
+
             if (other.BypassOnError)
                 BypassOnError = other.BypassOnError;
-            
+
             if (other.MaxBufferSize != 65536)
                 MaxBufferSize = other.MaxBufferSize;
-            
+
             if (other.Layer != FilterLayer.Application)
                 Layer = other.Layer;
-            
+
             if (other.Position != FilterPosition.Last)
                 Position = other.Position;
-            
+
             // Merge collections
             if (other.Settings != null)
             {
@@ -353,7 +353,7 @@ namespace GopherMcp.Filters
                     Settings[kvp.Key] = kvp.Value;
                 }
             }
-            
+
             if (other.Metadata != null)
             {
                 foreach (var kvp in other.Metadata)
@@ -361,7 +361,7 @@ namespace GopherMcp.Filters
                     Metadata[kvp.Key] = kvp.Value;
                 }
             }
-            
+
             if (other.Tags != null)
             {
                 foreach (var tag in other.Tags)
@@ -370,11 +370,11 @@ namespace GopherMcp.Filters
                         Tags.Add(tag);
                 }
             }
-            
+
             // Call derived class merge
             MergeCore(other);
         }
-        
+
         /// <summary>
         /// Core merge to be implemented by derived classes
         /// </summary>
@@ -383,7 +383,7 @@ namespace GopherMcp.Filters
         {
             // Override in derived classes
         }
-        
+
         /// <summary>
         /// Sets default values for the configuration
         /// </summary>
@@ -397,15 +397,15 @@ namespace GopherMcp.Filters
             Layer = FilterLayer.Application;
             Position = FilterPosition.Last;
             Version = "1.0.0";
-            
+
             Settings?.Clear();
             Metadata?.Clear();
             Tags?.Clear();
-            
+
             // Call derived class defaults
             SetDefaultsCore();
         }
-        
+
         /// <summary>
         /// Core default setting to be implemented by derived classes
         /// </summary>
@@ -413,7 +413,7 @@ namespace GopherMcp.Filters
         {
             // Override in derived classes
         }
-        
+
         /// <summary>
         /// Creates a deep clone of the configuration
         /// </summary>
@@ -421,23 +421,23 @@ namespace GopherMcp.Filters
         public virtual object Clone()
         {
             var clone = (FilterConfigBase)MemberwiseClone();
-            
+
             // Deep clone collections
             if (Settings != null)
                 clone.Settings = new Dictionary<string, object>(Settings);
-            
+
             if (Metadata != null)
                 clone.Metadata = new Dictionary<string, string>(Metadata);
-            
+
             if (Tags != null)
                 clone.Tags = new List<string>(Tags);
-            
+
             // Call derived class clone
             CloneCore(clone);
-            
+
             return clone;
         }
-        
+
         /// <summary>
         /// Core clone to be implemented by derived classes
         /// </summary>
@@ -446,7 +446,7 @@ namespace GopherMcp.Filters
         {
             // Override in derived classes
         }
-        
+
         /// <summary>
         /// Serializes the configuration to JSON
         /// </summary>
@@ -460,10 +460,10 @@ namespace GopherMcp.Filters
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 Converters = { new JsonStringEnumConverter() }
             };
-            
+
             return JsonSerializer.Serialize(this, GetType(), options);
         }
-        
+
         /// <summary>
         /// Deserializes configuration from JSON
         /// </summary>
@@ -478,10 +478,10 @@ namespace GopherMcp.Filters
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 Converters = { new JsonStringEnumConverter() }
             };
-            
+
             return JsonSerializer.Deserialize<T>(json, options);
         }
-        
+
         /// <summary>
         /// Gets configuration value or default
         /// </summary>
@@ -495,7 +495,7 @@ namespace GopherMcp.Filters
             {
                 if (value is T typedValue)
                     return typedValue;
-                
+
                 if (value is JsonElement element)
                 {
                     try
@@ -507,7 +507,7 @@ namespace GopherMcp.Filters
                         // Fall through to default
                     }
                 }
-                
+
                 try
                 {
                     return (T)Convert.ChangeType(value, typeof(T));
@@ -517,10 +517,10 @@ namespace GopherMcp.Filters
                     // Fall through to default
                 }
             }
-            
+
             return defaultValue;
         }
-        
+
         /// <summary>
         /// Sets a configuration value
         /// </summary>
@@ -531,10 +531,10 @@ namespace GopherMcp.Filters
         {
             if (Settings == null)
                 Settings = new Dictionary<string, object>();
-            
+
             Settings[key] = value;
         }
-        
+
         /// <summary>
         /// Gets a metadata value
         /// </summary>
@@ -545,10 +545,10 @@ namespace GopherMcp.Filters
         {
             if (Metadata?.TryGetValue(key, out var value) == true)
                 return value;
-            
+
             return defaultValue;
         }
-        
+
         /// <summary>
         /// Sets a metadata value
         /// </summary>
@@ -558,10 +558,10 @@ namespace GopherMcp.Filters
         {
             if (Metadata == null)
                 Metadata = new Dictionary<string, string>();
-            
+
             Metadata[key] = value;
         }
-        
+
         /// <summary>
         /// Checks if a tag exists
         /// </summary>
@@ -571,7 +571,7 @@ namespace GopherMcp.Filters
         {
             return Tags?.Contains(tag) == true;
         }
-        
+
         /// <summary>
         /// Adds a tag
         /// </summary>
@@ -580,11 +580,11 @@ namespace GopherMcp.Filters
         {
             if (Tags == null)
                 Tags = new List<string>();
-            
+
             if (!Tags.Contains(tag))
                 Tags.Add(tag);
         }
-        
+
         /// <summary>
         /// Removes a tag
         /// </summary>
@@ -594,7 +594,7 @@ namespace GopherMcp.Filters
         {
             return Tags?.Remove(tag) == true;
         }
-        
+
         /// <summary>
         /// Gets a string representation of the configuration
         /// </summary>

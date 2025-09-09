@@ -49,10 +49,10 @@ namespace GopherMcp.Integration
             _toolProviders = new ConcurrentDictionary<string, ToolProvider>();
             _promptProviders = new ConcurrentDictionary<string, PromptProvider>();
             _resourceProviders = new ConcurrentDictionary<string, ResourceProvider>();
-            
+
             // Register built-in MCP methods
             RegisterBuiltInMethods();
-            
+
             // Subscribe to transport events
             _transport.MessageReceived += OnTransportMessageReceived;
             _transport.Error += OnTransportError;
@@ -64,9 +64,9 @@ namespace GopherMcp.Integration
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             await _transport.StartAsync(cancellationToken);
-            
+
             // Start receive loop
             _receiveCancellationSource = new CancellationTokenSource();
             _receiveTask = Task.Run(() => ReceiveLoop(_receiveCancellationSource.Token));
@@ -78,7 +78,7 @@ namespace GopherMcp.Integration
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
-            
+
             // Stop receive loop
             _receiveCancellationSource?.Cancel();
             if (_receiveTask != null)
@@ -89,7 +89,7 @@ namespace GopherMcp.Integration
                 }
                 catch { }
             }
-            
+
             await _transport.StopAsync(cancellationToken);
         }
 
@@ -99,10 +99,10 @@ namespace GopherMcp.Integration
         public void RegisterMethod(string method, Func<JsonRpcMessage, Task<object?>> handler)
         {
             ThrowIfDisposed();
-            
+
             if (string.IsNullOrWhiteSpace(method))
                 throw new ArgumentException("Method name cannot be empty", nameof(method));
-            
+
             _methodHandlers[method] = new MethodHandler(handler);
         }
 
@@ -114,7 +114,7 @@ namespace GopherMcp.Integration
             RegisterMethod(method, async (message) =>
             {
                 TParams? parameters = default;
-                
+
                 if (message.Params != null)
                 {
                     if (message.Params is System.Text.Json.JsonElement jsonElement)
@@ -126,7 +126,7 @@ namespace GopherMcp.Integration
                         parameters = (TParams)message.Params;
                     }
                 }
-                
+
                 var result = await handler(parameters);
                 return result;
             });
@@ -147,10 +147,10 @@ namespace GopherMcp.Integration
         public void RegisterTool(string name, ToolProvider provider)
         {
             ThrowIfDisposed();
-            
+
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Tool name cannot be empty", nameof(name));
-            
+
             _toolProviders[name] = provider ?? throw new ArgumentNullException(nameof(provider));
         }
 
@@ -178,12 +178,12 @@ namespace GopherMcp.Integration
                             typedArgs = (TArgs)args;
                         }
                     }
-                    
+
                     var result = await handler(typedArgs);
                     return result;
                 }
             };
-            
+
             RegisterTool(name, provider);
         }
 
@@ -193,10 +193,10 @@ namespace GopherMcp.Integration
         public void RegisterPrompt(string name, PromptProvider provider)
         {
             ThrowIfDisposed();
-            
+
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("Prompt name cannot be empty", nameof(name));
-            
+
             _promptProviders[name] = provider ?? throw new ArgumentNullException(nameof(provider));
         }
 
@@ -206,10 +206,10 @@ namespace GopherMcp.Integration
         public void RegisterResource(string uri, ResourceProvider provider)
         {
             ThrowIfDisposed();
-            
+
             if (string.IsNullOrWhiteSpace(uri))
                 throw new ArgumentException("Resource URI cannot be empty", nameof(uri));
-            
+
             _resourceProviders[uri] = provider ?? throw new ArgumentNullException(nameof(provider));
         }
 
@@ -233,7 +233,7 @@ namespace GopherMcp.Integration
                         version = Info.Version
                     }
                 };
-                
+
                 return await Task.FromResult(result);
             });
 
@@ -246,7 +246,7 @@ namespace GopherMcp.Integration
                     description = t.Description,
                     inputSchema = t.InputSchema
                 }).ToList();
-                
+
                 return await Task.FromResult(new { tools });
             });
 
@@ -255,20 +255,20 @@ namespace GopherMcp.Integration
             {
                 var parameters = message.Params as dynamic;
                 string? toolName = parameters?.name;
-                
+
                 if (string.IsNullOrEmpty(toolName))
                 {
                     throw new JsonRpcException(JsonRpcError.InvalidParams("Tool name is required"));
                 }
-                
+
                 if (!_toolProviders.TryGetValue(toolName, out var provider))
                 {
                     throw new JsonRpcException(JsonRpcError.MethodNotFound($"Tool '{toolName}' not found"));
                 }
-                
+
                 var arguments = parameters?.arguments;
                 var result = await provider.Handler(arguments);
-                
+
                 return new
                 {
                     content = new[]
@@ -292,7 +292,7 @@ namespace GopherMcp.Integration
                         required = a.Required
                     })
                 }).ToList();
-                
+
                 return await Task.FromResult(new { prompts });
             });
 
@@ -301,20 +301,20 @@ namespace GopherMcp.Integration
             {
                 var parameters = message.Params as dynamic;
                 string? promptName = parameters?.name;
-                
+
                 if (string.IsNullOrEmpty(promptName))
                 {
                     throw new JsonRpcException(JsonRpcError.InvalidParams("Prompt name is required"));
                 }
-                
+
                 if (!_promptProviders.TryGetValue(promptName, out var provider))
                 {
                     throw new JsonRpcException(JsonRpcError.MethodNotFound($"Prompt '{promptName}' not found"));
                 }
-                
+
                 var arguments = parameters?.arguments;
                 var result = await provider.Handler(arguments);
-                
+
                 return result;
             });
 
@@ -328,7 +328,7 @@ namespace GopherMcp.Integration
                     description = r.Description,
                     mimeType = r.MimeType
                 }).ToList();
-                
+
                 return await Task.FromResult(new { resources });
             });
 
@@ -337,21 +337,21 @@ namespace GopherMcp.Integration
             {
                 var parameters = message.Params as dynamic;
                 string? uri = parameters?.uri;
-                
+
                 if (string.IsNullOrEmpty(uri))
                 {
                     throw new JsonRpcException(JsonRpcError.InvalidParams("Resource URI is required"));
                 }
-                
+
                 if (!_resourceProviders.TryGetValue(uri, out var provider))
                 {
                     throw new JsonRpcException(new JsonRpcError(
                         JsonRpcErrorCodes.ResourceNotFound,
                         $"Resource '{uri}' not found"));
                 }
-                
+
                 var result = await provider.Handler();
-                
+
                 return new
                 {
                     contents = new[]
@@ -404,7 +404,7 @@ namespace GopherMcp.Integration
             catch (Exception ex)
             {
                 OnError(ex, "Error handling received message");
-                
+
                 // Send error response if it was a request
                 if (message.IsRequest && message.Id != null)
                 {
@@ -412,7 +412,7 @@ namespace GopherMcp.Integration
                         message.Id,
                         JsonRpcErrorCodes.InternalError,
                         ex.Message);
-                    
+
                     try
                     {
                         await _transport.SendAsync(errorResponse);
@@ -425,19 +425,19 @@ namespace GopherMcp.Integration
         private async Task HandleRequest(JsonRpcMessage request)
         {
             JsonRpcMessage response;
-            
+
             try
             {
                 if (string.IsNullOrEmpty(request.Method))
                 {
                     throw new JsonRpcException(JsonRpcError.InvalidRequest("Method is required"));
                 }
-                
+
                 if (!_methodHandlers.TryGetValue(request.Method, out var handler))
                 {
                     throw new JsonRpcException(JsonRpcError.MethodNotFound(request.Method));
                 }
-                
+
                 var result = await handler.Handler(request);
                 response = JsonRpcMessage.CreateResponse(request.Id, result);
             }
@@ -456,7 +456,7 @@ namespace GopherMcp.Integration
                     JsonRpcErrorCodes.InternalError,
                     ex.Message);
             }
-            
+
             await _transport.SendAsync(response);
         }
 
@@ -464,7 +464,7 @@ namespace GopherMcp.Integration
         {
             if (string.IsNullOrEmpty(notification.Method))
                 return;
-            
+
             if (_methodHandlers.TryGetValue(notification.Method, out var handler))
             {
                 try
@@ -508,9 +508,9 @@ namespace GopherMcp.Integration
                     StopAsync().GetAwaiter().GetResult();
                 }
                 catch { }
-                
+
                 _receiveCancellationSource?.Dispose();
-                
+
                 // Unsubscribe from transport events
                 if (_transport != null)
                 {
@@ -518,7 +518,7 @@ namespace GopherMcp.Integration
                     _transport.Error -= OnTransportError;
                     _transport.Dispose();
                 }
-                
+
                 _disposed = true;
             }
         }
@@ -526,7 +526,7 @@ namespace GopherMcp.Integration
         private class MethodHandler
         {
             public Func<JsonRpcMessage, Task<object?>> Handler { get; }
-            
+
             public MethodHandler(Func<JsonRpcMessage, Task<object?>> handler)
             {
                 Handler = handler;
