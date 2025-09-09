@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/filter/filter_chain_builder.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -180,9 +181,22 @@ void McpServer::performListen() {
       // Create filter chain factory that implements the protocol stack
       // Following production pattern: Filters handle ALL protocol logic
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
-      tcp_config.filter_chain_factory =
-          std::make_shared<filter::HttpSseFilterChainFactory>(
-              *main_dispatcher_, *protocol_callbacks_);
+      
+      // Use configurable factory if filter chain config is provided
+      if (config_.filter_chain_config.has_value()) {
+        std::cerr << "[INFO] Using configurable filter chain factory from config"
+                  << std::endl;
+        const json::JsonValue& chain_config = config_.filter_chain_config.value();
+        tcp_config.filter_chain_factory =
+            std::make_shared<filter::ConfigurableFilterChainFactory>(chain_config);
+      } else {
+        // Fallback to default HTTP/SSE factory for backward compatibility
+        std::cerr << "[INFO] Using default HTTP/SSE filter chain factory"
+                  << std::endl;
+        tcp_config.filter_chain_factory =
+            std::make_shared<filter::HttpSseFilterChainFactory>(
+                *main_dispatcher_, *protocol_callbacks_);
+      }
 
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
