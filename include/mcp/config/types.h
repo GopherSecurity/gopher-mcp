@@ -841,6 +841,9 @@ struct FilterConfig {
 
   /// Whether this filter is enabled
   bool enabled = true;
+  
+  /// Conditional enablement predicates (evaluated at build time)
+  mcp::json::JsonValue enabled_when = mcp::json::JsonValue::object();
 
   /**
    * @brief Validate the filter configuration
@@ -867,6 +870,9 @@ struct FilterConfig {
     builder.add("name", name);
     builder.add("config", config);
     builder.add("enabled", enabled);
+    if (!enabled_when.isNull() && !enabled_when.isEmpty()) {
+      builder.add("enabled_when", enabled_when);
+    }
     return builder.build();
   }
 
@@ -906,6 +912,10 @@ struct FilterConfig {
                                     "Type error: " + std::string(e.what()));
       }
     }
+    
+    if (j.contains("enabled_when")) {
+      fc.enabled_when = j["enabled_when"];
+    }
 
     return fc;
   }
@@ -932,6 +942,9 @@ struct FilterChainConfig {
 
   /// Ordered list of filters in the chain
   std::vector<FilterConfig> filters;
+  
+  /// Route-level filter bypass configuration
+  mcp::json::JsonValue bypass_filters = mcp::json::JsonValue::null();
 
   /**
    * @brief Validate the filter chain configuration
