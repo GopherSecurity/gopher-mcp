@@ -232,3 +232,18 @@ target_link_libraries(test_configurable_filter_chain
   Threads::Threads
 )
 add_test(NAME ConfigurableFilterChainTest COMMAND test_configurable_filter_chain)
+
+# Filter Ordering Validator Test
+add_executable(test_filter_ordering
+  test_filter_ordering.cc
+)
+target_link_libraries(test_filter_ordering
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterOrderingTest COMMAND test_filter_ordering)
