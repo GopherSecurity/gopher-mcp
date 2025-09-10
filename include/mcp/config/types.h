@@ -870,7 +870,7 @@ struct FilterConfig {
     builder.add("name", name);
     builder.add("config", config);
     builder.add("enabled", enabled);
-    if (!enabled_when.isNull() && !enabled_when.isEmpty()) {
+    if (!enabled_when.isNull() && enabled_when.isObject() && enabled_when.size() > 0) {
       builder.add("enabled_when", enabled_when);
     }
     return builder.build();

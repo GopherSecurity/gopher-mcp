@@ -1085,6 +1085,7 @@ add_executable(test_file_source_yaml_env_includes config/test_file_source_yaml_e
 add_executable(test_merge_and_validate config/test_merge_and_validate.cc)
 add_executable(test_search_precedence config/test_search_precedence.cc)
 add_executable(test_merge_semantics config/test_merge_semantics.cc)
+add_executable(test_predicates config/test_predicates.cc)
 
 # Logging tests
 add_executable(test_bloom_filter logging/test_bloom_filter.cc)
@@ -1211,6 +1212,16 @@ target_link_libraries(test_units
 )
 
 target_link_libraries(test_merge_semantics
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+    $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
+    $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
+)
+
+target_link_libraries(test_predicates
     gopher-mcp
     gtest
     gtest_main
