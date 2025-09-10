@@ -24,7 +24,9 @@ impl FfiBindings {
     /// Create a new filter manager
     pub fn mcp_filter_manager_create(&self) -> FilterResult<FilterManagerHandle> {
         // Use the real C++ library function
-        self.loader.mcp_dispatcher_create().map(|ptr| ptr as FilterManagerHandle)
+        self.loader
+            .mcp_dispatcher_create()
+            .map(|ptr| ptr as FilterManagerHandle)
     }
 
     /// Destroy a filter manager
@@ -40,7 +42,8 @@ impl FfiBindings {
         config: *const McpFilterConfig,
     ) -> FilterResult<FilterHandle> {
         // Use the real C++ library function
-        self.loader.mcp_filter_create(dispatcher, config as *const c_void)
+        self.loader
+            .mcp_filter_create(dispatcher, config as *const c_void)
     }
 
     /// Create a built-in filter
@@ -51,7 +54,8 @@ impl FfiBindings {
         config: *const c_void,
     ) -> FilterResult<FilterHandle> {
         // Use the real C++ library function
-        self.loader.mcp_filter_create_builtin(dispatcher, filter_type, config)
+        self.loader
+            .mcp_filter_create_builtin(dispatcher, filter_type, config)
     }
 
     /// Destroy a filter
@@ -82,7 +86,10 @@ impl FfiBindings {
     }
 
     /// Create a filter chain
-    pub fn mcp_filter_chain_create(&self, _config: *const McpChainConfig) -> FilterResult<ChainHandle> {
+    pub fn mcp_filter_chain_create(
+        &self,
+        _config: *const McpChainConfig,
+    ) -> FilterResult<ChainHandle> {
         // This would need to be implemented in the C++ library
         Ok(0)
     }
@@ -94,7 +101,11 @@ impl FfiBindings {
     }
 
     /// Add a filter to a chain
-    pub fn mcp_filter_chain_add_filter(&self, _chain: ChainHandle, _filter: FilterHandle) -> FilterResult<c_int> {
+    pub fn mcp_filter_chain_add_filter(
+        &self,
+        _chain: ChainHandle,
+        _filter: FilterHandle,
+    ) -> FilterResult<c_int> {
         // This would need to be implemented in the C++ library
         Ok(0)
     }
@@ -113,7 +124,9 @@ impl FfiBindings {
     /// Buffer operations
     pub fn mcp_buffer_create(&self, size: usize) -> FilterResult<BufferHandle> {
         // Use the real C++ library function
-        self.loader.mcp_buffer_create(size).map(|handle| handle as BufferHandle)
+        self.loader
+            .mcp_buffer_create(size)
+            .map(|handle| handle as BufferHandle)
     }
 
     pub fn mcp_buffer_destroy(&self, _handle: BufferHandle) -> FilterResult<c_int> {
@@ -129,13 +142,13 @@ impl FfiBindings {
     ) -> FilterResult<c_int> {
         // Use the real C++ library function
         let (buffer_data, buffer_size) = self.loader.mcp_buffer_get_data(handle as u64)?;
-        
+
         // Copy data to the output pointers
         unsafe {
             *data = buffer_data.as_ptr() as *mut c_void;
             *size = buffer_size;
         }
-        
+
         Ok(0)
     }
 
@@ -146,10 +159,8 @@ impl FfiBindings {
         size: usize,
     ) -> FilterResult<c_int> {
         // Convert the data to a slice
-        let data_slice = unsafe {
-            std::slice::from_raw_parts(data as *const u8, size)
-        };
-        
+        let data_slice = unsafe { std::slice::from_raw_parts(data as *const u8, size) };
+
         // Use the real C++ library function
         self.loader.mcp_buffer_set_data(handle as u64, data_slice)?;
         Ok(0)

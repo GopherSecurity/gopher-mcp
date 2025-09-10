@@ -4,8 +4,7 @@
 //! showing the difference between placeholder and real implementations.
 
 use mcp_filter_sdk::{
-    EnhancedLibraryLoader, FilterCallbacks, FilterStatus, BuiltinFilterType,
-    McpFilterCallbacks,
+    BuiltinFilterType, EnhancedLibraryLoader, FilterCallbacks, FilterStatus, McpFilterCallbacks,
 };
 
 /// Main demo function
@@ -18,7 +17,7 @@ pub async fn run_real_cpp_integration_demo() -> Result<(), Box<dyn std::error::E
 
     // Create enhanced library loader
     let loader = EnhancedLibraryLoader::new()?;
-    
+
     println!("📚 Library Information:");
     println!("   Type: {}", loader.get_library_info());
     println!("   Is real C++ library: {}", loader.is_real());
@@ -44,7 +43,9 @@ pub async fn run_real_cpp_integration_demo() -> Result<(), Box<dyn std::error::E
 }
 
 /// Test basic library functions
-async fn test_basic_library_functions(loader: &EnhancedLibraryLoader) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_basic_library_functions(
+    loader: &EnhancedLibraryLoader,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📋 Basic Library Functions Test");
     println!("-------------------------------");
 
@@ -75,7 +76,9 @@ async fn test_basic_library_functions(loader: &EnhancedLibraryLoader) -> Result<
 }
 
 /// Test filter creation and management
-async fn test_filter_creation(loader: &EnhancedLibraryLoader) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_filter_creation(
+    loader: &EnhancedLibraryLoader,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔧 Filter Creation Test");
     println!("----------------------");
 
@@ -85,13 +88,12 @@ async fn test_filter_creation(loader: &EnhancedLibraryLoader) -> Result<(), Box<
 
     // Test custom filter creation
     println!("🔧 Testing custom filter creation...");
-    let config = mcp_filter_sdk::ffi::c_structs::McpFilterConfig::new(
-        "test_filter",
-        "1.0.0",
-        true,
-        100
-    );
-    let custom_filter = loader.mcp_filter_create(dispatcher, &config as *const _ as *const std::os::raw::c_void)?;
+    let config =
+        mcp_filter_sdk::ffi::c_structs::McpFilterConfig::new("test_filter", "1.0.0", true, 100);
+    let custom_filter = loader.mcp_filter_create(
+        dispatcher,
+        &config as *const _ as *const std::os::raw::c_void,
+    )?;
     println!("   ✅ Custom filter created: {}", custom_filter);
 
     // Test built-in filter creation
@@ -99,7 +101,7 @@ async fn test_filter_creation(loader: &EnhancedLibraryLoader) -> Result<(), Box<
     let builtin_filter = loader.mcp_filter_create_builtin(
         dispatcher,
         BuiltinFilterType::RateLimit as i32,
-        std::ptr::null()
+        std::ptr::null(),
     )?;
     println!("   ✅ Built-in filter created: {}", builtin_filter);
 
@@ -116,7 +118,9 @@ async fn test_filter_creation(loader: &EnhancedLibraryLoader) -> Result<(), Box<
 }
 
 /// Test buffer operations
-async fn test_buffer_operations(loader: &EnhancedLibraryLoader) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_buffer_operations(
+    loader: &EnhancedLibraryLoader,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📦 Buffer Operations Test");
     println!("------------------------");
 
@@ -124,7 +128,10 @@ async fn test_buffer_operations(loader: &EnhancedLibraryLoader) -> Result<(), Bo
     println!("🔧 Testing buffer creation...");
     let buffer_size = 1024;
     let buffer = loader.mcp_buffer_create(buffer_size)?;
-    println!("   ✅ Buffer created: {} (size: {} bytes)", buffer, buffer_size);
+    println!(
+        "   ✅ Buffer created: {} (size: {} bytes)",
+        buffer, buffer_size
+    );
 
     // Test buffer data operations
     println!("🔧 Testing buffer data operations...");
@@ -144,7 +151,9 @@ async fn test_buffer_operations(loader: &EnhancedLibraryLoader) -> Result<(), Bo
 }
 
 /// Test advanced chain management
-async fn test_advanced_chain_management(loader: &EnhancedLibraryLoader) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_advanced_chain_management(
+    loader: &EnhancedLibraryLoader,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔗 Advanced Chain Management Test");
     println!("--------------------------------");
 
@@ -159,8 +168,16 @@ async fn test_advanced_chain_management(loader: &EnhancedLibraryLoader) -> Resul
 
     // Test filter creation for chain
     let filter1 = loader.mcp_filter_create(dispatcher, std::ptr::null())?;
-    let filter2 = loader.mcp_filter_create_builtin(dispatcher, BuiltinFilterType::RateLimit as i32, std::ptr::null())?;
-    let filter3 = loader.mcp_filter_create_builtin(dispatcher, BuiltinFilterType::Metrics as i32, std::ptr::null())?;
+    let filter2 = loader.mcp_filter_create_builtin(
+        dispatcher,
+        BuiltinFilterType::RateLimit as i32,
+        std::ptr::null(),
+    )?;
+    let filter3 = loader.mcp_filter_create_builtin(
+        dispatcher,
+        BuiltinFilterType::Metrics as i32,
+        std::ptr::null(),
+    )?;
 
     println!("   📊 Created {} filters for chain", 3);
 
@@ -183,18 +200,28 @@ async fn test_advanced_chain_management(loader: &EnhancedLibraryLoader) -> Resul
 }
 
 /// Test CApiFilter integration
-async fn test_capifilter_integration(_loader: &EnhancedLibraryLoader) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_capifilter_integration(
+    _loader: &EnhancedLibraryLoader,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔌 CApiFilter Integration Test");
     println!("-----------------------------");
 
     // Create custom callbacks
     let _callbacks = FilterCallbacks {
         on_data: Some(Box::new(|data, end_stream| {
-            println!("   📥 Data callback: {} bytes, end_stream: {}", data.len(), end_stream);
+            println!(
+                "   📥 Data callback: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
             FilterStatus::Continue
         })),
         on_write: Some(Box::new(|data, end_stream| {
-            println!("   📤 Write callback: {} bytes, end_stream: {}", data.len(), end_stream);
+            println!(
+                "   📤 Write callback: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
             FilterStatus::Continue
         })),
         on_new_connection: Some(Box::new(|state| {
@@ -207,7 +234,10 @@ async fn test_capifilter_integration(_loader: &EnhancedLibraryLoader) -> Result<
             println!("   ✅ Low watermark callback");
         })),
         on_error: Some(Box::new(|error_code, message| {
-            println!("   ❌ Error callback: code={}, message={}", error_code, message);
+            println!(
+                "   ❌ Error callback: code={}, message={}",
+                error_code, message
+            );
         })),
         user_data: Some(Box::new("test_context".to_string())),
     };
@@ -241,34 +271,34 @@ async fn test_performance_comparison() -> Result<(), Box<dyn std::error::Error>>
     println!("🔧 Testing placeholder implementation...");
     let placeholder_loader = EnhancedLibraryLoader::new_placeholder()?;
     let start = std::time::Instant::now();
-    
+
     for _i in 0..1000 {
-        let _filter = placeholder_loader.mcp_filter_create(
-            std::ptr::null(),
-            std::ptr::null()
-        )?;
+        let _filter = placeholder_loader.mcp_filter_create(std::ptr::null(), std::ptr::null())?;
     }
-    
+
     let placeholder_duration = start.elapsed();
-    println!("   📊 Placeholder: {} operations in {:?}", 1000, placeholder_duration);
+    println!(
+        "   📊 Placeholder: {} operations in {:?}",
+        1000, placeholder_duration
+    );
 
     // Test with real implementation (if available)
     if let Ok(real_loader) = EnhancedLibraryLoader::new_real() {
         println!("🔧 Testing real C++ implementation...");
         real_loader.mcp_init(None)?;
         let dispatcher = real_loader.mcp_dispatcher_create()?;
-        
+
         let start = std::time::Instant::now();
-        
+
         for _i in 0..1000 {
             let _filter = real_loader.mcp_filter_create(dispatcher, std::ptr::null())?;
         }
-        
+
         let real_duration = start.elapsed();
         println!("   📊 Real C++: {} operations in {:?}", 1000, real_duration);
-        
+
         real_loader.mcp_shutdown()?;
-        
+
         // Compare performance
         let speedup = placeholder_duration.as_secs_f64() / real_duration.as_secs_f64();
         println!("   🚀 Real C++ is {:.2}x faster than placeholder", speedup);
@@ -283,11 +313,11 @@ async fn test_performance_comparison() -> Result<(), Box<dyn std::error::Error>>
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_real_cpp_integration_demo().await?;
-    
+
     // Run performance comparison if requested
     if std::env::var("RUN_PERFORMANCE_TEST").is_ok() {
         test_performance_comparison().await?;
     }
-    
+
     Ok(())
 }

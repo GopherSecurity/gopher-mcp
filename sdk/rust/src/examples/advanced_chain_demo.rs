@@ -3,12 +3,10 @@
 //! This example demonstrates advanced filter chain management including
 //! sequential, parallel, conditional, and pipeline execution modes.
 
-use mcp_filter_sdk::{
-    AdvancedChainManager, ConditionOperator, EnhancedLibraryLoader,
-};
+use mcp_filter_sdk::{AdvancedChainManager, ConditionOperator, EnhancedLibraryLoader};
 use serde_json::json;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Main demo function
 pub async fn run_advanced_chain_demo() -> Result<(), Box<dyn std::error::Error>> {
@@ -126,7 +124,8 @@ async fn demonstrate_conditional_chain(
 
     // Show the conditions
     for (i, condition) in chain.conditions.iter().enumerate() {
-        println!("   - Condition {}: {} {:?} {:?} -> chain {}",
+        println!(
+            "   - Condition {}: {} {:?} {:?} -> chain {}",
             i + 1,
             condition.field,
             condition.operator,
@@ -179,7 +178,10 @@ async fn demonstrate_chain_execution(
     let large_data = vec![0xAA; 1000];
     let test_cases = vec![
         ("Simple text", b"hello world".as_slice()),
-        ("JSON data", br#"{"message": "test", "value": 42}"#.as_slice()),
+        (
+            "JSON data",
+            br#"{"message": "test", "value": 42}"#.as_slice(),
+        ),
         ("Binary data", &[0x00, 0x01, 0x02, 0x03, 0x04]),
         ("Empty data", b"".as_slice()),
         ("Large data", &large_data),
@@ -250,8 +252,10 @@ async fn demonstrate_performance(
             Ok(_) => {
                 let duration = start.elapsed();
                 let throughput = (size as f64) / duration.as_secs_f64() / 1024.0; // KB/s
-                println!("Size: {} bytes, Time: {:?}, Throughput: {:.2} KB/s",
-                    size, duration, throughput);
+                println!(
+                    "Size: {} bytes, Time: {:?}, Throughput: {:.2} KB/s",
+                    size, duration, throughput
+                );
             }
             Err(e) => {
                 println!("Size: {} bytes, Error: {}", size, e);

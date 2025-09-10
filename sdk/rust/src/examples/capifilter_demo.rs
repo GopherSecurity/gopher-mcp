@@ -4,12 +4,12 @@
 //! for processing MCP messages through the filter chain.
 
 use mcp_filter_sdk::{
-    create_custom_filter, create_builtin_filter_with_callbacks, FilterCallbacks, FilterConfig,
-    FilterStatus, FilterType, BuiltinFilterType, LibraryLoader,
+    create_builtin_filter_with_callbacks, create_custom_filter, BuiltinFilterType, FilterCallbacks,
+    FilterConfig, FilterStatus, FilterType, LibraryLoader,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Custom user data for our filter
 #[derive(Debug, Clone)]
@@ -41,7 +41,10 @@ pub async fn run_capifilter_demo() -> Result<(), Box<dyn std::error::Error>> {
         })),
     )?;
 
-    println!("✅ Created custom CApiFilter with handle: {}", custom_filter.handle());
+    println!(
+        "✅ Created custom CApiFilter with handle: {}",
+        custom_filter.handle()
+    );
 
     // Create built-in filter with callbacks
     let builtin_filter = create_builtin_filter_with_callbacks(
@@ -56,7 +59,10 @@ pub async fn run_capifilter_demo() -> Result<(), Box<dyn std::error::Error>> {
         })),
     )?;
 
-    println!("✅ Created built-in CApiFilter with handle: {}", builtin_filter.handle());
+    println!(
+        "✅ Created built-in CApiFilter with handle: {}",
+        builtin_filter.handle()
+    );
 
     // Simulate processing messages
     let messages = vec![
@@ -82,7 +88,7 @@ pub async fn run_capifilter_demo() -> Result<(), Box<dyn std::error::Error>> {
 
     for (i, message) in messages.iter().enumerate() {
         println!("\n📤 Processing message {}: {}", i + 1, message);
-        
+
         // Simulate filter processing
         simulate_filter_processing(&custom_filter, message).await?;
         simulate_filter_processing(&builtin_filter, message).await?;
@@ -96,40 +102,48 @@ pub async fn run_capifilter_demo() -> Result<(), Box<dyn std::error::Error>> {
 fn create_custom_callbacks() -> FilterCallbacks {
     FilterCallbacks {
         on_data: Some(Box::new(|data, end_stream| {
-            info!("🔍 Custom filter on_data: {} bytes, end_stream: {}", data.len(), end_stream);
-            
+            info!(
+                "🔍 Custom filter on_data: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
+
             // Log the data (in a real implementation, this would be the actual message data)
             if let Ok(message) = std::str::from_utf8(data) {
                 info!("📝 Custom filter processing message: {}", message);
             }
-            
+
             // Always continue processing
             FilterStatus::Continue
         })),
-        
+
         on_write: Some(Box::new(|data, end_stream| {
-            info!("✍️ Custom filter on_write: {} bytes, end_stream: {}", data.len(), end_stream);
-            
+            info!(
+                "✍️ Custom filter on_write: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
+
             // In a real implementation, this would modify the response data
             FilterStatus::Continue
         })),
-        
+
         on_new_connection: Some(Box::new(|state| {
             info!("🔗 Custom filter on_new_connection: state = {}", state);
         })),
-        
+
         on_high_watermark: Some(Box::new(|| {
             warn!("⚠️ Custom filter high watermark reached");
         })),
-        
+
         on_low_watermark: Some(Box::new(|| {
             info!("✅ Custom filter low watermark reached");
         })),
-        
+
         on_error: Some(Box::new(|error_code, message| {
             error!("❌ Custom filter error: {} - {}", error_code, message);
         })),
-        
+
         user_data: None,
     }
 }
@@ -138,37 +152,45 @@ fn create_custom_callbacks() -> FilterCallbacks {
 fn create_builtin_callbacks() -> FilterCallbacks {
     FilterCallbacks {
         on_data: Some(Box::new(|data, end_stream| {
-            info!("🏗️ Built-in filter on_data: {} bytes, end_stream: {}", data.len(), end_stream);
-            
+            info!(
+                "🏗️ Built-in filter on_data: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
+
             // Simulate some processing
             if data.len() > 1000 {
                 warn!("📊 Large message detected: {} bytes", data.len());
             }
-            
+
             FilterStatus::Continue
         })),
-        
+
         on_write: Some(Box::new(|data, end_stream| {
-            info!("✍️ Built-in filter on_write: {} bytes, end_stream: {}", data.len(), end_stream);
+            info!(
+                "✍️ Built-in filter on_write: {} bytes, end_stream: {}",
+                data.len(),
+                end_stream
+            );
             FilterStatus::Continue
         })),
-        
+
         on_new_connection: Some(Box::new(|state| {
             info!("🔗 Built-in filter on_new_connection: state = {}", state);
         })),
-        
+
         on_high_watermark: Some(Box::new(|| {
             warn!("⚠️ Built-in filter high watermark reached");
         })),
-        
+
         on_low_watermark: Some(Box::new(|| {
             info!("✅ Built-in filter low watermark reached");
         })),
-        
+
         on_error: Some(Box::new(|error_code, message| {
             error!("❌ Built-in filter error: {} - {}", error_code, message);
         })),
-        
+
         user_data: None,
     }
 }
@@ -183,28 +205,34 @@ async fn simulate_filter_processing(
     // 2. Pass the bytes to the C++ filter chain
     // 3. The C++ filter chain would call our Rust callbacks
     // 4. We would process the result and return it
-    
+
     let message_bytes = serde_json::to_vec(message)?;
-    
+
     // Simulate calling the data callback
     if let Some(ref callback) = filter.callbacks().on_data {
         let result = callback(&message_bytes, false);
-        info!("🔄 Filter {} processed message, result: {:?}", 
-              filter.handle(), result);
+        info!(
+            "🔄 Filter {} processed message, result: {:?}",
+            filter.handle(),
+            result
+        );
     }
-    
+
     // Simulate calling the write callback
     if let Some(ref callback) = filter.callbacks().on_write {
         let result = callback(&message_bytes, false);
-        info!("✍️ Filter {} wrote response, result: {:?}", 
-              filter.handle(), result);
+        info!(
+            "✍️ Filter {} wrote response, result: {:?}",
+            filter.handle(),
+            result
+        );
     }
-    
+
     // Simulate connection event
     if let Some(ref callback) = filter.callbacks().on_new_connection {
         callback(1); // Connected state
     }
-    
+
     // Simulate watermark events
     if message_bytes.len() > 500 {
         if let Some(ref callback) = filter.callbacks().on_high_watermark {
@@ -215,14 +243,14 @@ async fn simulate_filter_processing(
             callback();
         }
     }
-    
+
     // Simulate error for error_test method
     if message.get("method").and_then(|m| m.as_str()) == Some("error_test") {
         if let Some(ref callback) = filter.callbacks().on_error {
             callback(-1000, "Simulated error for testing".to_string());
         }
     }
-    
+
     Ok(())
 }
 
