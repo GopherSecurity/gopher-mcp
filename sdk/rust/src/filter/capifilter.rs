@@ -8,8 +8,8 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::sync::Arc;
 
 use crate::ffi::c_structs::{
-    FilterHandle, McpFilterCallbacks, OnDataCallback, OnErrorCallback,
-    OnHighWatermarkCallback, OnLowWatermarkCallback, OnNewConnectionCallback, OnWriteCallback,
+    FilterHandle, McpFilterCallbacks, OnDataCallback, OnErrorCallback, OnHighWatermarkCallback,
+    OnLowWatermarkCallback, OnNewConnectionCallback, OnWriteCallback,
 };
 use crate::ffi::error::{FilterError, FilterResult};
 use crate::ffi::library_loader::LibraryLoader;
@@ -194,10 +194,7 @@ extern "C" fn write_callback_wrapper(
 }
 
 /// Connection callback wrapper
-extern "C" fn connection_callback_wrapper(
-    state: c_int,
-    user_data: *const c_void,
-) -> c_int {
+extern "C" fn connection_callback_wrapper(state: c_int, user_data: *const c_void) -> c_int {
     if let Some(capi_filter) = unsafe { (user_data as *const CApiFilter).as_ref() } {
         if let Some(ref callback) = capi_filter.callbacks().on_new_connection {
             callback(state);
@@ -207,10 +204,7 @@ extern "C" fn connection_callback_wrapper(
 }
 
 /// High watermark callback wrapper
-extern "C" fn high_watermark_callback_wrapper(
-    _filter: u64,
-    user_data: *const c_void,
-) {
+extern "C" fn high_watermark_callback_wrapper(_filter: u64, user_data: *const c_void) {
     if let Some(capi_filter) = unsafe { (user_data as *const CApiFilter).as_ref() } {
         if let Some(ref callback) = capi_filter.callbacks().on_high_watermark {
             callback();
@@ -219,10 +213,7 @@ extern "C" fn high_watermark_callback_wrapper(
 }
 
 /// Low watermark callback wrapper
-extern "C" fn low_watermark_callback_wrapper(
-    _filter: u64,
-    user_data: *const c_void,
-) {
+extern "C" fn low_watermark_callback_wrapper(_filter: u64, user_data: *const c_void) {
     if let Some(capi_filter) = unsafe { (user_data as *const CApiFilter).as_ref() } {
         if let Some(ref callback) = capi_filter.callbacks().on_low_watermark {
             callback();

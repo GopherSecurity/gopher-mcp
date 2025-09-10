@@ -3,9 +3,9 @@
 //! This module provides advanced functionality for managing filter chains including
 //! sequential, parallel, conditional, and pipeline execution modes.
 
-use crate::types::chains::{ChainResult, FilterChain, ChainExecutionMode, RoutingStrategy};
 use crate::ffi::error::{FilterError, FilterResult};
 use crate::ffi::library_loader::LibraryLoader;
+use crate::types::chains::{ChainExecutionMode, ChainResult, FilterChain, RoutingStrategy};
 use std::sync::Arc;
 
 /// Filter chain manager

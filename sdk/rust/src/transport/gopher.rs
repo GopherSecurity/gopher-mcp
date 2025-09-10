@@ -2,16 +2,16 @@
 //!
 //! This module provides the GopherTransport implementation for MCP protocol communication.
 
-use crate::filter::manager::FilterManager;
 use crate::filter::api::FilterManagerConfig;
-use serde_json::{Value, json};
+use crate::filter::manager::FilterManager;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
-use tracing::{info, warn, debug, error};
+use tracing::{debug, error, info, warn};
 
 /// GopherTransport configuration
 #[derive(Debug, Clone, serde::Serialize)]
@@ -100,7 +100,7 @@ impl GopherTransport {
     /// Create a new GopherTransport
     pub fn new(config: GopherTransportConfig) -> Self {
         let (message_tx, message_rx) = mpsc::unbounded_channel();
-        
+
         Self {
             config,
             filter_manager: FilterManager::new(),
@@ -183,7 +183,10 @@ impl GopherTransport {
         }
 
         let message_info = if let Some(method) = message.get("method").and_then(|v| v.as_str()) {
-            let id = message.get("id").map(|v| v.to_string()).unwrap_or_else(|| "N/A".to_string());
+            let id = message
+                .get("id")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
             format!("{} (id: {})", method, id)
         } else {
             "notification".to_string()
@@ -194,15 +197,22 @@ impl GopherTransport {
         // Process message through FilterManager
         let processed_message = self.filter_manager.process(message).await?;
 
-        let processed_info = if let Some(method) = processed_message.get("method").and_then(|v| v.as_str()) {
-            let id = processed_message.get("id").map(|v| v.to_string()).unwrap_or_else(|| "N/A".to_string());
-            format!("{} (id: {})", method, id)
-        } else {
-            "notification".to_string()
-        };
+        let processed_info =
+            if let Some(method) = processed_message.get("method").and_then(|v| v.as_str()) {
+                let id = processed_message
+                    .get("id")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
+                format!("{} (id: {})", method, id)
+            } else {
+                "notification".to_string()
+            };
 
         info!("✅ Message processed through filters: {}", processed_info);
-        info!("✅ Message ready for transport: {}", serde_json::to_string_pretty(&processed_message)?);
+        info!(
+            "✅ Message ready for transport: {}",
+            serde_json::to_string_pretty(&processed_message)?
+        );
 
         // Send the processed message through the actual transport
         self.send_through_transport(processed_message).await?;
@@ -283,13 +293,19 @@ impl GopherTransport {
     }
 
     /// Process a received message through FilterManager
-    pub async fn process_received_message(&self, message: Value) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn process_received_message(
+        &self,
+        message: Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.is_connected || self.is_destroyed {
             return Ok(());
         }
 
         let message_info = if let Some(method) = message.get("method").and_then(|v| v.as_str()) {
-            let id = message.get("id").map(|v| v.to_string()).unwrap_or_else(|| "N/A".to_string());
+            let id = message
+                .get("id")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
             format!("{} (id: {})", method, id)
         } else {
             "notification".to_string()
@@ -300,12 +316,16 @@ impl GopherTransport {
         // Process response through FilterManager
         let processed_message = self.filter_manager.process(message).await?;
 
-        let processed_info = if let Some(method) = processed_message.get("method").and_then(|v| v.as_str()) {
-            let id = processed_message.get("id").map(|v| v.to_string()).unwrap_or_else(|| "N/A".to_string());
-            format!("{} (id: {})", method, id)
-        } else {
-            "notification".to_string()
-        };
+        let processed_info =
+            if let Some(method) = processed_message.get("method").and_then(|v| v.as_str()) {
+                let id = processed_message
+                    .get("id")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
+                format!("{} (id: {})", method, id)
+            } else {
+                "notification".to_string()
+            };
 
         info!("✅ Response processed through filters: {}", processed_info);
 
@@ -349,23 +369,26 @@ impl GopherTransport {
     async fn start_tcp_transport(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let host = self.config.host.as_deref().unwrap_or("127.0.0.1");
         let port = self.config.port.unwrap_or(8080);
-        
+
         info!("📡 Starting TCP transport on {}:{}", host, port);
 
         if self.config.host.is_some() {
             // Client mode - connect to server
             let stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
             info!("🔗 Connected to TCP server");
-            
+
             // Store connection
             let connection_id = format!("{}:{}", host, port);
-            self.connections.lock().unwrap().insert(connection_id, stream);
+            self.connections
+                .lock()
+                .unwrap()
+                .insert(connection_id, stream);
         } else {
             // Server mode - listen for connections
             let listener = TcpListener::bind(format!("{}:{}", host, port)).await?;
             info!("🚀 TCP server listening on port {}", port);
             self.tcp_listener = Some(listener);
-            
+
             // Start accepting connections in the background
             self.start_tcp_server_loop().await?;
         }
@@ -378,28 +401,34 @@ impl GopherTransport {
         let listener = self.tcp_listener.as_ref().unwrap();
         let connections = Arc::clone(&self.connections);
         let max_connections = self.config.max_connections.unwrap_or(10);
-        
+
         info!("🔄 Starting TCP server loop to accept connections...");
-        
+
         loop {
             // Accept incoming connections
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     info!("🔗 New connection from {}", addr);
-                    
+
                     // Check connection limit
                     let current_connections = connections.lock().unwrap().len();
                     if current_connections >= max_connections {
-                        warn!("⚠️ Connection limit reached ({}), rejecting connection from {}", max_connections, addr);
+                        warn!(
+                            "⚠️ Connection limit reached ({}), rejecting connection from {}",
+                            max_connections, addr
+                        );
                         drop(stream);
                         continue;
                     }
-                    
+
                     // Store the connection
                     let connection_id = format!("{}", addr);
                     connections.lock().unwrap().insert(connection_id, stream);
-                    
-                    info!("✅ Connection stored, total connections: {}", current_connections + 1);
+
+                    info!(
+                        "✅ Connection stored, total connections: {}",
+                        current_connections + 1
+                    );
                 }
                 Err(e) => {
                     error!("❌ Failed to accept connection: {}", e);
@@ -414,7 +443,7 @@ impl GopherTransport {
     async fn start_udp_transport(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let host = self.config.host.as_deref().unwrap_or("127.0.0.1");
         let port = self.config.port.unwrap_or(8080);
-        
+
         info!("📡 Starting UDP transport on {}:{}", host, port);
 
         let socket = UdpSocket::bind(format!("{}:{}", host, port)).await?;
@@ -425,13 +454,18 @@ impl GopherTransport {
     }
 
     /// Send message through the actual transport
-    async fn send_through_transport(&self, message: Value) -> Result<(), Box<dyn std::error::Error>> {
+    async fn send_through_transport(
+        &self,
+        message: Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let message_data = format!("{}\n", serde_json::to_string(&message)?);
 
         match self.config.protocol {
             ProtocolType::Stdio => {
                 // For stdio, write to stdout
-                tokio::io::stdout().write_all(message_data.as_bytes()).await?;
+                tokio::io::stdout()
+                    .write_all(message_data.as_bytes())
+                    .await?;
             }
             ProtocolType::Tcp => {
                 let connections = self.connections.lock().unwrap();
@@ -445,7 +479,9 @@ impl GopherTransport {
                 if let Some(socket) = &self.udp_socket {
                     if let Some(host) = &self.config.host {
                         let port = self.config.port.unwrap_or(8080);
-                        socket.send_to(message_data.as_bytes(), format!("{}:{}", host, port)).await?;
+                        socket
+                            .send_to(message_data.as_bytes(), format!("{}:{}", host, port))
+                            .await?;
                     }
                 }
             }

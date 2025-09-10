@@ -3,12 +3,12 @@
 //! This module provides advanced filter chain management including
 //! sequential, parallel, conditional, and pipeline execution modes.
 
+use crate::ffi::enhanced_loader::EnhancedLibraryLoader;
+use crate::ffi::error::{FilterError, FilterResult};
 use crate::types::chains::{
     ChainConfig, ChainExecutionMode, ChainResult, FilterChain, FilterCondition, FilterNode,
     RoutingStrategy,
 };
-use crate::ffi::error::{FilterError, FilterResult};
-use crate::ffi::enhanced_loader::EnhancedLibraryLoader;
 use std::sync::Arc;
 
 /// Advanced filter chain builder
@@ -75,7 +75,8 @@ impl AdvancedChainBuilder {
         if self.filters.len() >= self.config.max_filters {
             return Err(FilterError::Internal(format!(
                 "Too many filters: {} >= {}",
-                self.filters.len(), self.config.max_filters
+                self.filters.len(),
+                self.config.max_filters
             )));
         }
 
@@ -291,7 +292,9 @@ impl AdvancedChainManager {
 
     /// Get a mutable reference to a chain by name
     pub fn get_chain_mut(&mut self, name: &str) -> Option<&mut FilterChain> {
-        self.chains.iter_mut().find(|chain| chain.config.name == name)
+        self.chains
+            .iter_mut()
+            .find(|chain| chain.config.name == name)
     }
 
     /// Remove a chain by name
@@ -319,16 +322,10 @@ impl AdvancedChainManager {
     }
 
     /// Execute a chain by name
-    pub async fn execute_chain(
-        &self,
-        name: &str,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
-        let chain = self
-            .get_chain(name)
-            .ok_or_else(|| FilterError::NotFound {
-                resource: format!("Chain '{}' not found", name),
-            })?;
+    pub async fn execute_chain(&self, name: &str, data: &[u8]) -> FilterResult<Vec<u8>> {
+        let chain = self.get_chain(name).ok_or_else(|| FilterError::NotFound {
+            resource: format!("Chain '{}' not found", name),
+        })?;
 
         // In a real implementation, this would execute the chain through the C++ library
         // For now, simulate execution based on the chain configuration
@@ -341,11 +338,7 @@ impl AdvancedChainManager {
     }
 
     /// Execute a sequential chain
-    async fn execute_sequential(
-        &self,
-        chain: &FilterChain,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn execute_sequential(&self, chain: &FilterChain, data: &[u8]) -> FilterResult<Vec<u8>> {
         let mut result = data.to_vec();
 
         for node in &chain.nodes {
@@ -361,11 +354,7 @@ impl AdvancedChainManager {
     }
 
     /// Execute a parallel chain
-    async fn execute_parallel(
-        &self,
-        chain: &FilterChain,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn execute_parallel(&self, chain: &FilterChain, data: &[u8]) -> FilterResult<Vec<u8>> {
         let mut handles = Vec::new();
 
         for node in &chain.nodes {
@@ -384,7 +373,9 @@ impl AdvancedChainManager {
         // Wait for all parallel tasks to complete
         let mut results = Vec::new();
         for handle in handles {
-            let result = handle.await.map_err(|e| FilterError::Internal(e.to_string()))?;
+            let result = handle
+                .await
+                .map_err(|e| FilterError::Internal(e.to_string()))?;
             results.push(result?);
         }
 
@@ -393,11 +384,7 @@ impl AdvancedChainManager {
     }
 
     /// Execute a conditional chain
-    async fn execute_conditional(
-        &self,
-        chain: &FilterChain,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn execute_conditional(&self, chain: &FilterChain, data: &[u8]) -> FilterResult<Vec<u8>> {
         // In a real implementation, this would evaluate conditions
         // For now, just execute the first enabled node
         for node in &chain.nodes {
@@ -410,11 +397,7 @@ impl AdvancedChainManager {
     }
 
     /// Execute a pipeline chain
-    async fn execute_pipeline(
-        &self,
-        chain: &FilterChain,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn execute_pipeline(&self, chain: &FilterChain, data: &[u8]) -> FilterResult<Vec<u8>> {
         let mut result = data.to_vec();
 
         for node in &chain.nodes {
@@ -430,23 +413,16 @@ impl AdvancedChainManager {
     }
 
     /// Process a single filter node
-    async fn process_filter_node(
-        &self,
-        node: &FilterNode,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn process_filter_node(&self, node: &FilterNode, data: &[u8]) -> FilterResult<Vec<u8>> {
         Self::process_filter_node_static(node, data).await
     }
 
     /// Static method for processing a filter node (used in parallel execution)
-    async fn process_filter_node_static(
-        node: &FilterNode,
-        data: &[u8],
-    ) -> FilterResult<Vec<u8>> {
+    async fn process_filter_node_static(node: &FilterNode, data: &[u8]) -> FilterResult<Vec<u8>> {
         // In a real implementation, this would call the actual filter
         // For now, simulate processing
         let mut result = data.to_vec();
-        
+
         // Add a simple transformation based on the filter name
         if node.id.contains("uppercase") {
             result = result.iter().map(|&b| b.to_ascii_uppercase()).collect();

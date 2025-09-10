@@ -426,6 +426,7 @@ This SDK is designed to be a clean, focused filter library. Contributions should
 - **Transport Examples**: Custom MCP transport layer implementations
 
 ## Integration Status
+
 - ✅ All 100 tests passing
 - ✅ CApiFilter integration working
 - ✅ Client-server examples functional

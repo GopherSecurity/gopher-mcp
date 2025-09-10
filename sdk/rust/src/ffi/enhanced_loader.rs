@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+use crate::ffi::bindings::FfiBindings;
 use crate::ffi::error::{FilterError, FilterResult};
 use crate::ffi::library_loader::LibraryLoader;
-use crate::ffi::bindings::FfiBindings;
 
 /// Enhanced library loader that can switch between placeholder and real implementations
 #[derive(Debug)]
@@ -32,7 +32,7 @@ impl EnhancedLibraryLoader {
             Err(e) => {
                 warn!("⚠️ Failed to load real C++ library: {}", e);
                 warn!("   Falling back to placeholder implementation");
-                
+
                 // Fall back to placeholder implementation
                 match LibraryLoader::new() {
                     Ok(placeholder_loader) => {
@@ -107,9 +107,15 @@ impl EnhancedLibraryLoader {
                 "../../../../build/src/c_api/gopher_mcp_c.dll",
                 "C:\\gopher-mcp\\bin\\gopher_mcp_c.dll",
             ],
-            _ => return Err(FilterError::NotSupported {
-                operation: format!("Platform {} {}", std::env::consts::OS, std::env::consts::ARCH),
-            }),
+            _ => {
+                return Err(FilterError::NotSupported {
+                    operation: format!(
+                        "Platform {} {}",
+                        std::env::consts::OS,
+                        std::env::consts::ARCH
+                    ),
+                })
+            }
         };
 
         for path in &search_paths {
@@ -119,7 +125,10 @@ impl EnhancedLibraryLoader {
         }
 
         Err(FilterError::NotFound {
-            resource: format!("MCP C++ library not found. Searched: {}", search_paths.join(", ")),
+            resource: format!(
+                "MCP C++ library not found. Searched: {}",
+                search_paths.join(", ")
+            ),
         })
     }
 
@@ -265,7 +274,10 @@ impl EnhancedLibraryLoader {
     }
 
     /// Stop the dispatcher
-    pub fn mcp_dispatcher_stop(&self, _dispatcher: *const std::os::raw::c_void) -> FilterResult<()> {
+    pub fn mcp_dispatcher_stop(
+        &self,
+        _dispatcher: *const std::os::raw::c_void,
+    ) -> FilterResult<()> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_dispatcher_stop called");
@@ -279,7 +291,10 @@ impl EnhancedLibraryLoader {
     }
 
     /// Destroy the dispatcher
-    pub fn mcp_dispatcher_destroy(&self, _dispatcher: *const std::os::raw::c_void) -> FilterResult<()> {
+    pub fn mcp_dispatcher_destroy(
+        &self,
+        _dispatcher: *const std::os::raw::c_void,
+    ) -> FilterResult<()> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_dispatcher_destroy called");
@@ -297,7 +312,11 @@ impl EnhancedLibraryLoader {
     // ============================================================================
 
     /// Create a filter
-    pub fn mcp_filter_create(&self, _dispatcher: *const std::os::raw::c_void, _config: *const std::os::raw::c_void) -> FilterResult<u64> {
+    pub fn mcp_filter_create(
+        &self,
+        _dispatcher: *const std::os::raw::c_void,
+        _config: *const std::os::raw::c_void,
+    ) -> FilterResult<u64> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_create called");
@@ -311,7 +330,12 @@ impl EnhancedLibraryLoader {
     }
 
     /// Create a built-in filter
-    pub fn mcp_filter_create_builtin(&self, _dispatcher: *const std::os::raw::c_void, _filter_type: std::os::raw::c_int, _config: *const std::os::raw::c_void) -> FilterResult<u64> {
+    pub fn mcp_filter_create_builtin(
+        &self,
+        _dispatcher: *const std::os::raw::c_void,
+        _filter_type: std::os::raw::c_int,
+        _config: *const std::os::raw::c_void,
+    ) -> FilterResult<u64> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_create_builtin called");
@@ -325,7 +349,11 @@ impl EnhancedLibraryLoader {
     }
 
     /// Set filter callbacks
-    pub fn mcp_filter_set_callbacks(&self, _filter: u64, _callbacks: *const crate::ffi::c_structs::McpFilterCallbacks) -> FilterResult<()> {
+    pub fn mcp_filter_set_callbacks(
+        &self,
+        _filter: u64,
+        _callbacks: *const crate::ffi::c_structs::McpFilterCallbacks,
+    ) -> FilterResult<()> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_set_callbacks called");
@@ -374,11 +402,19 @@ impl EnhancedLibraryLoader {
     pub fn mcp_buffer_set_data(&self, _buffer: u64, _data: &[u8]) -> FilterResult<()> {
         match self {
             Self::Real(_) => {
-                debug!("Real library mcp_buffer_set_data called for buffer: {} with {} bytes", _buffer, _data.len());
+                debug!(
+                    "Real library mcp_buffer_set_data called for buffer: {} with {} bytes",
+                    _buffer,
+                    _data.len()
+                );
                 Ok(())
             }
             Self::Placeholder(_) => {
-                debug!("Placeholder mcp_buffer_set_data called for buffer: {} with {} bytes", _buffer, _data.len());
+                debug!(
+                    "Placeholder mcp_buffer_set_data called for buffer: {} with {} bytes",
+                    _buffer,
+                    _data.len()
+                );
                 Ok(())
             }
         }
@@ -403,7 +439,10 @@ impl EnhancedLibraryLoader {
     // ============================================================================
 
     /// Create JSON string
-    pub fn mcp_json_create_string(&self, _value: &str) -> FilterResult<*const std::os::raw::c_void> {
+    pub fn mcp_json_create_string(
+        &self,
+        _value: &str,
+    ) -> FilterResult<*const std::os::raw::c_void> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_json_create_string called");
@@ -491,7 +530,10 @@ impl EnhancedLibraryLoader {
     // ============================================================================
 
     /// Create a filter chain builder
-    pub fn mcp_filter_chain_builder_create(&self, _dispatcher: *const std::os::raw::c_void) -> FilterResult<*const std::os::raw::c_void> {
+    pub fn mcp_filter_chain_builder_create(
+        &self,
+        _dispatcher: *const std::os::raw::c_void,
+    ) -> FilterResult<*const std::os::raw::c_void> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_chain_builder_create called");
@@ -505,7 +547,13 @@ impl EnhancedLibraryLoader {
     }
 
     /// Add a filter to a chain
-    pub fn mcp_filter_chain_add_filter(&self, _builder: *const std::os::raw::c_void, _filter: u64, _position: std::os::raw::c_int, _reference: u64) -> FilterResult<()> {
+    pub fn mcp_filter_chain_add_filter(
+        &self,
+        _builder: *const std::os::raw::c_void,
+        _filter: u64,
+        _position: std::os::raw::c_int,
+        _reference: u64,
+    ) -> FilterResult<()> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_chain_add_filter called");
@@ -519,7 +567,10 @@ impl EnhancedLibraryLoader {
     }
 
     /// Build the filter chain
-    pub fn mcp_filter_chain_build(&self, _builder: *const std::os::raw::c_void) -> FilterResult<u64> {
+    pub fn mcp_filter_chain_build(
+        &self,
+        _builder: *const std::os::raw::c_void,
+    ) -> FilterResult<u64> {
         match self {
             Self::Real(_) => {
                 debug!("Real library mcp_filter_chain_build called");
