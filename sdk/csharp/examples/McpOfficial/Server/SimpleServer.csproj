@@ -10,6 +10,8 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <!-- Reference the local gopher-mcp library for filters -->
+    <ProjectReference Include="../../../src/GopherMcp.csproj" />
   </ItemGroup>
 
 </Project>
