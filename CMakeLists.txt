@@ -400,6 +400,7 @@ set(MCP_CORE_SOURCES
     src/config/config_validator.cc
     src/config/units.cc
     src/config/filter_order_validator.cc
+    src/config/predicate_evaluator.cc
 )
 
 # Client and server sources that need event library
