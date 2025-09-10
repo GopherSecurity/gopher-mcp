@@ -399,6 +399,7 @@ set(MCP_CORE_SOURCES
     src/config/config_merger.cc
     src/config/config_validator.cc
     src/config/units.cc
+    src/config/filter_order_validator.cc
 )
 
 # Client and server sources that need event library
