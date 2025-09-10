@@ -24,22 +24,12 @@ namespace McpCalculatorClient
 
             try
             {
-                // Configure transport
-                var transportConfig = new TransportConfig
-                {
-                    Protocol = TransportProtocol.Tcp,
-                    Host = "localhost",
-                    Port = 9000,
-                    EnableKeepAlive = true,
-                    KeepAliveInterval = TimeSpan.FromSeconds(30),
-                    MaxMessageSize = 4 * 1024 * 1024, // 4MB
-                    ConnectTimeout = TimeSpan.FromSeconds(30),
-                    SendTimeout = TimeSpan.FromSeconds(30),
-                    ReceiveTimeout = TimeSpan.FromSeconds(30)
-                };
-
-                // Create transport
-                using var transport = new GopherTransport(transportConfig);
+                // Create TCP transport
+                using var transport = new TcpTransport(
+                    host: "localhost",
+                    port: 9000,
+                    keepAlive: true,
+                    keepAliveInterval: TimeSpan.FromSeconds(30));
 
                 // Create MCP client
                 using var client = new McpClient(transport, TimeSpan.FromSeconds(30));
@@ -56,7 +46,7 @@ namespace McpCalculatorClient
                 };
 
                 // Connect to server
-                logger.LogInformation("Connecting to server at {Host}:{Port}...", transportConfig.Host, transportConfig.Port);
+                logger.LogInformation("Connecting to server at localhost:9000...");
                 await client.ConnectAsync();
                 logger.LogInformation("Connected successfully");
 

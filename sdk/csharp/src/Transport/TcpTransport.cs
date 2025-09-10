@@ -256,9 +256,8 @@ namespace GopherMcp.Transport
                      RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
 #endif
             {
-                // Unix-like keep-alive (requires platform-specific constants)
-                // This is simplified - actual implementation would use platform-specific socket options
-                _tcpClient.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.KeepAlive, true);
+                // Unix-like keep-alive - already enabled at socket level
+                // Platform-specific TCP keep-alive parameters would require P/Invoke
             }
         }
 

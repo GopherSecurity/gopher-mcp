@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -252,9 +253,17 @@ namespace GopherMcp.Integration
                 {
                     break;
                 }
+                catch (EndOfStreamException)
+                {
+                    // Connection closed
+                    break;
+                }
                 catch (Exception ex)
                 {
                     OnError(ex, "Error in receive loop");
+                    // Continue trying unless fatal
+                    if (!IsConnected)
+                        break;
                 }
             }
         }
@@ -266,7 +275,18 @@ namespace GopherMcp.Integration
                 if (message.IsResponse || message.IsError)
                 {
                     // Handle response
-                    if (message.Id != null && _pendingRequests.TryRemove(message.Id, out var tcs))
+                    // Convert Id to string if it's a JsonElement
+                    string? idString = null;
+                    if (message.Id is System.Text.Json.JsonElement jsonElement)
+                    {
+                        idString = jsonElement.GetString();
+                    }
+                    else if (message.Id != null)
+                    {
+                        idString = message.Id.ToString();
+                    }
+                    
+                    if (idString != null && _pendingRequests.TryRemove(idString, out var tcs))
                     {
                         tcs.TrySetResult(message);
                     }

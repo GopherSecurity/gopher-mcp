@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -244,7 +245,7 @@ namespace GopherMcp.Integration
                 {
                     name = t.Name,
                     description = t.Description,
-                    inputSchema = t.InputSchema
+                    inputSchema = new { type = "object" }  // Simplified schema for now
                 }).ToList();
 
                 return await Task.FromResult(new { tools });
@@ -369,7 +370,7 @@ namespace GopherMcp.Integration
 
         private async Task ReceiveLoop(CancellationToken cancellationToken)
         {
-            while (!cancellationToken.IsCancellationRequested && IsRunning)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
@@ -380,9 +381,22 @@ namespace GopherMcp.Integration
                 {
                     break;
                 }
+                catch (EndOfStreamException)
+                {
+                    // Connection closed
+                    break;
+                }
+                catch (InvalidOperationException ex) when (ex.Message == "Transport is not connected")
+                {
+                    // Wait for connection
+                    await Task.Delay(100, cancellationToken);
+                }
                 catch (Exception ex)
                 {
                     OnError(ex, "Error in receive loop");
+                    // Continue trying to receive unless it's a fatal error
+                    if (!IsRunning)
+                        break;
                 }
             }
         }
