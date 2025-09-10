@@ -6,6 +6,8 @@ cmake-build-*/
 out/
 bin/
 lib/
+# Exception: Allow Ruby SDK lib directory
+!sdk/ruby/lib/
 
 # CMake generated files
 CMakeCache.txt
