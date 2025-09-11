@@ -548,8 +548,19 @@ mcp_chain_builder_create_ex(mcp_dispatcher_t dispatcher,
   if (!config)
     return nullptr;
 
-  // Use the function from mcp_filter_api.cc to create the builder
-  return mcp_filter_chain_builder_create(dispatcher);
+  try {
+    // Use the function from mcp_filter_api.cc to create the builder
+    return mcp_filter_chain_builder_create(dispatcher);
+  } catch (const std::bad_alloc&) {
+    // Out of memory - no logging to avoid further allocations
+    return nullptr;
+  } catch (const std::exception&) {
+    // Other known exception - avoid complex logging
+    return nullptr;
+  } catch (...) {
+    // Unknown exception - return safe default
+    return nullptr;
+  }
 }
 
 MCP_API mcp_result_t
@@ -558,8 +569,16 @@ mcp_chain_builder_add_node(mcp_filter_chain_builder_t builder,
   if (!builder || !node)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add node to builder
-  return MCP_OK;
+  try {
+    // TODO: Add node to builder
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -569,8 +588,16 @@ mcp_chain_builder_add_conditional(mcp_filter_chain_builder_t builder,
   if (!builder || !condition)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add conditional filter
-  return MCP_OK;
+  try {
+    // TODO: Add conditional filter
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -580,8 +607,16 @@ mcp_chain_builder_add_parallel_group(mcp_filter_chain_builder_t builder,
   if (!builder || !filters)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add parallel group
-  return MCP_OK;
+  try {
+    // TODO: Add parallel group
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -591,46 +626,84 @@ mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
   if (!builder)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Set custom router
-  return MCP_OK;
+  try {
+    // TODO: Set custom router
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Chain Management
 
 MCP_API mcp_chain_state_t mcp_chain_get_state(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_CHAIN_STATE_ERROR;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_CHAIN_STATE_ERROR;
 
-  return chain_ptr->getState();
+    return chain_ptr->getState();
+  } catch (const std::exception&) {
+    return MCP_CHAIN_STATE_ERROR;
+  } catch (...) {
+    return MCP_CHAIN_STATE_ERROR;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->pause();
-  return MCP_OK;
+    chain_ptr->pause();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->resume();
-  return MCP_OK;
+    chain_ptr->resume();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->reset();
-  return MCP_OK;
+    chain_ptr->reset();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
@@ -640,12 +713,20 @@ MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
   if (!filter_name)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->setFilterEnabled(filter_name, enabled);
-  return MCP_OK;
+    chain_ptr->setFilterEnabled(filter_name, enabled);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_get_stats(
@@ -653,24 +734,40 @@ MCP_API mcp_result_t mcp_chain_get_stats(
   if (!stats)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->getStats(stats);
-  return MCP_OK;
+    chain_ptr->getStats(stats);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
                                                   mcp_chain_event_cb callback,
                                                   void* user_data)
     MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->setEventCallback(callback, user_data);
-  return MCP_OK;
+    chain_ptr->setEventCallback(callback, user_data);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Dynamic Chain Composition
@@ -825,8 +922,21 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     
     return handle;
     
+  } catch (const std::bad_alloc&) {
+    // Avoid complex logging that might allocate memory
+    try {
+      GOPHER_LOG(Error, "Chain creation failed: out of memory");
+    } catch (...) {}
+    return 0;
   } catch (const std::exception& e) {
-    GOPHER_LOG(Error, "Chain creation failed with exception: {}", e.what());
+    try {
+      GOPHER_LOG(Error, "Chain creation failed with exception: {}", e.what());
+    } catch (...) {}
+    return 0;
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Chain creation failed with unknown exception");
+    } catch (...) {}
     return 0;
   }
 }
@@ -854,8 +964,20 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     GOPHER_LOG(Info, "Chain {} exported to JSON", chain);
     return c_api_json;
     
+  } catch (const std::bad_alloc&) {
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: out of memory", chain);
+    } catch (...) {}
+    return mcp_json_create_null();
   } catch (const std::exception& e) {
-    GOPHER_LOG(Error, "Failed to export chain {}: {}", chain, e.what());
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: {}", chain, e.what());
+    } catch (...) {}
+    return mcp_json_create_null();
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: unknown exception", chain);
+    } catch (...) {}
     return mcp_json_create_null();
   }
 }
@@ -900,12 +1022,42 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     
     return new_handle;
     
-  } catch (const std::exception& e) {
-    GOPHER_LOG(Error, "Failed to clone chain {}: {}", chain, e.what());
+  } catch (const std::bad_alloc&) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: out of memory", chain);
+    } catch (...) {}
     
     // Clean up JSON if not already freed
     if (json_config) {
-      mcp_json_free(json_config);
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
+    }
+    
+    return 0;
+  } catch (const std::exception& e) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: {}", chain, e.what());
+    } catch (...) {}
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
+    }
+    
+    return 0;
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: unknown exception", chain);
+    } catch (...) {}
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
     }
     
     return 0;
@@ -916,8 +1068,16 @@ MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
                                            mcp_filter_chain_t chain2,
                                            mcp_chain_execution_mode_t mode)
     MCP_NOEXCEPT {
-  // TODO: Merge chains
-  return 0;
+  try {
+    // TODO: Merge chains
+    return 0;
+  } catch (const std::bad_alloc&) {
+    return 0;
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 // Chain Router
@@ -941,8 +1101,16 @@ MCP_API mcp_result_t mcp_chain_router_add_route(mcp_chain_router_t router,
   if (!router)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
-  return MCP_OK;
+  try {
+    reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_filter_chain_t
@@ -952,11 +1120,21 @@ mcp_chain_router_route(mcp_chain_router_t router,
   if (!router)
     return 0;
 
-  return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
+  try {
+    return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 MCP_API void mcp_chain_router_destroy(mcp_chain_router_t router) MCP_NOEXCEPT {
-  delete reinterpret_cast<ChainRouter*>(router);
+  try {
+    delete reinterpret_cast<ChainRouter*>(router);
+  } catch (...) {
+    // Destructor threw - nothing we can do safely
+  }
 }
 
 // Chain Pool
@@ -977,13 +1155,25 @@ MCP_API mcp_filter_chain_t mcp_chain_pool_get_next(mcp_chain_pool_t pool)
     MCP_NOEXCEPT {
   if (!pool)
     return 0;
-  return reinterpret_cast<ChainPool*>(pool)->getNext();
+    
+  try {
+    return reinterpret_cast<ChainPool*>(pool)->getNext();
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 MCP_API void mcp_chain_pool_return(mcp_chain_pool_t pool,
                                    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  if (pool) {
+  if (!pool)
+    return;
+    
+  try {
     reinterpret_cast<ChainPool*>(pool)->returnChain(chain);
+  } catch (...) {
+    // Best effort - cannot report error from void function
   }
 }
 
@@ -995,68 +1185,126 @@ MCP_API mcp_result_t mcp_chain_pool_get_stats(mcp_chain_pool_t pool,
   if (!pool)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
-  if (active)
-    *active = pool_impl->chains.size() - pool_impl->available.size();
-  if (idle)
-    *idle = pool_impl->available.size();
-  if (total_processed)
-    *total_processed = pool_impl->total_processed.load();
+  try {
+    auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
+    if (active)
+      *active = pool_impl->chains.size() - pool_impl->available.size();
+    if (idle)
+      *idle = pool_impl->available.size();
+    if (total_processed)
+      *total_processed = pool_impl->total_processed.load();
 
-  return MCP_OK;
+    return MCP_OK;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API void mcp_chain_pool_destroy(mcp_chain_pool_t pool) MCP_NOEXCEPT {
-  delete reinterpret_cast<ChainPool*>(pool);
+  try {
+    delete reinterpret_cast<ChainPool*>(pool);
+  } catch (...) {
+    // Destructor threw - nothing we can do safely
+  }
 }
 
 // Chain Optimization
 
 MCP_API mcp_result_t mcp_chain_optimize(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  // TODO: Implement optimization
-  return MCP_OK;
+  try {
+    // TODO: Implement optimization
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_reorder_filters(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Implement reordering
-  return MCP_OK;
+  try {
+    // TODO: Implement reordering
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_profile(mcp_filter_chain_t chain,
                                        mcp_buffer_handle_t test_buffer,
                                        size_t iterations,
                                        mcp_json_value_t* report) MCP_NOEXCEPT {
-  // TODO: Implement profiling
-  return MCP_OK;
+  try {
+    // TODO: Implement profiling
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Chain Debugging
 
 MCP_API mcp_result_t mcp_chain_set_trace_level(
     mcp_filter_chain_t chain, uint32_t trace_level) MCP_NOEXCEPT {
-  // TODO: Implement tracing
-  return MCP_OK;
+  try {
+    // TODO: Implement tracing
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API char* mcp_chain_dump(mcp_filter_chain_t chain,
                              const char* format) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return nullptr;
+  try {
+    auto chain_ptr = g_chain_manager.get(chain);
+    if (!chain_ptr)
+      return nullptr;
 
-  std::string dump = chain_ptr->dump(format ? format : "text");
-  char* result = static_cast<char*>(malloc(dump.size() + 1));
-  if (result) {
-    std::strcpy(result, dump.c_str());
+    std::string dump = chain_ptr->dump(format ? format : "text");
+    char* result = static_cast<char*>(malloc(dump.size() + 1));
+    if (result) {
+      std::strcpy(result, dump.c_str());
+    }
+    return result;
+  } catch (const std::bad_alloc&) {
+    return nullptr;
+  } catch (const std::exception&) {
+    return nullptr;
+  } catch (...) {
+    return nullptr;
   }
-  return result;
 }
 
 MCP_API mcp_result_t mcp_chain_validate(mcp_filter_chain_t chain,
                                         mcp_json_value_t* errors) MCP_NOEXCEPT {
-  // TODO: Implement validation
-  return MCP_OK;
+  try {
+    // TODO: Implement validation
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 }  // extern "C"
