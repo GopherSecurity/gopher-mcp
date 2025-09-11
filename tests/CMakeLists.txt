@@ -98,6 +98,7 @@ if(BUILD_C_API)
     add_executable(test_mcp_c_filter_chain c_api/test_mcp_c_filter_chain.cc)
     add_executable(test_mcp_c_filter_buffer c_api/test_mcp_c_filter_buffer.cc)
     add_executable(test_mcp_c_logging_api c_api/test_mcp_c_logging_api.cc)
+    add_executable(test_handle_manager c_api/test_handle_manager.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -707,6 +708,15 @@ if(BUILD_C_API)
     if(LLHTTP_FOUND)
         target_link_libraries(test_mcp_c_logging_api llhttp)
     endif()
+    
+    target_link_libraries(test_handle_manager
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
     
     target_link_libraries(test_mcp_c_raii
         gopher_mcp_c_static  # Use static library for access to internal symbols
