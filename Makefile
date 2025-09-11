@@ -1,6 +1,6 @@
 # Makefile for MCP C++ SDK
 
-.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-cs check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
+.PHONY: all build test test-verbose test-parallel test-list check check-verbose check-parallel clean release debug help format format-ts format-python format-rust format-ruby format-cs format-go format-java check-format install uninstall csharp csharp-release csharp-test csharp-clean csharp-format
 
 # Configuration detection
 OS := $(shell uname -s 2>/dev/null || echo Windows_NT)
@@ -200,6 +200,21 @@ format:
 	else \
 		echo "Java SDK directory not found, skipping Java formatting."; \
 	fi
+	@echo "Formatting Ruby files with rubocop..."
+	@if [ -d "sdk/ruby" ]; then \
+		cd sdk/ruby && \
+		if command -v rubocop >/dev/null 2>&1; then \
+			rubocop --auto-correct --format simple; \
+			echo "Ruby formatting complete."; \
+		else \
+			echo "Installing rubocop for Ruby formatting..."; \
+			gem install rubocop; \
+			rubocop --auto-correct --format simple; \
+			echo "Ruby formatting complete."; \
+		fi; \
+	else \
+		echo "Ruby SDK directory not found, skipping Ruby formatting."; \
+	fi
 	@echo "All formatting complete."
 
 # Format only TypeScript files
@@ -385,6 +400,25 @@ format-java:
 		exit 1; \
 	fi
 
+# Format only Ruby files
+format-ruby:
+	@echo "Formatting Ruby files with rubocop..."
+	@if [ -d "sdk/ruby" ]; then \
+		cd sdk/ruby && \
+		if command -v rubocop >/dev/null 2>&1; then \
+			rubocop --auto-correct --format simple; \
+			echo "Ruby formatting complete."; \
+		else \
+			echo "Installing rubocop for Ruby formatting..."; \
+			gem install rubocop; \
+			rubocop --auto-correct --format simple; \
+			echo "Ruby formatting complete."; \
+		fi; \
+	else \
+		echo "Ruby SDK directory not found."; \
+		exit 1; \
+	fi
+
 # Check formatting without modifying files
 check-format:
 	@echo "Checking source file formatting..."
@@ -454,6 +488,21 @@ check-format:
 	    fi; \
 	else \
 	    echo "Go SDK directory not found, skipping Go formatting check."; \
+	fi
+	@echo "Checking Ruby file formatting..."
+	@if [ -d "sdk/ruby" ]; then \
+		cd sdk/ruby && \
+		if command -v rubocop >/dev/null 2>&1; then \
+			rubocop --format simple; \
+			echo "Ruby formatting check complete."; \
+		else \
+			echo "Installing rubocop for Ruby formatting check..."; \
+			gem install rubocop; \
+			rubocop --format simple; \
+			echo "Ruby formatting check complete."; \
+		fi; \
+	else \
+		echo "Ruby SDK directory not found, skipping Ruby formatting check."; \
 	fi
 	@echo "Formatting check complete."
 
@@ -659,10 +708,11 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files (C++, TS, Python, Rust, C#, Go, Java) │"
+	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust, Ruby, C#, Go, Java) │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make format-python Format only Python files with black               │"
 	@echo "│ make format-rust   Format only Rust files with rustfmt               │"
+	@echo "│ make format-ruby   Format only Ruby files with rubocop               │"
 	@echo "│ make format-cs     Format only C# files with dotnet format           │"
 	@echo "│ make format-go     Format only Go files with gofmt and goimports     │"
 	@echo "│ make format-java   Format only Java files with Spotless              │"
@@ -683,10 +733,11 @@ help:
 	@echo "│   $$ sudo make install                                                │"
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
-	@echo "│   $$ make format          # Format all code (C++, TS, Python, Rust, C#, Go, Java) │"
+	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust, Ruby, C#, Go, Java) │"
 	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
 	@echo "│   $$ make format-python   # Format only Python files                 │"
 	@echo "│   $$ make format-rust     # Format only Rust files                   │"
+	@echo "│   $$ make format-ruby     # Format only Ruby files                   │"
 	@echo "│   $$ make format-cs       # Format only C# files                     │"
 	@echo "│   $$ make format-go       # Format only Go files                     │"
 	@echo "│   $$ make format-java     # Format only Java files                   │"
