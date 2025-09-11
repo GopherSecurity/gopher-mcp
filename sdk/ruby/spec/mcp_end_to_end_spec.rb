@@ -17,14 +17,14 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'processes data through complete filter chain' do
       # Create filters
       filter1 = filter_manager.create_filter('uppercase', {
-        on_data: ->(data) { data.upcase },
-        on_error: ->(error) { puts "Filter1 error: #{error}" }
-      })
+                                               on_data: ->(data) { data.upcase },
+                                               on_error: ->(error) { puts "Filter1 error: #{error}" }
+                                             })
 
       filter2 = filter_manager.create_filter('add-prefix', {
-        on_data: ->(data) { "PROCESSED: #{data}" },
-        on_error: ->(error) { puts "Filter2 error: #{error}" }
-      })
+                                               on_data: ->(data) { "PROCESSED: #{data}" },
+                                               on_error: ->(error) { puts "Filter2 error: #{error}" }
+                                             })
 
       # Add filters to transport
       transport.add_filter(filter1)
@@ -35,7 +35,7 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       expect(transport.is_connected).to be true
 
       # Send message through transport
-      test_message = "hello world"
+      test_message = 'hello world'
       result = transport.send_message(test_message)
 
       # Verify message was processed
@@ -48,15 +48,15 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'handles filter errors gracefully' do
       # Create a filter that throws errors
       error_filter = filter_manager.create_filter('error-filter', {
-        on_data: ->(data) { raise "Processing error" },
-        on_error: ->(error) { "Error handled: #{error}" }
-      })
+                                                    on_data: ->(_data) { raise 'Processing error' },
+                                                    on_error: ->(error) { "Error handled: #{error}" }
+                                                  })
 
       transport.add_filter(error_filter)
       transport.start
 
       # Send message - should not crash
-      result = transport.send_message("test")
+      result = transport.send_message('test')
       expect(result).to be true
     end
 
@@ -65,9 +65,9 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       filters = []
       3.times do |i|
         filter = filter_manager.create_filter("filter-#{i}", {
-          on_data: ->(data) { "#{data}-#{i}" },
-          on_error: ->(error) { puts "Filter #{i} error: #{error}" }
-        })
+                                                on_data: ->(data) { "#{data}-#{i}" },
+                                                on_error: ->(error) { puts "Filter #{i} error: #{error}" }
+                                              })
         filters << filter
         transport.add_filter(filter)
       end
@@ -75,7 +75,7 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       transport.start
 
       # Send message
-      result = transport.send_message("start")
+      result = transport.send_message('start')
       expect(result).to be true
 
       # Verify all filters are present
@@ -85,9 +85,9 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'handles transport lifecycle correctly' do
       # Create and add filter
       filter = filter_manager.create_filter('test-filter', {
-        on_data: ->(data) { data },
-        on_error: ->(error) { puts "Error: #{error}" }
-      })
+                                              on_data: ->(data) { data },
+                                              on_error: ->(error) { puts "Error: #{error}" }
+                                            })
 
       transport.add_filter(filter)
 
@@ -97,7 +97,7 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       expect(transport.is_connected).to be true
 
       # Send message
-      result = transport.send_message("test")
+      result = transport.send_message('test')
       expect(result).to be true
 
       # Stop transport
@@ -108,14 +108,14 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'provides comprehensive statistics' do
       # Create filters
       filter1 = filter_manager.create_filter('filter1', {
-        on_data: ->(data) { data },
-        on_error: ->(error) { puts "Error: #{error}" }
-      })
+                                               on_data: ->(data) { data },
+                                               on_error: ->(error) { puts "Error: #{error}" }
+                                             })
 
       filter2 = filter_manager.create_filter('filter2', {
-        on_data: ->(data) { data },
-        on_error: ->(error) { puts "Error: #{error}" }
-      })
+                                               on_data: ->(data) { data },
+                                               on_error: ->(error) { puts "Error: #{error}" }
+                                             })
 
       transport.add_filter(filter1)
       transport.add_filter(filter2)
@@ -133,15 +133,15 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'handles concurrent operations' do
       # Create filter
       filter = filter_manager.create_filter('concurrent-filter', {
-        on_data: ->(data) { data },
-        on_error: ->(error) { puts "Error: #{error}" }
-      })
+                                              on_data: ->(data) { data },
+                                              on_error: ->(error) { puts "Error: #{error}" }
+                                            })
 
       transport.add_filter(filter)
       transport.start
 
       # Send multiple messages concurrently
-      messages = ["msg1", "msg2", "msg3", "msg4", "msg5"]
+      messages = %w[msg1 msg2 msg3 msg4 msg5]
       results = messages.map { |msg| transport.send_message(msg) }
 
       # All should succeed
@@ -154,40 +154,38 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       # Create a filter that fails initially but recovers
       recovery_count = 0
       filter = filter_manager.create_filter('recovery-filter', {
-        on_data: ->(data) do
-          recovery_count += 1
-          if recovery_count == 1
-            raise "Initial failure"
-          else
-            "Recovered: #{data}"
-          end
-        end,
-        on_error: ->(error) { "Handled: #{error}" }
-      })
+                                              on_data: lambda do |data|
+                                                recovery_count += 1
+                                                raise 'Initial failure' if recovery_count == 1
+
+                                                "Recovered: #{data}"
+                                              end,
+                                              on_error: ->(error) { "Handled: #{error}" }
+                                            })
 
       transport.add_filter(filter)
       transport.start
 
       # First message should trigger error handling
-      result1 = transport.send_message("test1")
+      result1 = transport.send_message('test1')
       expect(result1).to be true
 
       # Second message should work normally
-      result2 = transport.send_message("test2")
+      result2 = transport.send_message('test2')
       expect(result2).to be true
     end
 
     it 'handles transport disconnection gracefully' do
       filter = filter_manager.create_filter('disconnect-filter', {
-        on_data: ->(data) { data },
-        on_error: ->(error) { puts "Error: #{error}" }
-      })
+                                              on_data: ->(data) { data },
+                                              on_error: ->(error) { puts "Error: #{error}" }
+                                            })
 
       transport.add_filter(filter)
       transport.start
 
       # Send message while connected
-      result1 = transport.send_message("connected")
+      result1 = transport.send_message('connected')
       expect(result1).to be true
 
       # Disconnect
@@ -195,7 +193,7 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
       expect(transport.is_connected).to be false
 
       # Sending message while disconnected should handle gracefully
-      result2 = transport.send_message("disconnected")
+      result2 = transport.send_message('disconnected')
       expect(result2).to be false
     end
   end

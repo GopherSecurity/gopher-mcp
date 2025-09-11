@@ -9,7 +9,7 @@ module McpFilterSdk
       @capacity = capacity
       @size = 0
       @handle = nil
-      @data = ""
+      @data = ''
       @initialized = false
     end
 
@@ -26,12 +26,12 @@ module McpFilterSdk
       return false unless @initialized
 
       if data.nil?
-        return true  # Handle nil gracefully
+        return true # Handle nil gracefully
       end
 
       data_str = data.to_s
       if @size + data_str.length > @capacity
-        return false  # Buffer would overflow
+        return false # Buffer would overflow
       end
 
       @data += data_str
@@ -57,17 +57,19 @@ module McpFilterSdk
     def clear
       return unless @initialized
 
-      @data = ""
+      @data = ''
       @size = 0
     end
 
     def get_size
       return 0 unless @initialized
+
       @size
     end
 
     def get_capacity
       return @capacity unless @initialized
+
       @capacity
     end
 
@@ -87,11 +89,11 @@ module McpFilterSdk
     def cleanup!
       return unless @initialized
 
-      @data = ""
+      @data = ''
       @size = 0
       @handle = nil
       @initialized = false
-      puts "✅ FilterBuffer cleaned up"
+      puts '✅ FilterBuffer cleaned up'
     end
   end
 end

@@ -88,9 +88,8 @@ module McpFilterSdk
 
     # Transport Configuration
     class TransportConfig
-      attr_accessor :name, :version, :protocol, :host, :port
-      attr_accessor :connect_timeout, :send_timeout, :receive_timeout
-      attr_accessor :max_connections, :buffer_size, :filter_config
+      attr_accessor :name, :version, :protocol, :host, :port, :connect_timeout, :send_timeout, :receive_timeout,
+                    :max_connections, :buffer_size, :filter_config
 
       def initialize(options = {})
         @name = options[:name] || 'mcp-transport'
@@ -98,7 +97,7 @@ module McpFilterSdk
         @protocol = options[:protocol] || ProtocolType::TCP
         @host = options[:host] || 'localhost'
         @port = options[:port] || 8080
-        @connect_timeout = options[:connect_timeout] || 30000
+        @connect_timeout = options[:connect_timeout] || 30_000
         @send_timeout = options[:send_timeout] || 5000
         @receive_timeout = options[:receive_timeout] || 5000
         @max_connections = options[:max_connections] || 10
@@ -154,7 +153,7 @@ module McpFilterSdk
         @name = options[:name] || 'mcp-chain'
         @execution_mode = options[:execution_mode] || ChainExecutionMode::SEQUENTIAL
         @max_filters = options[:max_filters] || 100
-        @timeout = options[:timeout] || 30000
+        @timeout = options[:timeout] || 30_000
         @enabled = options[:enabled] != false
       end
 
