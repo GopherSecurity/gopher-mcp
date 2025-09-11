@@ -10,7 +10,7 @@
 
 #include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/c_api/mcp_c_api_json.h"
-#include "mcp/c_api/mcp_c_dispatcher.h"
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/network/filter.h"
 #include "mcp/json/json_bridge.h"
@@ -337,11 +337,9 @@ TEST_F(ChainFromJsonTest, ChainClone) {
   auto original = mcp_chain_create_from_json(dispatcher_, json_config);
   ASSERT_NE(original, 0);
   
-  // Note: Clone currently doesn't work without dispatcher tracking
-  // This test documents the expected behavior
+  // Clone should now work with dispatcher tracking
   auto cloned = mcp_chain_clone(original);
-  // For now, expect failure due to missing dispatcher
-  EXPECT_EQ(cloned, 0) << "Clone currently fails without dispatcher tracking";
+  EXPECT_NE(cloned, 0) << "Clone should succeed with dispatcher tracking";
   
   mcp_json_free(json_config);
 }
