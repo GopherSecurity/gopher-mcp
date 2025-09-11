@@ -5,8 +5,9 @@ require 'mcp_filter_sdk/mcp_filter_api'
 require 'mcp_filter_sdk/mcp_filter_buffer'
 require 'mcp_filter_sdk/mcp_filter_chain'
 require 'mcp_filter_sdk/mcp_filter_manager'
+require 'mcp_filter_sdk/mcp_capifilter'
 require 'mcp_filter_sdk/gopher_transport'
-require 'mcp_filter_sdk/types'
+require 'mcp_filter_sdk/types/index'
 
 module McpFilterSdk
   # Main entry point for the MCP Filter SDK
