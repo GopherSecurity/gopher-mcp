@@ -25,6 +25,7 @@ RSpec.describe McpFilterSdk::CApiFilter do
 
   describe '#process_data' do
     it 'processes data through callbacks' do
+      filter.initialize!
       result = filter.process_data('test data')
       expect(result).to eq('processed: test data')
     end
@@ -36,6 +37,7 @@ RSpec.describe McpFilterSdk::CApiFilter do
       }
       
       error_filter = described_class.new('error-filter', error_callbacks)
+      error_filter.initialize!
       result = error_filter.process_data('test')
       expect(result).to eq('caught: Processing error')
     end
