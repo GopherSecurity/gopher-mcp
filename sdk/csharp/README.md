@@ -13,6 +13,10 @@ A high-performance, extensible filter chain library for C#/.NET applications, de
 - [Testing](#testing)
 - [Examples](#examples)
 - [API Reference](#api-reference)
+- [Performance Considerations](#performance-considerations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
 
 ## Overview
 
