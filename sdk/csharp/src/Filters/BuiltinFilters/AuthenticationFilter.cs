@@ -1,420 +1,353 @@
 using System;
 using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Security.Cryptography;
+using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using GopherMcp.Types;
-using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 
 namespace GopherMcp.Filters.BuiltinFilters
 {
-    /// <summary>
-    /// Authentication methods
-    /// </summary>
     public enum AuthenticationMethod
     {
         None,
-        Basic,
-        Bearer,
+        JWT,
         ApiKey,
         OAuth2,
-        Custom
+        Basic
     }
 
-    /// <summary>
-    /// Configuration for authentication filter
-    /// </summary>
     public class AuthenticationConfig : FilterConfigBase
     {
-        /// <summary>
-        /// Gets or sets the authentication method
-        /// </summary>
-        public AuthenticationMethod Method { get; set; } = AuthenticationMethod.None;
+        public AuthenticationMethod Method { get; set; } = AuthenticationMethod.JWT;
+        public string? Secret { get; set; }
+        public string? Issuer { get; set; }
+        public string? Audience { get; set; }
+        public List<string> BypassPaths { get; set; } = new();
+        public bool RequireHttps { get; set; } = true;
+        public int TokenExpirationMinutes { get; set; } = 60;
+        public Dictionary<string, string> ApiKeys { get; set; } = new();
+        public string? OAuth2TokenEndpoint { get; set; }
+        public string? OAuth2ClientId { get; set; }
+        public string? OAuth2ClientSecret { get; set; }
 
-        /// <summary>
-        /// Gets or sets the realm for basic authentication
-        /// </summary>
-        public string Realm { get; set; } = "Protected";
-
-        /// <summary>
-        /// Gets or sets the credentials store
-        /// </summary>
-        public Dictionary<string, string> Credentials { get; set; } = new Dictionary<string, string>();
-
-        /// <summary>
-        /// Gets or sets the API key header name
-        /// </summary>
-        public string ApiKeyHeader { get; set; } = "X-API-Key";
-
-        /// <summary>
-        /// Gets or sets valid API keys
-        /// </summary>
-        public HashSet<string> ValidApiKeys { get; set; } = new HashSet<string>();
-
-        /// <summary>
-        /// Gets or sets the token validation endpoint
-        /// </summary>
-        public string TokenValidationEndpoint { get; set; }
-
-        /// <summary>
-        /// Gets or sets whether to allow anonymous access
-        /// </summary>
-        public bool AllowAnonymous { get; set; } = false;
-
-        /// <summary>
-        /// Gets or sets the shared secret for authentication
-        /// </summary>
-        public string SharedSecret { get; set; }
-
-        /// <summary>
-        /// Gets or sets the authentication timeout
-        /// </summary>
-        public TimeSpan AuthenticationTimeout { get; set; } = TimeSpan.FromSeconds(5);
-
-        /// <summary>
-        /// Gets or sets whether to cache authentication results
-        /// </summary>
-        public bool EnableCaching { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets the cache duration
-        /// </summary>
-        public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(5);
-
-        /// <summary>
-        /// Gets or sets custom authentication handler
-        /// </summary>
-        public Func<string, string, Task<bool>> CustomAuthHandler { get; set; }
-
-        /// <summary>
-        /// Validates the configuration
-        /// </summary>
-        public override IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(
-            System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+        public AuthenticationConfig() : base("Authentication", "AuthenticationFilter")
         {
-            var results = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+            Priority = 100; // High priority to run early
+        }
 
-            if (Method == AuthenticationMethod.Basic && Credentials.Count == 0)
+        public override bool Validate(out List<string> errors)
+        {
+            errors = new List<string>();
+
+            if (!base.Validate(out var baseErrors))
             {
-                results.Add(new System.ComponentModel.DataAnnotations.ValidationResult(
-                    "Basic authentication requires at least one credential"));
+                errors.AddRange(baseErrors);
             }
 
-            if (Method == AuthenticationMethod.ApiKey && ValidApiKeys.Count == 0)
+            if (Method == AuthenticationMethod.JWT)
             {
-                results.Add(new System.ComponentModel.DataAnnotations.ValidationResult(
-                    "API key authentication requires at least one valid key"));
+                if (string.IsNullOrEmpty(Secret))
+                {
+                    errors.Add("JWT Secret is required for JWT authentication");
+                }
+                if (Secret?.Length < 32)
+                {
+                    errors.Add("JWT Secret must be at least 32 characters");
+                }
+            }
+            else if (Method == AuthenticationMethod.ApiKey)
+            {
+                if (ApiKeys.Count == 0)
+                {
+                    errors.Add("At least one API key must be configured");
+                }
+            }
+            else if (Method == AuthenticationMethod.OAuth2)
+            {
+                if (string.IsNullOrEmpty(OAuth2TokenEndpoint))
+                {
+                    errors.Add("OAuth2 token endpoint is required");
+                }
+                if (string.IsNullOrEmpty(OAuth2ClientId))
+                {
+                    errors.Add("OAuth2 client ID is required");
+                }
             }
 
-            if (Method == AuthenticationMethod.OAuth2 && string.IsNullOrEmpty(TokenValidationEndpoint))
-            {
-                results.Add(new System.ComponentModel.DataAnnotations.ValidationResult(
-                    "OAuth2 authentication requires a token validation endpoint"));
-            }
-
-            return results;
+            return errors.Count == 0;
         }
     }
 
-    /// <summary>
-    /// Authentication filter for validating requests
-    /// </summary>
     public class AuthenticationFilter : Filter
     {
         private readonly AuthenticationConfig _config;
-        private readonly ILogger<AuthenticationFilter> _logger;
-        private readonly Dictionary<string, (bool IsValid, DateTime Expiry)> _cache;
-        private readonly SemaphoreSlim _cacheLock;
+        private readonly JwtSecurityTokenHandler _jwtHandler;
+        private TokenValidationParameters? _tokenValidationParameters;
 
-        /// <summary>
-        /// Initializes a new instance of the AuthenticationFilter class
-        /// </summary>
-        public AuthenticationFilter(AuthenticationConfig config, ILogger<AuthenticationFilter> logger = null)
-            : base(config)
+        public AuthenticationFilter(AuthenticationConfig config) : base(config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
-            _logger = logger;
-            _cache = new Dictionary<string, (bool, DateTime)>();
-            _cacheLock = new SemaphoreSlim(1, 1);
+            _jwtHandler = new JwtSecurityTokenHandler();
+            InitializeTokenValidation();
         }
 
-        /// <summary>
-        /// Processes buffer through the authentication filter
-        /// </summary>
-        protected override async Task<FilterResult> ProcessInternal(
-            byte[] buffer,
-            ProcessingContext context,
-            CancellationToken cancellationToken = default)
+        private void InitializeTokenValidation()
         {
+            if (_config.Method == AuthenticationMethod.JWT && !string.IsNullOrEmpty(_config.Secret))
+            {
+                _tokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config.Secret)),
+                    ValidateIssuer = !string.IsNullOrEmpty(_config.Issuer),
+                    ValidIssuer = _config.Issuer,
+                    ValidateAudience = !string.IsNullOrEmpty(_config.Audience),
+                    ValidAudience = _config.Audience,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.Zero
+                };
+            }
+        }
+
+        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
             try
             {
-                // Allow anonymous if configured
-                if (_config.AllowAnonymous)
+                // Check bypass rules
+                if (ShouldBypass(context))
                 {
-                    _logger?.LogDebug("Allowing anonymous access");
-                    return FilterResult.Success(buffer, 0, buffer.Length);
+                    return FilterResult.Continue(data);
                 }
 
-                // Extract authentication information from context
-                var authHeader = context?.GetProperty<string>("Authorization");
-
-                if (string.IsNullOrEmpty(authHeader) && _config.Method != AuthenticationMethod.ApiKey)
+                // Extract authentication token
+                var token = ExtractToken(context);
+                if (string.IsNullOrEmpty(token))
                 {
-                    _logger?.LogWarning("No authorization header found");
-                    return FilterResult.Error("Unauthorized", FilterError.Unauthorized);
+                    return FilterResult.Error("Authentication required", FilterError.Unauthorized);
                 }
 
-                bool isAuthenticated = false;
-                string cacheKey = null;
-
-                // Check cache if enabled
-                if (_config.EnableCaching && !string.IsNullOrEmpty(authHeader))
+                // Validate based on authentication method
+                var validationResult = await ValidateTokenAsync(token, context, cancellationToken);
+                if (!validationResult.IsValid)
                 {
-                    cacheKey = ComputeHash(authHeader);
-                    if (await CheckCacheAsync(cacheKey))
-                    {
-                        _logger?.LogDebug("Authentication result found in cache");
-                        return FilterResult.Success(buffer, 0, buffer.Length);
-                    }
+                    return FilterResult.Error(validationResult.ErrorMessage ?? "Authentication failed", FilterError.Unauthorized);
                 }
 
-                // Perform authentication based on method
-                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                // Store user information in context
+                if (validationResult.Principal != null)
                 {
-                    cts.CancelAfter(_config.AuthenticationTimeout);
-
-                    switch (_config.Method)
-                    {
-                        case AuthenticationMethod.Basic:
-                            isAuthenticated = await ValidateBasicAuth(authHeader, cts.Token);
-                            break;
-
-                        case AuthenticationMethod.Bearer:
-                            isAuthenticated = await ValidateBearerToken(authHeader, cts.Token);
-                            break;
-
-                        case AuthenticationMethod.ApiKey:
-                            var apiKey = context?.GetProperty<string>(_config.ApiKeyHeader) ??
-                                        ExtractApiKeyFromAuth(authHeader);
-                            isAuthenticated = ValidateApiKey(apiKey);
-                            break;
-
-                        case AuthenticationMethod.OAuth2:
-                            isAuthenticated = await ValidateOAuth2Token(authHeader, cts.Token);
-                            break;
-
-                        case AuthenticationMethod.Custom:
-                            if (_config.CustomAuthHandler != null)
-                            {
-                                var (username, password) = ExtractCredentials(authHeader);
-                                isAuthenticated = await _config.CustomAuthHandler(username, password);
-                            }
-                            break;
-
-                        case AuthenticationMethod.None:
-                            isAuthenticated = true;
-                            break;
-                    }
+                    context.SetProperty("User", validationResult.Principal);
+                    context.SetProperty("UserId", validationResult.Principal.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+                    context.SetProperty("UserName", validationResult.Principal.FindFirst(ClaimTypes.Name)?.Value);
                 }
 
-                // Update cache if authenticated
-                if (isAuthenticated && _config.EnableCaching && !string.IsNullOrEmpty(cacheKey))
-                {
-                    await UpdateCacheAsync(cacheKey, true);
-                }
-
-                if (isAuthenticated)
-                {
-                    _logger?.LogInformation("Authentication successful");
-                    UpdateStatistics(buffer.Length, 0, true);
-                    return FilterResult.Success(buffer, 0, buffer.Length);
-                }
-                else
-                {
-                    _logger?.LogWarning("Authentication failed");
-                    UpdateStatistics(0, 1, false);
-                    return FilterResult.Error("Unauthorized", FilterError.Unauthorized);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                _logger?.LogError("Authentication timeout");
-                return FilterResult.Error("Authentication timeout", FilterError.Timeout);
+                UpdateStatistics(data.Length, 0, true);
+                await RaiseOnDataAsync(data, 0, data.Length, FilterStatus.Continue);
+                return FilterResult.Continue(data);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Authentication error");
+                UpdateStatistics(0, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Authentication error: {ex.Message}", FilterError.InternalError);
             }
         }
 
-        private async Task<bool> ValidateBasicAuth(string authHeader, CancellationToken cancellationToken)
+        private bool ShouldBypass(ProcessingContext context)
         {
-            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            try
-            {
-                var encodedCredentials = authHeader.Substring(6);
-                var credentialBytes = Convert.FromBase64String(encodedCredentials);
-                var credentials = Encoding.UTF8.GetString(credentialBytes);
-                var parts = credentials.Split(':', 2);
-
-                if (parts.Length != 2)
-                    return false;
-
-                var username = parts[0];
-                var password = parts[1];
-
-                // Check credentials
-                if (_config.Credentials.TryGetValue(username, out var expectedPassword))
-                {
-                    return password == expectedPassword;
-                }
-
-                await Task.CompletedTask;
-                return false;
-            }
-            catch
+            var path = context.GetProperty<string>("Path");
+            if (string.IsNullOrEmpty(path))
             {
                 return false;
             }
+
+            return _config.BypassPaths.Any(bypassPath => 
+                path.StartsWith(bypassPath, StringComparison.OrdinalIgnoreCase));
         }
 
-        private async Task<bool> ValidateBearerToken(string authHeader, CancellationToken cancellationToken)
+        private string? ExtractToken(ProcessingContext context)
         {
-            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                return false;
+            // Try to get token from different sources based on method
+            switch (_config.Method)
+            {
+                case AuthenticationMethod.JWT:
+                case AuthenticationMethod.OAuth2:
+                    // Extract from Authorization header
+                    var authHeader = context.GetProperty<string>("Authorization");
+                    if (!string.IsNullOrEmpty(authHeader))
+                    {
+                        if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return authHeader.Substring(7);
+                        }
+                    }
+                    break;
 
-            var token = authHeader.Substring(7);
+                case AuthenticationMethod.ApiKey:
+                    // Extract from X-API-Key header or query parameter
+                    var apiKey = context.GetProperty<string>("X-API-Key") ?? 
+                                context.GetProperty<string>("ApiKey");
+                    return apiKey;
 
-            // Simple token validation - in production, validate with JWT or OAuth2 server
-            await Task.CompletedTask;
-            return !string.IsNullOrEmpty(token);
-        }
-
-        private bool ValidateApiKey(string apiKey)
-        {
-            if (string.IsNullOrEmpty(apiKey))
-                return false;
-
-            return _config.ValidApiKeys.Contains(apiKey);
-        }
-
-        private string ExtractApiKeyFromAuth(string authHeader)
-        {
-            if (string.IsNullOrEmpty(authHeader))
-                return null;
-
-            if (authHeader.StartsWith("ApiKey ", StringComparison.OrdinalIgnoreCase))
-                return authHeader.Substring(7);
+                case AuthenticationMethod.Basic:
+                    // Extract from Authorization header
+                    var basicAuth = context.GetProperty<string>("Authorization");
+                    if (!string.IsNullOrEmpty(basicAuth) && basicAuth.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return basicAuth.Substring(6);
+                    }
+                    break;
+            }
 
             return null;
         }
 
-        private async Task<bool> ValidateOAuth2Token(string authHeader, CancellationToken cancellationToken)
+        private async Task<ValidationResult> ValidateTokenAsync(string token, ProcessingContext context, CancellationToken cancellationToken)
         {
-            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            var token = authHeader.Substring(7);
-
-            // In production, validate with OAuth2 server
-            // This is a placeholder implementation
-            await Task.Delay(10, cancellationToken);
-            return !string.IsNullOrEmpty(token);
-        }
-
-        private (string Username, string Password) ExtractCredentials(string authHeader)
-        {
-            if (string.IsNullOrEmpty(authHeader))
-                return (null, null);
-
-            if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+            switch (_config.Method)
             {
-                try
-                {
-                    var encodedCredentials = authHeader.Substring(6);
-                    var credentialBytes = Convert.FromBase64String(encodedCredentials);
-                    var credentials = Encoding.UTF8.GetString(credentialBytes);
-                    var parts = credentials.Split(':', 2);
+                case AuthenticationMethod.JWT:
+                    return ValidateJwtToken(token);
 
-                    if (parts.Length == 2)
-                        return (parts[0], parts[1]);
-                }
-                catch
-                {
-                    // Invalid format
-                }
-            }
+                case AuthenticationMethod.ApiKey:
+                    return ValidateApiKey(token);
 
-            return (null, null);
-        }
+                case AuthenticationMethod.OAuth2:
+                    return await ValidateOAuth2TokenAsync(token, cancellationToken);
 
-        private string ComputeHash(string input)
-        {
-            using (var sha256 = SHA256.Create())
-            {
-                var bytes = Encoding.UTF8.GetBytes(input);
-                var hash = sha256.ComputeHash(bytes);
-                return Convert.ToBase64String(hash);
+                case AuthenticationMethod.Basic:
+                    return ValidateBasicAuth(token);
+
+                default:
+                    return new ValidationResult { IsValid = false, ErrorMessage = "Unsupported authentication method" };
             }
         }
 
-        private async Task<bool> CheckCacheAsync(string key)
+        private ValidationResult ValidateJwtToken(string token)
         {
-            await _cacheLock.WaitAsync();
+            if (_tokenValidationParameters == null)
+            {
+                return new ValidationResult { IsValid = false, ErrorMessage = "JWT validation not configured" };
+            }
+
             try
             {
-                if (_cache.TryGetValue(key, out var entry))
-                {
-                    if (entry.Expiry > DateTime.UtcNow)
-                    {
-                        return entry.IsValid;
-                    }
-                    else
-                    {
-                        _cache.Remove(key);
-                    }
-                }
-                return false;
+                var principal = _jwtHandler.ValidateToken(token, _tokenValidationParameters, out var validatedToken);
+                return new ValidationResult 
+                { 
+                    IsValid = true, 
+                    Principal = principal 
+                };
             }
-            finally
+            catch (SecurityTokenExpiredException)
             {
-                _cacheLock.Release();
+                return new ValidationResult { IsValid = false, ErrorMessage = "Token has expired" };
+            }
+            catch (SecurityTokenInvalidSignatureException)
+            {
+                return new ValidationResult { IsValid = false, ErrorMessage = "Invalid token signature" };
+            }
+            catch (Exception ex)
+            {
+                return new ValidationResult { IsValid = false, ErrorMessage = $"Token validation failed: {ex.Message}" };
             }
         }
 
-        private async Task UpdateCacheAsync(string key, bool isValid)
+        private ValidationResult ValidateApiKey(string apiKey)
         {
-            await _cacheLock.WaitAsync();
+            if (_config.ApiKeys.TryGetValue(apiKey, out var userId))
+            {
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, userId),
+                    new Claim(ClaimTypes.AuthenticationMethod, "ApiKey")
+                };
+                var identity = new ClaimsIdentity(claims, "ApiKey");
+                var principal = new ClaimsPrincipal(identity);
+
+                return new ValidationResult 
+                { 
+                    IsValid = true, 
+                    Principal = principal 
+                };
+            }
+
+            return new ValidationResult { IsValid = false, ErrorMessage = "Invalid API key" };
+        }
+
+        private async Task<ValidationResult> ValidateOAuth2TokenAsync(string token, CancellationToken cancellationToken)
+        {
+            // TODO: Implement OAuth2 token validation
+            // This would typically involve calling the OAuth2 provider's introspection endpoint
+            await Task.Delay(0, cancellationToken); // Placeholder
+            
+            return new ValidationResult 
+            { 
+                IsValid = false, 
+                ErrorMessage = "OAuth2 validation not yet implemented" 
+            };
+        }
+
+        private ValidationResult ValidateBasicAuth(string encodedCredentials)
+        {
             try
             {
-                _cache[key] = (isValid, DateTime.UtcNow.Add(_config.CacheDuration));
-
-                // Clean expired entries
-                var expiredKeys = _cache.Where(kvp => kvp.Value.Expiry <= DateTime.UtcNow)
-                                       .Select(kvp => kvp.Key)
-                                       .ToList();
-
-                foreach (var expiredKey in expiredKeys)
+                var credentials = Encoding.UTF8.GetString(Convert.FromBase64String(encodedCredentials));
+                var parts = credentials.Split(':');
+                if (parts.Length != 2)
                 {
-                    _cache.Remove(expiredKey);
+                    return new ValidationResult { IsValid = false, ErrorMessage = "Invalid Basic auth format" };
                 }
+
+                var username = parts[0];
+                var password = parts[1];
+
+                // TODO: Validate against user store
+                // This is a placeholder implementation
+                if (username == "admin" && password == "password")
+                {
+                    var claims = new[]
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, username),
+                        new Claim(ClaimTypes.Name, username),
+                        new Claim(ClaimTypes.AuthenticationMethod, "Basic")
+                    };
+                    var identity = new ClaimsIdentity(claims, "Basic");
+                    var principal = new ClaimsPrincipal(identity);
+
+                    return new ValidationResult 
+                    { 
+                        IsValid = true, 
+                        Principal = principal 
+                    };
+                }
+
+                return new ValidationResult { IsValid = false, ErrorMessage = "Invalid credentials" };
             }
-            finally
+            catch (Exception ex)
             {
-                _cacheLock.Release();
+                return new ValidationResult { IsValid = false, ErrorMessage = $"Basic auth validation failed: {ex.Message}" };
             }
+        }
+
+        private class ValidationResult
+        {
+            public bool IsValid { get; set; }
+            public string? ErrorMessage { get; set; }
+            public ClaimsPrincipal? Principal { get; set; }
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                _cacheLock?.Dispose();
+                // Clean up managed resources
             }
             base.Dispose(disposing);
         }

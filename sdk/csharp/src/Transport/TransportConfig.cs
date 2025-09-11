@@ -85,6 +85,11 @@ namespace GopherMcp.Transport
         public Dictionary<string, object> ConnectionOptions { get; set; } = new();
 
         /// <summary>
+        /// Indicates if this transport should act as a server (listen for connections)
+        /// </summary>
+        public bool IsServer { get; set; } = false;
+
+        /// <summary>
         /// Enable automatic reconnection
         /// </summary>
         public bool AutoReconnect { get; set; } = true;

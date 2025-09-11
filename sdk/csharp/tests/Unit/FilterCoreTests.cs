@@ -172,7 +172,7 @@ namespace GopherMcp.Tests.Unit
 
         protected override async Task<FilterResult> ProcessInternal(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
         {
-            await Task.Delay(5000, cancellationToken);
+            await Task.Delay(100, cancellationToken);
             return FilterResult.Success(data, 0, data.Length);
         }
     }

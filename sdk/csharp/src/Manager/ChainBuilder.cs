@@ -272,9 +272,8 @@ namespace GopherMcp.Manager
             var config = new AuthenticationConfig
             {
                 Method = (AuthenticationMethod)(int)method,
-                SharedSecret = secret,
-                Enabled = true,
-                AllowAnonymous = false
+                Secret = secret,
+                Enabled = true
             };
 
             // Create AuthenticationFilter

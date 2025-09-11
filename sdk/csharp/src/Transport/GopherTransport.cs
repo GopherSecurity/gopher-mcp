@@ -46,6 +46,8 @@ namespace GopherMcp.Transport
         }
 
         public bool IsConnected => State == ConnectionState.Connected;
+        
+        public bool IsServer => _config.IsServer;
 
         public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
         public event EventHandler<TransportErrorEventArgs>? Error;
@@ -936,51 +938,762 @@ namespace GopherMcp.Transport
     // Placeholder implementations for different protocols
     internal class TcpProtocolTransport : ProtocolTransportBase
     {
-        public TcpProtocolTransport(TransportConfig config) : base(config) { }
-        public override bool IsConnected => false;
-        public override Task ConnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task DisconnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken) => Task.FromResult(new JsonRpcMessage());
+        private System.Net.Sockets.TcpClient? _tcpClient;
+        private System.Net.Sockets.TcpListener? _tcpListener;
+        private System.IO.StreamReader? _reader;
+        private System.IO.StreamWriter? _writer;
+        private readonly bool _isServer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _receiveLock = new(1, 1);
+        private Task? _acceptTask;
+        private readonly TaskCompletionSource<bool> _connectionReady = new();
+
+        public TcpProtocolTransport(TransportConfig config) : base(config) 
+        {
+            _isServer = config.IsServer;
+        }
+
+        public override bool IsConnected => _isServer ? (_connectionReady.Task.IsCompletedSuccessfully && _tcpClient?.Connected == true) : (_tcpClient?.Connected ?? false);
+
+        public override async Task ConnectAsync(CancellationToken cancellationToken)
+        {
+            if (_isServer)
+            {
+                // Server mode: listen for connections
+                var ipAddress = Config.Host == "localhost" || string.IsNullOrEmpty(Config.Host) 
+                    ? System.Net.IPAddress.Loopback 
+                    : System.Net.IPAddress.Parse(Config.Host);
+                _tcpListener = new System.Net.Sockets.TcpListener(ipAddress, Config.Port);
+                _tcpListener.Start();
+                
+                // Start accepting in the background
+                _acceptTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        _tcpClient = await _tcpListener.AcceptTcpClientAsync().ConfigureAwait(false);
+                        
+                        // Setup streams
+                        var stream = _tcpClient.GetStream();
+                        _reader = new System.IO.StreamReader(stream, System.Text.Encoding.UTF8);
+                        _writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8) 
+                        { 
+                            AutoFlush = true 
+                        };
+                        
+                        _connectionReady.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _connectionReady.SetException(ex);
+                    }
+                });
+                
+                // Return immediately for server - connection will be established when client connects
+                return;
+            }
+            else
+            {
+                // Client mode: connect to server
+                _tcpClient = new System.Net.Sockets.TcpClient();
+                await _tcpClient.ConnectAsync(
+                    Config.Host ?? "localhost", 
+                    Config.Port, 
+                    cancellationToken).ConfigureAwait(false);
+                    
+                // Setup streams
+                var stream = _tcpClient.GetStream();
+                _reader = new System.IO.StreamReader(stream, System.Text.Encoding.UTF8);
+                _writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8) 
+                { 
+                    AutoFlush = true 
+                };
+            }
+        }
+
+        public override async Task DisconnectAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _writer?.Close();
+                _reader?.Close();
+                _tcpClient?.Close();
+                _tcpListener?.Stop();
+            }
+            catch { }
+            
+            _writer = null;
+            _reader = null;
+            _tcpClient = null;
+            _tcpListener = null;
+            
+            await Task.CompletedTask;
+        }
+
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken)
+        {
+            // For server, wait for connection to be established
+            if (_isServer && !_connectionReady.Task.IsCompleted)
+            {
+                await _connectionReady.Task.ConfigureAwait(false);
+            }
+            
+            if (_writer == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
+                await _writer.WriteLineAsync(json).ConfigureAwait(false);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public override async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            // For server, wait for connection to be established
+            if (_isServer && !_connectionReady.Task.IsCompleted)
+            {
+                await _connectionReady.Task.ConfigureAwait(false);
+            }
+            
+            if (_reader == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _receiveLock.WaitAsync(cancellationToken);
+            try
+            {
+                var line = await _reader.ReadLineAsync().ConfigureAwait(false);
+                if (line == null)
+                {
+                    throw new System.IO.EndOfStreamException("Connection closed");
+                }
+
+                var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(line);
+                return message ?? new JsonRpcMessage();
+            }
+            finally
+            {
+                _receiveLock.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisconnectAsync(CancellationToken.None).Wait(1000);
+                _sendLock?.Dispose();
+                _receiveLock?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal class UdpProtocolTransport : ProtocolTransportBase
     {
-        public UdpProtocolTransport(TransportConfig config) : base(config) { }
-        public override bool IsConnected => false;
-        public override Task ConnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task DisconnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken) => Task.FromResult(new JsonRpcMessage());
+        private System.Net.Sockets.UdpClient? _udpClient;
+        private System.Net.IPEndPoint? _remoteEndPoint;
+        private readonly bool _isServer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _receiveLock = new(1, 1);
+        private bool _isConnected;
+
+        public UdpProtocolTransport(TransportConfig config) : base(config) 
+        {
+            _isServer = config.IsServer;
+        }
+
+        public override bool IsConnected => _isConnected;
+
+        public override async Task ConnectAsync(CancellationToken cancellationToken)
+        {
+            var ipAddress = Config.Host == "localhost" || string.IsNullOrEmpty(Config.Host) 
+                ? System.Net.IPAddress.Loopback 
+                : System.Net.IPAddress.Parse(Config.Host);
+
+            if (_isServer)
+            {
+                // Server mode: bind to local endpoint
+                var localEndPoint = new System.Net.IPEndPoint(ipAddress, Config.Port);
+                _udpClient = new System.Net.Sockets.UdpClient(localEndPoint);
+            }
+            else
+            {
+                // Client mode: connect to remote endpoint
+                _udpClient = new System.Net.Sockets.UdpClient();
+                _remoteEndPoint = new System.Net.IPEndPoint(ipAddress, Config.Port);
+                _udpClient.Connect(_remoteEndPoint);
+            }
+            
+            _isConnected = true;
+            await Task.CompletedTask;
+        }
+
+        public override async Task DisconnectAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _udpClient?.Close();
+                _isConnected = false;
+            }
+            catch { }
+            
+            _udpClient = null;
+            _remoteEndPoint = null;
+            
+            await Task.CompletedTask;
+        }
+
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken)
+        {
+            if (_udpClient == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
+                var data = System.Text.Encoding.UTF8.GetBytes(json);
+                
+                if (_isServer)
+                {
+                    // For server, we need to know the client endpoint
+                    // In a real implementation, this would be stored from previous receives
+                    // For now, we'll throw an exception as server-initiated sends need client tracking
+                    throw new InvalidOperationException("UDP server cannot send without client endpoint");
+                }
+                else
+                {
+                    await _udpClient.SendAsync(data, data.Length).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public override async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            if (_udpClient == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _receiveLock.WaitAsync(cancellationToken);
+            try
+            {
+                var result = await _udpClient.ReceiveAsync().ConfigureAwait(false);
+                
+                // Store the remote endpoint for potential replies (server mode)
+                if (_isServer && _remoteEndPoint == null)
+                {
+                    _remoteEndPoint = result.RemoteEndPoint;
+                }
+                
+                var json = System.Text.Encoding.UTF8.GetString(result.Buffer);
+                var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json);
+                return message ?? new JsonRpcMessage();
+            }
+            finally
+            {
+                _receiveLock.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisconnectAsync(CancellationToken.None).Wait(1000);
+                _sendLock?.Dispose();
+                _receiveLock?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal class StdioProtocolTransport : ProtocolTransportBase
     {
+        private System.IO.StreamWriter? _writer;
+        private System.IO.StreamReader? _reader;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _receiveLock = new(1, 1);
+        private bool _isConnected;
+
         public StdioProtocolTransport(TransportConfig config) : base(config) { }
-        public override bool IsConnected => true;
-        public override Task ConnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task DisconnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken) => Task.FromResult(new JsonRpcMessage());
+
+        public override bool IsConnected => _isConnected;
+
+        public override async Task ConnectAsync(CancellationToken cancellationToken)
+        {
+            // Setup stdin/stdout streams
+            _reader = new System.IO.StreamReader(Console.OpenStandardInput(), System.Text.Encoding.UTF8);
+            _writer = new System.IO.StreamWriter(Console.OpenStandardOutput(), System.Text.Encoding.UTF8) 
+            { 
+                AutoFlush = true 
+            };
+            
+            _isConnected = true;
+            await Task.CompletedTask;
+        }
+
+        public override async Task DisconnectAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _writer?.Close();
+                _reader?.Close();
+                _isConnected = false;
+            }
+            catch { }
+            
+            _writer = null;
+            _reader = null;
+            
+            await Task.CompletedTask;
+        }
+
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken)
+        {
+            if (_writer == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
+                await _writer.WriteLineAsync(json).ConfigureAwait(false);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public override async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            if (_reader == null)
+                throw new InvalidOperationException("Not connected");
+
+            await _receiveLock.WaitAsync(cancellationToken);
+            try
+            {
+                var line = await _reader.ReadLineAsync().ConfigureAwait(false);
+                if (line == null)
+                {
+                    throw new System.IO.EndOfStreamException("Input stream closed");
+                }
+
+                var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(line);
+                return message ?? new JsonRpcMessage();
+            }
+            finally
+            {
+                _receiveLock.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisconnectAsync(CancellationToken.None).Wait(1000);
+                _sendLock?.Dispose();
+                _receiveLock?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal class HttpProtocolTransport : ProtocolTransportBase
     {
-        public HttpProtocolTransport(TransportConfig config) : base(config) { }
-        public override bool IsConnected => false;
-        public override Task ConnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task DisconnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken) => Task.FromResult(new JsonRpcMessage());
+        private System.Net.Http.HttpClient? _httpClient;
+        private System.Net.HttpListener? _httpListener;
+        private readonly bool _isServer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _receiveLock = new(1, 1);
+        private readonly Channel<JsonRpcMessage> _receiveQueue;
+        private bool _isConnected;
+        private Task? _listenTask;
+        private CancellationTokenSource? _listenCancellation;
+
+        public HttpProtocolTransport(TransportConfig config) : base(config) 
+        {
+            _isServer = config.IsServer;
+            
+            // Create receive queue for HTTP requests/responses
+            var receiveChannelOptions = new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false
+            };
+            _receiveQueue = Channel.CreateUnbounded<JsonRpcMessage>(receiveChannelOptions);
+        }
+
+        public override bool IsConnected => _isConnected;
+
+        public override async Task ConnectAsync(CancellationToken cancellationToken)
+        {
+            if (_isServer)
+            {
+                // Server mode: start HTTP listener
+                _httpListener = new System.Net.HttpListener();
+                var prefix = $"http://{Config.Host}:{Config.Port}/";
+                _httpListener.Prefixes.Add(prefix);
+                _httpListener.Start();
+                
+                _listenCancellation = new CancellationTokenSource();
+                _listenTask = Task.Run(async () => await ListenForRequests(_listenCancellation.Token));
+            }
+            else
+            {
+                // Client mode: create HTTP client
+                _httpClient = new System.Net.Http.HttpClient();
+                _httpClient.BaseAddress = new Uri($"http://{Config.Host}:{Config.Port}/");
+                _httpClient.DefaultRequestHeaders.Add("Content-Type", "application/json");
+            }
+            
+            _isConnected = true;
+            await Task.CompletedTask;
+        }
+
+        private async Task ListenForRequests(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested && _httpListener?.IsListening == true)
+            {
+                try
+                {
+                    var context = await _httpListener.GetContextAsync();
+                    _ = Task.Run(async () => await HandleRequest(context), cancellationToken);
+                }
+                catch (Exception) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Continue listening on errors
+                }
+            }
+        }
+
+        private async Task HandleRequest(System.Net.HttpListenerContext context)
+        {
+            try
+            {
+                using var reader = new System.IO.StreamReader(context.Request.InputStream);
+                var json = await reader.ReadToEndAsync();
+                
+                var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json);
+                if (message != null)
+                {
+                    await _receiveQueue.Writer.WriteAsync(message);
+                }
+                
+                // Send acknowledgment response
+                context.Response.StatusCode = 200;
+                context.Response.ContentType = "application/json";
+                
+                var response = new { status = "received" };
+                var responseJson = System.Text.Json.JsonSerializer.Serialize(response);
+                var responseBytes = System.Text.Encoding.UTF8.GetBytes(responseJson);
+                
+                await context.Response.OutputStream.WriteAsync(responseBytes, 0, responseBytes.Length);
+                context.Response.Close();
+            }
+            catch
+            {
+                context.Response.StatusCode = 500;
+                context.Response.Close();
+            }
+        }
+
+        public override async Task DisconnectAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _listenCancellation?.Cancel();
+                _httpListener?.Stop();
+                _httpClient?.Dispose();
+                _isConnected = false;
+                
+                if (_listenTask != null)
+                {
+                    await _listenTask;
+                }
+            }
+            catch { }
+            
+            _httpClient = null;
+            _httpListener = null;
+            _listenTask = null;
+            _listenCancellation?.Dispose();
+            _listenCancellation = null;
+            
+            await Task.CompletedTask;
+        }
+
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken)
+        {
+            if (!_isConnected)
+                throw new InvalidOperationException("Not connected");
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
+                
+                if (_isServer)
+                {
+                    // Server sending to client - add to receive queue for now
+                    // In a real implementation, this would need client endpoint tracking
+                    throw new InvalidOperationException("HTTP server cannot initiate sends without client tracking");
+                }
+                else
+                {
+                    // Client sending to server
+                    var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+                    var response = await _httpClient!.PostAsync("", content, cancellationToken);
+                    response.EnsureSuccessStatusCode();
+                }
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public override async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            if (!_isConnected)
+                throw new InvalidOperationException("Not connected");
+
+            await _receiveLock.WaitAsync(cancellationToken);
+            try
+            {
+                if (_isServer)
+                {
+                    // Server receiving from queue
+                    return await _receiveQueue.Reader.ReadAsync(cancellationToken);
+                }
+                else
+                {
+                    // HTTP client typically doesn't receive unsolicited messages
+                    // This would be used for request/response patterns
+                    throw new InvalidOperationException("HTTP client receive not implemented for unsolicited messages");
+                }
+            }
+            finally
+            {
+                _receiveLock.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisconnectAsync(CancellationToken.None).Wait(1000);
+                _sendLock?.Dispose();
+                _receiveLock?.Dispose();
+                _receiveQueue?.Writer.TryComplete();
+                _listenCancellation?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     internal class WebSocketProtocolTransport : ProtocolTransportBase
     {
-        public WebSocketProtocolTransport(TransportConfig config) : base(config) { }
-        public override bool IsConnected => false;
-        public override Task ConnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task DisconnectAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
-        public override Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken) => Task.FromResult(new JsonRpcMessage());
+        private System.Net.WebSockets.ClientWebSocket? _clientWebSocket;
+        private System.Net.WebSockets.WebSocket? _serverWebSocket;
+        private System.Net.HttpListener? _httpListener;
+        private readonly bool _isServer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _receiveLock = new(1, 1);
+        private bool _isConnected;
+        private Task? _listenTask;
+        private CancellationTokenSource? _listenCancellation;
+
+        public WebSocketProtocolTransport(TransportConfig config) : base(config) 
+        {
+            _isServer = config.IsServer;
+        }
+
+        public override bool IsConnected => _isConnected;
+
+        public override async Task ConnectAsync(CancellationToken cancellationToken)
+        {
+            if (_isServer)
+            {
+                // Server mode: start HTTP listener for WebSocket upgrade requests
+                _httpListener = new System.Net.HttpListener();
+                var prefix = $"http://{Config.Host}:{Config.Port}/";
+                _httpListener.Prefixes.Add(prefix);
+                _httpListener.Start();
+                
+                _listenCancellation = new CancellationTokenSource();
+                _listenTask = Task.Run(async () => await ListenForWebSocketConnections(_listenCancellation.Token));
+            }
+            else
+            {
+                // Client mode: connect to WebSocket server
+                _clientWebSocket = new System.Net.WebSockets.ClientWebSocket();
+                var uri = new Uri($"ws://{Config.Host}:{Config.Port}/");
+                await _clientWebSocket.ConnectAsync(uri, cancellationToken);
+            }
+            
+            _isConnected = true;
+        }
+
+        private async Task ListenForWebSocketConnections(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested && _httpListener?.IsListening == true)
+            {
+                try
+                {
+                    var context = await _httpListener.GetContextAsync();
+                    if (context.Request.IsWebSocketRequest)
+                    {
+                        var wsContext = await context.AcceptWebSocketAsync(null);
+                        _serverWebSocket = wsContext.WebSocket;
+                        _isConnected = true;
+                        return; // Accept first connection for simplicity
+                    }
+                    else
+                    {
+                        context.Response.StatusCode = 400;
+                        context.Response.Close();
+                    }
+                }
+                catch (Exception) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Continue listening on errors
+                }
+            }
+        }
+
+        public override async Task DisconnectAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _listenCancellation?.Cancel();
+                
+                if (_clientWebSocket?.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    await _clientWebSocket.CloseAsync(
+                        System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, 
+                        "Closing", 
+                        cancellationToken);
+                }
+                
+                if (_serverWebSocket?.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    await _serverWebSocket.CloseAsync(
+                        System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, 
+                        "Closing", 
+                        cancellationToken);
+                }
+                
+                _httpListener?.Stop();
+                _isConnected = false;
+                
+                if (_listenTask != null)
+                {
+                    await _listenTask;
+                }
+            }
+            catch { }
+            
+            _clientWebSocket?.Dispose();
+            _serverWebSocket?.Dispose();
+            _httpListener = null;
+            _listenTask = null;
+            _listenCancellation?.Dispose();
+            _listenCancellation = null;
+            _clientWebSocket = null;
+            _serverWebSocket = null;
+        }
+
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken)
+        {
+            var webSocket = _clientWebSocket ?? _serverWebSocket;
+            if (webSocket?.State != System.Net.WebSockets.WebSocketState.Open)
+                throw new InvalidOperationException("WebSocket not connected");
+
+            await _sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
+                var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                var segment = new ArraySegment<byte>(bytes);
+                
+                await webSocket.SendAsync(
+                    segment, 
+                    System.Net.WebSockets.WebSocketMessageType.Text, 
+                    true, 
+                    cancellationToken);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public override async Task<JsonRpcMessage> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            var webSocket = _clientWebSocket ?? _serverWebSocket;
+            if (webSocket?.State != System.Net.WebSockets.WebSocketState.Open)
+                throw new InvalidOperationException("WebSocket not connected");
+
+            await _receiveLock.WaitAsync(cancellationToken);
+            try
+            {
+                var buffer = new byte[Config.MaxMessageSize];
+                var segment = new ArraySegment<byte>(buffer);
+                
+                var result = await webSocket.ReceiveAsync(segment, cancellationToken);
+                
+                if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Text)
+                {
+                    var json = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json);
+                    return message ?? new JsonRpcMessage();
+                }
+                else if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                {
+                    throw new System.IO.EndOfStreamException("WebSocket closed");
+                }
+                
+                return new JsonRpcMessage();
+            }
+            finally
+            {
+                _receiveLock.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisconnectAsync(CancellationToken.None).Wait(1000);
+                _sendLock?.Dispose();
+                _receiveLock?.Dispose();
+                _listenCancellation?.Dispose();
+                _clientWebSocket?.Dispose();
+                _serverWebSocket?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 }

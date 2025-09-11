@@ -33,4 +33,24 @@
     <Compile Include="..\..\tests\Fixtures\*.cs" />
   </ItemGroup>
 
+  <!-- Copy native libraries to output directory -->
+  <ItemGroup>
+    <Content Include="..\..\src\runtimes\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- Also copy the native library directly to output for fallback -->
+  <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">
+    <None Include="..\..\src\runtimes\osx-x64\native\libgopher_mcp_c.0.1.0.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libgopher_mcp_c.dylib</Link>
+    </None>
+    <None Include="..\..\src\runtimes\osx-x64\native\libgopher_mcp_c.0.1.0.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>gopher_mcp_c.dylib</Link>
+    </None>
+  </ItemGroup>
+
 </Project>
