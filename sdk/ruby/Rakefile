@@ -3,36 +3,36 @@ require 'rspec/core/rake_task'
 
 RSpec::Core::RakeTask.new(:spec)
 
-task :default => :spec
+task default: :spec
 
-desc "Run all tests"
-task :test => :spec
+desc 'Run all tests'
+task test: :spec
 
-desc "Run linter"
+desc 'Run linter'
 task :lint do
-  sh "rubocop lib spec"
+  sh 'rubocop lib spec'
 end
 
-desc "Run linter with auto-fix"
+desc 'Run linter with auto-fix'
 task :lint_fix do
-  sh "rubocop lib spec --auto-correct"
+  sh 'rubocop lib spec --auto-correct'
 end
 
-desc "Build gem"
+desc 'Build gem'
 task :build do
-  sh "gem build mcp_filter_sdk.gemspec"
+  sh 'gem build mcp_filter_sdk.gemspec'
 end
 
-desc "Install gem locally"
-task :install => :build do
-  sh "gem install mcp_filter_sdk-*.gem"
+desc 'Install gem locally'
+task install: :build do
+  sh 'gem install mcp_filter_sdk-*.gem'
 end
 
-desc "Clean build artifacts"
+desc 'Clean build artifacts'
 task :clean do
-  sh "rm -f *.gem"
-  sh "rm -rf pkg/"
+  sh 'rm -f *.gem'
+  sh 'rm -rf pkg/'
 end
 
-desc "Run all checks"
-task :check => [:lint, :spec]
+desc 'Run all checks'
+task check: %i[lint spec]

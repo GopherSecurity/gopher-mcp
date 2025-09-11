@@ -16,30 +16,30 @@ module McpFilterSdk
 
       # Mock initialization - always successful
       @initialized = true
-      puts "✅ FilterApi initialized"
+      puts '✅ FilterApi initialized'
     end
 
     def create_filter(name, callbacks, config = {})
-      raise ArgumentError, "Name cannot be nil or empty" if name.nil? || name.empty?
-      raise ArgumentError, "Callbacks cannot be nil" if callbacks.nil?
+      raise ArgumentError, 'Name cannot be nil or empty' if name.nil? || name.empty?
+      raise ArgumentError, 'Callbacks cannot be nil' if callbacks.nil?
 
       # Create a CApiFilter instance
       filter = CApiFilter.new(name, callbacks, config)
       filter.initialize!
-      
+
       @filters[name] = filter
       puts "✅ Created filter: #{name}"
-      
+
       filter
     end
 
     def destroy_filter(name)
       return false unless @filters.key?(name)
-      
+
       filter = @filters[name]
       filter.destroy
       @filters.delete(name)
-      
+
       puts "✅ Destroyed filter: #{name}"
       true
     end
@@ -64,13 +64,13 @@ module McpFilterSdk
       return unless @initialized
 
       # Clean up all filters
-      @filters.each do |name, filter|
+      @filters.each do |_name, filter|
         filter.destroy
       end
       @filters.clear
-      
+
       @initialized = false
-      puts "✅ FilterApi cleaned up"
+      puts '✅ FilterApi cleaned up'
     end
   end
 end

@@ -21,13 +21,13 @@ module McpFilterSdk
       @api = McpFilterSdk::FilterApi.new(@config)
       @api.initialize!
       @initialized = true
-      
-      puts "✅ FilterManager initialized"
+
+      puts '✅ FilterManager initialized'
     end
 
     def create_filter(name, callbacks, config = {})
       initialize! unless @initialized
-      
+
       filter = @api.create_filter(name, callbacks, config)
       @filters[name] = filter
       filter
@@ -39,12 +39,12 @@ module McpFilterSdk
 
       @api.destroy_filter(name)
       @filters.delete(name)
-      
+
       # Remove from all chains
       @chains.each_value do |chain|
         chain.remove_filter(filter)
       end
-      
+
       true
     end
 
@@ -68,10 +68,10 @@ module McpFilterSdk
     def add_filter_to_chain(chain_name, filter_name)
       chain = @chains[chain_name]
       filter = @filters[filter_name]
-      
+
       raise FilterError.new(-1, "Chain not found: #{chain_name}") unless chain
       raise FilterError.new(-1, "Filter not found: #{filter_name}") unless filter
-      
+
       chain.add_filter(filter)
       true
     end
@@ -79,10 +79,10 @@ module McpFilterSdk
     def remove_filter_from_chain(chain_name, filter_name)
       chain = @chains[chain_name]
       filter = @filters[filter_name]
-      
+
       raise FilterError.new(-1, "Chain not found: #{chain_name}") unless chain
       raise FilterError.new(-1, "Filter not found: #{filter_name}") unless filter
-      
+
       chain.remove_filter(filter)
       true
     end
@@ -90,7 +90,7 @@ module McpFilterSdk
     def execute_chain(chain_name, data)
       chain = @chains[chain_name]
       raise FilterError.new(-1, "Chain not found: #{chain_name}") unless chain
-      
+
       chain.execute(data)
     end
 
@@ -111,7 +111,7 @@ module McpFilterSdk
     def get_chain_status(name)
       chain = @chains[name]
       return :not_found unless chain
-      
+
       chain.enabled? ? :enabled : :disabled
     end
 
@@ -142,7 +142,7 @@ module McpFilterSdk
       @chains.clear
       @api&.cleanup!
       @initialized = false
-      puts "✅ FilterManager cleaned up"
+      puts '✅ FilterManager cleaned up'
     end
   end
 end

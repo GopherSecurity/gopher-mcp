@@ -3,9 +3,9 @@ require 'json'
 
 class McpCalculatorClient
   def initialize
-    puts "🧮 MCP Calculator Client with Ruby SDK"
-    puts "======================================="
-    
+    puts '🧮 MCP Calculator Client with Ruby SDK'
+    puts '======================================='
+
     @transport = create_transport
     @filter = create_client_filter
     @transport.add_filter(@filter)
@@ -13,15 +13,15 @@ class McpCalculatorClient
   end
 
   def connect
-    puts "🔗 Connecting to calculator server..."
+    puts '🔗 Connecting to calculator server...'
     @transport.start
-    puts "✅ Connected to server"
+    puts '✅ Connected to server'
   end
 
   def disconnect
-    puts "🔌 Disconnecting from server..."
+    puts '🔌 Disconnecting from server...'
     @transport.stop
-    puts "✅ Disconnected from server"
+    puts '✅ Disconnected from server'
   end
 
   def calculate(operation, a, b = nil)
@@ -31,27 +31,27 @@ class McpCalculatorClient
       method: operation,
       params: b ? { a: a, b: b } : { a: a }
     }
-    
+
     @message_id += 1
-    
+
     puts "📤 Sending calculation: #{operation}(#{a}#{", #{b}" if b})"
     @transport.send_message(message)
   end
 
   def run_examples
     puts "\n🧮 Running calculator examples..."
-    
+
     # Basic arithmetic
     calculate('add', 5, 3)
     calculate('subtract', 10, 4)
     calculate('multiply', 6, 7)
     calculate('divide', 15, 3)
-    
+
     # Advanced operations
     calculate('power', 2, 8)
     calculate('sqrt', 64)
     calculate('factorial', 5)
-    
+
     puts "\n✅ All examples completed"
   end
 
@@ -62,7 +62,7 @@ class McpCalculatorClient
       protocol: :tcp,
       host: 'localhost',
       port: 8080,
-      connect_timeout: 30000,
+      connect_timeout: 30_000,
       send_timeout: 5000,
       receive_timeout: 5000,
       max_connections: 1,
@@ -73,7 +73,7 @@ class McpCalculatorClient
         metrics: true
       }
     }
-    
+
     McpFilterSdk::GopherTransport.new(config)
   end
 
@@ -85,7 +85,7 @@ class McpCalculatorClient
       on_high_watermark: method(:handle_high_watermark),
       on_low_watermark: method(:handle_low_watermark)
     }
-    
+
     filter_config = {
       name: 'client-filter',
       type: :data,
@@ -95,16 +95,16 @@ class McpCalculatorClient
         client_mode: true
       }
     }
-    
+
     ClientFilter.new(callbacks, filter_config)
   end
 
   def handle_response(data)
     puts "📥 Received response: #{data}"
-    
+
     begin
       response = JSON.parse(data)
-      
+
       if response['result']
         puts "✅ Result: #{response['result']}"
       elsif response['error']
@@ -154,11 +154,11 @@ end
 # Main execution
 if __FILE__ == $0
   client = McpCalculatorClient.new
-  
+
   begin
     client.connect
     client.run_examples
-  rescue => e
+  rescue StandardError => e
     puts "❌ Error: #{e.message}"
   ensure
     client.disconnect

@@ -27,9 +27,9 @@ RSpec.describe McpFilterSdk::FilterBuffer do
 
   describe '#add' do
     it 'adds data to the buffer' do
-      test_data = "Hello, World!"
+      test_data = 'Hello, World!'
       result = buffer.add(test_data)
-      
+
       expect(result).to be true
       expect(buffer.size).to be > 0
     end
@@ -37,20 +37,20 @@ RSpec.describe McpFilterSdk::FilterBuffer do
     it 'handles binary data correctly' do
       binary_data = [0x48, 0x65, 0x6c, 0x6c, 0x6f].pack('C*')
       result = buffer.add(binary_data)
-      
+
       expect(result).to be true
       expect(buffer.size).to be > 0
     end
 
     it 'handles empty data' do
-      result = buffer.add("")
+      result = buffer.add('')
       expect(result).to be true
     end
 
     it 'handles large data efficiently' do
-      large_data = "x" * (buffer.capacity - 1)  # Stay within capacity
+      large_data = 'x' * (buffer.capacity - 1) # Stay within capacity
       result = buffer.add(large_data)
-      
+
       expect(result).to be true
       expect(buffer.size).to be > 0
     end
@@ -58,9 +58,9 @@ RSpec.describe McpFilterSdk::FilterBuffer do
 
   describe '#get_contiguous' do
     it 'retrieves contiguous data from buffer' do
-      test_data = "Test data for contiguous retrieval"
+      test_data = 'Test data for contiguous retrieval'
       buffer.add(test_data)
-      
+
       retrieved_data = buffer.get_contiguous
       expect(retrieved_data).to eq(test_data)
     end
@@ -71,19 +71,19 @@ RSpec.describe McpFilterSdk::FilterBuffer do
     end
 
     it 'handles partial data retrieval' do
-      buffer.add("First part")
-      buffer.add("Second part")
-      
+      buffer.add('First part')
+      buffer.add('Second part')
+
       retrieved_data = buffer.get_contiguous
-      expect(retrieved_data).to include("First part")
+      expect(retrieved_data).to include('First part')
     end
   end
 
   describe '#clear' do
     it 'clears all data from buffer' do
-      buffer.add("Test data")
+      buffer.add('Test data')
       expect(buffer.size).to be > 0
-      
+
       buffer.clear
       expect(buffer.size).to eq(0)
       expect(buffer.is_empty?).to be true
@@ -98,15 +98,15 @@ RSpec.describe McpFilterSdk::FilterBuffer do
   describe '#size' do
     it 'returns current buffer size' do
       expect(buffer.size).to eq(0)
-      
-      buffer.add("Test")
+
+      buffer.add('Test')
       expect(buffer.size).to be > 0
     end
 
     it 'updates size after adding data' do
       initial_size = buffer.size
-      buffer.add("New data")
-      
+      buffer.add('New data')
+
       expect(buffer.size).to be > initial_size
     end
   end
@@ -118,8 +118,8 @@ RSpec.describe McpFilterSdk::FilterBuffer do
 
     it 'capacity remains constant' do
       initial_capacity = buffer.capacity
-      buffer.add("Some data")
-      
+      buffer.add('Some data')
+
       expect(buffer.capacity).to eq(initial_capacity)
     end
   end
@@ -130,14 +130,14 @@ RSpec.describe McpFilterSdk::FilterBuffer do
     end
 
     it 'returns false for non-empty buffer' do
-      buffer.add("Test")
+      buffer.add('Test')
       expect(buffer.is_empty?).to be false
     end
 
     it 'returns true after clearing buffer' do
-      buffer.add("Test")
+      buffer.add('Test')
       expect(buffer.is_empty?).to be false
-      
+
       buffer.clear
       expect(buffer.is_empty?).to be true
     end
@@ -145,27 +145,27 @@ RSpec.describe McpFilterSdk::FilterBuffer do
 
   describe 'buffer management' do
     it 'handles multiple add operations' do
-      buffer.add("First")
-      buffer.add("Second")
-      buffer.add("Third")
-      
+      buffer.add('First')
+      buffer.add('Second')
+      buffer.add('Third')
+
       expect(buffer.size).to be > 0
       expect(buffer.is_empty?).to be false
     end
 
     it 'handles add/clear cycles' do
-      buffer.add("Data1")
+      buffer.add('Data1')
       buffer.clear
       expect(buffer.is_empty?).to be true
-      
-      buffer.add("Data2")
+
+      buffer.add('Data2')
       expect(buffer.is_empty?).to be false
     end
 
     it 'maintains data integrity across operations' do
-      test_data = "Integrity test data"
+      test_data = 'Integrity test data'
       buffer.add(test_data)
-      
+
       retrieved_data = buffer.get_contiguous
       expect(retrieved_data).to eq(test_data)
     end
@@ -177,9 +177,9 @@ RSpec.describe McpFilterSdk::FilterBuffer do
     end
 
     it 'handles very large data within capacity' do
-      large_data = "x" * (buffer.capacity - 1)
+      large_data = 'x' * (buffer.capacity - 1)
       result = buffer.add(large_data)
-      
+
       expect(result).to be true
     end
   end
@@ -187,10 +187,10 @@ RSpec.describe McpFilterSdk::FilterBuffer do
   describe 'buffer statistics' do
     it 'provides accurate size information' do
       expect(buffer.size).to eq(0)
-      
-      buffer.add("Test")
+
+      buffer.add('Test')
       expect(buffer.size).to be > 0
-      
+
       buffer.clear
       expect(buffer.size).to eq(0)
     end

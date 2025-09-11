@@ -9,8 +9,8 @@ module McpFilterSdk
     attr_reader :name, :callbacks, :handle, :status
 
     def initialize(name, callbacks, options = {})
-      raise ArgumentError, "Name cannot be nil or empty" if name.nil? || name.empty?
-      raise ArgumentError, "Callbacks cannot be nil" if callbacks.nil?
+      raise ArgumentError, 'Name cannot be nil or empty' if name.nil? || name.empty?
+      raise ArgumentError, 'Callbacks cannot be nil' if callbacks.nil?
 
       @name = name
       @callbacks = callbacks
@@ -41,19 +41,17 @@ module McpFilterSdk
         if @callbacks[:on_data]
           result = @callbacks[:on_data].call(data)
           @status = Types::FilterStatus::COMPLETED
-          return result
+          result
         else
           @status = Types::FilterStatus::COMPLETED
-          return data
+          data
         end
-      rescue => e
+      rescue StandardError => e
         @status = Types::FilterStatus::ERROR
-        
-        if @callbacks[:on_error]
-          return @callbacks[:on_error].call(e.message)
-        else
-          raise FilterError.new(-1, "Filter processing error: #{e.message}")
-        end
+
+        return @callbacks[:on_error].call(e.message) if @callbacks[:on_error]
+
+        raise FilterError.new(-1, "Filter processing error: #{e.message}")
       end
     end
 

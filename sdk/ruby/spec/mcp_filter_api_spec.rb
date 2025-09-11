@@ -32,17 +32,17 @@ RSpec.describe McpFilterSdk::FilterManager do
     end
 
     it 'raises error with invalid callbacks' do
-      expect {
+      expect do
         manager.create_filter('test-filter', nil)
-      }.to raise_error(ArgumentError)
+      end.to raise_error(ArgumentError)
     end
   end
 
   describe '#destroy_filter' do
     it 'destroys an existing filter' do
       callbacks = { on_data: ->(data) { data } }
-      filter = manager.create_filter('test-filter', callbacks)
-      
+      manager.create_filter('test-filter', callbacks)
+
       expect(manager.destroy_filter('test-filter')).to be true
     end
 
@@ -60,7 +60,7 @@ RSpec.describe McpFilterSdk::FilterManager do
       callbacks = { on_data: ->(data) { data } }
       manager.create_filter('filter1', callbacks)
       manager.create_filter('filter2', callbacks)
-      
+
       expect(manager.list_filters).to contain_exactly('filter1', 'filter2')
     end
   end

@@ -6,7 +6,7 @@ module McpFilterSdk
 
     # Mock implementation for testing when C library is not available
     class MockLibrary
-      def self.mcp_init(ptr)
+      def self.mcp_init(_ptr)
         0 # Success
       end
 
@@ -15,7 +15,7 @@ module McpFilterSdk
       end
 
       def self.mcp_get_version
-        "0.1.0-mock"
+        '0.1.0-mock'
       end
 
       def self.mcp_is_initialized
@@ -38,11 +38,11 @@ module McpFilterSdk
         # Mock stop
       end
 
-      def self.mcp_filter_create(dispatcher, config)
+      def self.mcp_filter_create(_dispatcher, _config)
         FFI::Pointer.new(0x87654321) # Mock filter pointer
       end
 
-      def self.mcp_filter_create_builtin(dispatcher, type, config)
+      def self.mcp_filter_create_builtin(_dispatcher, _type, _config)
         FFI::Pointer.new(0x87654322) # Mock builtin filter pointer
       end
 
@@ -54,23 +54,23 @@ module McpFilterSdk
         # Mock release
       end
 
-      def self.mcp_filter_set_callbacks(filter, callbacks)
+      def self.mcp_filter_set_callbacks(_filter, _callbacks)
         0 # Success
       end
 
-      def self.mcp_filter_process_data(filter, buffer)
+      def self.mcp_filter_process_data(_filter, _buffer)
         0 # Success
       end
 
-      def self.mcp_filter_process_write(filter, buffer)
+      def self.mcp_filter_process_write(_filter, _buffer)
         0 # Success
       end
 
-      def self.mcp_buffer_create_owned(size, ownership)
+      def self.mcp_buffer_create_owned(_size, _ownership)
         FFI::Pointer.new(0x11111111) # Mock buffer pointer
       end
 
-      def self.mcp_buffer_create_view(data, length)
+      def self.mcp_buffer_create_view(_data, _length)
         FFI::Pointer.new(0x22222222) # Mock view pointer
       end
 
@@ -78,11 +78,11 @@ module McpFilterSdk
         # Mock destroy
       end
 
-      def self.mcp_buffer_add(buffer, data, size)
+      def self.mcp_buffer_add(_buffer, _data, _size)
         0 # Success
       end
 
-      def self.mcp_buffer_get_contiguous(buffer, data, size)
+      def self.mcp_buffer_get_contiguous(_buffer, _data, _size)
         0 # Success
       end
 
@@ -90,23 +90,23 @@ module McpFilterSdk
         # Mock clear
       end
 
-      def self.mcp_buffer_get_size(buffer)
+      def self.mcp_buffer_get_size(_buffer)
         1024 # Mock size
       end
 
-      def self.mcp_buffer_get_capacity(buffer)
+      def self.mcp_buffer_get_capacity(_buffer)
         1024 # Mock capacity
       end
 
-      def self.mcp_filter_chain_remove_filter(chain, filter)
+      def self.mcp_filter_chain_remove_filter(_chain, _filter)
         0 # Success
       end
 
-      def self.mcp_filter_chain_process(chain, data, size)
+      def self.mcp_filter_chain_process(_chain, _data, _size)
         0 # Success
       end
 
-      def self.mcp_buffer_create(size, buffer)
+      def self.mcp_buffer_create(_size, _buffer)
         0 # Success
       end
 
@@ -114,19 +114,19 @@ module McpFilterSdk
         # Mock destroy
       end
 
-      def self.mcp_buffer_add(buffer, data, size)
+      def self.mcp_buffer_add(_buffer, _data, _size)
         0 # Success
       end
 
-      def self.mcp_buffer_get_contiguous(buffer, data, size)
+      def self.mcp_buffer_get_contiguous(_buffer, _data, _size)
         0 # Success
       end
 
-      def self.mcp_buffer_get_size(buffer)
+      def self.mcp_buffer_get_size(_buffer)
         1024 # Mock size
       end
 
-      def self.mcp_transport_create(config, transport)
+      def self.mcp_transport_create(_config, _transport)
         0 # Success
       end
 
@@ -134,19 +134,19 @@ module McpFilterSdk
         # Mock destroy
       end
 
-      def self.mcp_transport_start(transport)
+      def self.mcp_transport_start(_transport)
         0 # Success
       end
 
-      def self.mcp_transport_stop(transport)
+      def self.mcp_transport_stop(_transport)
         0 # Success
       end
 
-      def self.mcp_transport_send(transport, data, size)
+      def self.mcp_transport_send(_transport, _data, _size)
         0 # Success
       end
 
-      def self.mcp_transport_receive(transport, data, size)
+      def self.mcp_transport_receive(_transport, _data, _size)
         0 # Success
       end
     end
