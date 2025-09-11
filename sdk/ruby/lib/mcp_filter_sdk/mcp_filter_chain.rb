@@ -15,14 +15,18 @@ module McpFilterSdk
       return if @is_initialized
 
       @is_initialized = true
-      puts "✅ FilterChain initialized"
+      puts '✅ FilterChain initialized'
     end
 
     def add_filter(filter)
       return false if filter.nil?
 
       @filters << filter
-      puts "✅ Added filter to chain: #{filter.name rescue 'unknown'}"
+      puts "✅ Added filter to chain: #{begin
+        filter.name
+      rescue StandardError
+        'unknown'
+      end}"
       true
     end
 
@@ -31,7 +35,11 @@ module McpFilterSdk
 
       if @filters.include?(filter)
         @filters.delete(filter)
-        puts "✅ Removed filter from chain: #{filter.name rescue 'unknown'}"
+        puts "✅ Removed filter from chain: #{begin
+          filter.name
+        rescue StandardError
+          'unknown'
+        end}"
         true
       else
         false
@@ -44,24 +52,20 @@ module McpFilterSdk
       current_data = data
 
       @filters.each do |filter|
-        begin
-          # Initialize filter if not already initialized
-          if filter.respond_to?(:initialize!) && !filter.instance_variable_get(:@initialized)
-            filter.initialize!
-          end
+        # Initialize filter if not already initialized
+        filter.initialize! if filter.respond_to?(:initialize!) && !filter.instance_variable_get(:@initialized)
 
-          if filter.respond_to?(:process_data)
-            current_data = filter.process_data(current_data)
-          elsif filter.respond_to?(:callbacks) && filter.callbacks[:on_data]
-            current_data = filter.callbacks[:on_data].call(current_data)
-          end
-        rescue => e
-          if filter.respond_to?(:callbacks) && filter.callbacks[:on_error]
-            current_data = filter.callbacks[:on_error].call(e.message)
-          else
-            puts "Filter error: #{e.message}"
-            current_data = "ERROR: #{e.message}"
-          end
+        if filter.respond_to?(:process_data)
+          current_data = filter.process_data(current_data)
+        elsif filter.respond_to?(:callbacks) && filter.callbacks[:on_data]
+          current_data = filter.callbacks[:on_data].call(current_data)
+        end
+      rescue StandardError => e
+        if filter.respond_to?(:callbacks) && filter.callbacks[:on_error]
+          current_data = filter.callbacks[:on_error].call(e.message)
+        else
+          puts "Filter error: #{e.message}"
+          current_data = "ERROR: #{e.message}"
         end
       end
 
@@ -82,7 +86,7 @@ module McpFilterSdk
 
     def clear
       @filters.clear
-      puts "✅ FilterChain cleared"
+      puts '✅ FilterChain cleared'
     end
 
     def cleanup!
@@ -90,7 +94,7 @@ module McpFilterSdk
 
       @filters.clear
       @is_initialized = false
-      puts "✅ FilterChain cleaned up"
+      puts '✅ FilterChain cleaned up'
     end
   end
 end

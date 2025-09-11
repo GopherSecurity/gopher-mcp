@@ -17,9 +17,9 @@ RSpec.describe McpFilterSdk::CApiFilter do
     end
 
     it 'raises error with invalid callbacks' do
-      expect {
+      expect do
         described_class.new('test-filter', nil)
-      }.to raise_error(ArgumentError)
+      end.to raise_error(ArgumentError)
     end
   end
 
@@ -35,7 +35,7 @@ RSpec.describe McpFilterSdk::CApiFilter do
         on_data: ->(_data) { raise 'Processing error' },
         on_error: ->(error) { "caught: #{error}" }
       }
-      
+
       error_filter = described_class.new('error-filter', error_callbacks)
       error_filter.initialize!
       result = error_filter.process_data('test')

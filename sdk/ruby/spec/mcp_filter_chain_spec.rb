@@ -25,7 +25,7 @@ RSpec.describe McpFilterSdk::FilterChain do
   describe '#add_filter' do
     it 'adds a filter to the chain' do
       result = chain.add_filter(filter1)
-      
+
       expect(result).to be true
       expect(chain.filters).to include(filter1)
     end
@@ -34,7 +34,7 @@ RSpec.describe McpFilterSdk::FilterChain do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
       chain.add_filter(filter3)
-      
+
       expect(chain.filters.size).to eq(3)
       expect(chain.filters).to include(filter1, filter2, filter3)
     end
@@ -43,7 +43,7 @@ RSpec.describe McpFilterSdk::FilterChain do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
       chain.add_filter(filter3)
-      
+
       expect(chain.filters[0]).to eq(filter1)
       expect(chain.filters[1]).to eq(filter2)
       expect(chain.filters[2]).to eq(filter3)
@@ -52,7 +52,7 @@ RSpec.describe McpFilterSdk::FilterChain do
     it 'handles adding the same filter multiple times' do
       chain.add_filter(filter1)
       chain.add_filter(filter1)
-      
+
       expect(chain.filters.size).to eq(2)
     end
   end
@@ -61,9 +61,9 @@ RSpec.describe McpFilterSdk::FilterChain do
     it 'removes a filter from the chain' do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
-      
+
       result = chain.remove_filter(filter1)
-      
+
       expect(result).to be true
       expect(chain.filters).not_to include(filter1)
       expect(chain.filters).to include(filter2)
@@ -84,79 +84,79 @@ RSpec.describe McpFilterSdk::FilterChain do
     it 'executes filters in sequence' do
       # Set up filters with tracking
       execution_order = []
-      
-      filter1.callbacks[:on_data] = ->(data) do
+
+      filter1.callbacks[:on_data] = lambda { |data|
         execution_order << 1
         "filter1: #{data}"
-      end
-      
-      filter2.callbacks[:on_data] = ->(data) do
+      }
+
+      filter2.callbacks[:on_data] = lambda { |data|
         execution_order << 2
         "filter2: #{data}"
-      end
-      
-      filter3.callbacks[:on_data] = ->(data) do
+      }
+
+      filter3.callbacks[:on_data] = lambda { |data|
         execution_order << 3
         "filter3: #{data}"
-      end
+      }
 
       chain.add_filter(filter1)
       chain.add_filter(filter2)
       chain.add_filter(filter3)
 
-      result = chain.execute("test data")
+      result = chain.execute('test data')
 
       expect(execution_order).to eq([1, 2, 3])
-      expect(result).to include("filter3:")
+      expect(result).to include('filter3:')
     end
 
     it 'handles empty chain execution' do
-      result = chain.execute("test data")
-      expect(result).to eq("test data")
+      result = chain.execute('test data')
+      expect(result).to eq('test data')
     end
 
     it 'handles single filter execution' do
       filter1.callbacks[:on_data] = ->(data) { "processed: #{data}" }
       chain.add_filter(filter1)
 
-      result = chain.execute("test")
-      expect(result).to eq("processed: test")
+      result = chain.execute('test')
+      expect(result).to eq('processed: test')
     end
 
     it 'handles filter errors gracefully' do
-      filter1.callbacks[:on_data] = ->(data) { raise "Filter error" }
+      filter1.callbacks[:on_data] = ->(_data) { raise 'Filter error' }
       filter1.callbacks[:on_error] = ->(error) { "Error handled: #{error}" }
-      
+
       filter2.callbacks[:on_data] = ->(data) { "filter2: #{data}" }
 
       chain.add_filter(filter1)
       chain.add_filter(filter2)
 
-      result = chain.execute("test")
-      expect(result).to include("Error handled")
+      result = chain.execute('test')
+      expect(result).to include('Error handled')
     end
 
     it 'continues execution after filter error' do
       execution_count = 0
-      
-      filter1.callbacks[:on_data] = ->(data) do
+
+      filter1.callbacks[:on_data] = lambda { |_data|
         execution_count += 1
-        raise "Filter1 error"
-      end
+        raise 'Filter1 error'
+      }
       filter1.callbacks[:on_error] = ->(error) { "Error1: #{error}" }
-      
-      filter2.callbacks[:on_data] = ->(data) do
+
+      filter2.callbacks[:on_data] = lambda { |data|
         execution_count += 1
         "filter2: #{data}"
-      end
+      }
 
       chain.add_filter(filter1)
       chain.add_filter(filter2)
 
-      result = chain.execute("test")
-      
+      result = chain.execute('test')
+
       expect(execution_count).to eq(2)
-      expect(result).to include("filter2:")
+      expect(result).to include('filter2:')
     end
   end
 
@@ -164,7 +164,7 @@ RSpec.describe McpFilterSdk::FilterChain do
     it 'returns list of filters in the chain' do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
-      
+
       filters = chain.get_filters
       expect(filters).to eq([filter1, filter2])
     end
@@ -178,10 +178,10 @@ RSpec.describe McpFilterSdk::FilterChain do
   describe '#size' do
     it 'returns number of filters in chain' do
       expect(chain.size).to eq(0)
-      
+
       chain.add_filter(filter1)
       expect(chain.size).to eq(1)
-      
+
       chain.add_filter(filter2)
       expect(chain.size).to eq(2)
     end
@@ -203,9 +203,9 @@ RSpec.describe McpFilterSdk::FilterChain do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
       chain.add_filter(filter3)
-      
+
       expect(chain.size).to eq(3)
-      
+
       chain.clear
       expect(chain.size).to eq(0)
       expect(chain.is_empty?).to be true
@@ -223,15 +223,15 @@ RSpec.describe McpFilterSdk::FilterChain do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
       chain.add_filter(filter3)
-      
+
       expect(chain.size).to eq(3)
-      
+
       # Remove middle filter
       chain.remove_filter(filter2)
       expect(chain.size).to eq(2)
       expect(chain.filters).to include(filter1, filter3)
       expect(chain.filters).not_to include(filter2)
-      
+
       # Add new filter
       new_filter = create_test_filter('new_filter')
       chain.add_filter(new_filter)
@@ -241,14 +241,14 @@ RSpec.describe McpFilterSdk::FilterChain do
     it 'maintains filter state across operations' do
       chain.add_filter(filter1)
       chain.add_filter(filter2)
-      
+
       # Execute to test filters
-      chain.execute("test")
-      
+      chain.execute('test')
+
       # Remove and re-add filter
       chain.remove_filter(filter1)
       chain.add_filter(filter1)
-      
+
       expect(chain.size).to eq(2)
       expect(chain.filters).to include(filter1, filter2)
     end
@@ -273,11 +273,11 @@ RSpec.describe McpFilterSdk::FilterChain do
         filter = create_test_filter("filter_#{i}")
         chain.add_filter(filter)
       end
-      
+
       expect(chain.size).to eq(100)
-      
+
       # Execute should work
-      result = chain.execute("test")
+      result = chain.execute('test')
       expect(result).to be_a(String)
     end
   end
