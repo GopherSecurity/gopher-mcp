@@ -142,6 +142,7 @@ format:
 		fi; \
 	else \
 		echo "Python SDK directory not found, skipping Python formatting."; \
+	fi
 	@echo "Formatting Rust files with rustfmt..."
 	@if [ -d "sdk/rust" ]; then \
 		cd sdk/rust && \
@@ -190,6 +191,8 @@ format-python:
 		fi; \
 	else \
 		echo "Python SDK directory not found, skipping Python formatting."; \
+	fi
+
 # Format only Rust files
 format-rust:
 	@echo "Formatting Rust files with rustfmt..."
@@ -363,9 +366,10 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python) │"
+	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust) │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make format-python Format only Python files with black               │"
+	@echo "│ make format-rust   Format only Rust files with rustfmt               │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
@@ -383,8 +387,10 @@ help:
 	@echo "│   $$ sudo make install                                                │"
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
-	@echo "│   $$ make format          # Format all code (C++ and TypeScript)     │"
+	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust) │"
 	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
+	@echo "│   $$ make format-python   # Format only Python files                 │"
+	@echo "│   $$ make format-rust     # Format only Rust files                   │"
 	@echo "│   $$ make build           # Build without tests                      │"
 	@echo "│   $$ make test-parallel   # Run tests quickly                        │"
 	@echo "│                                                                       │"
