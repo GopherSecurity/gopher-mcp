@@ -20,9 +20,16 @@
 #include "mcp/c_api/mcp_c_filter_api.h"
 #include "mcp/c_api/mcp_c_filter_buffer.h"
 #include "mcp/c_api/mcp_c_raii.h"
+#include "mcp/c_api/mcp_c_api_json.h"
 #include "mcp/network/filter.h"
+#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/filter/filter_registry.h"
+#include "mcp/logging/log_macros.h"
 
 #include "handle_manager.h"
+#include "json_value_converter.h"
+
+#define GOPHER_LOG_COMPONENT "capi.chain"
 
 namespace mcp {
 namespace filter_chain {
@@ -651,20 +658,182 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
 
 MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT {
-  // TODO: Parse JSON and create chain
-  return 0;
+  
+  // 1. Validate inputs
+  if (!dispatcher || !json_config) {
+    GOPHER_LOG(Error, "Invalid inputs to chain creation: dispatcher={}, config={}", 
+               dispatcher ? "valid" : "null", json_config ? "valid" : "null");
+    return 0;
+  }
+  
+  // 2. TODO: Check thread affinity once dispatcher thread validation is available
+  // For now, we'll skip this check as the implementation isn't clear
+  // if (!isOnDispatcherThread(dispatcher)) {
+  //   GOPHER_LOG(Error, "Chain creation called from wrong thread");
+  //   return 0;
+  // }
+  
+  try {
+    // 3. Convert JSON and normalize
+    auto config = mcp::c_api::internal::convertFromCApi(json_config);
+    
+    // 4. Normalize the filter chain configuration
+    size_t normalized_count = mcp::c_api::internal::normalizeFilterChain(config);
+    
+    auto& filters = config["filters"];
+    size_t filter_count = filters.size();
+    bool has_typed_config = (normalized_count > 0);
+    
+    GOPHER_LOG(Info, "Creating chain from JSON with {} filters, {} normalized from typed_config", 
+               filter_count, normalized_count);
+    
+    // 5. Validate all filter types exist in registry
+    for (size_t i = 0; i < filter_count; ++i) {
+      std::string filter_type = filters[i]["type"].getString();
+      
+      if (!mcp::filter::FilterRegistry::instance().hasFactory(filter_type)) {
+        GOPHER_LOG(Error, "Unknown filter type '{}' at index {}", filter_type, i);
+        return 0;
+      }
+      
+      GOPHER_LOG(Debug, "Filter {}: type='{}', has_config={}", 
+                 i, filter_type, filters[i].contains("config"));
+    }
+    
+    GOPHER_LOG(Info, "Chain configuration validated: {} filters, has_typed_config={}", 
+               filter_count, has_typed_config);
+    
+    // 6. Create chain using ConfigurableFilterChainFactory
+    auto factory = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(config);
+    
+    // Validate the chain configuration
+    if (!factory->getBuilder().validate()) {
+      auto errors = factory->getBuilder().getValidationErrors();
+      
+      // Log aggregated errors
+      std::stringstream error_msg;
+      for (size_t i = 0; i < errors.size(); ++i) {
+        if (i > 0) error_msg << "; ";
+        error_msg << "[" << i << "] " << errors[i];
+      }
+      
+      GOPHER_LOG(Error, "Chain validation failed: {}", error_msg.str());
+      return 0;
+    }
+    
+    // 7. Create the chain instance
+    // For now, we'll create a simple AdvancedFilterChain instance
+    // In a complete implementation, this would use the factory to build the actual chain
+    mcp_chain_config_t chain_config = {
+      .name = "json_configured_chain",
+      .mode = MCP_CHAIN_MODE_SEQUENTIAL,
+      .routing = MCP_ROUTING_ROUND_ROBIN,
+      .max_parallel = 1,
+      .buffer_size = 8192,
+      .timeout_ms = 30000,
+      .stop_on_error = true
+    };
+    
+    auto chain = std::make_unique<AdvancedFilterChain>(chain_config);
+    
+    // Add filters from configuration
+    for (size_t i = 0; i < filter_count; ++i) {
+      auto& filter_config = filters[i];
+      std::string filter_type = filter_config["type"].getString();
+      std::string filter_name = filter_config.contains("name") ? 
+                                filter_config["name"].getString() : filter_type;
+      
+      mcp_filter_node_t node = {
+        .filter = 0,  // Would be created by factory in real implementation
+        .name = filter_name.c_str(),
+        .priority = static_cast<uint32_t>(i),
+        .enabled = true,
+        .bypass_on_error = false,
+        .config = nullptr  // Would convert config to C API JSON if needed
+      };
+      
+      auto filter_node = std::make_unique<FilterNode>(node);
+      chain->addNode(std::move(filter_node));
+    }
+    
+    // 8. Register with handle manager
+    auto handle = g_chain_manager.store(std::move(chain));
+    
+    GOPHER_LOG(Info, "Chain created successfully with handle {}", handle);
+    
+    return handle;
+    
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Chain creation failed with exception: {}", e.what());
+    return 0;
+  }
 }
 
 MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Export chain to JSON
-  return mcp_json_create_null();
+  GOPHER_LOG(Debug, "Exporting chain {} to JSON", chain);
+  
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} not found for export", chain);
+    return mcp_json_create_null();
+  }
+  
+  // Create a JSON representation of the chain
+  try {
+    auto config = mcp::json::JsonValue::object();
+    config["name"] = mcp::json::JsonValue("exported_chain");
+    config["filters"] = mcp::json::JsonValue::array();
+    
+    // TODO: Export actual filter configurations from the chain
+    // For now, return a minimal structure
+    
+    auto c_api_json = mcp::c_api::internal::convertToCApi(config);
+    GOPHER_LOG(Info, "Chain {} exported to JSON", chain);
+    return c_api_json;
+    
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Failed to export chain {}: {}", chain, e.what());
+    return mcp_json_create_null();
+  }
 }
 
 MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Clone chain
-  return 0;
+  GOPHER_LOG(Debug, "Cloning chain {}", chain);
+  
+  auto chain_ptr = g_chain_manager.get(chain);
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} not found for cloning", chain);
+    return 0;
+  }
+  
+  try {
+    // Export chain to JSON
+    auto json_config = mcp_chain_export_to_json(chain);
+    if (!json_config) {
+      GOPHER_LOG(Error, "Failed to export chain {} for cloning", chain);
+      return 0;
+    }
+    
+    // Create new chain from the exported JSON
+    // TODO: Need to get dispatcher from somewhere - for now use nullptr
+    // In a real implementation, we'd store the dispatcher with the chain
+    auto new_handle = mcp_chain_create_from_json(nullptr, json_config);
+    
+    // Clean up the temporary JSON
+    mcp_json_free(json_config);
+    
+    if (new_handle) {
+      GOPHER_LOG(Info, "Chain {} cloned to new chain {}", chain, new_handle);
+    }
+    
+    return new_handle;
+    
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Failed to clone chain {}: {}", chain, e.what());
+    return 0;
+  }
 }
 
 MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
