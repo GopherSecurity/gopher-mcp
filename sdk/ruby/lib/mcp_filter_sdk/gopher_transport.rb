@@ -1,7 +1,7 @@
 require 'socket'
 require 'json'
 require 'securerandom'
-require 'mcp_filter_sdk/types'
+require 'mcp_filter_sdk/types/index'
 
 module McpFilterSdk
   class GopherTransport
@@ -54,10 +54,23 @@ module McpFilterSdk
     end
 
     def send_message(message)
-      puts "📤 Sending message: #{message[:method]} (id: #{message[:id]})"
+      # Check if transport is connected
+      unless @is_connected
+        puts "❌ Cannot send message: transport not connected"
+        return false
+      end
+      
+      # Handle both string and hash messages
+      if message.is_a?(String)
+        message_hash = { method: "test", id: 1, params: { data: message } }
+      else
+        message_hash = message
+      end
+      
+      puts "📤 Sending message: #{message_hash[:method]} (id: #{message_hash[:id]})"
       
       # Process through filters
-      processed_message = process_through_filters(message)
+      processed_message = process_through_filters(message_hash)
       puts "✅ Message processed through filters: #{processed_message[:method]} (id: #{processed_message[:id]})"
       
       # Convert to JSON
@@ -65,7 +78,7 @@ module McpFilterSdk
       puts "✅ Message ready for transport: #{json_message}"
       
       # Send based on protocol
-      case @config.protocol
+      result = case @config.protocol
       when :tcp
         send_tcp_message(json_message)
       when :udp
@@ -75,6 +88,7 @@ module McpFilterSdk
       end
       
       puts "✅ Sent message through transport"
+      result
     end
 
     def add_filter(filter)
@@ -86,6 +100,7 @@ module McpFilterSdk
       {
         config: @config.to_h,
         connections: @connections.size,
+        filters: @filters.size,
         is_connected: @is_connected,
         is_destroyed: @is_destroyed,
         session_id: @session_id
@@ -184,6 +199,7 @@ module McpFilterSdk
 
     def send_stdio_message(message)
       puts message
+      true
     end
 
     def handle_tcp_client(client_socket, connection_id)
@@ -207,8 +223,29 @@ module McpFilterSdk
       @filters.each do |filter|
         begin
           if filter.respond_to?(:process_data)
-            result = filter.process_data(processed_message)
-            processed_message = result if result
+            # For CApiFilter, we need to extract the data from the hash
+            if processed_message.is_a?(Hash) && processed_message[:params] && processed_message[:params][:data]
+              # Extract data from hash message and process it
+              data = processed_message[:params][:data]
+              processed_data = filter.process_data(data)
+              processed_message[:params][:data] = processed_data if processed_data
+            else
+              # Handle string message
+              processed_data = filter.process_data(processed_message)
+              processed_message = processed_data if processed_data
+            end
+          elsif filter.respond_to?(:callbacks) && filter.callbacks[:on_data]
+            # Handle callback-based filters
+            if processed_message.is_a?(Hash) && processed_message[:params] && processed_message[:params][:data]
+              # Extract data from hash message
+              data = processed_message[:params][:data]
+              processed_data = filter.callbacks[:on_data].call(data)
+              processed_message[:params][:data] = processed_data
+            else
+              # Handle string message
+              processed_data = filter.callbacks[:on_data].call(processed_message)
+              processed_message = processed_data
+            end
           end
         rescue => e
           puts "❌ Error in filter #{filter.name}: #{e.message}"
