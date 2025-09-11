@@ -442,6 +442,8 @@ docs/api/
 # Package output
 dist/
 packages/
+.packages/
+test-results/
 
 # Context logs (keep CS_CONTEXT.log tracked)
 *.log

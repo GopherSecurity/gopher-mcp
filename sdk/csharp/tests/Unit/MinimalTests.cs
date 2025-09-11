@@ -12,7 +12,7 @@ namespace GopherMcp.Tests.Unit
         public void Filter_CanBeCreated()
         {
             // Arrange & Act
-            var config = new TestFilterConfig("TestFilter", "TestFilter");
+            var config = new MinimalTestFilterConfig("TestFilter", "TestFilter");
             var filter = new TestMinimalFilter(config);
 
             // Assert
@@ -24,8 +24,9 @@ namespace GopherMcp.Tests.Unit
         public async Task Filter_ProcessesData()
         {
             // Arrange
-            var config = new TestFilterConfig("TestFilter", "TestFilter");
+            var config = new MinimalTestFilterConfig("TestFilter", "TestFilter");
             var filter = new TestMinimalFilter(config);
+            await filter.InitializeAsync();
             var data = new byte[] { 1, 2, 3, 4, 5 };
             var context = new ProcessingContext();
 
@@ -38,7 +39,7 @@ namespace GopherMcp.Tests.Unit
         }
     }
 
-    internal class TestFilterConfig : FilterConfigBase
+    internal class MinimalTestFilterConfig : FilterConfigBase
     {
         public override string Name { get; set; }
         public override string Type { get; set; }
@@ -46,7 +47,7 @@ namespace GopherMcp.Tests.Unit
         public override int Priority { get; set; } = 0;
         public override TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
 
-        public TestFilterConfig(string name, string type)
+        public MinimalTestFilterConfig(string name, string type)
         {
             Name = name;
             Type = type;

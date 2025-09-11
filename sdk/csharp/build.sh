@@ -9,6 +9,10 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Build configuration
@@ -148,11 +152,173 @@ EOF
 
     # Run tests
     print_section "Running tests"
-    dotnet test tests/GopherMcp.Tests/GopherMcp.Tests.csproj \
+    
+    # Run tests with detailed output
+    echo ""
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${CYAN}║                             TEST EXECUTION                                 ║${NC}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Create test results directory
+    mkdir -p ./test-results
+    
+    # Start timer
+    TEST_START_TIME=$(date +%s)
+    
+    # Run tests with detailed console output and collect results
+    TEST_OUTPUT=$(dotnet test tests/GopherMcp.Tests/GopherMcp.Tests.csproj \
         --configuration $BUILD_CONFIG \
         --no-build \
-        --verbosity $VERBOSITY \
-        --logger "console;verbosity=normal" || handle_error "Tests failed"
+        --verbosity normal \
+        --logger "console;verbosity=detailed" \
+        --logger "trx;LogFileName=test_results.trx" \
+        --logger "html;LogFileName=test_results.html" \
+        --results-directory ./test-results \
+        --collect:"XPlat Code Coverage" \
+        --blame \
+        --diag ./test-results/diagnostics.log 2>&1 | tee /dev/tty)
+    
+    TEST_EXIT_CODE=${PIPESTATUS[0]}
+    
+    # End timer
+    TEST_END_TIME=$(date +%s)
+    TEST_DURATION=$((TEST_END_TIME - TEST_START_TIME))
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Extract test summary from output
+    TOTAL_TESTS=$(echo "$TEST_OUTPUT" | grep -oE "Total tests: [0-9]+" | grep -oE "[0-9]+")
+    PASSED_TESTS=$(echo "$TEST_OUTPUT" | grep -oE "Passed: [0-9]+" | grep -oE "[0-9]+")
+    FAILED_TESTS=$(echo "$TEST_OUTPUT" | grep -oE "Failed: [0-9]+" | grep -oE "[0-9]+")
+    SKIPPED_TESTS=$(echo "$TEST_OUTPUT" | grep -oE "Skipped: [0-9]+" | grep -oE "[0-9]+")
+    
+    # Default values if not found
+    TOTAL_TESTS=${TOTAL_TESTS:-0}
+    PASSED_TESTS=${PASSED_TESTS:-0}
+    FAILED_TESTS=${FAILED_TESTS:-0}
+    SKIPPED_TESTS=${SKIPPED_TESTS:-0}
+    
+    # Display test summary with colors
+    echo ""
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${CYAN}║                             TEST SUMMARY                                   ║${NC}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Create a nice summary table
+    echo -e "${BOLD}Test Results:${NC}"
+    echo "┌─────────────────────────────────────────────────────────┐"
+    printf "│ %-20s │ %-10s │ %-20s │\n" "Metric" "Count" "Status"
+    echo "├─────────────────────────────────────────────────────────┤"
+    printf "│ %-20s │ ${YELLOW}%-10s${NC} │ %-20s │\n" "Total Tests" "$TOTAL_TESTS" "Executed"
+    
+    if [ "$PASSED_TESTS" -gt 0 ]; then
+        printf "│ %-20s │ ${GREEN}%-10s${NC} │ ${GREEN}%-20s${NC} │\n" "✅ Passed" "$PASSED_TESTS" "SUCCESS"
+    fi
+    
+    if [ "$FAILED_TESTS" -gt 0 ]; then
+        printf "│ %-20s │ ${RED}%-10s${NC} │ ${RED}%-20s${NC} │\n" "❌ Failed" "$FAILED_TESTS" "FAILURE"
+    fi
+    
+    if [ "$SKIPPED_TESTS" -gt 0 ]; then
+        printf "│ %-20s │ ${YELLOW}%-10s${NC} │ ${YELLOW}%-20s${NC} │\n" "⏭️  Skipped" "$SKIPPED_TESTS" "SKIPPED"
+    fi
+    
+    echo "└─────────────────────────────────────────────────────────┘"
+    
+    # Display execution time
+    echo ""
+    echo -e "${BOLD}Execution Time: ${CYAN}${TEST_DURATION} seconds${NC}"
+    
+    # Calculate and display pass rate with visual bar
+    if [ "$TOTAL_TESTS" -gt 0 ]; then
+        PASS_RATE=$(echo "scale=1; $PASSED_TESTS * 100 / $TOTAL_TESTS" | bc)
+        PASS_RATE_INT=$(echo "$PASS_RATE" | cut -d. -f1)
+        
+        echo ""
+        echo -e "${BOLD}Pass Rate: ${GREEN}$PASS_RATE%${NC}"
+        
+        # Create visual progress bar
+        BAR_LENGTH=50
+        FILLED_LENGTH=$(echo "scale=0; $PASS_RATE_INT * $BAR_LENGTH / 100" | bc)
+        EMPTY_LENGTH=$((BAR_LENGTH - FILLED_LENGTH))
+        
+        echo -n "["
+        if [ "$FILLED_LENGTH" -gt 0 ]; then
+            printf "${GREEN}%0.s█${NC}" $(seq 1 $FILLED_LENGTH)
+        fi
+        if [ "$EMPTY_LENGTH" -gt 0 ]; then
+            printf "%0.s░" $(seq 1 $EMPTY_LENGTH)
+        fi
+        echo "]"
+    fi
+    
+    echo ""
+    
+    # Show failed test details if any
+    if [ "$FAILED_TESTS" -gt 0 ]; then
+        echo -e "${BOLD}${RED}╔════════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}${RED}║                           FAILED TEST DETAILS                              ║${NC}"
+        echo -e "${BOLD}${RED}╚════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        
+        # Extract and format failed test information
+        echo "$TEST_OUTPUT" | grep -E "(Failed|Error|Exception)" | while IFS= read -r line; do
+            if echo "$line" | grep -q "Failed"; then
+                echo -e "${RED}⚠️  $line${NC}"
+            elif echo "$line" | grep -q "Exception"; then
+                echo -e "${MAGENTA}   $line${NC}"
+            else
+                echo "   $line"
+            fi
+        done | head -30
+        
+        echo ""
+    fi
+    
+    # Show test artifacts section
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${CYAN}║                            TEST ARTIFACTS                                  ║${NC}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Show test report locations
+    if [ -f "./test-results/test_results.trx" ]; then
+        echo -e "  📄 ${BOLD}TRX Report:${NC} ./test-results/test_results.trx"
+    fi
+    
+    if [ -f "./test-results/test_results.html" ]; then
+        echo -e "  🌐 ${BOLD}HTML Report:${NC} ./test-results/test_results.html"
+        echo -e "     ${CYAN}Open in browser: open ./test-results/test_results.html${NC}"
+    fi
+    
+    # Check for code coverage
+    COVERAGE_FILE=$(find ./test-results -name "coverage.cobertura.xml" 2>/dev/null | head -1)
+    if [ -n "$COVERAGE_FILE" ]; then
+        echo -e "  📊 ${BOLD}Code Coverage:${NC} $COVERAGE_FILE"
+        
+        # Try to extract coverage percentage if possible
+        if command -v xmllint &> /dev/null; then
+            COVERAGE_PCT=$(xmllint --xpath "string(//coverage/@line-rate)" "$COVERAGE_FILE" 2>/dev/null)
+            if [ -n "$COVERAGE_PCT" ]; then
+                COVERAGE_PCT=$(echo "scale=1; $COVERAGE_PCT * 100" | bc)
+                echo -e "     ${GREEN}Coverage: $COVERAGE_PCT%${NC}"
+            fi
+        fi
+    fi
+    
+    # Check for diagnostic logs
+    if [ -f "./test-results/diagnostics.log" ]; then
+        echo -e "  🔍 ${BOLD}Diagnostic Log:${NC} ./test-results/diagnostics.log"
+    fi
+    
+    echo ""
+    
+    # Exit with error if tests failed
+    if [ "$TEST_EXIT_CODE" -ne 0 ]; then
+        handle_error "Tests failed"
+    fi
 fi
 
 # Pack NuGet package if requested
