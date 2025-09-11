@@ -6,7 +6,12 @@ RSpec.describe McpFilterSdk::GopherTransport do
 
   describe '#initialize' do
     it 'creates a transport with config' do
-      expect(transport.config).to eq(config)
+      expect(transport.config).to be_a(McpFilterSdk::Types::TransportConfig)
+      expect(transport.config.protocol).to eq(:stdio)
+      expect(transport.config.host).to eq('localhost')
+      expect(transport.config.port).to eq(8080)
+      expect(transport.config.max_connections).to eq(1)
+      expect(transport.config.buffer_size).to eq(1024)
       expect(transport.connections).to be_empty
       expect(transport.filters).to be_empty
       expect(transport.is_connected).to be false
