@@ -1246,15 +1246,283 @@ namespace GopherMcp.Manager
         /// </summary>
         private void InitializeDefaultFilters()
         {
-            // Create and register default filters
-            // This would typically include:
-            // - Validation filter
-            // - Logging filter
-            // - Metrics filter
-            // - Error handling filter
-            
-            // For now, this is a placeholder for future implementation
-            // when we have specific filter implementations
+            try
+            {
+                // Check config for enabled filters
+                var settings = _config.Settings;
+                
+                // Create Authentication filter if enabled
+                if (GetSettingBool(settings, "EnableAuthenticationFilter", false))
+                {
+                    var authFilter = CreateDefaultFilter("Authentication", McpBuiltinFilterType.Authentication);
+                    if (authFilter != null)
+                    {
+                        RegisterFilter(authFilter);
+                    }
+                }
+
+                // Create Metrics filter if enabled
+                if (GetSettingBool(settings, "EnableMetricsFilter", true))
+                {
+                    var metricsFilter = CreateDefaultFilter("Metrics", McpBuiltinFilterType.Metrics);
+                    if (metricsFilter != null)
+                    {
+                        RegisterFilter(metricsFilter);
+                    }
+                }
+
+                // Create RateLimit filter if enabled
+                if (GetSettingBool(settings, "EnableRateLimitFilter", false))
+                {
+                    var rateLimitFilter = CreateDefaultFilter("RateLimit", McpBuiltinFilterType.RateLimit);
+                    if (rateLimitFilter != null)
+                    {
+                        RegisterFilter(rateLimitFilter);
+                    }
+                }
+
+                // Create Logging filter if enabled
+                if (GetSettingBool(settings, "EnableLoggingFilter", _config.EnableLogging))
+                {
+                    var loggingFilter = CreateDefaultFilter("Logging", McpBuiltinFilterType.Logging);
+                    if (loggingFilter != null)
+                    {
+                        RegisterFilter(loggingFilter);
+                    }
+                }
+
+                // Create Validation filter if enabled
+                if (GetSettingBool(settings, "EnableValidationFilter", true))
+                {
+                    var validationFilter = CreateDefaultFilter("Validation", McpBuiltinFilterType.Validation);
+                    if (validationFilter != null)
+                    {
+                        RegisterFilter(validationFilter);
+                    }
+                }
+
+                // Create Compression filter if enabled
+                if (GetSettingBool(settings, "EnableCompressionFilter", false))
+                {
+                    var compressionFilter = CreateDefaultFilter("Compression", McpBuiltinFilterType.Compression);
+                    if (compressionFilter != null)
+                    {
+                        RegisterFilter(compressionFilter);
+                    }
+                }
+
+                // Create Encryption filter if enabled
+                if (GetSettingBool(settings, "EnableEncryptionFilter", false))
+                {
+                    var encryptionFilter = CreateDefaultFilter("Encryption", McpBuiltinFilterType.Encryption);
+                    if (encryptionFilter != null)
+                    {
+                        RegisterFilter(encryptionFilter);
+                    }
+                }
+
+                // Create Caching filter if enabled
+                if (GetSettingBool(settings, "EnableCachingFilter", false))
+                {
+                    var cachingFilter = CreateDefaultFilter("Caching", McpBuiltinFilterType.Caching);
+                    if (cachingFilter != null)
+                    {
+                        RegisterFilter(cachingFilter);
+                    }
+                }
+
+                // Create default chain if configured
+                if (GetSettingBool(settings, "CreateDefaultChain", true))
+                {
+                    CreateDefaultFilterChain();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail initialization
+                Console.WriteLine($"Warning: Failed to initialize some default filters: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Creates a default filter of the specified type.
+        /// </summary>
+        private Filter? CreateDefaultFilter(string name, McpBuiltinFilterType filterType)
+        {
+            try
+            {
+                // Create filter config
+                var filterConfig = new FilterConfig($"Default{name}", name)
+                {
+                    Priority = GetDefaultFilterPriority(filterType),
+                    EnableStatistics = _config.EnableStatistics,
+                    Timeout = _config.DefaultTimeout
+                };
+
+                // Apply filter-specific configuration
+                ConfigureBuiltinFilter(filterConfig, filterType);
+
+                // For now, return null as we don't have concrete filter implementations yet
+                // In a real implementation, this would create the appropriate filter type
+                // Example:
+                // return filterType switch
+                // {
+                //     McpBuiltinFilterType.Authentication => new AuthenticationFilter(filterConfig),
+                //     McpBuiltinFilterType.Metrics => new MetricsFilter(filterConfig),
+                //     // etc.
+                // };
+                
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to create {name} filter: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Gets the default priority for a built-in filter type.
+        /// </summary>
+        private int GetDefaultFilterPriority(McpBuiltinFilterType filterType)
+        {
+            return filterType switch
+            {
+                McpBuiltinFilterType.Authentication => 100,
+                McpBuiltinFilterType.RateLimit => 90,
+                McpBuiltinFilterType.Validation => 80,
+                McpBuiltinFilterType.Encryption => 70,
+                McpBuiltinFilterType.Compression => 60,
+                McpBuiltinFilterType.Logging => 50,
+                McpBuiltinFilterType.Metrics => 40,
+                McpBuiltinFilterType.Caching => 30,
+                _ => 50
+            };
+        }
+
+        /// <summary>
+        /// Configures a built-in filter with type-specific settings.
+        /// </summary>
+        private void ConfigureBuiltinFilter(FilterConfig config, McpBuiltinFilterType filterType)
+        {
+            switch (filterType)
+            {
+                case McpBuiltinFilterType.Authentication:
+                    config.SetSetting("RequireAuth", true);
+                    config.SetSetting("AuthMethod", "Bearer");
+                    break;
+                    
+                case McpBuiltinFilterType.RateLimit:
+                    config.SetSetting("RequestsPerSecond", 100);
+                    config.SetSetting("BurstSize", 200);
+                    break;
+                    
+                case McpBuiltinFilterType.Metrics:
+                    config.SetSetting("CollectLatency", true);
+                    config.SetSetting("CollectThroughput", true);
+                    break;
+                    
+                case McpBuiltinFilterType.Logging:
+                    config.SetSetting("LogLevel", _config.LogLevel);
+                    config.SetSetting("IncludePayload", false);
+                    break;
+                    
+                case McpBuiltinFilterType.Compression:
+                    config.SetSetting("Algorithm", "gzip");
+                    config.SetSetting("Level", 6);
+                    break;
+                    
+                case McpBuiltinFilterType.Encryption:
+                    config.SetSetting("Algorithm", "AES256");
+                    config.SetSetting("Mode", "GCM");
+                    break;
+                    
+                case McpBuiltinFilterType.Caching:
+                    config.SetSetting("MaxSize", 1000);
+                    config.SetSetting("TTL", TimeSpan.FromMinutes(5));
+                    break;
+                    
+                case McpBuiltinFilterType.Validation:
+                    config.SetSetting("StrictMode", true);
+                    config.SetSetting("ValidateSchema", true);
+                    break;
+            }
+
+            // Apply any custom settings from config
+            var customKey = $"{filterType}FilterSettings";
+            if (_config.Settings.TryGetValue(customKey, out var customSettings) && 
+                customSettings is Dictionary<string, object> settings)
+            {
+                foreach (var kvp in settings)
+                {
+                    config.SetSetting(kvp.Key, kvp.Value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a default filter chain.
+        /// </summary>
+        private void CreateDefaultFilterChain()
+        {
+            try
+            {
+                var chainBuilder = BuildChain("default")
+                    .WithExecutionMode(ChainExecutionMode.Sequential)
+                    .WithStatistics(_config.EnableStatistics)
+                    .WithMaxConcurrency(1)
+                    .WithTimeout(_config.DefaultTimeout);
+
+                // Add registered default filters in priority order
+                var defaultFilters = new List<(Guid id, Filter filter, int priority)>();
+                
+                _registryLock.EnterReadLock();
+                try
+                {
+                    foreach (var kvp in _filterRegistry)
+                    {
+                        if (IsDefaultFilter(kvp.Value))
+                        {
+                            var priority = kvp.Value.Config?.Priority ?? 50;
+                            defaultFilters.Add((kvp.Key, kvp.Value, priority));
+                        }
+                    }
+                }
+                finally
+                {
+                    _registryLock.ExitReadLock();
+                }
+
+                // Sort by priority and add to chain
+                foreach (var (id, filter, priority) in defaultFilters.OrderByDescending(f => f.priority))
+                {
+                    chainBuilder.AddFilter(filter);
+                }
+
+                // Build the chain
+                chainBuilder.Build();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to create default filter chain: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Gets a boolean setting value.
+        /// </summary>
+        private bool GetSettingBool(Dictionary<string, object> settings, string key, bool defaultValue)
+        {
+            if (settings.TryGetValue(key, out var value))
+            {
+                return value switch
+                {
+                    bool b => b,
+                    string s => bool.TryParse(s, out var result) && result,
+                    _ => defaultValue
+                };
+            }
+            return defaultValue;
         }
     }
 
