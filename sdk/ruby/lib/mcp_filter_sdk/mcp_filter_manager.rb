@@ -1,6 +1,6 @@
-require 'mcp_filter_sdk/filter_api'
-require 'mcp_filter_sdk/filter_chain'
-require 'mcp_filter_sdk/types'
+require 'mcp_filter_sdk/mcp_filter_api'
+require 'mcp_filter_sdk/mcp_filter_chain'
+require 'mcp_filter_sdk/types/index'
 
 module McpFilterSdk
   class FilterManager
@@ -18,7 +18,7 @@ module McpFilterSdk
     def initialize!
       return if @initialized
 
-      @api = FilterApi.new(@config)
+      @api = McpFilterSdk::FilterApi.new(@config)
       @api.initialize!
       @initialized = true
       
