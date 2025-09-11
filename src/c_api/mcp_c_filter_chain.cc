@@ -31,6 +31,13 @@
 
 #define GOPHER_LOG_COMPONENT "capi.chain"
 
+// Forward declare the filter manager from mcp_c_filter_api.cc
+namespace mcp {
+namespace filter_api {
+  extern c_api_internal::HandleManager<network::Filter> g_filter_manager;
+}
+}
+
 namespace mcp {
 namespace filter_chain {
 
@@ -414,6 +421,11 @@ class AdvancedFilterChain {
   void* event_user_data_{nullptr};
 
   std::atomic<uint64_t> max_latency_us_{0};
+  
+public:
+  // Owned filters for lifetime management
+  // Made public for direct assignment during creation
+  std::vector<network::FilterSharedPtr> owned_filters_;
 };
 
 // Use HandleManager from shared header
@@ -721,9 +733,49 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       return 0;
     }
     
-    // 7. Create the chain instance
-    // For now, we'll create a simple AdvancedFilterChain instance
-    // In a complete implementation, this would use the factory to build the actual chain
+    // 7. Build real filters using the factory
+    auto& builder = factory->getBuilder();
+    auto created_filters = builder.buildFilters();
+    
+    if (created_filters.empty()) {
+      GOPHER_LOG(Error, "Factory failed to create any filters");
+      return 0;
+    }
+    
+    if (created_filters.size() != filter_count) {
+      GOPHER_LOG(Warning, "Factory created {} filters, expected {}", 
+                 created_filters.size(), filter_count);
+    }
+    
+    // 8. Store filters in handle manager for lifetime management
+    std::vector<mcp_filter_t> filter_handles;
+    filter_handles.reserve(created_filters.size());
+    
+    for (const auto& filter : created_filters) {
+      if (!filter) {
+        GOPHER_LOG(Error, "Factory created null filter");
+        // Clean up already created handles
+        for (auto handle : filter_handles) {
+          mcp::filter_api::g_filter_manager.release(handle);
+        }
+        return 0;
+      }
+      
+      // Store in filter manager to get handle
+      auto handle = mcp::filter_api::g_filter_manager.store(filter);
+      if (handle == 0) {
+        GOPHER_LOG(Error, "Failed to store filter in handle manager");
+        // Clean up already created handles
+        for (auto h : filter_handles) {
+          mcp::filter_api::g_filter_manager.release(h);
+        }
+        return 0;
+      }
+      filter_handles.push_back(handle);
+      GOPHER_LOG(Debug, "Stored filter with handle {}", handle);
+    }
+    
+    // 9. Create the chain instance
     mcp_chain_config_t chain_config = {
       .name = "json_configured_chain",
       .mode = MCP_CHAIN_MODE_SEQUENTIAL,
@@ -736,27 +788,30 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     
     auto chain = std::make_unique<AdvancedFilterChain>(chain_config);
     
-    // Add filters from configuration
-    for (size_t i = 0; i < filter_count; ++i) {
+    // Note: Filters are already stored in g_filter_manager with handles
+    // We don't need to store them again in the chain
+    
+    // Add filter nodes with real handles
+    for (size_t i = 0; i < filter_handles.size(); ++i) {
       auto& filter_config = filters[i];
       std::string filter_type = filter_config["type"].getString();
       std::string filter_name = filter_config.contains("name") ? 
                                 filter_config["name"].getString() : filter_type;
       
       mcp_filter_node_t node = {
-        .filter = 0,  // Would be created by factory in real implementation
+        .filter = filter_handles[i],  // Real filter handle
         .name = filter_name.c_str(),
         .priority = static_cast<uint32_t>(i),
         .enabled = true,
         .bypass_on_error = false,
-        .config = nullptr  // Would convert config to C API JSON if needed
+        .config = nullptr
       };
       
       auto filter_node = std::make_unique<FilterNode>(node);
       chain->addNode(std::move(filter_node));
     }
     
-    // 8. Register with handle manager
+    // 10. Register chain with handle manager
     auto handle = g_chain_manager.store(std::move(chain));
     
     GOPHER_LOG(Info, "Chain created successfully with handle {}", handle);
