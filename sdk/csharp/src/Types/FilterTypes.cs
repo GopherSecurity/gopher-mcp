@@ -144,7 +144,62 @@ namespace GopherMcp.Types
         /// <summary>
         /// Dependency not met
         /// </summary>
-        DependencyNotMet = 1015
+        DependencyNotMet = 1015,
+        
+        /// <summary>
+        /// Bypass filter
+        /// </summary>
+        Bypass = 1016,
+        
+        /// <summary>
+        /// Internal error
+        /// </summary>
+        InternalError = 1017,
+        
+        /// <summary>
+        /// Too many requests (rate limit)
+        /// </summary>
+        TooManyRequests = 1018,
+        
+        /// <summary>
+        /// Authentication failed
+        /// </summary>
+        AuthenticationFailed = 1019,
+        
+        /// <summary>
+        /// Authorization failed
+        /// </summary>
+        AuthorizationFailed = 1020,
+        
+        /// <summary>
+        /// Service unavailable
+        /// </summary>
+        ServiceUnavailable = 1021,
+        
+        /// <summary>
+        /// Unauthorized access
+        /// </summary>
+        Unauthorized = 1022,
+        
+        /// <summary>
+        /// Network error
+        /// </summary>
+        NetworkError = 1023,
+        
+        /// <summary>
+        /// Retry exhausted
+        /// </summary>
+        RetryExhausted = 1024,
+        
+        /// <summary>
+        /// Not found
+        /// </summary>
+        NotFound = 404,
+        
+        /// <summary>
+        /// Forbidden
+        /// </summary>
+        Forbidden = 403
     }
     
     /// <summary>
@@ -234,6 +289,16 @@ namespace GopherMcp.Types
         public int MaxBufferSize { get; set; } = 65536;
         
         /// <summary>
+        /// Gets or sets whether to enable statistics for this filter
+        /// </summary>
+        public bool EnableStatistics { get; set; } = true;
+        
+        /// <summary>
+        /// Gets or sets the timeout for this filter
+        /// </summary>
+        public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
+        
+        /// <summary>
         /// Initializes a new instance of FilterConfig
         /// </summary>
         public FilterConfig()
@@ -269,6 +334,71 @@ namespace GopherMcp.Types
                 MaxBufferSize = MaxBufferSize
             };
         }
+        
+        /// <summary>
+        /// Sets a configuration setting
+        /// </summary>
+        /// <param name="key">Setting key</param>
+        /// <param name="value">Setting value</param>
+        public void SetSetting(string key, object value)
+        {
+            if (Settings == null)
+            {
+                Settings = new Dictionary<string, object>();
+            }
+            Settings[key] = value;
+        }
+        
+        /// <summary>
+        /// Gets a configuration setting
+        /// </summary>
+        /// <typeparam name="T">Value type</typeparam>
+        /// <param name="key">Setting key</param>
+        /// <param name="defaultValue">Default value if not found</param>
+        /// <returns>Setting value or default</returns>
+        public T GetSetting<T>(string key, T defaultValue = default)
+        {
+            if (Settings != null && Settings.TryGetValue(key, out var value))
+            {
+                if (value is T typedValue)
+                {
+                    return typedValue;
+                }
+            }
+            return defaultValue;
+        }
+        
+        /// <summary>
+        /// Validates the configuration
+        /// </summary>
+        /// <param name="errors">List of validation errors</param>
+        /// <returns>True if valid, false otherwise</returns>
+        public virtual bool Validate(out List<string> errors)
+        {
+            errors = new List<string>();
+            
+            if (string.IsNullOrWhiteSpace(Name))
+            {
+                errors.Add("Filter name is required");
+            }
+            
+            if (string.IsNullOrWhiteSpace(Type))
+            {
+                errors.Add("Filter type is required");
+            }
+            
+            if (MaxBufferSize <= 0)
+            {
+                errors.Add("MaxBufferSize must be greater than 0");
+            }
+            
+            if (TimeoutMs < 0)
+            {
+                errors.Add("TimeoutMs cannot be negative");
+            }
+            
+            return errors.Count == 0;
+        }
     }
     
     /// <summary>
@@ -286,6 +416,11 @@ namespace GopherMcp.Types
         /// Total packets processed
         /// </summary>
         public ulong PacketsProcessed;
+        
+        /// <summary>
+        /// Total process count
+        /// </summary>
+        public ulong ProcessCount;
         
         /// <summary>
         /// Total errors encountered
@@ -554,11 +689,51 @@ namespace GopherMcp.Types
         }
         
         /// <summary>
+        /// Create an error result with just a message (uses ProcessingFailed as default error code)
+        /// </summary>
+        public static FilterResult Error(string message)
+        {
+            return new FilterResult(FilterStatus.Error)
+            {
+                ErrorCode = FilterError.ProcessingFailed,
+                ErrorMessage = message
+            };
+        }
+        
+        /// <summary>
+        /// Create an error result with message and error code (backward compatibility)
+        /// </summary>
+        public static FilterResult Error(string message, FilterError errorCode)
+        {
+            return new FilterResult(FilterStatus.Error)
+            {
+                ErrorCode = errorCode,
+                ErrorMessage = message
+            };
+        }
+        
+        /// <summary>
         /// Create a stop iteration result
         /// </summary>
         public static FilterResult StopIteration()
         {
             return new FilterResult(FilterStatus.StopIteration);
+        }
+        
+        /// <summary>
+        /// Create a continue result (pass-through)
+        /// </summary>
+        public static FilterResult Continue()
+        {
+            return new FilterResult(FilterStatus.Continue);
+        }
+        
+        /// <summary>
+        /// Create a continue result with data
+        /// </summary>
+        public static FilterResult Continue(byte[] data)
+        {
+            return new FilterResult(FilterStatus.Continue, data, 0, data?.Length ?? 0);
         }
     }
 }

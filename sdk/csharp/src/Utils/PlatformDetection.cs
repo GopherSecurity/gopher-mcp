@@ -175,8 +175,10 @@ namespace GopherMcp.Utils
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 return OperatingSystemType.MacOS;
             
+#if NET5_0_OR_GREATER
             if (RuntimeInformation.IsOSPlatform(OSPlatform.FreeBSD))
                 return OperatingSystemType.FreeBSD;
+#endif
             
             return OperatingSystemType.Unknown;
         }

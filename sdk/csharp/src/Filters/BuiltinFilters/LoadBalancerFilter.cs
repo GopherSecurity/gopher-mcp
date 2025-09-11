@@ -1,4 +1,5 @@
 using System;
+using System.Net.Http;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,15 +29,27 @@ namespace GopherMcp.Filters.BuiltinFilters
         public int Port { get; set; }
         public int Weight { get; set; } = 1;
         public bool IsHealthy { get; set; } = true;
-        public int ActiveConnections { get; set; }
+        
+        // Use fields for thread-safe operations
+        private int _activeConnections;
+        private long _totalRequests;
+        private long _failedRequests;
+        
+        public int ActiveConnections => _activeConnections;
         public DateTimeOffset LastHealthCheck { get; set; }
         public DateTimeOffset LastUsed { get; set; }
-        public long TotalRequests { get; set; }
-        public long FailedRequests { get; set; }
+        public long TotalRequests => _totalRequests;
+        public long FailedRequests => _failedRequests;
         public TimeSpan AverageResponseTime { get; set; }
         public Dictionary<string, string> Metadata { get; set; } = new();
 
         public string Address => $"{Host}:{Port}";
+        
+        // Methods for thread-safe operations
+        public void IncrementActiveConnections() => Interlocked.Increment(ref _activeConnections);
+        public void DecrementActiveConnections() => Interlocked.Decrement(ref _activeConnections);
+        public void IncrementTotalRequests() => Interlocked.Increment(ref _totalRequests);
+        public void IncrementFailedRequests() => Interlocked.Increment(ref _failedRequests);
     }
 
     public class HealthCheckConfig
@@ -197,7 +210,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -231,11 +244,11 @@ namespace GopherMcp.Filters.BuiltinFilters
                 FilterResult result;
                 if (_config.EnableFailover)
                 {
-                    result = await ProcessWithFailoverAsync(data, context, upstream, cancellationToken);
+                    result = await ProcessWithFailoverAsync(buffer, context, upstream, cancellationToken);
                 }
                 else
                 {
-                    result = await ProcessWithUpstreamAsync(data, context, upstream, cancellationToken);
+                    result = await ProcessWithUpstreamAsync(buffer, context, upstream, cancellationToken);
                 }
 
                 if (result.IsSuccess)
@@ -248,15 +261,15 @@ namespace GopherMcp.Filters.BuiltinFilters
                     Interlocked.Increment(ref _failedRequests);
                 }
 
-                UpdateStatistics(result.IsSuccess);
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                UpdateStatistics(buffer.Length, 0, result.IsSuccess);
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                 return result;
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref _failedRequests);
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Load balancer error: {ex.Message}", FilterError.InternalError);
             }
         }
@@ -323,7 +336,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             return await Task.Run(() => _loadBalancer.SelectFromSubset(healthyUpstreams, context), cancellationToken);
         }
 
-        private async Task<FilterResult> ProcessWithFailoverAsync(byte[] data, ProcessingContext context, UpstreamServer initialUpstream, CancellationToken cancellationToken)
+        private async Task<FilterResult> ProcessWithFailoverAsync(byte[] buffer, ProcessingContext context, UpstreamServer initialUpstream, CancellationToken cancellationToken)
         {
             var attemptsLeft = _config.FailoverAttempts;
             var currentUpstream = initialUpstream;
@@ -335,7 +348,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 
                 try
                 {
-                    var result = await ProcessWithUpstreamAsync(data, context, currentUpstream, cancellationToken);
+                    var result = await ProcessWithUpstreamAsync(buffer, context, currentUpstream, cancellationToken);
                     
                     if (result.IsSuccess || !ShouldFailover(result))
                     {
@@ -373,9 +386,9 @@ namespace GopherMcp.Filters.BuiltinFilters
             return FilterResult.Error("All failover attempts exhausted", FilterError.ServiceUnavailable);
         }
 
-        private async Task<FilterResult> ProcessWithUpstreamAsync(byte[] data, ProcessingContext context, UpstreamServer upstream, CancellationToken cancellationToken)
+        private async Task<FilterResult> ProcessWithUpstreamAsync(byte[] buffer, ProcessingContext context, UpstreamServer upstream, CancellationToken cancellationToken)
         {
-            Interlocked.Increment(ref upstream.ActiveConnections);
+            upstream.IncrementActiveConnections();
             var startTime = DateTimeOffset.UtcNow;
 
             try
@@ -387,28 +400,28 @@ namespace GopherMcp.Filters.BuiltinFilters
 
                 // Simulate processing with upstream
                 // In a real implementation, this would forward the request to the upstream
-                await Task.Delay(Random.Shared.Next(10, 100), cancellationToken);
+                await Task.Delay(new Random().Next(10, 100), cancellationToken);
 
                 // Update response time statistics
                 var responseTime = DateTimeOffset.UtcNow - startTime;
                 UpdateResponseTime(upstream, responseTime);
 
                 upstream.LastUsed = DateTimeOffset.UtcNow;
-                Interlocked.Increment(ref upstream.TotalRequests);
+                upstream.IncrementTotalRequests();
 
-                return FilterResult.Continue(data);
+                return FilterResult.Continue(buffer);
             }
             finally
             {
-                Interlocked.Decrement(ref upstream.ActiveConnections);
+                upstream.DecrementActiveConnections();
             }
         }
 
         private bool ShouldFailover(FilterResult result)
         {
-            return result.Error == FilterError.ServiceUnavailable ||
-                   result.Error == FilterError.Timeout ||
-                   result.Error == FilterError.NetworkError;
+            return result.ErrorCode == FilterError.ServiceUnavailable ||
+                   result.ErrorCode == FilterError.Timeout ||
+                   result.ErrorCode == FilterError.NetworkError;
         }
 
         private bool ShouldFailoverOnException(Exception ex)
@@ -420,7 +433,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
         private void RecordUpstreamFailure(UpstreamServer upstream)
         {
-            Interlocked.Increment(ref upstream.FailedRequests);
+            upstream.IncrementFailedRequests();
             
             // Simple health check: mark unhealthy if failure rate is too high
             var failureRate = upstream.TotalRequests > 0 
@@ -437,11 +450,11 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             if (success)
             {
-                Interlocked.Increment(ref upstream.TotalRequests);
+                upstream.IncrementTotalRequests();
             }
             else
             {
-                Interlocked.Increment(ref upstream.FailedRequests);
+                upstream.IncrementFailedRequests();
             }
         }
 
@@ -474,7 +487,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 else
                 {
                     // Simple TCP health check simulation
-                    isHealthy = await Task.Run(() => Random.Shared.Next(100) > 5); // 95% healthy
+                    isHealthy = await Task.Run(() => new Random().Next(100) > 5); // 95% healthy
                 }
 
                 upstream.LastHealthCheck = DateTimeOffset.UtcNow;
@@ -630,7 +643,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             if (healthyUpstreams.Count == 0)
                 return null;
 
-            var index = Random.Shared.Next(healthyUpstreams.Count);
+            var index = new Random().Next(healthyUpstreams.Count);
             return healthyUpstreams[index];
         }
     }
@@ -676,7 +689,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 return null;
 
             var totalWeight = healthyUpstreams.Sum(u => u.Weight);
-            var randomWeight = Random.Shared.Next(totalWeight);
+            var randomWeight = new Random().Next(totalWeight);
             
             var currentWeight = 0;
             foreach (var upstream in healthyUpstreams)

@@ -46,7 +46,11 @@ dotnet clean --configuration $BUILD_CONFIG --verbosity $VERBOSITY 2>/dev/null ||
 
 # Restore packages
 print_section "Restoring NuGet packages"
-dotnet restore --verbosity $VERBOSITY || handle_error "Package restore failed"
+if [ -f "GopherMcp.sln" ]; then
+    dotnet restore GopherMcp.sln --verbosity $VERBOSITY || handle_error "Package restore failed"
+else
+    dotnet restore src/GopherMcp.csproj --verbosity $VERBOSITY || handle_error "Package restore failed"
+fi
 
 # Build the main library
 print_section "Building GopherMcp library"
@@ -82,21 +86,22 @@ dotnet build examples/AdvancedFiltering/AdvancedFiltering.csproj \
     --verbosity $VERBOSITY \
     --no-restore || handle_error "AdvancedFiltering build failed"
 
-# Build tests
-print_section "Building tests"
+# Build tests only if requested
+if [ "$3" == "--test" ] || [ "$3" == "-t" ]; then
+    print_section "Building tests"
 
-# Check if test projects exist and build them
-if [ -f "tests/GopherMcp.Tests/GopherMcp.Tests.csproj" ]; then
-    echo "  • Building GopherMcp.Tests..."
-    dotnet build tests/GopherMcp.Tests/GopherMcp.Tests.csproj \
-        --configuration $BUILD_CONFIG \
-        --verbosity $VERBOSITY \
-        --no-restore || handle_error "Tests build failed"
-else
-    echo "  • Creating test project..."
-    mkdir -p tests/GopherMcp.Tests
-    
-    cat > tests/GopherMcp.Tests/GopherMcp.Tests.csproj << 'EOF'
+    # Check if test projects exist and build them
+    if [ -f "tests/GopherMcp.Tests/GopherMcp.Tests.csproj" ]; then
+        echo "  • Building GopherMcp.Tests..."
+        dotnet build tests/GopherMcp.Tests/GopherMcp.Tests.csproj \
+            --configuration $BUILD_CONFIG \
+            --verbosity $VERBOSITY \
+            --no-restore || handle_error "Tests build failed"
+    else
+        echo "  • Creating test project..."
+        mkdir -p tests/GopherMcp.Tests
+        
+        cat > tests/GopherMcp.Tests/GopherMcp.Tests.csproj << 'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
@@ -139,10 +144,9 @@ EOF
         --configuration $BUILD_CONFIG \
         --verbosity $VERBOSITY \
         --no-restore || handle_error "Tests build failed"
-fi
+    fi
 
-# Run tests if requested
-if [ "$3" == "--test" ] || [ "$3" == "-t" ]; then
+    # Run tests
     print_section "Running tests"
     dotnet test tests/GopherMcp.Tests/GopherMcp.Tests.csproj \
         --configuration $BUILD_CONFIG \

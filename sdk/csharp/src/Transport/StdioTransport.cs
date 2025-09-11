@@ -5,7 +5,10 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-
+using GopherMcp.Integration;
+#if !NET6_0_OR_GREATER
+using GopherMcp.Utils;
+#endif
 namespace GopherMcp.Transport
 {
     /// <summary>
@@ -133,7 +136,7 @@ namespace GopherMcp.Transport
             await _sendLock.WaitAsync(cancellationToken);
             try
             {
-                var json = JsonSerializer.Serialize(message, new JsonSerializerOptions
+                var json = System.Text.Json.JsonSerializer.Serialize(message, new System.Text.Json.JsonSerializerOptions
                 {
                     WriteIndented = false,
                     DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
@@ -215,7 +218,7 @@ namespace GopherMcp.Transport
                     // Try to parse as complete JSON message
                     try
                     {
-                        var message = JsonSerializer.Deserialize<JsonRpcMessage>(line);
+                        var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(line);
                         if (message != null)
                         {
                             _receiveQueue.Enqueue(message);
@@ -266,7 +269,7 @@ namespace GopherMcp.Transport
 
                             try
                             {
-                                var message = JsonSerializer.Deserialize<JsonRpcMessage>(completeJson);
+                                var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(completeJson);
                                 if (message != null)
                                 {
                                     _receiveQueue.Enqueue(message);

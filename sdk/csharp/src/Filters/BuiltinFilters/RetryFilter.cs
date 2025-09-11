@@ -114,7 +114,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             _config = config ?? throw new ArgumentNullException(nameof(config));
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -150,7 +150,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                         context.SetProperty("RetryMaxAttempts", _config.MaxAttempts);
 
                         // Execute the operation
-                        var result = await ExecuteOperationAsync(data, context, attemptCts.Token);
+                        var result = await ExecuteOperationAsync(buffer, context, attemptCts.Token);
                         
                         // Check if we should retry based on the result
                         if (ShouldRetryResult(result))
@@ -168,8 +168,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                         }
 
                         // Success - return the result
-                        UpdateStatistics(true);
-                        await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                        UpdateStatistics(buffer.Length, 0, true);
+                        await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                         return result;
                     }
                     catch (OperationCanceledException) when (attemptCts.IsCancellationRequested && !totalTimeoutCts.IsCancellationRequested)
@@ -206,11 +206,11 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 // All attempts exhausted
-                UpdateStatistics(false);
+                UpdateStatistics(0L, 1, false);
                 
                 if (lastException != null)
                 {
-                    await RaiseOnErrorAsync(new FilterErrorEventArgs(lastException, context));
+                    await RaiseOnErrorAsync(lastException);
                     throw new RetryExhaustedException($"Retry filter exhausted after {attemptNumber} attempts", lastException)
                     {
                         Attempts = attemptNumber,
@@ -229,8 +229,8 @@ namespace GopherMcp.Filters.BuiltinFilters
             {
                 // Total timeout exceeded
                 var message = $"Total retry timeout of {_config.TotalTimeout} exceeded after {attemptNumber} attempts";
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(new TimeoutException(message), context));
+                UpdateStatistics(0L, 1, false);
+                await RaiseOnErrorAsync(new TimeoutException(message));
                 return FilterResult.Error(message, FilterError.Timeout);
             }
             finally
@@ -244,14 +244,14 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
         }
 
-        private async Task<FilterResult> ExecuteOperationAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken)
+        private async Task<FilterResult> ExecuteOperationAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken)
         {
             // In a real implementation, this would execute the actual downstream operation
             // For now, we'll simulate it
             await Task.Delay(100, cancellationToken);
             
             // Simulate occasional failures for testing
-            var random = Random.Shared.Next(100);
+            var random = new Random().Next(100);
             if (random < 10) // 10% failure rate
             {
                 throw new TimeoutException("Simulated timeout");
@@ -261,7 +261,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 return FilterResult.Error("Service temporarily unavailable", FilterError.ServiceUnavailable);
             }
             
-            return FilterResult.Continue(data);
+            return FilterResult.Continue(buffer);
         }
 
         private bool ShouldRetryException(Exception ex)
@@ -293,7 +293,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
 
             // Check if error is retryable
-            return _config.RetryableErrors.Contains(result.Error);
+            return _config.RetryableErrors.Contains(result.ErrorCode);
         }
 
         private TimeSpan CalculateDelay(int attemptNumber)

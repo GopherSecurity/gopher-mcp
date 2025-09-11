@@ -1,35 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using GopherMcp.Integration;
 
 namespace GopherMcp.Transport
 {
-    /// <summary>
-    /// Represents a message received through the transport
-    /// </summary>
-    public class JsonRpcMessage
-    {
-        public string? JsonRpc { get; set; } = "2.0";
-        public object? Id { get; set; }
-        public string? Method { get; set; }
-        public object? Params { get; set; }
-        public object? Result { get; set; }
-        public JsonRpcError? Error { get; set; }
-
-        public bool IsRequest => Method != null && Id != null;
-        public bool IsNotification => Method != null && Id == null;
-        public bool IsResponse => Result != null || Error != null;
-    }
-
-    /// <summary>
-    /// Represents a JSON-RPC error
-    /// </summary>
-    public class JsonRpcError
-    {
-        public int Code { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public object? Data { get; set; }
-    }
 
     /// <summary>
     /// Event arguments for message received events

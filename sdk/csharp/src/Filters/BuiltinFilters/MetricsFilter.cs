@@ -197,7 +197,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             };
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -214,17 +214,17 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 // Collect request metrics
-                CollectRequestMetrics(data, context);
+                CollectRequestMetrics(buffer, context);
 
                 // Continue processing
-                var result = FilterResult.Continue(data);
+                var result = FilterResult.Continue(buffer);
 
                 // Collect response metrics
                 stopwatch.Stop();
                 CollectResponseMetrics(result, context, stopwatch.ElapsedMilliseconds);
 
-                UpdateStatistics(true);
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                UpdateStatistics(buffer.Length, 0, true);
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                 return result;
             }
             catch (Exception ex)
@@ -232,13 +232,13 @@ namespace GopherMcp.Filters.BuiltinFilters
                 // Collect error metrics
                 CollectErrorMetrics(ex, context);
                 
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Metrics error: {ex.Message}", FilterError.InternalError);
             }
         }
 
-        private void CollectRequestMetrics(byte[] data, ProcessingContext context)
+        private void CollectRequestMetrics(byte[] buffer, ProcessingContext context)
         {
             var method = context.GetProperty<string>("Method") ?? "unknown";
             var path = context.GetProperty<string>("Path") ?? "/";
@@ -253,7 +253,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             // Record request size
             if (_metrics.TryGetValue("mcp_request_size_bytes", out var requestSize) && requestSize is Histogram histogram)
             {
-                histogram.Observe(data.Length, labels);
+                histogram.Observe(buffer.Length, labels);
             }
 
             // Update active connections gauge
@@ -542,7 +542,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             var key = GetLabelKey(labels);
             _values.AddOrUpdate(key,
                 k => new HistogramData(_buckets, value),
-                (k, data) => { data.Observe(value); return data; });
+                (k, buffer) => { buffer.Observe(value); return buffer; });
         }
 
         public void Export(StringBuilder sb, long? timestamp)
@@ -553,10 +553,10 @@ namespace GopherMcp.Filters.BuiltinFilters
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
-                var data = kvp.Value;
+                var buffer = kvp.Value;
                 var timestampStr = timestamp.HasValue ? $" {timestamp}" : "";
                 
-                foreach (var bucket in data.GetBuckets())
+                foreach (var bucket in buffer.GetBuckets())
                 {
                     var bucketLabel = string.IsNullOrEmpty(labelStr) 
                         ? $"{{le=\"{bucket.UpperBound}\" + (bucket.UpperBound == double.PositiveInfinity ? \"+Inf\" : bucket.UpperBound.ToString())}}"
@@ -564,8 +564,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     sb.AppendLine($"{Name}_bucket{bucketLabel} {bucket.Count}{timestampStr}");
                 }
                 
-                sb.AppendLine($"{Name}_sum{labelStr} {data.Sum}{timestampStr}");
-                sb.AppendLine($"{Name}_count{labelStr} {data.Count}{timestampStr}");
+                sb.AppendLine($"{Name}_sum{labelStr} {buffer.Sum}{timestampStr}");
+                sb.AppendLine($"{Name}_count{labelStr} {buffer.Count}{timestampStr}");
             }
         }
 
@@ -677,7 +677,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             var key = GetLabelKey(labels);
             _values.AddOrUpdate(key,
                 k => new SummaryData(_quantiles, _windowSeconds, value),
-                (k, data) => { data.Observe(value); return data; });
+                (k, buffer) => { buffer.Observe(value); return buffer; });
         }
 
         public void Export(StringBuilder sb, long? timestamp)
@@ -688,10 +688,10 @@ namespace GopherMcp.Filters.BuiltinFilters
             foreach (var kvp in _values)
             {
                 var labelStr = kvp.Key;
-                var data = kvp.Value;
+                var buffer = kvp.Value;
                 var timestampStr = timestamp.HasValue ? $" {timestamp}" : "";
                 
-                foreach (var quantile in data.GetQuantiles())
+                foreach (var quantile in buffer.GetQuantiles())
                 {
                     var quantileLabel = string.IsNullOrEmpty(labelStr) 
                         ? $"{{quantile=\"{quantile.Quantile}\"}}"
@@ -699,8 +699,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     sb.AppendLine($"{Name}{quantileLabel} {quantile.Value}{timestampStr}");
                 }
                 
-                sb.AppendLine($"{Name}_sum{labelStr} {data.Sum}{timestampStr}");
-                sb.AppendLine($"{Name}_count{labelStr} {data.Count}{timestampStr}");
+                sb.AppendLine($"{Name}_sum{labelStr} {buffer.Sum}{timestampStr}");
+                sb.AppendLine($"{Name}_count{labelStr} {buffer.Count}{timestampStr}");
             }
         }
 

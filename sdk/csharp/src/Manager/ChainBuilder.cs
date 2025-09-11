@@ -29,7 +29,7 @@ namespace GopherMcp.Manager
         /// <summary>
         /// Gets or sets the filter configuration.
         /// </summary>
-        public FilterConfig Configuration { get; set; }
+        public FilterConfigBase Configuration { get; set; }
 
         /// <summary>
         /// Gets or sets whether the filter is enabled.
@@ -136,7 +136,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder AddFilter(Filter filter)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(filter);
+#else
+            ThrowIfNull(filter);
+#endif
+#else
+            ThrowIfNull(filter);
+#endif
             
             var descriptor = new FilterDescriptor
             {
@@ -156,8 +164,24 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder AddFilterDescriptor(FilterDescriptor descriptor)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(descriptor);
+#else
+            ThrowIfNull(descriptor);
+#endif
+#else
+            ThrowIfNull(descriptor);
+#endif
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(descriptor.Filter);
+#else
+            ThrowIfNull(descriptor.Filter);
+#endif
+#else
+            ThrowIfNull(descriptor.Filter);
+#endif
 
             _filterDescriptors.Add(descriptor);
             return this;
@@ -196,7 +220,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder AddTcpProxy(Action<TcpProxyConfig> configAction)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(configAction);
+#else
+            ThrowIfNull(configAction);
+#endif
+#else
+            ThrowIfNull(configAction);
+#endif
 
             // Create and configure TcpProxyConfig
             var config = new TcpProxyConfig();
@@ -224,15 +256,23 @@ namespace GopherMcp.Manager
         /// <param name="method">The authentication method.</param>
         /// <param name="secret">The authentication secret or key.</param>
         /// <returns>The builder for method chaining.</returns>
-        public ChainBuilder AddAuthentication(AuthenticationMethod method, string secret)
+        public ChainBuilder AddAuthentication(FilterManagerConfig.AuthenticationMethod method, string secret)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(secret);
+#else
+            ThrowIfNull(secret);
+#endif
+#else
+            ThrowIfNull(secret);
+#endif
 
             // Create AuthenticationConfig
             var config = new AuthenticationConfig
             {
-                Method = method,
-                Secret = secret,
+                Method = (AuthenticationMethod)(int)method,
+                SharedSecret = secret,
                 Enabled = true,
                 AllowAnonymous = false
             };
@@ -323,7 +363,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder Conditional(Func<ProcessingContext, bool> predicate)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(predicate);
+#else
+            ThrowIfNull(predicate);
+#endif
+#else
+            ThrowIfNull(predicate);
+#endif
             
             _config.ExecutionMode = ChainExecutionMode.Conditional;
             _config.ConditionPredicate = predicate;
@@ -353,7 +401,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder AddFilters(params Filter[] filters)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(filters);
+#else
+            ThrowIfNull(filters);
+#endif
+#else
+            ThrowIfNull(filters);
+#endif
 
             foreach (var filter in filters)
             {
@@ -387,8 +443,24 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder AddFilterIf(Func<bool> condition, Func<Filter> filterFactory)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(condition);
+#else
+            ThrowIfNull(condition);
+#endif
+#else
+            ThrowIfNull(condition);
+#endif
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(filterFactory);
+#else
+            ThrowIfNull(filterFactory);
+#endif
+#else
+            ThrowIfNull(filterFactory);
+#endif
 
             if (condition())
             {
@@ -405,7 +477,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder Configure(Action<ChainConfig> configAction)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(configAction);
+#else
+            ThrowIfNull(configAction);
+#endif
+#else
+            ThrowIfNull(configAction);
+#endif
             configAction(_config);
             return this;
         }
@@ -418,7 +498,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder WithMetadata(string key, object value)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(key);
+#else
+            ThrowIfNull(key);
+#endif
+#else
+            ThrowIfNull(key);
+#endif
             _config.Metadata[key] = value;
             return this;
         }
@@ -430,7 +518,15 @@ namespace GopherMcp.Manager
         /// <returns>The builder for method chaining.</returns>
         public ChainBuilder WithMetadata(IDictionary<string, object> metadata)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(metadata);
+#else
+            ThrowIfNull(metadata);
+#endif
+#else
+            ThrowIfNull(metadata);
+#endif
 
             foreach (var kvp in metadata)
             {
@@ -487,7 +583,10 @@ namespace GopherMcp.Manager
                 // Add filter with specified position
                 if (descriptor.ReferenceFilterId.HasValue)
                 {
-                    chain.AddFilterRelative(descriptor.Filter, descriptor.Position, descriptor.ReferenceFilterId.Value);
+                    // Convert Guid to string for the relative filter reference
+                    var referenceId = descriptor.ReferenceFilterId.Value.ToString();
+                    var before = descriptor.Position == FilterPosition.Before;
+                    chain.AddFilterRelative(descriptor.Filter, referenceId, before);
                 }
                 else
                 {

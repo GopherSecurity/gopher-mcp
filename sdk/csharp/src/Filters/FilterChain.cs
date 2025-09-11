@@ -107,7 +107,7 @@ namespace GopherMcp.Filters
         /// <summary>
         /// Initializes a new instance of the FilterChain class
         /// </summary>
-        public FilterChain() : this(null)
+        public FilterChain() : this((ChainConfig)null)
         {
         }
         
@@ -237,6 +237,24 @@ namespace GopherMcp.Filters
             finally
             {
                 _filtersLock.ExitWriteLock();
+            }
+        }
+        
+        /// <summary>
+        /// Adds a filter relative to another filter
+        /// </summary>
+        /// <param name="filter">Filter to add</param>
+        /// <param name="relativeTo">Name of the filter to position relative to</param>
+        /// <param name="before">True to insert before, false to insert after</param>
+        public void AddFilterRelative(Filter filter, string relativeTo, bool before = true)
+        {
+            if (before)
+            {
+                AddFilterBefore(filter, relativeTo);
+            }
+            else
+            {
+                AddFilterAfter(filter, relativeTo);
             }
         }
         
@@ -456,6 +474,56 @@ namespace GopherMcp.Filters
         }
         
         /// <summary>
+        /// Process a JsonRpcMessage through the filter chain
+        /// </summary>
+        /// <param name="message">The JSON-RPC message to process</param>
+        /// <param name="context">Processing context</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Chain processing result with JsonRpcMessage</returns>
+        public async Task<FilterResult> ProcessAsync(
+            GopherMcp.Integration.JsonRpcMessage message,
+            ProcessingContext context = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (message == null)
+                throw new ArgumentNullException(nameof(message));
+
+            // Serialize message to bytes
+            var messageJson = System.Text.Json.JsonSerializer.Serialize(message);
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
+
+            // Ensure context has the original message
+            context ??= new ProcessingContext();
+            context.SetProperty("JsonRpcMessage", message);
+            context.SetProperty("MessageType", message.GetType().Name);
+            
+            // Process through the byte array pipeline
+            var result = await ProcessAsync(messageBytes, context, cancellationToken);
+            
+            // If successful and we have data, try to deserialize back to JsonRpcMessage
+            if (result.IsSuccess && result.Data != null && result.Data.Length > 0)
+            {
+                try
+                {
+                    var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
+                    var resultMessage = System.Text.Json.JsonSerializer.Deserialize<GopherMcp.Integration.JsonRpcMessage>(resultJson);
+                    
+                    // Store the deserialized message in the result's context
+                    if (context != null)
+                    {
+                        context.SetProperty("ResultMessage", resultMessage);
+                    }
+                }
+                catch
+                {
+                    // If deserialization fails, the raw bytes are still in result.Data
+                }
+            }
+            
+            return result;
+        }
+        
+        /// <summary>
         /// Processes data through the filter chain
         /// </summary>
         /// <param name="buffer">Input buffer</param>
@@ -492,26 +560,26 @@ namespace GopherMcp.Filters
             FilterResult result;
             
             // Process based on execution mode
-            var executionMode = _config?.ExecutionMode ?? ChainExecutionMode.Sequential;
+            var executionMode = _config?.ExecutionMode ?? GopherMcp.Types.ChainExecutionMode.Sequential;
             
             switch (executionMode)
             {
-                case ChainExecutionMode.Sequential:
+                case GopherMcp.Types.ChainExecutionMode.Sequential:
                     result = await ProcessSequentialAsync(filters, buffer, context, cancellationToken)
                         .ConfigureAwait(false);
                     break;
                     
-                case ChainExecutionMode.Parallel:
+                case GopherMcp.Types.ChainExecutionMode.Parallel:
                     result = await ProcessParallelAsync(filters, buffer, context, cancellationToken)
                         .ConfigureAwait(false);
                     break;
                     
-                case ChainExecutionMode.Conditional:
+                case GopherMcp.Types.ChainExecutionMode.Conditional:
                     result = await ProcessConditionalAsync(filters, buffer, context, cancellationToken)
                         .ConfigureAwait(false);
                     break;
                     
-                case ChainExecutionMode.Pipeline:
+                case GopherMcp.Types.ChainExecutionMode.Pipeline:
                     result = await ProcessPipelineAsync(filters, buffer, context, cancellationToken)
                         .ConfigureAwait(false);
                     break;

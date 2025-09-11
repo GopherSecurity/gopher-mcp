@@ -6,6 +6,22 @@ using GopherMcp.Core;
 namespace GopherMcp.Types
 {
     /// <summary>
+    /// Execution mode for backward compatibility
+    /// </summary>
+    public enum ExecutionMode
+    {
+        /// <summary>
+        /// Sequential execution
+        /// </summary>
+        Sequential = 0,
+        
+        /// <summary>
+        /// Parallel execution
+        /// </summary>
+        Parallel = 1
+    }
+    
+    /// <summary>
     /// Chain execution mode determining how filters are processed
     /// </summary>
     public enum ChainExecutionMode
@@ -110,7 +126,17 @@ namespace GopherMcp.Types
         /// <summary>
         /// Bidirectional processing
         /// </summary>
-        Bidirectional = 2
+        Bidirectional = 2,
+        
+        /// <summary>
+        /// Inbound direction
+        /// </summary>
+        Inbound = 3,
+        
+        /// <summary>
+        /// Outbound direction
+        /// </summary>
+        Outbound = 4
     }
     
     /// <summary>
@@ -336,6 +362,62 @@ namespace GopherMcp.Types
         public Dictionary<string, object> Settings { get; set; }
         
         /// <summary>
+        /// Gets or sets the default timeout for the chain
+        /// </summary>
+        public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
+        
+        /// <summary>
+        /// Gets or sets the maximum concurrency level
+        /// </summary>
+        public int MaxConcurrency { get; set; } = 10;
+        
+        /// <summary>
+        /// Gets or sets whether to enable statistics collection
+        /// </summary>
+        public bool EnableStatistics { get; set; } = true;
+        
+        /// <summary>
+        /// Gets or sets whether to dispose filters when chain is disposed
+        /// </summary>
+        public bool DisposeFilters { get; set; } = true;
+        
+        /// <summary>
+        /// Gets or sets the execution mode (backward compatibility)
+        /// </summary>
+        public ExecutionMode Mode 
+        { 
+            get => this.ExecutionMode == ChainExecutionMode.Sequential ? Types.ExecutionMode.Sequential : Types.ExecutionMode.Parallel;
+            set => this.ExecutionMode = value == Types.ExecutionMode.Sequential ? ChainExecutionMode.Sequential : ChainExecutionMode.Parallel;
+        }
+        
+        /// <summary>
+        /// Gets or sets whether to continue on error (backward compatibility)
+        /// </summary>
+        public bool ContinueOnError 
+        { 
+            get => !StopOnError;
+            set => StopOnError = !value;
+        }
+        
+        /// <summary>
+        /// Gets or sets the maximum retry attempts (backward compatibility)
+        /// </summary>
+        public int MaxRetries 
+        { 
+            get => MaxRetryAttempts;
+            set => MaxRetryAttempts = value;
+        }
+        
+        /// <summary>
+        /// Gets or sets the retry delay (backward compatibility)
+        /// </summary>
+        public TimeSpan RetryDelay 
+        { 
+            get => TimeSpan.FromMilliseconds(RetryDelayMs);
+            set => RetryDelayMs = (int)value.TotalMilliseconds;
+        }
+        
+        /// <summary>
         /// Initializes a new instance of ChainConfig
         /// </summary>
         public ChainConfig()
@@ -371,9 +453,26 @@ namespace GopherMcp.Types
                 EnableCircuitBreaker = EnableCircuitBreaker,
                 CircuitBreakerThreshold = CircuitBreakerThreshold,
                 CircuitBreakerTimeoutMs = CircuitBreakerTimeoutMs,
-                Settings = Settings != null ? new Dictionary<string, object>(Settings) : null
+                Settings = Settings != null ? new Dictionary<string, object>(Settings) : null,
+                Metadata = Metadata != null ? new Dictionary<string, object>(Metadata) : null,
+                ConditionPredicate = ConditionPredicate
             };
         }
+        
+        /// <summary>
+        /// Gets or sets the metadata for the chain
+        /// </summary>
+        public Dictionary<string, object> Metadata { get; set; } = new Dictionary<string, object>();
+        
+        /// <summary>
+        /// Gets or sets the condition predicate for conditional execution
+        /// </summary>
+        public Func<ProcessingContext, bool> ConditionPredicate { get; set; }
+        
+        /// <summary>
+        /// Gets or sets whether to sort filters by priority
+        /// </summary>
+        public bool SortByPriority { get; set; } = false;
     }
     
     /// <summary>
@@ -388,6 +487,11 @@ namespace GopherMcp.Types
         public ulong TotalProcessed;
         
         /// <summary>
+        /// Total packets processed (alias for TotalProcessed)
+        /// </summary>
+        public ulong TotalPacketsProcessed;
+        
+        /// <summary>
         /// Total number of errors
         /// </summary>
         public ulong TotalErrors;
@@ -396,6 +500,21 @@ namespace GopherMcp.Types
         /// Total number of bypassed filters
         /// </summary>
         public ulong TotalBypassed;
+        
+        /// <summary>
+        /// Total bytes processed
+        /// </summary>
+        public ulong TotalBytesProcessed;
+        
+        /// <summary>
+        /// Total processing time in microseconds
+        /// </summary>
+        public ulong TotalProcessingTimeUs;
+        
+        /// <summary>
+        /// Average processing time in microseconds
+        /// </summary>
+        public double AverageProcessingTimeUs;
         
         /// <summary>
         /// Average latency in milliseconds

@@ -148,7 +148,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -159,7 +159,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 {
                     if (_config.AllowAnonymousOnBypass)
                     {
-                        return FilterResult.Continue(data);
+                        return FilterResult.Continue(buffer);
                     }
                 }
 
@@ -199,14 +199,14 @@ namespace GopherMcp.Filters.BuiltinFilters
                 context.SetProperty("AuthorizationSucceeded", true);
                 context.SetProperty("AppliedPolicy", policyName);
 
-                UpdateStatistics(true);
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
-                return FilterResult.Continue(data);
+                UpdateStatistics(1L, 0, true);
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
+                return FilterResult.Continue(buffer);
             }
             catch (Exception ex)
             {
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Authorization error: {ex.Message}", FilterError.InternalError);
             }
         }

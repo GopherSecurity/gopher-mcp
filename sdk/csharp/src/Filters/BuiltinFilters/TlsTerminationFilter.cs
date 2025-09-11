@@ -38,8 +38,11 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Gets or sets the supported SSL/TLS protocols.
         /// </summary>
+#if NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
         public SslProtocols SslProtocols { get; set; } = SslProtocols.Tls12 | SslProtocols.Tls13;
-
+#else
+        public SslProtocols SslProtocols { get; set; } = SslProtocols.Tls12;
+#endif
         /// <summary>
         /// Gets or sets whether client certificates are required.
         /// </summary>
@@ -53,7 +56,11 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Gets or sets the cipher suites preference.
         /// </summary>
+        #if NET5_0_OR_GREATER
         public CipherSuitesPolicy CipherSuitesPolicy { get; set; }
+        #else
+        public object CipherSuitesPolicy { get; set; }
+        #endif
 
         /// <summary>
         /// Gets or sets the certificate validation callback.
@@ -179,7 +186,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         /// <summary>
-        /// Processes data through the TLS termination filter.
+        /// Processes buffer through the TLS termination filter.
         /// </summary>
         protected override async Task<FilterResult> ProcessInternal(
             byte[] buffer, 
@@ -188,7 +195,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             try
             {
-                _logger?.LogDebug("Processing TLS data: {ByteCount} bytes", buffer.Length);
+                _logger?.LogDebug("Processing TLS buffer: {ByteCount} bytes", buffer.Length);
 
                 // Handle TLS handshake and termination
                 var tlsContext = context?.GetProperty<TlsConnectionContext>("TlsContext");
@@ -215,7 +222,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                     return new FilterResult(FilterStatus.NeedMoreData);
                 }
 
-                _logger?.LogDebug("Decrypted TLS data: {DecryptedSize} bytes", decryptedData.Length);
+                _logger?.LogDebug("Decrypted TLS buffer: {DecryptedSize} bytes", decryptedData.Length);
 
                 // Update context with TLS information
                 context?.SetMetadata("TlsProtocol", tlsContext.NegotiatedProtocol.ToString());
@@ -227,12 +234,12 @@ namespace GopherMcp.Filters.BuiltinFilters
             catch (AuthenticationException ex)
             {
                 _logger?.LogWarning(ex, "TLS authentication failed");
-                return FilterResult.Error(FilterError.ProcessingFailed, "TLS authentication failed");
+                return FilterResult.Error("TLS authentication failed", FilterError.ProcessingFailed);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error processing TLS data");
-                return FilterResult.Error(FilterError.ProcessingFailed, ex.Message);
+                _logger?.LogError(ex, "Error processing TLS buffer");
+                return FilterResult.Error(ex.Message, FilterError.ProcessingFailed);
             }
         }
 
@@ -240,7 +247,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes TLS handshake.
         /// </summary>
         private async Task<FilterResult> ProcessTlsHandshake(
-            byte[] data, 
+            byte[] buffer, 
             TlsConnectionContext tlsContext, 
             ProcessingContext context,
             CancellationToken cancellationToken)
@@ -250,18 +257,18 @@ namespace GopherMcp.Filters.BuiltinFilters
                 tlsContext.HandshakeStartTime = DateTime.UtcNow;
 
                 // Parse TLS handshake messages
-                var handshakeType = ParseTlsHandshake(data);
+                var handshakeType = ParseTlsHandshake(buffer);
                 
                 switch (handshakeType)
                 {
                     case TlsHandshakeType.ClientHello:
-                        return await ProcessClientHello(data, tlsContext, cancellationToken);
+                        return await ProcessClientHello(buffer, tlsContext, cancellationToken);
                     
                     case TlsHandshakeType.Certificate:
-                        return await ProcessCertificate(data, tlsContext, cancellationToken);
+                        return await ProcessCertificate(buffer, tlsContext, cancellationToken);
                     
                     case TlsHandshakeType.Finished:
-                        return await ProcessHandshakeFinished(data, tlsContext, cancellationToken);
+                        return await ProcessHandshakeFinished(buffer, tlsContext, cancellationToken);
                     
                     default:
                         return new FilterResult(FilterStatus.Continue);
@@ -270,7 +277,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "TLS handshake processing failed");
-                return FilterResult.Error(FilterError.ProcessingFailed, "TLS handshake failed");
+                return FilterResult.Error("TLS handshake failed", FilterError.ProcessingFailed);
             }
         }
 
@@ -278,12 +285,12 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes ClientHello message.
         /// </summary>
         private async Task<FilterResult> ProcessClientHello(
-            byte[] data, 
+            byte[] buffer, 
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
             // Extract SNI from ClientHello
-            var serverName = ExtractServerNameFromClientHello(data);
+            var serverName = ExtractServerNameFromClientHello(buffer);
             if (!string.IsNullOrEmpty(serverName))
             {
                 tlsContext.ServerName = serverName;
@@ -303,13 +310,13 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes certificate message.
         /// </summary>
         private async Task<FilterResult> ProcessCertificate(
-            byte[] data, 
+            byte[] buffer, 
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
             if (_config.RequireClientCertificate)
             {
-                var clientCert = ExtractClientCertificate(data);
+                var clientCert = ExtractClientCertificate(buffer);
                 if (clientCert != null)
                 {
                     tlsContext.ClientCertificate = clientCert;
@@ -319,13 +326,13 @@ namespace GopherMcp.Filters.BuiltinFilters
                     if (!validationResult)
                     {
                         _logger?.LogWarning("Client certificate validation failed");
-                        return FilterResult.Error(FilterError.ProcessingFailed, "Client certificate validation failed");
+                        return FilterResult.Error("Client certificate validation failed", FilterError.ProcessingFailed);
                     }
                 }
                 else
                 {
                     _logger?.LogWarning("Client certificate required but not provided");
-                    return FilterResult.Error(FilterError.ProcessingFailed, "Client certificate required");
+                    return FilterResult.Error("Client certificate required", FilterError.ProcessingFailed);
                 }
             }
 
@@ -336,7 +343,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// Processes handshake finished message.
         /// </summary>
         private async Task<FilterResult> ProcessHandshakeFinished(
-            byte[] data, 
+            byte[] buffer, 
             TlsConnectionContext tlsContext,
             CancellationToken cancellationToken)
         {
@@ -350,7 +357,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         /// <summary>
-        /// Decrypts TLS application data.
+        /// Decrypts TLS application buffer.
         /// </summary>
         private async Task<byte[]> DecryptTlsData(
             byte[] encryptedData, 
@@ -361,7 +368,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             // In a real implementation, this would use the SSL stream
             await Task.Delay(1, cancellationToken);
             
-            // For demonstration, return the data as-is
+            // For demonstration, return the buffer as-is
             return encryptedData;
         }
 
@@ -442,7 +449,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Updates configuration asynchronously.
         /// </summary>
-        protected override async Task OnConfigurationUpdateAsync(FilterConfig oldConfig, FilterConfig newConfig)
+        protected override async Task OnConfigurationUpdateAsync(FilterConfigBase oldConfig, FilterConfigBase newConfig)
         {
             _logger?.LogInformation("Updating TLS termination filter configuration");
             
@@ -462,7 +469,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Validates configuration.
         /// </summary>
-        protected override bool OnValidateConfig(FilterConfig config)
+        protected override bool OnValidateConfig(FilterConfigBase config)
         {
             if (config is not TlsTerminationConfig tlsConfig)
                 return false;
@@ -501,15 +508,15 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Parses TLS handshake message type.
         /// </summary>
-        private TlsHandshakeType ParseTlsHandshake(byte[] data)
+        private TlsHandshakeType ParseTlsHandshake(byte[] buffer)
         {
-            if (data.Length < 6)
+            if (buffer.Length < 6)
                 return TlsHandshakeType.Unknown;
 
             // TLS record header: [Content Type][Version][Length][Handshake Type]
-            if (data[0] == 0x16) // Handshake record
+            if (buffer[0] == 0x16) // Handshake record
             {
-                return (TlsHandshakeType)data[5];
+                return (TlsHandshakeType)buffer[5];
             }
 
             return TlsHandshakeType.Unknown;
@@ -518,7 +525,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Extracts server name from ClientHello message.
         /// </summary>
-        private string ExtractServerNameFromClientHello(byte[] data)
+        private string ExtractServerNameFromClientHello(byte[] buffer)
         {
             // Simplified SNI extraction - in practice this would be more complex
             // This is a placeholder implementation
@@ -528,13 +535,13 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Extracts client certificate from certificate message.
         /// </summary>
-        private X509Certificate2 ExtractClientCertificate(byte[] data)
+        private X509Certificate2 ExtractClientCertificate(byte[] buffer)
         {
             // Simplified certificate extraction
             // In practice, this would parse the TLS Certificate message
             try
             {
-                return new X509Certificate2(data);
+                return new X509Certificate2(buffer);
             }
             catch
             {

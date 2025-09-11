@@ -12,38 +12,43 @@ namespace GopherMcp.Filters.BuiltinFilters
     /// <summary>
     /// Configuration for HTTP router filter.
     /// </summary>
-    public class HttpRouterConfig : FilterConfig
+    public class HttpRouterConfig : FilterConfigBase
     {
         /// <summary>
         /// Gets or sets the route definitions.
         /// </summary>
-        public List<RouteDefinition> Routes { get; set; } = new List<RouteDefinition>();
+        public List<RouteConfig> Routes { get; set; } = new List<RouteConfig>();
 
         /// <summary>
-        /// Gets or sets the default route handler.
+        /// Gets or sets the default handler for unmatched routes.
         /// </summary>
         public string DefaultHandler { get; set; }
 
         /// <summary>
-        /// Gets or sets whether to enable case-sensitive matching.
+        /// Gets or sets whether to enable case-sensitive routing.
         /// </summary>
         public bool CaseSensitive { get; set; } = false;
 
         /// <summary>
         /// Gets or sets whether to enable trailing slash matching.
         /// </summary>
-        public bool MatchTrailingSlash { get; set; } = true;
+        public bool StrictSlashes { get; set; } = false;
 
         /// <summary>
-        /// Gets or sets the maximum route parameters.
+        /// Gets or sets whether to enable method override via headers.
         /// </summary>
-        public int MaxRouteParameters { get; set; } = 20;
+        public bool EnableMethodOverride { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets the method override header name.
+        /// </summary>
+        public string MethodOverrideHeader { get; set; } = "X-HTTP-Method-Override";
     }
 
     /// <summary>
-    /// Defines a route.
+    /// Route configuration.
     /// </summary>
-    public class RouteDefinition
+    public class RouteConfig
     {
         /// <summary>
         /// Gets or sets the route pattern.
@@ -51,49 +56,33 @@ namespace GopherMcp.Filters.BuiltinFilters
         public string Pattern { get; set; }
 
         /// <summary>
-        /// Gets or sets the HTTP methods this route handles.
+        /// Gets or sets the allowed HTTP methods.
         /// </summary>
         public List<string> Methods { get; set; } = new List<string>();
 
         /// <summary>
-        /// Gets or sets the handler name.
+        /// Gets or sets the target handler.
         /// </summary>
-        public string Handler { get; set; }
+        public string Target { get; set; }
+
+        /// <summary>
+        /// Gets or sets route-specific middleware.
+        /// </summary>
+        public List<string> Middleware { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Gets or sets route constraints.
+        /// </summary>
+        public Dictionary<string, string> Constraints { get; set; } = new Dictionary<string, string>();
 
         /// <summary>
         /// Gets or sets route metadata.
         /// </summary>
         public Dictionary<string, object> Metadata { get; set; } = new Dictionary<string, object>();
-
-        /// <summary>
-        /// Gets or sets the route priority (higher = higher priority).
-        /// </summary>
-        public int Priority { get; set; } = 0;
     }
 
     /// <summary>
-    /// Represents a route match result.
-    /// </summary>
-    public class RouteMatch
-    {
-        /// <summary>
-        /// Gets or sets the matched route.
-        /// </summary>
-        public RouteDefinition Route { get; set; }
-
-        /// <summary>
-        /// Gets or sets the extracted parameters.
-        /// </summary>
-        public Dictionary<string, string> Parameters { get; set; } = new Dictionary<string, string>();
-
-        /// <summary>
-        /// Gets or sets the handler name.
-        /// </summary>
-        public string Handler { get; set; }
-    }
-
-    /// <summary>
-    /// HTTP router filter for path-based routing.
+    /// HTTP router filter for routing HTTP requests.
     /// </summary>
     public class HttpRouterFilter : Filter
     {
@@ -110,257 +99,172 @@ namespace GopherMcp.Filters.BuiltinFilters
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger;
-            _compiledRoutes = CompileRoutes(config.Routes);
+            _compiledRoutes = CompileRoutes(_config.Routes);
         }
 
         /// <summary>
-        /// Processes data through the HTTP router.
+        /// Processes buffer through the HTTP router filter.
         /// </summary>
-        /// <param name="data">The data to process.</param>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>The processed result.</returns>
-        public override async Task<FilterResult> ProcessAsync(object data, CancellationToken cancellationToken = default)
+        protected override async Task<FilterResult> ProcessInternal(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             try
             {
-                if (data is not HttpMessage httpMessage)
+                // Extract path from context (would be parsed from HTTP request in real implementation)
+                var path = context?.GetProperty<string>("Path") ?? "/";
+                var method = context?.GetProperty<string>("Method") ?? "GET";
+                
+                // Handle method override if enabled
+                if (_config.EnableMethodOverride)
                 {
-                    return FilterResult.Error("HttpRouterFilter requires HttpMessage input");
+                    var overrideMethod = context?.GetProperty<string>(_config.MethodOverrideHeader);
+                    if (!string.IsNullOrEmpty(overrideMethod))
+                    {
+                        method = overrideMethod;
+                    }
                 }
-
-                if (!httpMessage.IsRequest)
-                {
-                    // Pass through responses unchanged
-                    return FilterResult.Success(data);
-                }
-
-                // Match route
-                var match = MatchRoute(httpMessage.Method, httpMessage.Path);
+                
+                // Find matching route
+                var match = MatchRoute(path, method);
+                
                 if (match == null)
                 {
-                    _logger?.LogWarning("No route matched for {Method} {Path}", httpMessage.Method, httpMessage.Path);
+                    _logger?.LogWarning("No route found for {Method} {Path}", method, path);
                     
                     if (!string.IsNullOrEmpty(_config.DefaultHandler))
                     {
-                        match = new RouteMatch { Handler = _config.DefaultHandler };
+                        context?.SetProperty("RouteTarget", _config.DefaultHandler);
+                        _logger?.LogInformation("Using default handler for {Method} {Path}", method, path);
                     }
                     else
                     {
-                        return FilterResult.Error("No matching route found", 404);
+                        return FilterResult.Error("Not Found", FilterError.NotFound);
                     }
                 }
-
-                // Add route information to message
-                if (httpMessage.Headers == null)
+                else
                 {
-                    httpMessage.Headers = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                    // Store route information in context
+                    context?.SetProperty("MatchedRoute", match.Route.Pattern);
+                    context?.SetProperty("RouteTarget", match.Route.Target);
+                    context?.SetProperty("RouteParams", match.Parameters);
+                    
+                    // Add route metadata to context
+                    foreach (var metadata in match.Route.Metadata)
+                    {
+                        context?.SetProperty($"Route.{metadata.Key}", metadata.Value);
+                    }
+                    
+                    _logger?.LogInformation("Routed {Method} {Path} to {Target}", method, path, match.Route.Target);
                 }
-
-                // Add route handler header
-                httpMessage.Headers["X-Route-Handler"] = new List<string> { match.Handler };
-
-                // Add route parameters as headers
-                foreach (var param in match.Parameters)
-                {
-                    httpMessage.Headers[$"X-Route-Param-{param.Key}"] = new List<string> { param.Value };
-                }
-
-                _logger?.LogDebug("Routed {Method} {Path} to handler {Handler}",
-                    httpMessage.Method, httpMessage.Path, match.Handler);
-
-                return FilterResult.Success(httpMessage);
+                
+                await Task.CompletedTask; // Satisfy async requirement
+                return FilterResult.Success(buffer, 0, buffer.Length);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error in HTTP routing");
-                return FilterResult.Error($"Routing error: {ex.Message}");
+                _logger?.LogError(ex, "Error in HTTP router");
+                return FilterResult.Error($"Router error: {ex.Message}", FilterError.ProcessingFailed);
             }
         }
 
         /// <summary>
-        /// Matches a route for the given method and path.
+        /// Compiles routes into regex patterns.
         /// </summary>
-        private RouteMatch MatchRoute(string method, string path)
+        private List<CompiledRoute> CompileRoutes(List<RouteConfig> routes)
         {
-            if (string.IsNullOrEmpty(method) || string.IsNullOrEmpty(path))
+            var compiled = new List<CompiledRoute>();
+            
+            foreach (var route in routes)
             {
-                return null;
+                var pattern = route.Pattern;
+                var paramNames = new List<string>();
+                
+                // Extract parameter names and create regex pattern
+                // Example: /users/{id} -> /users/(?<id>[^/]+)
+                var regex = Regex.Replace(pattern, @"\{([^}]+)\}", match =>
+                {
+                    var paramName = match.Groups[1].Value;
+                    paramNames.Add(paramName);
+                    
+                    // Apply constraint if specified
+                    if (route.Constraints.TryGetValue(paramName, out var constraint))
+                    {
+                        return $"(?<{paramName}>{constraint})";
+                    }
+                    
+                    return $"(?<{paramName}>[^/]+)";
+                });
+                
+                // Handle trailing slashes
+                if (!_config.StrictSlashes)
+                {
+                    regex = regex.TrimEnd('/') + "/?";
+                }
+                
+                compiled.Add(new CompiledRoute
+                {
+                    Route = route,
+                    Pattern = new Regex($"^{regex}$", 
+                        _config.CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase),
+                    ParameterNames = paramNames
+                });
             }
+            
+            return compiled;
+        }
 
-            // Normalize path
-            path = NormalizePath(path);
-
+        /// <summary>
+        /// Matches a route for the given path and method.
+        /// </summary>
+        private RouteMatch MatchRoute(string path, string method)
+        {
             foreach (var compiledRoute in _compiledRoutes)
             {
-                // Check method
+                // Check method constraint
                 if (compiledRoute.Route.Methods.Count > 0 && 
                     !compiledRoute.Route.Methods.Contains(method, StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
                 }
-
-                // Try to match path
-                var match = compiledRoute.Regex.Match(path);
+                
+                // Match path pattern
+                var match = compiledRoute.Pattern.Match(path);
                 if (match.Success)
                 {
-                    var routeMatch = new RouteMatch
+                    var parameters = new Dictionary<string, string>();
+                    
+                    foreach (var paramName in compiledRoute.ParameterNames)
+                    {
+                        parameters[paramName] = match.Groups[paramName].Value;
+                    }
+                    
+                    return new RouteMatch
                     {
                         Route = compiledRoute.Route,
-                        Handler = compiledRoute.Route.Handler
+                        Parameters = parameters
                     };
-
-                    // Extract parameters
-                    for (int i = 0; i < compiledRoute.ParameterNames.Count && i < match.Groups.Count - 1; i++)
-                    {
-                        var paramName = compiledRoute.ParameterNames[i];
-                        var paramValue = match.Groups[i + 1].Value;
-                        routeMatch.Parameters[paramName] = Uri.UnescapeDataString(paramValue);
-                    }
-
-                    return routeMatch;
                 }
             }
-
+            
             return null;
         }
 
         /// <summary>
-        /// Compiles route definitions into regex patterns.
-        /// </summary>
-        private List<CompiledRoute> CompileRoutes(List<RouteDefinition> routes)
-        {
-            var compiledRoutes = new List<CompiledRoute>();
-
-            foreach (var route in routes.OrderByDescending(r => r.Priority))
-            {
-                var compiledRoute = CompileRoute(route);
-                if (compiledRoute != null)
-                {
-                    compiledRoutes.Add(compiledRoute);
-                }
-            }
-
-            return compiledRoutes;
-        }
-
-        /// <summary>
-        /// Compiles a single route definition.
-        /// </summary>
-        private CompiledRoute CompileRoute(RouteDefinition route)
-        {
-            if (string.IsNullOrEmpty(route.Pattern))
-            {
-                return null;
-            }
-
-            var pattern = route.Pattern;
-            var parameterNames = new List<string>();
-
-            // Extract parameter names and build regex pattern
-            // Support patterns like: /users/{id}, /api/{version}/items/{*path}
-            var regexPattern = "^" + Regex.Replace(pattern, @"\{([^}]+)\}", match =>
-            {
-                var paramName = match.Groups[1].Value;
-                
-                // Handle wildcard parameters
-                if (paramName.StartsWith("*"))
-                {
-                    paramName = paramName.Substring(1);
-                    parameterNames.Add(paramName);
-                    return "(.*)"; // Match everything
-                }
-                else
-                {
-                    parameterNames.Add(paramName);
-                    return "([^/]+)"; // Match until next slash
-                }
-            }) + "$";
-
-            var options = _config.CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-            var regex = new Regex(regexPattern, options | RegexOptions.Compiled);
-
-            return new CompiledRoute
-            {
-                Route = route,
-                Regex = regex,
-                ParameterNames = parameterNames
-            };
-        }
-
-        /// <summary>
-        /// Normalizes a path for matching.
-        /// </summary>
-        private string NormalizePath(string path)
-        {
-            if (string.IsNullOrEmpty(path))
-            {
-                return "/";
-            }
-
-            // Remove query string
-            var queryIndex = path.IndexOf('?');
-            if (queryIndex >= 0)
-            {
-                path = path.Substring(0, queryIndex);
-            }
-
-            // Ensure path starts with /
-            if (!path.StartsWith("/"))
-            {
-                path = "/" + path;
-            }
-
-            // Handle trailing slash
-            if (_config.MatchTrailingSlash && path.Length > 1 && path.EndsWith("/"))
-            {
-                path = path.TrimEnd('/');
-            }
-
-            return path;
-        }
-
-        /// <summary>
-        /// Adds a route dynamically.
-        /// </summary>
-        public void AddRoute(RouteDefinition route)
-        {
-            ArgumentNullException.ThrowIfNull(route);
-
-            _config.Routes.Add(route);
-            var compiled = CompileRoute(route);
-            if (compiled != null)
-            {
-                _compiledRoutes.Add(compiled);
-                _compiledRoutes.Sort((a, b) => b.Route.Priority.CompareTo(a.Route.Priority));
-            }
-
-            _logger?.LogInformation("Added route: {Pattern} -> {Handler}", route.Pattern, route.Handler);
-        }
-
-        /// <summary>
-        /// Removes a route by pattern.
-        /// </summary>
-        public bool RemoveRoute(string pattern)
-        {
-            var route = _config.Routes.FirstOrDefault(r => r.Pattern == pattern);
-            if (route != null)
-            {
-                _config.Routes.Remove(route);
-                _compiledRoutes.RemoveAll(cr => cr.Route.Pattern == pattern);
-                _logger?.LogInformation("Removed route: {Pattern}", pattern);
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Compiled route with regex.
+        /// Compiled route with regex pattern.
         /// </summary>
         private class CompiledRoute
         {
-            public RouteDefinition Route { get; set; }
-            public Regex Regex { get; set; }
+            public RouteConfig Route { get; set; }
+            public Regex Pattern { get; set; }
             public List<string> ParameterNames { get; set; }
+        }
+
+        /// <summary>
+        /// Route match result.
+        /// </summary>
+        private class RouteMatch
+        {
+            public RouteConfig Route { get; set; }
+            public Dictionary<string, string> Parameters { get; set; }
         }
     }
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
@@ -114,7 +116,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 TimeSpan.FromMinutes(5));
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -131,7 +133,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
                 else
                 {
-                    UpdateStatistics(false);
+                    UpdateStatistics(0L, 0, false);
                     return FilterResult.Error($"Circuit breaker is open for key '{key}'", FilterError.ServiceUnavailable);
                 }
             }
@@ -139,7 +141,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             try
             {
                 // Execute the operation
-                var result = await ExecuteWithCircuitBreakerAsync(data, context, circuitBreaker, key, cancellationToken);
+                var result = await ExecuteWithCircuitBreakerAsync(buffer, context, circuitBreaker, key, cancellationToken);
                 
                 // Record success or failure
                 if (IsSuccessfulResult(result))
@@ -158,8 +160,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     RecordFailure(circuitBreaker, key, null);
                 }
 
-                UpdateStatistics(IsSuccessfulResult(result));
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                UpdateStatistics(buffer.Length, 0, IsSuccessfulResult(result));
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                 return result;
             }
             catch (Exception ex)
@@ -170,8 +172,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     RecordFailure(circuitBreaker, key, ex);
                 }
 
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 
                 if (circuitBreaker.State == CircuitBreakerState.Open)
                 {
@@ -225,7 +227,7 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         private async Task<FilterResult> ExecuteWithCircuitBreakerAsync(
-            byte[] data,
+            byte[] buffer,
             ProcessingContext context,
             CircuitBreaker circuitBreaker,
             string key,
@@ -234,7 +236,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             // For simulation, we'll just continue processing
             // In a real implementation, this would execute the actual operation
             await Task.Delay(0, cancellationToken);
-            return FilterResult.Continue(data);
+            return FilterResult.Continue(buffer);
         }
 
         private bool IsSuccessfulResult(FilterResult result)

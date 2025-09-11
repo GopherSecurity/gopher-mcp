@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using GopherMcp.Integration;
+#if !NET6_0_OR_GREATER
+using GopherMcp.Utils;
+#endif
 
 namespace GopherMcp.Transport
 {
@@ -183,7 +188,7 @@ namespace GopherMcp.Transport
                 if (_udpClient == null || _remoteEndPoint == null)
                     throw new InvalidOperationException("UDP client not initialized");
 
-                var json = JsonSerializer.Serialize(message);
+                var json = System.Text.Json.JsonSerializer.Serialize(message);
                 var data = Encoding.UTF8.GetBytes(json);
 
                 // Check if fragmentation is needed
@@ -255,7 +260,7 @@ namespace GopherMcp.Transport
                     else
                     {
                         // Complete message
-                        var message = JsonSerializer.Deserialize<JsonRpcMessage>(json);
+                        var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(json);
                         if (message != null)
                         {
                             _receiveQueue.Enqueue(message);
@@ -339,7 +344,7 @@ namespace GopherMcp.Transport
                     _fragmentBuffer.TryRemove(messageId, out _);
                     
                     var completeJson = fragment.GetCompleteMessage();
-                    var message = JsonSerializer.Deserialize<JsonRpcMessage>(completeJson);
+                    var message = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(completeJson);
                     
                     if (message != null)
                     {

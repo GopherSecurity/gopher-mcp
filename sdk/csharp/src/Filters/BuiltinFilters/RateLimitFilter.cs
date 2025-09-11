@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -113,7 +114,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 TimeSpan.FromSeconds(_config.CleanupIntervalSeconds));
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -127,7 +128,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 // Check whitelist/blacklist
                 if (IsWhitelisted(key))
                 {
-                    return await ProcessWithoutRateLimitAsync(data, context, cancellationToken);
+                    return await ProcessWithoutRateLimitAsync(buffer, context, cancellationToken);
                 }
                 
                 if (IsBlacklisted(key))
@@ -174,10 +175,10 @@ namespace GopherMcp.Filters.BuiltinFilters
                     }
 
                     // Continue processing
-                    var result = FilterResult.Continue(data);
+                    var result = FilterResult.Continue(buffer);
                     
-                    UpdateStatistics(true);
-                    await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                    UpdateStatistics(buffer.Length, 0, true);
+                    await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                     return result;
                 }
                 finally
@@ -187,8 +188,8 @@ namespace GopherMcp.Filters.BuiltinFilters
             }
             catch (Exception ex)
             {
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 1, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Rate limit error: {ex.Message}", FilterError.InternalError);
             }
         }
@@ -278,13 +279,13 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         private async Task<FilterResult> ProcessWithoutRateLimitAsync(
-            byte[] data,
+            byte[] buffer,
             ProcessingContext context,
             CancellationToken cancellationToken)
         {
-            var result = FilterResult.Continue(data);
-            UpdateStatistics(true);
-            await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+            var result = FilterResult.Continue(buffer);
+            UpdateStatistics(buffer.Length, 0, true);
+            await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
             return result;
         }
 

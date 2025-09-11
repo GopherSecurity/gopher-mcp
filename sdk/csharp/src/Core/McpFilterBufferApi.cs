@@ -528,6 +528,8 @@ namespace GopherMcp.Core
     /// </summary>
     public static class ScatterGatherIO
     {
+        private const string LibraryName = "gopher_mcp_c";
+        
         /// <summary>
         /// Perform scatter read operation
         /// </summary>

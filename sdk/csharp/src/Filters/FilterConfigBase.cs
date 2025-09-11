@@ -9,6 +9,32 @@ using GopherMcp.Types;
 namespace GopherMcp.Filters
 {
     /// <summary>
+    /// Minimal implementation of FilterConfigBase for filters without specific config
+    /// </summary>
+    internal class MinimalFilterConfig : FilterConfigBase
+    {
+        public MinimalFilterConfig() : base("MinimalFilter", "MinimalFilter")
+        {
+        }
+
+        public override object Clone()
+        {
+            return new MinimalFilterConfig
+            {
+                Name = this.Name,
+                Type = this.Type,
+                Enabled = this.Enabled,
+                Priority = this.Priority,
+                TimeoutMs = this.TimeoutMs,
+                MaxBufferSize = this.MaxBufferSize,
+                Description = this.Description,
+                Metadata = this.Metadata != null ? new Dictionary<string, string>(this.Metadata) : null,
+                Tags = this.Tags != null ? new List<string>(this.Tags) : null
+            };
+        }
+    }
+
+    /// <summary>
     /// Abstract base class for all filter configurations
     /// </summary>
     public abstract class FilterConfigBase : ICloneable, IValidatableObject
@@ -67,6 +93,22 @@ namespace GopherMcp.Filters
         /// </summary>
         [JsonPropertyName("description")]
         public virtual string Description { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether to enable statistics collection
+        /// </summary>
+        [JsonPropertyName("enableStatistics")]
+        public virtual bool EnableStatistics { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the timeout as a TimeSpan
+        /// </summary>
+        [JsonIgnore]
+        public virtual TimeSpan Timeout 
+        { 
+            get => TimeSpan.FromMilliseconds(TimeoutMs);
+            set => TimeoutMs = (int)value.TotalMilliseconds;
+        }
         
         /// <summary>
         /// Gets or sets the filter version
@@ -165,6 +207,17 @@ namespace GopherMcp.Filters
         }
         
         /// <summary>
+        /// Initializes a new instance of FilterConfigBase with a name and type
+        /// </summary>
+        /// <param name="name">Filter name</param>
+        /// <param name="type">Filter type</param>
+        protected FilterConfigBase(string name, string type) : this()
+        {
+            Name = name;
+            Type = type;
+        }
+        
+        /// <summary>
         /// Validates the configuration
         /// </summary>
         /// <returns>True if valid, false otherwise</returns>
@@ -173,6 +226,29 @@ namespace GopherMcp.Filters
             var context = new ValidationContext(this);
             var results = new List<ValidationResult>();
             return Validator.TryValidateObject(this, context, results, true);
+        }
+        
+        /// <summary>
+        /// Validates the configuration with detailed error output
+        /// </summary>
+        /// <param name="errors">List of validation errors</param>
+        /// <returns>True if valid, false otherwise</returns>
+        public virtual bool Validate(out List<string> errors)
+        {
+            errors = new List<string>();
+            var context = new ValidationContext(this);
+            var results = new List<ValidationResult>();
+            
+            if (!Validator.TryValidateObject(this, context, results, true))
+            {
+                foreach (var result in results)
+                {
+                    errors.Add(result.ErrorMessage ?? "Validation failed");
+                }
+                return false;
+            }
+            
+            return true;
         }
         
         /// <summary>

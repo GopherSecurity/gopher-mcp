@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -12,7 +14,7 @@ namespace GopherMcp.Filters.BuiltinFilters
     /// <summary>
     /// Configuration for UDP proxy filter.
     /// </summary>
-    public class UdpProxyConfig : FilterConfig
+    public class UdpProxyConfig : FilterConfigBase
     {
         /// <summary>
         /// Gets or sets the upstream endpoint.
@@ -139,17 +141,17 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         /// <summary>
-        /// Processes data through the UDP proxy.
+        /// Processes buffer through the UDP proxy.
         /// </summary>
-        /// <param name="data">The data to process.</param>
+        /// <param name="buffer">The buffer to process.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The processed result.</returns>
-        public override async Task<FilterResult> ProcessAsync(object data, CancellationToken cancellationToken = default)
+        protected override async Task<FilterResult> ProcessInternal(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken)
         {
             try
             {
                 // Forward datagram
-                var result = await ForwardDatagramAsync(data, cancellationToken);
+                var result = await ForwardDatagramAsync(buffer, cancellationToken);
                 return result;
             }
             catch (SocketException ex)
@@ -167,16 +169,8 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// <summary>
         /// Forwards a datagram through the UDP proxy.
         /// </summary>
-        private async Task<FilterResult> ForwardDatagramAsync(object data, CancellationToken cancellationToken)
+        private async Task<FilterResult> ForwardDatagramAsync(byte[] buffer, CancellationToken cancellationToken)
         {
-            // Convert data to bytes
-            byte[] buffer = data switch
-            {
-                byte[] bytes => bytes,
-                FilterBuffer filterBuffer => filterBuffer.ToArray(),
-                string str => System.Text.Encoding.UTF8.GetBytes(str),
-                _ => throw new ArgumentException($"Unsupported data type: {data?.GetType()}")
-            };
 
             // Check datagram size
             if (buffer.Length > _config.MaxDatagramSize)
@@ -188,7 +182,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             UdpSession session = null;
             if (_config.EnableSessionTracking)
             {
-                session = GetOrCreateSession(GetClientIdentifier(data));
+                session = GetOrCreateSession(GetClientIdentifier(buffer));
                 session.BytesSent += buffer.Length;
                 session.LastActivity = DateTime.UtcNow;
             }
@@ -203,8 +197,22 @@ namespace GopherMcp.Filters.BuiltinFilters
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(_config.ReceiveTimeoutMs);
 
+#if NET6_0_OR_GREATER
                 var receiveTask = _upstreamClient.ReceiveAsync(cts.Token);
                 var result = await receiveTask;
+#else
+                // For .NET Standard 2.1, use the non-cancellable overload
+                var receiveTask = _upstreamClient.ReceiveAsync();
+                var completedTask = await Task.WhenAny(receiveTask, Task.Delay(Timeout.Infinite, cts.Token));
+                
+                if (completedTask != receiveTask)
+                {
+                    // Timeout occurred
+                    throw new OperationCanceledException("Receive operation timed out");
+                }
+                
+                var result = await receiveTask;
+#endif
 
                 if (session != null)
                 {
@@ -213,20 +221,20 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 _logger?.LogDebug("Received {Bytes} bytes from upstream", result.Buffer.Length);
-                return FilterResult.Success(result.Buffer);
+                return FilterResult.Success(result.Buffer, 0, result.Buffer.Length);
             }
             catch (OperationCanceledException)
             {
                 // Timeout is acceptable for UDP
                 _logger?.LogDebug("No response received within timeout");
-                return FilterResult.Success(null);
+                return FilterResult.Success(new byte[0], 0, 0);
             }
         }
 
         /// <summary>
-        /// Gets a client identifier from the data.
+        /// Gets a client identifier from the buffer.
         /// </summary>
-        private string GetClientIdentifier(object data)
+        private string GetClientIdentifier(object buffer)
         {
             // In a real implementation, this would extract client info from metadata
             return "default";

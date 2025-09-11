@@ -17,7 +17,7 @@ namespace GopherMcp.Filters
     {
         private readonly object _syncLock = new object();
         private McpFilterHandle _handle;
-        private FilterConfig _config;
+        private FilterConfigBase _config;
         private FilterStatistics _statistics;
         private bool _disposed;
         private bool _initialized;
@@ -45,7 +45,7 @@ namespace GopherMcp.Filters
         /// <summary>
         /// Gets or sets the filter configuration
         /// </summary>
-        public FilterConfig Config
+        public FilterConfigBase Config
         {
             get => _config;
             protected set
@@ -111,9 +111,18 @@ namespace GopherMcp.Filters
         /// Initializes a new instance of the Filter class with configuration
         /// </summary>
         /// <param name="config">Filter configuration</param>
-        protected Filter(FilterConfig config)
+        protected Filter(FilterConfigBase config)
         {
-            _config = config ?? new FilterConfig(GetType().Name, GetType().FullName);
+            _config = config;
+            if (_config == null)
+            {
+                // Create a minimal config if none provided
+                _config = new MinimalFilterConfig
+                {
+                    Name = GetType().Name,
+                    Type = GetType().FullName
+                };
+            }
             _statistics = new FilterStatistics();
             _cancellationTokenSource = new CancellationTokenSource();
         }
@@ -143,6 +152,33 @@ namespace GopherMcp.Filters
                 RaiseOnError(new FilterException($"Failed to initialize filter '{Name}'", ex));
                 throw;
             }
+        }
+        
+        /// <summary>
+        /// Process a JsonRpcMessage through the filter
+        /// </summary>
+        /// <param name="message">The JSON-RPC message to process</param>
+        /// <param name="context">Processing context</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Filter processing result</returns>
+        public virtual async Task<FilterResult> ProcessAsync(
+            GopherMcp.Integration.JsonRpcMessage message,
+            ProcessingContext context = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (message == null)
+                throw new ArgumentNullException(nameof(message));
+
+            // Serialize message to bytes
+            var messageJson = System.Text.Json.JsonSerializer.Serialize(message);
+            var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageJson);
+
+            // Ensure context has the original message
+            context ??= new ProcessingContext();
+            context.SetProperty("JsonRpcMessage", message);
+            
+            // Process through the byte array pipeline
+            return await ProcessAsync(messageBytes, context, cancellationToken);
         }
         
         /// <summary>
@@ -300,7 +336,7 @@ namespace GopherMcp.Filters
         /// Updates the filter configuration
         /// </summary>
         /// <param name="config">New configuration</param>
-        public virtual async Task UpdateConfigAsync(FilterConfig config)
+        public virtual async Task UpdateConfigAsync(FilterConfigBase config)
         {
             ThrowIfDisposed();
             
@@ -335,7 +371,7 @@ namespace GopherMcp.Filters
         /// </summary>
         /// <param name="config">Configuration to validate</param>
         /// <returns>True if valid, false otherwise</returns>
-        public virtual bool ValidateConfig(FilterConfig config)
+        public virtual bool ValidateConfig(FilterConfigBase config)
         {
             if (config == null)
                 return false;
@@ -675,35 +711,69 @@ namespace GopherMcp.Filters
         /// <param name="context">Processing context</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Filter processing result</returns>
-        protected abstract Task<FilterResult> ProcessInternal(
+        protected virtual Task<FilterResult> ProcessInternal(
             byte[] buffer, 
             ProcessingContext context, 
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            // Default implementation - pass through
+            return Task.FromResult(new FilterResult
+            {
+                Status = FilterStatus.Continue,
+                Data = buffer,
+                Offset = 0,
+                Length = buffer?.Length ?? 0
+            });
+        }
         
         /// <summary>
         /// Called when the filter is being initialized
         /// </summary>
-        protected abstract Task OnInitializeAsync();
+        protected virtual Task OnInitializeAsync()
+        {
+            return Task.CompletedTask;
+        }
+        
+        /// <summary>
+        /// Updates the filter configuration
+        /// </summary>
+        /// <param name="config">New configuration</param>
+        public virtual void UpdateConfig(FilterConfigBase config)
+        {
+            if (config == null)
+                throw new ArgumentNullException(nameof(config));
+            
+            _config = config;
+        }
         
         /// <summary>
         /// Called when the filter configuration is being updated
         /// </summary>
         /// <param name="oldConfig">Previous configuration</param>
         /// <param name="newConfig">New configuration</param>
-        protected abstract Task OnConfigurationUpdateAsync(FilterConfig oldConfig, FilterConfig newConfig);
+        protected virtual Task OnConfigurationUpdateAsync(FilterConfigBase oldConfig, FilterConfigBase newConfig)
+        {
+            return Task.CompletedTask;
+        }
         
         /// <summary>
         /// Called to validate filter configuration
         /// </summary>
         /// <param name="config">Configuration to validate</param>
         /// <returns>True if valid, false otherwise</returns>
-        protected abstract bool OnValidateConfig(FilterConfig config);
+        protected virtual bool OnValidateConfig(FilterConfigBase config)
+        {
+            return config != null;
+        }
         
         /// <summary>
         /// Called when the filter is being disposed
         /// </summary>
         /// <param name="disposing">True if disposing managed resources</param>
-        protected abstract void OnDispose(bool disposing);
+        protected virtual void OnDispose(bool disposing)
+        {
+            // Default cleanup
+        }
         
         // ============================================================================
         // IDisposable implementation

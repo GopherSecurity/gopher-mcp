@@ -178,7 +178,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             return Path.Combine(directory, $"{fileName}.{_currentFileIndex:000}{extension}");
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -188,14 +188,14 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             try
             {
-                // Store request data for logging
+                // Store request buffer for logging
                 if (_config.LogRequests)
                 {
-                    StoreRequestData(data, context);
+                    StoreRequestData(buffer, context);
                 }
 
                 // Continue processing
-                result = FilterResult.Continue(data);
+                result = FilterResult.Continue(buffer);
 
                 // Log after processing completes
                 stopwatch.Stop();
@@ -205,8 +205,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     await LogAccessAsync(context, stopwatch.ElapsedMilliseconds, result, null, cancellationToken);
                 }
 
-                UpdateStatistics(true);
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                UpdateStatistics(1L, 0, true);
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                 return result;
             }
             catch (Exception ex)
@@ -219,26 +219,26 @@ namespace GopherMcp.Filters.BuiltinFilters
                     await LogAccessAsync(context, stopwatch.ElapsedMilliseconds, null, ex, cancellationToken);
                 }
 
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Access log error: {ex.Message}", FilterError.InternalError);
             }
         }
 
-        private void StoreRequestData(byte[] data, ProcessingContext context)
+        private void StoreRequestData(byte[] buffer, ProcessingContext context)
         {
             // Store request timestamp
             context.SetProperty("RequestTimestamp", DateTime.UtcNow);
 
             // Store request size
-            context.SetProperty("RequestSize", data.Length);
+            context.SetProperty("RequestSize", buffer.Length);
 
             // Store request body if configured
-            if (_config.IncludeBody && data.Length > 0)
+            if (_config.IncludeBody && buffer.Length > 0)
             {
-                var bodyToLog = data.Length > _config.MaxBodyLength
-                    ? Encoding.UTF8.GetString(data, 0, _config.MaxBodyLength) + "..."
-                    : Encoding.UTF8.GetString(data);
+                var bodyToLog = buffer.Length > _config.MaxBodyLength
+                    ? Encoding.UTF8.GetString(buffer, 0, _config.MaxBodyLength) + "..."
+                    : Encoding.UTF8.GetString(buffer);
                 context.SetProperty("RequestBody", bodyToLog);
             }
         }

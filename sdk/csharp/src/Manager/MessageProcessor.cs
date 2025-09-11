@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GopherMcp.Filters;
 using GopherMcp.Integration;
+using GopherMcp.Types;
 using Microsoft.Extensions.Logging;
 
 namespace GopherMcp.Manager
@@ -46,7 +47,15 @@ namespace GopherMcp.Manager
         /// <returns>The response message.</returns>
         public async Task<JsonRpcMessage> ProcessAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(message);
+#else
+            ThrowIfNull(message);
+#endif
+#else
+            ThrowIfNull(message);
+#endif
 
             try
             {
@@ -61,8 +70,16 @@ namespace GopherMcp.Manager
                     return CreateErrorResponse(message.Id, -32601, "Method not found");
                 }
 
-                // Process through chain
-                var result = await chain.ProcessAsync(message, cancellationToken);
+                // Create processing context
+                var context = new ProcessingContext
+                {
+                    Direction = ProcessingDirection.Inbound,
+                    Protocol = "jsonrpc",
+                    SessionId = message.Id?.ToString() ?? Guid.NewGuid().ToString()
+                };
+                
+                // Process through chain using the JsonRpcMessage overload
+                var result = await chain.ProcessAsync(message, context, cancellationToken);
 
                 // Generate response
                 return GenerateResponse(message, result);
@@ -89,7 +106,15 @@ namespace GopherMcp.Manager
             IEnumerable<JsonRpcMessage> messages, 
             CancellationToken cancellationToken = default)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(messages);
+#else
+            ThrowIfNull(messages);
+#endif
+#else
+            ThrowIfNull(messages);
+#endif
 
             var tasks = messages.Select(msg => ProcessAsync(msg, cancellationToken));
             var results = await Task.WhenAll(tasks);
@@ -105,8 +130,24 @@ namespace GopherMcp.Manager
         /// <param name="chain">The chain to handle this route.</param>
         public void RegisterRoute(string methodPattern, FilterChain chain)
         {
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(methodPattern);
+#else
+            ThrowIfNull(methodPattern);
+#endif
+#else
+            ThrowIfNull(methodPattern);
+#endif
+#if NET6_0_OR_GREATER
+#if NET6_0_OR_GREATER
             ArgumentNullException.ThrowIfNull(chain);
+#else
+            ThrowIfNull(chain);
+#endif
+#else
+            ThrowIfNull(chain);
+#endif
 
             _routeTable[methodPattern] = chain;
             _logger?.LogInformation("Registered route: {Pattern} -> {Chain}", methodPattern, chain.Name);
@@ -193,16 +234,45 @@ namespace GopherMcp.Manager
 
             if (result.IsSuccess)
             {
+                // Try to get the processed message from the result
+                object resultData = null;
+                
+                if (result.Data != null && result.Data.Length > 0)
+                {
+                    try
+                    {
+                        // Try to deserialize the result data as JsonRpcMessage
+                        var resultJson = System.Text.Encoding.UTF8.GetString(result.Data);
+                        var resultMessage = System.Text.Json.JsonSerializer.Deserialize<JsonRpcMessage>(resultJson);
+                        
+                        // If it's a response message, use its result
+                        if (resultMessage != null && resultMessage.Result != null)
+                        {
+                            resultData = resultMessage.Result;
+                        }
+                        else
+                        {
+                            // Otherwise, try to deserialize as a generic object
+                            resultData = System.Text.Json.JsonSerializer.Deserialize<object>(resultJson);
+                        }
+                    }
+                    catch
+                    {
+                        // If deserialization fails, return the raw string
+                        resultData = System.Text.Encoding.UTF8.GetString(result.Data);
+                    }
+                }
+                
                 return new JsonRpcMessage
                 {
                     JsonRpc = "2.0",
                     Id = request.Id,
-                    Result = result.Data
+                    Result = resultData
                 };
             }
             else
             {
-                return CreateErrorResponse(request.Id, result.ErrorCode, result.ErrorMessage);
+                return CreateErrorResponse(request.Id, (int)result.ErrorCode, result.ErrorMessage);
             }
         }
 

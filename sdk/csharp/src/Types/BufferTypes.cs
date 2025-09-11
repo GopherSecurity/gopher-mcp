@@ -338,6 +338,16 @@ namespace GopherMcp.Types
         public IntPtr UserData;
         
         /// <summary>
+        /// Buffer (alias for Data)
+        /// </summary>
+        public IntPtr Buffer => Data;
+        
+        /// <summary>
+        /// Offset (always 0 for scatter-gather entries)
+        /// </summary>
+        public int Offset => 0;
+        
+        /// <summary>
         /// Create a new scatter-gather entry
         /// </summary>
         public ScatterGatherEntry(IntPtr data, UIntPtr length)

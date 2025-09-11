@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using GopherMcp.Integration;
 
 namespace GopherMcp.Transport
 {
@@ -229,7 +232,11 @@ namespace GopherMcp.Transport
                 return;
 
             // Platform-specific keep-alive configuration
+#if NET5_0_OR_GREATER
             if (OperatingSystem.IsWindows())
+#else
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+#endif
             {
                 // Windows TCP keep-alive
                 var keepAliveTime = (uint)_keepAliveInterval.TotalMilliseconds;
@@ -242,7 +249,12 @@ namespace GopherMcp.Transport
                 
                 _tcpClient.Client.IOControl(IOControlCode.KeepAliveValues, input, null);
             }
+#if NET5_0_OR_GREATER
             else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+#else
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || 
+                     RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+#endif
             {
                 // Unix-like keep-alive (requires platform-specific constants)
                 // This is simplified - actual implementation would use platform-specific socket options

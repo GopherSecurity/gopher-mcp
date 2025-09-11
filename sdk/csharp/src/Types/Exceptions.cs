@@ -619,7 +619,7 @@ namespace GopherMcp.Types
         /// <summary>
         /// Creates a configuration exception for an invalid value
         /// </summary>
-        public static ConfigurationException InvalidValue(string configSection, string configKey, object invalidValue, string expectedFormat)
+        public static ConfigurationException CreateInvalidValueException(string configSection, string configKey, object invalidValue, string expectedFormat)
         {
             return new ConfigurationException(
                 $"Invalid value '{invalidValue}' for configuration '{configKey}' in section '{configSection}'",

@@ -9,6 +9,16 @@ using GopherMcp.Types;
 namespace GopherMcp.Filters
 {
     /// <summary>
+    /// Managed scatter-gather entry for buffer operations
+    /// </summary>
+    public class ManagedScatterGatherEntry
+    {
+        public byte[] Buffer { get; set; }
+        public int Offset { get; set; }
+        public int Length { get; set; }
+    }
+    
+    /// <summary>
     /// Represents a buffer for filter data processing with zero-copy capabilities
     /// </summary>
     public class FilterBuffer : IDisposable
@@ -17,7 +27,7 @@ namespace GopherMcp.Filters
         private byte[] _managedBuffer;
         private Memory<byte> _memory;
         private GCHandle _pinnedHandle;
-        private readonly BufferOwnership _ownership;
+        private readonly GopherMcp.Types.BufferOwnership _ownership;
         private readonly object _syncLock = new object();
         private int _referenceCount = 1;
         private bool _disposed;
@@ -83,7 +93,7 @@ namespace GopherMcp.Filters
         /// <summary>
         /// Gets the buffer ownership type
         /// </summary>
-        public BufferOwnership Ownership => _ownership;
+        public GopherMcp.Types.BufferOwnership Ownership => _ownership;
         
         /// <summary>
         /// Gets whether the buffer is pinned in memory
@@ -110,7 +120,7 @@ namespace GopherMcp.Filters
         /// </summary>
         /// <param name="capacity">Buffer capacity in bytes</param>
         /// <param name="ownership">Buffer ownership type</param>
-        public FilterBuffer(int capacity, BufferOwnership ownership = BufferOwnership.Owned)
+        public FilterBuffer(int capacity, GopherMcp.Types.BufferOwnership ownership = GopherMcp.Types.BufferOwnership.Owned)
         {
             if (capacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(capacity));
@@ -129,7 +139,7 @@ namespace GopherMcp.Filters
         /// <param name="data">Existing byte array</param>
         /// <param name="ownership">Buffer ownership type</param>
         /// <param name="copy">Whether to copy the data</param>
-        public FilterBuffer(byte[] data, BufferOwnership ownership = BufferOwnership.Owned, bool copy = true)
+        public FilterBuffer(byte[] data, GopherMcp.Types.BufferOwnership ownership = GopherMcp.Types.BufferOwnership.Owned, bool copy = true)
         {
             if (data == null)
                 throw new ArgumentNullException(nameof(data));
@@ -138,7 +148,7 @@ namespace GopherMcp.Filters
             Size = data.Length;
             _ownership = ownership;
             
-            if (copy || ownership == BufferOwnership.Owned)
+            if (copy || ownership == GopherMcp.Types.BufferOwnership.Owned)
             {
                 _managedBuffer = new byte[data.Length];
                 Array.Copy(data, _managedBuffer, data.Length);
@@ -147,7 +157,7 @@ namespace GopherMcp.Filters
             else
             {
                 _managedBuffer = data;
-                IsReadOnly = ownership == BufferOwnership.Borrowed;
+                IsReadOnly = ownership == GopherMcp.Types.BufferOwnership.Borrowed;
             }
             
             _memory = new Memory<byte>(_managedBuffer);
@@ -158,14 +168,14 @@ namespace GopherMcp.Filters
         /// </summary>
         /// <param name="memory">Memory buffer</param>
         /// <param name="ownership">Buffer ownership type</param>
-        public FilterBuffer(Memory<byte> memory, BufferOwnership ownership = BufferOwnership.Borrowed)
+        public FilterBuffer(Memory<byte> memory, GopherMcp.Types.BufferOwnership ownership = GopherMcp.Types.BufferOwnership.Borrowed)
         {
             _memory = memory;
             _managedBuffer = memory.ToArray();
             Capacity = memory.Length;
             Size = memory.Length;
             _ownership = ownership;
-            IsReadOnly = ownership == BufferOwnership.Borrowed;
+            IsReadOnly = ownership == GopherMcp.Types.BufferOwnership.Borrowed;
         }
         
         /// <summary>
@@ -179,7 +189,7 @@ namespace GopherMcp.Filters
             _handle = handle ?? throw new ArgumentNullException(nameof(handle));
             Size = size;
             Capacity = capacity;
-            _ownership = BufferOwnership.Owned;
+            _ownership = GopherMcp.Types.BufferOwnership.Owned;
             IsReadOnly = false;
             
             // Map native buffer to managed memory
@@ -305,7 +315,7 @@ namespace GopherMcp.Filters
                 throw new ArgumentOutOfRangeException(nameof(length));
             
             var sliceMemory = _memory.Slice(offset, length);
-            return new FilterBuffer(sliceMemory, BufferOwnership.Borrowed);
+            return new FilterBuffer(sliceMemory, GopherMcp.Types.BufferOwnership.Borrowed);
         }
         
         /// <summary>
@@ -442,7 +452,7 @@ namespace GopherMcp.Filters
         {
             ThrowIfDisposed();
             
-            return new FilterBuffer(ToArray(), BufferOwnership.Owned, true);
+            return new FilterBuffer(ToArray(), GopherMcp.Types.BufferOwnership.Owned, true);
         }
         
         /// <summary>
@@ -528,7 +538,7 @@ namespace GopherMcp.Filters
         /// </summary>
         /// <param name="destinations">List of destination buffers with offsets and lengths</param>
         /// <returns>Total bytes scattered</returns>
-        public int Scatter(IList<ScatterGatherEntry> destinations)
+        public int Scatter(IList<ManagedScatterGatherEntry> destinations)
         {
             ThrowIfDisposed();
             
@@ -562,7 +572,7 @@ namespace GopherMcp.Filters
         /// </summary>
         /// <param name="sources">List of source buffers with offsets and lengths</param>
         /// <returns>Total bytes gathered</returns>
-        public int Gather(IList<ScatterGatherEntry> sources)
+        public int Gather(IList<ManagedScatterGatherEntry> sources)
         {
             ThrowIfDisposed();
             ThrowIfReadOnly();
@@ -684,7 +694,7 @@ namespace GopherMcp.Filters
                     }
                     
                     // Dispose native handle if owned
-                    if (_ownership == BufferOwnership.Owned)
+                    if (_ownership == GopherMcp.Types.BufferOwnership.Owned)
                     {
                         _handle?.Dispose();
                     }
@@ -736,7 +746,9 @@ namespace GopherMcp.Filters
         /// </summary>
         public static implicit operator Span<byte>(FilterBuffer buffer)
         {
-            return buffer?.Span ?? Span<byte>.Empty;
+            if (buffer == null)
+                return Span<byte>.Empty;
+            return buffer.Span;
         }
         
         /// <summary>
@@ -747,7 +759,7 @@ namespace GopherMcp.Filters
             private readonly FilterBuffer _parent;
             
             public SharedFilterBuffer(FilterBuffer parent) 
-                : base(parent._managedBuffer, BufferOwnership.Borrowed, false)
+                : base(parent._managedBuffer, GopherMcp.Types.BufferOwnership.Borrowed, false)
             {
                 _parent = parent;
             }

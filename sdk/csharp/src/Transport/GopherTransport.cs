@@ -6,40 +6,12 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using GopherMcp.Manager;
-
+using GopherMcp.Integration;
+#if !NET6_0_OR_GREATER
+using GopherMcp.Utils;
+#endif
 namespace GopherMcp.Transport
 {
-    /// <summary>
-    /// Transport configuration
-    /// </summary>
-    public class TransportConfig
-    {
-        public TransportProtocol Protocol { get; set; } = TransportProtocol.Tcp;
-        public string Host { get; set; } = "localhost";
-        public int Port { get; set; } = 9000;
-        public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(30);
-        public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(30);
-        public TimeSpan ReceiveTimeout { get; set; } = TimeSpan.FromSeconds(30);
-        public int MaxMessageSize { get; set; } = 4 * 1024 * 1024; // 4MB
-        public int SendBufferSize { get; set; } = 8192;
-        public int ReceiveBufferSize { get; set; } = 8192;
-        public bool EnableKeepAlive { get; set; } = true;
-        public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(30);
-        public FilterManagerConfig? Filters { get; set; }
-    }
-
-    /// <summary>
-    /// Transport protocol selection
-    /// </summary>
-    public enum TransportProtocol
-    {
-        Tcp,
-        Udp,
-        Stdio,
-        Http,
-        WebSocket
-    }
-
     /// <summary>
     /// Main transport implementation with filter integration
     /// </summary>
@@ -429,15 +401,15 @@ namespace GopherMcp.Transport
                     context.SetProperty("IsNotification", message.IsNotification);
                     context.SetProperty("IsResponse", message.IsResponse);
 
-                    var result = await _filterManager.ProcessAsync(messageBytes, context, linkedCts.Token);
+                    var result = await _filterManager.ProcessAsync(message, null, linkedCts.Token);
                     
                     if (!result.IsSuccess)
                     {
                         throw new InvalidOperationException($"Filter processing failed: {result.ErrorMessage}");
                     }
 
-                    // Deserialize filtered message
-                    messageToSend = DeserializeMessage(result.Data);
+                    // Use the filtered message
+                    messageToSend = result.Data ?? message;
                 }
 
                 // Add to send queue
@@ -635,7 +607,7 @@ namespace GopherMcp.Transport
 
                         try
                         {
-                            var result = await _filterManager.ProcessAsync(messageBytes, context, _shutdownTokenSource.Token);
+                            var result = await _filterManager.ProcessAsync(receivedMessage, null, _shutdownTokenSource.Token);
                             
                             if (!result.IsSuccess)
                             {
@@ -643,8 +615,8 @@ namespace GopherMcp.Transport
                                 continue; // Skip this message
                             }
 
-                            // Deserialize filtered message
-                            messageToDeliver = DeserializeMessage(result.Data);
+                            // Use the filtered message
+                            messageToDeliver = result.Data ?? receivedMessage;
                         }
                         catch (Exception ex)
                         {

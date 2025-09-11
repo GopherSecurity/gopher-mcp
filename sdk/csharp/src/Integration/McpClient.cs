@@ -111,7 +111,7 @@ namespace GopherMcp.Integration
             // Convert result to requested type
             if (response.Result is System.Text.Json.JsonElement jsonElement)
             {
-                return jsonElement.Deserialize<T>();
+                return System.Text.Json.JsonSerializer.Deserialize<T>(jsonElement.GetRawText());
             }
             
             return (T)response.Result;

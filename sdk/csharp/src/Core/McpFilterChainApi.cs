@@ -527,12 +527,4 @@ namespace GopherMcp.Core
         ulong buffer,
         ref McpProtocolMetadata metadata,
         IntPtr userData);
-    
-    /// <summary>
-    /// Filter completion callback
-    /// </summary>
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void McpFilterCompletionCallback(
-        int result,
-        IntPtr userData);
 }

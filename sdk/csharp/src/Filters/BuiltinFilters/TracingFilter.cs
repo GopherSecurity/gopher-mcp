@@ -158,7 +158,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             return new MockSpanExporter(_config.ExporterEndpoint);
         }
 
-        public override async Task<FilterResult> ProcessAsync(byte[] data, ProcessingContext context, CancellationToken cancellationToken = default)
+        public override async Task<FilterResult> ProcessAsync(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -192,7 +192,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                         span.AddEvent("filter.start", new Dictionary<string, object>
                         {
                             ["filter.name"] = _config.Name,
-                            ["data.size"] = data.Length
+                            ["buffer.size"] = buffer.Length
                         });
                     }
                 }
@@ -204,7 +204,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 }
 
                 // Continue processing
-                var result = FilterResult.Continue(data);
+                var result = FilterResult.Continue(buffer);
 
                 // Complete span if sampling
                 if (span != null)
@@ -216,15 +216,15 @@ namespace GopherMcp.Filters.BuiltinFilters
                         span.AddEvent("filter.complete", new Dictionary<string, object>
                         {
                             ["result.success"] = result.IsSuccess,
-                            ["result.data.size"] = result.Data?.Length ?? 0
+                            ["result.buffer.size"] = result.Data?.Length ?? 0
                         });
                     }
                     
                     RecordSpan(span);
                 }
 
-                UpdateStatistics(true);
-                await RaiseOnDataAsync(new FilterDataEventArgs(data, context));
+                UpdateStatistics(buffer.Length, 0, true);
+                await RaiseOnDataAsync(buffer, 0, buffer.Length, FilterStatus.Continue);
                 return result;
             }
             catch (Exception ex)
@@ -238,8 +238,8 @@ namespace GopherMcp.Filters.BuiltinFilters
                     RecordSpan(span);
                 }
 
-                UpdateStatistics(false);
-                await RaiseOnErrorAsync(new FilterErrorEventArgs(ex, context));
+                UpdateStatistics(0L, 0, false);
+                await RaiseOnErrorAsync(ex);
                 return FilterResult.Error($"Tracing error: {ex.Message}", FilterError.InternalError);
             }
         }
@@ -426,8 +426,17 @@ namespace GopherMcp.Filters.BuiltinFilters
 
         private string GenerateSpanId()
         {
-            var random = Random.Shared.NextInt64();
+#if NET6_0_OR_GREATER
+            var random = new Random().NextInt64();
             return $"{random:x16}";
+#else
+            // For older frameworks, combine two 32-bit random numbers to get a 64-bit value
+            var random = new Random();
+            var high = (long)random.Next() << 32;
+            var low = (long)random.Next();
+            var value = high | low;
+            return $"{value:x16}";
+#endif
         }
 
         protected override void Dispose(bool disposing)

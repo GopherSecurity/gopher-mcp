@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -12,7 +13,7 @@ namespace GopherMcp.Filters.BuiltinFilters
     /// <summary>
     /// Configuration for TCP proxy filter.
     /// </summary>
-    public class TcpProxyConfig : FilterConfig
+    public class TcpProxyConfig : FilterConfigBase
     {
         /// <summary>
         /// Gets or sets the upstream host.
@@ -90,16 +91,16 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         /// <summary>
-        /// Processes data through the TCP proxy.
+        /// Processes buffer through the TCP proxy.
         /// </summary>
-        /// <param name="data">The data to process.</param>
+        /// <param name="buffer">The buffer to process.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The processed result.</returns>
-        public override async Task<FilterResult> ProcessAsync(object data, CancellationToken cancellationToken = default)
+        protected override async Task<FilterResult> ProcessInternal(byte[] buffer, ProcessingContext context, CancellationToken cancellationToken)
         {
             if (!_isHealthy)
             {
-                return FilterResult.Error("Upstream connection unhealthy");
+                return FilterResult.Error("Upstream connection unhealthy", FilterError.ProcessingFailed);
             }
 
             TcpClient client = null;
@@ -109,7 +110,7 @@ namespace GopherMcp.Filters.BuiltinFilters
                 client = await GetConnectionAsync(cancellationToken);
 
                 // Forward data
-                var result = await ForwardDataAsync(client, data, cancellationToken);
+                var result = await ForwardDataAsync(client, buffer, cancellationToken);
 
                 // Return connection to pool if enabled
                 if (_config.EnableConnectionPooling && client.Connected)
@@ -123,7 +124,7 @@ namespace GopherMcp.Filters.BuiltinFilters
             catch (SocketException ex)
             {
                 _logger?.LogError(ex, "TCP proxy error");
-                return FilterResult.Error($"TCP proxy error: {ex.Message}");
+                return FilterResult.Error(FilterError.ProcessingFailed, $"TCP proxy error: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -167,13 +168,22 @@ namespace GopherMcp.Filters.BuiltinFilters
             if (_config.EnableKeepAlive)
             {
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, _config.KeepAliveIntervalSeconds);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.KeepAlive, _config.KeepAliveIntervalSeconds);
             }
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(_config.ConnectionTimeoutMs);
 
+#if NET5_0_OR_GREATER
             await client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort, cts.Token);
+#else
+            var connectTask = client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort);
+            if (await Task.WhenAny(connectTask, Task.Delay(_config.ConnectionTimeoutMs, cts.Token)) != connectTask)
+            {
+                throw new TimeoutException("Connection timeout");
+            }
+            await connectTask;
+#endif
             
             return client;
         }
@@ -203,20 +213,13 @@ namespace GopherMcp.Filters.BuiltinFilters
         }
 
         /// <summary>
-        /// Forwards data through the TCP connection.
+        /// Forwards buffer through the TCP connection.
         /// </summary>
-        private async Task<FilterResult> ForwardDataAsync(TcpClient client, object data, CancellationToken cancellationToken)
+        private async Task<FilterResult> ForwardDataAsync(TcpClient client, byte[] buffer, CancellationToken cancellationToken)
         {
             var stream = client.GetStream();
 
-            // Convert data to bytes
-            byte[] buffer = data switch
-            {
-                byte[] bytes => bytes,
-                FilterBuffer filterBuffer => filterBuffer.ToArray(),
-                string str => System.Text.Encoding.UTF8.GetBytes(str),
-                _ => throw new ArgumentException($"Unsupported data type: {data?.GetType()}")
-            };
+            // Buffer is already a byte array, no conversion needed
 
             // Send data
             await stream.WriteAsync(buffer, cancellationToken);
@@ -228,7 +231,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             if (bytesRead == 0)
             {
-                return FilterResult.Error("No response from upstream");
+                return FilterResult.Error("No response from upstream", FilterError.ProcessingFailed);
             }
 
             var response = new byte[bytesRead];
@@ -236,7 +239,7 @@ namespace GopherMcp.Filters.BuiltinFilters
 
             UpdateStatistics(buffer.Length, bytesRead);
 
-            return FilterResult.Success(response);
+            return FilterResult.Success(response, 0, response.Length);
         }
 
         /// <summary>
@@ -249,7 +252,16 @@ namespace GopherMcp.Filters.BuiltinFilters
                 using var client = new TcpClient();
                 using var cts = new CancellationTokenSource(_config.ConnectionTimeoutMs);
                 
-                await client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort, cts.Token);
+#if NET5_0_OR_GREATER
+            await client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort, cts.Token);
+#else
+            var connectTask = client.ConnectAsync(_config.UpstreamHost, _config.UpstreamPort);
+            if (await Task.WhenAny(connectTask, Task.Delay(_config.ConnectionTimeoutMs, cts.Token)) != connectTask)
+            {
+                throw new TimeoutException("Connection timeout");
+            }
+            await connectTask;
+#endif
                 
                 if (!_isHealthy)
                 {
@@ -272,8 +284,8 @@ namespace GopherMcp.Filters.BuiltinFilters
         /// </summary>
         private void UpdateStatistics(long bytesSent, long bytesReceived)
         {
-            // Update internal statistics
-            // This would normally update the native filter statistics
+            // Call base class UpdateStatistics
+            base.UpdateStatistics(bytesSent, bytesReceived > 0 ? 0 : 1, bytesReceived > 0);
         }
 
         /// <summary>
