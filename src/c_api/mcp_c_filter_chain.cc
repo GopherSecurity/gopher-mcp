@@ -100,7 +100,8 @@ class FilterNode {
 
 class AdvancedFilterChain {
  public:
-  AdvancedFilterChain(const mcp_chain_config_t& config)
+  AdvancedFilterChain(const mcp_chain_config_t& config, 
+                      mcp_dispatcher_t dispatcher = nullptr)
       : name_(config.name ? config.name : ""),
         mode_(config.mode),
         routing_(config.routing),
@@ -108,7 +109,8 @@ class AdvancedFilterChain {
         buffer_size_(config.buffer_size),
         timeout_ms_(config.timeout_ms),
         stop_on_error_(config.stop_on_error),
-        state_(MCP_CHAIN_STATE_IDLE) {}
+        state_(MCP_CHAIN_STATE_IDLE),
+        dispatcher_(dispatcher) {}
 
   void addNode(std::unique_ptr<FilterNode> node) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -267,6 +269,8 @@ class AdvancedFilterChain {
 
     return oss.str();
   }
+  
+  mcp_dispatcher_t getDispatcher() const { return dispatcher_; }
 
  private:
   mcp_filter_status_t processSequential(
@@ -421,6 +425,9 @@ class AdvancedFilterChain {
   void* event_user_data_{nullptr};
 
   std::atomic<uint64_t> max_latency_us_{0};
+  
+  // Store dispatcher for cloning
+  mcp_dispatcher_t dispatcher_;
   
 public:
   // Owned filters for lifetime management
@@ -786,7 +793,7 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       .stop_on_error = true
     };
     
-    auto chain = std::make_unique<AdvancedFilterChain>(chain_config);
+    auto chain = std::make_unique<AdvancedFilterChain>(chain_config, dispatcher);
     
     // Note: Filters are already stored in g_filter_manager with handles
     // We don't need to store them again in the chain
@@ -863,21 +870,29 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     return 0;
   }
   
+  // Get the dispatcher from the original chain
+  mcp_dispatcher_t dispatcher = chain_ptr->getDispatcher();
+  if (!dispatcher) {
+    GOPHER_LOG(Error, "Chain {} has no dispatcher, cannot clone", chain);
+    return 0;
+  }
+  
+  mcp_json_value_t json_config = nullptr;
+  
   try {
     // Export chain to JSON
-    auto json_config = mcp_chain_export_to_json(chain);
+    json_config = mcp_chain_export_to_json(chain);
     if (!json_config) {
       GOPHER_LOG(Error, "Failed to export chain {} for cloning", chain);
       return 0;
     }
     
-    // Create new chain from the exported JSON
-    // TODO: Need to get dispatcher from somewhere - for now use nullptr
-    // In a real implementation, we'd store the dispatcher with the chain
-    auto new_handle = mcp_chain_create_from_json(nullptr, json_config);
+    // Create new chain from the exported JSON using the stored dispatcher
+    auto new_handle = mcp_chain_create_from_json(dispatcher, json_config);
     
     // Clean up the temporary JSON
     mcp_json_free(json_config);
+    json_config = nullptr;
     
     if (new_handle) {
       GOPHER_LOG(Info, "Chain {} cloned to new chain {}", chain, new_handle);
@@ -887,6 +902,12 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     
   } catch (const std::exception& e) {
     GOPHER_LOG(Error, "Failed to clone chain {}: {}", chain, e.what());
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      mcp_json_free(json_config);
+    }
+    
     return 0;
   }
 }
