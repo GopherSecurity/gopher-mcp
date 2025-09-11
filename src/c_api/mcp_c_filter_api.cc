@@ -30,7 +30,7 @@ using c_api_internal::HandleManager;
 // ============================================================================
 
 // Global handle managers
-static HandleManager<network::Filter> g_filter_manager;
+HandleManager<network::Filter> g_filter_manager;  // Made non-static for external linkage
 HandleManager<Buffer> g_buffer_manager;  // Made non-static for external linkage
 static HandleManager<event::Dispatcher> g_dispatcher_manager;
 
