@@ -1,158 +1,96 @@
-require 'mcp_filter_sdk/types'
+require 'mcp_filter_sdk/mcp_ffi_bindings'
+require 'mcp_filter_sdk/mcp_c_structs'
+require 'mcp_filter_sdk/types/index'
 
 module McpFilterSdk
   class FilterChain
-    include Types
+    attr_reader :filters, :is_initialized
 
-    attr_reader :name, :execution_mode, :filters, :config
-
-    def initialize(name, config = {})
-      @name = name
-      @config = config.is_a?(Hash) ? ChainConfig.new(config) : config
-      @execution_mode = @config.execution_mode
+    def initialize
       @filters = []
-      @enabled = @config.enabled
+      @is_initialized = false
+    end
+
+    def initialize!
+      return if @is_initialized
+
+      @is_initialized = true
+      puts "✅ FilterChain initialized"
     end
 
     def add_filter(filter)
-      raise FilterError.new(-1, "Chain is disabled") unless @enabled
-      raise FilterError.new(-1, "Maximum filters reached") if @filters.size >= @config.max_filters
+      return false if filter.nil?
 
       @filters << filter
-      puts "✅ Added filter #{filter.name} to chain #{@name}"
+      puts "✅ Added filter to chain: #{filter.name rescue 'unknown'}"
+      true
     end
 
     def remove_filter(filter)
-      @filters.delete(filter)
-      puts "✅ Removed filter #{filter.name} from chain #{@name}"
-    end
+      return false if filter.nil?
 
-    def execute(data)
-      return data unless @enabled
-      return data if @filters.empty?
-
-      puts "🔗 Executing chain #{@name} with #{@filters.size} filters"
-
-      case @execution_mode
-      when :sequential
-        execute_sequential(data)
-      when :parallel
-        execute_parallel(data)
-      when :conditional
-        execute_conditional(data)
-      when :pipeline
-        execute_pipeline(data)
+      if @filters.include?(filter)
+        @filters.delete(filter)
+        puts "✅ Removed filter from chain: #{filter.name rescue 'unknown'}"
+        true
       else
-        execute_sequential(data)
+        false
       end
     end
 
-    def enable
-      @enabled = true
-      puts "✅ Chain #{@name} enabled"
+    def execute(data)
+      return data unless @is_initialized
+
+      current_data = data
+
+      @filters.each do |filter|
+        begin
+          # Initialize filter if not already initialized
+          if filter.respond_to?(:initialize!) && !filter.instance_variable_get(:@initialized)
+            filter.initialize!
+          end
+
+          if filter.respond_to?(:process_data)
+            current_data = filter.process_data(current_data)
+          elsif filter.respond_to?(:callbacks) && filter.callbacks[:on_data]
+            current_data = filter.callbacks[:on_data].call(current_data)
+          end
+        rescue => e
+          if filter.respond_to?(:callbacks) && filter.callbacks[:on_error]
+            current_data = filter.callbacks[:on_error].call(e.message)
+          else
+            puts "Filter error: #{e.message}"
+            current_data = "ERROR: #{e.message}"
+          end
+        end
+      end
+
+      current_data
     end
 
-    def disable
-      @enabled = false
-      puts "❌ Chain #{@name} disabled"
-    end
-
-    def enabled?
-      @enabled
+    def get_filters
+      @filters.dup
     end
 
     def size
       @filters.size
     end
 
-    def empty?
+    def is_empty?
       @filters.empty?
     end
 
     def clear
       @filters.clear
-      puts "🧹 Cleared all filters from chain #{@name}"
+      puts "✅ FilterChain cleared"
     end
 
-    private
+    def cleanup!
+      return unless @is_initialized
 
-    def execute_sequential(data)
-      result = data
-      
-      @filters.each_with_index do |filter, index|
-        begin
-          puts "  #{index + 1}. Processing with filter: #{filter.name}"
-          result = filter.process_data(result) if filter.respond_to?(:process_data)
-        rescue => e
-          puts "❌ Error in filter #{filter.name}: #{e.message}"
-          raise FilterError.new(-1, "Chain execution failed at filter #{filter.name}: #{e.message}")
-        end
-      end
-      
-      result
-    end
-
-    def execute_parallel(data)
-      threads = @filters.map do |filter|
-        Thread.new do
-          begin
-            puts "  Processing with filter: #{filter.name} (parallel)"
-            filter.process_data(data) if filter.respond_to?(:process_data)
-          rescue => e
-            puts "❌ Error in filter #{filter.name}: #{e.message}"
-            nil
-          end
-        end
-      end
-      
-      results = threads.map(&:value).compact
-      results.any? ? results.first : data
-    end
-
-    def execute_conditional(data)
-      result = data
-      
-      @filters.each_with_index do |filter, index|
-        begin
-          # Check if filter should be executed based on some condition
-          if should_execute_filter?(filter, result)
-            puts "  #{index + 1}. Processing with filter: #{filter.name} (conditional)"
-            result = filter.process_data(result) if filter.respond_to?(:process_data)
-          else
-            puts "  #{index + 1}. Skipping filter: #{filter.name} (condition not met)"
-          end
-        rescue => e
-          puts "❌ Error in filter #{filter.name}: #{e.message}"
-          raise FilterError.new(-1, "Chain execution failed at filter #{filter.name}: #{e.message}")
-        end
-      end
-      
-      result
-    end
-
-    def execute_pipeline(data)
-      result = data
-      
-      @filters.each_with_index do |filter, index|
-        begin
-          puts "  #{index + 1}. Processing with filter: #{filter.name} (pipeline)"
-          result = filter.process_data(result) if filter.respond_to?(:process_data)
-          
-          # Pipeline mode: each filter gets the output of the previous filter
-          # This is similar to sequential but with explicit pipeline semantics
-        rescue => e
-          puts "❌ Error in filter #{filter.name}: #{e.message}"
-          raise FilterError.new(-1, "Pipeline execution failed at filter #{filter.name}: #{e.message}")
-        end
-      end
-      
-      result
-    end
-
-    def should_execute_filter?(filter, data)
-      # Default condition: always execute
-      # This can be overridden by specific filter implementations
-      true
+      @filters.clear
+      @is_initialized = false
+      puts "✅ FilterChain cleaned up"
     end
   end
 end
