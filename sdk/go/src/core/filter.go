@@ -152,4 +152,24 @@ type Filter interface {
 	//	    return nil
 	//	}
 	Close() error
+
+	// Name returns the unique name of this filter instance within a chain.
+	// The name is used for identification, logging, and referencing the filter
+	// in configuration and management operations.
+	//
+	// Names should be:
+	//   - Unique within a filter chain
+	//   - Descriptive of the filter's purpose
+	//   - Valid as identifiers (alphanumeric, hyphens, underscores)
+	//   - Consistent across restarts
+	//
+	// Returns:
+	//   - string: The unique name of this filter instance
+	//
+	// Example:
+	//
+	//	func (f *MyFilter) Name() string {
+	//	    return f.config.Name
+	//	}
+	Name() string
 }
