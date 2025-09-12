@@ -5,6 +5,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
@@ -299,4 +300,158 @@ func (fc *FilterChain) Clear() error {
 	fc.setState(types.Uninitialized)
 
 	return nil
+}
+
+// Process executes the filter chain on the input data.
+// For sequential mode, each filter is processed in order.
+// Processing stops on StopIteration status or based on error handling config.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout
+//   - data: Input data to process
+//
+// Returns:
+//   - *types.FilterResult: The final result after all filters
+//   - error: Any error that occurred during processing
+func (fc *FilterChain) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
+	// Update state to Running
+	if !fc.setState(types.Running) {
+		return nil, types.FilterError(types.ChainError)
+	}
+	defer fc.setState(types.Ready)
+
+	// Track processing start time
+	startTime := time.Now()
+
+	// Get a copy of filters to process
+	fc.mu.RLock()
+	filters := make([]Filter, len(fc.filters))
+	copy(filters, fc.filters)
+	mode := fc.mode
+	fc.mu.RUnlock()
+
+	// Process based on execution mode
+	var result *types.FilterResult
+	var err error
+
+	switch mode {
+	case types.Sequential:
+		result, err = fc.processSequential(ctx, data, filters)
+	case types.Parallel:
+		// TODO: Implement parallel processing
+		result, err = fc.processSequential(ctx, data, filters)
+	case types.Pipeline:
+		// TODO: Implement pipeline processing
+		result, err = fc.processSequential(ctx, data, filters)
+	case types.Adaptive:
+		// TODO: Implement adaptive processing
+		result, err = fc.processSequential(ctx, data, filters)
+	default:
+		result, err = fc.processSequential(ctx, data, filters)
+	}
+
+	// Update statistics
+	fc.updateChainStats(startTime, err == nil)
+
+	return result, err
+}
+
+// processSequential processes filters one by one in order.
+func (fc *FilterChain) processSequential(ctx context.Context, data []byte, filters []Filter) (*types.FilterResult, error) {
+	currentData := data
+
+	for _, filter := range filters {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Process through the filter
+		result, err := filter.Process(ctx, currentData)
+
+		// Handle errors based on configuration
+		if err != nil {
+			if fc.config.BypassOnError {
+				// Skip this filter and continue
+				continue
+			}
+			return nil, err
+		}
+
+		// Check the result status
+		if result == nil {
+			result = types.ContinueWith(currentData)
+		}
+
+		switch result.Status {
+		case types.StopIteration:
+			// Stop processing and return current result
+			return result, nil
+		case types.Error:
+			if !fc.config.BypassOnError {
+				return result, result.Error
+			}
+			// Continue with original data if bypassing errors
+			continue
+		case types.NeedMoreData:
+			// Return and wait for more data
+			return result, nil
+		case types.Buffered:
+			// Data is buffered, continue with empty data or original
+			if result.Data == nil {
+				currentData = data
+			} else {
+				currentData = result.Data
+			}
+		case types.Continue:
+			// Update data for next filter
+			if result.Data != nil {
+				currentData = result.Data
+			}
+		}
+
+		// Update filter statistics
+		fc.updateFilterStats(filter.Name(), filter.GetStats())
+	}
+
+	// Return the final result
+	return types.ContinueWith(currentData), nil
+}
+
+// updateChainStats updates chain statistics after processing.
+func (fc *FilterChain) updateChainStats(startTime time.Time, success bool) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Update execution counts
+	fc.stats.TotalExecutions++
+	if success {
+		fc.stats.SuccessCount++
+	} else {
+		fc.stats.ErrorCount++
+	}
+
+	// Calculate latency
+	latency := time.Since(startTime)
+	
+	// Update average latency
+	if fc.stats.TotalExecutions > 0 {
+		totalLatency := fc.stats.AverageLatency * time.Duration(fc.stats.TotalExecutions-1)
+		fc.stats.AverageLatency = (totalLatency + latency) / time.Duration(fc.stats.TotalExecutions)
+	}
+
+	// TODO: Update percentile latencies (requires histogram)
+	// For now, just update with current value as approximation
+	fc.stats.P50Latency = latency
+	fc.stats.P90Latency = latency
+	fc.stats.P99Latency = latency
+}
+
+// updateFilterStats updates statistics for a specific filter.
+func (fc *FilterChain) updateFilterStats(name string, stats types.FilterStatistics) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.stats.FilterStats[name] = stats
 }
