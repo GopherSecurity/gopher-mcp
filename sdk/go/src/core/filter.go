@@ -109,4 +109,47 @@ type Filter interface {
 	//	    return nil
 	//	}
 	Initialize(config types.FilterConfig) error
+
+	// Close performs cleanup operations when the filter is no longer needed.
+	// This method is called when the filter is being removed from a chain or
+	// when the chain is shutting down.
+	//
+	// The method should:
+	//   - Release any allocated resources
+	//   - Close open connections or file handles
+	//   - Flush any buffered data
+	//   - Cancel any background operations
+	//   - Return an error if cleanup fails
+	//
+	// Close should be idempotent - calling it multiple times should be safe.
+	// After Close is called, the filter should not process any more data.
+	//
+	// Returns:
+	//   - error: Any error that occurred during cleanup
+	//
+	// Example:
+	//
+	//	func (f *MyFilter) Close() error {
+	//	    // Stop background workers
+	//	    if f.done != nil {
+	//	        close(f.done)
+	//	    }
+	//
+	//	    // Flush buffered data
+	//	    if f.buffer != nil {
+	//	        if err := f.flush(); err != nil {
+	//	            return fmt.Errorf("failed to flush buffer: %w", err)
+	//	        }
+	//	    }
+	//
+	//	    // Close connections
+	//	    if f.conn != nil {
+	//	        if err := f.conn.Close(); err != nil {
+	//	            return fmt.Errorf("failed to close connection: %w", err)
+	//	        }
+	//	    }
+	//
+	//	    return nil
+	//	}
+	Close() error
 }
