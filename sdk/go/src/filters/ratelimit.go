@@ -28,12 +28,26 @@ type KeyStatistics struct {
 }
 
 // RateLimitConfig configures the rate limiting behavior.
+// Supports multiple algorithms for different use cases.
 type RateLimitConfig struct {
-	Algorithm         string                          // token-bucket, sliding-window, fixed-window
-	RequestsPerSecond int                             // Rate limit
-	BurstSize         int                             // Maximum burst
-	KeyExtractor      func(context.Context) string    // Extract key from context
-	WindowSize        time.Duration                   // Window duration
+	// Algorithm specifies the rate limiting algorithm to use.
+	// Options: "token-bucket", "sliding-window", "fixed-window"
+	Algorithm string
+	
+	// RequestsPerSecond defines the sustained request rate.
+	RequestsPerSecond int
+	
+	// BurstSize defines the maximum burst capacity.
+	// Only used with token-bucket algorithm.
+	BurstSize int
+	
+	// KeyExtractor extracts the rate limit key from context.
+	// If nil, a global rate limit is applied.
+	KeyExtractor func(context.Context) string
+	
+	// WindowSize defines the time window for rate limiting.
+	// Used with sliding-window and fixed-window algorithms.
+	WindowSize time.Duration
 }
 
 // RateLimitFilter implements rate limiting with multiple algorithms.
