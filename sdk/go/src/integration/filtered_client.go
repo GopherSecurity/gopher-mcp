@@ -2,6 +2,8 @@
 package integration
 
 import (
+	"time"
+	
 	"github.com/modelcontextprotocol/go-sdk/pkg/client"
 )
 
