@@ -108,12 +108,21 @@ MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCE
 
 MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
                                                        mcp_bool_t pretty) MCP_NOEXCEPT {
-  // For now, just return nullptr as we don't have a proper way to create mcp_string_buffer_t
-  // This is a compatibility shim that's not currently used by the SDK bindings
-  // The canonical mcp_json_stringify returns a char* which is what's actually used
-  (void)value;
-  (void)pretty;
-  return nullptr;
+  // Use canonical stringify to get a C string, then wrap into a string buffer
+  (void)pretty;  // pretty-print not yet implemented
+  char* cstr = mcp_json_stringify(value);
+  if (!cstr) {
+    return nullptr;
+  }
+
+  mcp_string_t s;
+  s.data = cstr;
+  s.length = std::strlen(cstr);
+
+  mcp_string_buffer_t* buffer = mcp_string_dup(s);
+  // Free the intermediate string
+  mcp_string_free(cstr);
+  return buffer;
 }
 
 // ============================================================================
