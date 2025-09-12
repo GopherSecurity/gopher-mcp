@@ -158,6 +158,18 @@ format:
 	else \
 		echo "Rust SDK directory not found, skipping Rust formatting."; \
 	fi
+	@echo "Formatting Java files with Spotless..."
+	@if [ -d "sdk/java" ]; then \
+		if command -v mvn >/dev/null 2>&1; then \
+			cd sdk/java && mvn spotless:apply; \
+			echo "Java formatting complete."; \
+		else \
+			echo "Warning: Maven not found, skipping Java formatting."; \
+			echo "Install Maven to format Java files: brew install maven (macOS) or apt-get install maven (Ubuntu)"; \
+		fi; \
+	else \
+		echo "Java SDK directory not found, skipping Java formatting."; \
+	fi
 	@echo "All formatting complete."
 
 # Format only TypeScript files
@@ -209,6 +221,22 @@ format-rust:
 		fi; \
 	else \
 		echo "Rust SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Format only Java files
+format-java:
+	@echo "Formatting Java files with Spotless..."
+	@if [ -d "sdk/java" ]; then \
+		if command -v mvn >/dev/null 2>&1; then \
+			cd sdk/java && mvn spotless:apply; \
+			echo "Java formatting complete."; \
+		else \
+			echo "Warning: Maven not found, skipping Java formatting."; \
+			echo "Install Maven to format Java files: brew install maven (macOS) or apt-get install maven (Ubuntu)"; \
+		fi; \
+	else \
+		echo "Java SDK directory not found."; \
 		exit 1; \
 	fi
 
@@ -366,10 +394,11 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust) │"
+	@echo "│ make format        Auto-format all source files (C++, TS, Python, Rust, Java) │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make format-python Format only Python files with black               │"
 	@echo "│ make format-rust   Format only Rust files with rustfmt               │"
+	@echo "│ make format-java   Format only Java files with Spotless              │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
@@ -387,10 +416,11 @@ help:
 	@echo "│   $$ sudo make install                                                │"
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
-	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust) │"
+	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust, Java) │"
 	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
 	@echo "│   $$ make format-python   # Format only Python files                 │"
 	@echo "│   $$ make format-rust     # Format only Rust files                   │"
+	@echo "│   $$ make format-java     # Format only Java files                   │"
 	@echo "│   $$ make build           # Build without tests                      │"
 	@echo "│   $$ make test-parallel   # Run tests quickly                        │"
 	@echo "│                                                                       │"
