@@ -232,3 +232,25 @@ type PoolStatistics struct {
 	// Size is the current number of buffers in the pool.
 	Size int
 }
+
+// BufferStatistics tracks usage metrics for buffer operations.
+// All fields should be accessed atomically in concurrent environments.
+type BufferStatistics struct {
+	// AllocatedBuffers is the current number of allocated buffers.
+	AllocatedBuffers int64
+
+	// PooledBuffers is the current number of buffers in pools.
+	PooledBuffers int64
+
+	// TotalAllocations is the cumulative number of buffer allocations.
+	TotalAllocations uint64
+
+	// TotalReleases is the cumulative number of buffer releases.
+	TotalReleases uint64
+
+	// CurrentUsage is the current memory usage in bytes.
+	CurrentUsage int64
+
+	// PeakUsage is the peak memory usage in bytes.
+	PeakUsage int64
+}
