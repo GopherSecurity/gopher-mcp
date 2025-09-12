@@ -245,3 +245,45 @@ func (mm *MemoryManager) Get(size int) *types.Buffer {
 
 	return buffer
 }
+
+// Put returns a buffer to the appropriate pool for reuse.
+// The buffer is cleared for security before being pooled.
+// If memory limit is exceeded, the buffer may be released instead of pooled.
+//
+// Parameters:
+//   - buffer: The buffer to return to the pool
+func (mm *MemoryManager) Put(buffer *types.Buffer) {
+	if buffer == nil {
+		return
+	}
+
+	// Clear buffer contents for security
+	buffer.Reset()
+	
+	// Update memory usage
+	bufferSize := buffer.Cap()
+	mm.UpdateUsage(-int64(bufferSize))
+	
+	mm.mu.Lock()
+	mm.stats.ReleaseCount++
+	mm.stats.TotalReleased += uint64(bufferSize)
+	mm.mu.Unlock()
+
+	// Check if we should pool or release
+	currentUsage := atomic.LoadInt64(&mm.currentUsage)
+	if mm.maxMemory > 0 && currentUsage > mm.maxMemory*80/100 {
+		// Over 80% memory usage, release buffer instead of pooling
+		// This helps reduce memory pressure
+		return
+	}
+
+	// Return to appropriate pool
+	poolSize := mm.selectPoolSize(bufferSize)
+	pool := mm.GetPoolForSize(bufferSize)
+	
+	if pool != nil && poolSize == bufferSize {
+		// Only return to pool if it matches the pool size exactly
+		pool.Put(buffer)
+	}
+	// Otherwise let the buffer be garbage collected
+}
