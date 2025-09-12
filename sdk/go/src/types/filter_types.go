@@ -481,3 +481,19 @@ func StopIterationResult() *FilterResult {
 		Metadata:  make(map[string]interface{}),
 	}
 }
+
+// FilterEventArgs provides base event arguments for filter events.
+// This struct can be embedded in specific event types.
+type FilterEventArgs struct {
+	// FilterName is the name of the filter that generated the event.
+	FilterName string `json:"filter_name"`
+
+	// FilterType is the type of the filter that generated the event.
+	FilterType string `json:"filter_type"`
+
+	// Timestamp is when the event occurred.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Data contains event-specific data as key-value pairs.
+	Data map[string]interface{} `json:"data,omitempty"`
+}
