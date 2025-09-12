@@ -23,23 +23,19 @@ extern "C" {
 
 /**
  * Parse JSON string to JSON value
- * @param json_string JSON string to parse
- * @return JSON value or NULL on error (caller must free)
+ * @param json_string JSON string to parse  
+ * @return JSON value or NULL on error (caller must free with mcp_json_free)
  */
 MCP_API mcp_json_value_t mcp_json_parse(const char* json_string) MCP_NOEXCEPT;
 
 /**
  * Convert JSON value to string
  * @param json JSON value to stringify
- * @return JSON string or NULL on error (caller must free)
+ * @return JSON string or NULL on error (caller must free with mcp_string_free)
  */
 MCP_API char* mcp_json_stringify(mcp_json_value_t json) MCP_NOEXCEPT;
 
-/**
- * Free JSON value
- * @param json JSON value to free
- */
-MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT;
+/* Note: mcp_json_free is declared in mcp_c_collections.h where JSON constructors reside */
 
 /* ============================================================================
  * Request ID JSON Conversion
