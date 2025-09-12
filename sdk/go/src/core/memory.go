@@ -330,3 +330,56 @@ func (mm *MemoryManager) CheckMemoryLimit(size int) bool {
 	currentUsage := atomic.LoadInt64(&mm.currentUsage)
 	return currentUsage+int64(size) > maxMem
 }
+
+// GetStatistics returns comprehensive memory statistics.
+// This includes allocation metrics, pool statistics, and usage information.
+func (mm *MemoryManager) GetStatistics() MemoryStatistics {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+
+	stats := mm.stats
+	stats.CurrentUsage = atomic.LoadInt64(&mm.currentUsage)
+
+	// Calculate hit rate
+	totalRequests := stats.PoolHits + stats.PoolMisses
+	if totalRequests > 0 {
+		hitRate := float64(stats.PoolHits) / float64(totalRequests) * 100
+		// Store hit rate in an extended stats field if needed
+		_ = hitRate
+	}
+
+	// Aggregate pool statistics
+	for _, pool := range mm.pools {
+		if pool != nil {
+			poolStats := pool.Stats()
+			stats.PoolHits += poolStats.Hits
+			stats.PoolMisses += poolStats.Misses
+		}
+	}
+
+	return stats
+}
+
+// GetPoolStatistics returns statistics for a specific pool size.
+func (mm *MemoryManager) GetPoolStatistics(size int) types.PoolStatistics {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+
+	pool := mm.pools[size]
+	if pool != nil {
+		return pool.Stats()
+	}
+	return types.PoolStatistics{}
+}
+
+// GetPoolHitRate calculates the pool hit rate as a percentage.
+func (mm *MemoryManager) GetPoolHitRate() float64 {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+
+	if mm.stats.PoolHits+mm.stats.PoolMisses == 0 {
+		return 0
+	}
+
+	return float64(mm.stats.PoolHits) / float64(mm.stats.PoolHits+mm.stats.PoolMisses) * 100
+}
