@@ -396,3 +396,41 @@ type ObservableFilter interface {
 	//   - interface{}: Current trace span (implementation-specific)
 	GetTraceSpan() interface{}
 }
+
+// FilterHook represents a hook function that can modify filter behavior.
+type FilterHook func(ctx context.Context, data []byte) ([]byte, error)
+
+// HookableFilter interface for extending filter behavior with hooks.
+// Filters implementing this interface allow dynamic behavior modification.
+type HookableFilter interface {
+	Filter
+
+	// AddPreHook adds a hook to be executed before filter processing.
+	// Multiple pre-hooks are executed in the order they were added.
+	//
+	// Parameters:
+	//   - hook: The hook function to add
+	//
+	// Returns:
+	//   - string: Hook ID for later removal
+	AddPreHook(hook FilterHook) string
+
+	// AddPostHook adds a hook to be executed after filter processing.
+	// Multiple post-hooks are executed in the order they were added.
+	//
+	// Parameters:
+	//   - hook: The hook function to add
+	//
+	// Returns:
+	//   - string: Hook ID for later removal
+	AddPostHook(hook FilterHook) string
+
+	// RemoveHook removes a previously added hook by its ID.
+	//
+	// Parameters:
+	//   - id: The hook ID to remove
+	//
+	// Returns:
+	//   - error: Error if hook not found
+	RemoveHook(id string) error
+}
