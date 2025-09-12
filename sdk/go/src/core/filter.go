@@ -467,3 +467,51 @@ type BatchFilter interface {
 	//   - timeout: Maximum wait time for batch accumulation
 	SetBatchTimeout(timeout time.Duration)
 }
+
+// Cache represents a generic cache interface.
+type Cache interface {
+	Get(key string) (interface{}, bool)
+	Set(key string, value interface{}, ttl time.Duration) error
+	Delete(key string) error
+	Clear() error
+}
+
+// CachingFilter interface for filters with caching capabilities.
+// Filters implementing this interface can cache processed results.
+type CachingFilter interface {
+	Filter
+
+	// GetCache returns the current cache instance.
+	// Returns nil if no cache is configured.
+	//
+	// Returns:
+	//   - Cache: The current cache instance
+	GetCache() Cache
+
+	// SetCache configures the cache to use.
+	// Pass nil to disable caching.
+	//
+	// Parameters:
+	//   - cache: The cache instance to use
+	SetCache(cache Cache)
+
+	// InvalidateCache removes a specific cache entry.
+	// Used when cached data becomes stale.
+	//
+	// Parameters:
+	//   - key: The cache key to invalidate
+	//
+	// Returns:
+	//   - error: Any error during invalidation
+	InvalidateCache(key string) error
+
+	// PreloadCache warms up the cache with frequently used data.
+	// Called during initialization or quiet periods.
+	//
+	// Parameters:
+	//   - ctx: Context for the preload operation
+	//
+	// Returns:
+	//   - error: Any error during cache preloading
+	PreloadCache(ctx context.Context) error
+}
