@@ -92,3 +92,24 @@ func (b *Buffer) Release() {
 	b.Reset()
 	b.pool.Put(b)
 }
+
+// SetPool associates this buffer with a pool.
+func (b *Buffer) SetPool(pool *BufferPool) {
+	if b != nil {
+		b.pool = pool
+		b.markPooled()
+	}
+}
+
+// IsPooled returns true if this buffer came from a pool.
+func (b *Buffer) IsPooled() bool {
+	return b != nil && b.pooled
+}
+
+// markPooled marks this buffer as coming from a pool.
+// This is an internal method used by pool implementations.
+func (b *Buffer) markPooled() {
+	if b != nil {
+		b.pooled = true
+	}
+}
