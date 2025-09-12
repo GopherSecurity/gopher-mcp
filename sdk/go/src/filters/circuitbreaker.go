@@ -2,7 +2,9 @@
 package filters
 
 import (
+	"container/ring"
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,13 +99,18 @@ type CircuitBreakerFilter struct {
 	
 	// Configuration
 	config CircuitBreakerConfig
+	
+	// Sliding window for failure rate calculation
+	slidingWindow *ring.Ring
+	windowMu      sync.Mutex
 }
 
 // NewCircuitBreakerFilter creates a new circuit breaker filter.
 func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter {
 	f := &CircuitBreakerFilter{
-		FilterBase: NewFilterBase("circuit-breaker", "resilience"),
-		config:     config,
+		FilterBase:    NewFilterBase("circuit-breaker", "resilience"),
+		config:        config,
+		slidingWindow: ring.New(100), // Last 100 requests for rate calculation
 	}
 	
 	// Initialize state
@@ -200,4 +207,74 @@ func (f *CircuitBreakerFilter) shouldTransitionToHalfOpen() bool {
 // shouldTransitionToClosed checks if we should close from half-open.
 func (f *CircuitBreakerFilter) shouldTransitionToClosed() bool {
 	return f.successes.Load() >= int64(f.config.SuccessThreshold)
+}
+
+// recordFailure records a failure and checks if circuit should open.
+func (f *CircuitBreakerFilter) recordFailure() {
+	// Increment failure counter
+	f.failures.Add(1)
+	
+	// Add to sliding window
+	f.windowMu.Lock()
+	f.slidingWindow.Value = false // false = failure
+	f.slidingWindow = f.slidingWindow.Next()
+	f.windowMu.Unlock()
+	
+	// Check state and thresholds
+	currentState := f.state.Load().(State)
+	
+	switch currentState {
+	case Closed:
+		// Check if we should open the circuit
+		if f.shouldTransitionToOpen() {
+			f.transitionTo(Open)
+		}
+	case HalfOpen:
+		// Any failure in half-open immediately opens the circuit
+		f.transitionTo(Open)
+	}
+}
+
+// recordSuccess records a success and checks state transitions.
+func (f *CircuitBreakerFilter) recordSuccess() {
+	// Increment success counter
+	f.successes.Add(1)
+	
+	// Add to sliding window
+	f.windowMu.Lock()
+	f.slidingWindow.Value = true // true = success
+	f.slidingWindow = f.slidingWindow.Next()
+	f.windowMu.Unlock()
+	
+	// Check state
+	currentState := f.state.Load().(State)
+	
+	if currentState == HalfOpen {
+		// Check if we should close the circuit
+		if f.shouldTransitionToClosed() {
+			f.transitionTo(Closed)
+		}
+	}
+}
+
+// calculateFailureRate calculates the current failure rate from sliding window.
+func (f *CircuitBreakerFilter) calculateFailureRate() float64 {
+	f.windowMu.Lock()
+	defer f.windowMu.Unlock()
+	
+	var failures, total int
+	f.slidingWindow.Do(func(v interface{}) {
+		if v != nil {
+			total++
+			if success, ok := v.(bool); ok && !success {
+				failures++
+			}
+		}
+	})
+	
+	if total == 0 {
+		return 0
+	}
+	
+	return float64(failures) / float64(total)
 }
