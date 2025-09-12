@@ -554,3 +554,45 @@ type RoutingFilter interface {
 	//   - lb: The load balancer to use
 	SetLoadBalancer(lb LoadBalancer)
 }
+
+// Transaction represents a transactional operation.
+type Transaction interface {
+	ID() string
+	State() string
+	Metadata() map[string]interface{}
+}
+
+// TransactionalFilter interface for transactional processing support.
+// Filters implementing this interface can ensure atomic operations.
+type TransactionalFilter interface {
+	Filter
+
+	// BeginTransaction starts a new transaction.
+	// All operations within the transaction are atomic.
+	//
+	// Parameters:
+	//   - ctx: Context for the transaction
+	//
+	// Returns:
+	//   - Transaction: The transaction handle
+	//   - error: Any error starting the transaction
+	BeginTransaction(ctx context.Context) (Transaction, error)
+
+	// CommitTransaction commits a transaction, making changes permanent.
+	//
+	// Parameters:
+	//   - tx: The transaction to commit
+	//
+	// Returns:
+	//   - error: Any error during commit
+	CommitTransaction(tx Transaction) error
+
+	// RollbackTransaction rolls back a transaction, discarding changes.
+	//
+	// Parameters:
+	//   - tx: The transaction to rollback
+	//
+	// Returns:
+	//   - error: Any error during rollback
+	RollbackTransaction(tx Transaction) error
+}
