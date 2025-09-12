@@ -205,6 +205,51 @@ func (bp *BufferPool) Get(size int) *types.Buffer {
 	return buf
 }
 
+// Put returns a buffer to the appropriate pool.
+func (bp *BufferPool) Put(buffer *types.Buffer) {
+	if buffer == nil {
+		return
+	}
+
+	// Clear buffer for security
+	buffer.Reset()
+
+	// Check if buffer belongs to a pool
+	if !buffer.IsPooled() {
+		// Non-pooled buffer, let it be garbage collected
+		bp.mu.Lock()
+		bp.stats.Puts++
+		bp.mu.Unlock()
+		return
+	}
+
+	// Find matching pool by capacity
+	bufCap := buffer.Cap()
+	poolSize := bp.nearestPoolSize(bufCap)
+
+	// Only return to pool if size matches exactly
+	if poolSize != bufCap {
+		// Size doesn't match any pool, let it be GC'd
+		bp.mu.Lock()
+		bp.stats.Puts++
+		bp.mu.Unlock()
+		return
+	}
+
+	bp.mu.RLock()
+	pool, exists := bp.pools[poolSize]
+	bp.mu.RUnlock()
+
+	if exists {
+		// Return to pool
+		pool.Put(buffer)
+		
+		bp.mu.Lock()
+		bp.stats.Puts++
+		bp.mu.Unlock()
+	}
+}
+
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
 type SimpleBufferPool struct {
 	pool sync.Pool
