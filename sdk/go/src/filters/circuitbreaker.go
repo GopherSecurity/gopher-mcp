@@ -12,6 +12,34 @@ import (
 // State represents the state of the circuit breaker.
 type State int
 
+const (
+	// Closed state - normal operation, requests pass through.
+	// The circuit breaker monitors for failures.
+	Closed State = iota
+	
+	// Open state - circuit is open, rejecting all requests immediately.
+	// This protects the downstream service from overload.
+	Open
+	
+	// HalfOpen state - testing recovery, allowing limited requests.
+	// Used to check if the downstream service has recovered.
+	HalfOpen
+)
+
+// String returns a string representation of the state for logging.
+func (s State) String() string {
+	switch s {
+	case Closed:
+		return "CLOSED"
+	case Open:
+		return "OPEN"
+	case HalfOpen:
+		return "HALF_OPEN"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // CircuitBreakerConfig configures the circuit breaker behavior.
 type CircuitBreakerConfig struct {
 	// FailureThreshold is the number of consecutive failures before opening the circuit.
@@ -79,7 +107,7 @@ func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter 
 	}
 	
 	// Initialize state
-	f.state.Store(State(0)) // Closed state
+	f.state.Store(Closed)
 	f.lastFailureTime.Store(time.Time{})
 	
 	return f
