@@ -156,6 +156,55 @@ func (bp *BufferPool) nearestPoolSize(size int) int {
 	return result
 }
 
+// Get retrieves a buffer from the appropriate pool or allocates new.
+func (bp *BufferPool) Get(size int) *types.Buffer {
+	// Find appropriate pool size
+	poolSize := bp.nearestPoolSize(size)
+	if poolSize == 0 {
+		// Direct allocation for sizes outside pool range
+		bp.mu.Lock()
+		bp.stats.Misses++
+		bp.mu.Unlock()
+		
+		buf := &types.Buffer{}
+		buf.Grow(size)
+		return buf
+	}
+
+	// Get from pool
+	bp.mu.RLock()
+	pool, exists := bp.pools[poolSize]
+	bp.mu.RUnlock()
+
+	if !exists {
+		// Shouldn't happen, but handle gracefully
+		buf := &types.Buffer{}
+		buf.Grow(size)
+		return buf
+	}
+
+	// Get buffer from pool
+	buf := pool.Get().(*types.Buffer)
+	
+	// Clear contents for security
+	buf.Reset()
+	
+	// Ensure sufficient capacity
+	if buf.Cap() < size {
+		buf.Grow(size - buf.Cap())
+	}
+
+	// Mark as pooled and update stats
+	buf.SetPool((*types.BufferPool)(pool))
+	
+	bp.mu.Lock()
+	bp.stats.Gets++
+	bp.stats.Hits++
+	bp.mu.Unlock()
+
+	return buf
+}
+
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
 type SimpleBufferPool struct {
 	pool sync.Pool
