@@ -208,6 +208,21 @@ func (f *CircuitBreakerFilter) shouldTransitionToHalfOpen() bool {
 	return time.Since(lastFailure) >= f.config.Timeout
 }
 
+// tryTransitionToHalfOpen attempts atomic transition from Open to HalfOpen.
+func (f *CircuitBreakerFilter) tryTransitionToHalfOpen() bool {
+	// Only transition if we're currently in Open state
+	expectedState := Open
+	newState := HalfOpen
+	
+	// Check timeout first to avoid unnecessary CAS operations
+	if !f.shouldTransitionToHalfOpen() {
+		return false
+	}
+	
+	// Atomic compare-and-swap for race-free transition
+	return f.state.CompareAndSwap(expectedState, newState)
+}
+
 // shouldTransitionToClosed checks if we should close from half-open.
 func (f *CircuitBreakerFilter) shouldTransitionToClosed() bool {
 	return f.successes.Load() >= int64(f.config.SuccessThreshold)
@@ -289,11 +304,13 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 	
 	switch currentState {
 	case Open:
-		// Check if we should transition to half-open
-		if f.shouldTransitionToHalfOpen() {
-			f.transitionTo(HalfOpen)
-			// Fall through to half-open processing
+		// Try atomic transition to half-open if timeout elapsed
+		if f.tryTransitionToHalfOpen() {
+			// Successfully transitioned, continue with half-open processing
 			currentState = HalfOpen
+			// Reset counters for testing phase
+			f.failures.Store(0)
+			f.successes.Store(0)
 		} else {
 			// Circuit is open, reject immediately
 			return nil, fmt.Errorf("circuit breaker is open")
