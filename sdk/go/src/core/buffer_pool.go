@@ -121,6 +121,41 @@ func (bp *BufferPool) nextPowerOf2(n int) int {
 	return power
 }
 
+// nearestPoolSize finds the smallest pool size >= requested size.
+// Uses binary search on the sorted sizes array for efficiency.
+func (bp *BufferPool) nearestPoolSize(size int) int {
+	bp.mu.RLock()
+	defer bp.mu.RUnlock()
+
+	// Handle edge cases
+	if len(bp.sizes) == 0 {
+		return 0
+	}
+	if size <= bp.sizes[0] {
+		return bp.sizes[0]
+	}
+	if size > bp.sizes[len(bp.sizes)-1] {
+		return 0 // Too large
+	}
+
+	// Binary search for the smallest size >= requested
+	left, right := 0, len(bp.sizes)-1
+	result := bp.sizes[right]
+
+	for left <= right {
+		mid := left + (right-left)/2
+		
+		if bp.sizes[mid] >= size {
+			result = bp.sizes[mid]
+			right = mid - 1
+		} else {
+			left = mid + 1
+		}
+	}
+
+	return result
+}
+
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
 type SimpleBufferPool struct {
 	pool sync.Pool
