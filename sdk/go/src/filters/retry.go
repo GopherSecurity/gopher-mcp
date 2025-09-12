@@ -29,6 +29,7 @@ type RetryStatistics struct {
 	BackoffDelays     []time.Duration
 	AverageDelay      time.Duration
 	MaxDelay          time.Duration
+	RetrySuccessRate  float64
 }
 
 // RetryCondition is a custom function to determine if retry should occur.
@@ -586,3 +587,63 @@ func (f *RetryFilter) recordDelay(delay time.Duration) {
 		f.stats.AverageDelay = total / time.Duration(len(f.stats.BackoffDelays))
 	}
 }
+
+// GetStatistics returns current retry statistics with calculated metrics.
+func (f *RetryFilter) GetStatistics() RetryStatistics {
+	f.statsMu.RLock()
+	defer f.statsMu.RUnlock()
+	
+	// Create a copy of statistics
+	statsCopy := RetryStatistics{
+		TotalAttempts:     f.stats.TotalAttempts,
+		SuccessfulRetries: f.stats.SuccessfulRetries,
+		FailedRetries:     f.stats.FailedRetries,
+		MaxDelay:          f.stats.MaxDelay,
+		AverageDelay:      f.stats.AverageDelay,
+	}
+	
+	// Copy retry reasons
+	if f.stats.RetryReasons != nil {
+		statsCopy.RetryReasons = make(map[string]uint64)
+		for reason, count := range f.stats.RetryReasons {
+			statsCopy.RetryReasons[reason] = count
+		}
+	}
+	
+	// Copy backoff delays (limit to last 100 for memory)
+	if len(f.stats.BackoffDelays) > 0 {
+		start := 0
+		if len(f.stats.BackoffDelays) > 100 {
+			start = len(f.stats.BackoffDelays) - 100
+		}
+		statsCopy.BackoffDelays = make([]time.Duration, len(f.stats.BackoffDelays[start:]))
+		copy(statsCopy.BackoffDelays, f.stats.BackoffDelays[start:])
+	}
+	
+	// Calculate retry success rate
+	totalRetries := statsCopy.SuccessfulRetries + statsCopy.FailedRetries
+	if totalRetries > 0 {
+		statsCopy.RetrySuccessRate = float64(statsCopy.SuccessfulRetries) / float64(totalRetries) * 100.0
+	}
+	
+	return statsCopy
+}
+
+// RetrySuccessRate returns the percentage of successful retries.
+func (stats *RetryStatistics) RetrySuccessRate() float64 {
+	total := stats.SuccessfulRetries + stats.FailedRetries
+	if total == 0 {
+		return 0
+	}
+	return float64(stats.SuccessfulRetries) / float64(total) * 100.0
+}
+
+// AverageAttemptsPerRequest calculates average attempts per request.
+func (stats *RetryStatistics) AverageAttemptsPerRequest() float64 {
+	requests := stats.SuccessfulRetries + stats.FailedRetries
+	if requests == 0 {
+		return 0
+	}
+	return float64(stats.TotalAttempts) / float64(requests)
+}
+
