@@ -94,6 +94,7 @@ if(BUILD_C_API)
     add_executable(test_c_collections_impl c_api/test_c_collections_impl.cc)
     add_executable(test_c_api_json_simple c_api/test_c_api_json_simple.cc)
     add_executable(test_c_api_json c_api/test_c_api_json.cc)
+    add_executable(test_json_api_unified c_api/test_json_api_unified.cc)
     add_executable(test_mcp_c_filter_api c_api/test_mcp_c_filter_api.cc)
     add_executable(test_mcp_c_filter_chain c_api/test_mcp_c_filter_chain.cc)
     add_executable(test_mcp_c_filter_chain_exception_safety c_api/test_mcp_c_filter_chain_exception_safety.cc)
@@ -633,6 +634,14 @@ if(BUILD_C_API)
     )
     
     target_link_libraries(test_c_api_json
+        gopher-mcp
+        gopher_mcp_c
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    target_link_libraries(test_json_api_unified
         gopher-mcp
         gopher_mcp_c
         gtest
