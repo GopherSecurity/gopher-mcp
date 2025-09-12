@@ -39,3 +39,11 @@ func NewFilterBase(name, filterType string) *FilterBase {
 		disposed:   0,
 	}
 }
+
+// Name returns the filter's unique name.
+// Thread-safe with read lock protection.
+func (fb *FilterBase) Name() string {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.name
+}
