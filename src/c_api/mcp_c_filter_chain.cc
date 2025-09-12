@@ -39,8 +39,33 @@ namespace filter_api {
 }
 }
 
+// Forward declaration of dispatcher thread check function from mcp_c_api_core.cc
+extern "C" {
+  mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+}
+
 namespace mcp {
 namespace filter_chain {
+
+// ============================================================================
+// Thread Affinity Helpers
+// ============================================================================
+
+/**
+ * @brief Check if current thread is the dispatcher's thread
+ * @param dispatcher The dispatcher handle to check against
+ * @return true if on the correct thread, false otherwise
+ */
+static inline bool isOnDispatcherThread(mcp_dispatcher_t dispatcher) {
+  if (!dispatcher) {
+    return false;
+  }
+  
+  // Use the existing C API function that checks thread affinity
+  // This internally compares std::this_thread::get_id() with the 
+  // dispatcher's stored thread_id
+  return mcp_dispatcher_is_thread(dispatcher) == MCP_TRUE;
+}
 
 // ============================================================================
 // Filter Node Implementation
@@ -678,6 +703,12 @@ MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
+    // Check thread affinity - pause must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain pause must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
     chain_ptr->pause();
     return MCP_OK;
   } catch (const std::bad_alloc&) {
@@ -699,6 +730,12 @@ MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
+    // Check thread affinity - resume must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain resume must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
     chain_ptr->resume();
     return MCP_OK;
   } catch (const std::bad_alloc&) {
@@ -719,6 +756,12 @@ MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
     auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
+
+    // Check thread affinity - reset must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain reset must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
 
     chain_ptr->reset();
     return MCP_OK;
@@ -746,6 +789,12 @@ MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
     auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
+
+    // Check thread affinity - filter enable/disable must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain set_filter_enabled must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
 
     chain_ptr->setFilterEnabled(filter_name, enabled);
     return MCP_OK;
@@ -819,12 +868,11 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     return 0;
   }
   
-  // 2. TODO: Check thread affinity once dispatcher thread validation is available
-  // For now, we'll skip this check as the implementation isn't clear
-  // if (!isOnDispatcherThread(dispatcher)) {
-  //   GOPHER_LOG(Error, "Chain creation called from wrong thread");
-  //   return 0;
-  // }
+  // 2. Check thread affinity - chain creation must occur on dispatcher thread
+  if (!isOnDispatcherThread(dispatcher)) {
+    GOPHER_LOG(Error, "Chain creation must be called from dispatcher thread");
+    return 0;
+  }
   
   try {
     // 3. Convert JSON and normalize
@@ -1048,6 +1096,12 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
   mcp_dispatcher_t dispatcher = chain_ptr->getDispatcher();
   if (!dispatcher) {
     GOPHER_LOG(Error, "Chain {} has no dispatcher, cannot clone", chain);
+    return 0;
+  }
+  
+  // Check thread affinity - clone must be called from dispatcher thread
+  if (!isOnDispatcherThread(dispatcher)) {
+    GOPHER_LOG(Error, "Chain clone must be called from dispatcher thread");
     return 0;
   }
   
