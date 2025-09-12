@@ -253,4 +253,46 @@ type BufferStatistics struct {
 
 	// PeakUsage is the peak memory usage in bytes.
 	PeakUsage int64
+
+	// HitRate is the ratio of pool hits to total gets (0.0 to 1.0).
+	HitRate float64
+
+	// AverageSize is the average buffer size in bytes.
+	AverageSize int64
+
+	// FragmentationRatio is the ratio of unused to total allocated memory.
+	FragmentationRatio float64
+}
+
+// Calculate computes derived metrics from the raw statistics.
+// This should be called periodically to update calculated fields.
+func (s *BufferStatistics) Calculate() {
+	if s == nil {
+		return
+	}
+
+	// Calculate hit rate if we have data
+	if s.TotalAllocations > 0 {
+		hits := s.TotalAllocations - s.TotalReleases
+		if hits > 0 {
+			s.HitRate = float64(s.PooledBuffers) / float64(hits)
+			if s.HitRate > 1.0 {
+				s.HitRate = 1.0
+			}
+		}
+	}
+
+	// Calculate average size
+	if s.AllocatedBuffers > 0 && s.CurrentUsage > 0 {
+		s.AverageSize = s.CurrentUsage / s.AllocatedBuffers
+	}
+
+	// Calculate fragmentation ratio
+	if s.CurrentUsage > 0 && s.AllocatedBuffers > 0 {
+		// Estimate based on average vs actual usage
+		expectedUsage := s.AverageSize * s.AllocatedBuffers
+		if expectedUsage > s.CurrentUsage {
+			s.FragmentationRatio = float64(expectedUsage-s.CurrentUsage) / float64(expectedUsage)
+		}
+	}
 }
