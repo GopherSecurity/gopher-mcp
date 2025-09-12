@@ -102,3 +102,97 @@ func (p FilterPosition) IsValid() bool {
 func (p FilterPosition) RequiresReference() bool {
 	return p == Before || p == After
 }
+
+// FilterError represents specific error codes for filter operations.
+// These codes provide detailed information about filter failures.
+type FilterError int
+
+const (
+	// InvalidConfiguration indicates the filter configuration is invalid.
+	InvalidConfiguration FilterError = 1001
+
+	// FilterNotFound indicates the specified filter was not found in the chain.
+	FilterNotFound FilterError = 1002
+
+	// FilterAlreadyExists indicates a filter with the same name already exists.
+	FilterAlreadyExists FilterError = 1003
+
+	// InitializationFailed indicates the filter failed to initialize.
+	InitializationFailed FilterError = 1004
+
+	// ProcessingFailed indicates the filter failed during data processing.
+	ProcessingFailed FilterError = 1005
+
+	// ChainError indicates an error in the filter chain execution.
+	ChainError FilterError = 1006
+
+	// BufferOverflow indicates the buffer size limit was exceeded.
+	BufferOverflow FilterError = 1007
+
+	// Timeout indicates the operation exceeded the time limit.
+	Timeout FilterError = 1010
+
+	// ResourceExhausted indicates system resources were exhausted.
+	ResourceExhausted FilterError = 1011
+
+	// TooManyRequests indicates rate limiting was triggered.
+	TooManyRequests FilterError = 1018
+
+	// AuthenticationFailed indicates authentication failed.
+	AuthenticationFailed FilterError = 1019
+
+	// ServiceUnavailable indicates the service is temporarily unavailable.
+	ServiceUnavailable FilterError = 1021
+)
+
+// Error implements the error interface for FilterError.
+func (e FilterError) Error() string {
+	switch e {
+	case InvalidConfiguration:
+		return "invalid filter configuration"
+	case FilterNotFound:
+		return "filter not found"
+	case FilterAlreadyExists:
+		return "filter already exists"
+	case InitializationFailed:
+		return "filter initialization failed"
+	case ProcessingFailed:
+		return "filter processing failed"
+	case ChainError:
+		return "filter chain error"
+	case BufferOverflow:
+		return "buffer overflow"
+	case Timeout:
+		return "operation timeout"
+	case ResourceExhausted:
+		return "resource exhausted"
+	case TooManyRequests:
+		return "too many requests"
+	case AuthenticationFailed:
+		return "authentication failed"
+	case ServiceUnavailable:
+		return "service unavailable"
+	default:
+		return fmt.Sprintf("filter error: %d", e)
+	}
+}
+
+// String returns a human-readable string representation of the FilterError.
+func (e FilterError) String() string {
+	return e.Error()
+}
+
+// Code returns the numeric error code.
+func (e FilterError) Code() int {
+	return int(e)
+}
+
+// IsRetryable returns true if the error is potentially retryable.
+func (e FilterError) IsRetryable() bool {
+	switch e {
+	case Timeout, ResourceExhausted, TooManyRequests, ServiceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
