@@ -41,18 +41,40 @@ type JsonSerializer struct {
 	// schemaCache caches compiled schemas
 	schemaCache map[string]Schema
 
+	// encoderPool pools json.Encoder instances
+	encoderPool sync.Pool
+
+	// decoderPool pools json.Decoder instances
+	decoderPool sync.Pool
+
+	// bufferPool pools bytes.Buffer instances
+	bufferPool sync.Pool
+
 	// mu protects concurrent access
 	mu sync.RWMutex
 }
 
 // NewJsonSerializer creates a new JSON serializer with default settings.
 func NewJsonSerializer() *JsonSerializer {
-	return &JsonSerializer{
+	js := &JsonSerializer{
 		escapeHTML:         true,
 		customMarshalers:   make(map[reflect.Type]MarshalFunc),
 		customUnmarshalers: make(map[reflect.Type]UnmarshalFunc),
 		schemaCache:        make(map[string]Schema),
 	}
+
+	// Initialize pools
+	js.encoderPool.New = func() interface{} {
+		return json.NewEncoder(nil)
+	}
+	js.decoderPool.New = func() interface{} {
+		return json.NewDecoder(nil)
+	}
+	js.bufferPool.New = func() interface{} {
+		return new(bytes.Buffer)
+	}
+
+	return js
 }
 
 // SetIndent enables or disables pretty printing.
@@ -80,11 +102,22 @@ func (js *JsonSerializer) Marshal(v interface{}) ([]byte, error) {
 	}
 	js.mu.RUnlock()
 
-	// Use standard JSON marshaling with options
-	buffer := &bytes.Buffer{}
-	encoder := json.NewEncoder(buffer)
+	// Get buffer from pool
+	buffer := js.bufferPool.Get().(*bytes.Buffer)
+	buffer.Reset()
+	defer js.bufferPool.Put(buffer)
+
+	// Get encoder from pool
+	encoder := js.encoderPool.Get().(*json.Encoder)
 	encoder.SetEscapeHTML(js.escapeHTML)
 	
+	if js.indent {
+		encoder.SetIndent("", "  ")
+	}
+
+	// Reset encoder with new buffer
+	*encoder = *json.NewEncoder(buffer)
+	encoder.SetEscapeHTML(js.escapeHTML)
 	if js.indent {
 		encoder.SetIndent("", "  ")
 	}
@@ -95,11 +128,15 @@ func (js *JsonSerializer) Marshal(v interface{}) ([]byte, error) {
 
 	// Remove trailing newline added by Encode
 	data := buffer.Bytes()
-	if len(data) > 0 && data[len(data)-1] == '\n' {
-		data = data[:len(data)-1]
+	result := make([]byte, len(data))
+	copy(result, data)
+	
+	if len(result) > 0 && result[len(result)-1] == '\n' {
+		result = result[:len(result)-1]
 	}
 
-	return data, nil
+	js.encoderPool.Put(encoder)
+	return result, nil
 }
 
 // Unmarshal deserializes JSON data into a value with validation.
