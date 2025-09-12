@@ -98,3 +98,62 @@ func (fc *FilterChain) setState(newState types.ChainState) bool {
 	}
 	return false
 }
+
+// GetExecutionMode returns the current execution mode of the chain.
+// This is safe to call concurrently.
+func (fc *FilterChain) GetExecutionMode() types.ExecutionMode {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.mode
+}
+
+// SetExecutionMode updates the chain's execution mode.
+// Mode changes are only allowed when the chain is not running.
+//
+// Parameters:
+//   - mode: The new execution mode to set
+//
+// Returns:
+//   - error: Returns an error if the chain is running or the mode is invalid
+func (fc *FilterChain) SetExecutionMode(mode types.ExecutionMode) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Check if chain is running
+	state := fc.getState()
+	if state == types.Running {
+		return types.FilterError(types.ChainError)
+	}
+
+	// Validate the mode based on chain configuration
+	if err := fc.validateExecutionMode(mode); err != nil {
+		return err
+	}
+
+	// Update the mode
+	fc.mode = mode
+	fc.config.ExecutionMode = mode
+
+	return nil
+}
+
+// validateExecutionMode checks if the execution mode is valid for the current chain.
+func (fc *FilterChain) validateExecutionMode(mode types.ExecutionMode) error {
+	// Check if mode requires specific configuration
+	switch mode {
+	case types.Parallel:
+		if fc.config.MaxConcurrency <= 0 {
+			fc.config.MaxConcurrency = 10 // Set default
+		}
+	case types.Pipeline:
+		if fc.config.BufferSize <= 0 {
+			fc.config.BufferSize = 100 // Set default
+		}
+	case types.Sequential, types.Adaptive:
+		// No special requirements
+	default:
+		return types.FilterError(types.InvalidConfiguration)
+	}
+
+	return nil
+}
