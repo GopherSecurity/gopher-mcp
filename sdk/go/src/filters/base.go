@@ -47,3 +47,11 @@ func (fb *FilterBase) Name() string {
 	defer fb.mu.RUnlock()
 	return fb.name
 }
+
+// Type returns the filter's category type.
+// Used for metrics collection and logging.
+func (fb *FilterBase) Type() string {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.filterType
+}
