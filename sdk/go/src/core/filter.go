@@ -172,4 +172,27 @@ type Filter interface {
 	//	    return f.config.Name
 	//	}
 	Name() string
+
+	// Type returns the category or type of this filter.
+	// The type is used for organizing filters, collecting metrics by category,
+	// and understanding the filter's role in the processing pipeline.
+	//
+	// Common filter types include:
+	//   - "security": Authentication, authorization, validation filters
+	//   - "transformation": Data format conversion, encoding/decoding filters
+	//   - "monitoring": Logging, metrics, tracing filters
+	//   - "routing": Load balancing, path-based routing filters
+	//   - "caching": Response caching, memoization filters
+	//   - "compression": Data compression/decompression filters
+	//   - "rate-limiting": Request throttling, quota management filters
+	//
+	// Returns:
+	//   - string: The type category of this filter
+	//
+	// Example:
+	//
+	//	func (f *AuthenticationFilter) Type() string {
+	//	    return "security"
+	//	}
+	Type() string
 }
