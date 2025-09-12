@@ -4,6 +4,7 @@ package core
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
@@ -60,14 +61,96 @@ type MemoryManager struct {
 
 	// mu protects concurrent access to pools map and stats
 	mu sync.RWMutex
+
+	// cleanupTicker for periodic cleanup
+	cleanupTicker *time.Ticker
+
+	// stopCleanup channel to stop cleanup goroutine
+	stopCleanup chan struct{}
+
+	// cleanupInterval for cleanup frequency
+	cleanupInterval time.Duration
 }
 
 // NewMemoryManager creates a new memory manager with the specified memory limit.
 func NewMemoryManager(maxMemory int64) *MemoryManager {
-	return &MemoryManager{
-		pools:     make(map[int]*SimpleBufferPool),
-		maxMemory: maxMemory,
-		stats:     MemoryStatistics{},
+	mm := &MemoryManager{
+		pools:           make(map[int]*SimpleBufferPool),
+		maxMemory:       maxMemory,
+		stats:           MemoryStatistics{},
+		cleanupInterval: 30 * time.Second, // Default 30 second cleanup
+		stopCleanup:     make(chan struct{}),
+	}
+
+	// Start cleanup goroutine
+	mm.startCleanupRoutine()
+
+	return mm
+}
+
+// NewMemoryManagerWithCleanup creates a memory manager with custom cleanup interval.
+func NewMemoryManagerWithCleanup(maxMemory int64, cleanupInterval time.Duration) *MemoryManager {
+	mm := &MemoryManager{
+		pools:           make(map[int]*SimpleBufferPool),
+		maxMemory:       maxMemory,
+		stats:           MemoryStatistics{},
+		cleanupInterval: cleanupInterval,
+		stopCleanup:     make(chan struct{}),
+	}
+
+	if cleanupInterval > 0 {
+		mm.startCleanupRoutine()
+	}
+
+	return mm
+}
+
+// startCleanupRoutine starts the background cleanup goroutine.
+func (mm *MemoryManager) startCleanupRoutine() {
+	mm.cleanupTicker = time.NewTicker(mm.cleanupInterval)
+
+	go func() {
+		for {
+			select {
+			case <-mm.cleanupTicker.C:
+				mm.performCleanup()
+			case <-mm.stopCleanup:
+				mm.cleanupTicker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+// performCleanup executes periodic cleanup tasks.
+func (mm *MemoryManager) performCleanup() {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+
+	currentUsage := atomic.LoadInt64(&mm.currentUsage)
+	maxMem := atomic.LoadInt64(&mm.maxMemory)
+
+	// Clean pools if memory usage is high
+	if maxMem > 0 && currentUsage > maxMem*70/100 {
+		// Compact pools by recreating them
+		for size := range mm.pools {
+			mm.pools[size] = NewSimpleBufferPool(size)
+		}
+	}
+
+	// Update peak usage statistics
+	if currentUsage > mm.stats.PeakUsage {
+		mm.stats.PeakUsage = currentUsage
+	}
+}
+
+// Stop stops the cleanup goroutine and releases resources.
+func (mm *MemoryManager) Stop() {
+	if mm.stopCleanup != nil {
+		close(mm.stopCleanup)
+	}
+	if mm.cleanupTicker != nil {
+		mm.cleanupTicker.Stop()
 	}
 }
 
