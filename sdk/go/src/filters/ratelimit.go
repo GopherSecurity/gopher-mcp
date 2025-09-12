@@ -276,44 +276,98 @@ type RateLimitFilter struct {
 }
 
 // NewRateLimitFilter creates a new rate limit filter.
-func NewRateLimitFilter(maxRequests int, window time.Duration) *RateLimitFilter {
+func NewRateLimitFilter(config RateLimitConfig) *RateLimitFilter {
 	f := &RateLimitFilter{
-		maxRequests: maxRequests,
-		window:      window,
-		burstSize:   maxRequests * 2, // Default burst is 2x normal rate
-		tokens:      float64(maxRequests),
-		lastCheck:   time.Now(),
+		FilterBase: NewFilterBase("rate-limit", "security"),
+		config:     config,
+		stats: RateLimitStatistics{
+			ByKeyStats: make(map[string]*KeyStatistics),
+		},
 	}
-	f.SetName("rate-limit")
-	f.SetType("security")
+	
+	// Start cleanup ticker
+	f.cleanupTicker = time.NewTicker(1 * time.Minute)
+	go f.cleanupLoop()
+	
 	return f
-}
-
-// SetBurstSize sets the maximum burst size.
-func (f *RateLimitFilter) SetBurstSize(size int) {
-	f.burstSize = size
 }
 
 // Process implements the Filter interface.
 func (f *RateLimitFilter) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
-
-	// Check rate limit
-	if !f.allowRequest() {
-		return types.ErrorResult(
-			fmt.Errorf("rate limit exceeded"),
-			types.TooManyRequests,
-		), nil
+	// Extract key using KeyExtractor
+	key := "global"
+	if f.config.KeyExtractor != nil {
+		key = f.config.KeyExtractor(ctx)
 	}
-
-	// Track processing
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime).Microseconds()
-		_ = duration // Statistics tracking would go here
-	}()
-
-	// Pass through
+	
+	// Get or create limiter for key
+	limiterI, _ := f.limiters.LoadOrStore(key, f.createLimiter())
+	limiter := limiterI.(RateLimiter)
+	
+	// Try to acquire permit
+	allowed := limiter.TryAcquire(1)
+	
+	// Update statistics
+	f.updateStats(key, allowed)
+	
+	// Return rate limit error if exceeded
+	if !allowed {
+		return f.handleRateLimitExceeded(key)
+	}
+	
+	// Process normally if allowed
 	return types.ContinueWith(data), nil
+}
+
+// createLimiter creates a new rate limiter based on configured algorithm.
+func (f *RateLimitFilter) createLimiter() RateLimiter {
+	switch f.config.Algorithm {
+	case "token-bucket":
+		return NewTokenBucket(
+			float64(f.config.BurstSize),
+			float64(f.config.RequestsPerSecond),
+		)
+	case "sliding-window":
+		limit := int(f.config.RequestsPerSecond * int(f.config.WindowSize.Seconds()))
+		return NewSlidingWindow(limit, f.config.WindowSize)
+	case "fixed-window":
+		limit := int(f.config.RequestsPerSecond * int(f.config.WindowSize.Seconds()))
+		return NewFixedWindow(limit, f.config.WindowSize)
+	default:
+		// Default to token bucket
+		return NewTokenBucket(
+			float64(f.config.BurstSize),
+			float64(f.config.RequestsPerSecond),
+		)
+	}
+}
+
+// updateStats updates rate limiting statistics.
+func (f *RateLimitFilter) updateStats(key string, allowed bool) {
+	f.statsMu.Lock()
+	defer f.statsMu.Unlock()
+	
+	f.stats.TotalRequests++
+	
+	if allowed {
+		f.stats.AllowedRequests++
+	} else {
+		f.stats.DeniedRequests++
+	}
+	
+	// Update per-key stats
+	keyStats, exists := f.stats.ByKeyStats[key]
+	if !exists {
+		keyStats = &KeyStatistics{}
+		f.stats.ByKeyStats[key] = keyStats
+	}
+	
+	if allowed {
+		keyStats.Allowed++
+	} else {
+		keyStats.Denied++
+	}
+	keyStats.LastSeen = time.Now()
 }
 
 // allowRequest checks if a request is allowed under the rate limit.
