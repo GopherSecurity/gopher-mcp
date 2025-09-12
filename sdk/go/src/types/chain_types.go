@@ -110,3 +110,33 @@ func (c *ChainConfig) Validate() []error {
 
 	return errors
 }
+
+// ChainStatistics tracks performance metrics for a filter chain.
+type ChainStatistics struct {
+	// TotalExecutions is the total number of chain executions.
+	TotalExecutions uint64 `json:"total_executions"`
+
+	// SuccessCount is the number of successful executions.
+	SuccessCount uint64 `json:"success_count"`
+
+	// ErrorCount is the number of failed executions.
+	ErrorCount uint64 `json:"error_count"`
+
+	// AverageLatency is the average execution time.
+	AverageLatency time.Duration `json:"average_latency"`
+
+	// P50Latency is the 50th percentile latency.
+	P50Latency time.Duration `json:"p50_latency"`
+
+	// P90Latency is the 90th percentile latency.
+	P90Latency time.Duration `json:"p90_latency"`
+
+	// P99Latency is the 99th percentile latency.
+	P99Latency time.Duration `json:"p99_latency"`
+
+	// CurrentLoad is the current number of active executions.
+	CurrentLoad int32 `json:"current_load"`
+
+	// FilterStats contains statistics for each filter in the chain.
+	FilterStats map[string]FilterStatistics `json:"filter_stats"`
+}
