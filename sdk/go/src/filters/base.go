@@ -136,3 +136,34 @@ func (fb *FilterBase) Initialize(config types.FilterConfig) error {
 
 	return nil
 }
+
+// Close performs cleanup and sets the disposed flag.
+// Idempotent - safe to call multiple times.
+func (fb *FilterBase) Close() error {
+	// Atomically set disposed flag
+	if !atomic.CompareAndSwapInt32(&fb.disposed, 0, 1) {
+		// Already disposed
+		return nil
+	}
+
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+
+	// Clear resources
+	fb.stats = types.FilterStatistics{}
+	fb.config = types.FilterConfig{}
+
+	return nil
+}
+
+// GetStats returns the current filter statistics.
+func (fb *FilterBase) GetStats() types.FilterStatistics {
+	fb.mu.RLock()
+	defer fb.mu.RUnlock()
+	return fb.stats
+}
+
+// IsDisposed checks if the filter has been disposed.
+func (fb *FilterBase) IsDisposed() bool {
+	return atomic.LoadInt32(&fb.disposed) != 0
+}
