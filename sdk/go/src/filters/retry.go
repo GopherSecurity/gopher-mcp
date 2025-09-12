@@ -3,8 +3,11 @@ package filters
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,6 +91,7 @@ type RetryFilter struct {
 	
 	// Statistics tracking
 	stats RetryStatistics
+	statsMu sync.RWMutex
 	
 	// Backoff strategy
 	backoff BackoffStrategy
@@ -312,4 +316,162 @@ func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
 // Reset resets the previous delay.
 func (djb *DecorrelatedJitterBackoff) Reset() {
 	djb.previousDelay = 0
+}
+
+// Process implements the Filter interface with retry logic.
+func (f *RetryFilter) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
+	var lastErr error
+	var lastResult *types.FilterResult
+	
+	// Reset retry count for new request
+	f.retryCount.Store(0)
+	
+	// Main retry loop
+	for attempt := 1; attempt <= f.config.MaxAttempts || f.config.MaxAttempts == 0; attempt++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		
+		// Process attempt
+		result, err := f.processAttempt(ctx, data)
+		
+		// Success - return immediately
+		if err == nil && result != nil && result.Status != types.Error {
+			f.recordSuccess(attempt)
+			return result, nil
+		}
+		
+		// Store last error and result
+		lastErr = err
+		lastResult = result
+		f.lastError.Store(lastErr)
+		
+		// Check if we should retry
+		if !f.shouldRetry(err, result, attempt) {
+			f.recordFailure(attempt, "not_retryable")
+			break
+		}
+		
+		// Don't sleep after last attempt
+		if attempt >= f.config.MaxAttempts && f.config.MaxAttempts > 0 {
+			f.recordFailure(attempt, "max_attempts")
+			break
+		}
+		
+		// Calculate backoff delay
+		delay := f.backoff.NextDelay(attempt)
+		
+		// Record delay in statistics
+		f.recordDelay(delay)
+		
+		// Sleep with context cancellation check
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+			// Continue to next attempt
+		}
+		
+		// Increment retry count
+		f.retryCount.Add(1)
+	}
+	
+	// All attempts failed
+	if lastErr != nil {
+		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", 
+			f.retryCount.Load()+1, lastErr)
+	}
+	
+	return lastResult, nil
+}
+
+// processAttempt simulates processing (would call actual downstream).
+func (f *RetryFilter) processAttempt(ctx context.Context, data []byte) (*types.FilterResult, error) {
+	// In real implementation, this would call the next filter or service
+	// For now, simulate with a simple pass-through
+	return types.ContinueWith(data), nil
+}
+
+// shouldRetry determines if an error is retryable.
+func (f *RetryFilter) shouldRetry(err error, result *types.FilterResult, attempt int) bool {
+	if err == nil && result != nil && result.Status != types.Error {
+		return false // Success, no retry needed
+	}
+	
+	// Check if error is in retryable list
+	if len(f.config.RetryableErrors) > 0 {
+		for _, retryableErr := range f.config.RetryableErrors {
+			if errors.Is(err, retryableErr) {
+				return true
+			}
+		}
+		return false // Not in retryable list
+	}
+	
+	// Check status codes if result available
+	if result != nil && len(f.config.RetryableStatusCodes) > 0 {
+		if statusCode, ok := result.Metadata["status_code"].(int); ok {
+			for _, code := range f.config.RetryableStatusCodes {
+				if statusCode == code {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	
+	// Default: retry all errors
+	return err != nil || (result != nil && result.Status == types.Error)
+}
+
+// recordSuccess records successful retry.
+func (f *RetryFilter) recordSuccess(attempts int) {
+	f.statsMu.Lock()
+	defer f.statsMu.Unlock()
+	
+	f.stats.TotalAttempts += uint64(attempts)
+	if attempts > 1 {
+		f.stats.SuccessfulRetries++
+	}
+}
+
+// recordFailure records failed retry.
+func (f *RetryFilter) recordFailure(attempts int, reason string) {
+	f.statsMu.Lock()
+	defer f.statsMu.Unlock()
+	
+	f.stats.TotalAttempts += uint64(attempts)
+	f.stats.FailedRetries++
+	
+	if f.stats.RetryReasons == nil {
+		f.stats.RetryReasons = make(map[string]uint64)
+	}
+	f.stats.RetryReasons[reason]++
+}
+
+// recordDelay records backoff delay.
+func (f *RetryFilter) recordDelay(delay time.Duration) {
+	f.statsMu.Lock()
+	defer f.statsMu.Unlock()
+	
+	f.stats.BackoffDelays = append(f.stats.BackoffDelays, delay)
+	
+	// Update max delay
+	if delay > f.stats.MaxDelay {
+		f.stats.MaxDelay = delay
+	}
+	
+	// Calculate average
+	var total time.Duration
+	for _, d := range f.stats.BackoffDelays {
+		total += d
+	}
+	if len(f.stats.BackoffDelays) > 0 {
+		f.stats.AverageDelay = total / time.Duration(len(f.stats.BackoffDelays))
+	}
 }
