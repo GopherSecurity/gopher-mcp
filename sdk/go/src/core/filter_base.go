@@ -156,3 +156,80 @@ func (fb *FilterBase) Close() error {
 
 	return nil
 }
+
+// isDisposed checks if the filter has been closed.
+// Returns true if the filter is disposed and should not process data.
+func (fb *FilterBase) isDisposed() bool {
+	return atomic.LoadInt32(&fb.disposed) != 0
+}
+
+// checkDisposed returns an error if the filter is disposed.
+// This should be called at the start of any operation that requires
+// the filter to be active.
+func (fb *FilterBase) checkDisposed() error {
+	if fb.isDisposed() {
+		return types.FilterError(types.ServiceUnavailable)
+	}
+	return nil
+}
+
+// updateStats updates the filter statistics with new processing information.
+// This method is thread-safe and can be called concurrently.
+//
+// Parameters:
+//   - bytesProcessed: Number of bytes processed in this operation
+//   - processingTimeUs: Time taken for processing in microseconds
+//   - isError: Whether this operation resulted in an error
+func (fb *FilterBase) updateStats(bytesProcessed uint64, processingTimeUs uint64, isError bool) {
+	fb.statsLock.Lock()
+	defer fb.statsLock.Unlock()
+
+	// Update counters
+	fb.stats.BytesProcessed += bytesProcessed
+	fb.stats.ProcessCount++
+	
+	if isError {
+		fb.stats.ErrorCount++
+	} else {
+		fb.stats.PacketsProcessed++
+	}
+
+	// Update timing statistics
+	fb.stats.ProcessingTimeUs += processingTimeUs
+	
+	// Update average processing time
+	if fb.stats.ProcessCount > 0 {
+		fb.stats.AverageProcessingTimeUs = float64(fb.stats.ProcessingTimeUs) / float64(fb.stats.ProcessCount)
+	}
+
+	// Update max processing time
+	if processingTimeUs > fb.stats.MaxProcessingTimeUs {
+		fb.stats.MaxProcessingTimeUs = processingTimeUs
+	}
+
+	// Update min processing time (initialize on first call)
+	if fb.stats.MinProcessingTimeUs == 0 || processingTimeUs < fb.stats.MinProcessingTimeUs {
+		fb.stats.MinProcessingTimeUs = processingTimeUs
+	}
+
+	// Update buffer usage if applicable
+	if bytesProcessed > 0 {
+		fb.stats.CurrentBufferUsage = bytesProcessed
+		if bytesProcessed > fb.stats.PeakBufferUsage {
+			fb.stats.PeakBufferUsage = bytesProcessed
+		}
+	}
+
+	// Calculate throughput (bytes per second)
+	if processingTimeUs > 0 {
+		fb.stats.ThroughputBps = float64(bytesProcessed) * 1000000.0 / float64(processingTimeUs)
+	}
+}
+
+// ResetStats clears all statistics for this filter.
+// This is useful for benchmarking or after configuration changes.
+func (fb *FilterBase) ResetStats() {
+	fb.statsLock.Lock()
+	defer fb.statsLock.Unlock()
+	fb.stats = types.FilterStatistics{}
+}
