@@ -290,3 +290,49 @@ type ChainEventData struct {
 	// Metadata contains additional event-specific data.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// ChainEventArgs provides context for chain events.
+// It contains essential information about the chain and execution.
+type ChainEventArgs struct {
+	// ChainName is the unique identifier of the chain.
+	ChainName string `json:"chain_name"`
+
+	// State is the current state of the chain.
+	State ChainState `json:"state"`
+
+	// ExecutionID is a unique identifier for this execution instance.
+	ExecutionID string `json:"execution_id"`
+
+	// Timestamp is when the event was created.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Metadata contains additional context-specific data.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// NewChainEventArgs creates a new ChainEventArgs with the provided details.
+// It automatically sets the timestamp to the current time.
+func NewChainEventArgs(chainName string, state ChainState, executionID string) *ChainEventArgs {
+	return &ChainEventArgs{
+		ChainName:   chainName,
+		State:       state,
+		ExecutionID: executionID,
+		Timestamp:   time.Now(),
+		Metadata:    make(map[string]interface{}),
+	}
+}
+
+// WithMetadata adds metadata to the event args and returns the args for chaining.
+func (e *ChainEventArgs) WithMetadata(key string, value interface{}) *ChainEventArgs {
+	if e.Metadata == nil {
+		e.Metadata = make(map[string]interface{})
+	}
+	e.Metadata[key] = value
+	return e
+}
+
+// String returns a string representation of the ChainEventArgs.
+func (e *ChainEventArgs) String() string {
+	return fmt.Sprintf("ChainEvent{Chain: %s, State: %s, ExecutionID: %s, Time: %s}",
+		e.ChainName, e.State, e.ExecutionID, e.Timestamp.Format(time.RFC3339))
+}
