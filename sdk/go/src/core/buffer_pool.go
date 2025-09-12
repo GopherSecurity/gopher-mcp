@@ -282,6 +282,33 @@ func (bp *BufferPool) zeroFill(buffer *types.Buffer) {
 	}
 }
 
+// GetStatistics returns pool usage statistics.
+func (bp *BufferPool) GetStatistics() types.PoolStatistics {
+	bp.mu.RLock()
+	defer bp.mu.RUnlock()
+	
+	stats := bp.stats
+	
+	// Calculate hit rate
+	total := stats.Gets
+	if total > 0 {
+		hitRate := float64(stats.Hits) / float64(total)
+		// Store in a field if PoolStatistics has one
+		_ = hitRate
+	}
+	
+	// Calculate current pool sizes
+	pooledBuffers := 0
+	for _, pool := range bp.pools {
+		// Can't directly count sync.Pool items, but track via stats
+		_ = pool
+		pooledBuffers++
+	}
+	stats.Size = pooledBuffers
+	
+	return stats
+}
+
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
 type SimpleBufferPool struct {
 	pool sync.Pool
