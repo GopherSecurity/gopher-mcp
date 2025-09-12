@@ -4,6 +4,7 @@ package filters
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
@@ -54,4 +55,47 @@ func (fb *FilterBase) Type() string {
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
 	return fb.filterType
+}
+
+// updateStats atomically updates filter statistics.
+// Tracks processing metrics including min/max/average times.
+func (fb *FilterBase) updateStats(processed int64, errors int64, duration time.Duration) {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+
+	// Update counters
+	if processed > 0 {
+		fb.stats.BytesProcessed += uint64(processed)
+		fb.stats.PacketsProcessed++
+	}
+
+	if errors > 0 {
+		fb.stats.ErrorCount += uint64(errors)
+	}
+
+	fb.stats.ProcessCount++
+
+	// Update timing statistics
+	durationUs := uint64(duration.Microseconds())
+	fb.stats.ProcessingTimeUs += durationUs
+
+	// Update min processing time
+	if fb.stats.MinProcessingTimeUs == 0 || durationUs < fb.stats.MinProcessingTimeUs {
+		fb.stats.MinProcessingTimeUs = durationUs
+	}
+
+	// Update max processing time
+	if durationUs > fb.stats.MaxProcessingTimeUs {
+		fb.stats.MaxProcessingTimeUs = durationUs
+	}
+
+	// Calculate average processing time
+	if fb.stats.ProcessCount > 0 {
+		fb.stats.AverageProcessingTimeUs = float64(fb.stats.ProcessingTimeUs) / float64(fb.stats.ProcessCount)
+	}
+
+	// Calculate throughput
+	if fb.stats.ProcessingTimeUs > 0 {
+		fb.stats.ThroughputBps = float64(fb.stats.BytesProcessed) * 1000000.0 / float64(fb.stats.ProcessingTimeUs)
+	}
 }
