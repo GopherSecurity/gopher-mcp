@@ -226,6 +226,8 @@ type RateLimitStatistics struct {
 	DeniedRequests  uint64
 	ActiveLimiters  int
 	ByKeyStats      map[string]*KeyStatistics
+	AllowRate       float64 // Percentage of allowed requests
+	DenyRate        float64 // Percentage of denied requests
 }
 
 // KeyStatistics tracks per-key rate limit metrics.
@@ -495,3 +497,36 @@ func (f *RateLimitFilter) Close() error {
 	
 	return nil
 }
+
+// GetStatistics returns current rate limiting statistics.
+func (f *RateLimitFilter) GetStatistics() RateLimitStatistics {
+	f.statsMu.RLock()
+	defer f.statsMu.RUnlock()
+	
+	// Create a copy of statistics
+	statsCopy := RateLimitStatistics{
+		TotalRequests:   f.stats.TotalRequests,
+		AllowedRequests: f.stats.AllowedRequests,
+		DeniedRequests:  f.stats.DeniedRequests,
+		ActiveLimiters:  f.stats.ActiveLimiters,
+		ByKeyStats:      make(map[string]*KeyStatistics),
+	}
+	
+	// Copy per-key statistics
+	for key, keyStats := range f.stats.ByKeyStats {
+		statsCopy.ByKeyStats[key] = &KeyStatistics{
+			Allowed:  keyStats.Allowed,
+			Denied:   keyStats.Denied,
+			LastSeen: keyStats.LastSeen,
+		}
+	}
+	
+	// Calculate rates and percentages
+	if statsCopy.TotalRequests > 0 {
+		statsCopy.AllowRate = float64(statsCopy.AllowedRequests) / float64(statsCopy.TotalRequests) * 100.0
+		statsCopy.DenyRate = float64(statsCopy.DeniedRequests) / float64(statsCopy.TotalRequests) * 100.0
+	}
+	
+	return statsCopy
+}
+
