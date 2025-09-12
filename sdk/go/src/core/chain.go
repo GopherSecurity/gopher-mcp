@@ -40,7 +40,14 @@ type FilterChain struct {
 	mode types.ExecutionMode
 
 	// mu protects concurrent access to filters and chain state.
-	// Use RLock for read operations, Lock for modifications.
+	// Lock ordering to prevent deadlocks:
+	//   1. Always acquire mu before any filter-specific locks
+	//   2. Never hold mu while calling filter.Process()
+	//   3. Use RLock for read operations (getting filters, stats)
+	//   4. Use Lock for modifications (add, remove, state changes)
+	// Common patterns:
+	//   - Read filters: mu.RLock() -> copy slice -> mu.RUnlock() -> process
+	//   - Modify chain: mu.Lock() -> validate -> modify -> mu.Unlock()
 	mu sync.RWMutex
 
 	// stats tracks performance metrics for the chain.
