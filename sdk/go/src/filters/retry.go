@@ -163,3 +163,63 @@ func (eb *ExponentialBackoff) addJitter(delay float64, factor float64) float64 {
 func (eb *ExponentialBackoff) Reset() {
 	// Stateless strategy, nothing to reset
 }
+
+// LinearBackoff implements linear backoff strategy.
+type LinearBackoff struct {
+	InitialDelay time.Duration
+	Increment    time.Duration
+	MaxDelay     time.Duration
+	JitterFactor float64
+}
+
+// NewLinearBackoff creates a new linear backoff strategy.
+func NewLinearBackoff(initial, increment, max time.Duration) *LinearBackoff {
+	return &LinearBackoff{
+		InitialDelay: initial,
+		Increment:    increment,
+		MaxDelay:     max,
+		JitterFactor: 0.1, // 10% jitter by default
+	}
+}
+
+// NextDelay calculates the next retry delay.
+func (lb *LinearBackoff) NextDelay(attempt int) time.Duration {
+	if attempt <= 0 {
+		return 0
+	}
+	
+	// Calculate linear delay: initialDelay + (increment * attempt)
+	delay := lb.InitialDelay + time.Duration(attempt-1)*lb.Increment
+	
+	// Cap at max delay
+	if delay > lb.MaxDelay {
+		delay = lb.MaxDelay
+	}
+	
+	// Add jitter if configured
+	if lb.JitterFactor > 0 {
+		delayFloat := float64(delay)
+		delayFloat = lb.addJitter(delayFloat, lb.JitterFactor)
+		delay = time.Duration(delayFloat)
+	}
+	
+	return delay
+}
+
+// addJitter adds random jitter to the delay.
+func (lb *LinearBackoff) addJitter(delay float64, factor float64) float64 {
+	jitterRange := delay * factor
+	jitter := (rand.Float64()*2 - 1) * jitterRange
+	
+	result := delay + jitter
+	if result < 0 {
+		result = 0
+	}
+	
+	return result
+}
+
+// Reset resets the backoff state (no-op for stateless strategy).
+func (lb *LinearBackoff) Reset() {
+	// Stateless strategy, nothing to reset
+}
