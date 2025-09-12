@@ -374,6 +374,222 @@ func (mr *MetricsRegistry) Stop() {
 	}
 }
 
+// CustomMetrics provides typed methods for recording custom metrics.
+type CustomMetrics struct {
+	namespace string
+	registry  *MetricsRegistry
+	tags      map[string]string
+	mu        sync.RWMutex
+}
+
+// NewCustomMetrics creates a new custom metrics recorder.
+func NewCustomMetrics(namespace string, registry *MetricsRegistry) *CustomMetrics {
+	return &CustomMetrics{
+		namespace: namespace,
+		registry:  registry,
+		tags:      make(map[string]string),
+	}
+}
+
+// WithTags returns a new CustomMetrics instance with additional tags.
+func (cm *CustomMetrics) WithTags(tags map[string]string) *CustomMetrics {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	// Merge tags
+	newTags := make(map[string]string)
+	for k, v := range cm.tags {
+		newTags[k] = v
+	}
+	for k, v := range tags {
+		newTags[k] = v
+	}
+	
+	return &CustomMetrics{
+		namespace: cm.namespace,
+		registry:  cm.registry,
+		tags:      newTags,
+	}
+}
+
+// Counter increments a counter metric.
+func (cm *CustomMetrics) Counter(name string, value int64) {
+	metricName := cm.buildMetricName(name)
+	cm.registry.RecordMetric(metricName, value, cm.tags)
+}
+
+// Gauge sets a gauge metric to a specific value.
+func (cm *CustomMetrics) Gauge(name string, value float64) {
+	metricName := cm.buildMetricName(name)
+	cm.registry.RecordMetric(metricName, value, cm.tags)
+}
+
+// Histogram records a value in a histogram.
+func (cm *CustomMetrics) Histogram(name string, value float64) {
+	metricName := cm.buildMetricName(name)
+	cm.registry.RecordMetric(metricName+".histogram", value, cm.tags)
+}
+
+// Timer records a duration metric.
+func (cm *CustomMetrics) Timer(name string, duration time.Duration) {
+	metricName := cm.buildMetricName(name)
+	cm.registry.RecordMetric(metricName+".timer", duration, cm.tags)
+}
+
+// Summary records a summary statistic.
+func (cm *CustomMetrics) Summary(name string, value float64, quantiles map[float64]float64) {
+	metricName := cm.buildMetricName(name)
+	
+	// Record the value
+	cm.registry.RecordMetric(metricName, value, cm.tags)
+	
+	// Record quantiles
+	for q, v := range quantiles {
+		quantileTag := fmt.Sprintf("quantile=%.2f", q)
+		tags := make(map[string]string)
+		for k, v := range cm.tags {
+			tags[k] = v
+		}
+		tags["quantile"] = quantileTag
+		cm.registry.RecordMetric(metricName+".quantile", v, tags)
+	}
+}
+
+// buildMetricName constructs the full metric name with namespace.
+func (cm *CustomMetrics) buildMetricName(name string) string {
+	if cm.namespace != "" {
+		return cm.namespace + "." + name
+	}
+	return name
+}
+
+// MetricsContext provides context-based metric recording.
+type MetricsContext struct {
+	metrics *CustomMetrics
+	ctx     context.Context
+}
+
+// NewMetricsContext creates a new metrics context.
+func NewMetricsContext(ctx context.Context, metrics *CustomMetrics) *MetricsContext {
+	return &MetricsContext{
+		metrics: metrics,
+		ctx:     ctx,
+	}
+}
+
+// RecordDuration records the duration of an operation.
+func (mc *MetricsContext) RecordDuration(name string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	duration := time.Since(start)
+	
+	mc.metrics.Timer(name, duration)
+	
+	if err != nil {
+		mc.metrics.Counter(name+".errors", 1)
+	} else {
+		mc.metrics.Counter(name+".success", 1)
+	}
+	
+	return err
+}
+
+// RecordValue records a value with automatic type detection.
+func (mc *MetricsContext) RecordValue(name string, value interface{}) {
+	switch v := value.(type) {
+	case int, int64, uint64:
+		mc.metrics.Counter(name, v.(int64))
+	case float64, float32:
+		mc.metrics.Gauge(name, v.(float64))
+	case time.Duration:
+		mc.metrics.Timer(name, v)
+	case bool:
+		val := int64(0)
+		if v {
+			val = 1
+		}
+		mc.metrics.Counter(name, val)
+	}
+}
+
+// contextKey is the type for context keys.
+type contextKey string
+
+const (
+	// MetricsContextKey is the context key for custom metrics.
+	MetricsContextKey contextKey = "custom_metrics"
+)
+
+// WithMetrics adds custom metrics to a context.
+func WithMetrics(ctx context.Context, metrics *CustomMetrics) context.Context {
+	return context.WithValue(ctx, MetricsContextKey, metrics)
+}
+
+// MetricsFromContext retrieves custom metrics from context.
+func MetricsFromContext(ctx context.Context) (*CustomMetrics, bool) {
+	metrics, ok := ctx.Value(MetricsContextKey).(*CustomMetrics)
+	return metrics, ok
+}
+
+// FilterMetricsRecorder allows filters to record custom metrics.
+type FilterMetricsRecorder struct {
+	filter    string
+	namespace string
+	registry  *MetricsRegistry
+	mu        sync.RWMutex
+}
+
+// NewFilterMetricsRecorder creates a new filter metrics recorder.
+func NewFilterMetricsRecorder(filterName string, registry *MetricsRegistry) *FilterMetricsRecorder {
+	return &FilterMetricsRecorder{
+		filter:    filterName,
+		namespace: "filter." + filterName,
+		registry:  registry,
+	}
+}
+
+// Record records a custom metric for the filter.
+func (fmr *FilterMetricsRecorder) Record(metric string, value interface{}, tags map[string]string) {
+	fmr.mu.RLock()
+	defer fmr.mu.RUnlock()
+	
+	// Add filter tag
+	if tags == nil {
+		tags = make(map[string]string)
+	}
+	tags["filter"] = fmr.filter
+	
+	// Build full metric name
+	metricName := fmr.namespace + "." + metric
+	
+	// Record to registry
+	fmr.registry.RecordMetric(metricName, value, tags)
+}
+
+// StartTimer starts a timer for measuring operation duration.
+func (fmr *FilterMetricsRecorder) StartTimer(operation string) func() {
+	start := time.Now()
+	return func() {
+		duration := time.Since(start)
+		fmr.Record(operation+".duration", duration, nil)
+	}
+}
+
+// IncrementCounter increments a counter metric.
+func (fmr *FilterMetricsRecorder) IncrementCounter(name string, delta int64, tags map[string]string) {
+	fmr.Record(name, delta, tags)
+}
+
+// SetGauge sets a gauge metric.
+func (fmr *FilterMetricsRecorder) SetGauge(name string, value float64, tags map[string]string) {
+	fmr.Record(name, value, tags)
+}
+
+// RecordHistogram records a histogram value.
+func (fmr *FilterMetricsRecorder) RecordHistogram(name string, value float64, tags map[string]string) {
+	fmr.Record(name+".histogram", value, tags)
+}
+
 // MetricsConfig configures metrics collection behavior.
 type MetricsConfig struct {
 	// Enabled determines if metrics collection is active
