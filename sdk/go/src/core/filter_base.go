@@ -82,3 +82,77 @@ func (fb *FilterBase) SetType(filterType string) {
 func (fb *FilterBase) GetConfig() types.FilterConfig {
 	return fb.config
 }
+
+// Name returns the unique name of this filter instance.
+// Implements the Filter interface.
+func (fb *FilterBase) Name() string {
+	return fb.name
+}
+
+// Type returns the category or type of this filter.
+// Implements the Filter interface.
+func (fb *FilterBase) Type() string {
+	return fb.filterType
+}
+
+// GetStats returns the current performance statistics for this filter.
+// Uses read lock for thread-safe access.
+// Implements the Filter interface.
+func (fb *FilterBase) GetStats() types.FilterStatistics {
+	fb.statsLock.RLock()
+	defer fb.statsLock.RUnlock()
+	return fb.stats
+}
+
+// Initialize sets up the filter with the provided configuration.
+// Stores the configuration for later use and validates it.
+// Implements the Filter interface.
+func (fb *FilterBase) Initialize(config types.FilterConfig) error {
+	// Check if already disposed
+	if atomic.LoadInt32(&fb.disposed) != 0 {
+		return types.FilterError(types.FilterAlreadyExists)
+	}
+
+	// Validate the configuration
+	if errs := config.Validate(); len(errs) > 0 {
+		return errs[0]
+	}
+
+	// Store the configuration
+	fb.config = config
+
+	// Update name if provided in config
+	if config.Name != "" {
+		fb.name = config.Name
+	}
+
+	// Update type if provided in config
+	if config.Type != "" {
+		fb.filterType = config.Type
+	}
+
+	// Reset statistics
+	fb.statsLock.Lock()
+	fb.stats = types.FilterStatistics{}
+	fb.statsLock.Unlock()
+
+	return nil
+}
+
+// Close performs cleanup operations for the filter.
+// Sets the disposed flag to prevent further operations.
+// Implements the Filter interface.
+func (fb *FilterBase) Close() error {
+	// Set disposed flag using atomic operation
+	if !atomic.CompareAndSwapInt32(&fb.disposed, 0, 1) {
+		// Already disposed
+		return nil
+	}
+
+	// Clear statistics
+	fb.statsLock.Lock()
+	fb.stats = types.FilterStatistics{}
+	fb.statsLock.Unlock()
+
+	return nil
+}
