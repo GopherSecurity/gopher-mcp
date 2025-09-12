@@ -308,3 +308,36 @@ type StatefulFilter interface {
 	//   - error: Any error during state reset
 	ResetState() error
 }
+
+// ConfigurableFilter interface for runtime reconfiguration support.
+// Filters implementing this interface can be reconfigured without restart.
+type ConfigurableFilter interface {
+	Filter
+
+	// UpdateConfig applies a new configuration to the running filter.
+	// The filter should validate and apply the config atomically.
+	//
+	// Parameters:
+	//   - config: The new configuration to apply
+	//
+	// Returns:
+	//   - error: Any error during configuration update
+	UpdateConfig(config types.FilterConfig) error
+
+	// ValidateConfig checks if a configuration is valid without applying it.
+	// This allows pre-validation before attempting updates.
+	//
+	// Parameters:
+	//   - config: The configuration to validate
+	//
+	// Returns:
+	//   - error: Any validation errors found
+	ValidateConfig(config types.FilterConfig) error
+
+	// GetConfigVersion returns the current configuration version.
+	// Useful for tracking configuration changes and debugging.
+	//
+	// Returns:
+	//   - string: The current configuration version identifier
+	GetConfigVersion() string
+}
