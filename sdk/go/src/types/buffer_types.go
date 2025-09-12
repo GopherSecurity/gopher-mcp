@@ -171,3 +171,31 @@ func (s *BufferSlice) SubSlice(start, end int) BufferSlice {
 		length: end - start,
 	}
 }
+
+// Slice creates a new BufferSlice with the specified start and end positions.
+// This method validates bounds and handles edge cases to prevent panics.
+func (s *BufferSlice) Slice(start, end int) BufferSlice {
+	if s == nil {
+		return BufferSlice{}
+	}
+	
+	// Validate and adjust bounds
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		return BufferSlice{}
+	}
+	if start > s.length {
+		return BufferSlice{}
+	}
+	if end > s.length {
+		end = s.length
+	}
+	
+	return BufferSlice{
+		buffer: s.buffer,
+		offset: s.offset + start,
+		length: end - start,
+	}
+}
