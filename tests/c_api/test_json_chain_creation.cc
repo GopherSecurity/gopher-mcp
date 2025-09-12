@@ -181,7 +181,7 @@ TEST_F(JsonChainCreationTest, ProcessBuffer) {
     // Create a test buffer
     const char* test_data = "GET /test HTTP/1.1\r\n\r\n";
     auto buffer = mcp_buffer_create(strlen(test_data));
-    mcp_buffer_write(buffer, test_data, strlen(test_data));
+    mcp_buffer_append(buffer, reinterpret_cast<const uint8_t*>(test_data), strlen(test_data));
     
     // Create metadata
     mcp_protocol_metadata_t metadata = {
