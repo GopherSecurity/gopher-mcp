@@ -69,3 +69,44 @@ type ChainConfig struct {
 	// EnableTracing enables execution tracing for debugging.
 	EnableTracing bool `json:"enable_tracing"`
 }
+
+// Validate checks if the ChainConfig contains valid values.
+// It returns descriptive errors for any validation failures.
+func (c *ChainConfig) Validate() []error {
+	var errors []error
+
+	// Check Name is not empty
+	if c.Name == "" {
+		errors = append(errors, fmt.Errorf("chain name cannot be empty"))
+	}
+
+	// Check MaxConcurrency for parallel mode
+	if c.ExecutionMode == Parallel && c.MaxConcurrency <= 0 {
+		errors = append(errors, fmt.Errorf("max concurrency must be > 0 for parallel mode"))
+	}
+
+	// Check BufferSize for pipeline mode
+	if c.ExecutionMode == Pipeline && c.BufferSize <= 0 {
+		errors = append(errors, fmt.Errorf("buffer size must be > 0 for pipeline mode"))
+	}
+
+	// Validate ErrorHandling
+	validErrorHandling := map[string]bool{
+		"fail-fast": true,
+		"continue":  true,
+		"isolate":   true,
+	}
+	if c.ErrorHandling != "" && !validErrorHandling[c.ErrorHandling] {
+		errors = append(errors, fmt.Errorf("invalid error handling: %s (must be fail-fast, continue, or isolate)", c.ErrorHandling))
+	}
+
+	// Check Timeout is reasonable
+	if c.Timeout < 0 {
+		errors = append(errors, fmt.Errorf("timeout cannot be negative"))
+	}
+	if c.Timeout > 0 && c.Timeout < time.Millisecond {
+		errors = append(errors, fmt.Errorf("timeout too small: %v (minimum 1ms)", c.Timeout))
+	}
+
+	return errors
+}
