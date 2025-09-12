@@ -329,3 +329,52 @@ func (c *FilterConfig) Validate() []error {
 
 	return errors
 }
+
+// FilterStatistics tracks performance metrics for a filter.
+// All fields should be accessed atomically in concurrent environments.
+type FilterStatistics struct {
+	// BytesProcessed is the total number of bytes processed by the filter.
+	BytesProcessed uint64 `json:"bytes_processed"`
+
+	// PacketsProcessed is the total number of packets/messages processed.
+	PacketsProcessed uint64 `json:"packets_processed"`
+
+	// ProcessCount is the total number of times the filter has been invoked.
+	ProcessCount uint64 `json:"process_count"`
+
+	// ErrorCount is the total number of errors encountered.
+	ErrorCount uint64 `json:"error_count"`
+
+	// ProcessingTimeUs is the total processing time in microseconds.
+	ProcessingTimeUs uint64 `json:"processing_time_us"`
+
+	// AverageProcessingTimeUs is the average processing time per invocation.
+	AverageProcessingTimeUs float64 `json:"average_processing_time_us"`
+
+	// MaxProcessingTimeUs is the maximum processing time recorded.
+	MaxProcessingTimeUs uint64 `json:"max_processing_time_us"`
+
+	// MinProcessingTimeUs is the minimum processing time recorded.
+	MinProcessingTimeUs uint64 `json:"min_processing_time_us"`
+
+	// CurrentBufferUsage is the current buffer memory usage in bytes.
+	CurrentBufferUsage uint64 `json:"current_buffer_usage"`
+
+	// PeakBufferUsage is the peak buffer memory usage in bytes.
+	PeakBufferUsage uint64 `json:"peak_buffer_usage"`
+
+	// ThroughputBps is the current throughput in bytes per second.
+	ThroughputBps float64 `json:"throughput_bps"`
+}
+
+// String returns a human-readable summary of the filter statistics.
+func (s *FilterStatistics) String() string {
+	return fmt.Sprintf(
+		"FilterStats{Processed: %d bytes/%d packets, Invocations: %d, Errors: %d, "+
+			"AvgTime: %.2fμs, MaxTime: %dμs, MinTime: %dμs, "+
+			"BufferUsage: %d/%d bytes, Throughput: %.2f B/s}",
+		s.BytesProcessed, s.PacketsProcessed, s.ProcessCount, s.ErrorCount,
+		s.AverageProcessingTimeUs, s.MaxProcessingTimeUs, s.MinProcessingTimeUs,
+		s.CurrentBufferUsage, s.PeakBufferUsage, s.ThroughputBps,
+	)
+}
