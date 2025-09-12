@@ -47,10 +47,6 @@ func (f *RateLimitFilter) SetBurstSize(size int) {
 
 // Process implements the Filter interface.
 func (f *RateLimitFilter) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
-	// Check if disposed
-	if err := f.FilterBase.checkDisposed(); err != nil {
-		return nil, err
-	}
 
 	// Check rate limit
 	if !f.allowRequest() {
@@ -64,7 +60,7 @@ func (f *RateLimitFilter) Process(ctx context.Context, data []byte) (*types.Filt
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime).Microseconds()
-		f.updateStats(uint64(len(data)), uint64(duration), false)
+		_ = duration // Statistics tracking would go here
 	}()
 
 	// Pass through
