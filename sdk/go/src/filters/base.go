@@ -2,12 +2,16 @@
 package filters
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
+
+// ErrFilterDisposed is returned when operations are attempted on a disposed filter.
+var ErrFilterDisposed = errors.New("filter has been disposed")
 
 // FilterBase provides a base implementation for filters.
 // It's designed to be embedded in concrete filter implementations.
@@ -44,6 +48,9 @@ func NewFilterBase(name, filterType string) *FilterBase {
 // Name returns the filter's unique name.
 // Thread-safe with read lock protection.
 func (fb *FilterBase) Name() string {
+	if err := fb.ThrowIfDisposed(); err != nil {
+		return ""
+	}
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
 	return fb.name
@@ -52,6 +59,9 @@ func (fb *FilterBase) Name() string {
 // Type returns the filter's category type.
 // Used for metrics collection and logging.
 func (fb *FilterBase) Type() string {
+	if err := fb.ThrowIfDisposed(); err != nil {
+		return ""
+	}
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
 	return fb.filterType
@@ -104,8 +114,8 @@ func (fb *FilterBase) updateStats(processed int64, errors int64, duration time.D
 // Returns error if already initialized or disposed.
 func (fb *FilterBase) Initialize(config types.FilterConfig) error {
 	// Check if disposed
-	if atomic.LoadInt32(&fb.disposed) != 0 {
-		return types.FilterError(types.ServiceUnavailable)
+	if err := fb.ThrowIfDisposed(); err != nil {
+		return err
 	}
 
 	fb.mu.Lock()
@@ -158,6 +168,9 @@ func (fb *FilterBase) Close() error {
 
 // GetStats returns the current filter statistics.
 func (fb *FilterBase) GetStats() types.FilterStatistics {
+	if err := fb.ThrowIfDisposed(); err != nil {
+		return types.FilterStatistics{}
+	}
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
 	return fb.stats
@@ -166,4 +179,13 @@ func (fb *FilterBase) GetStats() types.FilterStatistics {
 // IsDisposed checks if the filter has been disposed.
 func (fb *FilterBase) IsDisposed() bool {
 	return atomic.LoadInt32(&fb.disposed) != 0
+}
+
+// ThrowIfDisposed checks if filter is disposed and returns error if true.
+// This should be called at the start of all public operations.
+func (fb *FilterBase) ThrowIfDisposed() error {
+	if atomic.LoadInt32(&fb.disposed) != 0 {
+		return ErrFilterDisposed
+	}
+	return nil
 }
