@@ -131,6 +131,9 @@ func (f *MetricsFilter) Process(ctx context.Context, data []byte) (*types.Filter
 	// Record latency
 	f.collector.RecordLatency(metricName+".latency", duration)
 	
+	// Track percentiles
+	f.trackLatencyPercentiles(metricName, duration)
+	
 	// Record in histogram if enabled
 	if f.config.IncludeHistograms {
 		f.collector.RecordHistogram(metricName+".duration_ms", float64(duration.Milliseconds()))
@@ -229,4 +232,82 @@ func (f *MetricsFilter) exportLoop() {
 type errorRateTracker struct {
 	total  uint64
 	errors uint64
+}
+
+// PercentileTracker tracks latency percentiles.
+type PercentileTracker struct {
+	values []float64
+	mu     sync.RWMutex
+	sorted bool
+}
+
+// NewPercentileTracker creates a new percentile tracker.
+func NewPercentileTracker() *PercentileTracker {
+	return &PercentileTracker{
+		values: make([]float64, 0, 1000),
+	}
+}
+
+// Add adds a value to the tracker.
+func (pt *PercentileTracker) Add(value float64) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	pt.values = append(pt.values, value)
+	pt.sorted = false
+}
+
+// GetPercentile calculates the given percentile (0-100).
+func (pt *PercentileTracker) GetPercentile(p float64) float64 {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	
+	if len(pt.values) == 0 {
+		return 0
+	}
+	
+	if !pt.sorted {
+		// Sort values for percentile calculation
+		for i := 0; i < len(pt.values); i++ {
+			for j := i + 1; j < len(pt.values); j++ {
+				if pt.values[i] > pt.values[j] {
+					pt.values[i], pt.values[j] = pt.values[j], pt.values[i]
+				}
+			}
+		}
+		pt.sorted = true
+	}
+	
+	index := int(float64(len(pt.values)-1) * p / 100.0)
+	return pt.values[index]
+}
+
+// trackLatencyPercentiles tracks P50, P90, P95, P99.
+func (f *MetricsFilter) trackLatencyPercentiles(name string, duration time.Duration) {
+	if !f.config.IncludePercentiles {
+		return
+	}
+	
+	key := name + ".percentiles"
+	
+	// Get or create percentile tracker
+	var tracker *PercentileTracker
+	if v, ok := f.stats[key]; ok {
+		tracker = v.Load().(*PercentileTracker)
+	} else {
+		tracker = NewPercentileTracker()
+		var v atomic.Value
+		v.Store(tracker)
+		f.mu.Lock()
+		f.stats[key] = v
+		f.mu.Unlock()
+	}
+	
+	// Add value
+	tracker.Add(float64(duration.Microseconds()))
+	
+	// Export percentiles
+	f.collector.SetGauge(name+".p50", tracker.GetPercentile(50))
+	f.collector.SetGauge(name+".p90", tracker.GetPercentile(90))
+	f.collector.SetGauge(name+".p95", tracker.GetPercentile(95))
+	f.collector.SetGauge(name+".p99", tracker.GetPercentile(99))
 }
