@@ -354,3 +354,64 @@ func (f *CircuitBreakerFilter) processDownstream(ctx context.Context, data []byt
 	// For demonstration, we'll just pass through
 	return types.ContinueWith(data)
 }
+
+// RecordSuccess records a successful operation externally.
+// Public method to record outcomes from external sources.
+func (f *CircuitBreakerFilter) RecordSuccess() {
+	currentState := f.state.Load().(State)
+	
+	switch currentState {
+	case Closed:
+		// In closed state, reset failure count on success
+		if f.failures.Load() > 0 {
+			f.failures.Store(0)
+		}
+		// Increment success counter
+		f.successes.Add(1)
+		
+	case HalfOpen:
+		// In half-open, increment success counter
+		f.successes.Add(1)
+		
+		// Check if we should transition to closed
+		if f.shouldTransitionToClosed() {
+			f.transitionTo(Closed)
+		}
+	}
+	
+	// Update sliding window
+	f.windowMu.Lock()
+	f.slidingWindow.Value = true
+	f.slidingWindow = f.slidingWindow.Next()
+	f.windowMu.Unlock()
+}
+
+// RecordFailure records a failed operation externally.
+// Public method to record outcomes from external sources.
+func (f *CircuitBreakerFilter) RecordFailure() {
+	currentState := f.state.Load().(State)
+	
+	// Increment failure counter
+	f.failures.Add(1)
+	
+	// Update sliding window
+	f.windowMu.Lock()
+	f.slidingWindow.Value = false
+	f.slidingWindow = f.slidingWindow.Next()
+	f.windowMu.Unlock()
+	
+	switch currentState {
+	case Closed:
+		// Check thresholds for opening
+		if f.shouldTransitionToOpen() {
+			f.transitionTo(Open)
+		}
+		
+	case HalfOpen:
+		// Any failure in half-open immediately opens
+		f.transitionTo(Open)
+		
+	case Open:
+		// Already open, just record the failure
+	}
+}
