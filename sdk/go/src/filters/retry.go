@@ -223,3 +223,93 @@ func (lb *LinearBackoff) addJitter(delay float64, factor float64) float64 {
 func (lb *LinearBackoff) Reset() {
 	// Stateless strategy, nothing to reset
 }
+
+// addJitter adds random jitter to prevent thundering herd problem.
+// factor should be between 0.0 and 1.0, where 0 = no jitter, 1 = ±100% jitter.
+func addJitter(delay time.Duration, factor float64) time.Duration {
+	if factor <= 0 {
+		return delay
+	}
+	
+	if factor > 1.0 {
+		factor = 1.0
+	}
+	
+	delayFloat := float64(delay)
+	jitterRange := delayFloat * factor
+	
+	// Generate random jitter in range [-jitterRange, +jitterRange]
+	jitter := (rand.Float64()*2 - 1) * jitterRange
+	
+	result := delayFloat + jitter
+	if result < 0 {
+		result = 0
+	}
+	
+	return time.Duration(result)
+}
+
+// FullJitterBackoff adds full jitter to any base strategy.
+type FullJitterBackoff struct {
+	BaseStrategy BackoffStrategy
+}
+
+// NewFullJitterBackoff wraps a base strategy with full jitter.
+func NewFullJitterBackoff(base BackoffStrategy) *FullJitterBackoff {
+	return &FullJitterBackoff{
+		BaseStrategy: base,
+	}
+}
+
+// NextDelay returns delay with full jitter (0 to base delay).
+func (fjb *FullJitterBackoff) NextDelay(attempt int) time.Duration {
+	baseDelay := fjb.BaseStrategy.NextDelay(attempt)
+	// Full jitter: random value between 0 and baseDelay
+	return time.Duration(rand.Float64() * float64(baseDelay))
+}
+
+// Reset resets the underlying strategy.
+func (fjb *FullJitterBackoff) Reset() {
+	fjb.BaseStrategy.Reset()
+}
+
+// DecorrelatedJitterBackoff implements AWS-style decorrelated jitter.
+type DecorrelatedJitterBackoff struct {
+	BaseDelay    time.Duration
+	MaxDelay     time.Duration
+	previousDelay time.Duration
+}
+
+// NewDecorrelatedJitterBackoff creates decorrelated jitter backoff.
+func NewDecorrelatedJitterBackoff(base, max time.Duration) *DecorrelatedJitterBackoff {
+	return &DecorrelatedJitterBackoff{
+		BaseDelay: base,
+		MaxDelay:  max,
+	}
+}
+
+// NextDelay calculates decorrelated jitter delay.
+func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
+	if attempt <= 1 {
+		djb.previousDelay = djb.BaseDelay
+		return djb.BaseDelay
+	}
+	
+	// Decorrelated jitter: random between baseDelay and 3 * previousDelay
+	minDelay := float64(djb.BaseDelay)
+	maxDelay := float64(djb.previousDelay) * 3
+	
+	if maxDelay > float64(djb.MaxDelay) {
+		maxDelay = float64(djb.MaxDelay)
+	}
+	
+	delay := minDelay + rand.Float64()*(maxDelay-minDelay)
+	djb.previousDelay = time.Duration(delay)
+	
+	return djb.previousDelay
+}
+
+// Reset resets the previous delay.
+func (djb *DecorrelatedJitterBackoff) Reset() {
+	djb.previousDelay = 0
+}
