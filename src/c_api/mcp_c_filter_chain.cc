@@ -28,6 +28,7 @@
 
 #include "handle_manager.h"
 #include "json_value_converter.h"
+#include "unified_filter_chain.h"
 
 #define GOPHER_LOG_COMPONENT "capi.chain"
 
@@ -437,9 +438,10 @@ public:
 
 // Use HandleManager from shared header
 using c_api_internal::HandleManager;
+using c_api_internal::UnifiedFilterChain;
 
-// Handle manager for chains
-static HandleManager<AdvancedFilterChain> g_chain_manager;
+// Global unified handle manager for all chain types
+extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
 
 // ============================================================================
 // Chain Router Implementation
@@ -530,6 +532,13 @@ struct ChainPool {
 };
 
 }  // namespace filter_chain
+}  // namespace mcp
+
+// Define the global unified chain manager (shared with mcp_c_filter_api.cc)
+namespace mcp {
+namespace c_api_internal {
+HandleManager<UnifiedFilterChain> g_unified_chain_manager;
+}  // namespace c_api_internal
 }  // namespace mcp
 
 // ============================================================================
@@ -643,7 +652,11 @@ mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
 MCP_API mcp_chain_state_t mcp_chain_get_state(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_CHAIN_STATE_ERROR;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_CHAIN_STATE_ERROR;
 
@@ -657,7 +670,11 @@ MCP_API mcp_chain_state_t mcp_chain_get_state(mcp_filter_chain_t chain)
 
 MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -674,7 +691,11 @@ MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 
 MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -691,7 +712,11 @@ MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 
 MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -714,7 +739,11 @@ MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
     return MCP_ERROR_INVALID_ARGUMENT;
 
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -735,7 +764,11 @@ MCP_API mcp_result_t mcp_chain_get_stats(
     return MCP_ERROR_INVALID_ARGUMENT;
 
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -755,7 +788,11 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
                                                   void* user_data)
     MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
@@ -915,8 +952,11 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       chain->addNode(std::move(filter_node));
     }
     
-    // 10. Register chain with handle manager
-    auto handle = g_chain_manager.store(std::move(chain));
+    // 10. Register chain with unified handle manager
+    // Convert unique_ptr to shared_ptr
+    auto chain_shared = std::shared_ptr<AdvancedFilterChain>(std::move(chain));
+    auto unified = std::make_shared<UnifiedFilterChain>(chain_shared);
+    auto handle = mcp::c_api_internal::g_unified_chain_manager.store(unified);
     
     GOPHER_LOG(Info, "Chain created successfully with handle {}", handle);
     
@@ -945,9 +985,15 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
   GOPHER_LOG(Debug, "Exporting chain {} to JSON", chain);
   
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr) {
+  auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+  if (!unified_chain) {
     GOPHER_LOG(Warning, "Chain {} not found for export", chain);
+    return mcp_json_create_null();
+  }
+  
+  auto chain_ptr = unified_chain->getAdvancedChain();
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} is not an advanced chain", chain);
     return mcp_json_create_null();
   }
   
@@ -986,9 +1032,15 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
   GOPHER_LOG(Debug, "Cloning chain {}", chain);
   
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr) {
+  auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+  if (!unified_chain) {
     GOPHER_LOG(Warning, "Chain {} not found for cloning", chain);
+    return 0;
+  }
+  
+  auto chain_ptr = unified_chain->getAdvancedChain();
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} is not an advanced chain, cannot clone", chain);
     return 0;
   }
   
@@ -1274,11 +1326,11 @@ MCP_API mcp_result_t mcp_chain_set_trace_level(
 MCP_API char* mcp_chain_dump(mcp_filter_chain_t chain,
                              const char* format) MCP_NOEXCEPT {
   try {
-    auto chain_ptr = g_chain_manager.get(chain);
-    if (!chain_ptr)
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
       return nullptr;
 
-    std::string dump = chain_ptr->dump(format ? format : "text");
+    std::string dump = unified_chain->dump(format ? format : "text");
     char* result = static_cast<char*>(malloc(dump.size() + 1));
     if (result) {
       std::strcpy(result, dump.c_str());
