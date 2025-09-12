@@ -4,6 +4,7 @@ package filters
 import (
 	"container/ring"
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,6 +104,9 @@ type CircuitBreakerFilter struct {
 	// Sliding window for failure rate calculation
 	slidingWindow *ring.Ring
 	windowMu      sync.Mutex
+	
+	// Half-open state limiter
+	halfOpenAttempts atomic.Int32
 }
 
 // NewCircuitBreakerFilter creates a new circuit breaker filter.
@@ -277,4 +281,59 @@ func (f *CircuitBreakerFilter) calculateFailureRate() float64 {
 	}
 	
 	return float64(failures) / float64(total)
+}
+
+// Process implements the Filter interface with circuit breaker logic.
+func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
+	currentState := f.state.Load().(State)
+	
+	switch currentState {
+	case Open:
+		// Check if we should transition to half-open
+		if f.shouldTransitionToHalfOpen() {
+			f.transitionTo(HalfOpen)
+			// Fall through to half-open processing
+			currentState = HalfOpen
+		} else {
+			// Circuit is open, reject immediately
+			return nil, fmt.Errorf("circuit breaker is open")
+		}
+	}
+	
+	// Handle half-open state with limited attempts
+	if currentState == HalfOpen {
+		// Check concurrent attempt limit
+		attempts := f.halfOpenAttempts.Add(1)
+		defer f.halfOpenAttempts.Add(-1)
+		
+		if attempts > int32(f.config.HalfOpenMaxAttempts) {
+			// Too many concurrent attempts, reject
+			return nil, fmt.Errorf("circuit breaker half-open limit exceeded")
+		}
+	}
+	
+	// Process the request (would normally call downstream)
+	// For now, we'll simulate processing
+	result := f.processDownstream(ctx, data)
+	
+	// Record outcome
+	if result.Status == types.Error {
+		f.recordFailure()
+		// Handle state transition based on failure
+		if f.state.Load().(State) == Open {
+			return nil, fmt.Errorf("circuit breaker opened due to failures")
+		}
+	} else {
+		f.recordSuccess()
+	}
+	
+	return result, nil
+}
+
+// processDownstream simulates calling the downstream service.
+// In a real implementation, this would delegate to another filter or service.
+func (f *CircuitBreakerFilter) processDownstream(ctx context.Context, data []byte) *types.FilterResult {
+	// Simulate processing - in real use, this would call the next filter
+	// For demonstration, we'll just pass through
+	return types.ContinueWith(data)
 }
