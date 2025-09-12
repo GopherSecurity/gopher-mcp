@@ -167,13 +167,32 @@ func (fb *FilterBase) Close() error {
 }
 
 // GetStats returns the current filter statistics.
+// Returns a copy with calculated derived metrics like average processing time.
 func (fb *FilterBase) GetStats() types.FilterStatistics {
 	if err := fb.ThrowIfDisposed(); err != nil {
 		return types.FilterStatistics{}
 	}
 	fb.mu.RLock()
 	defer fb.mu.RUnlock()
-	return fb.stats
+	
+	// Create a copy of statistics
+	statsCopy := fb.stats
+	
+	// Calculate derived metrics
+	if statsCopy.ProcessCount > 0 {
+		// Recalculate average processing time
+		statsCopy.AverageProcessingTimeUs = float64(statsCopy.ProcessingTimeUs) / float64(statsCopy.ProcessCount)
+		
+		// Calculate throughput in bytes per second
+		if statsCopy.ProcessingTimeUs > 0 {
+			statsCopy.ThroughputBps = float64(statsCopy.BytesProcessed) * 1000000.0 / float64(statsCopy.ProcessingTimeUs)
+		}
+		
+		// Calculate error rate as percentage
+		statsCopy.ErrorRate = float64(statsCopy.ErrorCount) / float64(statsCopy.ProcessCount) * 100.0
+	}
+	
+	return statsCopy
 }
 
 // IsDisposed checks if the filter has been disposed.
