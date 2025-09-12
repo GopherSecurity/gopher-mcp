@@ -11,6 +11,76 @@ import (
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
 
+// RateLimiter is the interface for different rate limiting algorithms.
+type RateLimiter interface {
+	TryAcquire(n int) bool
+	LastAccess() time.Time
+}
+
+// TokenBucket implements token bucket rate limiting algorithm.
+type TokenBucket struct {
+	// Current number of tokens
+	tokens float64
+	
+	// Maximum token capacity
+	capacity float64
+	
+	// Token refill rate per second
+	refillRate float64
+	
+	// Last refill timestamp
+	lastRefill time.Time
+	
+	// Synchronization
+	mu sync.Mutex
+}
+
+// NewTokenBucket creates a new token bucket rate limiter.
+func NewTokenBucket(capacity float64, refillRate float64) *TokenBucket {
+	return &TokenBucket{
+		tokens:     capacity,
+		capacity:   capacity,
+		refillRate: refillRate,
+		lastRefill: time.Now(),
+	}
+}
+
+// TryAcquire attempts to acquire n tokens from the bucket.
+// Returns true if successful, false if insufficient tokens.
+func (tb *TokenBucket) TryAcquire(n int) bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	
+	// Refill tokens based on elapsed time
+	now := time.Now()
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+	tb.lastRefill = now
+	
+	// Add tokens based on refill rate
+	tokensToAdd := elapsed * tb.refillRate
+	tb.tokens = tb.tokens + tokensToAdd
+	
+	// Cap at maximum capacity
+	if tb.tokens > tb.capacity {
+		tb.tokens = tb.capacity
+	}
+	
+	// Check if we have enough tokens
+	if tb.tokens >= float64(n) {
+		tb.tokens -= float64(n)
+		return true
+	}
+	
+	return false
+}
+
+// LastAccess returns the last time the bucket was accessed.
+func (tb *TokenBucket) LastAccess() time.Time {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	return tb.lastRefill
+}
+
 // RateLimitStatistics tracks rate limiting metrics.
 type RateLimitStatistics struct {
 	TotalRequests   uint64
