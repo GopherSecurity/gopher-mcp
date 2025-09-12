@@ -10,12 +10,25 @@ import (
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
 
-// MetricsCollector defines the interface for metrics collection.
+// MetricsCollector defines the interface for metrics collection backends.
 type MetricsCollector interface {
+	// RecordLatency records a latency measurement
 	RecordLatency(name string, duration time.Duration)
+	
+	// IncrementCounter increments a counter metric
 	IncrementCounter(name string, delta int64)
+	
+	// SetGauge sets a gauge metric to a specific value
 	SetGauge(name string, value float64)
+	
+	// RecordHistogram records a value in a histogram
 	RecordHistogram(name string, value float64)
+	
+	// Flush forces export of buffered metrics
+	Flush() error
+	
+	// Close shuts down the collector
+	Close() error
 }
 
 // MetricsConfig configures metrics collection behavior.
