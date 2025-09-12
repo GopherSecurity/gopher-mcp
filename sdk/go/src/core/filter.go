@@ -5,6 +5,7 @@ package core
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
@@ -433,4 +434,36 @@ type HookableFilter interface {
 	// Returns:
 	//   - error: Error if hook not found
 	RemoveHook(id string) error
+}
+
+// BatchFilter interface for batch processing support.
+// Filters implementing this interface can process multiple items efficiently.
+type BatchFilter interface {
+	Filter
+
+	// ProcessBatch processes multiple data items in a single operation.
+	// More efficient than processing items individually.
+	//
+	// Parameters:
+	//   - ctx: Context for the batch operation
+	//   - batch: Array of data items to process
+	//
+	// Returns:
+	//   - []*FilterResult: Results for each batch item
+	//   - error: Any error during batch processing
+	ProcessBatch(ctx context.Context, batch [][]byte) ([]*types.FilterResult, error)
+
+	// SetBatchSize configures the preferred batch size.
+	// The filter may adjust this based on resource constraints.
+	//
+	// Parameters:
+	//   - size: Preferred number of items per batch
+	SetBatchSize(size int)
+
+	// SetBatchTimeout sets the maximum time to wait for a full batch.
+	// After timeout, partial batches are processed.
+	//
+	// Parameters:
+	//   - timeout: Maximum wait time for batch accumulation
+	SetBatchTimeout(timeout time.Duration)
 }
