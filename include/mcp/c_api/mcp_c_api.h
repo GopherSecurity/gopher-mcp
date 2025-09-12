@@ -876,13 +876,10 @@ MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
 MCP_API mcp_json_value_t mcp_json_clone(mcp_json_value_t value) MCP_NOEXCEPT;
 
 /**
- * Release JSON value (deprecated, use mcp_json_free from mcp_c_collections.h)
- * @param value JSON value
- * @deprecated Use mcp_json_free instead
+ * Release JSON value (deprecated; use mcp_json_free)
+ * Provided for ABI compatibility.
  */
-static inline void mcp_json_release(mcp_json_value_t value) MCP_NOEXCEPT {
-  mcp_json_free(value);
-}
+MCP_API void mcp_json_release(mcp_json_value_t value) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Utility Functions
