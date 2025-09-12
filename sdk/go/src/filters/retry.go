@@ -3,6 +3,8 @@ package filters
 
 import (
 	"context"
+	"math"
+	"math/rand"
 	"sync/atomic"
 	"time"
 
@@ -101,4 +103,63 @@ func NewRetryFilter(config RetryConfig, backoff BackoffStrategy) *RetryFilter {
 		},
 		backoff: backoff,
 	}
+}
+
+// ExponentialBackoff implements exponential backoff with optional jitter.
+type ExponentialBackoff struct {
+	InitialDelay time.Duration
+	MaxDelay     time.Duration
+	Multiplier   float64
+	JitterFactor float64 // 0.0 to 1.0, 0 = no jitter
+}
+
+// NewExponentialBackoff creates a new exponential backoff strategy.
+func NewExponentialBackoff(initial, max time.Duration, multiplier float64) *ExponentialBackoff {
+	return &ExponentialBackoff{
+		InitialDelay: initial,
+		MaxDelay:     max,
+		Multiplier:   multiplier,
+		JitterFactor: 0.1, // 10% jitter by default
+	}
+}
+
+// NextDelay calculates the next retry delay.
+func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
+	if attempt <= 0 {
+		return 0
+	}
+	
+	// Calculate exponential delay: initialDelay * (multiplier ^ attempt)
+	delay := float64(eb.InitialDelay) * math.Pow(eb.Multiplier, float64(attempt-1))
+	
+	// Cap at max delay
+	if delay > float64(eb.MaxDelay) {
+		delay = float64(eb.MaxDelay)
+	}
+	
+	// Add jitter to prevent thundering herd
+	if eb.JitterFactor > 0 {
+		delay = eb.addJitter(delay, eb.JitterFactor)
+	}
+	
+	return time.Duration(delay)
+}
+
+// addJitter adds random jitter to prevent synchronized retries.
+func (eb *ExponentialBackoff) addJitter(delay float64, factor float64) float64 {
+	// Jitter range: delay ± (delay * factor * random)
+	jitterRange := delay * factor
+	jitter := (rand.Float64()*2 - 1) * jitterRange // -jitterRange to +jitterRange
+	
+	result := delay + jitter
+	if result < 0 {
+		result = 0
+	}
+	
+	return result
+}
+
+// Reset resets the backoff state (no-op for stateless strategy).
+func (eb *ExponentialBackoff) Reset() {
+	// Stateless strategy, nothing to reset
 }
