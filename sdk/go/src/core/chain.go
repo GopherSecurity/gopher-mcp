@@ -262,3 +262,41 @@ func (fc *FilterChain) Remove(name string) error {
 
 	return nil
 }
+
+// Clear removes all filters from the chain.
+// Each filter is properly closed before removal.
+// Clearing is only allowed when the chain is stopped.
+//
+// Returns:
+//   - error: Returns an error if the chain is not stopped
+func (fc *FilterChain) Clear() error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Check if chain is stopped
+	state := fc.getState()
+	if state != types.Stopped && state != types.Uninitialized {
+		return types.FilterError(types.ChainError)
+	}
+
+	// Close all filters in reverse order
+	for i := len(fc.filters) - 1; i >= 0; i-- {
+		if err := fc.filters[i].Close(); err != nil {
+			// Log error but continue with cleanup
+			// In production, consider logging this error
+		}
+	}
+
+	// Clear the filters slice
+	fc.filters = make([]Filter, 0)
+
+	// Reset statistics
+	fc.stats = types.ChainStatistics{
+		FilterStats: make(map[string]types.FilterStatistics),
+	}
+
+	// Set state to Uninitialized
+	fc.setState(types.Uninitialized)
+
+	return nil
+}
