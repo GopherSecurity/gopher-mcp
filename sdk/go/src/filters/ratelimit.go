@@ -20,6 +20,127 @@ type RateLimiter interface {
 	LastAccess() time.Time
 }
 
+// RedisClient interface for Redis operations (to avoid direct dependency).
+type RedisClient interface {
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error)
+	Get(ctx context.Context, key string) (string, error)
+	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error)
+	Del(ctx context.Context, keys ...string) error
+	Ping(ctx context.Context) error
+}
+
+// RedisLimiter implements distributed rate limiting using Redis.
+type RedisLimiter struct {
+	client     RedisClient
+	key        string
+	limit      int
+	window     time.Duration
+	lastAccess time.Time
+	mu         sync.RWMutex
+}
+
+// NewRedisLimiter creates a new Redis-based rate limiter.
+func NewRedisLimiter(client RedisClient, key string, limit int, window time.Duration) *RedisLimiter {
+	return &RedisLimiter{
+		client:     client,
+		key:        fmt.Sprintf("ratelimit:%s", key),
+		limit:      limit,
+		window:     window,
+		lastAccess: time.Now(),
+	}
+}
+
+// Lua script for atomic rate limit check and increment
+const rateLimitLuaScript = `
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+
+local current = redis.call('GET', key)
+if current == false then
+    redis.call('SET', key, 1, 'EX', window)
+    return 1
+end
+
+current = tonumber(current)
+if current < limit then
+    redis.call('INCR', key)
+    return 1
+end
+
+return 0
+`
+
+// TryAcquire attempts to acquire n permits using Redis.
+func (rl *RedisLimiter) TryAcquire(n int) bool {
+	rl.mu.Lock()
+	rl.lastAccess = time.Now()
+	rl.mu.Unlock()
+	
+	ctx := context.Background()
+	
+	// Execute Lua script for atomic operation
+	result, err := rl.client.Eval(
+		ctx,
+		rateLimitLuaScript,
+		[]string{rl.key},
+		rl.limit,
+		int(rl.window.Seconds()),
+		time.Now().Unix(),
+	)
+	
+	// Handle Redis failures gracefully - fail open (allow request)
+	if err != nil {
+		// Log error (would use actual logger in production)
+		// For now, fail open to avoid blocking legitimate traffic
+		return true
+	}
+	
+	// Check result
+	if allowed, ok := result.(int64); ok {
+		return allowed == 1
+	}
+	
+	// Default to allowing on unexpected response
+	return true
+}
+
+// LastAccess returns the last access time.
+func (rl *RedisLimiter) LastAccess() time.Time {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	return rl.lastAccess
+}
+
+// SetFailureMode configures behavior when Redis is unavailable.
+type FailureMode int
+
+const (
+	FailOpen FailureMode = iota  // Allow requests when Redis fails
+	FailClosed                    // Deny requests when Redis fails
+)
+
+// RedisLimiterWithFailureMode extends RedisLimiter with configurable failure mode.
+type RedisLimiterWithFailureMode struct {
+	*RedisLimiter
+	failureMode FailureMode
+}
+
+// TryAcquireWithFailureMode respects the configured failure mode.
+func (rl *RedisLimiterWithFailureMode) TryAcquire(n int) bool {
+	result := rl.RedisLimiter.TryAcquire(n)
+	
+	// Check if Redis is healthy
+	ctx := context.Background()
+	if err := rl.client.Ping(ctx); err != nil {
+		// Redis is down, use failure mode
+		return rl.failureMode == FailOpen
+	}
+	
+	return result
+}
+
 // TokenBucket implements token bucket rate limiting algorithm.
 type TokenBucket struct {
 	// Current number of tokens
