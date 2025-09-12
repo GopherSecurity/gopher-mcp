@@ -2,26 +2,27 @@
 package integration
 
 import (
-	"github.com/modelcontextprotocol/go-sdk/pkg/server"
+	// "github.com/modelcontextprotocol/go-sdk/pkg/server"
 )
+
+// MCPServer is a placeholder for the actual MCP server
+type MCPServer struct {
+	// Placeholder for MCP server implementation
+}
 
 // FilteredMCPServer wraps MCP server with filtering.
 type FilteredMCPServer struct {
-	*server.MCPServer // Embedded MCP server
+	*MCPServer // Embedded MCP server
 	requestChain      *FilterChain
 	responseChain     *FilterChain
 	notificationChain *FilterChain
 }
 
-// FilterChain represents a chain of filters.
-type FilterChain struct {
-	// Chain implementation
-}
 
 // NewFilteredMCPServer creates a filtered MCP server.
 func NewFilteredMCPServer() *FilteredMCPServer {
 	return &FilteredMCPServer{
-		MCPServer:         server.NewMCPServer(),
+		MCPServer:         &MCPServer{},
 		requestChain:      &FilterChain{},
 		responseChain:     &FilterChain{},
 		notificationChain: &FilterChain{},

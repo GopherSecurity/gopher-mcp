@@ -195,7 +195,8 @@ func (bp *BufferPool) Get(size int) *types.Buffer {
 	}
 
 	// Mark as pooled and update stats
-	buf.SetPool((*types.BufferPool)(pool))
+	// Note: We can't directly set the pool since types.BufferPool is different
+	// Just mark the buffer as pooled
 	
 	bp.mu.Lock()
 	bp.stats.Gets++

@@ -4,6 +4,8 @@ package manager
 import (
 	"fmt"
 	"time"
+	
+	"github.com/google/uuid"
 )
 
 // FilterChain represents a chain of filters.

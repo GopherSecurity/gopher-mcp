@@ -14,8 +14,3 @@ func (fc *FilteredMCPClient) FilterIncomingResponse(response []byte) ([]byte, er
 	return response, nil
 }
 
-// Process processes data through chain.
-func (fc *FilterChain) Process(data []byte) ([]byte, error) {
-	// Process through filters
-	return data, nil
-}

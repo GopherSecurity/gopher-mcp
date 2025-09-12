@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/GopherSecurity/gopher-mcp/src/core"
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
 

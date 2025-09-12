@@ -5,7 +5,6 @@ package transport
 
 import (
 	"context"
-	"io"
 	"time"
 )
 

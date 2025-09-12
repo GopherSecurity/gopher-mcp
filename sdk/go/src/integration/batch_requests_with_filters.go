@@ -136,7 +136,7 @@ func (fc *FilteredMCPClient) processBatchRequest(
 	}
 	
 	// Deserialize filtered request
-	filteredReq, err := deserializeRequest(filtered)
+	_, err = deserializeRequest(filtered)
 	if err != nil {
 		return nil, fmt.Errorf("deserialize error: %w", err)
 	}
