@@ -455,3 +455,19 @@ func (fc *FilterChain) updateFilterStats(name string, stats types.FilterStatisti
 	defer fc.mu.Unlock()
 	fc.stats.FilterStats[name] = stats
 }
+
+// GetFilters returns a copy of the filter slice to prevent external modification.
+// This method is thread-safe and can be called concurrently.
+//
+// Returns:
+//   - []Filter: A copy of the current filters in the chain
+func (fc *FilterChain) GetFilters() []Filter {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+
+	// Create a copy to prevent external modification
+	filters := make([]Filter, len(fc.filters))
+	copy(filters, fc.filters)
+	
+	return filters
+}
