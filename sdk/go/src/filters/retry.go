@@ -326,6 +326,16 @@ func (f *RetryFilter) Process(ctx context.Context, data []byte) (*types.FilterRe
 	// Reset retry count for new request
 	f.retryCount.Store(0)
 	
+	// Wrap with timeout if configured
+	var cancel context.CancelFunc
+	if f.config.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, f.config.Timeout)
+		defer cancel()
+	}
+	
+	// Track start time for timeout calculation
+	startTime := time.Now()
+	
 	// Main retry loop
 	for attempt := 1; attempt <= f.config.MaxAttempts || f.config.MaxAttempts == 0; attempt++ {
 		// Check context cancellation
@@ -335,8 +345,29 @@ func (f *RetryFilter) Process(ctx context.Context, data []byte) (*types.FilterRe
 		default:
 		}
 		
+		// Check if we've exceeded total timeout
+		if f.config.Timeout > 0 && time.Since(startTime) >= f.config.Timeout {
+			f.recordFailure(attempt, "timeout")
+			return nil, fmt.Errorf("retry timeout exceeded after %v", time.Since(startTime))
+		}
+		
+		// Calculate remaining time for this attempt
+		var attemptCtx context.Context
+		if f.config.Timeout > 0 {
+			remaining := f.config.Timeout - time.Since(startTime)
+			if remaining <= 0 {
+				f.recordFailure(attempt, "timeout")
+				return nil, context.DeadlineExceeded
+			}
+			var attemptCancel context.CancelFunc
+			attemptCtx, attemptCancel = context.WithTimeout(ctx, remaining)
+			defer attemptCancel()
+		} else {
+			attemptCtx = ctx
+		}
+		
 		// Process attempt
-		result, err := f.processAttempt(ctx, data)
+		result, err := f.processAttempt(attemptCtx, data)
 		
 		// Success - return immediately
 		if err == nil && result != nil && result.Status != types.Error {
@@ -363,6 +394,15 @@ func (f *RetryFilter) Process(ctx context.Context, data []byte) (*types.FilterRe
 		
 		// Calculate backoff delay
 		delay := f.backoff.NextDelay(attempt)
+		
+		// Check if delay would exceed timeout
+		if f.config.Timeout > 0 {
+			remaining := f.config.Timeout - time.Since(startTime)
+			if remaining <= delay {
+				f.recordFailure(attempt, "timeout_before_retry")
+				return nil, fmt.Errorf("timeout would be exceeded before next retry")
+			}
+		}
 		
 		// Record delay in statistics
 		f.recordDelay(delay)
