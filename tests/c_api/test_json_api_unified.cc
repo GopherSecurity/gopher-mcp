@@ -145,24 +145,23 @@ TEST_F(UnifiedJsonApiTest, CompatibilityMcpStringParse) {
   mcp_json_free(val);
 }
 
-// Test 6: Compatibility wrapper - string buffer stringify
+// Test 6: Compatibility wrapper - string buffer stringify wraps canonical string
 TEST_F(UnifiedJsonApiTest, CompatibilityStringBufferStringify) {
-  // Note: mcp_json_stringify_buffer is a compatibility shim that's not currently
-  // implemented. The canonical API uses mcp_json_stringify which returns char*.
-  // This test just verifies the function exists and can be called.
-  
   auto obj = mcp_json_create_object();
   mcp_json_object_set(obj, "compatible", mcp_json_create_bool(MCP_TRUE));
-  
-  // For now, this returns nullptr as it's not implemented
+
   auto buffer = mcp_json_stringify_buffer(obj, MCP_FALSE);
-  EXPECT_EQ(buffer, nullptr);
-  
-  // Use the canonical API instead
+  // Should now return a valid buffer handle
+  EXPECT_NE(buffer, nullptr);
+
+  // No direct accessor for buffer content; just ensure we can free it
+  mcp_string_buffer_free(buffer);
+
+  // Canonical API still works for content checks
   char* str = mcp_json_stringify(obj);
   ASSERT_NE(str, nullptr);
   EXPECT_NE(strstr(str, "compatible"), nullptr);
-  
+
   mcp_string_free(str);
   mcp_json_free(obj);
 }
