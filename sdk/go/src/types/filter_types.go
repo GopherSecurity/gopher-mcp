@@ -196,3 +196,60 @@ func (e FilterError) IsRetryable() bool {
 		return false
 	}
 }
+
+// FilterLayer represents the OSI layer at which a filter operates.
+// This helps organize filters by their processing level.
+type FilterLayer int
+
+const (
+	// Transport represents OSI Layer 4 (Transport Layer).
+	// Handles TCP, UDP, and other transport protocols.
+	Transport FilterLayer = 4
+
+	// Session represents OSI Layer 5 (Session Layer).
+	// Manages sessions and connections between applications.
+	Session FilterLayer = 5
+
+	// Presentation represents OSI Layer 6 (Presentation Layer).
+	// Handles data encoding, encryption, and compression.
+	Presentation FilterLayer = 6
+
+	// Application represents OSI Layer 7 (Application Layer).
+	// Processes application-specific protocols like HTTP, gRPC.
+	Application FilterLayer = 7
+
+	// Custom represents a custom layer outside the OSI model.
+	// Used for filters that don't fit standard layer classifications.
+	Custom FilterLayer = 99
+)
+
+// String returns a human-readable string representation of the FilterLayer.
+func (l FilterLayer) String() string {
+	switch l {
+	case Transport:
+		return "Transport (L4)"
+	case Session:
+		return "Session (L5)"
+	case Presentation:
+		return "Presentation (L6)"
+	case Application:
+		return "Application (L7)"
+	case Custom:
+		return "Custom"
+	default:
+		return fmt.Sprintf("FilterLayer(%d)", l)
+	}
+}
+
+// IsValid validates that the layer is a recognized value.
+func (l FilterLayer) IsValid() bool {
+	return l == Transport || l == Session || l == Presentation || l == Application || l == Custom
+}
+
+// OSILayer returns the OSI model layer number (4-7) or 0 for custom.
+func (l FilterLayer) OSILayer() int {
+	if l >= Transport && l <= Application {
+		return int(l)
+	}
+	return 0
+}
