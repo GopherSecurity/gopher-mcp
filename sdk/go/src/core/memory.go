@@ -95,3 +95,105 @@ func (mm *MemoryManager) GetStats() MemoryStatistics {
 	defer mm.mu.RUnlock()
 	return mm.stats
 }
+
+// Buffer pool size categories
+const (
+	// SmallBufferSize is for small data operations (512 bytes)
+	SmallBufferSize = 512
+
+	// MediumBufferSize is for typical data operations (4KB)
+	MediumBufferSize = 4 * 1024
+
+	// LargeBufferSize is for large data operations (64KB)
+	LargeBufferSize = 64 * 1024
+
+	// HugeBufferSize is for very large data operations (1MB)
+	HugeBufferSize = 1024 * 1024
+)
+
+// PoolConfig defines configuration for a buffer pool.
+type PoolConfig struct {
+	// Size is the buffer size for this pool
+	Size int
+
+	// MinBuffers is the minimum number of buffers to keep in pool
+	MinBuffers int
+
+	// MaxBuffers is the maximum number of buffers in pool
+	MaxBuffers int
+
+	// GrowthFactor determines how pool grows (e.g., 2.0 for doubling)
+	GrowthFactor float64
+}
+
+// DefaultPoolConfigs returns default configurations for standard buffer pools.
+func DefaultPoolConfigs() []PoolConfig {
+	return []PoolConfig{
+		{
+			Size:         SmallBufferSize,
+			MinBuffers:   10,
+			MaxBuffers:   100,
+			GrowthFactor: 2.0,
+		},
+		{
+			Size:         MediumBufferSize,
+			MinBuffers:   5,
+			MaxBuffers:   50,
+			GrowthFactor: 1.5,
+		},
+		{
+			Size:         LargeBufferSize,
+			MinBuffers:   2,
+			MaxBuffers:   20,
+			GrowthFactor: 1.5,
+		},
+		{
+			Size:         HugeBufferSize,
+			MinBuffers:   1,
+			MaxBuffers:   10,
+			GrowthFactor: 1.2,
+		},
+	}
+}
+
+// InitializePools sets up the standard buffer pools with default configurations.
+func (mm *MemoryManager) InitializePools() {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+
+	configs := DefaultPoolConfigs()
+	for _, config := range configs {
+		pool := &types.BufferPool{}
+		// Initialize the pool with the configuration
+		// In a real implementation, the BufferPool would use these configs
+		mm.pools[config.Size] = pool
+	}
+}
+
+// GetPoolForSize returns the appropriate pool for the given size.
+// It finds the smallest pool that can accommodate the requested size.
+func (mm *MemoryManager) GetPoolForSize(size int) *types.BufferPool {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+
+	// Find the appropriate pool size
+	poolSize := mm.selectPoolSize(size)
+	return mm.pools[poolSize]
+}
+
+// selectPoolSize determines which pool size to use for a given request.
+func (mm *MemoryManager) selectPoolSize(size int) int {
+	switch {
+	case size <= SmallBufferSize:
+		return SmallBufferSize
+	case size <= MediumBufferSize:
+		return MediumBufferSize
+	case size <= LargeBufferSize:
+		return LargeBufferSize
+	case size <= HugeBufferSize:
+		return HugeBufferSize
+	default:
+		// For sizes larger than huge, use exact size
+		return size
+	}
+}
