@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"io"
 
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
@@ -221,4 +222,48 @@ type Filter interface {
 	//	    return f.stats
 	//	}
 	GetStats() types.FilterStatistics
+}
+
+// LifecycleFilter extends Filter with lifecycle management capabilities.
+// Filters implementing this interface can respond to attachment/detachment
+// from chains and start/stop events.
+type LifecycleFilter interface {
+	Filter
+
+	// OnAttach is called when the filter is attached to a filter chain.
+	// This allows the filter to access chain properties and coordinate with other filters.
+	//
+	// Parameters:
+	//   - chain: The filter chain this filter is being attached to
+	//
+	// Returns:
+	//   - error: Any error preventing attachment
+	OnAttach(chain *FilterChain) error
+
+	// OnDetach is called when the filter is being removed from a chain.
+	// The filter should clean up any chain-specific resources.
+	//
+	// Returns:
+	//   - error: Any error during detachment
+	OnDetach() error
+
+	// OnStart is called when the filter chain starts processing.
+	// Filters can use this to initialize runtime state or start background tasks.
+	//
+	// Parameters:
+	//   - ctx: Context for the start operation
+	//
+	// Returns:
+	//   - error: Any error preventing the filter from starting
+	OnStart(ctx context.Context) error
+
+	// OnStop is called when the filter chain stops processing.
+	// Filters should stop background tasks and prepare for shutdown.
+	//
+	// Parameters:
+	//   - ctx: Context for the stop operation
+	//
+	// Returns:
+	//   - error: Any error during stopping
+	OnStop(ctx context.Context) error
 }
