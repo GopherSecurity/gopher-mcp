@@ -99,3 +99,40 @@ func (fb *FilterBase) updateStats(processed int64, errors int64, duration time.D
 		fb.stats.ThroughputBps = float64(fb.stats.BytesProcessed) * 1000000.0 / float64(fb.stats.ProcessingTimeUs)
 	}
 }
+
+// Initialize sets up the filter with the provided configuration.
+// Returns error if already initialized or disposed.
+func (fb *FilterBase) Initialize(config types.FilterConfig) error {
+	// Check if disposed
+	if atomic.LoadInt32(&fb.disposed) != 0 {
+		return types.FilterError(types.ServiceUnavailable)
+	}
+
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+
+	// Check if already initialized
+	if fb.config.Name != "" {
+		return types.FilterError(types.FilterAlreadyExists)
+	}
+
+	// Validate configuration
+	if errs := config.Validate(); len(errs) > 0 {
+		return errs[0]
+	}
+
+	// Store configuration
+	fb.config = config
+
+	// Update name if provided
+	if config.Name != "" {
+		fb.name = config.Name
+	}
+
+	// Update type if provided
+	if config.Type != "" {
+		fb.filterType = config.Type
+	}
+
+	return nil
+}
