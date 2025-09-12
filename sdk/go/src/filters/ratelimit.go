@@ -436,44 +436,62 @@ func (f *RateLimitFilter) callWebhook(key string, metadata map[string]interface{
 	_ = metadata
 }
 
-// allowRequest checks if a request is allowed under the rate limit.
-func (f *RateLimitFilter) allowRequest() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	now := time.Now()
-	elapsed := now.Sub(f.lastCheck)
-	f.lastCheck = now
-
-	// Refill tokens based on elapsed time
-	tokensToAdd := elapsed.Seconds() * (float64(f.maxRequests) / f.window.Seconds())
-	f.tokens += tokensToAdd
-
-	// Cap at burst size
-	if f.tokens > float64(f.burstSize) {
-		f.tokens = float64(f.burstSize)
+// cleanupLoop periodically removes expired limiters to prevent memory leak.
+func (f *RateLimitFilter) cleanupLoop() {
+	staleThreshold := 5 * time.Minute // Remove limiters not accessed for 5 minutes
+	
+	for range f.cleanupTicker.C {
+		now := time.Now()
+		keysToDelete := []string{}
+		
+		// Find stale limiters
+		f.limiters.Range(func(key, value interface{}) bool {
+			limiter := value.(RateLimiter)
+			if now.Sub(limiter.LastAccess()) > staleThreshold {
+				keysToDelete = append(keysToDelete, key.(string))
+			}
+			return true
+		})
+		
+		// Remove stale limiters
+		for _, key := range keysToDelete {
+			f.limiters.Delete(key)
+			
+			// Remove from statistics
+			f.statsMu.Lock()
+			delete(f.stats.ByKeyStats, key)
+			f.statsMu.Unlock()
+		}
+		
+		// Update active limiter count
+		activeCount := 0
+		f.limiters.Range(func(_, _ interface{}) bool {
+			activeCount++
+			return true
+		})
+		
+		f.statsMu.Lock()
+		f.stats.ActiveLimiters = activeCount
+		f.statsMu.Unlock()
 	}
+}
 
-	// Check if we have tokens available
-	if f.tokens >= 1.0 {
-		f.tokens--
+// Close stops the cleanup timer and releases resources.
+func (f *RateLimitFilter) Close() error {
+	if f.cleanupTicker != nil {
+		f.cleanupTicker.Stop()
+	}
+	
+	// Clear all limiters
+	f.limiters.Range(func(key, _ interface{}) bool {
+		f.limiters.Delete(key)
 		return true
+	})
+	
+	// Call parent Close
+	if f.FilterBase != nil {
+		return f.FilterBase.Close()
 	}
-
-	return false
-}
-
-// GetRemainingTokens returns the current number of available tokens.
-func (f *RateLimitFilter) GetRemainingTokens() float64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.tokens
-}
-
-// Reset resets the rate limiter state.
-func (f *RateLimitFilter) Reset() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.tokens = float64(f.maxRequests)
-	f.lastCheck = time.Now()
+	
+	return nil
 }
