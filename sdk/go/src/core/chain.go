@@ -471,3 +471,81 @@ func (fc *FilterChain) GetFilters() []Filter {
 	
 	return filters
 }
+
+// Initialize initializes all filters in the chain in order.
+// If any filter fails to initialize, it attempts to close
+// already initialized filters and returns an error.
+//
+// Returns:
+//   - error: Any error that occurred during initialization
+func (fc *FilterChain) Initialize() error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Check if already initialized
+	state := fc.getState()
+	if state != types.Uninitialized {
+		return nil
+	}
+
+	// Track which filters have been initialized
+	initialized := make([]int, 0, len(fc.filters))
+
+	// Initialize each filter in order
+	for i, filter := range fc.filters {
+		// Create a filter config from chain config
+		filterConfig := types.FilterConfig{
+			Name:             filter.Name(),
+			Type:             filter.Type(),
+			Enabled:          true,
+			EnableStatistics: fc.config.EnableMetrics,
+			TimeoutMs:        int(fc.config.Timeout.Milliseconds()),
+			BypassOnError:    fc.config.ErrorHandling == "continue",
+		}
+		
+		if err := filter.Initialize(filterConfig); err != nil {
+			// Cleanup already initialized filters
+			for j := len(initialized) - 1; j >= 0; j-- {
+				fc.filters[initialized[j]].Close()
+			}
+			return err
+		}
+		initialized = append(initialized, i)
+	}
+
+	// Update state to Ready
+	fc.setState(types.Ready)
+
+	return nil
+}
+
+// Close closes all filters in the chain in reverse order.
+// This ensures proper cleanup of dependencies.
+//
+// Returns:
+//   - error: Any error that occurred during cleanup
+func (fc *FilterChain) Close() error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Update state to Stopped
+	if !fc.setState(types.Stopped) {
+		// Already stopped or in invalid state
+		return nil
+	}
+
+	// Cancel the chain's context
+	if fc.cancel != nil {
+		fc.cancel()
+	}
+
+	// Close all filters in reverse order
+	var firstError error
+	for i := len(fc.filters) - 1; i >= 0; i-- {
+		if err := fc.filters[i].Close(); err != nil && firstError == nil {
+			firstError = err
+		}
+	}
+
+	return firstError
+}
