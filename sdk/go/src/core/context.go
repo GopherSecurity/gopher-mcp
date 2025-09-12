@@ -3,8 +3,25 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"time"
+)
+
+// Standard property keys for common context values
+const (
+	// ContextKeyUserID identifies the user making the request
+	ContextKeyUserID = "user_id"
+
+	// ContextKeyRequestID uniquely identifies the request
+	ContextKeyRequestID = "request_id"
+
+	// ContextKeyClientIP contains the client's IP address
+	ContextKeyClientIP = "client_ip"
+
+	// ContextKeyAuthToken contains the authentication token
+	ContextKeyAuthToken = "auth_token"
 )
 
 // ProcessingContext extends context.Context with filter processing specific functionality.
@@ -166,4 +183,118 @@ func (pc *ProcessingContext) SetProperty(key string, value interface{}) {
 //   - bool: True if the property exists
 func (pc *ProcessingContext) GetProperty(key string) (interface{}, bool) {
 	return pc.properties.Load(key)
+}
+
+// GetString retrieves a string property from the context.
+// Returns empty string and false if not found or not a string.
+func (pc *ProcessingContext) GetString(key string) (string, bool) {
+	val, ok := pc.GetProperty(key)
+	if !ok {
+		return "", false
+	}
+	str, ok := val.(string)
+	return str, ok
+}
+
+// GetInt retrieves an integer property from the context.
+// Returns 0 and false if not found or not an int.
+func (pc *ProcessingContext) GetInt(key string) (int, bool) {
+	val, ok := pc.GetProperty(key)
+	if !ok {
+		return 0, false
+	}
+	i, ok := val.(int)
+	return i, ok
+}
+
+// GetBool retrieves a boolean property from the context.
+// Returns false and false if not found or not a bool.
+func (pc *ProcessingContext) GetBool(key string) (bool, bool) {
+	val, ok := pc.GetProperty(key)
+	if !ok {
+		return false, false
+	}
+	b, ok := val.(bool)
+	return b, ok
+}
+
+// CorrelationID returns the correlation ID for this context.
+// If empty, generates a new UUID.
+func (pc *ProcessingContext) CorrelationID() string {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+
+	if pc.correlationID == "" {
+		pc.correlationID = generateUUID()
+	}
+	return pc.correlationID
+}
+
+// SetCorrelationID sets the correlation ID for this context.
+func (pc *ProcessingContext) SetCorrelationID(id string) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	pc.correlationID = id
+}
+
+// RecordMetric records a performance or business metric.
+func (pc *ProcessingContext) RecordMetric(name string, value float64) {
+	if pc.metrics != nil {
+		pc.metrics.Record(name, value)
+	}
+}
+
+// GetMetrics returns all recorded metrics.
+func (pc *ProcessingContext) GetMetrics() map[string]float64 {
+	if pc.metrics == nil {
+		return make(map[string]float64)
+	}
+	return pc.metrics.All()
+}
+
+// Clone creates a new ProcessingContext with copied properties but fresh metrics.
+func (pc *ProcessingContext) Clone() *ProcessingContext {
+	newCtx := &ProcessingContext{
+		Context:       pc.Context,
+		correlationID: pc.correlationID,
+		metrics:       NewMetricsCollector(),
+		startTime:     time.Now(),
+	}
+
+	// Copy properties
+	pc.properties.Range(func(key, value interface{}) bool {
+		if strKey, ok := key.(string); ok {
+			newCtx.properties.Store(strKey, value)
+		}
+		return true
+	})
+
+	return newCtx
+}
+
+// WithTimeout returns a new ProcessingContext with a timeout.
+func (pc *ProcessingContext) WithTimeout(timeout time.Duration) *ProcessingContext {
+	ctx, _ := context.WithTimeout(pc.Context, timeout)
+	newPC := pc.Clone()
+	newPC.Context = ctx
+	return newPC
+}
+
+// WithDeadline returns a new ProcessingContext with a deadline.
+func (pc *ProcessingContext) WithDeadline(deadline time.Time) *ProcessingContext {
+	ctx, _ := context.WithDeadline(pc.Context, deadline)
+	newPC := pc.Clone()
+	newPC.Context = ctx
+	return newPC
+}
+
+// generateUUID generates a simple UUID v4-like string.
+func generateUUID() string {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fallback to timestamp if random fails
+		return hex.EncodeToString([]byte(time.Now().String()))[:32]
+	}
+	return hex.EncodeToString(b)
 }
