@@ -267,3 +267,44 @@ type LifecycleFilter interface {
 	//   - error: Any error during stopping
 	OnStop(ctx context.Context) error
 }
+
+// StatefulFilter interface for filters that maintain state.
+// Filters implementing this interface can save and restore their state,
+// which is useful for persistence, migration, or debugging.
+type StatefulFilter interface {
+	Filter
+
+	// SaveState serializes the filter's current state to a writer.
+	// The state should be in a format that can be restored later.
+	//
+	// Parameters:
+	//   - w: The writer to save state to
+	//
+	// Returns:
+	//   - error: Any error during state serialization
+	SaveState(w io.Writer) error
+
+	// LoadState deserializes and restores filter state from a reader.
+	// The filter should validate the loaded state before applying it.
+	//
+	// Parameters:
+	//   - r: The reader to load state from
+	//
+	// Returns:
+	//   - error: Any error during state deserialization
+	LoadState(r io.Reader) error
+
+	// GetState returns the filter's current state as an interface.
+	// The returned value should be safe for concurrent access.
+	//
+	// Returns:
+	//   - interface{}: The current filter state
+	GetState() interface{}
+
+	// ResetState clears the filter's state to its initial condition.
+	// This is useful for testing or when the filter needs a fresh start.
+	//
+	// Returns:
+	//   - error: Any error during state reset
+	ResetState() error
+}
