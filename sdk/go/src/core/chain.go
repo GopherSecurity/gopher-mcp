@@ -209,3 +209,56 @@ func (fc *FilterChain) Add(filter Filter) error {
 
 	return nil
 }
+
+// Remove removes a filter from the chain by name.
+// The filter is properly closed before removal.
+// Removing filters is only allowed when the chain is not running.
+//
+// Parameters:
+//   - name: The name of the filter to remove
+//
+// Returns:
+//   - error: Returns an error if the filter is not found or the chain is running
+func (fc *FilterChain) Remove(name string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Check if chain is running
+	state := fc.getState()
+	if state == types.Running {
+		return types.FilterError(types.ChainError)
+	}
+
+	// Find and remove the filter
+	found := false
+	newFilters := make([]Filter, 0, len(fc.filters))
+	
+	for _, filter := range fc.filters {
+		if filter.Name() == name {
+			// Close the filter before removing
+			if err := filter.Close(); err != nil {
+				// Log error but continue with removal
+				// In production, consider logging this error
+			}
+			found = true
+			// Remove from statistics
+			delete(fc.stats.FilterStats, name)
+		} else {
+			newFilters = append(newFilters, filter)
+		}
+	}
+
+	if !found {
+		return types.FilterError(types.FilterNotFound)
+	}
+
+	// Update the filters slice
+	fc.filters = newFilters
+
+	// Update chain state if necessary
+	if len(fc.filters) == 0 && state == types.Ready {
+		fc.setState(types.Uninitialized)
+	}
+
+	return nil
+}
