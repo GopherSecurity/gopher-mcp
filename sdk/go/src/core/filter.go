@@ -195,4 +195,30 @@ type Filter interface {
 	//	    return "security"
 	//	}
 	Type() string
+
+	// GetStats returns the current performance statistics for this filter.
+	// Statistics are used for monitoring, debugging, and optimization of
+	// filter performance within the chain.
+	//
+	// The returned statistics should include:
+	//   - Number of bytes/packets processed
+	//   - Processing times (average, min, max)
+	//   - Error counts and types
+	//   - Resource usage metrics
+	//   - Throughput measurements
+	//
+	// Statistics should be collected efficiently to minimize performance impact.
+	// Consider using atomic operations or periodic snapshots for high-throughput filters.
+	//
+	// Returns:
+	//   - types.FilterStatistics: Current performance metrics for this filter
+	//
+	// Example:
+	//
+	//	func (f *MyFilter) GetStats() types.FilterStatistics {
+	//	    f.statsLock.RLock()
+	//	    defer f.statsLock.RUnlock()
+	//	    return f.stats
+	//	}
+	GetStats() types.FilterStatistics
 }
