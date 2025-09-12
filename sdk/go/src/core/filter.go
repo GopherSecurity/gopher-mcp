@@ -515,3 +515,42 @@ type CachingFilter interface {
 	//   - error: Any error during cache preloading
 	PreloadCache(ctx context.Context) error
 }
+
+// LoadBalancer represents a load balancing strategy.
+type LoadBalancer interface {
+	SelectRoute(routes []string, data []byte) (string, error)
+	UpdateWeights(weights map[string]float64) error
+}
+
+// RoutingFilter interface for request routing capabilities.
+// Filters implementing this interface can route requests to different handlers.
+type RoutingFilter interface {
+	Filter
+
+	// AddRoute registers a pattern with a handler filter.
+	// Patterns can use wildcards or regex depending on implementation.
+	//
+	// Parameters:
+	//   - pattern: The routing pattern to match
+	//   - handler: The filter to handle matching requests
+	//
+	// Returns:
+	//   - error: Any error during route registration
+	AddRoute(pattern string, handler Filter) error
+
+	// RemoveRoute unregisters a routing pattern.
+	//
+	// Parameters:
+	//   - pattern: The routing pattern to remove
+	//
+	// Returns:
+	//   - error: Error if pattern not found
+	RemoveRoute(pattern string) error
+
+	// SetLoadBalancer configures the load balancing strategy.
+	// Used when multiple handlers match a pattern.
+	//
+	// Parameters:
+	//   - lb: The load balancer to use
+	SetLoadBalancer(lb LoadBalancer)
+}
