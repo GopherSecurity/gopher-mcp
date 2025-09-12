@@ -199,3 +199,36 @@ func (s *BufferSlice) Slice(start, end int) BufferSlice {
 		length: end - start,
 	}
 }
+
+// BufferPool defines the interface for buffer pooling implementations.
+// Different pooling strategies can implement this interface.
+type BufferPool interface {
+	// Get retrieves a buffer from the pool with at least the specified size.
+	// If no suitable buffer is available, a new one is created.
+	Get(size int) *Buffer
+
+	// Put returns a buffer to the pool for reuse.
+	// The buffer should be reset before being returned.
+	Put(buffer *Buffer)
+
+	// Stats returns statistics about the pool's usage.
+	Stats() PoolStatistics
+}
+
+// PoolStatistics contains metrics about buffer pool usage.
+type PoolStatistics struct {
+	// Gets is the number of buffers retrieved from the pool.
+	Gets uint64
+
+	// Puts is the number of buffers returned to the pool.
+	Puts uint64
+
+	// Hits is the number of times a pooled buffer was reused.
+	Hits uint64
+
+	// Misses is the number of times a new buffer had to be created.
+	Misses uint64
+
+	// Size is the current number of buffers in the pool.
+	Size int
+}
