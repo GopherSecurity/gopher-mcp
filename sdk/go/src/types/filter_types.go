@@ -287,3 +287,45 @@ type FilterConfig struct {
 	// EnableStatistics enables performance metrics collection.
 	EnableStatistics bool `json:"enable_statistics"`
 }
+
+// Validate checks if the FilterConfig contains valid values.
+// It returns a slice of errors for all validation failures found.
+func (c *FilterConfig) Validate() []error {
+	var errors []error
+
+	// Check Name is not empty
+	if c.Name == "" {
+		errors = append(errors, fmt.Errorf("filter name cannot be empty"))
+	}
+
+	// Check Type is not empty
+	if c.Type == "" {
+		errors = append(errors, fmt.Errorf("filter type cannot be empty"))
+	}
+
+	// Check MaxBufferSize is positive if set
+	if c.MaxBufferSize < 0 {
+		errors = append(errors, fmt.Errorf("max buffer size cannot be negative: %d", c.MaxBufferSize))
+	}
+	if c.MaxBufferSize == 0 {
+		// Set a default if not specified
+		c.MaxBufferSize = 1024 * 1024 // 1MB default
+	}
+
+	// Check TimeoutMs is non-negative
+	if c.TimeoutMs < 0 {
+		errors = append(errors, fmt.Errorf("timeout cannot be negative: %d ms", c.TimeoutMs))
+	}
+
+	// Check Priority is within reasonable range (0-1000)
+	if c.Priority < 0 || c.Priority > 1000 {
+		errors = append(errors, fmt.Errorf("priority must be between 0 and 1000, got: %d", c.Priority))
+	}
+
+	// Validate Layer if specified
+	if c.Layer != 0 && !c.Layer.IsValid() {
+		errors = append(errors, fmt.Errorf("invalid filter layer: %d", c.Layer))
+	}
+
+	return errors
+}
