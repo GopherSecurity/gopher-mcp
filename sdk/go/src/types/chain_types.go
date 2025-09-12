@@ -42,3 +42,30 @@ func (m ExecutionMode) String() string {
 		return fmt.Sprintf("ExecutionMode(%d)", m)
 	}
 }
+
+// ChainConfig contains configuration settings for a filter chain.
+type ChainConfig struct {
+	// Name is the unique identifier for the chain.
+	Name string `json:"name"`
+
+	// ExecutionMode determines how filters are executed.
+	ExecutionMode ExecutionMode `json:"execution_mode"`
+
+	// MaxConcurrency limits concurrent filter execution in parallel mode.
+	MaxConcurrency int `json:"max_concurrency"`
+
+	// BufferSize sets the channel buffer size for pipeline mode.
+	BufferSize int `json:"buffer_size"`
+
+	// ErrorHandling defines how errors are handled: "fail-fast", "continue", "isolate".
+	ErrorHandling string `json:"error_handling"`
+
+	// Timeout is the maximum time for chain execution.
+	Timeout time.Duration `json:"timeout"`
+
+	// EnableMetrics enables performance metrics collection.
+	EnableMetrics bool `json:"enable_metrics"`
+
+	// EnableTracing enables execution tracing for debugging.
+	EnableTracing bool `json:"enable_tracing"`
+}
