@@ -497,3 +497,44 @@ type FilterEventArgs struct {
 	// Data contains event-specific data as key-value pairs.
 	Data map[string]interface{} `json:"data,omitempty"`
 }
+
+// FilterDataEventArgs provides event arguments for filter data processing events.
+// It embeds FilterEventArgs and adds data-specific fields.
+type FilterDataEventArgs struct {
+	// Embed the base event arguments
+	FilterEventArgs
+
+	// Buffer contains the data being processed.
+	Buffer []byte `json:"buffer,omitempty"`
+
+	// Offset is the starting position in the buffer.
+	Offset int `json:"offset"`
+
+	// Length is the number of bytes to process from the offset.
+	Length int `json:"length"`
+
+	// Status is the processing status for this data.
+	Status FilterStatus `json:"status"`
+
+	// Handled indicates if the event has been handled.
+	Handled bool `json:"handled"`
+}
+
+// GetData returns the relevant slice of the buffer based on offset and length.
+// It handles bounds checking to prevent panics.
+func (e *FilterDataEventArgs) GetData() []byte {
+	if e.Buffer == nil || e.Offset < 0 || e.Length <= 0 {
+		return nil
+	}
+	
+	// Ensure we don't exceed buffer bounds
+	end := e.Offset + e.Length
+	if e.Offset >= len(e.Buffer) {
+		return nil
+	}
+	if end > len(e.Buffer) {
+		end = len(e.Buffer)
+	}
+	
+	return e.Buffer[e.Offset:end]
+}
