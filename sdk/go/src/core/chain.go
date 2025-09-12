@@ -164,3 +164,48 @@ func (fc *FilterChain) validateExecutionMode(mode types.ExecutionMode) error {
 
 	return nil
 }
+
+// Add appends a filter to the end of the chain.
+// The filter must not be nil and must have a unique name within the chain.
+// Adding filters is only allowed when the chain is not running.
+//
+// Parameters:
+//   - filter: The filter to add to the chain
+//
+// Returns:
+//   - error: Returns an error if the filter is invalid or the chain is running
+func (fc *FilterChain) Add(filter Filter) error {
+	if filter == nil {
+		return types.FilterError(types.InvalidConfiguration)
+	}
+
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	// Check if chain is running
+	state := fc.getState()
+	if state == types.Running {
+		return types.FilterError(types.ChainError)
+	}
+
+	// Check if filter with same name already exists
+	filterName := filter.Name()
+	for _, existing := range fc.filters {
+		if existing.Name() == filterName {
+			return types.FilterError(types.FilterAlreadyExists)
+		}
+	}
+
+	// Add the filter to the chain
+	fc.filters = append(fc.filters, filter)
+
+	// Update chain state if necessary
+	if state == types.Uninitialized && len(fc.filters) > 0 {
+		fc.setState(types.Ready)
+	}
+
+	// Update statistics
+	fc.stats.FilterStats[filterName] = filter.GetStats()
+
+	return nil
+}
