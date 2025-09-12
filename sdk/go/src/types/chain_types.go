@@ -210,3 +210,83 @@ func (s ChainState) IsActive() bool {
 func (s ChainState) IsTerminal() bool {
 	return s == Stopped
 }
+
+// ChainEventType represents the type of event that occurred in a filter chain.
+type ChainEventType int
+
+const (
+	// ChainStarted indicates the chain has started processing.
+	ChainStarted ChainEventType = iota
+
+	// ChainCompleted indicates the chain has completed processing successfully.
+	ChainCompleted
+
+	// ChainError indicates the chain encountered an error during processing.
+	ChainError
+
+	// FilterAdded indicates a filter was added to the chain.
+	FilterAdded
+
+	// FilterRemoved indicates a filter was removed from the chain.
+	FilterRemoved
+
+	// StateChanged indicates the chain's state has changed.
+	StateChanged
+)
+
+// String returns a human-readable string representation of the ChainEventType.
+func (e ChainEventType) String() string {
+	switch e {
+	case ChainStarted:
+		return "ChainStarted"
+	case ChainCompleted:
+		return "ChainCompleted"
+	case ChainError:
+		return "ChainError"
+	case FilterAdded:
+		return "FilterAdded"
+	case FilterRemoved:
+		return "FilterRemoved"
+	case StateChanged:
+		return "StateChanged"
+	default:
+		return fmt.Sprintf("ChainEventType(%d)", e)
+	}
+}
+
+// ChainEventData contains data associated with a chain event.
+// Different event types may use different fields.
+type ChainEventData struct {
+	// ChainName is the name of the chain that generated the event.
+	ChainName string `json:"chain_name"`
+
+	// EventType is the type of event that occurred.
+	EventType ChainEventType `json:"event_type"`
+
+	// Timestamp is when the event occurred.
+	Timestamp time.Time `json:"timestamp"`
+
+	// OldState is the previous state (for StateChanged events).
+	OldState ChainState `json:"old_state,omitempty"`
+
+	// NewState is the new state (for StateChanged events).
+	NewState ChainState `json:"new_state,omitempty"`
+
+	// FilterName is the name of the filter (for FilterAdded/FilterRemoved events).
+	FilterName string `json:"filter_name,omitempty"`
+
+	// FilterPosition is the position of the filter in the chain.
+	FilterPosition int `json:"filter_position,omitempty"`
+
+	// Error contains any error that occurred (for ChainError events).
+	Error error `json:"error,omitempty"`
+
+	// Duration is the processing time (for ChainCompleted events).
+	Duration time.Duration `json:"duration,omitempty"`
+
+	// ProcessedBytes is the number of bytes processed (for ChainCompleted events).
+	ProcessedBytes uint64 `json:"processed_bytes,omitempty"`
+
+	// Metadata contains additional event-specific data.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
