@@ -46,17 +46,3 @@ func (ft *FilteredTool) Execute(params interface{}) (interface{}, error) {
 	return result, err
 }
 
-// Filter interface
-type Filter interface {
-	Process(data []byte) ([]byte, error)
-}
-
-// NewFilterChain creates a new filter chain.
-func NewFilterChain() *FilterChain {
-	return &FilterChain{}
-}
-
-// Add adds a filter to the chain.
-func (fc *FilterChain) Add(filter Filter) {
-	// Add filter to chain
-}

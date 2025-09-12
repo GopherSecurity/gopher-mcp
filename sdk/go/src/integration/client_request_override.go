@@ -5,7 +5,7 @@ package integration
 func (fc *FilteredMCPClient) SendRequest(request interface{}) (interface{}, error) {
 	// Apply request filters
 	data, _ := extractRequestData(request)
-	filtered, err := fc.FilterOutgoingRequest(data)
+	_, err := fc.FilterOutgoingRequest(data)
 	if err != nil {
 		// Handle filter rejection
 		return nil, err

@@ -1,6 +1,48 @@
 // Package types provides core type definitions for the MCP Filter SDK.
 package types
 
+import "sync"
+
+// BufferPool manages a pool of reusable buffers.
+type BufferPool struct {
+	pool sync.Pool
+}
+
+// NewBufferPool creates a new buffer pool.
+func NewBufferPool() *BufferPool {
+	return &BufferPool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return &Buffer{
+					data:     make([]byte, 0, 4096),
+					capacity: 4096,
+				}
+			},
+		},
+	}
+}
+
+// Get retrieves a buffer from the pool.
+func (p *BufferPool) Get() *Buffer {
+	if p == nil {
+		return nil
+	}
+	b := p.pool.Get().(*Buffer)
+	b.Reset()
+	b.pool = p
+	b.pooled = true
+	return b
+}
+
+// Put returns a buffer to the pool.
+func (p *BufferPool) Put(b *Buffer) {
+	if p == nil || b == nil {
+		return
+	}
+	b.Reset()
+	p.pool.Put(b)
+}
+
 // Buffer represents a resizable byte buffer with pooling support.
 // It provides efficient memory management for filter data processing.
 type Buffer struct {
@@ -200,20 +242,6 @@ func (s *BufferSlice) Slice(start, end int) BufferSlice {
 	}
 }
 
-// BufferPool defines the interface for buffer pooling implementations.
-// Different pooling strategies can implement this interface.
-type BufferPool interface {
-	// Get retrieves a buffer from the pool with at least the specified size.
-	// If no suitable buffer is available, a new one is created.
-	Get(size int) *Buffer
-
-	// Put returns a buffer to the pool for reuse.
-	// The buffer should be reset before being returned.
-	Put(buffer *Buffer)
-
-	// Stats returns statistics about the pool's usage.
-	Stats() PoolStatistics
-}
 
 // PoolStatistics contains metrics about buffer pool usage.
 type PoolStatistics struct {

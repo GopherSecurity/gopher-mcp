@@ -127,8 +127,8 @@ const (
 	// ProcessingFailed indicates the filter failed during data processing.
 	ProcessingFailed FilterError = 1005
 
-	// ChainError indicates an error in the filter chain execution.
-	ChainError FilterError = 1006
+	// ChainProcessingError indicates an error in the filter chain execution.
+	ChainProcessingError FilterError = 1006
 
 	// BufferOverflow indicates the buffer size limit was exceeded.
 	BufferOverflow FilterError = 1007
@@ -162,7 +162,7 @@ func (e FilterError) Error() string {
 		return "filter initialization failed"
 	case ProcessingFailed:
 		return "filter processing failed"
-	case ChainError:
+	case ChainProcessingError:
 		return "filter chain error"
 	case BufferOverflow:
 		return "buffer overflow"
@@ -369,6 +369,12 @@ type FilterStatistics struct {
 
 	// ThroughputBps is the current throughput in bytes per second.
 	ThroughputBps float64 `json:"throughput_bps"`
+	
+	// ErrorRate is the percentage of errors (0-100).
+	ErrorRate float64 `json:"error_rate"`
+	
+	// CustomMetrics allows filters to store custom metrics.
+	CustomMetrics map[string]interface{} `json:"custom_metrics,omitempty"`
 }
 
 // String returns a human-readable summary of the filter statistics.

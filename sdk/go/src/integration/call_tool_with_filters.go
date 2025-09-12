@@ -38,7 +38,7 @@ func (fc *FilteredMCPClient) CallToolWithFilters(tool string, params interface{}
 	}
 	
 	// Deserialize filtered request
-	filteredReq, err := deserializeRequest(filteredRequest)
+	_, err = deserializeRequest(filteredRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize filtered request: %w", err)
 	}

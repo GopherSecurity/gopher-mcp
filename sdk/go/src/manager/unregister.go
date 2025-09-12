@@ -17,7 +17,7 @@ func (fm *FilterManager) UnregisterFilter(id uuid.UUID) error {
 	
 	// Remove from any chains
 	fm.mu.Lock()
-	for chainName, chain := range fm.chains {
+	for _, chain := range fm.chains {
 		if chain != nil {
 			chain.RemoveFilter(id)
 		}

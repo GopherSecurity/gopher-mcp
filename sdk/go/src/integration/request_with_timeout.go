@@ -9,8 +9,124 @@ import (
 
 // TimeoutFilter adds timeout enforcement to requests.
 type TimeoutFilter struct {
-	BaseFilter
 	Timeout time.Duration
+	id      string
+	name    string
+}
+
+// GetID returns the filter ID.
+func (tf *TimeoutFilter) GetID() string {
+	if tf.id == "" {
+		return "timeout_filter"
+	}
+	return tf.id
+}
+
+// GetName returns the filter name.
+func (tf *TimeoutFilter) GetName() string {
+	if tf.name == "" {
+		return "TimeoutFilter"
+	}
+	return tf.name
+}
+
+// GetType returns the filter type.
+func (tf *TimeoutFilter) GetType() string {
+	return "timeout"
+}
+
+// GetVersion returns the filter version.
+func (tf *TimeoutFilter) GetVersion() string {
+	return "1.0.0"
+}
+
+// GetDescription returns the filter description.
+func (tf *TimeoutFilter) GetDescription() string {
+	return "Enforces timeout on requests"
+}
+
+// ValidateConfig validates the filter configuration.
+func (tf *TimeoutFilter) ValidateConfig() error {
+	if tf.Timeout <= 0 {
+		return fmt.Errorf("timeout must be positive")
+	}
+	return nil
+}
+
+// GetConfiguration returns the filter configuration.
+func (tf *TimeoutFilter) GetConfiguration() map[string]interface{} {
+	return map[string]interface{}{
+		"timeout": tf.Timeout,
+	}
+}
+
+// UpdateConfig updates the filter configuration.
+func (tf *TimeoutFilter) UpdateConfig(config map[string]interface{}) {
+	if timeout, ok := config["timeout"].(time.Duration); ok {
+		tf.Timeout = timeout
+	}
+}
+
+// GetCapabilities returns the filter capabilities.
+func (tf *TimeoutFilter) GetCapabilities() []string {
+	return []string{"timeout", "deadline"}
+}
+
+// GetDependencies returns the filter dependencies.
+func (tf *TimeoutFilter) GetDependencies() []FilterDependency {
+	return nil
+}
+
+// GetResourceRequirements returns resource requirements.
+func (tf *TimeoutFilter) GetResourceRequirements() ResourceRequirements {
+	return ResourceRequirements{}
+}
+
+// GetTypeInfo returns type information.
+func (tf *TimeoutFilter) GetTypeInfo() TypeInfo {
+	return TypeInfo{
+		InputTypes:  []string{"any"},
+		OutputTypes: []string{"any"},
+	}
+}
+
+// EstimateLatency estimates the filter latency.
+func (tf *TimeoutFilter) EstimateLatency() time.Duration {
+	return 0
+}
+
+// HasBlockingOperations returns if filter has blocking operations.
+func (tf *TimeoutFilter) HasBlockingOperations() bool {
+	return false
+}
+
+// UsesDeprecatedFeatures returns if filter uses deprecated features.
+func (tf *TimeoutFilter) UsesDeprecatedFeatures() bool {
+	return false
+}
+
+// HasKnownVulnerabilities returns if filter has known vulnerabilities.
+func (tf *TimeoutFilter) HasKnownVulnerabilities() bool {
+	return false
+}
+
+// IsStateless returns if filter is stateless.
+func (tf *TimeoutFilter) IsStateless() bool {
+	return true
+}
+
+// Clone creates a copy of the filter.
+func (tf *TimeoutFilter) Clone() Filter {
+	return &TimeoutFilter{
+		Timeout: tf.Timeout,
+		id:      tf.id + "_clone",
+		name:    tf.name + "_clone",
+	}
+}
+
+// SetID sets the filter ID.
+func (tf *TimeoutFilter) SetID(id string) {
+	tf.id = id
 }
 
 // RequestWithTimeout sends request with timeout.
@@ -58,7 +174,7 @@ func (fc *FilteredMCPClient) RequestWithTimeout(
 		}
 		
 		// Deserialize filtered request
-		filteredReq, err := deserializeRequest(filtered)
+		_, err = deserializeRequest(filtered)
 		if err != nil {
 			resultChan <- result{nil, fmt.Errorf("deserialize error: %w", err)}
 			return

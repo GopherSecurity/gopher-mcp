@@ -674,8 +674,8 @@ func (f *RetryFilter) GetStatistics() RetryStatistics {
 	return statsCopy
 }
 
-// RetrySuccessRate returns the percentage of successful retries.
-func (stats *RetryStatistics) RetrySuccessRate() float64 {
+// GetRetrySuccessRate returns the percentage of successful retries.
+func (stats *RetryStatistics) GetRetrySuccessRate() float64 {
 	total := stats.SuccessfulRetries + stats.FailedRetries
 	if total == 0 {
 		return 0

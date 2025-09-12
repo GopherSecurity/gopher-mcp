@@ -90,9 +90,9 @@ help:
 build: deps
 	@echo "${GREEN}Building MCP Filter SDK...${NC}"
 	@mkdir -p $(BUILD_DIR)
-	@$(GOBUILD) $(BUILD_FLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./src/...
+	@$(GOBUILD) $(BUILD_FLAGS) ./src/...
 	@echo "${GREEN}Build complete!${NC}"
-	@echo "Binary location: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Library packages built successfully"
 
 ## test: Run all tests
 .PHONY: test

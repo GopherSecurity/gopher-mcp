@@ -34,7 +34,7 @@ func (fm *FilterManager) AggregateStatistics() ManagerStatistics {
 	var totalLatency time.Duration
 	var latencies []time.Duration
 	
-	for _, filter := range allFilters {
+	for range allFilters {
 		// Assuming filters have GetStats() method
 		// filterStats := filter.GetStats()
 		// stats.ProcessedMessages += filterStats.ProcessedCount

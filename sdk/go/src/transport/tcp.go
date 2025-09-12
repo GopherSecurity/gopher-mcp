@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -156,6 +157,22 @@ func (t *TcpTransport) connectClient(ctx context.Context) error {
 	}
 	
 	return nil
+}
+
+// setSocketOptions sets socket options for reuse.
+func (t *TcpTransport) setSocketOptions(network string, address string, c syscall.RawConn) error {
+	var err error
+	c.Control(func(fd uintptr) {
+		if t.config.ReuseAddr {
+			err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+		}
+		if err == nil && t.config.ReusePort {
+			// SO_REUSEPORT might not be available on all platforms
+			// Ignore error if not supported
+			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, 0x0F, 1) // SO_REUSEPORT value
+		}
+	})
+	return err
 }
 
 // startServer starts TCP listener in server mode.
@@ -446,12 +463,6 @@ func (t *TcpTransport) scheduleReconnect() {
 	})
 }
 
-// setSocketOptions sets socket-level options.
-func (t *TcpTransport) setSocketOptions(network, address string, c net.Conn) error {
-	// Platform-specific socket options would be set here
-	// For now, just return nil
-	return nil
-}
 
 // Close closes the transport.
 func (t *TcpTransport) Close() error {
