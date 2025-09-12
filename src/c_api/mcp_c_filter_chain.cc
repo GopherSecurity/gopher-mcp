@@ -964,15 +964,23 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       GOPHER_LOG(Debug, "Stored filter with handle {}", handle);
     }
     
-    // 9. Create the chain instance
+    // 9. Create the chain instance with configuration from JSON
     mcp_chain_config_t chain_config = {
-      .name = "json_configured_chain",
-      .mode = MCP_CHAIN_MODE_SEQUENTIAL,
-      .routing = MCP_ROUTING_ROUND_ROBIN,
-      .max_parallel = 1,
-      .buffer_size = 8192,
-      .timeout_ms = 30000,
-      .stop_on_error = true
+      .name = config.contains("name") ? config["name"].getString().c_str() : "json_configured_chain",
+      .mode = config.contains("mode") ? 
+              static_cast<mcp_chain_execution_mode_t>(config["mode"].getInt()) : 
+              MCP_CHAIN_MODE_SEQUENTIAL,
+      .routing = config.contains("routing") ? 
+                 static_cast<mcp_routing_strategy_t>(config["routing"].getInt()) : 
+                 MCP_ROUTING_ROUND_ROBIN,
+      .max_parallel = config.contains("max_parallel") ? 
+                      static_cast<uint32_t>(config["max_parallel"].getInt()) : 1,
+      .buffer_size = config.contains("buffer_size") ? 
+                     static_cast<uint32_t>(config["buffer_size"].getInt()) : 8192,
+      .timeout_ms = config.contains("timeout_ms") ? 
+                    static_cast<uint32_t>(config["timeout_ms"].getInt()) : 30000,
+      .stop_on_error = config.contains("stop_on_error") ? 
+                       config["stop_on_error"].getBool() : true
     };
     
     auto chain = std::make_unique<AdvancedFilterChain>(chain_config, dispatcher);
@@ -990,9 +998,13 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       mcp_filter_node_t node = {
         .filter = filter_handles[i],  // Real filter handle
         .name = filter_name.c_str(),
-        .priority = static_cast<uint32_t>(i),
-        .enabled = true,
-        .bypass_on_error = false,
+        .priority = filter_config.contains("priority") ? 
+                    static_cast<uint32_t>(filter_config["priority"].getInt()) : 
+                    static_cast<uint32_t>(i),
+        .enabled = filter_config.contains("enabled") ? 
+                   filter_config["enabled"].getBool() : true,
+        .bypass_on_error = filter_config.contains("bypass_on_error") ? 
+                           filter_config["bypass_on_error"].getBool() : false,
         .config = nullptr
       };
       
@@ -1048,14 +1060,82 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
   // Create a JSON representation of the chain
   try {
     auto config = mcp::json::JsonValue::object();
-    config["name"] = mcp::json::JsonValue("exported_chain");
-    config["filters"] = mcp::json::JsonValue::array();
     
-    // TODO: Export actual filter configurations from the chain
-    // For now, return a minimal structure
+    // Export chain properties
+    config["name"] = mcp::json::JsonValue(chain_ptr->name_.empty() ? 
+                                          "exported_chain" : chain_ptr->name_);
+    config["mode"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->mode_));
+    config["routing"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->routing_));
+    config["max_parallel"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->max_parallel_));
+    config["buffer_size"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->buffer_size_));
+    config["timeout_ms"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->timeout_ms_));
+    config["stop_on_error"] = mcp::json::JsonValue(chain_ptr->stop_on_error_);
+    
+    // Export filters array
+    auto filters_array = mcp::json::JsonValue::array();
+    
+    // Lock to safely access nodes
+    {
+      std::lock_guard<std::mutex> lock(chain_ptr->mutex_);
+      
+      for (const auto& node : chain_ptr->nodes_) {
+        auto filter_obj = mcp::json::JsonValue::object();
+        
+        // Get filter handle from the node
+        mcp_filter_t filter_handle = node->getFilter();
+        
+        // Try to determine filter type from registry or use a generic type
+        // For now we'll use the node name as a basis for the type
+        std::string filter_type = node->getName();
+        
+        // Check if this is one of the known filter types
+        if (filter_type.find("http_codec") != std::string::npos) {
+          filter_type = "http_codec";
+        } else if (filter_type.find("sse_codec") != std::string::npos) {
+          filter_type = "sse_codec";
+        } else if (filter_type.find("json_rpc") != std::string::npos) {
+          filter_type = "json_rpc";
+        } else if (filter_type.find("passthrough") != std::string::npos) {
+          filter_type = "passthrough";
+        } else if (filter_type.find("buffer") != std::string::npos) {
+          filter_type = "buffer";
+        } else if (filter_type.find("router") != std::string::npos) {
+          filter_type = "router";
+        } else if (filter_type.find("transform") != std::string::npos) {
+          filter_type = "transform";
+        } else if (filter_type.find("validation") != std::string::npos) {
+          filter_type = "validation";
+        } else if (filter_type.find("rate_limit") != std::string::npos) {
+          filter_type = "rate_limit";
+        } else if (filter_type.find("metrics") != std::string::npos) {
+          filter_type = "metrics";
+        } else if (filter_type.find("logging") != std::string::npos) {
+          filter_type = "logging";
+        } else {
+          // Default to passthrough if we can't determine the type
+          filter_type = "passthrough";
+        }
+        
+        filter_obj["type"] = mcp::json::JsonValue(filter_type);
+        filter_obj["name"] = mcp::json::JsonValue(node->getName());
+        filter_obj["priority"] = mcp::json::JsonValue(static_cast<int64_t>(node->getPriority()));
+        filter_obj["enabled"] = mcp::json::JsonValue(node->isEnabled());
+        filter_obj["bypass_on_error"] = mcp::json::JsonValue(node->shouldBypassOnError());
+        
+        // If the node has configuration data, export it
+        // For now, we'll add an empty config object
+        auto config_obj = mcp::json::JsonValue::object();
+        filter_obj["config"] = config_obj;
+        
+        filters_array.push_back(filter_obj);
+      }
+    }
+    
+    config["filters"] = filters_array;
     
     auto c_api_json = mcp::c_api::internal::convertToCApi(config);
-    GOPHER_LOG(Info, "Chain {} exported to JSON", chain);
+    GOPHER_LOG(Info, "Chain {} exported to JSON with {} filters", 
+               chain, filters_array.size());
     return c_api_json;
     
   } catch (const std::bad_alloc&) {
