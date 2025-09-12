@@ -20,6 +20,35 @@ type BackoffStrategy interface {
 	Reset()
 }
 
+// RetryExhaustedException is returned when all retry attempts fail.
+type RetryExhaustedException struct {
+	// Attempts is the number of retry attempts made
+	Attempts int
+	
+	// LastError is the final error encountered
+	LastError error
+	
+	// TotalDuration is the total time spent retrying
+	TotalDuration time.Duration
+	
+	// Delays contains all backoff delays used
+	Delays []time.Duration
+	
+	// Errors contains all errors encountered (if tracking enabled)
+	Errors []error
+}
+
+// Error implements the error interface.
+func (e *RetryExhaustedException) Error() string {
+	return fmt.Sprintf("retry exhausted after %d attempts (took %v): %v", 
+		e.Attempts, e.TotalDuration, e.LastError)
+}
+
+// Unwrap returns the underlying error for errors.Is/As support.
+func (e *RetryExhaustedException) Unwrap() error {
+	return e.LastError
+}
+
 // RetryStatistics tracks retry filter performance metrics.
 type RetryStatistics struct {
 	TotalAttempts     uint64
@@ -429,10 +458,26 @@ func (f *RetryFilter) Process(ctx context.Context, data []byte) (*types.FilterRe
 		f.retryCount.Add(1)
 	}
 	
-	// All attempts failed
+	// All attempts failed - return detailed exception
+	totalDuration := time.Since(startTime)
+	attempts := int(f.retryCount.Load()) + 1
+	
+	exception := &RetryExhaustedException{
+		Attempts:      attempts,
+		LastError:     lastErr,
+		TotalDuration: totalDuration,
+	}
+	
+	// Add delays from statistics
+	f.statsMu.RLock()
+	if len(f.stats.BackoffDelays) > 0 {
+		exception.Delays = make([]time.Duration, len(f.stats.BackoffDelays))
+		copy(exception.Delays, f.stats.BackoffDelays)
+	}
+	f.statsMu.RUnlock()
+	
 	if lastErr != nil {
-		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", 
-			f.retryCount.Load()+1, lastErr)
+		return nil, exception
 	}
 	
 	return lastResult, nil
