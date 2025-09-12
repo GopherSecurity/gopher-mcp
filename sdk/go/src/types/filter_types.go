@@ -417,3 +417,67 @@ func (r *FilterResult) Duration() time.Duration {
 	}
 	return r.EndTime.Sub(r.StartTime)
 }
+
+// Success creates a successful FilterResult with the provided data.
+func Success(data []byte) *FilterResult {
+	now := time.Now()
+	return &FilterResult{
+		Status:    Continue,
+		Data:      data,
+		StartTime: now,
+		EndTime:   now,
+		Metadata:  make(map[string]interface{}),
+	}
+}
+
+// Error creates an error FilterResult with the provided error and code.
+func ErrorResult(err error, code FilterError) *FilterResult {
+	now := time.Now()
+	return &FilterResult{
+		Status:    Error,
+		Error:     fmt.Errorf("%s: %w", code.Error(), err),
+		StartTime: now,
+		EndTime:   now,
+		Metadata: map[string]interface{}{
+			"error_code": code.Code(),
+		},
+	}
+}
+
+// ContinueWith creates a FilterResult that continues with the provided data.
+func ContinueWith(data []byte) *FilterResult {
+	now := time.Now()
+	return &FilterResult{
+		Status:    Continue,
+		Data:      data,
+		StartTime: now,
+		EndTime:   now,
+		Metadata:  make(map[string]interface{}),
+	}
+}
+
+// Blocked creates a FilterResult indicating the request was blocked.
+func Blocked(reason string) *FilterResult {
+	now := time.Now()
+	return &FilterResult{
+		Status:    StopIteration,
+		StopChain: true,
+		StartTime: now,
+		EndTime:   now,
+		Metadata: map[string]interface{}{
+			"blocked_reason": reason,
+		},
+	}
+}
+
+// StopIterationResult creates a FilterResult that stops the filter chain.
+func StopIterationResult() *FilterResult {
+	now := time.Now()
+	return &FilterResult{
+		Status:    StopIteration,
+		StopChain: true,
+		StartTime: now,
+		EndTime:   now,
+		Metadata:  make(map[string]interface{}),
+	}
+}
