@@ -103,3 +103,67 @@ func WithCorrelationID(parent context.Context, correlationID string) *Processing
 	ctx.correlationID = correlationID
 	return ctx
 }
+
+// Deadline returns the deadline from the embedded context.
+// Implements context.Context interface.
+func (pc *ProcessingContext) Deadline() (deadline time.Time, ok bool) {
+	return pc.Context.Deadline()
+}
+
+// Done returns the done channel from the embedded context.
+// Implements context.Context interface.
+func (pc *ProcessingContext) Done() <-chan struct{} {
+	return pc.Context.Done()
+}
+
+// Err returns any error from the embedded context.
+// Implements context.Context interface.
+func (pc *ProcessingContext) Err() error {
+	return pc.Context.Err()
+}
+
+// Value first checks the embedded context, then the properties map.
+// This allows both standard context values and custom properties.
+// Implements context.Context interface.
+func (pc *ProcessingContext) Value(key interface{}) interface{} {
+	// First check the embedded context
+	if val := pc.Context.Value(key); val != nil {
+		return val
+	}
+
+	// Then check properties map if key is a string
+	if strKey, ok := key.(string); ok {
+		if val, ok := pc.properties.Load(strKey); ok {
+			return val
+		}
+	}
+
+	return nil
+}
+
+// SetProperty stores a key-value pair in the properties map.
+// The key must be non-empty. The value can be nil.
+// This provides thread-safe property storage without external locking.
+//
+// Parameters:
+//   - key: The property key (must be non-empty)
+//   - value: The property value (can be nil)
+func (pc *ProcessingContext) SetProperty(key string, value interface{}) {
+	if key == "" {
+		return
+	}
+	pc.properties.Store(key, value)
+}
+
+// GetProperty retrieves a value from the properties map.
+// Returns the value and true if found, nil and false otherwise.
+//
+// Parameters:
+//   - key: The property key to retrieve
+//
+// Returns:
+//   - interface{}: The property value if found
+//   - bool: True if the property exists
+func (pc *ProcessingContext) GetProperty(key string) (interface{}, bool) {
+	return pc.properties.Load(key)
+}
