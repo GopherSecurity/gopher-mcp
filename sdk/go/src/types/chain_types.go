@@ -140,3 +140,73 @@ type ChainStatistics struct {
 	// FilterStats contains statistics for each filter in the chain.
 	FilterStats map[string]FilterStatistics `json:"filter_stats"`
 }
+
+// ChainState represents the lifecycle state of a filter chain.
+type ChainState int
+
+const (
+	// Uninitialized means the chain is not ready to process data.
+	// The chain is in this state before initialization completes.
+	Uninitialized ChainState = iota
+
+	// Ready means the chain is initialized and can process data.
+	// All filters are configured and ready to receive data.
+	Ready
+
+	// Running means the chain is currently processing data.
+	// One or more filters are actively processing.
+	Running
+
+	// Stopped means the chain has been shut down.
+	// The chain cannot process data and must be reinitialized.
+	Stopped
+)
+
+// String returns a human-readable string representation of the ChainState.
+func (s ChainState) String() string {
+	switch s {
+	case Uninitialized:
+		return "Uninitialized"
+	case Ready:
+		return "Ready"
+	case Running:
+		return "Running"
+	case Stopped:
+		return "Stopped"
+	default:
+		return fmt.Sprintf("ChainState(%d)", s)
+	}
+}
+
+// CanTransitionTo validates if a state transition is allowed.
+// It enforces the state machine rules for chain lifecycle.
+func (s ChainState) CanTransitionTo(target ChainState) bool {
+	switch s {
+	case Uninitialized:
+		// Can only transition to Ready or Stopped
+		return target == Ready || target == Stopped
+	case Ready:
+		// Can transition to Running or Stopped
+		return target == Running || target == Stopped
+	case Running:
+		// Can only transition to Ready or Stopped
+		return target == Ready || target == Stopped
+	case Stopped:
+		// Can only transition to Uninitialized to restart
+		return target == Uninitialized
+	default:
+		return false
+	}
+}
+
+// IsActive returns true if the chain is in an active state.
+// Active states are Ready and Running.
+func (s ChainState) IsActive() bool {
+	return s == Ready || s == Running
+}
+
+// IsTerminal returns true if the chain is in a terminal state.
+// Terminal state is Stopped.
+func (s ChainState) IsTerminal() bool {
+	return s == Stopped
+}
