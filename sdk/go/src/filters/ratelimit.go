@@ -11,19 +11,49 @@ import (
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
 
-// RateLimitFilter implements rate limiting using a token bucket algorithm.
+// RateLimitStatistics tracks rate limiting metrics.
+type RateLimitStatistics struct {
+	TotalRequests   uint64
+	AllowedRequests uint64
+	DeniedRequests  uint64
+	ActiveLimiters  int
+	ByKeyStats      map[string]*KeyStatistics
+}
+
+// KeyStatistics tracks per-key rate limit metrics.
+type KeyStatistics struct {
+	Allowed uint64
+	Denied  uint64
+	LastSeen time.Time
+}
+
+// RateLimitConfig configures the rate limiting behavior.
+type RateLimitConfig struct {
+	Algorithm         string                          // token-bucket, sliding-window, fixed-window
+	RequestsPerSecond int                             // Rate limit
+	BurstSize         int                             // Maximum burst
+	KeyExtractor      func(context.Context) string    // Extract key from context
+	WindowSize        time.Duration                   // Window duration
+}
+
+// RateLimitFilter implements rate limiting with multiple algorithms.
 type RateLimitFilter struct {
-	core.FilterBase
-
+	*FilterBase
+	
+	// Rate limiters per key
+	limiters sync.Map // map[string]RateLimiter
+	
 	// Configuration
-	maxRequests int           // Maximum requests per window
-	window      time.Duration // Time window for rate limiting
-	burstSize   int          // Maximum burst size
-
-	// Token bucket state
-	tokens    float64
-	lastCheck time.Time
-	mu        sync.Mutex
+	config RateLimitConfig
+	
+	// Cleanup timer
+	cleanupTicker *time.Ticker
+	
+	// Statistics
+	stats RateLimitStatistics
+	
+	// Synchronization
+	statsMu sync.RWMutex
 }
 
 // NewRateLimitFilter creates a new rate limit filter.
