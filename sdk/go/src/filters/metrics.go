@@ -209,10 +209,105 @@ func (f *MetricsFilter) recordErrorRate(name string, isError bool) {
 	f.collector.SetGauge(key, rate)
 }
 
-// updateThroughput updates throughput metrics.
+// ThroughputTracker tracks throughput using sliding window.
+type ThroughputTracker struct {
+	requestsPerSec float64
+	bytesPerSec    float64
+	peakRPS        float64
+	peakBPS        float64
+	
+	window      []throughputSample
+	windowSize  time.Duration
+	lastUpdate  time.Time
+	mu          sync.RWMutex
+}
+
+type throughputSample struct {
+	timestamp time.Time
+	requests  int64
+	bytes     int64
+}
+
+// NewThroughputTracker creates a new throughput tracker.
+func NewThroughputTracker(windowSize time.Duration) *ThroughputTracker {
+	return &ThroughputTracker{
+		window:     make([]throughputSample, 0, 100),
+		windowSize: windowSize,
+		lastUpdate: time.Now(),
+	}
+}
+
+// Add adds a sample to the tracker.
+func (tt *ThroughputTracker) Add(requests, bytes int64) {
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+	
+	now := time.Now()
+	tt.window = append(tt.window, throughputSample{
+		timestamp: now,
+		requests:  requests,
+		bytes:     bytes,
+	})
+	
+	// Clean old samples
+	cutoff := now.Add(-tt.windowSize)
+	newWindow := make([]throughputSample, 0, len(tt.window))
+	for _, s := range tt.window {
+		if s.timestamp.After(cutoff) {
+			newWindow = append(newWindow, s)
+		}
+	}
+	tt.window = newWindow
+	
+	// Calculate rates
+	if len(tt.window) > 1 {
+		duration := tt.window[len(tt.window)-1].timestamp.Sub(tt.window[0].timestamp).Seconds()
+		if duration > 0 {
+			var totalRequests, totalBytes int64
+			for _, s := range tt.window {
+				totalRequests += s.requests
+				totalBytes += s.bytes
+			}
+			
+			tt.requestsPerSec = float64(totalRequests) / duration
+			tt.bytesPerSec = float64(totalBytes) / duration
+			
+			// Update peaks
+			if tt.requestsPerSec > tt.peakRPS {
+				tt.peakRPS = tt.requestsPerSec
+			}
+			if tt.bytesPerSec > tt.peakBPS {
+				tt.peakBPS = tt.bytesPerSec
+			}
+		}
+	}
+}
+
+// updateThroughput updates throughput metrics with sliding window.
 func (f *MetricsFilter) updateThroughput(name string, bytes int) {
-	// Implementation would track bytes/sec and requests/sec
-	f.collector.IncrementCounter(name+".bytes", int64(bytes))
+	key := name + ".throughput"
+	
+	// Get or create throughput tracker
+	var tracker *ThroughputTracker
+	if v, ok := f.stats[key]; ok {
+		tracker = v.Load().(*ThroughputTracker)
+	} else {
+		tracker = NewThroughputTracker(10 * time.Second) // 10 second window
+		var v atomic.Value
+		v.Store(tracker)
+		f.mu.Lock()
+		f.stats[key] = v
+		f.mu.Unlock()
+	}
+	
+	// Add sample
+	tracker.Add(1, int64(bytes))
+	
+	// Export metrics
+	f.collector.SetGauge(name+".rps", tracker.requestsPerSec)
+	f.collector.SetGauge(name+".bps", tracker.bytesPerSec)
+	f.collector.SetGauge(name+".peak_rps", tracker.peakRPS)
+	f.collector.SetGauge(name+".peak_bps", tracker.peakBPS)
 }
 
 // exportLoop periodically exports metrics.
