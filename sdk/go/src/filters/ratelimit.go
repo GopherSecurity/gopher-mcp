@@ -151,6 +151,71 @@ func (sw *SlidingWindow) LastAccess() time.Time {
 	return sw.lastAccess
 }
 
+// FixedWindow implements fixed window rate limiting algorithm.
+type FixedWindow struct {
+	// Current request count in window
+	count int
+	
+	// Window start time
+	windowStart time.Time
+	
+	// Maximum requests per window
+	limit int
+	
+	// Window duration
+	windowSize time.Duration
+	
+	// Last access time
+	lastAccess time.Time
+	
+	// Synchronization
+	mu sync.Mutex
+}
+
+// NewFixedWindow creates a new fixed window rate limiter.
+func NewFixedWindow(limit int, windowSize time.Duration) *FixedWindow {
+	now := time.Now()
+	return &FixedWindow{
+		count:       0,
+		windowStart: now,
+		limit:       limit,
+		windowSize:  windowSize,
+		lastAccess:  now,
+	}
+}
+
+// TryAcquire attempts to acquire n permits from the fixed window.
+// Returns true if successful, false if limit exceeded.
+func (fw *FixedWindow) TryAcquire(n int) bool {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	
+	now := time.Now()
+	fw.lastAccess = now
+	
+	// Reset count if window has expired
+	if now.Sub(fw.windowStart) >= fw.windowSize {
+		fw.windowStart = now
+		fw.count = 0
+	}
+	
+	// Check if adding n requests would exceed limit
+	if fw.count+n > fw.limit {
+		return false
+	}
+	
+	// Increment counter
+	fw.count += n
+	return true
+}
+
+// LastAccess returns the last time the window was accessed.
+func (fw *FixedWindow) LastAccess() time.Time {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	return fw.lastAccess
+}
+
 // RateLimitStatistics tracks rate limiting metrics.
 type RateLimitStatistics struct {
 	TotalRequests   uint64
