@@ -31,6 +31,9 @@ type RetryStatistics struct {
 	MaxDelay          time.Duration
 }
 
+// RetryCondition is a custom function to determine if retry should occur.
+type RetryCondition func(error, *types.FilterResult) bool
+
 // RetryConfig configures the retry behavior.
 type RetryConfig struct {
 	// MaxAttempts is the maximum number of retry attempts.
@@ -56,6 +59,10 @@ type RetryConfig struct {
 	// Timeout is the maximum total time for all retry attempts.
 	// If exceeded, retries stop regardless of MaxAttempts.
 	Timeout time.Duration
+	
+	// RetryCondition is a custom function to determine retry eligibility.
+	// If set, it overrides default retry logic.
+	RetryCondition RetryCondition
 }
 
 // DefaultRetryConfig returns a sensible default configuration.
@@ -443,6 +450,17 @@ func (f *RetryFilter) shouldRetry(err error, result *types.FilterResult, attempt
 		return false // Success, no retry needed
 	}
 	
+	// Use custom retry condition if provided
+	if f.config.RetryCondition != nil {
+		return f.config.RetryCondition(err, result)
+	}
+	
+	// Default retry logic
+	return f.defaultRetryCondition(err, result)
+}
+
+// defaultRetryCondition is the default retry logic.
+func (f *RetryFilter) defaultRetryCondition(err error, result *types.FilterResult) bool {
 	// Check if error is in retryable list
 	if len(f.config.RetryableErrors) > 0 {
 		for _, retryableErr := range f.config.RetryableErrors {
@@ -467,6 +485,59 @@ func (f *RetryFilter) shouldRetry(err error, result *types.FilterResult, attempt
 	
 	// Default: retry all errors
 	return err != nil || (result != nil && result.Status == types.Error)
+}
+
+// Common retry conditions for convenience
+
+// RetryOnError retries only on errors.
+func RetryOnError(err error, result *types.FilterResult) bool {
+	return err != nil || (result != nil && result.Status == types.Error)
+}
+
+// RetryOnStatusCodes returns a condition that retries on specific status codes.
+func RetryOnStatusCodes(codes ...int) RetryCondition {
+	return func(err error, result *types.FilterResult) bool {
+		if result == nil || result.Metadata == nil {
+			return err != nil
+		}
+		
+		if statusCode, ok := result.Metadata["status_code"].(int); ok {
+			for _, code := range codes {
+				if statusCode == code {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// RetryOnTimeout retries on timeout errors.
+func RetryOnTimeout(err error, result *types.FilterResult) bool {
+	if err == nil {
+		return false
+	}
+	
+	// Check for context timeout
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	
+	// Check error string for timeout indication
+	errStr := err.Error()
+	return errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) ||
+		contains(errStr, "timeout") ||
+		contains(errStr, "deadline")
+}
+
+// contains checks if string contains substring (case-insensitive).
+func contains(s, substr string) bool {
+	s = fmt.Sprintf("%v", s)
+	return len(s) > 0 && len(substr) > 0 && 
+		(s == substr || 
+		 len(s) > len(substr) && 
+		 (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr))
 }
 
 // recordSuccess records successful retry.
