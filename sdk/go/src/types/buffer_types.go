@@ -113,3 +113,61 @@ func (b *Buffer) markPooled() {
 		b.pooled = true
 	}
 }
+
+// BufferSlice provides a zero-copy view into a Buffer.
+// It references a portion of the underlying buffer without copying data.
+type BufferSlice struct {
+	// buffer is the underlying buffer being sliced.
+	buffer *Buffer
+
+	// offset is the starting position in the buffer.
+	offset int
+
+	// length is the number of bytes in this slice.
+	length int
+}
+
+// Bytes returns the slice data without copying.
+// This provides direct access to the underlying buffer data.
+func (s *BufferSlice) Bytes() []byte {
+	if s == nil || s.buffer == nil || s.buffer.data == nil {
+		return nil
+	}
+	
+	// Ensure we don't exceed buffer bounds
+	end := s.offset + s.length
+	if s.offset >= len(s.buffer.data) {
+		return nil
+	}
+	if end > len(s.buffer.data) {
+		end = len(s.buffer.data)
+	}
+	
+	return s.buffer.data[s.offset:end]
+}
+
+// Len returns the length of the slice.
+func (s *BufferSlice) Len() int {
+	if s == nil {
+		return 0
+	}
+	return s.length
+}
+
+// SubSlice creates a new BufferSlice that is a subset of this slice.
+// The start and end parameters are relative to this slice, not the underlying buffer.
+func (s *BufferSlice) SubSlice(start, end int) BufferSlice {
+	if s == nil || start < 0 || end < start || start > s.length {
+		return BufferSlice{}
+	}
+	
+	if end > s.length {
+		end = s.length
+	}
+	
+	return BufferSlice{
+		buffer: s.buffer,
+		offset: s.offset + start,
+		length: end - start,
+	}
+}
