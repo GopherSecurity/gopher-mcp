@@ -15,6 +15,31 @@ import (
 // State represents the state of the circuit breaker.
 type State int
 
+// CircuitBreakerMetrics tracks circuit breaker performance metrics.
+type CircuitBreakerMetrics struct {
+	// State tracking
+	CurrentState      State
+	StateChanges      uint64
+	TimeInClosed      time.Duration
+	TimeInOpen        time.Duration
+	TimeInHalfOpen    time.Duration
+	LastStateChange   time.Time
+	
+	// Success/Failure rates
+	TotalRequests     uint64
+	SuccessfulRequests uint64
+	FailedRequests    uint64
+	RejectedRequests  uint64
+	SuccessRate       float64
+	FailureRate       float64
+	
+	// Recovery metrics
+	LastOpenTime      time.Time
+	LastRecoveryTime  time.Duration
+	AverageRecoveryTime time.Duration
+	RecoveryAttempts  uint64
+}
+
 const (
 	// Closed state - normal operation, requests pass through.
 	// The circuit breaker monitors for failures.
@@ -116,6 +141,11 @@ type CircuitBreakerFilter struct {
 	
 	// Half-open state limiter
 	halfOpenAttempts atomic.Int32
+	
+	// Metrics tracking
+	metrics CircuitBreakerMetrics
+	metricsMu sync.RWMutex
+	stateStartTime time.Time
 }
 
 // NewCircuitBreakerFilter creates a new circuit breaker filter.
@@ -129,6 +159,11 @@ func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter 
 	// Initialize state
 	f.state.Store(Closed)
 	f.lastFailureTime.Store(time.Time{})
+	f.stateStartTime = time.Now()
+	
+	// Initialize metrics
+	f.metrics.CurrentState = Closed
+	f.metrics.LastStateChange = time.Now()
 	
 	return f
 }
@@ -204,15 +239,50 @@ func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 
 // updateMetrics updates metrics for state transitions.
 func (f *CircuitBreakerFilter) updateMetrics(from, to State) {
-	// This would integrate with a metrics system like Prometheus
-	// For now, just update internal stats
+	f.metricsMu.Lock()
+	defer f.metricsMu.Unlock()
+	
+	now := time.Now()
+	elapsed := now.Sub(f.stateStartTime)
+	
+	// Update time in state
+	switch from {
+	case Closed:
+		f.metrics.TimeInClosed += elapsed
+	case Open:
+		f.metrics.TimeInOpen += elapsed
+		// Track recovery time when leaving Open
+		if to == HalfOpen || to == Closed {
+			f.metrics.LastRecoveryTime = elapsed
+			f.metrics.RecoveryAttempts++
+			// Update average recovery time
+			if f.metrics.RecoveryAttempts > 0 {
+				total := f.metrics.AverageRecoveryTime * time.Duration(f.metrics.RecoveryAttempts-1)
+				f.metrics.AverageRecoveryTime = (total + elapsed) / time.Duration(f.metrics.RecoveryAttempts)
+			}
+		}
+	case HalfOpen:
+		f.metrics.TimeInHalfOpen += elapsed
+	}
+	
+	// Update state tracking
+	f.metrics.CurrentState = to
+	f.metrics.StateChanges++
+	f.metrics.LastStateChange = now
+	f.stateStartTime = now
+	
+	// Record open time
+	if to == Open {
+		f.metrics.LastOpenTime = now
+	}
+	
+	// Update filter base statistics if available
 	if f.FilterBase != nil {
-		// Update filter statistics
 		stats := f.FilterBase.GetStats()
 		stats.CustomMetrics = map[string]interface{}{
 			"state":           to.String(),
-			"transitions":     stats.ProcessCount + 1,
-			"last_transition": time.Now(),
+			"transitions":     f.metrics.StateChanges,
+			"last_transition": now,
 		}
 	}
 }
@@ -370,6 +440,7 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 			f.successes.Store(0)
 		} else {
 			// Circuit is open, reject immediately
+			f.updateRequestMetrics(false, true)
 			return nil, fmt.Errorf("circuit breaker is open")
 		}
 	}
@@ -382,6 +453,7 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 		
 		if attempts > int32(f.config.HalfOpenMaxAttempts) {
 			// Too many concurrent attempts, reject
+			f.updateRequestMetrics(false, true)
 			return nil, fmt.Errorf("circuit breaker half-open limit exceeded")
 		}
 	}
@@ -393,12 +465,14 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 	// Record outcome
 	if result.Status == types.Error {
 		f.recordFailure()
+		f.updateRequestMetrics(false, false)
 		// Handle state transition based on failure
 		if f.state.Load().(State) == Open {
 			return nil, fmt.Errorf("circuit breaker opened due to failures")
 		}
 	} else {
 		f.recordSuccess()
+		f.updateRequestMetrics(true, false)
 	}
 	
 	return result, nil
@@ -470,5 +544,50 @@ func (f *CircuitBreakerFilter) RecordFailure() {
 		
 	case Open:
 		// Already open, just record the failure
+	}
+}
+
+// GetMetrics returns current circuit breaker metrics.
+func (f *CircuitBreakerFilter) GetMetrics() CircuitBreakerMetrics {
+	f.metricsMu.RLock()
+	defer f.metricsMu.RUnlock()
+	
+	// Create a copy of metrics
+	metricsCopy := f.metrics
+	
+	// Calculate current rates
+	if metricsCopy.TotalRequests > 0 {
+		metricsCopy.SuccessRate = float64(metricsCopy.SuccessfulRequests) / float64(metricsCopy.TotalRequests)
+		metricsCopy.FailureRate = float64(metricsCopy.FailedRequests) / float64(metricsCopy.TotalRequests)
+	}
+	
+	// Update time in current state
+	currentState := f.state.Load().(State)
+	elapsed := time.Since(f.stateStartTime)
+	switch currentState {
+	case Closed:
+		metricsCopy.TimeInClosed += elapsed
+	case Open:
+		metricsCopy.TimeInOpen += elapsed
+	case HalfOpen:
+		metricsCopy.TimeInHalfOpen += elapsed
+	}
+	
+	return metricsCopy
+}
+
+// updateRequestMetrics updates request counters.
+func (f *CircuitBreakerFilter) updateRequestMetrics(success bool, rejected bool) {
+	f.metricsMu.Lock()
+	defer f.metricsMu.Unlock()
+	
+	f.metrics.TotalRequests++
+	
+	if rejected {
+		f.metrics.RejectedRequests++
+	} else if success {
+		f.metrics.SuccessfulRequests++
+	} else {
+		f.metrics.FailedRequests++
 	}
 }
