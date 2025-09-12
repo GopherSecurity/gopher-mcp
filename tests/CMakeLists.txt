@@ -103,6 +103,7 @@ if(BUILD_C_API)
     add_executable(test_json_chain_creation c_api/test_json_chain_creation.cc)
     add_executable(test_json_chain_creation_simple c_api/test_json_chain_creation_simple.cc)
     add_executable(test_chain_from_json c_api/test_chain_from_json.cc)
+    add_executable(test_unified_chain_handles c_api/test_unified_chain_handles.cc)
     
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -785,6 +786,23 @@ if(BUILD_C_API)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_chain_from_json llhttp)
+    endif()
+    
+    target_link_libraries(test_unified_chain_handles
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+    
+    if(NGHTTP2_FOUND)
+        target_link_libraries(test_unified_chain_handles nghttp2)
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_unified_chain_handles llhttp)
     endif()
     
     target_link_libraries(test_mcp_c_raii
