@@ -1,7 +1,10 @@
 // Package types provides core type definitions for the MCP Filter SDK.
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // FilterStatus represents the result status of a filter's processing operation.
 // It determines how the filter chain should proceed after processing.
@@ -377,4 +380,40 @@ func (s *FilterStatistics) String() string {
 		s.AverageProcessingTimeUs, s.MaxProcessingTimeUs, s.MinProcessingTimeUs,
 		s.CurrentBufferUsage, s.PeakBufferUsage, s.ThroughputBps,
 	)
+}
+
+// FilterResult represents the result of a filter's processing operation.
+// It contains the processing status, output data, and metadata.
+type FilterResult struct {
+	// Status indicates the result of the filter processing.
+	Status FilterStatus `json:"status"`
+
+	// Data contains the processed output data.
+	Data []byte `json:"data,omitempty"`
+
+	// Error contains any error that occurred during processing.
+	Error error `json:"error,omitempty"`
+
+	// Metadata contains additional information about the processing.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// StartTime marks when processing began.
+	StartTime time.Time `json:"start_time"`
+
+	// EndTime marks when processing completed.
+	EndTime time.Time `json:"end_time"`
+
+	// StopChain indicates if the filter chain should stop after this filter.
+	StopChain bool `json:"stop_chain"`
+
+	// SkipCount indicates how many filters to skip in the chain.
+	SkipCount int `json:"skip_count"`
+}
+
+// Duration calculates the processing time for this result.
+func (r *FilterResult) Duration() time.Duration {
+	if r.EndTime.IsZero() || r.StartTime.IsZero() {
+		return 0
+	}
+	return r.EndTime.Sub(r.StartTime)
 }
