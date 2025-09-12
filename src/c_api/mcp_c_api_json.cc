@@ -9,6 +9,7 @@
  */
 
 #include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_api.h"
 
 #include <cstring>
 #include <memory>
@@ -20,6 +21,8 @@
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/c_api/mcp_c_types.h"
 #include "mcp/c_api/mcp_c_types_api.h"
+#include "mcp/json/json_bridge.h"
+#include "json_value_converter.h"
 
 namespace {
 
@@ -51,51 +54,67 @@ MCP_API mcp_json_value_t mcp_json_parse(const char* json_string) MCP_NOEXCEPT {
   if (!json_string)
     return nullptr;
 
-  // For now, we'll create a simple string value as parsing is complex
-  // In a full implementation, this would parse the JSON string
-  return mcp_json_create_string(json_string);
+  try {
+    // Use JsonValue's parse method
+    auto json_value = mcp::json::JsonValue::parse(json_string);
+    
+    // Convert JsonValue to mcp_json_value_t using the converter
+    return mcp::c_api::internal::convertToCApi(json_value);
+  } catch (...) {
+    // Parse error - return null
+    return nullptr;
+  }
 }
 
 MCP_API char* mcp_json_stringify(mcp_json_value_t json) MCP_NOEXCEPT {
   if (!json)
     return nullptr;
 
-  // Simple implementation - just return type name for now
-  // In a full implementation, this would serialize to JSON
-  mcp_json_type_t type = mcp_json_get_type(json);
-  switch (type) {
-    case MCP_JSON_TYPE_NULL:
-      return alloc_string("null");
-    case MCP_JSON_TYPE_BOOL:
-      return alloc_string(mcp_json_get_bool(json) ? "true" : "false");
-    case MCP_JSON_TYPE_NUMBER: {
-      char buffer[32];
-      snprintf(buffer, sizeof(buffer), "%.6f", mcp_json_get_number(json));
-      return alloc_string(buffer);
-    }
-    case MCP_JSON_TYPE_STRING:
-      return alloc_string(std::string("\"") +
-                          safe_string(mcp_json_get_string(json)) + "\"");
-    case MCP_JSON_TYPE_ARRAY:
-      return alloc_string("[array]");
-    case MCP_JSON_TYPE_OBJECT:
-      return alloc_string("{object}");
-    default:
-      return nullptr;
+  try {
+    // Convert mcp_json_value_t to JsonValue using the converter
+    auto json_value = mcp::c_api::internal::convertFromCApi(json);
+    
+    // Use JsonValue's toString method
+    std::string str = json_value.toString(false);  // false = not pretty
+    
+    // Allocate and return C string
+    return alloc_string(str);
+  } catch (...) {
+    // Stringify error - return null
+    return nullptr;
   }
 }
 
-// mcp_json_free is already defined in mcp_c_collections_impl.cc
-// Commenting out to avoid duplicate symbol error
-// MCP_API void mcp_json_free(mcp_json_value_t json) MCP_NOEXCEPT {
-//     // The JSON value is already managed by the collections API
-//     // This is here for API completeness but delegates to the collections API
-//     if (json) {
-//         // Note: mcp_json_value_t is managed by mcp_c_collections, so we just
-//         // ensure proper cleanup through that API
-//         // The actual free is handled when the JSON value goes out of scope
-//     }
-// }
+// mcp_json_free is declared in mcp_c_collections.h and implemented there
+
+// Compatibility wrapper implementations for mcp_c_api.h
+
+MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCEPT {
+  if (!json.data || json.length == 0) {
+    return nullptr;
+  }
+  
+  // Ensure null-terminated string for canonical parse
+  char* temp = static_cast<char*>(mcp_malloc(json.length + 1));
+  if (!temp) return nullptr;
+  
+  std::memcpy(temp, json.data, json.length);
+  temp[json.length] = '\0';
+  
+  mcp_json_value_t result = mcp_json_parse(temp);
+  mcp_string_free(temp);
+  return result;
+}
+
+MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
+                                                       mcp_bool_t pretty) MCP_NOEXCEPT {
+  // For now, just return nullptr as we don't have a proper way to create mcp_string_buffer_t
+  // This is a compatibility shim that's not currently used by the SDK bindings
+  // The canonical mcp_json_stringify returns a char* which is what's actually used
+  (void)value;
+  (void)pretty;
+  return nullptr;
+}
 
 // ============================================================================
 // Request ID JSON Conversion
