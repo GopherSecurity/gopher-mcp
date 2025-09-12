@@ -46,7 +46,7 @@ type MemoryStatistics struct {
 type MemoryManager struct {
 	// pools maps buffer sizes to their respective pools
 	// Key is the buffer size, value is the pool for that size
-	pools map[int]*types.BufferPool
+	pools map[int]*SimpleBufferPool
 
 	// maxMemory is the maximum allowed memory usage in bytes
 	maxMemory int64
@@ -65,7 +65,7 @@ type MemoryManager struct {
 // NewMemoryManager creates a new memory manager with the specified memory limit.
 func NewMemoryManager(maxMemory int64) *MemoryManager {
 	return &MemoryManager{
-		pools:     make(map[int]*types.BufferPool),
+		pools:     make(map[int]*SimpleBufferPool),
 		maxMemory: maxMemory,
 		stats:     MemoryStatistics{},
 	}
@@ -163,16 +163,14 @@ func (mm *MemoryManager) InitializePools() {
 
 	configs := DefaultPoolConfigs()
 	for _, config := range configs {
-		pool := &types.BufferPool{}
-		// Initialize the pool with the configuration
-		// In a real implementation, the BufferPool would use these configs
+		pool := NewSimpleBufferPool(config.Size)
 		mm.pools[config.Size] = pool
 	}
 }
 
 // GetPoolForSize returns the appropriate pool for the given size.
 // It finds the smallest pool that can accommodate the requested size.
-func (mm *MemoryManager) GetPoolForSize(size int) *types.BufferPool {
+func (mm *MemoryManager) GetPoolForSize(size int) *SimpleBufferPool {
 	mm.mu.RLock()
 	defer mm.mu.RUnlock()
 
@@ -196,4 +194,54 @@ func (mm *MemoryManager) selectPoolSize(size int) int {
 		// For sizes larger than huge, use exact size
 		return size
 	}
+}
+
+// Get retrieves a buffer of at least the specified size.
+// It selects the appropriate pool based on size and tracks memory usage.
+//
+// Parameters:
+//   - size: The minimum size of the buffer needed
+//
+// Returns:
+//   - *types.Buffer: A buffer with at least the requested capacity
+func (mm *MemoryManager) Get(size int) *types.Buffer {
+	// Check memory limit
+	currentUsage := atomic.LoadInt64(&mm.currentUsage)
+	if mm.maxMemory > 0 && currentUsage+int64(size) > mm.maxMemory {
+		// Memory limit exceeded
+		return nil
+	}
+
+	// Get the appropriate pool
+	pool := mm.GetPoolForSize(size)
+	
+	var buffer *types.Buffer
+	if pool != nil {
+		// Get from pool
+		buffer = pool.Get(size)
+		
+		mm.mu.Lock()
+		mm.stats.PoolHits++
+		mm.mu.Unlock()
+	} else {
+		// No pool for this size, allocate directly
+		buffer = &types.Buffer{}
+		buffer.Grow(size)
+		
+		mm.mu.Lock()
+		mm.stats.PoolMisses++
+		mm.mu.Unlock()
+	}
+
+	// Update memory usage
+	if buffer != nil {
+		mm.UpdateUsage(int64(buffer.Cap()))
+		
+		mm.mu.Lock()
+		mm.stats.AllocationCount++
+		mm.stats.TotalAllocated += uint64(buffer.Cap())
+		mm.mu.Unlock()
+	}
+
+	return buffer
 }
