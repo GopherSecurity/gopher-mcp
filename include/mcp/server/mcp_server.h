@@ -35,6 +35,7 @@
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
@@ -93,6 +94,10 @@ struct McpServerConfig : public application::ApplicationBase::Config {
 
   // Capabilities
   ServerCapabilities capabilities;
+  
+  // Filter chain configuration (optional)
+  // If provided, uses ConfigurableFilterChainFactory instead of hardcoded factories
+  optional<json::JsonValue> filter_chain_config;
 };
 
 /**

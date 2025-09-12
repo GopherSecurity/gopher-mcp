@@ -20,12 +20,52 @@
 #include "mcp/c_api/mcp_c_filter_api.h"
 #include "mcp/c_api/mcp_c_filter_buffer.h"
 #include "mcp/c_api/mcp_c_raii.h"
+#include "mcp/c_api/mcp_c_api_json.h"
 #include "mcp/network/filter.h"
+#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/filter/filter_registry.h"
+#include "mcp/logging/log_macros.h"
 
 #include "handle_manager.h"
+#include "json_value_converter.h"
+#include "unified_filter_chain.h"
+
+#define GOPHER_LOG_COMPONENT "capi.chain"
+
+// Forward declare the filter manager from mcp_c_filter_api.cc
+namespace mcp {
+namespace filter_api {
+  extern c_api_internal::HandleManager<network::Filter> g_filter_manager;
+}
+}
+
+// Forward declaration of dispatcher thread check function from mcp_c_api_core.cc
+extern "C" {
+  mcp_bool_t mcp_dispatcher_is_thread(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+}
 
 namespace mcp {
 namespace filter_chain {
+
+// ============================================================================
+// Thread Affinity Helpers
+// ============================================================================
+
+/**
+ * @brief Check if current thread is the dispatcher's thread
+ * @param dispatcher The dispatcher handle to check against
+ * @return true if on the correct thread, false otherwise
+ */
+static inline bool isOnDispatcherThread(mcp_dispatcher_t dispatcher) {
+  if (!dispatcher) {
+    return false;
+  }
+  
+  // Use the existing C API function that checks thread affinity
+  // This internally compares std::this_thread::get_id() with the 
+  // dispatcher's stored thread_id
+  return mcp_dispatcher_is_thread(dispatcher) == MCP_TRUE;
+}
 
 // ============================================================================
 // Filter Node Implementation
@@ -86,7 +126,8 @@ class FilterNode {
 
 class AdvancedFilterChain {
  public:
-  AdvancedFilterChain(const mcp_chain_config_t& config)
+  AdvancedFilterChain(const mcp_chain_config_t& config, 
+                      mcp_dispatcher_t dispatcher = nullptr)
       : name_(config.name ? config.name : ""),
         mode_(config.mode),
         routing_(config.routing),
@@ -94,7 +135,8 @@ class AdvancedFilterChain {
         buffer_size_(config.buffer_size),
         timeout_ms_(config.timeout_ms),
         stop_on_error_(config.stop_on_error),
-        state_(MCP_CHAIN_STATE_IDLE) {}
+        state_(MCP_CHAIN_STATE_IDLE),
+        dispatcher_(dispatcher) {}
 
   void addNode(std::unique_ptr<FilterNode> node) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -253,6 +295,8 @@ class AdvancedFilterChain {
 
     return oss.str();
   }
+  
+  mcp_dispatcher_t getDispatcher() const { return dispatcher_; }
 
  private:
   mcp_filter_status_t processSequential(
@@ -407,13 +451,22 @@ class AdvancedFilterChain {
   void* event_user_data_{nullptr};
 
   std::atomic<uint64_t> max_latency_us_{0};
+  
+  // Store dispatcher for cloning
+  mcp_dispatcher_t dispatcher_;
+  
+public:
+  // Owned filters for lifetime management
+  // Made public for direct assignment during creation
+  std::vector<network::FilterSharedPtr> owned_filters_;
 };
 
 // Use HandleManager from shared header
 using c_api_internal::HandleManager;
+using c_api_internal::UnifiedFilterChain;
 
-// Handle manager for chains
-static HandleManager<AdvancedFilterChain> g_chain_manager;
+// Global unified handle manager for all chain types
+extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
 
 // ============================================================================
 // Chain Router Implementation
@@ -506,6 +559,13 @@ struct ChainPool {
 }  // namespace filter_chain
 }  // namespace mcp
 
+// Define the global unified chain manager (shared with mcp_c_filter_api.cc)
+namespace mcp {
+namespace c_api_internal {
+HandleManager<UnifiedFilterChain> g_unified_chain_manager;
+}  // namespace c_api_internal
+}  // namespace mcp
+
 // ============================================================================
 // C API Implementation
 // ============================================================================
@@ -522,8 +582,19 @@ mcp_chain_builder_create_ex(mcp_dispatcher_t dispatcher,
   if (!config)
     return nullptr;
 
-  // Use the function from mcp_filter_api.cc to create the builder
-  return mcp_filter_chain_builder_create(dispatcher);
+  try {
+    // Use the function from mcp_filter_api.cc to create the builder
+    return mcp_filter_chain_builder_create(dispatcher);
+  } catch (const std::bad_alloc&) {
+    // Out of memory - no logging to avoid further allocations
+    return nullptr;
+  } catch (const std::exception&) {
+    // Other known exception - avoid complex logging
+    return nullptr;
+  } catch (...) {
+    // Unknown exception - return safe default
+    return nullptr;
+  }
 }
 
 MCP_API mcp_result_t
@@ -532,8 +603,16 @@ mcp_chain_builder_add_node(mcp_filter_chain_builder_t builder,
   if (!builder || !node)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add node to builder
-  return MCP_OK;
+  try {
+    // TODO: Add node to builder
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -543,8 +622,16 @@ mcp_chain_builder_add_conditional(mcp_filter_chain_builder_t builder,
   if (!builder || !condition)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add conditional filter
-  return MCP_OK;
+  try {
+    // TODO: Add conditional filter
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -554,8 +641,16 @@ mcp_chain_builder_add_parallel_group(mcp_filter_chain_builder_t builder,
   if (!builder || !filters)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Add parallel group
-  return MCP_OK;
+  try {
+    // TODO: Add parallel group
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t
@@ -565,46 +660,118 @@ mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
   if (!builder)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  // TODO: Set custom router
-  return MCP_OK;
+  try {
+    // TODO: Set custom router
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Chain Management
 
 MCP_API mcp_chain_state_t mcp_chain_get_state(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_CHAIN_STATE_ERROR;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_CHAIN_STATE_ERROR;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_CHAIN_STATE_ERROR;
 
-  return chain_ptr->getState();
+    return chain_ptr->getState();
+  } catch (const std::exception&) {
+    return MCP_CHAIN_STATE_ERROR;
+  } catch (...) {
+    return MCP_CHAIN_STATE_ERROR;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->pause();
-  return MCP_OK;
+    // Check thread affinity - pause must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain pause must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    chain_ptr->pause();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->resume();
-  return MCP_OK;
+    // Check thread affinity - resume must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain resume must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    chain_ptr->resume();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->reset();
-  return MCP_OK;
+    // Check thread affinity - reset must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain reset must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    chain_ptr->reset();
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
@@ -614,12 +781,30 @@ MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
   if (!filter_name)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->setFilterEnabled(filter_name, enabled);
-  return MCP_OK;
+    // Check thread affinity - filter enable/disable must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      GOPHER_LOG(Error, "Chain set_filter_enabled must be called from dispatcher thread");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    chain_ptr->setFilterEnabled(filter_name, enabled);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_get_stats(
@@ -627,52 +812,458 @@ MCP_API mcp_result_t mcp_chain_get_stats(
   if (!stats)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->getStats(stats);
-  return MCP_OK;
+    chain_ptr->getStats(stats);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
                                                   mcp_chain_event_cb callback,
                                                   void* user_data)
     MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return MCP_ERROR_NOT_FOUND;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+    
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
 
-  chain_ptr->setEventCallback(callback, user_data);
-  return MCP_OK;
+    chain_ptr->setEventCallback(callback, user_data);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Dynamic Chain Composition
 
 MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT {
-  // TODO: Parse JSON and create chain
-  return 0;
+  
+  // 1. Validate inputs
+  if (!dispatcher || !json_config) {
+    GOPHER_LOG(Error, "Invalid inputs to chain creation: dispatcher={}, config={}", 
+               dispatcher ? "valid" : "null", json_config ? "valid" : "null");
+    return 0;
+  }
+  
+  // 2. Check thread affinity - chain creation must occur on dispatcher thread
+  if (!isOnDispatcherThread(dispatcher)) {
+    GOPHER_LOG(Error, "Chain creation must be called from dispatcher thread");
+    return 0;
+  }
+  
+  try {
+    // 3. Convert JSON and normalize
+    auto config = mcp::c_api::internal::convertFromCApi(json_config);
+    
+    // 4. Normalize the filter chain configuration
+    size_t normalized_count = mcp::c_api::internal::normalizeFilterChain(config);
+    
+    auto& filters = config["filters"];
+    size_t filter_count = filters.size();
+    bool has_typed_config = (normalized_count > 0);
+    
+    GOPHER_LOG(Info, "Creating chain from JSON with {} filters, {} normalized from typed_config", 
+               filter_count, normalized_count);
+    
+    // 5. Validate all filter types exist in registry
+    for (size_t i = 0; i < filter_count; ++i) {
+      std::string filter_type = filters[i]["type"].getString();
+      
+      if (!mcp::filter::FilterRegistry::instance().hasFactory(filter_type)) {
+        GOPHER_LOG(Error, "Unknown filter type '{}' at index {}", filter_type, i);
+        return 0;
+      }
+      
+      GOPHER_LOG(Debug, "Filter {}: type='{}', has_config={}", 
+                 i, filter_type, filters[i].contains("config"));
+    }
+    
+    GOPHER_LOG(Info, "Chain configuration validated: {} filters, has_typed_config={}", 
+               filter_count, has_typed_config);
+    
+    // 6. Create chain using ConfigurableFilterChainFactory
+    auto factory = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(config);
+    
+    // Validate the chain configuration
+    if (!factory->getBuilder().validate()) {
+      auto errors = factory->getBuilder().getValidationErrors();
+      
+      // Log aggregated errors
+      std::stringstream error_msg;
+      for (size_t i = 0; i < errors.size(); ++i) {
+        if (i > 0) error_msg << "; ";
+        error_msg << "[" << i << "] " << errors[i];
+      }
+      
+      GOPHER_LOG(Error, "Chain validation failed: {}", error_msg.str());
+      return 0;
+    }
+    
+    // 7. Build real filters using the factory
+    auto& builder = factory->getBuilder();
+    auto created_filters = builder.buildFilters();
+    
+    if (created_filters.empty()) {
+      GOPHER_LOG(Error, "Factory failed to create any filters");
+      return 0;
+    }
+    
+    if (created_filters.size() != filter_count) {
+      GOPHER_LOG(Warning, "Factory created {} filters, expected {}", 
+                 created_filters.size(), filter_count);
+    }
+    
+    // 8. Store filters in handle manager for lifetime management
+    std::vector<mcp_filter_t> filter_handles;
+    filter_handles.reserve(created_filters.size());
+    
+    for (const auto& filter : created_filters) {
+      if (!filter) {
+        GOPHER_LOG(Error, "Factory created null filter");
+        // Clean up already created handles
+        for (auto handle : filter_handles) {
+          mcp::filter_api::g_filter_manager.release(handle);
+        }
+        return 0;
+      }
+      
+      // Store in filter manager to get handle
+      auto handle = mcp::filter_api::g_filter_manager.store(filter);
+      if (handle == 0) {
+        GOPHER_LOG(Error, "Failed to store filter in handle manager");
+        // Clean up already created handles
+        for (auto h : filter_handles) {
+          mcp::filter_api::g_filter_manager.release(h);
+        }
+        return 0;
+      }
+      filter_handles.push_back(handle);
+      GOPHER_LOG(Debug, "Stored filter with handle {}", handle);
+    }
+    
+    // 9. Create the chain instance with configuration from JSON
+    mcp_chain_config_t chain_config = {
+      .name = config.contains("name") ? config["name"].getString().c_str() : "json_configured_chain",
+      .mode = config.contains("mode") ? 
+              static_cast<mcp_chain_execution_mode_t>(config["mode"].getInt()) : 
+              MCP_CHAIN_MODE_SEQUENTIAL,
+      .routing = config.contains("routing") ? 
+                 static_cast<mcp_routing_strategy_t>(config["routing"].getInt()) : 
+                 MCP_ROUTING_ROUND_ROBIN,
+      .max_parallel = config.contains("max_parallel") ? 
+                      static_cast<uint32_t>(config["max_parallel"].getInt()) : 1,
+      .buffer_size = config.contains("buffer_size") ? 
+                     static_cast<uint32_t>(config["buffer_size"].getInt()) : 8192,
+      .timeout_ms = config.contains("timeout_ms") ? 
+                    static_cast<uint32_t>(config["timeout_ms"].getInt()) : 30000,
+      .stop_on_error = config.contains("stop_on_error") ? 
+                       config["stop_on_error"].getBool() : true
+    };
+    
+    auto chain = std::make_unique<AdvancedFilterChain>(chain_config, dispatcher);
+    
+    // Note: Filters are already stored in g_filter_manager with handles
+    // We don't need to store them again in the chain
+    
+    // Add filter nodes with real handles
+    for (size_t i = 0; i < filter_handles.size(); ++i) {
+      auto& filter_config = filters[i];
+      std::string filter_type = filter_config["type"].getString();
+      std::string filter_name = filter_config.contains("name") ? 
+                                filter_config["name"].getString() : filter_type;
+      
+      mcp_filter_node_t node = {
+        .filter = filter_handles[i],  // Real filter handle
+        .name = filter_name.c_str(),
+        .priority = filter_config.contains("priority") ? 
+                    static_cast<uint32_t>(filter_config["priority"].getInt()) : 
+                    static_cast<uint32_t>(i),
+        .enabled = filter_config.contains("enabled") ? 
+                   filter_config["enabled"].getBool() : true,
+        .bypass_on_error = filter_config.contains("bypass_on_error") ? 
+                           filter_config["bypass_on_error"].getBool() : false,
+        .config = nullptr
+      };
+      
+      auto filter_node = std::make_unique<FilterNode>(node);
+      chain->addNode(std::move(filter_node));
+    }
+    
+    // 10. Register chain with unified handle manager
+    // Convert unique_ptr to shared_ptr
+    auto chain_shared = std::shared_ptr<AdvancedFilterChain>(std::move(chain));
+    auto unified = std::make_shared<UnifiedFilterChain>(chain_shared);
+    auto handle = mcp::c_api_internal::g_unified_chain_manager.store(unified);
+    
+    GOPHER_LOG(Info, "Chain created successfully with handle {}", handle);
+    
+    return handle;
+    
+  } catch (const std::bad_alloc&) {
+    // Avoid complex logging that might allocate memory
+    try {
+      GOPHER_LOG(Error, "Chain creation failed: out of memory");
+    } catch (...) {}
+    return 0;
+  } catch (const std::exception& e) {
+    try {
+      GOPHER_LOG(Error, "Chain creation failed with exception: {}", e.what());
+    } catch (...) {}
+    return 0;
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Chain creation failed with unknown exception");
+    } catch (...) {}
+    return 0;
+  }
 }
 
 MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Export chain to JSON
-  return mcp_json_create_null();
+  GOPHER_LOG(Debug, "Exporting chain {} to JSON", chain);
+  
+  auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+  if (!unified_chain) {
+    GOPHER_LOG(Warning, "Chain {} not found for export", chain);
+    return mcp_json_create_null();
+  }
+  
+  auto chain_ptr = unified_chain->getAdvancedChain();
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} is not an advanced chain", chain);
+    return mcp_json_create_null();
+  }
+  
+  // Create a JSON representation of the chain
+  try {
+    auto config = mcp::json::JsonValue::object();
+    
+    // Export chain properties
+    config["name"] = mcp::json::JsonValue(chain_ptr->name_.empty() ? 
+                                          "exported_chain" : chain_ptr->name_);
+    config["mode"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->mode_));
+    config["routing"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->routing_));
+    config["max_parallel"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->max_parallel_));
+    config["buffer_size"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->buffer_size_));
+    config["timeout_ms"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->timeout_ms_));
+    config["stop_on_error"] = mcp::json::JsonValue(chain_ptr->stop_on_error_);
+    
+    // Export filters array
+    auto filters_array = mcp::json::JsonValue::array();
+    
+    // Lock to safely access nodes
+    {
+      std::lock_guard<std::mutex> lock(chain_ptr->mutex_);
+      
+      for (const auto& node : chain_ptr->nodes_) {
+        auto filter_obj = mcp::json::JsonValue::object();
+        
+        // Get filter handle from the node
+        mcp_filter_t filter_handle = node->getFilter();
+        
+        // Try to determine filter type from registry or use a generic type
+        // For now we'll use the node name as a basis for the type
+        std::string filter_type = node->getName();
+        
+        // Check if this is one of the known filter types
+        if (filter_type.find("http_codec") != std::string::npos) {
+          filter_type = "http_codec";
+        } else if (filter_type.find("sse_codec") != std::string::npos) {
+          filter_type = "sse_codec";
+        } else if (filter_type.find("json_rpc") != std::string::npos) {
+          filter_type = "json_rpc";
+        } else if (filter_type.find("passthrough") != std::string::npos) {
+          filter_type = "passthrough";
+        } else if (filter_type.find("buffer") != std::string::npos) {
+          filter_type = "buffer";
+        } else if (filter_type.find("router") != std::string::npos) {
+          filter_type = "router";
+        } else if (filter_type.find("transform") != std::string::npos) {
+          filter_type = "transform";
+        } else if (filter_type.find("validation") != std::string::npos) {
+          filter_type = "validation";
+        } else if (filter_type.find("rate_limit") != std::string::npos) {
+          filter_type = "rate_limit";
+        } else if (filter_type.find("metrics") != std::string::npos) {
+          filter_type = "metrics";
+        } else if (filter_type.find("logging") != std::string::npos) {
+          filter_type = "logging";
+        } else {
+          // Default to passthrough if we can't determine the type
+          filter_type = "passthrough";
+        }
+        
+        filter_obj["type"] = mcp::json::JsonValue(filter_type);
+        filter_obj["name"] = mcp::json::JsonValue(node->getName());
+        filter_obj["priority"] = mcp::json::JsonValue(static_cast<int64_t>(node->getPriority()));
+        filter_obj["enabled"] = mcp::json::JsonValue(node->isEnabled());
+        filter_obj["bypass_on_error"] = mcp::json::JsonValue(node->shouldBypassOnError());
+        
+        // If the node has configuration data, export it
+        // For now, we'll add an empty config object
+        auto config_obj = mcp::json::JsonValue::object();
+        filter_obj["config"] = config_obj;
+        
+        filters_array.push_back(filter_obj);
+      }
+    }
+    
+    config["filters"] = filters_array;
+    
+    auto c_api_json = mcp::c_api::internal::convertToCApi(config);
+    GOPHER_LOG(Info, "Chain {} exported to JSON with {} filters", 
+               chain, filters_array.size());
+    return c_api_json;
+    
+  } catch (const std::bad_alloc&) {
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: out of memory", chain);
+    } catch (...) {}
+    return mcp_json_create_null();
+  } catch (const std::exception& e) {
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: {}", chain, e.what());
+    } catch (...) {}
+    return mcp_json_create_null();
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Failed to export chain {}: unknown exception", chain);
+    } catch (...) {}
+    return mcp_json_create_null();
+  }
 }
 
 MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Clone chain
-  return 0;
+  GOPHER_LOG(Debug, "Cloning chain {}", chain);
+  
+  auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+  if (!unified_chain) {
+    GOPHER_LOG(Warning, "Chain {} not found for cloning", chain);
+    return 0;
+  }
+  
+  auto chain_ptr = unified_chain->getAdvancedChain();
+  if (!chain_ptr) {
+    GOPHER_LOG(Warning, "Chain {} is not an advanced chain, cannot clone", chain);
+    return 0;
+  }
+  
+  // Get the dispatcher from the original chain
+  mcp_dispatcher_t dispatcher = chain_ptr->getDispatcher();
+  if (!dispatcher) {
+    GOPHER_LOG(Error, "Chain {} has no dispatcher, cannot clone", chain);
+    return 0;
+  }
+  
+  // Check thread affinity - clone must be called from dispatcher thread
+  if (!isOnDispatcherThread(dispatcher)) {
+    GOPHER_LOG(Error, "Chain clone must be called from dispatcher thread");
+    return 0;
+  }
+  
+  mcp_json_value_t json_config = nullptr;
+  
+  try {
+    // Export chain to JSON
+    json_config = mcp_chain_export_to_json(chain);
+    if (!json_config) {
+      GOPHER_LOG(Error, "Failed to export chain {} for cloning", chain);
+      return 0;
+    }
+    
+    // Create new chain from the exported JSON using the stored dispatcher
+    auto new_handle = mcp_chain_create_from_json(dispatcher, json_config);
+    
+    // Clean up the temporary JSON
+    mcp_json_free(json_config);
+    json_config = nullptr;
+    
+    if (new_handle) {
+      GOPHER_LOG(Info, "Chain {} cloned to new chain {}", chain, new_handle);
+    }
+    
+    return new_handle;
+    
+  } catch (const std::bad_alloc&) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: out of memory", chain);
+    } catch (...) {}
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
+    }
+    
+    return 0;
+  } catch (const std::exception& e) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: {}", chain, e.what());
+    } catch (...) {}
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
+    }
+    
+    return 0;
+  } catch (...) {
+    try {
+      GOPHER_LOG(Error, "Failed to clone chain {}: unknown exception", chain);
+    } catch (...) {}
+    
+    // Clean up JSON if not already freed
+    if (json_config) {
+      try {
+        mcp_json_free(json_config);
+      } catch (...) {}
+    }
+    
+    return 0;
+  }
 }
 
 MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
                                            mcp_filter_chain_t chain2,
                                            mcp_chain_execution_mode_t mode)
     MCP_NOEXCEPT {
-  // TODO: Merge chains
-  return 0;
+  try {
+    // TODO: Merge chains
+    return 0;
+  } catch (const std::bad_alloc&) {
+    return 0;
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 // Chain Router
@@ -696,8 +1287,16 @@ MCP_API mcp_result_t mcp_chain_router_add_route(mcp_chain_router_t router,
   if (!router)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
-  return MCP_OK;
+  try {
+    reinterpret_cast<ChainRouter*>(router)->routes.push_back({condition, chain});
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_filter_chain_t
@@ -707,11 +1306,21 @@ mcp_chain_router_route(mcp_chain_router_t router,
   if (!router)
     return 0;
 
-  return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
+  try {
+    return reinterpret_cast<ChainRouter*>(router)->route(buffer, metadata);
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 MCP_API void mcp_chain_router_destroy(mcp_chain_router_t router) MCP_NOEXCEPT {
-  delete reinterpret_cast<ChainRouter*>(router);
+  try {
+    delete reinterpret_cast<ChainRouter*>(router);
+  } catch (...) {
+    // Destructor threw - nothing we can do safely
+  }
 }
 
 // Chain Pool
@@ -732,13 +1341,25 @@ MCP_API mcp_filter_chain_t mcp_chain_pool_get_next(mcp_chain_pool_t pool)
     MCP_NOEXCEPT {
   if (!pool)
     return 0;
-  return reinterpret_cast<ChainPool*>(pool)->getNext();
+    
+  try {
+    return reinterpret_cast<ChainPool*>(pool)->getNext();
+  } catch (const std::exception&) {
+    return 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 MCP_API void mcp_chain_pool_return(mcp_chain_pool_t pool,
                                    mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  if (pool) {
+  if (!pool)
+    return;
+    
+  try {
     reinterpret_cast<ChainPool*>(pool)->returnChain(chain);
+  } catch (...) {
+    // Best effort - cannot report error from void function
   }
 }
 
@@ -750,68 +1371,126 @@ MCP_API mcp_result_t mcp_chain_pool_get_stats(mcp_chain_pool_t pool,
   if (!pool)
     return MCP_ERROR_INVALID_ARGUMENT;
 
-  auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
-  if (active)
-    *active = pool_impl->chains.size() - pool_impl->available.size();
-  if (idle)
-    *idle = pool_impl->available.size();
-  if (total_processed)
-    *total_processed = pool_impl->total_processed.load();
+  try {
+    auto* pool_impl = reinterpret_cast<ChainPool*>(pool);
+    if (active)
+      *active = pool_impl->chains.size() - pool_impl->available.size();
+    if (idle)
+      *idle = pool_impl->available.size();
+    if (total_processed)
+      *total_processed = pool_impl->total_processed.load();
 
-  return MCP_OK;
+    return MCP_OK;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API void mcp_chain_pool_destroy(mcp_chain_pool_t pool) MCP_NOEXCEPT {
-  delete reinterpret_cast<ChainPool*>(pool);
+  try {
+    delete reinterpret_cast<ChainPool*>(pool);
+  } catch (...) {
+    // Destructor threw - nothing we can do safely
+  }
 }
 
 // Chain Optimization
 
 MCP_API mcp_result_t mcp_chain_optimize(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  // TODO: Implement optimization
-  return MCP_OK;
+  try {
+    // TODO: Implement optimization
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_reorder_filters(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  // TODO: Implement reordering
-  return MCP_OK;
+  try {
+    // TODO: Implement reordering
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API mcp_result_t mcp_chain_profile(mcp_filter_chain_t chain,
                                        mcp_buffer_handle_t test_buffer,
                                        size_t iterations,
                                        mcp_json_value_t* report) MCP_NOEXCEPT {
-  // TODO: Implement profiling
-  return MCP_OK;
+  try {
+    // TODO: Implement profiling
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 // Chain Debugging
 
 MCP_API mcp_result_t mcp_chain_set_trace_level(
     mcp_filter_chain_t chain, uint32_t trace_level) MCP_NOEXCEPT {
-  // TODO: Implement tracing
-  return MCP_OK;
+  try {
+    // TODO: Implement tracing
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 MCP_API char* mcp_chain_dump(mcp_filter_chain_t chain,
                              const char* format) MCP_NOEXCEPT {
-  auto chain_ptr = g_chain_manager.get(chain);
-  if (!chain_ptr)
-    return nullptr;
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return nullptr;
 
-  std::string dump = chain_ptr->dump(format ? format : "text");
-  char* result = static_cast<char*>(malloc(dump.size() + 1));
-  if (result) {
-    std::strcpy(result, dump.c_str());
+    std::string dump = unified_chain->dump(format ? format : "text");
+    char* result = static_cast<char*>(malloc(dump.size() + 1));
+    if (result) {
+      std::strcpy(result, dump.c_str());
+    }
+    return result;
+  } catch (const std::bad_alloc&) {
+    return nullptr;
+  } catch (const std::exception&) {
+    return nullptr;
+  } catch (...) {
+    return nullptr;
   }
-  return result;
 }
 
 MCP_API mcp_result_t mcp_chain_validate(mcp_filter_chain_t chain,
                                         mcp_json_value_t* errors) MCP_NOEXCEPT {
-  // TODO: Implement validation
-  return MCP_OK;
+  try {
+    // TODO: Implement validation
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
 }
 
 }  // extern "C"

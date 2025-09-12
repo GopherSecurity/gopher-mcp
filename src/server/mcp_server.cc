@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/filter/filter_chain_builder.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -180,9 +181,22 @@ void McpServer::performListen() {
       // Create filter chain factory that implements the protocol stack
       // Following production pattern: Filters handle ALL protocol logic
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
-      tcp_config.filter_chain_factory =
-          std::make_shared<filter::HttpSseFilterChainFactory>(
-              *main_dispatcher_, *protocol_callbacks_);
+      
+      // Use configurable factory if filter chain config is provided
+      if (config_.filter_chain_config.has_value()) {
+        std::cerr << "[INFO] Using configurable filter chain factory from config"
+                  << std::endl;
+        const json::JsonValue& chain_config = config_.filter_chain_config.value();
+        tcp_config.filter_chain_factory =
+            std::make_shared<filter::ConfigurableFilterChainFactory>(chain_config);
+      } else {
+        // Fallback to default HTTP/SSE factory for backward compatibility
+        std::cerr << "[INFO] Using default HTTP/SSE filter chain factory"
+                  << std::endl;
+        tcp_config.filter_chain_factory =
+            std::make_shared<filter::HttpSseFilterChainFactory>(
+                *main_dispatcher_, *protocol_callbacks_);
+      }
 
       tcp_config.backlog = 128;
       tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
@@ -761,11 +775,11 @@ jsonrpc::Response McpServer::handleInitialize(const jsonrpc::Request& request,
   InitializeResult result;
   result.protocolVersion = config_.protocol_version;
   result.capabilities = config_.capabilities;
-  result.serverInfo = make_optional(
+  result.serverInfo = mcp::make_optional(
       Implementation(config_.server_name, config_.server_version));
 
   if (!config_.instructions.empty()) {
-    result.instructions = make_optional(config_.instructions);
+    result.instructions = mcp::make_optional(config_.instructions);
   }
 
   // Convert InitializeResult to Metadata for ResponseResult
@@ -833,7 +847,7 @@ jsonrpc::Response McpServer::handleListResources(
     auto cursor_it = params.find("cursor");
     if (cursor_it != params.end() &&
         holds_alternative<std::string>(cursor_it->second)) {
-      cursor = make_optional(get<std::string>(cursor_it->second));
+      cursor = mcp::make_optional(get<std::string>(cursor_it->second));
     }
   }
 
@@ -991,14 +1005,14 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
       std::string args_json = get<std::string>(args_it->second);
       try {
         auto args_value = json::JsonValue::parse(args_json);
-        arguments = make_optional(json::jsonToMetadata(args_value));
+        arguments = mcp::make_optional(json::jsonToMetadata(args_value));
       } catch (const json::JsonException& e) {
         // If parsing fails, treat it as empty arguments
-        arguments = make_optional(Metadata());
+        arguments = mcp::make_optional(Metadata());
       }
     } else {
       // Fallback: if arguments is not a string, create empty metadata
-      arguments = make_optional(Metadata());
+      arguments = mcp::make_optional(Metadata());
     }
   }
 
@@ -1038,7 +1052,7 @@ jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
     auto cursor_it = params.find("cursor");
     if (cursor_it != params.end() &&
         holds_alternative<std::string>(cursor_it->second)) {
-      cursor = make_optional(get<std::string>(cursor_it->second));
+      cursor = mcp::make_optional(get<std::string>(cursor_it->second));
     }
   }
 
@@ -1082,7 +1096,7 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
   auto args_it = params.find("arguments");
   if (args_it != params.end()) {
     // For now, create empty metadata if arguments are present
-    arguments = make_optional(make<Metadata>().build());
+    arguments = mcp::make_optional(make<Metadata>().build());
   }
 
   // Get prompt

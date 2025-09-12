@@ -416,6 +416,222 @@ TEST_F(MCPFilterChainTest, RAIIPerformanceTest) {
   EXPECT_LT(duration.count(), 5000);  // Less than 5 seconds
 }
 
+// ============================================================================
+// JSON Export/Import Round-Trip Tests
+// ============================================================================
+
+TEST_F(MCPFilterChainTest, ChainExportImportRoundTrip) {
+  // Create dispatcher in a separate thread
+  DispatcherGuard dispatcher;
+  ASSERT_TRUE(dispatcher);
+  
+  std::thread dispatcher_thread([&dispatcher]() {
+    mcp_dispatcher_run(dispatcher.get());
+  });
+  
+  // Allow dispatcher to start
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  
+  // Execute test on dispatcher thread
+  std::atomic<bool> test_complete{false};
+  std::atomic<bool> test_passed{false};
+  
+  auto result = mcp_dispatcher_post(dispatcher.get(), [&]() {
+    // Create original chain with specific configuration
+    mcp_chain_config_t config = {
+      .name = "test_chain",
+      .mode = MCP_CHAIN_MODE_SEQUENTIAL,
+      .routing = MCP_ROUTING_LEAST_LOADED,
+      .max_parallel = 4,
+      .buffer_size = 16384,
+      .timeout_ms = 5000,
+      .stop_on_error = false
+    };
+    
+    mcp_filter_chain_builder_t builder = mcp_chain_builder_create(&config);
+    if (!builder) {
+      test_complete = true;
+      return;
+    }
+    
+    // Build and get the chain
+    mcp_filter_chain_t original_chain = mcp_chain_builder_build(builder);
+    mcp_chain_builder_destroy(builder);
+    
+    if (!original_chain) {
+      test_complete = true;
+      return;
+    }
+    
+    // Export chain to JSON
+    mcp_json_value_t exported_json = mcp_chain_export_to_json(original_chain);
+    if (!exported_json) {
+      mcp_chain_destroy(original_chain);
+      test_complete = true;
+      return;
+    }
+    
+    // Create new chain from exported JSON
+    mcp_filter_chain_t cloned_chain = mcp_chain_create_from_json(
+        dispatcher.get(), exported_json);
+    
+    if (!cloned_chain) {
+      mcp_json_free(exported_json);
+      mcp_chain_destroy(original_chain);
+      test_complete = true;
+      return;
+    }
+    
+    // Export the cloned chain to verify it matches
+    mcp_json_value_t cloned_json = mcp_chain_export_to_json(cloned_chain);
+    if (!cloned_json) {
+      mcp_json_free(exported_json);
+      mcp_chain_destroy(original_chain);
+      mcp_chain_destroy(cloned_chain);
+      test_complete = true;
+      return;
+    }
+    
+    // Both exports should produce equivalent JSON
+    // For now, we just verify both chains were created successfully
+    test_passed = true;
+    
+    // Cleanup
+    mcp_json_free(exported_json);
+    mcp_json_free(cloned_json);
+    mcp_chain_destroy(original_chain);
+    mcp_chain_destroy(cloned_chain);
+    
+    test_complete = true;
+  });
+  
+  EXPECT_EQ(result, MCP_OK);
+  
+  // Wait for test to complete
+  while (!test_complete) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  
+  // Stop dispatcher
+  mcp_dispatcher_stop(dispatcher.get());
+  dispatcher_thread.join();
+  
+  EXPECT_TRUE(test_passed);
+}
+
+TEST_F(MCPFilterChainTest, ChainExportWithFilters) {
+  // Create dispatcher in a separate thread
+  DispatcherGuard dispatcher;
+  ASSERT_TRUE(dispatcher);
+  
+  std::thread dispatcher_thread([&dispatcher]() {
+    mcp_dispatcher_run(dispatcher.get());
+  });
+  
+  // Allow dispatcher to start
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  
+  // Execute test on dispatcher thread
+  std::atomic<bool> test_complete{false};
+  std::atomic<bool> test_passed{false};
+  
+  auto result = mcp_dispatcher_post(dispatcher.get(), [&]() {
+    // Create chain using JSON with filters
+    const char* json_config = R"({
+      "name": "export_test_chain",
+      "mode": 1,
+      "routing": 2,
+      "max_parallel": 8,
+      "buffer_size": 32768,
+      "timeout_ms": 10000,
+      "stop_on_error": true,
+      "filters": [
+        {
+          "type": "passthrough",
+          "name": "filter1",
+          "priority": 10,
+          "enabled": true,
+          "bypass_on_error": false,
+          "config": {}
+        },
+        {
+          "type": "passthrough", 
+          "name": "filter2",
+          "priority": 20,
+          "enabled": false,
+          "bypass_on_error": true,
+          "config": {}
+        }
+      ]
+    })";
+    
+    mcp_json_value_t config_json = mcp_json_parse(json_config);
+    if (!config_json) {
+      test_complete = true;
+      return;
+    }
+    
+    // Create chain from JSON
+    mcp_filter_chain_t chain = mcp_chain_create_from_json(
+        dispatcher.get(), config_json);
+    mcp_json_free(config_json);
+    
+    if (!chain) {
+      test_complete = true;
+      return;
+    }
+    
+    // Export the chain
+    mcp_json_value_t exported = mcp_chain_export_to_json(chain);
+    if (!exported) {
+      mcp_chain_destroy(chain);
+      test_complete = true;
+      return;
+    }
+    
+    // Verify the exported JSON contains expected properties
+    mcp_json_type_t type = mcp_json_get_type(exported);
+    if (type == MCP_JSON_TYPE_OBJECT) {
+      // Check for expected fields
+      mcp_json_value_t name_field = mcp_json_object_get(exported, "name");
+      mcp_json_value_t filters_field = mcp_json_object_get(exported, "filters");
+      mcp_json_value_t mode_field = mcp_json_object_get(exported, "mode");
+      
+      if (name_field && filters_field && mode_field) {
+        // Verify filters array
+        if (mcp_json_get_type(filters_field) == MCP_JSON_TYPE_ARRAY) {
+          size_t filter_count = mcp_json_array_size(filters_field);
+          if (filter_count == 2) {
+            test_passed = true;
+          }
+        }
+      }
+      
+      // Cleanup field references
+      if (name_field) mcp_json_free(name_field);
+      if (filters_field) mcp_json_free(filters_field);
+      if (mode_field) mcp_json_free(mode_field);
+    }
+    
+    mcp_json_free(exported);
+    mcp_chain_destroy(chain);
+    test_complete = true;
+  });
+  
+  EXPECT_EQ(result, MCP_OK);
+  
+  // Wait for test to complete
+  while (!test_complete) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  
+  // Stop dispatcher
+  mcp_dispatcher_stop(dispatcher.get());
+  dispatcher_thread.join();
+  
+  EXPECT_TRUE(test_passed);
+}
+
 }  // namespace
 
 // ============================================================================

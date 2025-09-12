@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -317,6 +318,65 @@ MCP_API char* mcp_strdup(const char* str) MCP_NOEXCEPT {
 }
 
 MCP_API void mcp_string_free(char* str) MCP_NOEXCEPT { mcp_free(str); }
+
+/* ============================================================================
+ * String Buffer Helpers (for MCP_TYPE_STRING handles)
+ * ============================================================================
+ */
+
+struct mcp_string_buffer_impl {
+  char* data{nullptr};
+  size_t length{0};
+};
+
+MCP_API mcp_string_buffer_t* mcp_string_dup(mcp_string_t str) MCP_NOEXCEPT {
+  // Allocate outer box that will be treated as the handle
+  auto* box = static_cast<mcp_string_buffer_t*>(mcp_malloc(sizeof(mcp_string_buffer_t)));
+  if (!box) {
+    return nullptr;
+  }
+
+  auto* impl = new (std::nothrow) mcp_string_buffer_impl();
+  if (!impl) {
+    mcp_free(box);
+    return nullptr;
+  }
+
+  // Duplicate string data
+  if (str.data && str.length > 0) {
+    impl->data = static_cast<char*>(mcp_malloc(str.length + 1));
+    if (!impl->data) {
+      delete impl;
+      mcp_free(box);
+      return nullptr;
+    }
+    std::memcpy(impl->data, str.data, str.length);
+    impl->data[str.length] = '\0';
+    impl->length = str.length;
+  } else {
+    // Empty string
+    impl->data = nullptr;
+    impl->length = 0;
+  }
+
+  *box = impl;
+  return box;
+}
+
+MCP_API void mcp_string_buffer_free(mcp_string_buffer_t* buffer) MCP_NOEXCEPT {
+  if (!buffer) {
+    return;
+  }
+  mcp_string_buffer_t impl = *buffer;
+  if (impl) {
+    if (impl->data) {
+      mcp_free(impl->data);
+      impl->data = nullptr;
+    }
+    delete impl;
+  }
+  mcp_free(buffer);
+}
 
 MCP_API void* mcp_malloc(size_t size) MCP_NOEXCEPT {
   if (!g_state.initialized) {
