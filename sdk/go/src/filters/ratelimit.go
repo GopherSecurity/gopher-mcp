@@ -11,6 +11,9 @@ import (
 	"github.com/GopherSecurity/gopher-mcp/src/types"
 )
 
+// ErrRateLimited is returned when rate limit is exceeded.
+var ErrRateLimited = fmt.Errorf("rate limit exceeded")
+
 // RateLimiter is the interface for different rate limiting algorithms.
 type RateLimiter interface {
 	TryAcquire(n int) bool
@@ -253,6 +256,9 @@ type RateLimitConfig struct {
 	// WindowSize defines the time window for rate limiting.
 	// Used with sliding-window and fixed-window algorithms.
 	WindowSize time.Duration
+	
+	// WebhookURL to call when rate limit is exceeded (optional).
+	WebhookURL string
 }
 
 // RateLimitFilter implements rate limiting with multiple algorithms.
@@ -368,6 +374,66 @@ func (f *RateLimitFilter) updateStats(key string, allowed bool) {
 		keyStats.Denied++
 	}
 	keyStats.LastSeen = time.Now()
+}
+
+// handleRateLimitExceeded handles rate limit exceeded scenario.
+func (f *RateLimitFilter) handleRateLimitExceeded(key string) (*types.FilterResult, error) {
+	// Calculate retry-after based on algorithm
+	retryAfter := f.calculateRetryAfter()
+	
+	// Create metadata with retry information
+	metadata := map[string]interface{}{
+		"retry-after": retryAfter.Seconds(),
+		"key":         key,
+		"algorithm":   f.config.Algorithm,
+	}
+	
+	// Update rate limit statistics
+	f.statsMu.Lock()
+	f.stats.DeniedRequests++
+	f.statsMu.Unlock()
+	
+	// Optionally call webhook (would be configured separately)
+	if f.config.WebhookURL != "" {
+		go f.callWebhook(key, metadata)
+	}
+	
+	// Return error result with metadata
+	result := types.ErrorResult(ErrRateLimited, types.TooManyRequests)
+	result.Metadata = metadata
+	
+	return result, nil
+}
+
+// calculateRetryAfter calculates when the client should retry.
+func (f *RateLimitFilter) calculateRetryAfter() time.Duration {
+	switch f.config.Algorithm {
+	case "fixed-window":
+		// For fixed window, retry after current window expires
+		return f.config.WindowSize
+	case "sliding-window":
+		// For sliding window, retry after 1/rate seconds
+		if f.config.RequestsPerSecond > 0 {
+			return time.Second / time.Duration(f.config.RequestsPerSecond)
+		}
+		return time.Second
+	case "token-bucket":
+		// For token bucket, retry after one token refills
+		if f.config.RequestsPerSecond > 0 {
+			return time.Second / time.Duration(f.config.RequestsPerSecond)
+		}
+		return time.Second
+	default:
+		return time.Second
+	}
+}
+
+// callWebhook notifies external service about rate limit event.
+func (f *RateLimitFilter) callWebhook(key string, metadata map[string]interface{}) {
+	// This would implement webhook calling logic
+	// Placeholder for now
+	_ = key
+	_ = metadata
 }
 
 // allowRequest checks if a request is allowed under the rate limit.
