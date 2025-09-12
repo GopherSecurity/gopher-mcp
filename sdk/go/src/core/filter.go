@@ -341,3 +341,58 @@ type ConfigurableFilter interface {
 	//   - string: The current configuration version identifier
 	GetConfigVersion() string
 }
+
+// FilterMetrics contains detailed performance and operational metrics.
+type FilterMetrics struct {
+	// Request metrics
+	RequestsTotal    int64
+	RequestsPerSec   float64
+	RequestLatencyMs float64
+	
+	// Error metrics
+	ErrorsTotal int64
+	ErrorRate   float64
+	
+	// Resource metrics
+	MemoryUsageBytes int64
+	CPUUsagePercent  float64
+	GoroutineCount   int
+	
+	// Custom metrics
+	CustomMetrics map[string]interface{}
+}
+
+// HealthStatus represents the health state of a filter.
+type HealthStatus struct {
+	Healthy bool
+	Status  string // "healthy", "degraded", "unhealthy"
+	Message string
+	Details map[string]interface{}
+}
+
+// ObservableFilter interface for monitoring integration.
+// Filters implementing this interface provide detailed metrics and health information.
+type ObservableFilter interface {
+	Filter
+
+	// GetMetrics returns current filter performance metrics.
+	// Used for monitoring dashboards and alerting.
+	//
+	// Returns:
+	//   - FilterMetrics: Current performance and operational metrics
+	GetMetrics() FilterMetrics
+
+	// GetHealthStatus returns the current health state of the filter.
+	// Used for health checks and circuit breaking.
+	//
+	// Returns:
+	//   - HealthStatus: Current health state and details
+	GetHealthStatus() HealthStatus
+
+	// GetTraceSpan returns the current trace span for distributed tracing.
+	// Used for request tracing and performance analysis.
+	//
+	// Returns:
+	//   - interface{}: Current trace span (implementation-specific)
+	GetTraceSpan() interface{}
+}
