@@ -29,6 +29,18 @@ type BufferPool struct {
 	mu sync.RWMutex
 }
 
+// Common buffer sizes for pooling (all power-of-2)
+var commonBufferSizes = []int{
+	512,    // 512B
+	1024,   // 1KB
+	2048,   // 2KB
+	4096,   // 4KB
+	8192,   // 8KB
+	16384,  // 16KB
+	32768,  // 32KB
+	65536,  // 64KB
+}
+
 // NewBufferPool creates a new buffer pool with power-of-2 sizes.
 func NewBufferPool(minSize, maxSize int) *BufferPool {
 	bp := &BufferPool{
@@ -38,14 +50,18 @@ func NewBufferPool(minSize, maxSize int) *BufferPool {
 		maxSize: maxSize,
 	}
 
-	// Create pools for power-of-2 sizes
-	for size := minSize; size <= maxSize; size *= 2 {
-		bp.sizes = append(bp.sizes, size)
-		poolSize := size // Capture size for closure
-		bp.pools[size] = &sync.Pool{
-			New: func() interface{} {
-				return &types.Buffer{}
-			},
+	// Use common sizes within range
+	for _, size := range commonBufferSizes {
+		if size >= minSize && size <= maxSize {
+			bp.sizes = append(bp.sizes, size)
+			poolSize := size // Capture size for closure
+			bp.pools[size] = &sync.Pool{
+				New: func() interface{} {
+					buf := &types.Buffer{}
+					buf.Grow(poolSize)
+					return buf
+				},
+			}
 		}
 	}
 
@@ -53,6 +69,11 @@ func NewBufferPool(minSize, maxSize int) *BufferPool {
 	sort.Ints(bp.sizes)
 
 	return bp
+}
+
+// NewDefaultBufferPool creates a buffer pool with default common sizes.
+func NewDefaultBufferPool() *BufferPool {
+	return NewBufferPool(512, 65536)
 }
 
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
