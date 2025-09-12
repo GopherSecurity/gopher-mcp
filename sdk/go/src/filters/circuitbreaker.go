@@ -112,3 +112,92 @@ func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter 
 	
 	return f
 }
+
+// transitionTo performs thread-safe state transitions.
+func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
+	currentState := f.state.Load().(State)
+	
+	// Validate transition
+	if !f.isValidTransition(currentState, newState) {
+		return false
+	}
+	
+	// Atomic state change
+	if !f.state.CompareAndSwap(currentState, newState) {
+		// State changed by another goroutine
+		return false
+	}
+	
+	// Handle transition side effects
+	switch newState {
+	case Open:
+		// Record when we opened the circuit
+		f.lastFailureTime.Store(time.Now())
+		f.failures.Store(0)
+		f.successes.Store(0)
+	case HalfOpen:
+		// Reset counters for testing phase
+		f.failures.Store(0)
+		f.successes.Store(0)
+	case Closed:
+		// Reset all counters
+		f.failures.Store(0)
+		f.successes.Store(0)
+		f.lastFailureTime.Store(time.Time{})
+	}
+	
+	return true
+}
+
+// isValidTransition checks if a state transition is allowed.
+func (f *CircuitBreakerFilter) isValidTransition(from, to State) bool {
+	switch from {
+	case Closed:
+		// Can only go to Open from Closed
+		return to == Open
+	case Open:
+		// Can only go to HalfOpen from Open
+		return to == HalfOpen
+	case HalfOpen:
+		// Can go to either Closed or Open from HalfOpen
+		return to == Closed || to == Open
+	default:
+		return false
+	}
+}
+
+// shouldTransitionToOpen checks if we should open the circuit.
+func (f *CircuitBreakerFilter) shouldTransitionToOpen() bool {
+	failures := f.failures.Load()
+	
+	// Check absolute failure threshold
+	if failures >= int64(f.config.FailureThreshold) {
+		return true
+	}
+	
+	// Check failure rate if we have enough volume
+	total := f.failures.Load() + f.successes.Load()
+	if total >= int64(f.config.MinimumRequestVolume) {
+		failureRate := float64(failures) / float64(total)
+		if failureRate >= f.config.FailureRate {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// shouldTransitionToHalfOpen checks if timeout has elapsed for half-open transition.
+func (f *CircuitBreakerFilter) shouldTransitionToHalfOpen() bool {
+	lastFailure := f.lastFailureTime.Load().(time.Time)
+	if lastFailure.IsZero() {
+		return false
+	}
+	
+	return time.Since(lastFailure) >= f.config.Timeout
+}
+
+// shouldTransitionToClosed checks if we should close from half-open.
+func (f *CircuitBreakerFilter) shouldTransitionToClosed() bool {
+	return f.successes.Load() >= int64(f.config.SuccessThreshold)
+}
