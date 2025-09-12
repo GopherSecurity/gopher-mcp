@@ -98,6 +98,7 @@ if(BUILD_C_API)
     add_executable(test_mcp_c_filter_chain c_api/test_mcp_c_filter_chain.cc)
     add_executable(test_mcp_c_filter_chain_exception_safety c_api/test_mcp_c_filter_chain_exception_safety.cc)
     add_executable(test_mcp_c_filter_buffer c_api/test_mcp_c_filter_buffer.cc)
+    add_executable(test_mcp_c_filter_chain_threading c_api/test_mcp_c_filter_chain_threading.cc)
     add_executable(test_mcp_c_logging_api c_api/test_mcp_c_logging_api.cc)
     add_executable(test_handle_manager c_api/test_handle_manager.cc)
     add_executable(test_json_chain_creation c_api/test_json_chain_creation.cc)
@@ -713,6 +714,25 @@ if(BUILD_C_API)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_mcp_c_filter_buffer llhttp)
+    endif()
+    
+    target_link_libraries(test_mcp_c_filter_chain_threading
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
+        gtest
+        gmock
+        gtest_main
+        Threads::Threads
+    )
+    if(NGHTTP2_FOUND)
+        target_link_directories(test_mcp_c_filter_chain_threading PRIVATE ${NGHTTP2_LIBRARY_DIRS})
+        target_link_libraries(test_mcp_c_filter_chain_threading ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_mcp_c_filter_chain_threading llhttp)
     endif()
     
     target_link_libraries(test_mcp_c_logging_api
