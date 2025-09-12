@@ -1,0 +1,274 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Go module download cache
+go/pkg/mod/
+
+# Build directories
+bin/
+dist/
+build/
+
+# IDE specific files
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# GoLand / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.Trash-*
+.nfs*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage.txt
+coverage.html
+coverage.xml
+*.cover
+*.coverage
+.coverage
+.pytest_cache/
+.hypothesis/
+
+# Benchmarks
+*.bench
+bench/
+
+# Profiling
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+*.trace
+
+# Documentation
+/docs/_build/
+/docs/.doctrees/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# Archives
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+
+# Certificates (be careful with this)
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+cache/
+
+# Go specific test cache
+.test_cache/
+
+# Go build cache
+.gocache/
+
+# Generated files
+*.generated.go
+*_gen.go
+mock_*.go
+
+# Protocol buffer generated files
+*.pb.go
+*.pb.gw.go
+
+# Swagger generated files
+*.swagger.json
+
+# Config files with sensitive data (uncomment if needed)
+# config.yaml
+# config.json
+# settings.json
+
+# Binary output directory
+/gophermcp
+
+# Example binaries
+/examples/*/bin/
+/examples/*/*.exe
+
+# Benchmark results
+benchmarks/*.txt
+benchmarks/*.json
+
+# Integration test data
+/tests/integration/data/
+/tests/integration/output/
+
+# Local development
+.local/
+.dev/
+
+# Go module proxy cache
+GOPATH/
+GOBIN/
+
+# Air live reload
+.air.toml
+tmp/
+
+# Delve debugger
+__debug_bin*
+
+# Go workspace backups
+*.backup
+
+# MCP specific
+*.mcp.lock
+.mcp/
+
+# Filter SDK specific
+/filters/builtin/*.so
+/filters/custom/
+/transport/*.sock
+/integration/*.pid
+
+# Performance test results
+/perf/*.csv
+/perf/*.html
+/perf/results/
+
+# Memory dumps
+*.heap
+*.allocs
+*.block
+*.mutex
+*.goroutine
+
+# Cross-compilation output
+/build/linux/
+/build/windows/
+/build/darwin/
+/build/arm/
+/build/arm64/
+
+# Release artifacts
+/release/
+/dist/
+*.tar.gz
+*.zip
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Terraform (if used for deployment)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Kubernetes
+*.kubeconfig
+/k8s/secrets/
+
+# CI/CD
+.gitlab-ci-local/
+.github/actions/
+
+# Package lock files (Go doesn't use these, but just in case)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
