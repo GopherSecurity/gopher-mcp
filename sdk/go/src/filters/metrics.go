@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -588,6 +589,402 @@ func (fmr *FilterMetricsRecorder) SetGauge(name string, value float64, tags map[
 // RecordHistogram records a histogram value.
 func (fmr *FilterMetricsRecorder) RecordHistogram(name string, value float64, tags map[string]string) {
 	fmr.Record(name+".histogram", value, tags)
+}
+
+// MetricsAggregator aggregates metrics across multiple filters.
+type MetricsAggregator struct {
+	filters   map[string]*FilterMetrics
+	chainName string
+	mu        sync.RWMutex
+}
+
+// NewMetricsAggregator creates a new metrics aggregator.
+func NewMetricsAggregator(chainName string) *MetricsAggregator {
+	return &MetricsAggregator{
+		filters:   make(map[string]*FilterMetrics),
+		chainName: chainName,
+	}
+}
+
+// FilterMetrics holds metrics for a single filter.
+type FilterMetrics struct {
+	Name           string
+	ProcessedCount int64
+	ErrorCount     int64
+	TotalLatency   time.Duration
+	MinLatency     time.Duration
+	MaxLatency     time.Duration
+	AvgLatency     time.Duration
+	LastUpdated    time.Time
+	CustomMetrics  map[string]interface{}
+}
+
+// AddFilter registers a filter for aggregation.
+func (ma *MetricsAggregator) AddFilter(name string) {
+	ma.mu.Lock()
+	defer ma.mu.Unlock()
+	
+	if _, exists := ma.filters[name]; !exists {
+		ma.filters[name] = &FilterMetrics{
+			Name:          name,
+			MinLatency:    time.Duration(1<<63 - 1), // Max duration
+			CustomMetrics: make(map[string]interface{}),
+			LastUpdated:   time.Now(),
+		}
+	}
+}
+
+// UpdateFilterMetrics updates metrics for a specific filter.
+func (ma *MetricsAggregator) UpdateFilterMetrics(name string, latency time.Duration, error bool) {
+	ma.mu.Lock()
+	defer ma.mu.Unlock()
+	
+	filter, exists := ma.filters[name]
+	if !exists {
+		filter = &FilterMetrics{
+			Name:          name,
+			MinLatency:    time.Duration(1<<63 - 1),
+			CustomMetrics: make(map[string]interface{}),
+		}
+		ma.filters[name] = filter
+	}
+	
+	// Update counts
+	filter.ProcessedCount++
+	if error {
+		filter.ErrorCount++
+	}
+	
+	// Update latencies
+	filter.TotalLatency += latency
+	if latency < filter.MinLatency {
+		filter.MinLatency = latency
+	}
+	if latency > filter.MaxLatency {
+		filter.MaxLatency = latency
+	}
+	filter.AvgLatency = filter.TotalLatency / time.Duration(filter.ProcessedCount)
+	filter.LastUpdated = time.Now()
+}
+
+// AggregatedMetrics represents chain-wide aggregated metrics.
+type AggregatedMetrics struct {
+	ChainName       string
+	TotalProcessed  int64
+	TotalErrors     int64
+	ErrorRate       float64
+	TotalLatency    time.Duration
+	AverageLatency  time.Duration
+	MinLatency      time.Duration
+	MaxLatency      time.Duration
+	FilterCount     int
+	HealthScore     float64
+	LastAggregation time.Time
+	FilterMetrics   map[string]*FilterMetrics
+}
+
+// GetAggregatedMetrics calculates chain-wide statistics.
+func (ma *MetricsAggregator) GetAggregatedMetrics() *AggregatedMetrics {
+	ma.mu.RLock()
+	defer ma.mu.RUnlock()
+	
+	agg := &AggregatedMetrics{
+		ChainName:       ma.chainName,
+		MinLatency:      time.Duration(1<<63 - 1),
+		FilterCount:     len(ma.filters),
+		LastAggregation: time.Now(),
+		FilterMetrics:   make(map[string]*FilterMetrics),
+	}
+	
+	// Aggregate across all filters
+	for name, filter := range ma.filters {
+		agg.TotalProcessed += filter.ProcessedCount
+		agg.TotalErrors += filter.ErrorCount
+		agg.TotalLatency += filter.TotalLatency
+		
+		if filter.MinLatency < agg.MinLatency {
+			agg.MinLatency = filter.MinLatency
+		}
+		if filter.MaxLatency > agg.MaxLatency {
+			agg.MaxLatency = filter.MaxLatency
+		}
+		
+		// Copy filter metrics
+		filterCopy := *filter
+		agg.FilterMetrics[name] = &filterCopy
+	}
+	
+	// Calculate derived metrics
+	if agg.TotalProcessed > 0 {
+		agg.ErrorRate = float64(agg.TotalErrors) / float64(agg.TotalProcessed)
+		agg.AverageLatency = agg.TotalLatency / time.Duration(agg.TotalProcessed)
+		
+		// Calculate health score (0-100)
+		// Based on error rate and latency
+		errorScore := math.Max(0, 100*(1-agg.ErrorRate))
+		
+		// Latency score (assuming 1s is bad, 10ms is good)
+		latencyMs := float64(agg.AverageLatency.Milliseconds())
+		latencyScore := math.Max(0, 100*(1-latencyMs/1000))
+		
+		agg.HealthScore = (errorScore + latencyScore) / 2
+	} else {
+		agg.HealthScore = 100 // No data means healthy
+	}
+	
+	return agg
+}
+
+// HierarchicalAggregator supports hierarchical metric aggregation.
+type HierarchicalAggregator struct {
+	root     *MetricsNode
+	registry *MetricsRegistry
+	mu       sync.RWMutex
+}
+
+// MetricsNode represents a node in the metrics hierarchy.
+type MetricsNode struct {
+	Name     string
+	Level    int
+	Metrics  map[string]interface{}
+	Children []*MetricsNode
+	Parent   *MetricsNode
+}
+
+// NewHierarchicalAggregator creates a new hierarchical aggregator.
+func NewHierarchicalAggregator(rootName string, registry *MetricsRegistry) *HierarchicalAggregator {
+	return &HierarchicalAggregator{
+		root: &MetricsNode{
+			Name:     rootName,
+			Level:    0,
+			Metrics:  make(map[string]interface{}),
+			Children: make([]*MetricsNode, 0),
+		},
+		registry: registry,
+	}
+}
+
+// AddNode adds a node to the hierarchy.
+func (ha *HierarchicalAggregator) AddNode(path []string, metrics map[string]interface{}) {
+	ha.mu.Lock()
+	defer ha.mu.Unlock()
+	
+	current := ha.root
+	for i, name := range path {
+		found := false
+		for _, child := range current.Children {
+			if child.Name == name {
+				current = child
+				found = true
+				break
+			}
+		}
+		
+		if !found {
+			newNode := &MetricsNode{
+				Name:     name,
+				Level:    i + 1,
+				Metrics:  make(map[string]interface{}),
+				Children: make([]*MetricsNode, 0),
+				Parent:   current,
+			}
+			current.Children = append(current.Children, newNode)
+			current = newNode
+		}
+	}
+	
+	// Update metrics at the leaf node
+	for k, v := range metrics {
+		current.Metrics[k] = v
+	}
+}
+
+// AggregateUp aggregates metrics from children to parents.
+func (ha *HierarchicalAggregator) AggregateUp() {
+	ha.mu.Lock()
+	defer ha.mu.Unlock()
+	
+	ha.aggregateNode(ha.root)
+}
+
+// aggregateNode recursively aggregates metrics for a node.
+func (ha *HierarchicalAggregator) aggregateNode(node *MetricsNode) map[string]interface{} {
+	aggregated := make(map[string]interface{})
+	
+	// Start with node's own metrics
+	for k, v := range node.Metrics {
+		aggregated[k] = v
+	}
+	
+	// Aggregate children's metrics
+	for _, child := range node.Children {
+		childMetrics := ha.aggregateNode(child)
+		for k, v := range childMetrics {
+			if existing, exists := aggregated[k]; exists {
+				// Sum numeric values
+				aggregated[k] = ha.sumValues(existing, v)
+			} else {
+				aggregated[k] = v
+			}
+		}
+	}
+	
+	// Update node's aggregated metrics
+	node.Metrics = aggregated
+	
+	return aggregated
+}
+
+// sumValues sums two metric values.
+func (ha *HierarchicalAggregator) sumValues(a, b interface{}) interface{} {
+	switch va := a.(type) {
+	case int64:
+		if vb, ok := b.(int64); ok {
+			return va + vb
+		}
+	case float64:
+		if vb, ok := b.(float64); ok {
+			return va + vb
+		}
+	case time.Duration:
+		if vb, ok := b.(time.Duration); ok {
+			return va + vb
+		}
+	}
+	return a // Return first value if types don't match
+}
+
+// GetHierarchicalMetrics returns the complete metrics hierarchy.
+func (ha *HierarchicalAggregator) GetHierarchicalMetrics() *MetricsNode {
+	ha.mu.RLock()
+	defer ha.mu.RUnlock()
+	
+	return ha.copyNode(ha.root)
+}
+
+// copyNode creates a deep copy of a metrics node.
+func (ha *HierarchicalAggregator) copyNode(node *MetricsNode) *MetricsNode {
+	if node == nil {
+		return nil
+	}
+	
+	copy := &MetricsNode{
+		Name:     node.Name,
+		Level:    node.Level,
+		Metrics:  make(map[string]interface{}),
+		Children: make([]*MetricsNode, 0, len(node.Children)),
+	}
+	
+	// Copy metrics
+	for k, v := range node.Metrics {
+		copy.Metrics[k] = v
+	}
+	
+	// Copy children
+	for _, child := range node.Children {
+		copy.Children = append(copy.Children, ha.copyNode(child))
+	}
+	
+	return copy
+}
+
+// RollingAggregator maintains rolling window aggregations.
+type RollingAggregator struct {
+	windowSize time.Duration
+	buckets    []MetricBucket
+	current    int
+	mu         sync.RWMutex
+}
+
+// MetricBucket represents a time bucket for metrics.
+type MetricBucket struct {
+	Timestamp time.Time
+	Metrics   map[string]interface{}
+}
+
+// NewRollingAggregator creates a new rolling window aggregator.
+func NewRollingAggregator(windowSize time.Duration, bucketCount int) *RollingAggregator {
+	buckets := make([]MetricBucket, bucketCount)
+	for i := range buckets {
+		buckets[i] = MetricBucket{
+			Metrics: make(map[string]interface{}),
+		}
+	}
+	
+	return &RollingAggregator{
+		windowSize: windowSize,
+		buckets:    buckets,
+		current:    0,
+	}
+}
+
+// Record adds metrics to the current bucket.
+func (ra *RollingAggregator) Record(metrics map[string]interface{}) {
+	ra.mu.Lock()
+	defer ra.mu.Unlock()
+	
+	now := time.Now()
+	bucketDuration := ra.windowSize / time.Duration(len(ra.buckets))
+	
+	// Check if we need to advance to next bucket
+	if now.Sub(ra.buckets[ra.current].Timestamp) > bucketDuration {
+		ra.current = (ra.current + 1) % len(ra.buckets)
+		ra.buckets[ra.current] = MetricBucket{
+			Timestamp: now,
+			Metrics:   make(map[string]interface{}),
+		}
+	}
+	
+	// Add metrics to current bucket
+	for k, v := range metrics {
+		if existing, exists := ra.buckets[ra.current].Metrics[k]; exists {
+			ra.buckets[ra.current].Metrics[k] = ra.combineValues(existing, v)
+		} else {
+			ra.buckets[ra.current].Metrics[k] = v
+		}
+	}
+}
+
+// combineValues combines two metric values.
+func (ra *RollingAggregator) combineValues(a, b interface{}) interface{} {
+	switch va := a.(type) {
+	case int64:
+		if vb, ok := b.(int64); ok {
+			return va + vb
+		}
+	case float64:
+		if vb, ok := b.(float64); ok {
+			return va + vb
+		}
+	case []float64:
+		if vb, ok := b.(float64); ok {
+			return append(va, vb)
+		}
+	}
+	return b // Replace with new value if types don't match
+}
+
+// GetAggregated returns aggregated metrics for the rolling window.
+func (ra *RollingAggregator) GetAggregated() map[string]interface{} {
+	ra.mu.RLock()
+	defer ra.mu.RUnlock()
+	
+	aggregated := make(map[string]interface{})
+	cutoff := time.Now().Add(-ra.windowSize)
+	
+	for _, bucket := range ra.buckets {
+		if bucket.Timestamp.After(cutoff) {
+			for k, v := range bucket.Metrics {
+				if existing, exists := aggregated[k]; exists {
+					aggregated[k] = ra.combineValues(existing, v)
+				} else {
+					aggregated[k] = v
+				}
+			}
+		}
+	}
+	
+	return aggregated
 }
 
 // MetricsConfig configures metrics collection behavior.
