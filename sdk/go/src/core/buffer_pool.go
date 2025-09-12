@@ -211,7 +211,10 @@ func (bp *BufferPool) Put(buffer *types.Buffer) {
 		return
 	}
 
-	// Clear buffer for security
+	// Zero-fill buffer for security
+	bp.zeroFill(buffer)
+	
+	// Clear buffer state
 	buffer.Reset()
 
 	// Check if buffer belongs to a pool
@@ -247,6 +250,35 @@ func (bp *BufferPool) Put(buffer *types.Buffer) {
 		bp.mu.Lock()
 		bp.stats.Puts++
 		bp.mu.Unlock()
+	}
+}
+
+// zeroFill securely clears buffer contents.
+// Uses optimized methods based on buffer size.
+func (bp *BufferPool) zeroFill(buffer *types.Buffer) {
+	if buffer == nil || buffer.Len() == 0 {
+		return
+	}
+
+	data := buffer.Bytes()
+	size := len(data)
+
+	// Use different methods based on size
+	if size < 4096 {
+		// For small buffers, use range loop
+		for i := range data {
+			data[i] = 0
+		}
+	} else {
+		// For large buffers, use copy with zero slice
+		var zero = make([]byte, 4096)
+		for i := 0; i < size; i += 4096 {
+			end := i + 4096
+			if end > size {
+				end = size
+			}
+			copy(data[i:end], zero)
+		}
 	}
 }
 
