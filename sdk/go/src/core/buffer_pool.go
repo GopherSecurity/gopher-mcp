@@ -76,6 +76,51 @@ func NewDefaultBufferPool() *BufferPool {
 	return NewBufferPool(512, 65536)
 }
 
+// selectBucket chooses the appropriate pool bucket for a given size.
+// It rounds up to the next power of 2 to minimize waste.
+func (bp *BufferPool) selectBucket(size int) int {
+	// Cap at maxSize
+	if size > bp.maxSize {
+		return 0 // Signal direct allocation
+	}
+
+	// Find next power of 2
+	bucket := bp.nextPowerOf2(size)
+	
+	// Check if bucket exists in our pools
+	if _, exists := bp.pools[bucket]; exists {
+		return bucket
+	}
+
+	// Find nearest available bucket
+	for _, poolSize := range bp.sizes {
+		if poolSize >= size {
+			return poolSize
+		}
+	}
+
+	return 0 // Fall back to direct allocation
+}
+
+// nextPowerOf2 returns the next power of 2 greater than or equal to n.
+func (bp *BufferPool) nextPowerOf2(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	
+	// If n is already a power of 2, return it
+	if n&(n-1) == 0 {
+		return n
+	}
+
+	// Find the next power of 2
+	power := 1
+	for power < n {
+		power <<= 1
+	}
+	return power
+}
+
 // SimpleBufferPool implements the BufferPool interface with basic pooling.
 type SimpleBufferPool struct {
 	pool sync.Pool
