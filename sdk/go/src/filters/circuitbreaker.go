@@ -43,6 +43,9 @@ func (s State) String() string {
 	}
 }
 
+// StateChangeCallback is called when circuit breaker state changes.
+type StateChangeCallback func(from, to State)
+
 // CircuitBreakerConfig configures the circuit breaker behavior.
 type CircuitBreakerConfig struct {
 	// FailureThreshold is the number of consecutive failures before opening the circuit.
@@ -68,6 +71,12 @@ type CircuitBreakerConfig struct {
 	// MinimumRequestVolume is the minimum number of requests required
 	// before the failure rate is calculated and considered.
 	MinimumRequestVolume int
+	
+	// OnStateChange is an optional callback for state transitions.
+	OnStateChange StateChangeCallback
+	
+	// Logger for logging state transitions (optional).
+	Logger func(format string, args ...interface{})
 }
 
 // DefaultCircuitBreakerConfig returns a default configuration.
@@ -124,12 +133,17 @@ func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter 
 	return f
 }
 
-// transitionTo performs thread-safe state transitions.
+// transitionTo performs thread-safe state transitions with logging and callbacks.
 func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 	currentState := f.state.Load().(State)
 	
 	// Validate transition
 	if !f.isValidTransition(currentState, newState) {
+		// Log invalid transition attempt
+		if f.config.Logger != nil {
+			f.config.Logger("Circuit breaker: invalid transition from %s to %s", 
+				currentState.String(), newState.String())
+		}
 		return false
 	}
 	
@@ -139,6 +153,15 @@ func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 		return false
 	}
 	
+	// Log successful transition
+	if f.config.Logger != nil {
+		f.config.Logger("Circuit breaker: state changed from %s to %s", 
+			currentState.String(), newState.String())
+	}
+	
+	// Update metrics (would integrate with actual metrics system)
+	f.updateMetrics(currentState, newState)
+	
 	// Handle transition side effects
 	switch newState {
 	case Open:
@@ -146,18 +169,52 @@ func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 		f.lastFailureTime.Store(time.Now())
 		f.failures.Store(0)
 		f.successes.Store(0)
+		
+		if f.config.Logger != nil {
+			f.config.Logger("Circuit breaker opened at %v", time.Now())
+		}
+		
 	case HalfOpen:
 		// Reset counters for testing phase
 		f.failures.Store(0)
 		f.successes.Store(0)
+		
+		if f.config.Logger != nil {
+			f.config.Logger("Circuit breaker entering half-open state for testing")
+		}
+		
 	case Closed:
 		// Reset all counters
 		f.failures.Store(0)
 		f.successes.Store(0)
 		f.lastFailureTime.Store(time.Time{})
+		
+		if f.config.Logger != nil {
+			f.config.Logger("Circuit breaker closed - normal operation resumed")
+		}
+	}
+	
+	// Call optional state change callback
+	if f.config.OnStateChange != nil {
+		go f.config.OnStateChange(currentState, newState)
 	}
 	
 	return true
+}
+
+// updateMetrics updates metrics for state transitions.
+func (f *CircuitBreakerFilter) updateMetrics(from, to State) {
+	// This would integrate with a metrics system like Prometheus
+	// For now, just update internal stats
+	if f.FilterBase != nil {
+		// Update filter statistics
+		stats := f.FilterBase.GetStats()
+		stats.CustomMetrics = map[string]interface{}{
+			"state":           to.String(),
+			"transitions":     stats.ProcessCount + 1,
+			"last_transition": time.Now(),
+		}
+	}
 }
 
 // isValidTransition checks if a state transition is allowed.
