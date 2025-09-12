@@ -287,3 +287,46 @@ func (mm *MemoryManager) Put(buffer *types.Buffer) {
 	}
 	// Otherwise let the buffer be garbage collected
 }
+
+// SetMaxMemory updates the maximum memory limit.
+// Setting to 0 disables the memory limit.
+func (mm *MemoryManager) SetMaxMemory(bytes int64) {
+	atomic.StoreInt64(&mm.maxMemory, bytes)
+	
+	// Trigger cleanup if over limit
+	if bytes > 0 {
+		currentUsage := atomic.LoadInt64(&mm.currentUsage)
+		if currentUsage > bytes {
+			mm.triggerCleanup()
+		}
+	}
+}
+
+// GetMaxMemory returns the current memory limit.
+func (mm *MemoryManager) GetMaxMemory() int64 {
+	return atomic.LoadInt64(&mm.maxMemory)
+}
+
+// triggerCleanup attempts to free memory when approaching limit.
+func (mm *MemoryManager) triggerCleanup() {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+
+	// Clear pools to free memory
+	for size, pool := range mm.pools {
+		// Create new empty pool
+		mm.pools[size] = NewSimpleBufferPool(size)
+		_ = pool // Old pool will be garbage collected
+	}
+}
+
+// CheckMemoryLimit returns true if allocation would exceed limit.
+func (mm *MemoryManager) CheckMemoryLimit(size int) bool {
+	maxMem := atomic.LoadInt64(&mm.maxMemory)
+	if maxMem <= 0 {
+		return false // No limit
+	}
+
+	currentUsage := atomic.LoadInt64(&mm.currentUsage)
+	return currentUsage+int64(size) > maxMem
+}
