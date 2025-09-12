@@ -3,6 +3,7 @@ package types
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -416,6 +417,105 @@ func (r *FilterResult) Duration() time.Duration {
 		return 0
 	}
 	return r.EndTime.Sub(r.StartTime)
+}
+
+// IsSuccess returns true if the result indicates successful processing.
+// Success is defined as Continue or StopIteration status without errors.
+func (r *FilterResult) IsSuccess() bool {
+	if r == nil {
+		return false
+	}
+	return (r.Status == Continue || r.Status == StopIteration) && r.Error == nil
+}
+
+// IsError returns true if the result indicates an error occurred.
+// An error is indicated by Error status or non-nil Error field.
+func (r *FilterResult) IsError() bool {
+	if r == nil {
+		return false
+	}
+	return r.Status == Error || r.Error != nil
+}
+
+// Validate checks the consistency of the FilterResult.
+// It ensures status is valid and error fields are consistent.
+func (r *FilterResult) Validate() error {
+	if r == nil {
+		return fmt.Errorf("filter result is nil")
+	}
+
+	// Check status is valid
+	if r.Status < Continue || r.Status > Buffered {
+		return fmt.Errorf("invalid filter status: %d", r.Status)
+	}
+
+	// Check error consistency
+	if r.Status == Error && r.Error == nil {
+		return fmt.Errorf("error status without error field")
+	}
+	
+	if r.Status != Error && r.Error != nil {
+		return fmt.Errorf("non-error status with error field: status=%v, error=%v", r.Status, r.Error)
+	}
+
+	// Check data length consistency if metadata present
+	if r.Metadata != nil {
+		if dataLen, ok := r.Metadata["data_length"].(int); ok {
+			if dataLen != len(r.Data) {
+				return fmt.Errorf("data length mismatch: metadata=%d, actual=%d", dataLen, len(r.Data))
+			}
+		}
+	}
+
+	return nil
+}
+
+// filterResultPool is a pool for reusing FilterResult instances.
+var filterResultPool = sync.Pool{
+	New: func() interface{} {
+		return &FilterResult{
+			Metadata: make(map[string]interface{}),
+		}
+	},
+}
+
+// GetResult retrieves a FilterResult from the pool.
+// The result is cleared and ready for use.
+func GetResult() *FilterResult {
+	r := filterResultPool.Get().(*FilterResult)
+	r.reset()
+	return r
+}
+
+// Release returns the FilterResult to the pool.
+// All fields are cleared to prevent data leaks.
+func (r *FilterResult) Release() {
+	if r == nil {
+		return
+	}
+	r.reset()
+	filterResultPool.Put(r)
+}
+
+// reset clears all fields in the FilterResult.
+func (r *FilterResult) reset() {
+	r.Status = Continue
+	r.Data = nil
+	r.Error = nil
+	
+	// Clear metadata map
+	if r.Metadata == nil {
+		r.Metadata = make(map[string]interface{})
+	} else {
+		for k := range r.Metadata {
+			delete(r.Metadata, k)
+		}
+	}
+	
+	r.StartTime = time.Time{}
+	r.EndTime = time.Time{}
+	r.StopChain = false
+	r.SkipCount = 0
 }
 
 // Success creates a successful FilterResult with the provided data.
