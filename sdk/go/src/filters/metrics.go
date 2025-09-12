@@ -20,12 +20,43 @@ type MetricsCollector interface {
 
 // MetricsConfig configures metrics collection behavior.
 type MetricsConfig struct {
-	Enabled             bool
-	ExportInterval      time.Duration
-	IncludeHistograms   bool
-	IncludePercentiles  bool
-	MetricPrefix        string
-	Tags                map[string]string
+	// Enabled determines if metrics collection is active
+	Enabled bool
+	
+	// ExportInterval defines how often metrics are exported
+	ExportInterval time.Duration
+	
+	// IncludeHistograms enables histogram metrics (more memory)
+	IncludeHistograms bool
+	
+	// IncludePercentiles enables percentile calculations (P50, P90, P95, P99)
+	IncludePercentiles bool
+	
+	// MetricPrefix is prepended to all metric names
+	MetricPrefix string
+	
+	// Tags are added to all metrics for grouping/filtering
+	Tags map[string]string
+	
+	// BufferSize for metric events (0 = unbuffered)
+	BufferSize int
+	
+	// FlushOnClose ensures all metrics are exported on shutdown
+	FlushOnClose bool
+}
+
+// DefaultMetricsConfig returns a sensible default configuration.
+func DefaultMetricsConfig() MetricsConfig {
+	return MetricsConfig{
+		Enabled:            true,
+		ExportInterval:     10 * time.Second,
+		IncludeHistograms:  true,
+		IncludePercentiles: true,
+		MetricPrefix:       "filter",
+		Tags:               make(map[string]string),
+		BufferSize:         1000,
+		FlushOnClose:       true,
+	}
 }
 
 // MetricsFilter collects metrics for filter processing.
