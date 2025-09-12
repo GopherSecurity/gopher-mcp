@@ -253,3 +253,37 @@ func (l FilterLayer) OSILayer() int {
 	}
 	return 0
 }
+
+// FilterConfig contains configuration settings for a filter.
+// It provides all necessary parameters to initialize and operate a filter.
+type FilterConfig struct {
+	// Name is the unique identifier for the filter instance.
+	Name string `json:"name"`
+
+	// Type specifies the filter type (e.g., "http", "auth", "log").
+	Type string `json:"type"`
+
+	// Settings contains filter-specific configuration as key-value pairs.
+	Settings map[string]interface{} `json:"settings,omitempty"`
+
+	// Layer indicates the OSI layer at which the filter operates.
+	Layer FilterLayer `json:"layer"`
+
+	// Enabled determines if the filter is active in the chain.
+	Enabled bool `json:"enabled"`
+
+	// Priority determines the filter's execution order (lower = higher priority).
+	Priority int `json:"priority"`
+
+	// TimeoutMs specifies the maximum processing time in milliseconds.
+	TimeoutMs int `json:"timeout_ms"`
+
+	// BypassOnError allows the chain to continue if this filter fails.
+	BypassOnError bool `json:"bypass_on_error"`
+
+	// MaxBufferSize sets the maximum buffer size in bytes.
+	MaxBufferSize int `json:"max_buffer_size"`
+
+	// EnableStatistics enables performance metrics collection.
+	EnableStatistics bool `json:"enable_statistics"`
+}
