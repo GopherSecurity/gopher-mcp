@@ -81,6 +81,76 @@ func (tb *TokenBucket) LastAccess() time.Time {
 	return tb.lastRefill
 }
 
+// SlidingWindow implements sliding window rate limiting algorithm.
+type SlidingWindow struct {
+	// Ring buffer of request timestamps
+	timestamps []time.Time
+	
+	// Current position in ring buffer
+	position int
+	
+	// Window duration
+	windowSize time.Duration
+	
+	// Maximum requests in window
+	limit int
+	
+	// Last access time
+	lastAccess time.Time
+	
+	// Synchronization
+	mu sync.Mutex
+}
+
+// NewSlidingWindow creates a new sliding window rate limiter.
+func NewSlidingWindow(limit int, windowSize time.Duration) *SlidingWindow {
+	return &SlidingWindow{
+		timestamps: make([]time.Time, 0, limit*2),
+		windowSize: windowSize,
+		limit:      limit,
+		lastAccess: time.Now(),
+	}
+}
+
+// TryAcquire attempts to acquire n permits from the sliding window.
+// Returns true if successful, false if limit exceeded.
+func (sw *SlidingWindow) TryAcquire(n int) bool {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	
+	now := time.Now()
+	sw.lastAccess = now
+	windowStart := now.Add(-sw.windowSize)
+	
+	// Remove expired entries
+	validTimestamps := make([]time.Time, 0, len(sw.timestamps))
+	for _, ts := range sw.timestamps {
+		if ts.After(windowStart) {
+			validTimestamps = append(validTimestamps, ts)
+		}
+	}
+	sw.timestamps = validTimestamps
+	
+	// Check if adding n requests would exceed limit
+	if len(sw.timestamps)+n > sw.limit {
+		return false
+	}
+	
+	// Add new timestamps
+	for i := 0; i < n; i++ {
+		sw.timestamps = append(sw.timestamps, now)
+	}
+	
+	return true
+}
+
+// LastAccess returns the last time the window was accessed.
+func (sw *SlidingWindow) LastAccess() time.Time {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.lastAccess
+}
+
 // RateLimitStatistics tracks rate limiting metrics.
 type RateLimitStatistics struct {
 	TotalRequests   uint64
