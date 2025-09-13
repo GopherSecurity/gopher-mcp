@@ -44,12 +44,6 @@ func main() {
 	// Add tools
 	registerTools(server)
 
-	// Add prompts
-	registerPrompts(server)
-
-	// Add resources
-	registerResources(server)
-
 	// Set up signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -142,105 +136,5 @@ func registerTools(server *mcp.Server) {
 				&mcp.TextContent{Text: fmt.Sprintf("%f", result)},
 			},
 		}, nil, nil
-	})
-}
-
-func registerPrompts(server *mcp.Server) {
-	// Register greeting prompt
-	server.AddPrompt(&mcp.Prompt{
-		Name:        "greeting",
-		Description: "Generate a greeting message",
-		Arguments: []*mcp.PromptArgument{
-			{
-				Name:        "name",
-				Description: "Name to greet",
-				Required:    true,
-			},
-		},
-	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		userName := "User"
-		if req.Params.Arguments != nil {
-			if name, ok := req.Params.Arguments["name"]; ok && name != "" {
-				userName = name
-			}
-		}
-		
-		return &mcp.GetPromptResult{
-			Messages: []*mcp.PromptMessage{
-				{
-					Role: "user",
-					Content: &mcp.TextContent{
-						Text: fmt.Sprintf("Hello, %s! Welcome to the MCP server example.", userName),
-					},
-				},
-			},
-		}, nil
-	})
-
-	// Register system_info prompt
-	server.AddPrompt(&mcp.Prompt{
-		Name:        "system_info",
-		Description: "Get system information",
-	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		return &mcp.GetPromptResult{
-			Messages: []*mcp.PromptMessage{
-				{
-					Role: "user",
-					Content: &mcp.TextContent{
-						Text: fmt.Sprintf(
-							"System Information:\nServer: example-mcp-server v1.0.0\nTime: %s\nTools Available: 3",
-							time.Now().Format(time.RFC3339),
-						),
-					},
-				},
-			},
-		}, nil
-	})
-}
-
-func registerResources(server *mcp.Server) {
-	// Register config resource
-	server.AddResource(&mcp.Resource{
-		URI:         "config://server",
-		Name:        "Server Configuration",
-		Description: "Current server configuration",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		config := fmt.Sprintf(`{
-  "name": "example-mcp-server",
-  "version": "1.0.0",
-  "tools": 3
-}`)
-		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{
-				{
-					URI:      req.Params.URI,
-					MIMEType: "application/json",
-					Text:     config,
-				},
-			},
-		}, nil
-	})
-
-	// Register stats resource
-	server.AddResource(&mcp.Resource{
-		URI:         "stats://requests",
-		Name:        "Request Statistics",
-		Description: "Server request statistics",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		stats := fmt.Sprintf(`{
-  "total_requests": 0,
-  "uptime": "%s"
-}`, time.Since(time.Now()).String())
-		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{
-				{
-					URI:      req.Params.URI,
-					MIMEType: "application/json",
-					Text:     stats,
-				},
-			},
-		}, nil
 	})
 }

@@ -61,18 +61,8 @@ func (c *MCPClient) Connect(serverCommand string) error {
 	if initResult != nil && initResult.ServerInfo != nil {
 		log.Printf("Server info: %s v%s", initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 		
-		if initResult.Capabilities != nil {
-			caps := []string{}
-			if initResult.Capabilities.Tools != nil {
-				caps = append(caps, "tools")
-			}
-			if initResult.Capabilities.Prompts != nil {
-				caps = append(caps, "prompts")
-			}
-			if initResult.Capabilities.Resources != nil {
-				caps = append(caps, "resources")
-			}
-			log.Printf("Capabilities: %v", caps)
+		if initResult.Capabilities != nil && initResult.Capabilities.Tools != nil {
+			log.Printf("Capabilities: tools supported")
 		}
 	}
 
@@ -132,124 +122,6 @@ func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) erro
 	return nil
 }
 
-func (c *MCPClient) ListPrompts() error {
-	if c.session == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	result, err := c.session.ListPrompts(c.ctx, &mcp.ListPromptsParams{})
-	if err != nil {
-		return fmt.Errorf("failed to list prompts: %w", err)
-	}
-
-	fmt.Println("\nAvailable Prompts:")
-	fmt.Println("==================")
-	for _, prompt := range result.Prompts {
-		fmt.Printf("- %s: %s\n", prompt.Name, prompt.Description)
-		if len(prompt.Arguments) > 0 {
-			fmt.Println("  Arguments:")
-			for _, arg := range prompt.Arguments {
-				required := ""
-				if arg.Required {
-					required = " (required)"
-				}
-				fmt.Printf("    - %s: %s%s\n", arg.Name, arg.Description, required)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (c *MCPClient) GetPrompt(name string, arguments map[string]string) error {
-	if c.session == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	result, err := c.session.GetPrompt(c.ctx, &mcp.GetPromptParams{
-		Name:      name,
-		Arguments: arguments,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get prompt: %w", err)
-	}
-
-	fmt.Printf("\nPrompt '%s' Result:\n", name)
-	fmt.Println("===================")
-	
-	if result.Description != "" {
-		fmt.Printf("Description: %s\n", result.Description)
-	}
-
-	for _, msg := range result.Messages {
-		fmt.Printf("\n[%s]:\n", msg.Role)
-		switch v := msg.Content.(type) {
-		case *mcp.TextContent:
-			fmt.Println(v.Text)
-		case *mcp.ImageContent:
-			preview := "<binary>"
-			if len(v.Data) > 20 {
-				preview = string(v.Data[:20]) + "..."
-			}
-			fmt.Printf("Image: %s (MIME: %s)\n", preview, v.MIMEType)
-		default:
-			fmt.Printf("%v\n", msg.Content)
-		}
-	}
-
-	return nil
-}
-
-func (c *MCPClient) ListRoots() error {
-	if c.session == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	result, err := c.session.ListResources(c.ctx, &mcp.ListResourcesParams{})
-	if err != nil {
-		return fmt.Errorf("failed to list roots: %w", err)
-	}
-
-	fmt.Println("\nAvailable Resources:")
-	fmt.Println("====================")
-	for _, resource := range result.Resources {
-		fmt.Printf("- %s\n", resource.URI)
-		if resource.Name != "" {
-			fmt.Printf("  Name: %s\n", resource.Name)
-		}
-		if resource.Description != "" {
-			fmt.Printf("  Description: %s\n", resource.Description)
-		}
-	}
-
-	return nil
-}
-
-func (c *MCPClient) ReadResource(uri string) error {
-	if c.session == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	result, err := c.session.ReadResource(c.ctx, &mcp.ReadResourceParams{
-		URI: uri,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to read resource: %w", err)
-	}
-
-	fmt.Printf("\nResource '%s' Contents:\n", uri)
-	fmt.Println("=======================")
-	
-	for _, content := range result.Contents {
-		if content.Text != "" {
-			fmt.Println(content.Text)
-		} else if content.Blob != nil {
-			fmt.Printf("Binary data: %d bytes\n", len(content.Blob))
-		}
-	}
-
-	return nil
-}
 
 func (c *MCPClient) InteractiveDemo() error {
 	fmt.Println("\n=== MCP Client Interactive Demo ===\n")
@@ -287,44 +159,6 @@ func (c *MCPClient) InteractiveDemo() error {
 		"b":         3.14,
 	}); err != nil {
 		log.Printf("Error calling calculate: %v", err)
-	}
-
-	// List prompts
-	if err := c.ListPrompts(); err != nil {
-		log.Printf("Error listing prompts: %v", err)
-	}
-
-	// Get prompts
-	fmt.Println("\n--- Prompt Demonstrations ---")
-
-	if err := c.GetPrompt("greeting", map[string]string{
-		"name": "Alice",
-	}); err != nil {
-		log.Printf("Error getting greeting prompt: %v", err)
-	}
-
-	time.Sleep(1 * time.Second)
-
-	if err := c.GetPrompt("system_info", nil); err != nil {
-		log.Printf("Error getting system_info prompt: %v", err)
-	}
-
-	// List resources (roots)
-	if err := c.ListRoots(); err != nil {
-		log.Printf("Error listing roots: %v", err)
-	}
-
-	// Read resources
-	fmt.Println("\n--- Resource Demonstrations ---")
-
-	if err := c.ReadResource("config://server"); err != nil {
-		log.Printf("Error reading config resource: %v", err)
-	}
-
-	time.Sleep(1 * time.Second)
-
-	if err := c.ReadResource("stats://requests"); err != nil {
-		log.Printf("Error reading stats resource: %v", err)
 	}
 
 	return nil
