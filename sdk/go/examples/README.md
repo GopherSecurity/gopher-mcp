@@ -21,8 +21,6 @@ examples/
 
 The server example demonstrates:
 - Tool registration and handling (get_time, echo, calculate)
-- Prompt management (greeting, system_info)  
-- Resource serving (config, stats)
 - Stdio transport for communication
 
 ### Running the Server
@@ -47,25 +45,12 @@ The server will start and listen on stdio for MCP protocol messages.
      - `a` (number) - First operand
      - `b` (number) - Second operand
 
-### Available Prompts
-
-1. **greeting** - Generates a personalized greeting
-   - Arguments: `name` (string, required)
-
-2. **system_info** - Returns system information
-
-### Available Resources
-
-1. **config://server** - Server configuration (JSON)
-2. **stats://requests** - Request statistics (JSON)
 
 ## MCP Client Example
 
 The client example demonstrates:
 - Connecting to an MCP server via stdio transport
 - Listing and calling tools
-- Retrieving and using prompts
-- Reading resources
 - Interactive demo mode
 
 ### Running the Client
@@ -114,37 +99,26 @@ The examples use stdio transport for communication:
 
 ### Adding New Tools
 
-In the server, add to `registerTools()` and `setupHandlers()`:
+In the server, add to `registerTools()`:
 
 ```go
-// Register tool definition
-s.tools["my_tool"] = ToolDefinition{
+// Define argument struct
+type MyToolArgs struct {
+    Param string `json:"param" jsonschema:"Parameter description"`
+}
+
+// Register tool
+mcp.AddTool(server, &mcp.Tool{
     Name:        "my_tool",
     Description: "My custom tool",
-    Parameters:  map[string]interface{}{...},
-}
-
-// Add handler case
-case "my_tool":
-    return s.handleMyTool(arguments)
-```
-
-### Adding New Resources
-
-In the server, update resource handlers:
-
-```go
-// Add to resources list
-{
-    URI:         "custom://resource",
-    Name:        "Custom Resource",
-    Description: "My custom resource",
-    MimeType:    "text/plain",
-}
-
-// Add read handler case
-case "custom://resource":
-    return &server.ReadResourceResult{...}, nil
+}, func(ctx context.Context, req *mcp.CallToolRequest, args MyToolArgs) (*mcp.CallToolResult, any, error) {
+    // Tool implementation
+    return &mcp.CallToolResult{
+        Content: []mcp.Content{
+            &mcp.TextContent{Text: "result"},
+        },
+    }, nil, nil
+})
 ```
 
 ## Dependencies
