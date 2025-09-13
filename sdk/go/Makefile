@@ -103,8 +103,86 @@ build: deps
 test: deps
 	@echo "${GREEN}Running all tests...${NC}"
 	@mkdir -p $(COVERAGE_DIR)
-	@$(GOTEST) $(TEST_FLAGS) ./src/... ./tests/... || (echo "${RED}Some tests failed${NC}" && exit 1)
-	@echo "${GREEN}All tests passed!${NC}"
+	@echo "" > $(COVERAGE_DIR)/test_report.txt
+	@$(GOTEST) $(TEST_FLAGS) ./src/... ./tests/... 2>&1 | tee -a $(COVERAGE_DIR)/test_report.txt || (echo "${RED}Some tests failed${NC}" && exit 1)
+	@echo ""
+	@echo "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+	@echo "${GREEN}                      TEST REPORT SUMMARY                       ${NC}"
+	@echo "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+	@echo ""
+	@echo "${YELLOW}Package Results:${NC}"
+	@grep -E "^(ok|FAIL|\?)" $(COVERAGE_DIR)/test_report.txt | sort -u | while read line; do \
+		if echo "$$line" | grep -q "^ok"; then \
+			echo "  ${GREEN}✓${NC} $$line"; \
+		elif echo "$$line" | grep -q "^FAIL"; then \
+			echo "  ${RED}✗${NC} $$line"; \
+		else \
+			echo "  ${YELLOW}-${NC} $$line"; \
+		fi \
+	done
+	@echo ""
+	@echo "${YELLOW}Test Statistics:${NC}"
+	@TOTAL_PKGS=$$(grep -E "^(ok|FAIL|\?)" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	PASSED_PKGS=$$(grep "^ok" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	FAILED_PKGS=$$(grep "^FAIL" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	NO_TEST_PKGS=$$(grep "^\?" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	echo "  Total Packages: $$TOTAL_PKGS"; \
+	echo "  Passed: ${GREEN}$$PASSED_PKGS${NC}"; \
+	echo "  Failed: ${RED}$$FAILED_PKGS${NC}"; \
+	echo "  No Tests: ${YELLOW}$$NO_TEST_PKGS${NC}"
+	@echo ""
+	@TOTAL_TESTS=$$(grep -E "^(---|\===) (PASS|FAIL|SKIP)" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	PASSED_TESTS=$$(grep -E "^--- PASS" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	FAILED_TESTS=$$(grep -E "^--- FAIL" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	SKIPPED_TESTS=$$(grep -E "^--- SKIP" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	echo "${YELLOW}Individual Tests:${NC}"; \
+	echo "  Total Tests Run: $$TOTAL_TESTS"; \
+	echo "  Passed: ${GREEN}$$PASSED_TESTS${NC}"; \
+	echo "  Failed: ${RED}$$FAILED_TESTS${NC}"; \
+	echo "  Skipped: ${YELLOW}$$SKIPPED_TESTS${NC}"
+	@echo ""
+	@if grep -q "coverage:" $(COVERAGE_DIR)/test_report.txt 2>/dev/null; then \
+		echo "${YELLOW}Coverage Summary:${NC}"; \
+		grep "coverage:" $(COVERAGE_DIR)/test_report.txt | grep -v "no statements" | sed 's/.*coverage:/  Coverage:/' | head -5; \
+		echo ""; \
+	fi
+	@TOTAL_TIME=$$(grep "^ok" $(COVERAGE_DIR)/test_report.txt | grep -v "cached" | awk '{print $$NF}' | sed 's/s$$//' | awk '{sum += $$1} END {if (NR > 0) printf "%.3f", sum; else print "0"}'); \
+	CACHED_COUNT=$$(grep "^ok.*cached" $(COVERAGE_DIR)/test_report.txt | wc -l | tr -d ' '); \
+	if [ -n "$$TOTAL_TIME" ] && [ "$$TOTAL_TIME" != "0" ]; then \
+		echo "${YELLOW}Execution Time:${NC}"; \
+		echo "  Total Time: $${TOTAL_TIME}s"; \
+		if [ "$$CACHED_COUNT" -gt 0 ]; then \
+			echo "  Cached Packages: $$CACHED_COUNT"; \
+		fi; \
+		echo ""; \
+	elif [ "$$CACHED_COUNT" -gt 0 ]; then \
+		echo "${YELLOW}Execution Time:${NC}"; \
+		echo "  All results from cache ($$CACHED_COUNT packages)"; \
+		echo ""; \
+	fi
+	@echo "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+	@if ! grep -q "^FAIL" $(COVERAGE_DIR)/test_report.txt; then \
+		echo "${GREEN}                    ✓ ALL TESTS PASSED!                         ${NC}"; \
+	else \
+		echo "${RED}                    ✗ SOME TESTS FAILED                         ${NC}"; \
+		exit 1; \
+	fi
+	@echo "${GREEN}════════════════════════════════════════════════════════════════${NC}"
+
+## test-quick: Run tests with compact output
+.PHONY: test-quick
+test-quick: deps
+	@echo "${GREEN}Running quick test...${NC}"
+	@RESULT=$$($(GOTEST) ./src/... ./tests/... 2>&1); \
+	if echo "$$RESULT" | grep -q "^FAIL"; then \
+		echo "$$RESULT" | grep -E "^(FAIL|--- FAIL)"; \
+		echo "${RED}✗ Tests failed${NC}"; \
+		exit 1; \
+	else \
+		PASSED=$$(echo "$$RESULT" | grep "^ok" | wc -l | tr -d ' '); \
+		SKIPPED=$$(echo "$$RESULT" | grep "^?" | wc -l | tr -d ' '); \
+		echo "${GREEN}✓ All tests passed${NC} ($$PASSED packages tested, $$SKIPPED skipped)"; \
+	fi
 
 ## test-unit: Run unit tests only
 .PHONY: test-unit
