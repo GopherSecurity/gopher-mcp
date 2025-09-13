@@ -9,13 +9,13 @@ import (
 
 // ValidationFilter validates JSON-RPC messages.
 type ValidationFilter struct {
-	id            string
-	name          string
-	maxSize       int
-	validateJSON  bool
-	mu            sync.RWMutex
-	stats         FilterStats
-	enabled       bool
+	id           string
+	name         string
+	maxSize      int
+	validateJSON bool
+	mu           sync.RWMutex
+	stats        FilterStats
+	enabled      bool
 }
 
 // NewValidationFilter creates a new validation filter.

@@ -29,35 +29,35 @@ type MockMCPClient struct {
 func NewMockMCPClient(serverCommand string) (*MockMCPClient, error) {
 	// Start the server process
 	cmd := exec.Command("sh", "-c", serverCommand)
-	
+
 	// Get pipes for communication
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stdin pipe: %w", err)
 	}
-	
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
-	
+
 	// Start the server
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start server: %w", err)
 	}
-	
+
 	// Create transport wrapper
 	transport := &ProcessTransport{
 		stdin:  stdin,
 		stdout: stdout,
 	}
-	
+
 	// Create filtered transport
 	filteredTransport := filters.NewFilteredTransport(transport)
-	
+
 	// Setup filters
 	setupClientFilters(filteredTransport)
-	
+
 	return &MockMCPClient{
 		transport: filteredTransport,
 		reader:    bufio.NewReader(filteredTransport),
@@ -92,24 +92,24 @@ func setupClientFilters(transport *filters.FilteredTransport) {
 	loggingFilter := filters.NewLoggingFilter("[Client] ", true)
 	transport.AddInboundFilter(filters.NewFilterAdapter(loggingFilter, "ClientLogging", "logging"))
 	transport.AddOutboundFilter(filters.NewFilterAdapter(loggingFilter, "ClientLogging", "logging"))
-	
+
 	// Add validation filter for outbound
 	validationFilter := filters.NewValidationFilter(1024 * 1024) // 1MB max
 	transport.AddOutboundFilter(filters.NewFilterAdapter(validationFilter, "ClientValidation", "validation"))
-	
+
 	// Add compression if enabled
 	if os.Getenv("MCP_ENABLE_COMPRESSION") == "true" {
 		// For client: compress outbound, decompress inbound
 		compressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
 		transport.AddOutboundFilter(filters.NewFilterAdapter(compressionFilter, "ClientCompression", "compression"))
-		
+
 		// Add decompression for inbound
 		decompressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
 		transport.AddInboundFilter(&DecompressionAdapter{filter: decompressionFilter})
-		
+
 		log.Println("Compression enabled for client")
 	}
-	
+
 	log.Println("Filters configured: logging, validation, optional compression")
 }
 
@@ -203,18 +203,18 @@ func (da *DecompressionAdapter) SetID(id string) {}
 // Connect initializes connection to the server
 func (c *MockMCPClient) Connect() error {
 	log.Println("Connecting to server...")
-	
+
 	// Read initialization response
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read init response: %w", err)
 	}
-	
+
 	var initResponse map[string]interface{}
 	if err := json.Unmarshal([]byte(line), &initResponse); err != nil {
 		return fmt.Errorf("failed to parse init response: %w", err)
 	}
-	
+
 	if result, ok := initResponse["result"].(map[string]interface{}); ok {
 		if serverInfo, ok := result["serverInfo"].(map[string]interface{}); ok {
 			name := serverInfo["name"]
@@ -222,7 +222,7 @@ func (c *MockMCPClient) Connect() error {
 			log.Printf("Connected to server: %s v%s", name, version)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -234,12 +234,12 @@ func (c *MockMCPClient) ListTools() ([]map[string]interface{}, error) {
 		"id":      c.nextID,
 	}
 	c.nextID++
-	
+
 	response, err := c.sendRequest(request)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if result, ok := response["result"].(map[string]interface{}); ok {
 		if tools, ok := result["tools"].([]interface{}); ok {
 			var toolList []map[string]interface{}
@@ -251,7 +251,7 @@ func (c *MockMCPClient) ListTools() ([]map[string]interface{}, error) {
 			return toolList, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("invalid response format")
 }
 
@@ -267,12 +267,12 @@ func (c *MockMCPClient) CallTool(name string, arguments map[string]interface{}) 
 		"id": c.nextID,
 	}
 	c.nextID++
-	
+
 	response, err := c.sendRequest(request)
 	if err != nil {
 		return "", err
 	}
-	
+
 	if result, ok := response["result"].(map[string]interface{}); ok {
 		if content, ok := result["content"].([]interface{}); ok && len(content) > 0 {
 			if item, ok := content[0].(map[string]interface{}); ok {
@@ -282,7 +282,7 @@ func (c *MockMCPClient) CallTool(name string, arguments map[string]interface{}) 
 			}
 		}
 	}
-	
+
 	return "", fmt.Errorf("invalid response format")
 }
 
@@ -293,30 +293,30 @@ func (c *MockMCPClient) sendRequest(request map[string]interface{}) (map[string]
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
+
 	if _, err := c.writer.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to write request: %w", err)
 	}
-	
+
 	if _, err := c.writer.Write([]byte("\n")); err != nil {
 		return nil, fmt.Errorf("failed to write newline: %w", err)
 	}
-	
+
 	if err := c.writer.Flush(); err != nil {
 		return nil, fmt.Errorf("failed to flush: %w", err)
 	}
-	
+
 	// Read response
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	var response map[string]interface{}
 	if err := json.Unmarshal([]byte(line), &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-	
+
 	return response, nil
 }
 
@@ -338,11 +338,11 @@ func (c *MockMCPClient) RunDemo() error {
 	if err != nil {
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
-	
+
 	for _, tool := range tools {
 		fmt.Printf("- %s: %s\n", tool["name"], tool["description"])
 	}
-	
+
 	// Call echo tool
 	fmt.Println("\n=== Calling Echo Tool ===")
 	result, err := c.CallTool("echo", map[string]interface{}{
@@ -352,7 +352,7 @@ func (c *MockMCPClient) RunDemo() error {
 		return fmt.Errorf("failed to call echo: %w", err)
 	}
 	fmt.Printf("Result: %s\n", result)
-	
+
 	// Call get_time tool
 	fmt.Println("\n=== Calling Get Time Tool ===")
 	result, err = c.CallTool("get_time", map[string]interface{}{})
@@ -360,7 +360,7 @@ func (c *MockMCPClient) RunDemo() error {
 		return fmt.Errorf("failed to call get_time: %w", err)
 	}
 	fmt.Printf("Result: %s\n", result)
-	
+
 	return nil
 }
 
@@ -370,28 +370,28 @@ func main() {
 		interactive = flag.Bool("interactive", true, "Run interactive demo")
 	)
 	flag.Parse()
-	
+
 	log.SetPrefix("[Filtered Client] ")
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	
+
 	// Create client
 	client, err := NewMockMCPClient(*serverCmd)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 	defer client.Close()
-	
+
 	// Connect to server
 	if err := client.Connect(); err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
-	
+
 	// Run demo
 	if *interactive {
 		if err := client.RunDemo(); err != nil {
 			log.Fatalf("Demo failed: %v", err)
 		}
 	}
-	
+
 	fmt.Println("\nClient demo completed successfully!")
 }

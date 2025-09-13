@@ -12,12 +12,12 @@ import (
 
 // CompressionFilter applies gzip compression to data.
 type CompressionFilter struct {
-	id          string
-	name        string
-	level       int
-	mu          sync.RWMutex
-	stats       FilterStats
-	enabled     bool
+	id      string
+	name    string
+	level   int
+	mu      sync.RWMutex
+	stats   FilterStats
+	enabled bool
 }
 
 // FilterStats tracks filter performance metrics.
@@ -34,7 +34,7 @@ func NewCompressionFilter(level int) *CompressionFilter {
 	if level < gzip.DefaultCompression || level > gzip.BestCompression {
 		level = gzip.DefaultCompression
 	}
-	
+
 	return &CompressionFilter{
 		id:      fmt.Sprintf("compression-%d", time.Now().UnixNano()),
 		name:    "CompressionFilter",
@@ -105,7 +105,7 @@ func (f *CompressionFilter) Process(data []byte) ([]byte, error) {
 	}
 
 	compressed := buf.Bytes()
-	
+
 	f.mu.Lock()
 	f.stats.BytesOut += int64(len(compressed))
 	f.mu.Unlock()

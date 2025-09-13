@@ -9,14 +9,14 @@ import (
 
 // LoggingFilter logs data passing through the filter chain.
 type LoggingFilter struct {
-	id          string
-	name        string
-	logPrefix   string
-	logPayload  bool
-	maxLogSize  int
-	mu          sync.RWMutex
-	stats       FilterStats
-	enabled     bool
+	id         string
+	name       string
+	logPrefix  string
+	logPayload bool
+	maxLogSize int
+	mu         sync.RWMutex
+	stats      FilterStats
+	enabled    bool
 }
 
 // NewLoggingFilter creates a new logging filter.
@@ -78,10 +78,10 @@ func (f *LoggingFilter) Process(data []byte) ([]byte, error) {
 		if payloadSize > f.maxLogSize {
 			payloadSize = f.maxLogSize
 		}
-		
+
 		// Log first part of payload
 		log.Printf("[%sPayload] %s", f.logPrefix, string(data[:payloadSize]))
-		
+
 		if len(data) > f.maxLogSize {
 			log.Printf("[%sPayload] ... (%d more bytes)", f.logPrefix, len(data)-f.maxLogSize)
 		}
