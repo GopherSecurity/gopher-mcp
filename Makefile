@@ -172,6 +172,22 @@ format:
         else \
                 echo "C# SDK directory not found, skipping C# formatting."; \
         fi
+        @echo "Formatting Go files with gofmt..."
+        @if [ -d "sdk/go" ]; then \
+            cd sdk/go && \
+            if command -v gofmt >/dev/null 2>&1; then \
+                gofmt -s -w .; \
+                if command -v goimports >/dev/null 2>&1; then \
+                    goimports -w .; \
+                fi; \
+                echo "Go formatting complete."; \
+            else \
+                echo "Warning: gofmt not found, skipping Go formatting."; \
+                echo "Install Go to format Go files: https://golang.org/dl/"; \
+            fi; \
+        else \
+            echo "Go SDK directory not found, skipping Go formatting."; \
+        fi
         @echo "All formatting complete."
 
 # Format only TypeScript files
@@ -320,6 +336,27 @@ csharp-format:
                 exit 1; \
         fi
 
+# Format only Go files
+format-go:
+	@echo "Formatting Go files with gofmt..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v gofmt >/dev/null 2>&1; then \
+			gofmt -s -w .; \
+			if command -v goimports >/dev/null 2>&1; then \
+				goimports -w .; \
+			fi; \
+			echo "Go formatting complete."; \
+		else \
+			echo "Error: gofmt not found."; \
+			echo "Install Go to format Go files: https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
 # Check formatting without modifying files
 check-format:
         @echo "Checking source file formatting..."
@@ -372,6 +409,23 @@ check-format:
                 fi; \
         else \
                 echo "C# SDK directory not found, skipping C# formatting check."; \
+        fi
+        @echo "Checking Go file formatting..."
+        @if [ -d "sdk/go" ]; then \
+            cd sdk/go && \
+            if command -v gofmt >/dev/null 2>&1; then \
+                if [ -n "$$(gofmt -s -l .)" ]; then \
+                    echo "Go formatting check failed. Files need formatting:"; \
+                    gofmt -s -l .; \
+                    exit 1; \
+                else \
+                    echo "Go formatting check complete."; \
+                fi; \
+            else \
+                echo "Warning: gofmt not found, skipping Go formatting check."; \
+            fi; \
+        else \
+            echo "Go SDK directory not found, skipping Go formatting check."; \
         fi
         @echo "Formatting check complete."
 
@@ -448,129 +502,208 @@ configure:
         @echo "Configuring build with CMake (prefix: $(PREFIX))..."
         @cmake -B build -DCMAKE_INSTALL_PREFIX="$(PREFIX)" $(CMAKE_ARGS)
 
+# ═══════════════════════════════════════════════════════════════════════
+# GO SDK TARGETS
+# ═══════════════════════════════════════════════════════════════════════
+
+# Build Go SDK
+go-build:
+	@echo "Building Go SDK..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make build; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Run Go SDK tests
+go-test:
+	@echo "Running Go SDK tests..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make test; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Format Go SDK code
+go-format:
+	@$(MAKE) format-go
+
+# Clean Go SDK build artifacts
+go-clean:
+	@echo "Cleaning Go SDK build artifacts..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make clean; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Build and test Go SDK examples
+go-examples:
+	@echo "Building and testing Go SDK examples..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make examples; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
 # Help
 help:
-        @echo "╔════════════════════════════════════════════════════════════════════╗"
-        @echo "║                     GOPHER MCP C++ SDK BUILD SYSTEM                   ║"
-        @echo "╚════════════════════════════════════════════════════════════════════╝"
-        @echo ""
-        @echo "┌─ BUILD TARGETS ─────────────────────────────────────────────────────┐"
-        @echo "│ make               Build and run tests (debug mode)                   │"
-        @echo "│ make build         Build all libraries (C++ SDK and C API)          │"
-        @echo "│ make build-cpp-only Build only C++ SDK (exclude C API)               │"
-        @echo "│ make build-with-options Build with custom CMAKE_ARGS               │"
-        @echo "│ make debug         Build in debug mode with full tests               │"
-        @echo "│ make release       Build optimized release mode with tests           │"
-        @echo "│ make verbose       Build with verbose output (shows commands)        │"
-        @echo "│ make rebuild       Clean and rebuild everything from scratch         │"
-        @echo "│ make configure     Configure with custom CMAKE_ARGS                  │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ TEST TARGETS ──────────────────────────────────────────────────────┐"
-        @echo "│ make test          Run tests with minimal output (recommended)       │"
-        @echo "│ make test-verbose  Run tests with detailed output                    │"
-        @echo "│ make test-parallel Run tests in parallel (8 threads)                 │"
-        @echo "│ make test-list     List all available test cases                     │"
-        @echo "│ make check         Alias for 'make test'                             │"
-        @echo "│ make check-verbose Alias for 'make test-verbose'                     │"
-        @echo "│ make check-parallel Alias for 'make test-parallel'                   │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ INSTALLATION TARGETS ──────────────────────────────────────────────┐"
-        @echo "│ make install       Install C++ SDK and C API (if built)              │"
-        @echo "│ make uninstall     Remove all installed files                        │"
-        @echo "│                                                                       │"
-        @echo "│ Installation customization (use with configure or CMAKE_ARGS):       │"
-        @echo "│   CMAKE_INSTALL_PREFIX=/path  Set installation directory             │"
-        @echo "│                               (default: /usr/local)                  │"
-        @echo "│   BUILD_C_API=ON/OFF          Build C API (default: ON)              │"
-        @echo "│   BUILD_SHARED_LIBS=ON/OFF    Build shared libraries (default: ON)   │"
-        @echo "│   BUILD_STATIC_LIBS=ON/OFF    Build static libraries (default: ON)   │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ C# SDK TARGETS ────────────────────────────────────────────────────┐"
-        @echo "│ make csharp        Build C# SDK (debug mode)                         │"
-        @echo "│ make csharp-release Build C# SDK in release mode                     │"
-        @echo "│ make csharp-test   Run C# SDK tests                                  │"
-        @echo "│ make csharp-clean  Clean C# SDK build artifacts                      │"
-        @echo "│ make csharp-format Format all C# source code files                   │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-        @echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust, C#) │"
-        @echo "│ make format-ts     Format only TypeScript files with prettier        │"
-        @echo "│ make format-python Format only Python files with black               │"
-        @echo "│ make format-rust   Format only Rust files with rustfmt               │"
-        @echo "│ make format-cs     Format only C# files with dotnet format           │"
-        @echo "│ make check-format  Check formatting without modifying files          │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ MAINTENANCE TARGETS ───────────────────────────────────────────────┐"
-        @echo "│ make clean         Remove build directory and all artifacts          │"
-        @echo "│ make help          Show this help message                            │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ COMMON USAGE EXAMPLES ─────────────────────────────────────────────┐"
-        @echo "│ Quick build and test:                                                │"
-        @echo "│   $$ make                                                             │"
-        @echo "│                                                                       │"
-        @echo "│ Production build with installation:                                  │"
-        @echo "│   $$ make release                                                     │"
-        @echo "│   $$ sudo make install                                                │"
-        @echo "│                                                                       │"
-        @echo "│ Development workflow:                                                │"
-        @echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust) │"
-        @echo "│   $$ make format-ts       # Format only TypeScript files             │"
-        @echo "│   $$ make format-python   # Format only Python files                 │"
-        @echo "│   $$ make format-rust     # Format only Rust files                   │"
-        @echo "│   $$ make build           # Build without tests                      │"
-        @echo "│   $$ make test-parallel   # Run tests quickly                        │"
-        @echo "│                                                                       │"
-        @echo "│ Clean rebuild:                                                       │"
-        @echo "│   $$ make clean && make                                              │"
-        @echo "│                                                                       │"
-        @echo "│ System-wide installation (default):                                  │"
-        @echo "│   $$ make build                                                      │"
-        @echo "│   $$ make install                   # Will prompt for sudo if needed │"
-        @echo "│                                                                       │"
-        @echo "│ User-local installation (no sudo):                                   │"
-        @echo "│   $$ make build CMAKE_INSTALL_PREFIX=~/.local                        │"
-        @echo "│   $$ make install                                                    │"
-        @echo "│                                                                       │"
-        @echo "│ Custom installation:                                                 │"
-        @echo "│   $$ make build CMAKE_INSTALL_PREFIX=/opt/gopher                     │"
-        @echo "│   $$ make install                   # Will use sudo if needed        │"
-        @echo "│                                                                       │"
-        @echo "│ Build without C API:                                                 │"
-        @echo "│   $$ make build-cpp-only                                             │"
-        @echo "│   $$ sudo make install                                               │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ BUILD OPTIONS (configure with cmake) ──────────────────────────────┐"
-        @echo "│ • BUILD_SHARED_LIBS     Build shared libraries (.so/.dylib/.dll)     │"
-        @echo "│ • BUILD_STATIC_LIBS     Build static libraries (.a/.lib)             │"
-        @echo "│ • BUILD_TESTS           Build test executables                       │"
-        @echo "│ • BUILD_EXAMPLES        Build example programs                       │"
-        @echo "│ • BUILD_C_API           Build C API for FFI bindings (default: ON)   │"
-        @echo "│ • MCP_USE_STD_TYPES     Use std::optional/variant if available       │"
-        @echo "│ • MCP_USE_LLHTTP        Enable llhttp for HTTP/1.x parsing           │"
-        @echo "│ • MCP_USE_NGHTTP2       Enable nghttp2 for HTTP/2 support           │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "┌─ INSTALLED COMPONENTS ──────────────────────────────────────────────┐"
-        @echo "│ Libraries:                                                           │"
-        @echo "│   • libgopher-mcp         Main MCP SDK library (C++)                 │"
-        @echo "│   • libgopher-mcp-event   Event loop and async I/O (C++)             │"
-        @echo "│   • libgopher-mcp-echo-advanced  Advanced echo components (C++)      │"
-        @echo "│   • libgopher_mcp_c       C API library for FFI bindings             │"
-        @echo "│                                                                       │"
-        @echo "│ Headers:                                                              │"
-        @echo "│   • include/gopher-mcp/mcp/  All public headers                      │"
-        @echo "│                                                                       │"
-        @echo "│ Integration files:                                                   │"
-        @echo "│   • lib/cmake/gopher-mcp/  CMake package config files                │"
-        @echo "│   • lib/pkgconfig/*.pc     pkg-config files for Unix systems         │"
-        @echo "└─────────────────────────────────────────────────────────────────────┘"
-        @echo ""
-        @echo "For more information, see README.md or visit the project repository."
-
+    @echo "╔════════════════════════════════════════════════════════════════════╗"
+    @echo "║                     GOPHER MCP C++ SDK BUILD SYSTEM                   ║"
+    @echo "╚════════════════════════════════════════════════════════════════════╝"
+    @echo ""
+    @echo "┌─ BUILD TARGETS ─────────────────────────────────────────────────────┐"
+    @echo "│ make               Build and run tests (debug mode)                   │"
+    @echo "│ make build         Build all libraries (C++ SDK and C API)          │"
+    @echo "│ make build-cpp-only Build only C++ SDK (exclude C API)               │"
+    @echo "│ make build-with-options Build with custom CMAKE_ARGS               │"
+    @echo "│ make debug         Build in debug mode with full tests               │"
+    @echo "│ make release       Build optimized release mode with tests           │"
+    @echo "│ make verbose       Build with verbose output (shows commands)        │"
+    @echo "│ make rebuild       Clean and rebuild everything from scratch         │"
+    @echo "│ make configure     Configure with custom CMAKE_ARGS                  │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ TEST TARGETS ──────────────────────────────────────────────────────┐"
+    @echo "│ make test          Run tests with minimal output (recommended)       │"
+    @echo "│ make test-verbose  Run tests with detailed output                    │"
+    @echo "│ make test-parallel Run tests in parallel (8 threads)                 │"
+    @echo "│ make test-list     List all available test cases                     │"
+    @echo "│ make check         Alias for 'make test'                             │"
+    @echo "│ make check-verbose Alias for 'make test-verbose'                     │"
+    @echo "│ make check-parallel Alias for 'make test-parallel'                   │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ INSTALLATION TARGETS ──────────────────────────────────────────────┐"
+    @echo "│ make install       Install C++ SDK and C API (if built)              │"
+    @echo "│ make uninstall     Remove all installed files                        │"
+    @echo "│                                                                       │"
+    @echo "│ Installation customization (use with configure or CMAKE_ARGS):       │"
+    @echo "│   CMAKE_INSTALL_PREFIX=/path  Set installation directory             │"
+    @echo "│                               (default: /usr/local)                  │"
+    @echo "│   BUILD_C_API=ON/OFF          Build C API (default: ON)              │"
+    @echo "│   BUILD_SHARED_LIBS=ON/OFF    Build shared libraries (default: ON)   │"
+    @echo "│   BUILD_STATIC_LIBS=ON/OFF    Build static libraries (default: ON)   │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ C# SDK TARGETS ────────────────────────────────────────────────────┐"
+    @echo "│ make csharp        Build C# SDK (debug mode)                         │"
+    @echo "│ make csharp-release Build C# SDK in release mode                     │"
+    @echo "│ make csharp-test   Run C# SDK tests                                  │"
+    @echo "│ make csharp-clean  Clean C# SDK build artifacts                      │"
+    @echo "│ make csharp-format Format all C# source code files                   │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ GO SDK TARGETS ────────────────────────────────────────────────────┐"
+    @echo "│ make go-build      Build Go SDK libraries                            │"
+    @echo "│ make go-test       Run Go SDK tests                                  │"
+    @echo "│ make go-format     Format Go SDK code with gofmt                     │"
+    @echo "│ make go-clean      Clean Go SDK build artifacts                      │"
+    @echo "│ make go-examples   Build and test Go SDK examples                    │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
+    @echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust, C#) │"
+    @echo "│ make format-ts     Format only TypeScript files with prettier        │"
+    @echo "│ make format-python Format only Python files with black               │"
+    @echo "│ make format-rust   Format only Rust files with rustfmt               │"
+    @echo "│ make format-cs     Format only C# files with dotnet format           │"
+    @echo "│ make check-format  Check formatting without modifying files          │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ MAINTENANCE TARGETS ───────────────────────────────────────────────┐"
+    @echo "│ make clean         Remove build directory and all artifacts          │"
+    @echo "│ make help          Show this help message                            │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ COMMON USAGE EXAMPLES ─────────────────────────────────────────────┐"
+    @echo "│ Quick build and test:                                                │"
+    @echo "│   $$ make                                                             │"
+    @echo "│                                                                       │"
+    @echo "│ Production build with installation:                                  │"
+    @echo "│   $$ make release                                                     │"
+    @echo "│   $$ sudo make install                                                │"
+    @echo "│                                                                       │"
+    @echo "│ Development workflow:                                                │"
+    @echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust) │"
+    @echo "│   $$ make format-ts       # Format only TypeScript files             │"
+    @echo "│   $$ make format-python   # Format only Python files                 │"
+    @echo "│   $$ make format-rust     # Format only Rust files                   │"
+    @echo "│   $$ make build           # Build without tests                      │"
+    @echo "│   $$ make test-parallel   # Run tests quickly                        │"
+    @echo "│                                                                       │"
+    @echo "│ Clean rebuild:                                                       │"
+    @echo "│   $$ make clean && make                                              │"
+    @echo "│                                                                       │"
+    @echo "│ System-wide installation (default):                                  │"
+    @echo "│   $$ make build                                                      │"
+    @echo "│   $$ make install                   # Will prompt for sudo if needed │"
+    @echo "│                                                                       │"
+    @echo "│ User-local installation (no sudo):                                   │"
+    @echo "│   $$ make build CMAKE_INSTALL_PREFIX=~/.local                        │"
+    @echo "│   $$ make install                                                    │"
+    @echo "│                                                                       │"
+    @echo "│ Custom installation:                                                 │"
+    @echo "│   $$ make build CMAKE_INSTALL_PREFIX=/opt/gopher                     │"
+    @echo "│   $$ make install                   # Will use sudo if needed        │"
+    @echo "│                                                                       │"
+    @echo "│ Build without C API:                                                 │"
+    @echo "│   $$ make build-cpp-only                                             │"
+    @echo "│   $$ sudo make install                                               │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ BUILD OPTIONS (configure with cmake) ──────────────────────────────┐"
+    @echo "│ • BUILD_SHARED_LIBS     Build shared libraries (.so/.dylib/.dll)     │"
+    @echo "│ • BUILD_STATIC_LIBS     Build static libraries (.a/.lib)             │"
+    @echo "│ • BUILD_TESTS           Build test executables                       │"
+    @echo "│ • BUILD_EXAMPLES        Build example programs                       │"
+    @echo "│ • BUILD_C_API           Build C API for FFI bindings (default: ON)   │"
+    @echo "│ • MCP_USE_STD_TYPES     Use std::optional/variant if available       │"
+    @echo "│ • MCP_USE_LLHTTP        Enable llhttp for HTTP/1.x parsing           │"
+    @echo "│ • MCP_USE_NGHTTP2       Enable nghttp2 for HTTP/2 support           │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "┌─ INSTALLED COMPONENTS ──────────────────────────────────────────────┐"
+    @echo "│ Libraries:                                                           │"
+    @echo "│   • libgopher-mcp         Main MCP SDK library (C++)                 │"
+    @echo "│   • libgopher-mcp-event   Event loop and async I/O (C++)             │"
+    @echo "│   • libgopher-mcp-echo-advanced  Advanced echo components (C++)      │"
+    @echo "│   • libgopher_mcp_c       C API library for FFI bindings             │"
+    @echo "│                                                                       │"
+    @echo "│ Headers:                                                              │"
+    @echo "│   • include/gopher-mcp/mcp/  All public headers                      │"
+    @echo "│                                                                       │"
+    @echo "│ Integration files:                                                   │"
+    @echo "│   • lib/cmake/gopher-mcp/  CMake package config files                │"
+    @echo "│   • lib/pkgconfig/*.pc     pkg-config files for Unix systems         │"
+    @echo "└─────────────────────────────────────────────────────────────────────┘"
+    @echo ""
+    @echo "For more information, see README.md or visit the project repository."
