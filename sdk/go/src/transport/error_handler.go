@@ -14,6 +14,16 @@ import (
 	"time"
 )
 
+// errorWrapper wraps an error to ensure consistent type for atomic.Value
+type errorWrapper struct {
+	err error
+}
+
+// timeWrapper wraps a time.Time to ensure consistent type for atomic.Value
+type timeWrapper struct {
+	t time.Time
+}
+
 // ErrorHandler manages error handling and recovery for transport operations.
 type ErrorHandler struct {
 	// Configuration
@@ -21,13 +31,13 @@ type ErrorHandler struct {
 	
 	// Error tracking
 	errorCount     atomic.Int64
-	lastError      atomic.Value
+	lastError      atomic.Value // stores *errorWrapper
 	errorHistory   []ErrorRecord
 	
 	// Reconnection state
 	reconnecting   atomic.Bool
 	reconnectCount atomic.Int64
-	lastReconnect  atomic.Value
+	lastReconnect  atomic.Value // stores *timeWrapper
 	
 	// Callbacks
 	onError      func(error)
@@ -81,10 +91,14 @@ const (
 
 // NewErrorHandler creates a new error handler.
 func NewErrorHandler(config ErrorHandlerConfig) *ErrorHandler {
-	return &ErrorHandler{
+	eh := &ErrorHandler{
 		config:       config,
 		errorHistory: make([]ErrorRecord, 0, config.ErrorHistorySize),
 	}
+	// Initialize atomic values with proper types
+	eh.lastError.Store(&errorWrapper{err: nil})
+	eh.lastReconnect.Store(&timeWrapper{t: time.Time{}})
+	return eh
 }
 
 // HandleError processes and categorizes errors.
@@ -94,7 +108,7 @@ func (eh *ErrorHandler) HandleError(err error) error {
 	}
 	
 	eh.errorCount.Add(1)
-	eh.lastError.Store(err)
+	eh.lastError.Store(&errorWrapper{err: err})
 	
 	// Categorize error
 	category := eh.categorizeError(err)
@@ -144,6 +158,11 @@ func (eh *ErrorHandler) categorizeError(err error) ErrorCategory {
 		return IOError
 	}
 	
+	// Check for signal interrupts first (before network errors)
+	if errors.Is(err, syscall.EINTR) {
+		return SignalError
+	}
+	
 	// Check for network errors
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -151,11 +170,6 @@ func (eh *ErrorHandler) categorizeError(err error) ErrorCategory {
 			return TimeoutError
 		}
 		return NetworkError
-	}
-	
-	// Check for signal interrupts
-	if errors.Is(err, syscall.EINTR) {
-		return SignalError
 	}
 	
 	// Check for connection refused
@@ -194,22 +208,22 @@ func (eh *ErrorHandler) isRetryable(err error) bool {
 		return false
 	}
 	
-	// Network errors are generally retryable
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return netErr.Temporary() || netErr.Timeout()
-	}
-	
 	// Signal interrupts are retryable
 	if errors.Is(err, syscall.EINTR) {
 		return true
 	}
 	
-	// Connection errors are retryable
+	// Connection errors are retryable (check before net.Error)
 	if errors.Is(err, syscall.ECONNREFUSED) || 
 	   errors.Is(err, syscall.ECONNRESET) ||
 	   errors.Is(err, io.ErrClosedPipe) {
 		return true
+	}
+	
+	// Network errors are generally retryable
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Temporary() || netErr.Timeout()
 	}
 	
 	return false
@@ -269,7 +283,7 @@ func (eh *ErrorHandler) attemptReconnection() {
 	
 	for attempt := 1; attempt <= eh.config.MaxReconnectAttempts; attempt++ {
 		eh.reconnectCount.Add(1)
-		eh.lastReconnect.Store(time.Now())
+		eh.lastReconnect.Store(&timeWrapper{t: time.Now()})
 		
 		// Trigger reconnect callback
 		if eh.onReconnect != nil {
@@ -344,7 +358,9 @@ func (eh *ErrorHandler) GetErrorHistory() []ErrorRecord {
 // GetLastError returns the most recent error.
 func (eh *ErrorHandler) GetLastError() error {
 	if v := eh.lastError.Load(); v != nil {
-		return v.(error)
+		if wrapper, ok := v.(*errorWrapper); ok {
+			return wrapper.err
+		}
 	}
 	return nil
 }
@@ -366,7 +382,7 @@ func (eh *ErrorHandler) Reset() {
 	
 	eh.errorCount.Store(0)
 	eh.reconnectCount.Store(0)
-	eh.lastError.Store(nil)
+	eh.lastError.Store(&errorWrapper{err: nil})
 	eh.errorHistory = eh.errorHistory[:0]
 	eh.reconnecting.Store(false)
 }
