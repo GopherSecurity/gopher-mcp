@@ -11,7 +11,7 @@ import (
 )
 
 // Mock filter implementation for testing
-type mockFilter struct {
+type mockChainFilter struct {
 	id          string
 	name        string
 	filterType  string
@@ -22,33 +22,33 @@ type mockFilter struct {
 	stateless   bool
 }
 
-func (m *mockFilter) GetID() string                                { return m.id }
-func (m *mockFilter) GetName() string                              { return m.name }
-func (m *mockFilter) GetType() string                              { return m.filterType }
-func (m *mockFilter) GetVersion() string                           { return m.version }
-func (m *mockFilter) GetDescription() string                       { return m.description }
-func (m *mockFilter) ValidateConfig() error                        { return nil }
-func (m *mockFilter) GetConfiguration() map[string]interface{}     { return m.config }
-func (m *mockFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
-func (m *mockFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
-func (m *mockFilter) GetDependencies() []integration.FilterDependency { return nil }
-func (m *mockFilter) GetResourceRequirements() integration.ResourceRequirements {
+func (m *mockChainFilter) GetID() string                                { return m.id }
+func (m *mockChainFilter) GetName() string                              { return m.name }
+func (m *mockChainFilter) GetType() string                              { return m.filterType }
+func (m *mockChainFilter) GetVersion() string                           { return m.version }
+func (m *mockChainFilter) GetDescription() string                       { return m.description }
+func (m *mockChainFilter) ValidateConfig() error                        { return nil }
+func (m *mockChainFilter) GetConfiguration() map[string]interface{}     { return m.config }
+func (m *mockChainFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
+func (m *mockChainFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
+func (m *mockChainFilter) GetDependencies() []integration.FilterDependency { return nil }
+func (m *mockChainFilter) GetResourceRequirements() integration.ResourceRequirements {
 	return integration.ResourceRequirements{Memory: 1024, CPUCores: 1}
 }
-func (m *mockFilter) GetTypeInfo() integration.TypeInfo {
+func (m *mockChainFilter) GetTypeInfo() integration.TypeInfo {
 	return integration.TypeInfo{
 		InputTypes:  []string{"bytes"},
 		OutputTypes: []string{"bytes"},
 	}
 }
-func (m *mockFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
-func (m *mockFilter) HasBlockingOperations() bool          { return false }
-func (m *mockFilter) UsesDeprecatedFeatures() bool         { return false }
-func (m *mockFilter) HasKnownVulnerabilities() bool        { return false }
-func (m *mockFilter) IsStateless() bool                    { return m.stateless }
-func (m *mockFilter) SetID(id string)                      { m.id = id }
-func (m *mockFilter) Clone() integration.Filter {
-	return &mockFilter{
+func (m *mockChainFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
+func (m *mockChainFilter) HasBlockingOperations() bool          { return false }
+func (m *mockChainFilter) UsesDeprecatedFeatures() bool         { return false }
+func (m *mockChainFilter) HasKnownVulnerabilities() bool        { return false }
+func (m *mockChainFilter) IsStateless() bool                    { return m.stateless }
+func (m *mockChainFilter) SetID(id string)                      { m.id = id }
+func (m *mockChainFilter) Clone() integration.Filter {
+	return &mockChainFilter{
 		id:          m.id + "_clone",
 		name:        m.name,
 		filterType:  m.filterType,
@@ -60,7 +60,7 @@ func (m *mockFilter) Clone() integration.Filter {
 	}
 }
 
-func (m *mockFilter) Process(data []byte) ([]byte, error) {
+func (m *mockChainFilter) Process(data []byte) ([]byte, error) {
 	if m.processFunc != nil {
 		return m.processFunc(data)
 	}
@@ -92,12 +92,12 @@ func TestNewFilterChain(t *testing.T) {
 func TestFilterChain_Add(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
-	filter1 := &mockFilter{
+	filter1 := &mockChainFilter{
 		id:   "filter1",
 		name: "test_filter_1",
 	}
 	
-	filter2 := &mockFilter{
+	filter2 := &mockChainFilter{
 		id:   "filter2",
 		name: "test_filter_2",
 	}
@@ -122,7 +122,7 @@ func TestFilterChain_Add(t *testing.T) {
 func TestFilterChain_Remove(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "filter1",
 		name: "test_filter",
 	}
@@ -152,7 +152,7 @@ func TestFilterChain_ProcessSequential(t *testing.T) {
 	chain.SetMode(integration.SequentialMode)
 	
 	// Add filters that append to data
-	filter1 := &mockFilter{
+	filter1 := &mockChainFilter{
 		id:   "filter1",
 		name: "append_A",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -160,7 +160,7 @@ func TestFilterChain_ProcessSequential(t *testing.T) {
 		},
 	}
 	
-	filter2 := &mockFilter{
+	filter2 := &mockChainFilter{
 		id:   "filter2",
 		name: "append_B",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -189,7 +189,7 @@ func TestFilterChain_ProcessWithError(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
 	// Add filter that returns error
-	errorFilter := &mockFilter{
+	errorFilter := &mockChainFilter{
 		id:   "error_filter",
 		name: "error",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -280,7 +280,7 @@ func TestFilterChain_Hooks(t *testing.T) {
 	})
 	
 	// Add a simple filter
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "filter1",
 		name: "test",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -306,7 +306,7 @@ func TestFilterChain_Clone(t *testing.T) {
 	chain.AddTag("test", "true")
 	
 	// Add filters
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "filter1",
 		name: "test_filter",
 	}
@@ -339,7 +339,7 @@ func TestFilterChain_Validate(t *testing.T) {
 	}
 	
 	// Add valid filter
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "filter1",
 		name: "valid_filter",
 	}
@@ -381,9 +381,9 @@ func TestFilterChain_MaxFiltersLimit(t *testing.T) {
 	chain.SetMaxFilters(2)
 	
 	// Add filters up to limit
-	filter1 := &mockFilter{id: "1", name: "filter1"}
-	filter2 := &mockFilter{id: "2", name: "filter2"}
-	filter3 := &mockFilter{id: "3", name: "filter3"}
+	filter1 := &mockChainFilter{id: "1", name: "filter1"}
+	filter2 := &mockChainFilter{id: "2", name: "filter2"}
+	filter3 := &mockChainFilter{id: "3", name: "filter3"}
 	
 	err := chain.Add(filter1)
 	if err != nil {
@@ -415,7 +415,7 @@ func TestFilterChain_RetryPolicy(t *testing.T) {
 	
 	// Test that retry policy is set (actual retry logic would be implemented in Process)
 	// For now, just test that the filter fails as expected
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "retry_filter",
 		name: "retry",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -443,7 +443,7 @@ func TestFilterChain_Timeout(t *testing.T) {
 	}
 	
 	// Add normal filter (timeout logic would be implemented in Process)
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "normal_filter",
 		name: "normal",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -470,7 +470,7 @@ func TestFilterChain_Concurrent(t *testing.T) {
 	
 	// Add filter with counter
 	var counter atomic.Int32
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "concurrent_filter",
 		name: "concurrent",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -508,7 +508,7 @@ func TestFilterChain_OrderPreservation(t *testing.T) {
 	// Add filters that append their ID
 	for i := 0; i < 5; i++ {
 		id := string(rune('A' + i))
-		filter := &mockFilter{
+		filter := &mockChainFilter{
 			id:   id,
 			name: "filter_" + id,
 			processFunc: func(id string) func([]byte) ([]byte, error) {
@@ -538,7 +538,7 @@ func TestFilterChain_Clear(t *testing.T) {
 	
 	// Add filters
 	for i := 0; i < 3; i++ {
-		filter := &mockFilter{
+		filter := &mockChainFilter{
 			id:   string(rune('0' + i)),
 			name: "filter",
 		}
@@ -557,7 +557,7 @@ func TestFilterChain_Clear(t *testing.T) {
 func TestFilterChain_GetFilterByID(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "target_filter",
 		name: "target",
 	}
@@ -586,7 +586,7 @@ func TestFilterChain_Statistics(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
 	// Add filter
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "stats_filter",
 		name: "stats",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -624,7 +624,7 @@ func TestFilterChain_BufferSize(t *testing.T) {
 	}
 	
 	// Add filter that checks buffer
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "buffer_filter",
 		name: "buffer",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -658,7 +658,7 @@ func BenchmarkFilterChain_Add(b *testing.B) {
 	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		filter := &mockFilter{
+		filter := &mockChainFilter{
 			id:   string(rune(i % 256)),
 			name: "bench_filter",
 		}
@@ -670,7 +670,7 @@ func BenchmarkFilterChain_Process(b *testing.B) {
 	chain := integration.NewFilterChain()
 	
 	// Add simple filter
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "bench",
 		name: "bench_filter",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -690,7 +690,7 @@ func BenchmarkFilterChain_Process(b *testing.B) {
 func BenchmarkFilterChain_ConcurrentProcess(b *testing.B) {
 	chain := integration.NewFilterChain()
 	
-	filter := &mockFilter{
+	filter := &mockChainFilter{
 		id:   "concurrent",
 		name: "concurrent_filter",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -713,7 +713,7 @@ func BenchmarkFilterChain_Clone(b *testing.B) {
 	
 	// Add multiple filters
 	for i := 0; i < 10; i++ {
-		filter := &mockFilter{
+		filter := &mockChainFilter{
 			id:   string(rune('A' + i)),
 			name: "filter",
 		}

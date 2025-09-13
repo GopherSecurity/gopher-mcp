@@ -11,7 +11,7 @@ import (
 )
 
 // mockFilter is a test implementation of the Filter interface
-type mockFilter struct {
+type mockClientFilter struct {
 	id          string
 	name        string
 	filterType  string
@@ -22,33 +22,33 @@ type mockFilter struct {
 	stateless   bool
 }
 
-func (m *mockFilter) GetID() string                                { return m.id }
-func (m *mockFilter) GetName() string                              { return m.name }
-func (m *mockFilter) GetType() string                              { return m.filterType }
-func (m *mockFilter) GetVersion() string                           { return m.version }
-func (m *mockFilter) GetDescription() string                       { return m.description }
-func (m *mockFilter) ValidateConfig() error                        { return nil }
-func (m *mockFilter) GetConfiguration() map[string]interface{}     { return m.config }
-func (m *mockFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
-func (m *mockFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
-func (m *mockFilter) GetDependencies() []integration.FilterDependency { return nil }
-func (m *mockFilter) GetResourceRequirements() integration.ResourceRequirements {
+func (m *mockClientFilter) GetID() string                                { return m.id }
+func (m *mockClientFilter) GetName() string                              { return m.name }
+func (m *mockClientFilter) GetType() string                              { return m.filterType }
+func (m *mockClientFilter) GetVersion() string                           { return m.version }
+func (m *mockClientFilter) GetDescription() string                       { return m.description }
+func (m *mockClientFilter) ValidateConfig() error                        { return nil }
+func (m *mockClientFilter) GetConfiguration() map[string]interface{}     { return m.config }
+func (m *mockClientFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
+func (m *mockClientFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
+func (m *mockClientFilter) GetDependencies() []integration.FilterDependency { return nil }
+func (m *mockClientFilter) GetResourceRequirements() integration.ResourceRequirements {
 	return integration.ResourceRequirements{Memory: 1024, CPUCores: 1}
 }
-func (m *mockFilter) GetTypeInfo() integration.TypeInfo {
+func (m *mockClientFilter) GetTypeInfo() integration.TypeInfo {
 	return integration.TypeInfo{
 		InputTypes:  []string{"bytes"},
 		OutputTypes: []string{"bytes"},
 	}
 }
-func (m *mockFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
-func (m *mockFilter) HasBlockingOperations() bool          { return false }
-func (m *mockFilter) UsesDeprecatedFeatures() bool         { return false }
-func (m *mockFilter) HasKnownVulnerabilities() bool        { return false }
-func (m *mockFilter) IsStateless() bool                    { return m.stateless }
-func (m *mockFilter) SetID(id string)                      { m.id = id }
-func (m *mockFilter) Clone() integration.Filter {
-	return &mockFilter{
+func (m *mockClientFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
+func (m *mockClientFilter) HasBlockingOperations() bool          { return false }
+func (m *mockClientFilter) UsesDeprecatedFeatures() bool         { return false }
+func (m *mockClientFilter) HasKnownVulnerabilities() bool        { return false }
+func (m *mockClientFilter) IsStateless() bool                    { return m.stateless }
+func (m *mockClientFilter) SetID(id string)                      { m.id = id }
+func (m *mockClientFilter) Clone() integration.Filter {
+	return &mockClientFilter{
 		id:          m.id + "_clone",
 		name:        m.name,
 		filterType:  m.filterType,
@@ -60,7 +60,7 @@ func (m *mockFilter) Clone() integration.Filter {
 	}
 }
 
-func (m *mockFilter) Process(data []byte) ([]byte, error) {
+func (m *mockClientFilter) Process(data []byte) ([]byte, error) {
 	if m.processFunc != nil {
 		return m.processFunc(data)
 	}
@@ -90,7 +90,7 @@ func TestFilteredMCPClient_SetClientRequestChain(t *testing.T) {
 	chain.SetName("request_chain")
 	
 	// Add test filter
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "req_filter",
 		name: "request_filter",
 	}
@@ -109,7 +109,7 @@ func TestFilteredMCPClient_SetClientResponseChain(t *testing.T) {
 	chain := integration.NewFilterChain()
 	chain.SetName("response_chain")
 	
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "resp_filter",
 		name: "response_filter",
 	}
@@ -126,7 +126,7 @@ func TestFilteredMCPClient_FilterOutgoingRequest(t *testing.T) {
 	
 	// Set up request chain
 	chain := integration.NewFilterChain()
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "modifier",
 		name: "request_modifier",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -155,7 +155,7 @@ func TestFilteredMCPClient_FilterIncomingResponse(t *testing.T) {
 	
 	// Set up response chain
 	chain := integration.NewFilterChain()
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "validator",
 		name: "response_validator",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -191,7 +191,7 @@ func TestFilteredMCPClient_CallToolWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	
 	// Create per-call filter
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "tool_filter",
 		name: "tool_preprocessor",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -216,7 +216,7 @@ func TestFilteredMCPClient_SubscribeWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	
 	// Create subscription filter
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "sub_filter",
 		name: "subscription_filter",
 	}
@@ -328,7 +328,7 @@ func TestFilteredMCPClient_EnableDebugMode(t *testing.T) {
 	)
 	
 	// Log filter execution
-	filter := &mockFilter{id: "test", name: "test_filter"}
+	filter := &mockClientFilter{id: "test", name: "test_filter"}
 	client.LogFilterExecution(
 		filter,
 		[]byte("input"),
@@ -364,12 +364,12 @@ func TestFilteredMCPClient_ValidateFilterChain(t *testing.T) {
 	chain := integration.NewFilterChain()
 	
 	// Add compatible filters
-	filter1 := &mockFilter{
+	filter1 := &mockClientFilter{
 		id:         "auth",
 		name:       "auth_filter",
 		filterType: "authentication",
 	}
-	filter2 := &mockFilter{
+	filter2 := &mockClientFilter{
 		id:         "log",
 		name:       "log_filter",
 		filterType: "logging",
@@ -395,8 +395,8 @@ func TestFilteredMCPClient_CloneFilterChain(t *testing.T) {
 	original := integration.NewFilterChain()
 	original.SetName("original_chain")
 	
-	filter1 := &mockFilter{id: "f1", name: "filter1"}
-	filter2 := &mockFilter{id: "f2", name: "filter2"}
+	filter1 := &mockClientFilter{id: "f1", name: "filter1"}
+	filter2 := &mockClientFilter{id: "f2", name: "filter2"}
 	
 	original.Add(filter1)
 	original.Add(filter2)
@@ -465,7 +465,7 @@ func TestFilteredMCPClient_ConcurrentOperations(t *testing.T) {
 	requestChain := integration.NewFilterChain()
 	responseChain := integration.NewFilterChain()
 	
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "concurrent",
 		name: "concurrent_filter",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -509,7 +509,7 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 	
 	// Set up request filter
 	requestChain := integration.NewFilterChain()
-	requestFilter := &mockFilter{
+	requestFilter := &mockClientFilter{
 		id:   "req_transform",
 		name: "request_transformer",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -522,7 +522,7 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 	
 	// Set up response filter
 	responseChain := integration.NewFilterChain()
-	responseFilter := &mockFilter{
+	responseFilter := &mockClientFilter{
 		id:   "resp_transform",
 		name: "response_transformer",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -556,7 +556,7 @@ func BenchmarkFilteredMCPClient_FilterRequest(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	
 	chain := integration.NewFilterChain()
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "bench",
 		name: "bench_filter",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -578,7 +578,7 @@ func BenchmarkFilteredMCPClient_FilterResponse(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	
 	chain := integration.NewFilterChain()
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "bench",
 		name: "bench_filter",
 		processFunc: func(data []byte) ([]byte, error) {
@@ -609,7 +609,7 @@ func BenchmarkFilteredMCPClient_ConcurrentFiltering(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	
 	chain := integration.NewFilterChain()
-	filter := &mockFilter{
+	filter := &mockClientFilter{
 		id:   "concurrent",
 		name: "concurrent_filter",
 		processFunc: func(data []byte) ([]byte, error) {
