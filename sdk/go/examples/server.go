@@ -1,7 +1,6 @@
 package main
 
 import (
-	"compress/gzip"
 	"context"
 	"fmt"
 	"log"
@@ -9,9 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/GopherSecurity/gopher-mcp/src/filters"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Tool argument types

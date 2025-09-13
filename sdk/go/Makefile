@@ -314,47 +314,28 @@ mod-tidy:
 	@$(GOMOD) tidy
 	@echo "${GREEN}Module tidied!${NC}"
 
-## examples: Build and test MCP client and server examples
+## examples: Build and test filter examples
 .PHONY: examples
 examples: deps
-	@echo "${GREEN}Building MCP examples...${NC}"
+	@echo "${GREEN}Building filter examples...${NC}"
 	@mkdir -p $(BUILD_DIR)
-	@echo "  Building MCP server..."
-	@cd examples && $(GOBUILD) $(BUILD_FLAGS) -o ../$(BUILD_DIR)/mcp-server server.go
-	@echo "  Building MCP client..."
-	@cd examples && $(GOBUILD) $(BUILD_FLAGS) -o ../$(BUILD_DIR)/mcp-client client.go
+	@echo "  Building filtered server..."
+	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/server-filtered ./examples/server_filtered.go
+	@echo "  Building filter test..."
+	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/test-filters ./examples/test_filters.go
 	@echo "${GREEN}Examples built successfully!${NC}"
 	@echo ""
-	@echo "${GREEN}Testing MCP examples...${NC}"
-	@echo "  Starting MCP server in background..."
-	@$(BUILD_DIR)/mcp-server > /tmp/mcp-server.log 2>&1 & \
-		SERVER_PID=$$!; \
-		echo "  Server PID: $$SERVER_PID"; \
-		sleep 2; \
-		echo "  Running MCP client test..."; \
-		$(BUILD_DIR)/mcp-client -server "$(BUILD_DIR)/mcp-server" -interactive=false > /tmp/mcp-client.log 2>&1 & \
-			CLIENT_PID=$$!; \
-			sleep 3; \
-			kill $$CLIENT_PID 2>/dev/null || true; \
-			wait $$CLIENT_PID 2>/dev/null || true; \
-			if grep -q "Client demo completed successfully" /tmp/mcp-client.log; then \
-			echo "${GREEN}  ✓ Client-server communication successful${NC}"; \
-		else \
-			echo "${RED}  ✗ Client-server communication failed${NC}"; \
-			echo "  Server log:"; \
-			cat /tmp/mcp-server.log; \
-			echo "  Client log:"; \
-			cat /tmp/mcp-client.log; \
-			kill $$SERVER_PID 2>/dev/null || true; \
-			exit 1; \
-		fi; \
-		kill $$SERVER_PID 2>/dev/null || true
+	@echo "${GREEN}Testing filter examples...${NC}"
+	@echo "  Running filter tests..."
+	@$(BUILD_DIR)/test-filters
 	@echo ""
-	@echo "${GREEN}MCP examples tested successfully!${NC}"
+	@echo "${GREEN}Filter examples tested successfully!${NC}"
 	@echo ""
 	@echo "To run the examples manually:"
-	@echo "  Server: ${BUILD_DIR}/mcp-server"
-	@echo "  Client: ${BUILD_DIR}/mcp-client"
+	@echo "  Filtered Server: ${BUILD_DIR}/server-filtered"
+	@echo "  Filter Test: ${BUILD_DIR}/test-filters"
+	@echo ""
+	@echo "To enable compression, set MCP_ENABLE_COMPRESSION=true"
 
 ## run-example: Run a specific example (usage: make run-example EXAMPLE=basic)
 .PHONY: run-example
