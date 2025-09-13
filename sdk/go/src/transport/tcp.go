@@ -118,6 +118,7 @@ func (t *TcpTransport) connectClient(ctx context.Context) error {
 		return ErrAlreadyConnected
 	}
 	
+	
 	// Create dialer with timeout
 	dialer := &net.Dialer{
 		Timeout:   t.config.ConnectTimeout,
