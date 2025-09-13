@@ -319,8 +319,8 @@ mod-tidy:
 examples: deps
 	@echo "${GREEN}Building filter examples...${NC}"
 	@mkdir -p $(BUILD_DIR)
-	@echo "  Building filtered server..."
-	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/server-filtered ./examples/server_filtered.go
+	@echo "  Building example server..."
+	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/server ./examples/server.go
 	@echo "  Building filter test..."
 	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/test-filters ./examples/test_filters.go
 	@echo "${GREEN}Examples built successfully!${NC}"
@@ -332,7 +332,7 @@ examples: deps
 	@echo "${GREEN}Filter examples tested successfully!${NC}"
 	@echo ""
 	@echo "To run the examples manually:"
-	@echo "  Filtered Server: ${BUILD_DIR}/server-filtered"
+	@echo "  Server: ${BUILD_DIR}/server"
 	@echo "  Filter Test: ${BUILD_DIR}/test-filters"
 	@echo ""
 	@echo "To enable compression, set MCP_ENABLE_COMPRESSION=true"
