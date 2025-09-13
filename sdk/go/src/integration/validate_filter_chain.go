@@ -17,28 +17,28 @@ type ValidationResult struct {
 
 // ValidationError represents a validation error.
 type ValidationError struct {
-	FilterID    string
-	FilterName  string
-	ErrorType   string
-	Message     string
-	Severity    string
+	FilterID   string
+	FilterName string
+	ErrorType  string
+	Message    string
+	Severity   string
 }
 
 // ValidationWarning represents a validation warning.
 type ValidationWarning struct {
-	FilterID    string
-	FilterName  string
-	WarnType    string
-	Message     string
-	Suggestion  string
+	FilterID   string
+	FilterName string
+	WarnType   string
+	Message    string
+	Suggestion string
 }
 
 // PerformanceCheck contains performance validation results.
 type PerformanceCheck struct {
-	EstimatedLatency   time.Duration
-	MemoryUsage        int64
-	CPUIntensive       bool
-	OptimizationHints  []string
+	EstimatedLatency  time.Duration
+	MemoryUsage       int64
+	CPUIntensive      bool
+	OptimizationHints []string
 }
 
 // ValidateFilterChain validates a filter chain configuration.
@@ -46,49 +46,49 @@ func (fc *FilteredMCPClient) ValidateFilterChain(chain *FilterChain) (*Validatio
 	if chain == nil {
 		return nil, fmt.Errorf("chain is nil")
 	}
-	
+
 	result := &ValidationResult{
 		Valid:     true,
 		Errors:    []ValidationError{},
 		Warnings:  []ValidationWarning{},
 		Timestamp: time.Now(),
 	}
-	
+
 	// Validate filter compatibility
 	fc.validateFilterCompatibility(chain, result)
-	
+
 	// Validate filter ordering
 	fc.validateFilterOrdering(chain, result)
-	
+
 	// Validate filter configuration
 	fc.validateFilterConfiguration(chain, result)
-	
+
 	// Validate resource requirements
 	fc.validateResourceRequirements(chain, result)
-	
+
 	// Validate security constraints
 	fc.validateSecurityConstraints(chain, result)
-	
+
 	// Perform performance analysis
 	fc.analyzePerformance(chain, result)
-	
+
 	// Test chain with sample data
 	fc.testChainExecution(chain, result)
-	
+
 	// Set overall validity
 	result.Valid = len(result.Errors) == 0
-	
+
 	return result, nil
 }
 
 // validateFilterCompatibility checks filter compatibility.
 func (fc *FilteredMCPClient) validateFilterCompatibility(chain *FilterChain, result *ValidationResult) {
 	filters := chain.filters
-	
+
 	for i := 0; i < len(filters)-1; i++ {
 		current := filters[i]
 		next := filters[i+1]
-		
+
 		// Check output/input compatibility
 		if !areFiltersCompatible(current, next) {
 			result.Errors = append(result.Errors, ValidationError{
@@ -99,7 +99,7 @@ func (fc *FilteredMCPClient) validateFilterCompatibility(chain *FilterChain, res
 				Severity:   "HIGH",
 			})
 		}
-		
+
 		// Check for conflicting transformations
 		if hasConflictingTransformations(current, next) {
 			result.Warnings = append(result.Warnings, ValidationWarning{
@@ -116,11 +116,11 @@ func (fc *FilteredMCPClient) validateFilterCompatibility(chain *FilterChain, res
 // validateFilterOrdering checks if filters are in optimal order.
 func (fc *FilteredMCPClient) validateFilterOrdering(chain *FilterChain, result *ValidationResult) {
 	filters := chain.filters
-	
+
 	// Check for authentication before authorization
 	authIndex := -1
 	authzIndex := -1
-	
+
 	for i, filter := range filters {
 		if filter.GetType() == "authentication" {
 			authIndex = i
@@ -129,7 +129,7 @@ func (fc *FilteredMCPClient) validateFilterOrdering(chain *FilterChain, result *
 			authzIndex = i
 		}
 	}
-	
+
 	if authIndex > authzIndex && authIndex != -1 && authzIndex != -1 {
 		result.Errors = append(result.Errors, ValidationError{
 			FilterID:  filters[authzIndex].GetID(),
@@ -138,7 +138,7 @@ func (fc *FilteredMCPClient) validateFilterOrdering(chain *FilterChain, result *
 			Severity:  "HIGH",
 		})
 	}
-	
+
 	// Check for validation before transformation
 	for i := 0; i < len(filters)-1; i++ {
 		if filters[i].GetType() == "transformation" && filters[i+1].GetType() == "validation" {
@@ -166,7 +166,7 @@ func (fc *FilteredMCPClient) validateFilterConfiguration(chain *FilterChain, res
 				Severity:   "MEDIUM",
 			})
 		}
-		
+
 		// Check for deprecated features
 		if filter.UsesDeprecatedFeatures() {
 			result.Warnings = append(result.Warnings, ValidationWarning{
@@ -184,12 +184,12 @@ func (fc *FilteredMCPClient) validateFilterConfiguration(chain *FilterChain, res
 func (fc *FilteredMCPClient) validateResourceRequirements(chain *FilterChain, result *ValidationResult) {
 	totalMemory := int64(0)
 	totalCPU := 0
-	
+
 	for _, filter := range chain.filters {
 		requirements := filter.GetResourceRequirements()
 		totalMemory += requirements.Memory
 		totalCPU += requirements.CPUCores
-		
+
 		// Check individual filter requirements
 		if requirements.Memory > 1024*1024*1024 { // 1GB
 			result.Warnings = append(result.Warnings, ValidationWarning{
@@ -201,7 +201,7 @@ func (fc *FilteredMCPClient) validateResourceRequirements(chain *FilterChain, re
 			})
 		}
 	}
-	
+
 	result.Performance.MemoryUsage = totalMemory
 	result.Performance.CPUIntensive = totalCPU > 2
 }
@@ -210,7 +210,7 @@ func (fc *FilteredMCPClient) validateResourceRequirements(chain *FilterChain, re
 func (fc *FilteredMCPClient) validateSecurityConstraints(chain *FilterChain, result *ValidationResult) {
 	hasEncryption := false
 	hasAuthentication := false
-	
+
 	for _, filter := range chain.filters {
 		if filter.GetType() == "encryption" {
 			hasEncryption = true
@@ -218,7 +218,7 @@ func (fc *FilteredMCPClient) validateSecurityConstraints(chain *FilterChain, res
 		if filter.GetType() == "authentication" {
 			hasAuthentication = true
 		}
-		
+
 		// Check for security vulnerabilities
 		if filter.HasKnownVulnerabilities() {
 			result.Errors = append(result.Errors, ValidationError{
@@ -230,7 +230,7 @@ func (fc *FilteredMCPClient) validateSecurityConstraints(chain *FilterChain, res
 			})
 		}
 	}
-	
+
 	// Warn if no security filters
 	if !hasEncryption && !hasAuthentication {
 		result.Warnings = append(result.Warnings, ValidationWarning{
@@ -245,12 +245,12 @@ func (fc *FilteredMCPClient) validateSecurityConstraints(chain *FilterChain, res
 func (fc *FilteredMCPClient) analyzePerformance(chain *FilterChain, result *ValidationResult) {
 	totalLatency := time.Duration(0)
 	hints := []string{}
-	
+
 	for _, filter := range chain.filters {
 		// Estimate filter latency
 		latency := filter.EstimateLatency()
 		totalLatency += latency
-		
+
 		// Check for performance issues
 		if latency > 100*time.Millisecond {
 			hints = append(hints, fmt.Sprintf(
@@ -259,7 +259,7 @@ func (fc *FilteredMCPClient) analyzePerformance(chain *FilterChain, result *Vali
 				latency,
 			))
 		}
-		
+
 		// Check for blocking operations
 		if filter.HasBlockingOperations() {
 			hints = append(hints, fmt.Sprintf(
@@ -268,10 +268,10 @@ func (fc *FilteredMCPClient) analyzePerformance(chain *FilterChain, result *Vali
 			))
 		}
 	}
-	
+
 	result.Performance.EstimatedLatency = totalLatency
 	result.Performance.OptimizationHints = hints
-	
+
 	// Warn if total latency is high
 	if totalLatency > 500*time.Millisecond {
 		result.Warnings = append(result.Warnings, ValidationWarning{
@@ -286,7 +286,7 @@ func (fc *FilteredMCPClient) analyzePerformance(chain *FilterChain, result *Vali
 func (fc *FilteredMCPClient) testChainExecution(chain *FilterChain, result *ValidationResult) {
 	// Create test data
 	testData := []byte(`{"test": "validation_data"}`)
-	
+
 	// Try processing through chain
 	_, err := chain.Process(testData)
 	if err != nil {
@@ -296,7 +296,7 @@ func (fc *FilteredMCPClient) testChainExecution(chain *FilterChain, result *Vali
 			Severity:  "HIGH",
 		})
 	}
-	
+
 	// Test with empty data
 	_, err = chain.Process([]byte{})
 	if err != nil {

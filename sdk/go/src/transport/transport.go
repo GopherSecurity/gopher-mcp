@@ -22,20 +22,20 @@ import (
 // Example usage:
 //
 //	transport := NewStdioTransport(config)
-//	
+//
 //	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 //	defer cancel()
-//	
+//
 //	if err := transport.Connect(ctx); err != nil {
 //	    log.Fatal("Failed to connect:", err)
 //	}
 //	defer transport.Disconnect()
-//	
+//
 //	// Send data
 //	if err := transport.Send([]byte("Hello")); err != nil {
 //	    log.Printf("Send failed: %v", err)
 //	}
-//	
+//
 //	// Receive data
 //	data, err := transport.Receive()
 //	if err != nil {
@@ -134,71 +134,71 @@ type Transport interface {
 // TransportStatistics contains transport performance metrics.
 type TransportStatistics struct {
 	// Connection info
-	ConnectedAt      time.Time
-	DisconnectedAt   time.Time
-	ConnectionCount  int64
-	IsConnected      bool
-	
+	ConnectedAt     time.Time
+	DisconnectedAt  time.Time
+	ConnectionCount int64
+	IsConnected     bool
+
 	// Data transfer metrics
 	BytesSent        int64
 	BytesReceived    int64
 	MessagesSent     int64
 	MessagesReceived int64
-	
+
 	// Error tracking
 	SendErrors       int64
 	ReceiveErrors    int64
 	ConnectionErrors int64
-	
+
 	// Performance metrics
-	LastSendTime     time.Time
-	LastReceiveTime  time.Time
-	AverageLatency   time.Duration
-	
+	LastSendTime    time.Time
+	LastReceiveTime time.Time
+	AverageLatency  time.Duration
+
 	// Transport-specific metrics
-	CustomMetrics    map[string]interface{}
+	CustomMetrics map[string]interface{}
 }
 
 // TransportConfig provides common configuration for all transports.
 type TransportConfig struct {
 	// Connection settings
-	ConnectTimeout   time.Duration
-	ReadTimeout      time.Duration
-	WriteTimeout     time.Duration
-	
+	ConnectTimeout time.Duration
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+
 	// Buffer settings
-	ReadBufferSize   int
-	WriteBufferSize  int
-	
+	ReadBufferSize  int
+	WriteBufferSize int
+
 	// Retry settings
-	MaxRetries       int
-	RetryDelay       time.Duration
-	
+	MaxRetries int
+	RetryDelay time.Duration
+
 	// Keep-alive settings
-	KeepAlive        bool
+	KeepAlive         bool
 	KeepAliveInterval time.Duration
-	
+
 	// Logging
-	Debug            bool
-	
+	Debug bool
+
 	// Transport-specific settings
-	CustomConfig     map[string]interface{}
+	CustomConfig map[string]interface{}
 }
 
 // DefaultTransportConfig returns a sensible default configuration.
 func DefaultTransportConfig() TransportConfig {
 	return TransportConfig{
-		ConnectTimeout:   30 * time.Second,
-		ReadTimeout:      30 * time.Second,
-		WriteTimeout:     30 * time.Second,
-		ReadBufferSize:   4096,
-		WriteBufferSize:  4096,
-		MaxRetries:       3,
-		RetryDelay:       1 * time.Second,
-		KeepAlive:        true,
+		ConnectTimeout:    30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		ReadBufferSize:    4096,
+		WriteBufferSize:   4096,
+		MaxRetries:        3,
+		RetryDelay:        1 * time.Second,
+		KeepAlive:         true,
 		KeepAliveInterval: 30 * time.Second,
-		Debug:            false,
-		CustomConfig:     make(map[string]interface{}),
+		Debug:             false,
+		CustomConfig:      make(map[string]interface{}),
 	}
 }
 
@@ -206,16 +206,16 @@ func DefaultTransportConfig() TransportConfig {
 var (
 	// ErrNotConnected is returned when attempting operations on a disconnected transport
 	ErrNotConnected = &TransportError{Code: "NOT_CONNECTED", Message: "transport is not connected"}
-	
+
 	// ErrAlreadyConnected is returned when attempting to connect an already connected transport
 	ErrAlreadyConnected = &TransportError{Code: "ALREADY_CONNECTED", Message: "transport is already connected"}
-	
+
 	// ErrConnectionFailed is returned when connection establishment fails
 	ErrConnectionFailed = &TransportError{Code: "CONNECTION_FAILED", Message: "failed to establish connection"}
-	
+
 	// ErrSendFailed is returned when sending data fails
 	ErrSendFailed = &TransportError{Code: "SEND_FAILED", Message: "failed to send data"}
-	
+
 	// ErrReceiveFailed is returned when receiving data fails
 	ErrReceiveFailed = &TransportError{Code: "RECEIVE_FAILED", Message: "failed to receive data"}
 )

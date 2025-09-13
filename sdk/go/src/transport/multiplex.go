@@ -12,37 +12,37 @@ import (
 // MultiplexTransport allows multiple transports with fallback.
 type MultiplexTransport struct {
 	TransportBase
-	
+
 	// Transports
 	primary   Transport
 	fallbacks []Transport
 	active    atomic.Value // *Transport
-	
+
 	// Configuration
 	config MultiplexConfig
-	
+
 	// Health monitoring
 	healthChecks map[Transport]*HealthStatus
 	healthMu     sync.RWMutex
-	
+
 	// Load balancing
 	roundRobin atomic.Uint64
 }
 
 // MultiplexConfig configures multiplex transport behavior.
 type MultiplexConfig struct {
-	AutoFallback     bool
+	AutoFallback        bool
 	HealthCheckInterval time.Duration
-	LoadBalancing    bool
-	FailoverDelay    time.Duration
+	LoadBalancing       bool
+	FailoverDelay       time.Duration
 }
 
 // HealthStatus tracks transport health.
 type HealthStatus struct {
-	Healthy       bool
-	LastCheck     time.Time
-	FailureCount  int
-	SuccessCount  int
+	Healthy      bool
+	LastCheck    time.Time
+	FailureCount int
+	SuccessCount int
 }
 
 // NewMultiplexTransport creates a new multiplex transport.
@@ -54,15 +54,15 @@ func NewMultiplexTransport(primary Transport, fallbacks []Transport, config Mult
 		config:        config,
 		healthChecks:  make(map[Transport]*HealthStatus),
 	}
-	
+
 	mt.active.Store(primary)
-	
+
 	// Initialize health status
 	mt.healthChecks[primary] = &HealthStatus{Healthy: true}
 	for _, fb := range fallbacks {
 		mt.healthChecks[fb] = &HealthStatus{Healthy: true}
 	}
-	
+
 	return mt
 }
 
@@ -71,7 +71,7 @@ func (mt *MultiplexTransport) Connect(ctx context.Context) error {
 	if !mt.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
+
 	// Try primary first
 	if err := mt.primary.Connect(ctx); err == nil {
 		mt.active.Store(mt.primary)
@@ -79,7 +79,7 @@ func (mt *MultiplexTransport) Connect(ctx context.Context) error {
 		go mt.monitorHealth()
 		return nil
 	}
-	
+
 	// Try fallbacks
 	for _, fb := range mt.fallbacks {
 		if err := fb.Connect(ctx); err == nil {
@@ -89,7 +89,7 @@ func (mt *MultiplexTransport) Connect(ctx context.Context) error {
 			return nil
 		}
 	}
-	
+
 	mt.SetConnected(false)
 	return fmt.Errorf("all transports failed to connect")
 }
@@ -100,7 +100,7 @@ func (mt *MultiplexTransport) Send(data []byte) error {
 	if transport == nil {
 		return ErrNotConnected
 	}
-	
+
 	err := transport.Send(data)
 	if err != nil && mt.config.AutoFallback {
 		// Try fallback
@@ -109,7 +109,7 @@ func (mt *MultiplexTransport) Send(data []byte) error {
 			return newTransport.Send(data)
 		}
 	}
-	
+
 	return err
 }
 
@@ -119,7 +119,7 @@ func (mt *MultiplexTransport) Receive() ([]byte, error) {
 	if transport == nil {
 		return nil, ErrNotConnected
 	}
-	
+
 	data, err := transport.Receive()
 	if err != nil && mt.config.AutoFallback {
 		// Try fallback
@@ -128,7 +128,7 @@ func (mt *MultiplexTransport) Receive() ([]byte, error) {
 			return newTransport.Receive()
 		}
 	}
-	
+
 	return data, err
 }
 
@@ -144,19 +144,19 @@ func (mt *MultiplexTransport) getActiveTransport() Transport {
 func (mt *MultiplexTransport) selectFallback() Transport {
 	mt.healthMu.RLock()
 	defer mt.healthMu.RUnlock()
-	
+
 	// Check primary first
 	if status, ok := mt.healthChecks[mt.primary]; ok && status.Healthy {
 		return mt.primary
 	}
-	
+
 	// Check fallbacks
 	for _, fb := range mt.fallbacks {
 		if status, ok := mt.healthChecks[fb]; ok && status.Healthy {
 			return fb
 		}
 	}
-	
+
 	return nil
 }
 
@@ -164,7 +164,7 @@ func (mt *MultiplexTransport) selectFallback() Transport {
 func (mt *MultiplexTransport) monitorHealth() {
 	ticker := time.NewTicker(mt.config.HealthCheckInterval)
 	defer ticker.Stop()
-	
+
 	for mt.IsConnected() {
 		<-ticker.C
 		mt.checkAllHealth()
@@ -175,10 +175,10 @@ func (mt *MultiplexTransport) monitorHealth() {
 func (mt *MultiplexTransport) checkAllHealth() {
 	mt.healthMu.Lock()
 	defer mt.healthMu.Unlock()
-	
+
 	// Check primary
 	mt.checkTransportHealth(mt.primary)
-	
+
 	// Check fallbacks
 	for _, fb := range mt.fallbacks {
 		mt.checkTransportHealth(fb)
@@ -188,7 +188,7 @@ func (mt *MultiplexTransport) checkAllHealth() {
 // checkTransportHealth checks individual transport health.
 func (mt *MultiplexTransport) checkTransportHealth(t Transport) {
 	status := mt.healthChecks[t]
-	
+
 	// Simple health check - try to get stats
 	if t.IsConnected() {
 		status.Healthy = true
@@ -199,7 +199,7 @@ func (mt *MultiplexTransport) checkTransportHealth(t Transport) {
 		status.FailureCount++
 		status.SuccessCount = 0
 	}
-	
+
 	status.LastCheck = time.Now()
 }
 
@@ -208,13 +208,13 @@ func (mt *MultiplexTransport) Disconnect() error {
 	if !mt.SetConnected(false) {
 		return nil
 	}
-	
+
 	// Disconnect all
 	mt.primary.Disconnect()
 	for _, fb := range mt.fallbacks {
 		fb.Disconnect()
 	}
-	
+
 	mt.UpdateDisconnectTime()
 	return nil
 }

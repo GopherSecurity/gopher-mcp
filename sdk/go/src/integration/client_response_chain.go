@@ -13,4 +13,3 @@ func (fc *FilteredMCPClient) FilterIncomingResponse(response []byte) ([]byte, er
 	}
 	return response, nil
 }
-

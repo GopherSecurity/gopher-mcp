@@ -398,7 +398,7 @@ func TestChainEventArgs(t *testing.T) {
 	if args.Metadata["status"] != "success" {
 		t.Errorf("Metadata[status] = %v, want success", args.Metadata["status"])
 	}
-	
+
 	// Test NewChainEventArgs
 	newArgs := types.NewChainEventArgs("test-chain", types.Ready, "exec-456")
 	if newArgs == nil {

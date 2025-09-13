@@ -5,7 +5,7 @@ package integration
 func (fs *FilteredMCPServer) HandleRequest(request interface{}) (interface{}, error) {
 	// Extract request data
 	data, _ := extractRequestData(request)
-	
+
 	// Pass through request chain
 	if fs.requestChain != nil {
 		filtered, err := fs.ProcessRequest(data)
@@ -15,7 +15,7 @@ func (fs *FilteredMCPServer) HandleRequest(request interface{}) (interface{}, er
 		}
 		data = filtered
 	}
-	
+
 	// Call original handler if allowed
 	// return fs.MCPServer.HandleRequest(request)
 	return nil, nil

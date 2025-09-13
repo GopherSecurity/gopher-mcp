@@ -12,53 +12,53 @@ import (
 
 // DebugMode configuration for debugging.
 type DebugMode struct {
-	Enabled            bool
-	LogLevel           string
-	LogFilters         bool
-	LogRequests        bool
-	LogResponses       bool
-	LogNotifications   bool
-	LogMetrics         bool
-	LogErrors          bool
-	TraceExecution     bool
-	DumpOnError        bool
-	OutputFile         *os.File
-	Logger             *log.Logger
-	mu                 sync.RWMutex
+	Enabled          bool
+	LogLevel         string
+	LogFilters       bool
+	LogRequests      bool
+	LogResponses     bool
+	LogNotifications bool
+	LogMetrics       bool
+	LogErrors        bool
+	TraceExecution   bool
+	DumpOnError      bool
+	OutputFile       *os.File
+	Logger           *log.Logger
+	mu               sync.RWMutex
 }
 
 // DebugEvent represents a debug event.
 type DebugEvent struct {
-	Timestamp   time.Time
-	EventType   string
-	Component   string
-	Message     string
-	Data        interface{}
-	StackTrace  string
+	Timestamp  time.Time
+	EventType  string
+	Component  string
+	Message    string
+	Data       interface{}
+	StackTrace string
 }
 
 // EnableDebugMode enables debug mode with specified options.
 func (fc *FilteredMCPClient) EnableDebugMode(options ...DebugOption) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	
+
 	// Initialize debug mode if not exists
 	if fc.debugMode == nil {
 		fc.debugMode = &DebugMode{
-			Enabled:    true,
-			LogLevel:   "INFO",
-			Logger:     log.New(os.Stderr, "[MCP-DEBUG] ", log.LstdFlags|log.Lmicroseconds),
+			Enabled:  true,
+			LogLevel: "INFO",
+			Logger:   log.New(os.Stderr, "[MCP-DEBUG] ", log.LstdFlags|log.Lmicroseconds),
 		}
 	}
-	
+
 	// Apply options
 	for _, opt := range options {
 		opt(fc.debugMode)
 	}
-	
+
 	// Enable debug mode
 	fc.debugMode.Enabled = true
-	
+
 	// Log initialization
 	fc.logDebug("DEBUG", "System", "Debug mode enabled", map[string]interface{}{
 		"log_level":         fc.debugMode.LogLevel,
@@ -69,7 +69,7 @@ func (fc *FilteredMCPClient) EnableDebugMode(options ...DebugOption) {
 		"log_metrics":       fc.debugMode.LogMetrics,
 		"trace_execution":   fc.debugMode.TraceExecution,
 	})
-	
+
 	// Install debug hooks
 	fc.installDebugHooks()
 }
@@ -78,18 +78,18 @@ func (fc *FilteredMCPClient) EnableDebugMode(options ...DebugOption) {
 func (fc *FilteredMCPClient) DisableDebugMode() {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	
+
 	if fc.debugMode != nil {
 		fc.debugMode.Enabled = false
 		fc.logDebug("DEBUG", "System", "Debug mode disabled", nil)
-		
+
 		// Close output file if exists
 		if fc.debugMode.OutputFile != nil {
 			fc.debugMode.OutputFile.Close()
 			fc.debugMode.OutputFile = nil
 		}
 	}
-	
+
 	// Remove debug hooks
 	fc.removeDebugHooks()
 }
@@ -105,7 +105,7 @@ func (fc *FilteredMCPClient) installDebugHooks() {
 			})
 		})
 	}
-	
+
 	// Install response hook
 	if fc.responseChain != nil && fc.debugMode.LogResponses {
 		fc.responseChain.AddHook(func(data []byte, stage string) {
@@ -115,7 +115,7 @@ func (fc *FilteredMCPClient) installDebugHooks() {
 			})
 		})
 	}
-	
+
 	// Install notification hook
 	if fc.notificationChain != nil && fc.debugMode.LogNotifications {
 		fc.notificationChain.AddHook(func(data []byte, stage string) {
@@ -137,15 +137,15 @@ func (fc *FilteredMCPClient) logDebug(eventType, component, message string, data
 	if fc.debugMode == nil || !fc.debugMode.Enabled {
 		return
 	}
-	
+
 	fc.debugMode.mu.RLock()
 	defer fc.debugMode.mu.RUnlock()
-	
+
 	// Check log level
 	if !shouldLog(fc.debugMode.LogLevel, eventType) {
 		return
 	}
-	
+
 	// Create debug event
 	event := &DebugEvent{
 		Timestamp: time.Now(),
@@ -154,16 +154,16 @@ func (fc *FilteredMCPClient) logDebug(eventType, component, message string, data
 		Message:   message,
 		Data:      data,
 	}
-	
+
 	// Add stack trace if tracing enabled
 	if fc.debugMode.TraceExecution {
 		event.StackTrace = string(debug.Stack())
 	}
-	
+
 	// Format and log
 	logMessage := formatDebugEvent(event)
 	fc.debugMode.Logger.Println(logMessage)
-	
+
 	// Also write to file if configured
 	if fc.debugMode.OutputFile != nil {
 		fc.debugMode.OutputFile.WriteString(logMessage + "\n")
@@ -175,7 +175,7 @@ func (fc *FilteredMCPClient) LogFilterExecution(filter Filter, input []byte, out
 	if fc.debugMode == nil || !fc.debugMode.Enabled || !fc.debugMode.LogFilters {
 		return
 	}
-	
+
 	data := map[string]interface{}{
 		"filter_id":   filter.GetID(),
 		"filter_name": filter.GetName(),
@@ -183,7 +183,7 @@ func (fc *FilteredMCPClient) LogFilterExecution(filter Filter, input []byte, out
 		"output_size": len(output),
 		"duration_ms": duration.Milliseconds(),
 	}
-	
+
 	if err != nil {
 		data["error"] = err.Error()
 		if fc.debugMode.DumpOnError {
@@ -191,7 +191,7 @@ func (fc *FilteredMCPClient) LogFilterExecution(filter Filter, input []byte, out
 			data["output"] = truncateData(output, 500)
 		}
 	}
-	
+
 	fc.logDebug("FILTER", filter.GetName(), "Filter execution", data)
 }
 
@@ -199,11 +199,11 @@ func (fc *FilteredMCPClient) LogFilterExecution(filter Filter, input []byte, out
 func (fc *FilteredMCPClient) DumpState() string {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	state := fmt.Sprintf("=== MCP Client State Dump ===\n")
 	state += fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC3339))
 	state += fmt.Sprintf("Debug Mode: %v\n", fc.debugMode != nil && fc.debugMode.Enabled)
-	
+
 	// Dump chains
 	if fc.requestChain != nil {
 		state += fmt.Sprintf("Request Chain: %d filters\n", len(fc.requestChain.filters))
@@ -214,10 +214,10 @@ func (fc *FilteredMCPClient) DumpState() string {
 	if fc.notificationChain != nil {
 		state += fmt.Sprintf("Notification Chain: %d filters\n", len(fc.notificationChain.filters))
 	}
-	
+
 	// Dump subscriptions
 	state += fmt.Sprintf("Active Subscriptions: %d\n", len(fc.subscriptions))
-	
+
 	// Dump metrics
 	if fc.metricsCollector != nil {
 		metrics := fc.GetFilterMetrics()
@@ -225,9 +225,9 @@ func (fc *FilteredMCPClient) DumpState() string {
 		state += fmt.Sprintf("Total Responses: %d\n", metrics.TotalResponses)
 		state += fmt.Sprintf("Total Notifications: %d\n", metrics.TotalNotifications)
 	}
-	
+
 	state += "=========================\n"
-	
+
 	return state
 }
 
@@ -281,14 +281,14 @@ func shouldLog(logLevel, eventType string) bool {
 		"WARN":  2,
 		"ERROR": 3,
 	}
-	
+
 	currentLevel, ok1 := levels[logLevel]
 	eventLevel, ok2 := levels[eventType]
-	
+
 	if !ok1 || !ok2 {
 		return true
 	}
-	
+
 	return eventLevel >= currentLevel
 }
 
@@ -299,15 +299,15 @@ func formatDebugEvent(event *DebugEvent) string {
 		event.Component,
 		event.Message,
 	)
-	
+
 	if event.Data != nil {
 		msg += fmt.Sprintf(" | Data: %v", event.Data)
 	}
-	
+
 	if event.StackTrace != "" {
 		msg += fmt.Sprintf("\nStack Trace:\n%s", event.StackTrace)
 	}
-	
+
 	return msg
 }
 

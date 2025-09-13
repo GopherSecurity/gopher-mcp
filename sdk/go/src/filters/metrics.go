@@ -22,19 +22,19 @@ import (
 type MetricsCollector interface {
 	// RecordLatency records a latency measurement
 	RecordLatency(name string, duration time.Duration)
-	
+
 	// IncrementCounter increments a counter metric
 	IncrementCounter(name string, delta int64)
-	
+
 	// SetGauge sets a gauge metric to a specific value
 	SetGauge(name string, value float64)
-	
+
 	// RecordHistogram records a value in a histogram
 	RecordHistogram(name string, value float64)
-	
+
 	// Flush forces export of buffered metrics
 	Flush() error
-	
+
 	// Close shuts down the collector
 	Close() error
 }
@@ -43,10 +43,10 @@ type MetricsCollector interface {
 type MetricsExporter interface {
 	// Export sends metrics to the configured backend
 	Export(metrics map[string]interface{}) error
-	
+
 	// Format returns the export format name
 	Format() string
-	
+
 	// Close shuts down the exporter
 	Close() error
 }
@@ -74,33 +74,33 @@ func NewPrometheusExporter(endpoint string, labels map[string]string) *Prometheu
 func (pe *PrometheusExporter) Export(metrics map[string]interface{}) error {
 	pe.mu.RLock()
 	defer pe.mu.RUnlock()
-	
+
 	// Format metrics as Prometheus text format
 	var buffer bytes.Buffer
 	for name, value := range metrics {
 		pe.writeMetric(&buffer, name, value)
 	}
-	
+
 	// Push to Prometheus gateway if configured
 	if pe.endpoint != "" {
 		req, err := http.NewRequest("POST", pe.endpoint, &buffer)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
-		
+
 		req.Header.Set("Content-Type", "text/plain; version=0.0.4")
-		
+
 		resp, err := pe.httpClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to push metrics: %w", err)
 		}
 		defer resp.Body.Close()
-		
+
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -109,7 +109,7 @@ func (pe *PrometheusExporter) writeMetric(w io.Writer, name string, value interf
 	// Sanitize metric name for Prometheus
 	name = strings.ReplaceAll(name, ".", "_")
 	name = strings.ReplaceAll(name, "-", "_")
-	
+
 	// Build labels string
 	var labelPairs []string
 	for k, v := range pe.labels {
@@ -119,7 +119,7 @@ func (pe *PrometheusExporter) writeMetric(w io.Writer, name string, value interf
 	if len(labelPairs) > 0 {
 		labelStr = "{" + strings.Join(labelPairs, ",") + "}"
 	}
-	
+
 	// Write metric based on type
 	switch v := value.(type) {
 	case int, int64, uint64:
@@ -161,7 +161,7 @@ func NewStatsDExporter(address, prefix string, tags map[string]string) (*StatsDE
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to StatsD: %w", err)
 	}
-	
+
 	return &StatsDExporter{
 		address: address,
 		prefix:  prefix,
@@ -174,14 +174,14 @@ func NewStatsDExporter(address, prefix string, tags map[string]string) (*StatsDE
 func (se *StatsDExporter) Export(metrics map[string]interface{}) error {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	
+
 	for name, value := range metrics {
 		if err := se.sendMetric(name, value); err != nil {
 			// Log error but continue with other metrics
 			_ = err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -191,7 +191,7 @@ func (se *StatsDExporter) sendMetric(name string, value interface{}) error {
 	if se.prefix != "" {
 		name = se.prefix + "." + name
 	}
-	
+
 	// Format metric based on type
 	var metricStr string
 	switch v := value.(type) {
@@ -204,7 +204,7 @@ func (se *StatsDExporter) sendMetric(name string, value interface{}) error {
 	default:
 		return nil // Skip unsupported types
 	}
-	
+
 	// Add tags if supported (DogStatsD format)
 	if len(se.tags) > 0 {
 		var tagPairs []string
@@ -213,7 +213,7 @@ func (se *StatsDExporter) sendMetric(name string, value interface{}) error {
 		}
 		metricStr += "|#" + strings.Join(tagPairs, ",")
 	}
-	
+
 	// Send to StatsD
 	_, err := se.conn.Write([]byte(metricStr + "\n"))
 	return err
@@ -251,22 +251,22 @@ func NewJSONExporter(output io.Writer, metadata map[string]interface{}) *JSONExp
 func (je *JSONExporter) Export(metrics map[string]interface{}) error {
 	je.mu.Lock()
 	defer je.mu.Unlock()
-	
+
 	// Combine metrics with metadata
 	exportData := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 		"metrics":   metrics,
 	}
-	
+
 	// Add metadata
 	for k, v := range je.metadata {
 		exportData[k] = v
 	}
-	
+
 	// Encode to JSON
 	encoder := json.NewEncoder(je.output)
 	encoder.SetIndent("", "  ")
-	
+
 	return encoder.Encode(exportData)
 }
 
@@ -311,7 +311,7 @@ func (mr *MetricsRegistry) AddExporter(exporter MetricsExporter) {
 func (mr *MetricsRegistry) RecordMetric(name string, value interface{}, tags map[string]string) {
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
-	
+
 	// Store metric with tags as part of the key
 	key := name
 	if len(tags) > 0 {
@@ -321,7 +321,7 @@ func (mr *MetricsRegistry) RecordMetric(name string, value interface{}, tags map
 		}
 		key = fmt.Sprintf("%s{%s}", name, strings.Join(tagPairs, ","))
 	}
-	
+
 	mr.metrics[key] = value
 }
 
@@ -330,7 +330,7 @@ func (mr *MetricsRegistry) Start() {
 	go func() {
 		ticker := time.NewTicker(mr.interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -352,7 +352,7 @@ func (mr *MetricsRegistry) export() {
 	}
 	exporters := mr.exporters
 	mr.mu.RUnlock()
-	
+
 	// Export to all backends
 	for _, exporter := range exporters {
 		if err := exporter.Export(snapshot); err != nil {
@@ -365,11 +365,11 @@ func (mr *MetricsRegistry) export() {
 // Stop stops the metrics registry.
 func (mr *MetricsRegistry) Stop() {
 	close(mr.done)
-	
+
 	// Close all exporters
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
-	
+
 	for _, exporter := range mr.exporters {
 		_ = exporter.Close()
 	}
@@ -396,7 +396,7 @@ func NewCustomMetrics(namespace string, registry *MetricsRegistry) *CustomMetric
 func (cm *CustomMetrics) WithTags(tags map[string]string) *CustomMetrics {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	// Merge tags
 	newTags := make(map[string]string)
 	for k, v := range cm.tags {
@@ -405,7 +405,7 @@ func (cm *CustomMetrics) WithTags(tags map[string]string) *CustomMetrics {
 	for k, v := range tags {
 		newTags[k] = v
 	}
-	
+
 	return &CustomMetrics{
 		namespace: cm.namespace,
 		registry:  cm.registry,
@@ -440,10 +440,10 @@ func (cm *CustomMetrics) Timer(name string, duration time.Duration) {
 // Summary records a summary statistic.
 func (cm *CustomMetrics) Summary(name string, value float64, quantiles map[float64]float64) {
 	metricName := cm.buildMetricName(name)
-	
+
 	// Record the value
 	cm.registry.RecordMetric(metricName, value, cm.tags)
-	
+
 	// Record quantiles
 	for q, v := range quantiles {
 		quantileTag := fmt.Sprintf("quantile=%.2f", q)
@@ -483,15 +483,15 @@ func (mc *MetricsContext) RecordDuration(name string, fn func() error) error {
 	start := time.Now()
 	err := fn()
 	duration := time.Since(start)
-	
+
 	mc.metrics.Timer(name, duration)
-	
+
 	if err != nil {
 		mc.metrics.Counter(name+".errors", 1)
 	} else {
 		mc.metrics.Counter(name+".success", 1)
 	}
-	
+
 	return err
 }
 
@@ -553,16 +553,16 @@ func NewFilterMetricsRecorder(filterName string, registry *MetricsRegistry) *Fil
 func (fmr *FilterMetricsRecorder) Record(metric string, value interface{}, tags map[string]string) {
 	fmr.mu.RLock()
 	defer fmr.mu.RUnlock()
-	
+
 	// Add filter tag
 	if tags == nil {
 		tags = make(map[string]string)
 	}
 	tags["filter"] = fmr.filter
-	
+
 	// Build full metric name
 	metricName := fmr.namespace + "." + metric
-	
+
 	// Record to registry
 	fmr.registry.RecordMetric(metricName, value, tags)
 }
@@ -623,7 +623,7 @@ type FilterMetrics struct {
 func (ma *MetricsAggregator) AddFilter(name string) {
 	ma.mu.Lock()
 	defer ma.mu.Unlock()
-	
+
 	if _, exists := ma.filters[name]; !exists {
 		ma.filters[name] = &FilterMetrics{
 			Name:          name,
@@ -638,7 +638,7 @@ func (ma *MetricsAggregator) AddFilter(name string) {
 func (ma *MetricsAggregator) UpdateFilterMetrics(name string, latency time.Duration, error bool) {
 	ma.mu.Lock()
 	defer ma.mu.Unlock()
-	
+
 	filter, exists := ma.filters[name]
 	if !exists {
 		filter = &FilterMetrics{
@@ -648,13 +648,13 @@ func (ma *MetricsAggregator) UpdateFilterMetrics(name string, latency time.Durat
 		}
 		ma.filters[name] = filter
 	}
-	
+
 	// Update counts
 	filter.ProcessedCount++
 	if error {
 		filter.ErrorCount++
 	}
-	
+
 	// Update latencies
 	filter.TotalLatency += latency
 	if latency < filter.MinLatency {
@@ -687,7 +687,7 @@ type AggregatedMetrics struct {
 func (ma *MetricsAggregator) GetAggregatedMetrics() *AggregatedMetrics {
 	ma.mu.RLock()
 	defer ma.mu.RUnlock()
-	
+
 	agg := &AggregatedMetrics{
 		ChainName:       ma.chainName,
 		MinLatency:      time.Duration(1<<63 - 1),
@@ -695,43 +695,43 @@ func (ma *MetricsAggregator) GetAggregatedMetrics() *AggregatedMetrics {
 		LastAggregation: time.Now(),
 		FilterMetrics:   make(map[string]*FilterMetrics),
 	}
-	
+
 	// Aggregate across all filters
 	for name, filter := range ma.filters {
 		agg.TotalProcessed += filter.ProcessedCount
 		agg.TotalErrors += filter.ErrorCount
 		agg.TotalLatency += filter.TotalLatency
-		
+
 		if filter.MinLatency < agg.MinLatency {
 			agg.MinLatency = filter.MinLatency
 		}
 		if filter.MaxLatency > agg.MaxLatency {
 			agg.MaxLatency = filter.MaxLatency
 		}
-		
+
 		// Copy filter metrics
 		filterCopy := *filter
 		agg.FilterMetrics[name] = &filterCopy
 	}
-	
+
 	// Calculate derived metrics
 	if agg.TotalProcessed > 0 {
 		agg.ErrorRate = float64(agg.TotalErrors) / float64(agg.TotalProcessed)
 		agg.AverageLatency = agg.TotalLatency / time.Duration(agg.TotalProcessed)
-		
+
 		// Calculate health score (0-100)
 		// Based on error rate and latency
 		errorScore := math.Max(0, 100*(1-agg.ErrorRate))
-		
+
 		// Latency score (assuming 1s is bad, 10ms is good)
 		latencyMs := float64(agg.AverageLatency.Milliseconds())
 		latencyScore := math.Max(0, 100*(1-latencyMs/1000))
-		
+
 		agg.HealthScore = (errorScore + latencyScore) / 2
 	} else {
 		agg.HealthScore = 100 // No data means healthy
 	}
-	
+
 	return agg
 }
 
@@ -768,7 +768,7 @@ func NewHierarchicalAggregator(rootName string, registry *MetricsRegistry) *Hier
 func (ha *HierarchicalAggregator) AddNode(path []string, metrics map[string]interface{}) {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
-	
+
 	current := ha.root
 	for i, name := range path {
 		found := false
@@ -779,7 +779,7 @@ func (ha *HierarchicalAggregator) AddNode(path []string, metrics map[string]inte
 				break
 			}
 		}
-		
+
 		if !found {
 			newNode := &MetricsNode{
 				Name:     name,
@@ -792,7 +792,7 @@ func (ha *HierarchicalAggregator) AddNode(path []string, metrics map[string]inte
 			current = newNode
 		}
 	}
-	
+
 	// Update metrics at the leaf node
 	for k, v := range metrics {
 		current.Metrics[k] = v
@@ -803,19 +803,19 @@ func (ha *HierarchicalAggregator) AddNode(path []string, metrics map[string]inte
 func (ha *HierarchicalAggregator) AggregateUp() {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
-	
+
 	ha.aggregateNode(ha.root)
 }
 
 // aggregateNode recursively aggregates metrics for a node.
 func (ha *HierarchicalAggregator) aggregateNode(node *MetricsNode) map[string]interface{} {
 	aggregated := make(map[string]interface{})
-	
+
 	// Start with node's own metrics
 	for k, v := range node.Metrics {
 		aggregated[k] = v
 	}
-	
+
 	// Aggregate children's metrics
 	for _, child := range node.Children {
 		childMetrics := ha.aggregateNode(child)
@@ -828,10 +828,10 @@ func (ha *HierarchicalAggregator) aggregateNode(node *MetricsNode) map[string]in
 			}
 		}
 	}
-	
+
 	// Update node's aggregated metrics
 	node.Metrics = aggregated
-	
+
 	return aggregated
 }
 
@@ -858,7 +858,7 @@ func (ha *HierarchicalAggregator) sumValues(a, b interface{}) interface{} {
 func (ha *HierarchicalAggregator) GetHierarchicalMetrics() *MetricsNode {
 	ha.mu.RLock()
 	defer ha.mu.RUnlock()
-	
+
 	return ha.copyNode(ha.root)
 }
 
@@ -867,24 +867,24 @@ func (ha *HierarchicalAggregator) copyNode(node *MetricsNode) *MetricsNode {
 	if node == nil {
 		return nil
 	}
-	
+
 	copy := &MetricsNode{
 		Name:     node.Name,
 		Level:    node.Level,
 		Metrics:  make(map[string]interface{}),
 		Children: make([]*MetricsNode, 0, len(node.Children)),
 	}
-	
+
 	// Copy metrics
 	for k, v := range node.Metrics {
 		copy.Metrics[k] = v
 	}
-	
+
 	// Copy children
 	for _, child := range node.Children {
 		copy.Children = append(copy.Children, ha.copyNode(child))
 	}
-	
+
 	return copy
 }
 
@@ -910,7 +910,7 @@ func NewRollingAggregator(windowSize time.Duration, bucketCount int) *RollingAgg
 			Metrics: make(map[string]interface{}),
 		}
 	}
-	
+
 	return &RollingAggregator{
 		windowSize: windowSize,
 		buckets:    buckets,
@@ -922,10 +922,10 @@ func NewRollingAggregator(windowSize time.Duration, bucketCount int) *RollingAgg
 func (ra *RollingAggregator) Record(metrics map[string]interface{}) {
 	ra.mu.Lock()
 	defer ra.mu.Unlock()
-	
+
 	now := time.Now()
 	bucketDuration := ra.windowSize / time.Duration(len(ra.buckets))
-	
+
 	// Check if we need to advance to next bucket
 	if now.Sub(ra.buckets[ra.current].Timestamp) > bucketDuration {
 		ra.current = (ra.current + 1) % len(ra.buckets)
@@ -934,7 +934,7 @@ func (ra *RollingAggregator) Record(metrics map[string]interface{}) {
 			Metrics:   make(map[string]interface{}),
 		}
 	}
-	
+
 	// Add metrics to current bucket
 	for k, v := range metrics {
 		if existing, exists := ra.buckets[ra.current].Metrics[k]; exists {
@@ -968,10 +968,10 @@ func (ra *RollingAggregator) combineValues(a, b interface{}) interface{} {
 func (ra *RollingAggregator) GetAggregated() map[string]interface{} {
 	ra.mu.RLock()
 	defer ra.mu.RUnlock()
-	
+
 	aggregated := make(map[string]interface{})
 	cutoff := time.Now().Add(-ra.windowSize)
-	
+
 	for _, bucket := range ra.buckets {
 		if bucket.Timestamp.After(cutoff) {
 			for k, v := range bucket.Metrics {
@@ -983,7 +983,7 @@ func (ra *RollingAggregator) GetAggregated() map[string]interface{} {
 			}
 		}
 	}
-	
+
 	return aggregated
 }
 
@@ -991,28 +991,28 @@ func (ra *RollingAggregator) GetAggregated() map[string]interface{} {
 type MetricsConfig struct {
 	// Enabled determines if metrics collection is active
 	Enabled bool
-	
+
 	// ExportInterval defines how often metrics are exported
 	ExportInterval time.Duration
-	
+
 	// IncludeHistograms enables histogram metrics (more memory)
 	IncludeHistograms bool
-	
+
 	// IncludePercentiles enables percentile calculations (P50, P90, P95, P99)
 	IncludePercentiles bool
-	
+
 	// MetricPrefix is prepended to all metric names
 	MetricPrefix string
-	
+
 	// Tags are added to all metrics for grouping/filtering
 	Tags map[string]string
-	
+
 	// BufferSize for metric events (0 = unbuffered)
 	BufferSize int
-	
+
 	// FlushOnClose ensures all metrics are exported on shutdown
 	FlushOnClose bool
-	
+
 	// ErrorThreshold for alerting (percentage)
 	ErrorThreshold float64
 }
@@ -1034,16 +1034,16 @@ func DefaultMetricsConfig() MetricsConfig {
 // MetricsFilter collects metrics for filter processing.
 type MetricsFilter struct {
 	*FilterBase
-	
+
 	// Metrics collector implementation
 	collector MetricsCollector
-	
+
 	// Configuration
 	config MetricsConfig
-	
+
 	// Statistics storage
 	stats map[string]atomic.Value
-	
+
 	// Mutex for map access
 	mu sync.RWMutex
 }
@@ -1056,12 +1056,12 @@ func NewMetricsFilter(config MetricsConfig, collector MetricsCollector) *Metrics
 		config:     config,
 		stats:      make(map[string]atomic.Value),
 	}
-	
+
 	// Start export timer if configured
 	if config.Enabled && config.ExportInterval > 0 {
 		go f.exportLoop()
 	}
-	
+
 	return f
 }
 
@@ -1071,33 +1071,33 @@ func (f *MetricsFilter) Process(ctx context.Context, data []byte) (*types.Filter
 		// Pass through without metrics if disabled
 		return types.ContinueWith(data), nil
 	}
-	
+
 	// Record start time
 	startTime := time.Now()
-	
+
 	// Get metric name from context or use default
 	metricName := f.getMetricName(ctx)
-	
+
 	// Increment request counter
 	f.collector.IncrementCounter(metricName+".requests", 1)
-	
+
 	// Process the actual data (would call next filter in real implementation)
 	result, err := f.processNext(ctx, data)
-	
+
 	// Calculate duration
 	duration := time.Since(startTime)
-	
+
 	// Record latency
 	f.collector.RecordLatency(metricName+".latency", duration)
-	
+
 	// Track percentiles
 	f.trackLatencyPercentiles(metricName, duration)
-	
+
 	// Record in histogram if enabled
 	if f.config.IncludeHistograms {
 		f.collector.RecordHistogram(metricName+".duration_ms", float64(duration.Milliseconds()))
 	}
-	
+
 	// Track success/error rates
 	if err != nil || (result != nil && result.Status == types.Error) {
 		f.collector.IncrementCounter(metricName+".errors", 1)
@@ -1106,16 +1106,16 @@ func (f *MetricsFilter) Process(ctx context.Context, data []byte) (*types.Filter
 		f.collector.IncrementCounter(metricName+".success", 1)
 		f.recordErrorRate(metricName, false)
 	}
-	
+
 	// Track data size
 	f.collector.RecordHistogram(metricName+".request_size", float64(len(data)))
 	if result != nil && result.Data != nil {
 		f.collector.RecordHistogram(metricName+".response_size", float64(len(result.Data)))
 	}
-	
+
 	// Update throughput metrics
 	f.updateThroughput(metricName, len(data))
-	
+
 	return result, err
 }
 
@@ -1136,7 +1136,7 @@ func (f *MetricsFilter) getMetricName(ctx context.Context) string {
 // recordErrorRate tracks error rate over time with categorization.
 func (f *MetricsFilter) recordErrorRate(name string, isError bool) {
 	key := name + ".error_rate"
-	
+
 	// Get or create error rate tracker
 	var tracker *ErrorRateTracker
 	if v, ok := f.stats[key]; ok {
@@ -1149,13 +1149,13 @@ func (f *MetricsFilter) recordErrorRate(name string, isError bool) {
 		f.stats[key] = v
 		f.mu.Unlock()
 	}
-	
+
 	// Update tracker
 	tracker.Record(isError)
-	
+
 	// Record as gauge
 	f.collector.SetGauge(key, tracker.GetRate())
-	
+
 	// Check threshold breach
 	if tracker.IsThresholdBreached() {
 		f.collector.IncrementCounter(name+".error_threshold_breaches", 1)
@@ -1165,13 +1165,13 @@ func (f *MetricsFilter) recordErrorRate(name string, isError bool) {
 
 // ErrorRateTracker tracks error rate with categorization.
 type ErrorRateTracker struct {
-	total           uint64
-	errors          uint64
-	errorsByType    map[string]uint64
-	threshold       float64
-	breachCount     uint64
-	lastBreachTime  time.Time
-	mu              sync.RWMutex
+	total          uint64
+	errors         uint64
+	errorsByType   map[string]uint64
+	threshold      float64
+	breachCount    uint64
+	lastBreachTime time.Time
+	mu             sync.RWMutex
 }
 
 // NewErrorRateTracker creates a new error rate tracker.
@@ -1186,7 +1186,7 @@ func NewErrorRateTracker(threshold float64) *ErrorRateTracker {
 func (ert *ErrorRateTracker) Record(isError bool) {
 	ert.mu.Lock()
 	defer ert.mu.Unlock()
-	
+
 	ert.total++
 	if isError {
 		ert.errors++
@@ -1197,11 +1197,11 @@ func (ert *ErrorRateTracker) Record(isError bool) {
 func (ert *ErrorRateTracker) RecordError(errorType string) {
 	ert.mu.Lock()
 	defer ert.mu.Unlock()
-	
+
 	ert.total++
 	ert.errors++
 	ert.errorsByType[errorType]++
-	
+
 	// Check threshold
 	if ert.GetRate() > ert.threshold {
 		ert.breachCount++
@@ -1226,7 +1226,7 @@ func (ert *ErrorRateTracker) IsThresholdBreached() bool {
 func (ert *ErrorRateTracker) GetErrorsByType() map[string]uint64 {
 	ert.mu.RLock()
 	defer ert.mu.RUnlock()
-	
+
 	result := make(map[string]uint64)
 	for k, v := range ert.errorsByType {
 		result[k] = v
@@ -1240,11 +1240,11 @@ type ThroughputTracker struct {
 	bytesPerSec    float64
 	peakRPS        float64
 	peakBPS        float64
-	
-	window      []throughputSample
-	windowSize  time.Duration
-	lastUpdate  time.Time
-	mu          sync.RWMutex
+
+	window     []throughputSample
+	windowSize time.Duration
+	lastUpdate time.Time
+	mu         sync.RWMutex
 }
 
 type throughputSample struct {
@@ -1266,14 +1266,14 @@ func NewThroughputTracker(windowSize time.Duration) *ThroughputTracker {
 func (tt *ThroughputTracker) Add(requests, bytes int64) {
 	tt.mu.Lock()
 	defer tt.mu.Unlock()
-	
+
 	now := time.Now()
 	tt.window = append(tt.window, throughputSample{
 		timestamp: now,
 		requests:  requests,
 		bytes:     bytes,
 	})
-	
+
 	// Clean old samples
 	cutoff := now.Add(-tt.windowSize)
 	newWindow := make([]throughputSample, 0, len(tt.window))
@@ -1283,7 +1283,7 @@ func (tt *ThroughputTracker) Add(requests, bytes int64) {
 		}
 	}
 	tt.window = newWindow
-	
+
 	// Calculate rates
 	if len(tt.window) > 1 {
 		duration := tt.window[len(tt.window)-1].timestamp.Sub(tt.window[0].timestamp).Seconds()
@@ -1293,10 +1293,10 @@ func (tt *ThroughputTracker) Add(requests, bytes int64) {
 				totalRequests += s.requests
 				totalBytes += s.bytes
 			}
-			
+
 			tt.requestsPerSec = float64(totalRequests) / duration
 			tt.bytesPerSec = float64(totalBytes) / duration
-			
+
 			// Update peaks
 			if tt.requestsPerSec > tt.peakRPS {
 				tt.peakRPS = tt.requestsPerSec
@@ -1311,7 +1311,7 @@ func (tt *ThroughputTracker) Add(requests, bytes int64) {
 // updateThroughput updates throughput metrics with sliding window.
 func (f *MetricsFilter) updateThroughput(name string, bytes int) {
 	key := name + ".throughput"
-	
+
 	// Get or create throughput tracker
 	var tracker *ThroughputTracker
 	if v, ok := f.stats[key]; ok {
@@ -1324,10 +1324,10 @@ func (f *MetricsFilter) updateThroughput(name string, bytes int) {
 		f.stats[key] = v
 		f.mu.Unlock()
 	}
-	
+
 	// Add sample
 	tracker.Add(1, int64(bytes))
-	
+
 	// Export metrics
 	f.collector.SetGauge(name+".rps", tracker.requestsPerSec)
 	f.collector.SetGauge(name+".bps", tracker.bytesPerSec)
@@ -1339,7 +1339,7 @@ func (f *MetricsFilter) updateThroughput(name string, bytes int) {
 func (f *MetricsFilter) exportLoop() {
 	ticker := time.NewTicker(f.config.ExportInterval)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		if err := f.collector.Flush(); err != nil {
 			// Log error (would use actual logger)
@@ -1380,11 +1380,11 @@ func (pt *PercentileTracker) Add(value float64) {
 func (pt *PercentileTracker) GetPercentile(p float64) float64 {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
-	
+
 	if len(pt.values) == 0 {
 		return 0
 	}
-	
+
 	if !pt.sorted {
 		// Sort values for percentile calculation
 		for i := 0; i < len(pt.values); i++ {
@@ -1396,7 +1396,7 @@ func (pt *PercentileTracker) GetPercentile(p float64) float64 {
 		}
 		pt.sorted = true
 	}
-	
+
 	index := int(float64(len(pt.values)-1) * p / 100.0)
 	return pt.values[index]
 }
@@ -1406,9 +1406,9 @@ func (f *MetricsFilter) trackLatencyPercentiles(name string, duration time.Durat
 	if !f.config.IncludePercentiles {
 		return
 	}
-	
+
 	key := name + ".percentiles"
-	
+
 	// Get or create percentile tracker
 	var tracker *PercentileTracker
 	if v, ok := f.stats[key]; ok {
@@ -1421,10 +1421,10 @@ func (f *MetricsFilter) trackLatencyPercentiles(name string, duration time.Durat
 		f.stats[key] = v
 		f.mu.Unlock()
 	}
-	
+
 	// Add value
 	tracker.Add(float64(duration.Microseconds()))
-	
+
 	// Export percentiles
 	f.collector.SetGauge(name+".p50", tracker.GetPercentile(50))
 	f.collector.SetGauge(name+".p90", tracker.GetPercentile(90))

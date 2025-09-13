@@ -568,7 +568,7 @@ func TestFilterResult_IsError(t *testing.T) {
 func TestFilterResult_Duration(t *testing.T) {
 	start := time.Now()
 	end := start.Add(100 * time.Millisecond)
-	
+
 	result := types.FilterResult{
 		StartTime: start,
 		EndTime:   end,

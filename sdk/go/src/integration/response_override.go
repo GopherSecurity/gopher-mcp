@@ -12,7 +12,7 @@ func (fs *FilteredMCPServer) SendResponse(response interface{}) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Pass through response chain
 	if fs.responseChain != nil {
 		filtered, err := fs.ProcessResponse(data, "")
@@ -22,7 +22,7 @@ func (fs *FilteredMCPServer) SendResponse(response interface{}) error {
 		}
 		data = filtered
 	}
-	
+
 	// Send filtered response
 	// return fs.MCPServer.SendResponse(response)
 	return nil

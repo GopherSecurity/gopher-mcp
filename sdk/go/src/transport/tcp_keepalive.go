@@ -33,19 +33,19 @@ func (ka *TcpKeepAlive) Configure(conn net.Conn) error {
 	if !ok {
 		return nil
 	}
-	
+
 	if !ka.Enabled {
 		return tcpConn.SetKeepAlive(false)
 	}
-	
+
 	if err := tcpConn.SetKeepAlive(true); err != nil {
 		return err
 	}
-	
+
 	if err := tcpConn.SetKeepAlivePeriod(ka.Interval); err != nil {
 		return err
 	}
-	
+
 	// Platform-specific configuration
 	if runtime.GOOS == "linux" {
 		return ka.configureLinux(tcpConn)
@@ -54,7 +54,7 @@ func (ka *TcpKeepAlive) Configure(conn net.Conn) error {
 	} else if runtime.GOOS == "windows" {
 		return ka.configureWindows(tcpConn)
 	}
-	
+
 	return nil
 }
 
@@ -65,26 +65,26 @@ func (ka *TcpKeepAlive) configureLinux(conn *net.TCPConn) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	fd := int(file.Fd())
-	
+
 	// TCP_KEEPIDLE
 	idle := int(ka.Idle.Seconds())
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x4, idle); err != nil {
 		return err
 	}
-	
+
 	// TCP_KEEPINTVL
 	interval := int(ka.Interval.Seconds())
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x5, interval); err != nil {
 		return err
 	}
-	
+
 	// TCP_KEEPCNT
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x6, ka.Count); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -95,26 +95,26 @@ func (ka *TcpKeepAlive) configureDarwin(conn *net.TCPConn) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	fd := int(file.Fd())
-	
+
 	// TCP_KEEPALIVE (idle time)
 	idle := int(ka.Idle.Seconds())
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x10, idle); err != nil {
 		return err
 	}
-	
+
 	// TCP_KEEPINTVL
 	interval := int(ka.Interval.Seconds())
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x101, interval); err != nil {
 		return err
 	}
-	
+
 	// TCP_KEEPCNT
 	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, 0x102, ka.Count); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -126,21 +126,21 @@ func (ka *TcpKeepAlive) configureWindows(conn *net.TCPConn) error {
 		Time     uint32
 		Interval uint32
 	}
-	
+
 	file, err := conn.File()
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	
+
 	_ = file.Fd()
-	
+
 	ka_settings := tcpKeepAlive{
 		OnOff:    1,
 		Time:     uint32(ka.Idle.Milliseconds()),
 		Interval: uint32(ka.Interval.Milliseconds()),
 	}
-	
+
 	// Windows-specific keepalive is not available on this platform
 	// This would need platform-specific build tags for Windows
 	_ = ka_settings
@@ -154,7 +154,7 @@ func DetectDeadConnection(conn net.Conn) bool {
 	buf := make([]byte, 1)
 	_, err := conn.Read(buf)
 	conn.SetReadDeadline(time.Time{}) // Reset deadline
-	
+
 	if err != nil {
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			// Timeout is expected, connection is alive
@@ -163,7 +163,7 @@ func DetectDeadConnection(conn net.Conn) bool {
 		// Other error, connection is dead
 		return true
 	}
-	
+
 	// Data available, connection is alive
 	return false
 }

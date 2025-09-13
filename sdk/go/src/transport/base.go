@@ -17,7 +17,7 @@ import (
 //	    TransportBase
 //	    // Additional fields specific to this transport
 //	}
-//	
+//
 //	func (t *MyTransport) Connect(ctx context.Context) error {
 //	    if !t.SetConnected(true) {
 //	        return ErrAlreadyConnected
@@ -29,13 +29,13 @@ import (
 type TransportBase struct {
 	// Connection state (atomic for thread-safety)
 	connected atomic.Bool
-	
+
 	// Statistics tracking
 	stats TransportStatistics
-	
+
 	// Configuration
 	config TransportConfig
-	
+
 	// Synchronization
 	mu sync.RWMutex
 }
@@ -67,11 +67,11 @@ func (tb *TransportBase) SetConnected(connected bool) bool {
 func (tb *TransportBase) GetStats() TransportStatistics {
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
-	
+
 	// Create a copy of statistics
 	statsCopy := tb.stats
 	statsCopy.IsConnected = tb.IsConnected()
-	
+
 	// Deep copy custom metrics
 	if tb.stats.CustomMetrics != nil {
 		statsCopy.CustomMetrics = make(map[string]interface{})
@@ -79,7 +79,7 @@ func (tb *TransportBase) GetStats() TransportStatistics {
 			statsCopy.CustomMetrics[k] = v
 		}
 	}
-	
+
 	return statsCopy
 }
 
@@ -94,7 +94,7 @@ func (tb *TransportBase) GetConfig() TransportConfig {
 func (tb *TransportBase) UpdateConnectTime() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.ConnectedAt = time.Now()
 	tb.stats.ConnectionCount++
 	tb.stats.DisconnectedAt = time.Time{} // Reset disconnect time
@@ -104,7 +104,7 @@ func (tb *TransportBase) UpdateConnectTime() {
 func (tb *TransportBase) UpdateDisconnectTime() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.DisconnectedAt = time.Now()
 }
 
@@ -113,7 +113,7 @@ func (tb *TransportBase) UpdateDisconnectTime() {
 func (tb *TransportBase) RecordBytesSent(bytes int) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.BytesSent += int64(bytes)
 	tb.stats.MessagesSent++
 	tb.stats.LastSendTime = time.Now()
@@ -124,7 +124,7 @@ func (tb *TransportBase) RecordBytesSent(bytes int) {
 func (tb *TransportBase) RecordBytesReceived(bytes int) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.BytesReceived += int64(bytes)
 	tb.stats.MessagesReceived++
 	tb.stats.LastReceiveTime = time.Now()
@@ -135,7 +135,7 @@ func (tb *TransportBase) RecordBytesReceived(bytes int) {
 func (tb *TransportBase) RecordSendError() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.SendErrors++
 }
 
@@ -144,7 +144,7 @@ func (tb *TransportBase) RecordSendError() {
 func (tb *TransportBase) RecordReceiveError() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.ReceiveErrors++
 }
 
@@ -153,7 +153,7 @@ func (tb *TransportBase) RecordReceiveError() {
 func (tb *TransportBase) RecordConnectionError() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats.ConnectionErrors++
 }
 
@@ -162,7 +162,7 @@ func (tb *TransportBase) RecordConnectionError() {
 func (tb *TransportBase) UpdateLatency(latency time.Duration) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	if tb.stats.AverageLatency == 0 {
 		tb.stats.AverageLatency = latency
 	} else {
@@ -179,7 +179,7 @@ func (tb *TransportBase) UpdateLatency(latency time.Duration) {
 func (tb *TransportBase) SetCustomMetric(key string, value interface{}) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	if tb.stats.CustomMetrics == nil {
 		tb.stats.CustomMetrics = make(map[string]interface{})
 	}
@@ -191,7 +191,7 @@ func (tb *TransportBase) SetCustomMetric(key string, value interface{}) {
 func (tb *TransportBase) GetCustomMetric(key string) interface{} {
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
-	
+
 	if tb.stats.CustomMetrics == nil {
 		return nil
 	}
@@ -203,7 +203,7 @@ func (tb *TransportBase) GetCustomMetric(key string) interface{} {
 func (tb *TransportBase) ResetStats() {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	tb.stats = TransportStatistics{
 		CustomMetrics: make(map[string]interface{}),
 	}
@@ -215,14 +215,14 @@ func (tb *TransportBase) GetConnectionDuration() time.Duration {
 	if !tb.IsConnected() {
 		return 0
 	}
-	
+
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
-	
+
 	if tb.stats.ConnectedAt.IsZero() {
 		return 0
 	}
-	
+
 	return time.Since(tb.stats.ConnectedAt)
 }
 
@@ -231,14 +231,14 @@ func (tb *TransportBase) GetConnectionDuration() time.Duration {
 func (tb *TransportBase) GetThroughput() (sendBps, receiveBps float64) {
 	tb.mu.RLock()
 	defer tb.mu.RUnlock()
-	
+
 	duration := tb.GetConnectionDuration().Seconds()
 	if duration <= 0 {
 		return 0, 0
 	}
-	
+
 	sendBps = float64(tb.stats.BytesSent) / duration
 	receiveBps = float64(tb.stats.BytesReceived) / duration
-	
+
 	return sendBps, receiveBps
 }

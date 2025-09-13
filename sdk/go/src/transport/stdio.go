@@ -27,29 +27,29 @@ import (
 //	    Delimiter: '\n',
 //	    BufferSize: 4096,
 //	})
-//	
+//
 //	if err := transport.Connect(context.Background()); err != nil {
 //	    log.Fatal(err)
 //	}
 //	defer transport.Disconnect()
-//	
+//
 //	// Send a message
 //	transport.Send([]byte("Hello, World!"))
-//	
+//
 //	// Receive a message
 //	data, err := transport.Receive()
 type StdioTransport struct {
 	TransportBase
-	
+
 	// I/O components
 	reader  *bufio.Reader
 	writer  *bufio.Writer
 	scanner *bufio.Scanner
-	
+
 	// Configuration
 	delimiter byte
 	config    StdioConfig
-	
+
 	// Synchronization
 	readMu  sync.Mutex
 	writeMu sync.Mutex
@@ -59,16 +59,16 @@ type StdioTransport struct {
 type StdioConfig struct {
 	// Delimiter for message framing (default: '\n')
 	Delimiter byte
-	
+
 	// Buffer size for reader/writer (default: 4096)
 	BufferSize int
-	
+
 	// Maximum message size (default: 1MB)
 	MaxMessageSize int
-	
+
 	// Whether to escape delimiter in messages
 	EscapeDelimiter bool
-	
+
 	// Platform-specific settings
 	WindowsMode bool
 }
@@ -89,7 +89,7 @@ func NewStdioTransport(config StdioConfig) *StdioTransport {
 	baseConfig := DefaultTransportConfig()
 	baseConfig.ReadBufferSize = config.BufferSize
 	baseConfig.WriteBufferSize = config.BufferSize
-	
+
 	return &StdioTransport{
 		TransportBase: NewTransportBase(baseConfig),
 		delimiter:     config.Delimiter,
@@ -103,7 +103,7 @@ func (st *StdioTransport) Connect(ctx context.Context) error {
 	if !st.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
+
 	// Check context cancellation
 	select {
 	case <-ctx.Done():
@@ -111,34 +111,34 @@ func (st *StdioTransport) Connect(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
-	
+
 	// Set up buffered reader for stdin
 	st.reader = bufio.NewReaderSize(os.Stdin, st.config.BufferSize)
-	
+
 	// Set up buffered writer for stdout
 	st.writer = bufio.NewWriterSize(os.Stdout, st.config.BufferSize)
-	
+
 	// Configure scanner for line-based protocol
 	st.scanner = bufio.NewScanner(st.reader)
 	st.scanner.Buffer(make([]byte, 0, st.config.BufferSize), st.config.MaxMessageSize)
-	
+
 	// Set custom split function if delimiter is not newline
 	if st.delimiter != '\n' {
 		st.scanner.Split(st.createSplitFunc())
 	}
-	
+
 	// Handle platform differences
 	if st.config.WindowsMode {
 		st.configurePlatformWindows()
 	} else {
 		st.configurePlatformUnix()
 	}
-	
+
 	// Update statistics
 	st.UpdateConnectTime()
 	st.SetCustomMetric("delimiter", string(st.delimiter))
 	st.SetCustomMetric("buffer_size", st.config.BufferSize)
-	
+
 	return nil
 }
 
@@ -148,18 +148,18 @@ func (st *StdioTransport) createSplitFunc() bufio.SplitFunc {
 		if atEOF && len(data) == 0 {
 			return 0, nil, nil
 		}
-		
+
 		// Look for delimiter
 		if i := bytes.IndexByte(data, st.delimiter); i >= 0 {
 			// We have a full message
 			return i + 1, data[0:i], nil
 		}
-		
+
 		// If we're at EOF, we have a final, non-terminated message
 		if atEOF {
 			return len(data), data, nil
 		}
-		
+
 		// Request more data
 		return 0, nil, nil
 	}
@@ -189,7 +189,7 @@ func (st *StdioTransport) Disconnect() error {
 	if !st.SetConnected(false) {
 		return nil // Already disconnected
 	}
-	
+
 	// Flush any pending output
 	if st.writer != nil {
 		if err := st.writer.Flush(); err != nil {
@@ -197,16 +197,16 @@ func (st *StdioTransport) Disconnect() error {
 			// Continue with disconnection even if flush fails
 		}
 	}
-	
+
 	// Update statistics
 	st.UpdateDisconnectTime()
-	
+
 	// Note: We don't close stdin/stdout as they're shared resources
 	// Just clear our references
 	st.reader = nil
 	st.writer = nil
 	st.scanner = nil
-	
+
 	return nil
 }
 
@@ -216,15 +216,15 @@ func (st *StdioTransport) Send(data []byte) error {
 	if !st.IsConnected() {
 		return ErrNotConnected
 	}
-	
+
 	st.writeMu.Lock()
 	defer st.writeMu.Unlock()
-	
+
 	// Handle message escaping if configured
 	if st.config.EscapeDelimiter && bytes.IndexByte(data, st.delimiter) >= 0 {
 		data = st.escapeDelimiter(data)
 	}
-	
+
 	// Write data
 	n, err := st.writer.Write(data)
 	if err != nil {
@@ -235,7 +235,7 @@ func (st *StdioTransport) Send(data []byte) error {
 			Cause:   err,
 		}
 	}
-	
+
 	// Write delimiter
 	if err := st.writer.WriteByte(st.delimiter); err != nil {
 		st.RecordSendError()
@@ -246,7 +246,7 @@ func (st *StdioTransport) Send(data []byte) error {
 		}
 	}
 	n++ // Account for delimiter
-	
+
 	// Flush buffer
 	if err := st.writer.Flush(); err != nil {
 		st.RecordSendError()
@@ -256,11 +256,11 @@ func (st *StdioTransport) Send(data []byte) error {
 			Cause:   err,
 		}
 	}
-	
+
 	// Update statistics
 	st.RecordBytesSent(n)
 	st.incrementLineCount("sent")
-	
+
 	return nil
 }
 
@@ -270,10 +270,10 @@ func (st *StdioTransport) Receive() ([]byte, error) {
 	if !st.IsConnected() {
 		return nil, ErrNotConnected
 	}
-	
+
 	st.readMu.Lock()
 	defer st.readMu.Unlock()
-	
+
 	// Scan for next message
 	if !st.scanner.Scan() {
 		// Check for error or EOF
@@ -288,23 +288,23 @@ func (st *StdioTransport) Receive() ([]byte, error) {
 		// EOF reached
 		return nil, io.EOF
 	}
-	
+
 	// Get the message
 	data := st.scanner.Bytes()
-	
+
 	// Make a copy since scanner reuses the buffer
 	result := make([]byte, len(data))
 	copy(result, data)
-	
+
 	// Handle unescaping if configured
 	if st.config.EscapeDelimiter {
 		result = st.unescapeDelimiter(result)
 	}
-	
+
 	// Update statistics
 	st.RecordBytesReceived(len(result))
 	st.incrementLineCount("received")
-	
+
 	return result, nil
 }
 
@@ -328,14 +328,14 @@ func (st *StdioTransport) unescapeDelimiter(data []byte) []byte {
 // incrementLineCount tracks lines read/written.
 func (st *StdioTransport) incrementLineCount(direction string) {
 	key := fmt.Sprintf("lines_%s", direction)
-	
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	
+
 	if st.stats.CustomMetrics == nil {
 		st.stats.CustomMetrics = make(map[string]interface{})
 	}
-	
+
 	if count, ok := st.stats.CustomMetrics[key].(int64); ok {
 		st.stats.CustomMetrics[key] = count + 1
 	} else {
@@ -347,15 +347,15 @@ func (st *StdioTransport) incrementLineCount(direction string) {
 func (st *StdioTransport) GetAverageMessageSize() (sendAvg, receiveAvg float64) {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
-	
+
 	if st.stats.MessagesSent > 0 {
 		sendAvg = float64(st.stats.BytesSent) / float64(st.stats.MessagesSent)
 	}
-	
+
 	if st.stats.MessagesReceived > 0 {
 		receiveAvg = float64(st.stats.BytesReceived) / float64(st.stats.MessagesReceived)
 	}
-	
+
 	return sendAvg, receiveAvg
 }
 

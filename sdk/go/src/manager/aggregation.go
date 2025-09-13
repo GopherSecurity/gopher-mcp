@@ -27,7 +27,7 @@ func (a *DefaultAggregator) Aggregate(responses [][]byte) ([]byte, error) {
 			return responses[0], nil
 		}
 		return nil, fmt.Errorf("no responses")
-		
+
 	case AllMustSucceed:
 		// All responses must be non-nil
 		for _, resp := range responses {
@@ -36,17 +36,17 @@ func (a *DefaultAggregator) Aggregate(responses [][]byte) ([]byte, error) {
 			}
 		}
 		return responses[len(responses)-1], nil
-		
+
 	case Voting:
 		// Majority voting logic
 		return a.majorityVote(responses)
-		
+
 	case Custom:
 		if a.custom != nil {
 			return a.custom(responses)
 		}
 		return nil, fmt.Errorf("no custom aggregator")
-		
+
 	default:
 		return nil, fmt.Errorf("unknown strategy")
 	}

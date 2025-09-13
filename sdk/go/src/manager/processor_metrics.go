@@ -8,11 +8,11 @@ import (
 
 // ProcessorMetrics tracks processor statistics.
 type ProcessorMetrics struct {
-	messagesProcessed   atomic.Int64
-	routingDecisions    atomic.Int64
-	aggregationOps      atomic.Int64
-	errorRecoveries     atomic.Int64
-	perRoute           map[string]*RouteMetrics
+	messagesProcessed atomic.Int64
+	routingDecisions  atomic.Int64
+	aggregationOps    atomic.Int64
+	errorRecoveries   atomic.Int64
+	perRoute          map[string]*RouteMetrics
 }
 
 // RouteMetrics tracks per-route statistics.
@@ -27,7 +27,7 @@ type RouteMetrics struct {
 // RecordMessage records a processed message.
 func (pm *ProcessorMetrics) RecordMessage(route string, duration time.Duration, success bool) {
 	pm.messagesProcessed.Add(1)
-	
+
 	// Update per-route metrics
 	// if metrics, exists := pm.perRoute[route]; exists {
 	//     metrics.Requests++

@@ -4,7 +4,7 @@ package manager
 import (
 	"sync"
 	"time"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -15,29 +15,29 @@ type (
 		FilterName string
 		Timestamp  time.Time
 	}
-	
+
 	FilterUnregisteredEvent struct {
 		FilterID   uuid.UUID
 		FilterName string
 		Timestamp  time.Time
 	}
-	
+
 	ChainCreatedEvent struct {
 		ChainName string
 		Timestamp time.Time
 	}
-	
+
 	ChainRemovedEvent struct {
 		ChainName string
 		Timestamp time.Time
 	}
-	
+
 	ProcessingStartEvent struct {
 		FilterID  uuid.UUID
 		ChainName string
 		Timestamp time.Time
 	}
-	
+
 	ProcessingCompleteEvent struct {
 		FilterID  uuid.UUID
 		ChainName string
@@ -45,11 +45,11 @@ type (
 		Success   bool
 		Timestamp time.Time
 	}
-	
+
 	ManagerStartedEvent struct {
 		Timestamp time.Time
 	}
-	
+
 	ManagerStoppedEvent struct {
 		Timestamp time.Time
 	}
@@ -79,7 +79,7 @@ func NewEventBus(bufferSize int) *EventBus {
 func (eb *EventBus) Subscribe(eventType string, handler EventHandler) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	
+
 	eb.subscribers[eventType] = append(eb.subscribers[eventType], handler)
 }
 
@@ -87,7 +87,7 @@ func (eb *EventBus) Subscribe(eventType string, handler EventHandler) {
 func (eb *EventBus) Unsubscribe(eventType string) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	
+
 	delete(eb.subscribers, eventType)
 }
 
@@ -131,7 +131,7 @@ func (eb *EventBus) processEvents() {
 func (eb *EventBus) dispatch(event interface{}) {
 	eb.mu.RLock()
 	defer eb.mu.RUnlock()
-	
+
 	// Get event type name
 	var eventType string
 	switch event.(type) {
@@ -154,14 +154,14 @@ func (eb *EventBus) dispatch(event interface{}) {
 	default:
 		eventType = "Unknown"
 	}
-	
+
 	// Call handlers
 	if handlers, ok := eb.subscribers[eventType]; ok {
 		for _, handler := range handlers {
 			handler(event)
 		}
 	}
-	
+
 	// Call wildcard handlers
 	if handlers, ok := eb.subscribers["*"]; ok {
 		for _, handler := range handlers {
@@ -179,14 +179,14 @@ func (fm *FilterManager) SetupEventHandlers() {
 			_ = e
 		}
 	})
-	
+
 	fm.events.Subscribe("FilterUnregistered", func(event interface{}) {
 		if e, ok := event.(FilterUnregisteredEvent); ok {
 			// Log or handle filter unregistration
 			_ = e
 		}
 	})
-	
+
 	// Subscribe to chain events
 	fm.events.Subscribe("ChainCreated", func(event interface{}) {
 		if e, ok := event.(ChainCreatedEvent); ok {
@@ -194,14 +194,14 @@ func (fm *FilterManager) SetupEventHandlers() {
 			_ = e
 		}
 	})
-	
+
 	fm.events.Subscribe("ChainRemoved", func(event interface{}) {
 		if e, ok := event.(ChainRemovedEvent); ok {
 			// Log or handle chain removal
 			_ = e
 		}
 	})
-	
+
 	// Subscribe to processing events
 	fm.events.Subscribe("ProcessingComplete", func(event interface{}) {
 		if e, ok := event.(ProcessingCompleteEvent); ok {

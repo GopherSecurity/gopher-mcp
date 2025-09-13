@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -44,14 +44,14 @@ type CompletionCallback func(job *AsyncJob)
 func (ap *AsyncProcessor) ProcessAsync(message []byte, callback CompletionCallback) (string, error) {
 	// Generate tracking ID
 	jobID := uuid.New().String()
-	
+
 	// Create job
 	job := &AsyncJob{
 		ID:        jobID,
 		Status:    Pending,
 		StartTime: time.Now(),
 	}
-	
+
 	// Store job
 	ap.mu.Lock()
 	ap.jobs[jobID] = job
@@ -59,10 +59,10 @@ func (ap *AsyncProcessor) ProcessAsync(message []byte, callback CompletionCallba
 		ap.callbacks[jobID] = callback
 	}
 	ap.mu.Unlock()
-	
+
 	// Process in background
 	go ap.processJob(jobID, message)
-	
+
 	return jobID, nil
 }
 
@@ -72,17 +72,17 @@ func (ap *AsyncProcessor) processJob(jobID string, message []byte) {
 	job := ap.jobs[jobID]
 	job.Status = Processing
 	ap.mu.Unlock()
-	
+
 	// Process message
 	// result, err := ap.processor.Process(message)
-	
+
 	// Update job
 	ap.mu.Lock()
 	job.Status = Completed
 	job.EndTime = time.Now()
 	// job.Result = result
 	// job.Error = err
-	
+
 	// Call callback
 	if callback, exists := ap.callbacks[jobID]; exists {
 		callback(job)
@@ -95,11 +95,11 @@ func (ap *AsyncProcessor) processJob(jobID string, message []byte) {
 func (ap *AsyncProcessor) GetStatus(jobID string) (*AsyncJob, error) {
 	ap.mu.RLock()
 	defer ap.mu.RUnlock()
-	
+
 	job, exists := ap.jobs[jobID]
 	if !exists {
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
-	
+
 	return job, nil
 }

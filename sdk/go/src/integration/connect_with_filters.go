@@ -18,16 +18,16 @@ func (fc *FilteredMCPClient) ConnectWithFilters(ctx context.Context, transport T
 	for _, filter := range filters {
 		chain.Add(filter)
 	}
-	
+
 	// Apply to all traffic
 	fc.SetClientRequestChain(chain)
 	fc.SetClientResponseChain(chain)
-	
+
 	// Establish connection
 	if err := transport.Connect(ctx); err != nil {
 		return err
 	}
-	
+
 	// Connect MCP client
 	// return fc.MCPClient.Connect(transport)
 	return nil

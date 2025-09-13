@@ -98,7 +98,7 @@ func (b *Buffer) Grow(n int) {
 	if b == nil {
 		return
 	}
-	
+
 	newLen := b.length + n
 	if newLen > b.capacity {
 		// Need to allocate more space
@@ -118,7 +118,7 @@ func (b *Buffer) Write(p []byte) (n int, err error) {
 	if b == nil {
 		return 0, nil
 	}
-	
+
 	b.Grow(len(p))
 	copy(b.data[b.length:], p)
 	b.length += len(p)
@@ -130,7 +130,7 @@ func (b *Buffer) Release() {
 	if b == nil || !b.pooled || b.pool == nil {
 		return
 	}
-	
+
 	b.Reset()
 	b.pool.Put(b)
 }
@@ -175,7 +175,7 @@ func (s *BufferSlice) Bytes() []byte {
 	if s == nil || s.buffer == nil || s.buffer.data == nil {
 		return nil
 	}
-	
+
 	// Ensure we don't exceed buffer bounds
 	end := s.offset + s.length
 	if s.offset >= len(s.buffer.data) {
@@ -184,7 +184,7 @@ func (s *BufferSlice) Bytes() []byte {
 	if end > len(s.buffer.data) {
 		end = len(s.buffer.data)
 	}
-	
+
 	return s.buffer.data[s.offset:end]
 }
 
@@ -202,11 +202,11 @@ func (s *BufferSlice) SubSlice(start, end int) BufferSlice {
 	if s == nil || start < 0 || end < start || start > s.length {
 		return BufferSlice{}
 	}
-	
+
 	if end > s.length {
 		end = s.length
 	}
-	
+
 	return BufferSlice{
 		buffer: s.buffer,
 		offset: s.offset + start,
@@ -220,7 +220,7 @@ func (s *BufferSlice) Slice(start, end int) BufferSlice {
 	if s == nil {
 		return BufferSlice{}
 	}
-	
+
 	// Validate and adjust bounds
 	if start < 0 {
 		start = 0
@@ -234,14 +234,13 @@ func (s *BufferSlice) Slice(start, end int) BufferSlice {
 	if end > s.length {
 		end = s.length
 	}
-	
+
 	return BufferSlice{
 		buffer: s.buffer,
 		offset: s.offset + start,
 		length: end - start,
 	}
 }
-
 
 // PoolStatistics contains metrics about buffer pool usage.
 type PoolStatistics struct {

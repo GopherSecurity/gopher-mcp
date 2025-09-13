@@ -349,16 +349,16 @@ type FilterMetrics struct {
 	RequestsTotal    int64
 	RequestsPerSec   float64
 	RequestLatencyMs float64
-	
+
 	// Error metrics
 	ErrorsTotal int64
 	ErrorRate   float64
-	
+
 	// Resource metrics
 	MemoryUsageBytes int64
 	CPUUsagePercent  float64
 	GoroutineCount   int
-	
+
 	// Custom metrics
 	CustomMetrics map[string]interface{}
 }

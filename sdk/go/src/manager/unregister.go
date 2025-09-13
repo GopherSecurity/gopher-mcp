@@ -3,7 +3,7 @@ package manager
 
 import (
 	"fmt"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -14,7 +14,7 @@ func (fm *FilterManager) UnregisterFilter(id uuid.UUID) error {
 	if !exists {
 		return fmt.Errorf("filter not found: %s", id)
 	}
-	
+
 	// Remove from any chains
 	fm.mu.Lock()
 	for _, chain := range fm.chains {
@@ -23,12 +23,12 @@ func (fm *FilterManager) UnregisterFilter(id uuid.UUID) error {
 		}
 	}
 	fm.mu.Unlock()
-	
+
 	// Close filter
 	if err := filter.Close(); err != nil {
 		// Log error but continue
 	}
-	
+
 	// Emit event
 	if fm.events != nil {
 		fm.events.Emit(FilterUnregisteredEvent{
@@ -36,6 +36,6 @@ func (fm *FilterManager) UnregisterFilter(id uuid.UUID) error {
 			FilterName: filter.GetName(),
 		})
 	}
-	
+
 	return nil
 }

@@ -10,32 +10,32 @@ import (
 
 // CloneOptions configures chain cloning.
 type CloneOptions struct {
-	DeepCopy          bool
-	ClearStatistics   bool
-	NewID             string
-	NewName           string
-	ModifyFilters     []FilterModification
-	ExcludeFilters    []string
-	IncludeOnly       []string
-	ReverseOrder      bool
-	ShareResources    bool
+	DeepCopy        bool
+	ClearStatistics bool
+	NewID           string
+	NewName         string
+	ModifyFilters   []FilterModification
+	ExcludeFilters  []string
+	IncludeOnly     []string
+	ReverseOrder    bool
+	ShareResources  bool
 }
 
 // FilterModification specifies how to modify a filter during cloning.
 type FilterModification struct {
-	FilterID      string
-	NewConfig     map[string]interface{}
-	ReplaceWith   Filter
-	InsertBefore  Filter
-	InsertAfter   Filter
+	FilterID     string
+	NewConfig    map[string]interface{}
+	ReplaceWith  Filter
+	InsertBefore Filter
+	InsertAfter  Filter
 }
 
 // ClonedChain represents a cloned filter chain.
 type ClonedChain struct {
-	Original      *FilterChain
-	Clone         *FilterChain
-	CloneTime     time.Time
-	Modifications []string
+	Original        *FilterChain
+	Clone           *FilterChain
+	CloneTime       time.Time
+	Modifications   []string
 	SharedResources bool
 }
 
@@ -49,7 +49,7 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 	if original == nil {
 		return nil, fmt.Errorf("chain not found: %s", chainID)
 	}
-	
+
 	// Create clone
 	clone := &FilterChain{
 		id:           generateChainID(),
@@ -62,7 +62,7 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 		lastModified: time.Now(),
 		tags:         make(map[string]string),
 	}
-	
+
 	// Apply custom ID and name if provided
 	if options.NewID != "" {
 		clone.id = options.NewID
@@ -70,7 +70,7 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 	if options.NewName != "" {
 		clone.name = options.NewName
 	}
-	
+
 	// Clone configuration
 	clone.maxFilters = original.maxFilters
 	clone.timeout = original.timeout
@@ -79,31 +79,31 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 	clone.cacheTTL = original.cacheTTL
 	clone.maxConcurrency = original.maxConcurrency
 	clone.bufferSize = original.bufferSize
-	
+
 	// Copy tags
 	for k, v := range original.tags {
 		clone.tags[k] = v
 	}
-	
+
 	// Clone filters
 	modifications := []string{}
 	err := fc.cloneFilters(original, clone, options, &modifications)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clone filters: %w", err)
 	}
-	
+
 	// Apply filter order modification
 	if options.ReverseOrder {
 		fc.reverseFilters(clone)
 		modifications = append(modifications, "Reversed filter order")
 	}
-	
+
 	// Clear statistics if requested
 	if options.ClearStatistics {
 		fc.clearChainStatistics(clone)
 		modifications = append(modifications, "Cleared statistics")
 	}
-	
+
 	// Register cloned chain
 	fc.mu.Lock()
 	if fc.customChains == nil {
@@ -111,7 +111,7 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 	}
 	fc.customChains[clone.id] = clone
 	fc.mu.Unlock()
-	
+
 	// Create clone result
 	result := &ClonedChain{
 		Original:        original,
@@ -120,7 +120,7 @@ func (fc *FilteredMCPClient) CloneFilterChain(
 		Modifications:   modifications,
 		SharedResources: options.ShareResources,
 	}
-	
+
 	return result, nil
 }
 
@@ -133,21 +133,21 @@ func (fc *FilteredMCPClient) cloneFilters(
 	// Build filter inclusion/exclusion map
 	includeMap := make(map[string]bool)
 	excludeMap := make(map[string]bool)
-	
+
 	if len(options.IncludeOnly) > 0 {
 		for _, id := range options.IncludeOnly {
 			includeMap[id] = true
 		}
 	}
-	
+
 	for _, id := range options.ExcludeFilters {
 		excludeMap[id] = true
 	}
-	
+
 	// Clone each filter
 	for _, filter := range original.filters {
 		filterID := filter.GetID()
-		
+
 		// Check inclusion/exclusion
 		if len(includeMap) > 0 && !includeMap[filterID] {
 			*modifications = append(*modifications, fmt.Sprintf("Excluded filter: %s", filter.GetName()))
@@ -157,11 +157,11 @@ func (fc *FilteredMCPClient) cloneFilters(
 			*modifications = append(*modifications, fmt.Sprintf("Excluded filter: %s", filter.GetName()))
 			continue
 		}
-		
+
 		// Check for modifications
 		var clonedFilter Filter
 		modified := false
-		
+
 		for _, mod := range options.ModifyFilters {
 			if mod.FilterID == filterID {
 				if mod.ReplaceWith != nil {
@@ -171,40 +171,40 @@ func (fc *FilteredMCPClient) cloneFilters(
 					modified = true
 					break
 				}
-				
+
 				// Clone and modify
 				if options.DeepCopy {
 					clonedFilter = fc.deepCloneFilter(filter)
 				} else {
 					clonedFilter = fc.shallowCloneFilter(filter)
 				}
-				
+
 				// Apply configuration changes
 				if mod.NewConfig != nil {
 					clonedFilter.UpdateConfig(mod.NewConfig)
 					*modifications = append(*modifications, fmt.Sprintf("Modified config for: %s", filter.GetName()))
 				}
-				
+
 				// Handle insertions
 				if mod.InsertBefore != nil {
 					clone.Add(mod.InsertBefore)
 					*modifications = append(*modifications, fmt.Sprintf("Inserted filter before: %s", filter.GetName()))
 				}
-				
+
 				modified = true
-				
+
 				// Add the modified filter
 				clone.Add(clonedFilter)
-				
+
 				if mod.InsertAfter != nil {
 					clone.Add(mod.InsertAfter)
 					*modifications = append(*modifications, fmt.Sprintf("Inserted filter after: %s", filter.GetName()))
 				}
-				
+
 				break
 			}
 		}
-		
+
 		// If not modified, clone normally
 		if !modified {
 			if options.DeepCopy {
@@ -215,7 +215,7 @@ func (fc *FilteredMCPClient) cloneFilters(
 			clone.Add(clonedFilter)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -223,10 +223,10 @@ func (fc *FilteredMCPClient) cloneFilters(
 func (fc *FilteredMCPClient) deepCloneFilter(filter Filter) Filter {
 	// Create new filter instance with copied state
 	cloned := filter.Clone()
-	
+
 	// Generate new ID for deep copy
 	cloned.SetID(generateFilterID())
-	
+
 	// Clone configuration deeply
 	config := filter.GetConfiguration()
 	newConfig := make(map[string]interface{})
@@ -234,7 +234,7 @@ func (fc *FilteredMCPClient) deepCloneFilter(filter Filter) Filter {
 		newConfig[k] = deepCopyValue(v)
 	}
 	cloned.UpdateConfig(newConfig)
-	
+
 	return cloned
 }
 
@@ -244,7 +244,7 @@ func (fc *FilteredMCPClient) shallowCloneFilter(filter Filter) Filter {
 	if fc.isStatelessFilter(filter) {
 		return filter
 	}
-	
+
 	// For stateful filters, create new instance
 	return filter.Clone()
 }
@@ -266,13 +266,13 @@ func (fc *FilteredMCPClient) reverseFilters(chain *FilterChain) {
 // clearChainStatistics clears statistics for a chain.
 func (fc *FilteredMCPClient) clearChainStatistics(chain *FilterChain) {
 	chainID := chain.GetID()
-	
+
 	fc.metricsCollector.mu.Lock()
 	defer fc.metricsCollector.mu.Unlock()
-	
+
 	// Clear chain metrics
 	delete(fc.metricsCollector.chainMetrics, chainID)
-	
+
 	// Clear filter metrics for chain filters
 	for _, filter := range chain.filters {
 		delete(fc.metricsCollector.filterMetrics, filter.GetID())
@@ -290,15 +290,15 @@ func (fc *FilteredMCPClient) findChain(chainID string) *FilterChain {
 	case "notification":
 		return fc.notificationChain
 	}
-	
+
 	// Check custom chains
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	if fc.customChains != nil {
 		return fc.customChains[chainID]
 	}
-	
+
 	return nil
 }
 
@@ -307,7 +307,7 @@ func (fc *FilteredMCPClient) MergeChains(chainIDs []string, name string) (*Filte
 	if len(chainIDs) == 0 {
 		return nil, fmt.Errorf("no chains to merge")
 	}
-	
+
 	// Create new chain
 	merged := &FilterChain{
 		id:           generateChainID(),
@@ -319,25 +319,25 @@ func (fc *FilteredMCPClient) MergeChains(chainIDs []string, name string) (*Filte
 		lastModified: time.Now(),
 		tags:         make(map[string]string),
 	}
-	
+
 	// Merge filters from all chains
 	for _, chainID := range chainIDs {
 		chain := fc.findChain(chainID)
 		if chain == nil {
 			return nil, fmt.Errorf("chain not found: %s", chainID)
 		}
-		
+
 		// Add all filters from this chain
 		for _, filter := range chain.filters {
 			merged.Add(fc.shallowCloneFilter(filter))
 		}
-		
+
 		// Merge tags
 		for k, v := range chain.tags {
 			merged.tags[k] = v
 		}
 	}
-	
+
 	// Register merged chain
 	fc.mu.Lock()
 	if fc.customChains == nil {
@@ -345,7 +345,7 @@ func (fc *FilteredMCPClient) MergeChains(chainIDs []string, name string) (*Filte
 	}
 	fc.customChains[merged.id] = merged
 	fc.mu.Unlock()
-	
+
 	return merged, nil
 }
 

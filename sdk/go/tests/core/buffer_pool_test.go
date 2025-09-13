@@ -58,12 +58,12 @@ func TestBufferPool_Get_WithinRange(t *testing.T) {
 		requestSize int
 		minCapacity int
 	}{
-		{256, 512},    // Below min, should get min size
-		{512, 512},    // Exact min
-		{768, 1024},   // Between sizes, should round up
-		{1024, 1024},  // Exact pool size
-		{3000, 4096},  // Between sizes, should round up
-		{8192, 8192},  // Exact max
+		{256, 512},   // Below min, should get min size
+		{512, 512},   // Exact min
+		{768, 1024},  // Between sizes, should round up
+		{1024, 1024}, // Exact pool size
+		{3000, 4096}, // Between sizes, should round up
+		{8192, 8192}, // Exact max
 	}
 
 	for _, tc := range testCases {
@@ -85,7 +85,7 @@ func TestBufferPool_Get_OutsideRange(t *testing.T) {
 	// Request larger than max
 	largeSize := 10000
 	buf := pool.Get(largeSize)
-	
+
 	if buf == nil {
 		t.Fatal("Get returned nil for large size")
 	}
@@ -180,7 +180,7 @@ func TestBufferPool_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < opsPerGoroutine; j++ {
 				// Get buffer
 				size := 512 * (1 + j%8) // Vary sizes
@@ -250,7 +250,7 @@ func TestSimpleBufferPool_Grow(t *testing.T) {
 	// Request larger buffer
 	largerSize := 2048
 	buf := pool.Get(largerSize)
-	
+
 	if buf == nil {
 		t.Fatal("Get returned nil")
 	}
@@ -260,7 +260,7 @@ func TestSimpleBufferPool_Grow(t *testing.T) {
 
 	// Put back and get again
 	pool.Put(buf)
-	
+
 	buf2 := pool.Get(largerSize)
 	if buf2 == nil {
 		t.Fatal("Second Get returned nil")
@@ -275,7 +275,7 @@ func TestSimpleBufferPool_Grow(t *testing.T) {
 
 func BenchmarkBufferPool_Get(b *testing.B) {
 	pool := core.NewDefaultBufferPool()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		buf := pool.Get(1024)
@@ -286,7 +286,7 @@ func BenchmarkBufferPool_Get(b *testing.B) {
 func BenchmarkBufferPool_Get_Various(b *testing.B) {
 	pool := core.NewDefaultBufferPool()
 	sizes := []int{512, 1024, 2048, 4096, 8192}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		size := sizes[i%len(sizes)]
@@ -297,7 +297,7 @@ func BenchmarkBufferPool_Get_Various(b *testing.B) {
 
 func BenchmarkSimpleBufferPool_Get(b *testing.B) {
 	pool := core.NewSimpleBufferPool(1024)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		buf := pool.Get(1024)
@@ -307,7 +307,7 @@ func BenchmarkSimpleBufferPool_Get(b *testing.B) {
 
 func BenchmarkBufferPool_Concurrent(b *testing.B) {
 	pool := core.NewDefaultBufferPool()
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			buf := pool.Get(1024)

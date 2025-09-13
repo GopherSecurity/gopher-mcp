@@ -15,31 +15,31 @@ import (
 // Test 1: Default retry configuration
 func TestDefaultRetryConfig(t *testing.T) {
 	config := filters.DefaultRetryConfig()
-	
+
 	if config.MaxAttempts != 3 {
 		t.Errorf("MaxAttempts = %d, want 3", config.MaxAttempts)
 	}
-	
+
 	if config.InitialDelay != 1*time.Second {
 		t.Errorf("InitialDelay = %v, want 1s", config.InitialDelay)
 	}
-	
+
 	if config.MaxDelay != 30*time.Second {
 		t.Errorf("MaxDelay = %v, want 30s", config.MaxDelay)
 	}
-	
+
 	if config.Multiplier != 2.0 {
 		t.Errorf("Multiplier = %f, want 2.0", config.Multiplier)
 	}
-	
+
 	if config.Timeout != 1*time.Minute {
 		t.Errorf("Timeout = %v, want 1m", config.Timeout)
 	}
-	
+
 	// Check retryable status codes
 	expectedCodes := []int{429, 500, 502, 503, 504}
 	if len(config.RetryableStatusCodes) != len(expectedCodes) {
-		t.Errorf("RetryableStatusCodes length = %d, want %d", 
+		t.Errorf("RetryableStatusCodes length = %d, want %d",
 			len(config.RetryableStatusCodes), len(expectedCodes))
 	}
 }
@@ -51,19 +51,19 @@ func TestExponentialBackoff(t *testing.T) {
 		1*time.Second,
 		2.0,
 	)
-	
+
 	tests := []struct {
 		attempt  int
 		minDelay time.Duration
 		maxDelay time.Duration
 	}{
-		{1, 90 * time.Millisecond, 110 * time.Millisecond},    // ~100ms
-		{2, 180 * time.Millisecond, 220 * time.Millisecond},   // ~200ms
-		{3, 360 * time.Millisecond, 440 * time.Millisecond},   // ~400ms
-		{4, 720 * time.Millisecond, 880 * time.Millisecond},   // ~800ms
-		{5, 900 * time.Millisecond, 1100 * time.Millisecond},  // capped at 1s
+		{1, 90 * time.Millisecond, 110 * time.Millisecond},   // ~100ms
+		{2, 180 * time.Millisecond, 220 * time.Millisecond},  // ~200ms
+		{3, 360 * time.Millisecond, 440 * time.Millisecond},  // ~400ms
+		{4, 720 * time.Millisecond, 880 * time.Millisecond},  // ~800ms
+		{5, 900 * time.Millisecond, 1100 * time.Millisecond}, // capped at 1s
 	}
-	
+
 	for _, tt := range tests {
 		delay := backoff.NextDelay(tt.attempt)
 		if delay < tt.minDelay || delay > tt.maxDelay {
@@ -80,18 +80,18 @@ func TestLinearBackoff(t *testing.T) {
 		50*time.Millisecond,
 		500*time.Millisecond,
 	)
-	
+
 	tests := []struct {
 		attempt  int
 		minDelay time.Duration
 		maxDelay time.Duration
 	}{
-		{1, 90 * time.Millisecond, 110 * time.Millisecond},    // ~100ms
-		{2, 140 * time.Millisecond, 160 * time.Millisecond},   // ~150ms
-		{3, 180 * time.Millisecond, 220 * time.Millisecond},   // ~200ms (with jitter)
-		{10, 450 * time.Millisecond, 550 * time.Millisecond},  // capped at 500ms
+		{1, 90 * time.Millisecond, 110 * time.Millisecond},   // ~100ms
+		{2, 140 * time.Millisecond, 160 * time.Millisecond},  // ~150ms
+		{3, 180 * time.Millisecond, 220 * time.Millisecond},  // ~200ms (with jitter)
+		{10, 450 * time.Millisecond, 550 * time.Millisecond}, // capped at 500ms
 	}
-	
+
 	for _, tt := range tests {
 		delay := backoff.NextDelay(tt.attempt)
 		if delay < tt.minDelay || delay > tt.maxDelay {
@@ -109,12 +109,12 @@ func TestFullJitterBackoff(t *testing.T) {
 		2.0,
 	)
 	jittered := filters.NewFullJitterBackoff(base)
-	
+
 	// Test multiple times to verify jitter
 	for attempt := 1; attempt <= 3; attempt++ {
 		baseDelay := base.NextDelay(attempt)
 		jitteredDelay := jittered.NextDelay(attempt)
-		
+
 		// Jittered delay should be between 0 and base delay
 		if jitteredDelay < 0 || jitteredDelay > baseDelay {
 			t.Errorf("Attempt %d: jittered = %v, should be 0 to %v",
@@ -129,13 +129,13 @@ func TestDecorrelatedJitterBackoff(t *testing.T) {
 		100*time.Millisecond,
 		1*time.Second,
 	)
-	
+
 	// First attempt should return base delay
 	delay1 := backoff.NextDelay(1)
 	if delay1 != 100*time.Millisecond {
 		t.Errorf("First delay = %v, want 100ms", delay1)
 	}
-	
+
 	// Subsequent attempts should be decorrelated
 	for attempt := 2; attempt <= 5; attempt++ {
 		delay := backoff.NextDelay(attempt)
@@ -144,7 +144,7 @@ func TestDecorrelatedJitterBackoff(t *testing.T) {
 				attempt, delay)
 		}
 	}
-	
+
 	// Reset should clear state
 	backoff.Reset()
 	delayAfterReset := backoff.NextDelay(1)
@@ -161,16 +161,16 @@ func TestRetryFilter_Basic(t *testing.T) {
 		MaxDelay:     100 * time.Millisecond,
 		Multiplier:   2.0,
 	}
-	
+
 	backoff := filters.NewExponentialBackoff(
 		config.InitialDelay,
 		config.MaxDelay,
 		config.Multiplier,
 	)
-	
+
 	f := filters.NewRetryFilter(config, backoff)
 	ctx := context.Background()
-	
+
 	// Process should succeed (processAttempt returns success)
 	result, err := f.Process(ctx, []byte("test"))
 	if err != nil {
@@ -187,7 +187,7 @@ func TestRetryFilter_Timeout(t *testing.T) {
 	// and trigger retries. Since processAttempt always succeeds immediately
 	// in the current implementation, we'll skip this test.
 	t.Skip("Timeout test requires mock implementation that actually retries")
-	
+
 	config := filters.RetryConfig{
 		MaxAttempts:  10,
 		InitialDelay: 100 * time.Millisecond,
@@ -195,16 +195,16 @@ func TestRetryFilter_Timeout(t *testing.T) {
 		Multiplier:   2.0,
 		Timeout:      200 * time.Millisecond, // Short timeout
 	}
-	
+
 	backoff := filters.NewExponentialBackoff(
 		config.InitialDelay,
 		config.MaxDelay,
 		config.Multiplier,
 	)
-	
+
 	f := filters.NewRetryFilter(config, backoff)
 	ctx := context.Background()
-	
+
 	// Process would timeout if processAttempt actually failed
 	_, err := f.Process(ctx, []byte("test"))
 	_ = err
@@ -219,19 +219,19 @@ func TestRetryExhaustedException(t *testing.T) {
 		TotalDuration: 5 * time.Second,
 		Delays:        []time.Duration{1 * time.Second, 2 * time.Second},
 	}
-	
+
 	// Test Error() method
 	errMsg := exception.Error()
 	if !contains(errMsg, "3 attempts") {
 		t.Errorf("Error message should mention attempts: %s", errMsg)
 	}
-	
+
 	// Test Unwrap()
 	unwrapped := exception.Unwrap()
 	if unwrapped != err {
 		t.Error("Unwrap should return underlying error")
 	}
-	
+
 	// Test errors.Is
 	if !errors.Is(exception, err) {
 		t.Error("errors.Is should work with wrapped error")
@@ -247,7 +247,7 @@ func TestRetryConditions(t *testing.T) {
 	if filters.RetryOnError(nil, &types.FilterResult{Status: types.Continue}) {
 		t.Error("RetryOnError should return false for success")
 	}
-	
+
 	// Test RetryOnStatusCodes
 	condition := filters.RetryOnStatusCodes(429, 503)
 	result := &types.FilterResult{
@@ -259,12 +259,12 @@ func TestRetryConditions(t *testing.T) {
 	if !condition(nil, result) {
 		t.Error("Should retry on status code 429")
 	}
-	
+
 	result.Metadata["status_code"] = 200
 	if condition(nil, result) {
 		t.Error("Should not retry on status code 200")
 	}
-	
+
 	// Test RetryOnTimeout
 	if !filters.RetryOnTimeout(context.DeadlineExceeded, nil) {
 		t.Error("Should retry on deadline exceeded")
@@ -282,19 +282,19 @@ func TestRetryFilter_Concurrent(t *testing.T) {
 		MaxDelay:     10 * time.Millisecond,
 		Multiplier:   2.0,
 	}
-	
+
 	backoff := filters.NewExponentialBackoff(
 		config.InitialDelay,
 		config.MaxDelay,
 		config.Multiplier,
 	)
-	
+
 	f := filters.NewRetryFilter(config, backoff)
 	ctx := context.Background()
-	
+
 	var wg sync.WaitGroup
 	var successCount atomic.Int32
-	
+
 	// Run concurrent retry operations
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -306,9 +306,9 @@ func TestRetryFilter_Concurrent(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// All should succeed
 	if successCount.Load() != 10 {
 		t.Errorf("Success count = %d, want 10", successCount.Load())
@@ -333,7 +333,7 @@ func BenchmarkExponentialBackoff(b *testing.B) {
 		10*time.Second,
 		2.0,
 	)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		backoff.NextDelay(i%10 + 1)
@@ -346,7 +346,7 @@ func BenchmarkLinearBackoff(b *testing.B) {
 		100*time.Millisecond,
 		10*time.Second,
 	)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		backoff.NextDelay(i%10 + 1)
@@ -360,17 +360,17 @@ func BenchmarkRetryFilter_Process(b *testing.B) {
 		MaxDelay:     10 * time.Millisecond,
 		Multiplier:   2.0,
 	}
-	
+
 	backoff := filters.NewExponentialBackoff(
 		config.InitialDelay,
 		config.MaxDelay,
 		config.Multiplier,
 	)
-	
+
 	f := filters.NewRetryFilter(config, backoff)
 	ctx := context.Background()
 	data := []byte("test data")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		f.Process(ctx, data)
@@ -384,7 +384,7 @@ func BenchmarkFullJitterBackoff(b *testing.B) {
 		2.0,
 	)
 	jittered := filters.NewFullJitterBackoff(base)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		jittered.NextDelay(i%10 + 1)

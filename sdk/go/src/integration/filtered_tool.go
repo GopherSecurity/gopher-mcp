@@ -14,13 +14,13 @@ func (fs *FilteredMCPServer) RegisterFilteredTool(tool Tool, filters ...Filter) 
 	for _, filter := range filters {
 		chain.Add(filter)
 	}
-	
+
 	// Wrap tool with filtering
 	filteredTool := &FilteredTool{
-		tool:   tool,
-		chain:  chain,
+		tool:  tool,
+		chain: chain,
 	}
-	
+
 	// Register with MCP server
 	// return fs.MCPServer.RegisterTool(filteredTool)
 	_ = filteredTool
@@ -37,12 +37,11 @@ type FilteredTool struct {
 func (ft *FilteredTool) Execute(params interface{}) (interface{}, error) {
 	// Apply filters to input
 	// filtered := ft.chain.ProcessInput(params)
-	
+
 	// Execute tool
 	result, err := ft.tool.Execute(params)
-	
+
 	// Apply filters to output
 	// return ft.chain.ProcessOutput(result), err
 	return result, err
 }
-
