@@ -77,6 +77,7 @@ help:
 	@echo "  ${GREEN}format${NC}     Format code using gofmt"
 	@echo "  ${GREEN}clean${NC}      Remove build artifacts"
 	@echo "  ${GREEN}install${NC}    Install the library"
+	@echo "  ${GREEN}examples${NC}   Build and test MCP client/server examples"
 	@echo ""
 	@echo "Additional targets:"
 	@echo "  ${YELLOW}test-unit${NC}       Run unit tests only"
@@ -313,15 +314,47 @@ mod-tidy:
 	@$(GOMOD) tidy
 	@echo "${GREEN}Module tidied!${NC}"
 
-## examples: Build all examples
+## examples: Build and test MCP client and server examples
 .PHONY: examples
 examples: deps
-	@echo "${GREEN}Building examples...${NC}"
-	@for example in $(shell find examples -name '*.go' -type f); do \
-		echo "Building $$example..."; \
-		$(GOBUILD) -o $(BUILD_DIR)/$$(basename $$example .go) $$example; \
-	done
-	@echo "${GREEN}Examples built!${NC}"
+	@echo "${GREEN}Building MCP examples...${NC}"
+	@mkdir -p $(BUILD_DIR)
+	@echo "  Building MCP server..."
+	@cd examples && $(GOBUILD) $(BUILD_FLAGS) -o ../$(BUILD_DIR)/mcp-server server.go
+	@echo "  Building MCP client..."
+	@cd examples && $(GOBUILD) $(BUILD_FLAGS) -o ../$(BUILD_DIR)/mcp-client client.go
+	@echo "${GREEN}Examples built successfully!${NC}"
+	@echo ""
+	@echo "${GREEN}Testing MCP examples...${NC}"
+	@echo "  Starting MCP server in background..."
+	@$(BUILD_DIR)/mcp-server > /tmp/mcp-server.log 2>&1 & \
+		SERVER_PID=$$!; \
+		echo "  Server PID: $$SERVER_PID"; \
+		sleep 2; \
+		echo "  Running MCP client test..."; \
+		$(BUILD_DIR)/mcp-client -server "$(BUILD_DIR)/mcp-server" -interactive=false > /tmp/mcp-client.log 2>&1 & \
+			CLIENT_PID=$$!; \
+			sleep 3; \
+			kill $$CLIENT_PID 2>/dev/null || true; \
+			wait $$CLIENT_PID 2>/dev/null || true; \
+			if grep -q "Client demo completed successfully" /tmp/mcp-client.log; then \
+			echo "${GREEN}  ✓ Client-server communication successful${NC}"; \
+		else \
+			echo "${RED}  ✗ Client-server communication failed${NC}"; \
+			echo "  Server log:"; \
+			cat /tmp/mcp-server.log; \
+			echo "  Client log:"; \
+			cat /tmp/mcp-client.log; \
+			kill $$SERVER_PID 2>/dev/null || true; \
+			exit 1; \
+		fi; \
+		kill $$SERVER_PID 2>/dev/null || true
+	@echo ""
+	@echo "${GREEN}MCP examples tested successfully!${NC}"
+	@echo ""
+	@echo "To run the examples manually:"
+	@echo "  Server: ${BUILD_DIR}/mcp-server"
+	@echo "  Client: ${BUILD_DIR}/mcp-client"
 
 ## run-example: Run a specific example (usage: make run-example EXAMPLE=basic)
 .PHONY: run-example
