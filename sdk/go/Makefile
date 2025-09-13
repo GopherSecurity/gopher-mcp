@@ -29,7 +29,10 @@ SOURCE_DIRS=./src/... ./examples/... ./tests/...
 # Build flags
 LDFLAGS=-ldflags "-s -w"
 BUILD_FLAGS=-v
-TEST_FLAGS=-v -race -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic
+# Test flags - can be overridden for different test modes
+# Use TEST_FLAGS="-v -race" for race detection
+# Use TEST_FLAGS="-v -coverprofile=coverage/coverage.out" for coverage
+TEST_FLAGS?=-v
 
 # CGO configuration for C++ library integration (optional)
 # Set CGO_ENABLED=1 only if C library is available
@@ -100,7 +103,7 @@ build: deps
 test: deps
 	@echo "${GREEN}Running all tests...${NC}"
 	@mkdir -p $(COVERAGE_DIR)
-	@$(GOTEST) $(TEST_FLAGS) $(PKG_LIST)
+	@$(GOTEST) $(TEST_FLAGS) ./src/... ./tests/... || (echo "${RED}Some tests failed${NC}" && exit 1)
 	@echo "${GREEN}All tests passed!${NC}"
 
 ## test-unit: Run unit tests only
@@ -118,9 +121,18 @@ test-integration:
 	@$(GOTEST) -v ./src/integration/...
 	@echo "${GREEN}Integration tests passed!${NC}"
 
+## test-race: Run tests with race detector
+.PHONY: test-race
+test-race:
+	@echo "${GREEN}Running tests with race detector...${NC}"
+	@TEST_FLAGS="-v -race" $(MAKE) test
+
 ## test-coverage: Generate test coverage report
 .PHONY: test-coverage
-test-coverage: test
+test-coverage:
+	@echo "${GREEN}Running tests with coverage...${NC}"
+	@mkdir -p $(COVERAGE_DIR)
+	@TEST_FLAGS="-v -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic" $(MAKE) test
 	@echo "${GREEN}Generating coverage report...${NC}"
 	@$(GOCMD) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
 	@echo "${GREEN}Coverage report generated: $(COVERAGE_DIR)/coverage.html${NC}"
