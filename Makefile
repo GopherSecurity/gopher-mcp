@@ -158,6 +158,22 @@ format:
 	else \
 		echo "Rust SDK directory not found, skipping Rust formatting."; \
 	fi
+	@echo "Formatting Go files with gofmt..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v gofmt >/dev/null 2>&1; then \
+			gofmt -s -w .; \
+			if command -v goimports >/dev/null 2>&1; then \
+				goimports -w .; \
+			fi; \
+			echo "Go formatting complete."; \
+		else \
+			echo "Warning: gofmt not found, skipping Go formatting."; \
+			echo "Install Go to format Go files: https://golang.org/dl/"; \
+		fi; \
+	else \
+		echo "Go SDK directory not found, skipping Go formatting."; \
+	fi
 	@echo "All formatting complete."
 
 # Format only TypeScript files
@@ -212,6 +228,27 @@ format-rust:
 		exit 1; \
 	fi
 
+# Format only Go files
+format-go:
+	@echo "Formatting Go files with gofmt..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v gofmt >/dev/null 2>&1; then \
+			gofmt -s -w .; \
+			if command -v goimports >/dev/null 2>&1; then \
+				goimports -w .; \
+			fi; \
+			echo "Go formatting complete."; \
+		else \
+			echo "Error: gofmt not found."; \
+			echo "Install Go to format Go files: https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
 # Check formatting without modifying files
 check-format:
 	@echo "Checking source file formatting..."
@@ -249,6 +286,23 @@ check-format:
 		fi; \
 	else \
 		echo "Python SDK directory not found, skipping Python formatting check."; \
+	fi
+	@echo "Checking Go file formatting..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v gofmt >/dev/null 2>&1; then \
+			if [ -n "$$(gofmt -s -l .)" ]; then \
+				echo "Go formatting check failed. Files need formatting:"; \
+				gofmt -s -l .; \
+				exit 1; \
+			else \
+				echo "Go formatting check complete."; \
+			fi; \
+		else \
+			echo "Warning: gofmt not found, skipping Go formatting check."; \
+		fi; \
+	else \
+		echo "Go SDK directory not found, skipping Go formatting check."; \
 	fi
 	@echo "Formatting check complete."
 
@@ -325,6 +379,78 @@ configure:
 	@echo "Configuring build with CMake (prefix: $(PREFIX))..."
 	@cmake -B build -DCMAKE_INSTALL_PREFIX="$(PREFIX)" $(CMAKE_ARGS)
 
+# ═══════════════════════════════════════════════════════════════════════
+# GO SDK TARGETS
+# ═══════════════════════════════════════════════════════════════════════
+
+# Build Go SDK
+go-build:
+	@echo "Building Go SDK..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make build; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Run Go SDK tests
+go-test:
+	@echo "Running Go SDK tests..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make test; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Format Go SDK code
+go-format:
+	@$(MAKE) format-go
+
+# Clean Go SDK build artifacts
+go-clean:
+	@echo "Cleaning Go SDK build artifacts..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make clean; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
+# Build and test Go SDK examples
+go-examples:
+	@echo "Building and testing Go SDK examples..."
+	@if [ -d "sdk/go" ]; then \
+		cd sdk/go && \
+		if command -v go >/dev/null 2>&1; then \
+			make examples; \
+		else \
+			echo "Error: Go not found. Install Go from https://golang.org/dl/"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Go SDK directory not found."; \
+		exit 1; \
+	fi
+
 # Help
 help:
 	@echo "╔════════════════════════════════════════════════════════════════════╗"
@@ -366,11 +492,20 @@ help:
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
-	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust) │"
+	@echo "│ make format        Auto-format all source files (C++, TS, Python, Rust, Go) │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make format-python Format only Python files with black               │"
 	@echo "│ make format-rust   Format only Rust files with rustfmt               │"
+	@echo "│ make format-go     Format only Go files with gofmt                   │"
 	@echo "│ make check-format  Check formatting without modifying files          │"
+	@echo "└─────────────────────────────────────────────────────────────────────┘"
+	@echo ""
+	@echo "┌─ GO SDK TARGETS ────────────────────────────────────────────────────┐"
+	@echo "│ make go-build      Build Go SDK libraries                            │"
+	@echo "│ make go-test       Run Go SDK tests                                  │"
+	@echo "│ make go-format     Format Go SDK code with gofmt                     │"
+	@echo "│ make go-clean      Clean Go SDK build artifacts                      │"
+	@echo "│ make go-examples   Build and test Go SDK examples                    │"
 	@echo "└─────────────────────────────────────────────────────────────────────┘"
 	@echo ""
 	@echo "┌─ MAINTENANCE TARGETS ───────────────────────────────────────────────┐"
@@ -387,10 +522,11 @@ help:
 	@echo "│   $$ sudo make install                                                │"
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
-	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust) │"
+	@echo "│   $$ make format          # Format all code (C++, TS, Python, Rust, Go) │"
 	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
 	@echo "│   $$ make format-python   # Format only Python files                 │"
 	@echo "│   $$ make format-rust     # Format only Rust files                   │"
+	@echo "│   $$ make format-go       # Format only Go files                     │"
 	@echo "│   $$ make build           # Build without tests                      │"
 	@echo "│   $$ make test-parallel   # Run tests quickly                        │"
 	@echo "│                                                                       │"
