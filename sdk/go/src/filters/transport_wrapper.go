@@ -13,29 +13,29 @@ import (
 
 // FilteredTransport wraps an MCP transport with filter chain capabilities.
 type FilteredTransport struct {
-	underlying     io.ReadWriteCloser
-	inboundChain   *integration.FilterChain
-	outboundChain  *integration.FilterChain
-	mu             sync.RWMutex
-	closed         bool
-	stats          TransportStats
+	underlying    io.ReadWriteCloser
+	inboundChain  *integration.FilterChain
+	outboundChain *integration.FilterChain
+	mu            sync.RWMutex
+	closed        bool
+	stats         TransportStats
 }
 
 // TransportStats tracks transport statistics.
 type TransportStats struct {
-	MessagesIn     int64
-	MessagesOut    int64
-	BytesIn        int64
-	BytesOut       int64
-	Errors         int64
+	MessagesIn  int64
+	MessagesOut int64
+	BytesIn     int64
+	BytesOut    int64
+	Errors      int64
 }
 
 // NewFilteredTransport creates a new filtered transport.
 func NewFilteredTransport(underlying io.ReadWriteCloser) *FilteredTransport {
 	return &FilteredTransport{
-		underlying:     underlying,
-		inboundChain:   integration.NewFilterChain(),
-		outboundChain:  integration.NewFilterChain(),
+		underlying:    underlying,
+		inboundChain:  integration.NewFilterChain(),
+		outboundChain: integration.NewFilterChain(),
 	}
 }
 
@@ -61,7 +61,7 @@ func (ft *FilteredTransport) Read(p []byte) (n int, err error) {
 	if n > 0 && ft.inboundChain.GetFilterCount() > 0 {
 		data := make([]byte, n)
 		copy(data, p[:n])
-		
+
 		filtered, err := ft.inboundChain.Process(data)
 		if err != nil {
 			ft.mu.Lock()
@@ -69,7 +69,7 @@ func (ft *FilteredTransport) Read(p []byte) (n int, err error) {
 			ft.mu.Unlock()
 			return 0, fmt.Errorf("inbound filter error: %w", err)
 		}
-		
+
 		copy(p, filtered)
 		n = len(filtered)
 	}
@@ -92,7 +92,7 @@ func (ft *FilteredTransport) Write(p []byte) (n int, err error) {
 	ft.mu.RUnlock()
 
 	data := p
-	
+
 	// Apply outbound filters
 	if ft.outboundChain.GetFilterCount() > 0 {
 		filtered, err := ft.outboundChain.Process(data)
@@ -126,11 +126,11 @@ func (ft *FilteredTransport) Write(p []byte) (n int, err error) {
 func (ft *FilteredTransport) Close() error {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
-	
+
 	if ft.closed {
 		return nil
 	}
-	
+
 	ft.closed = true
 	return ft.underlying.Close()
 }
@@ -176,9 +176,9 @@ func (ft *FilteredTransport) SetOutboundChain(chain *integration.FilterChain) {
 // JSONRPCTransport wraps FilteredTransport for JSON-RPC message handling.
 type JSONRPCTransport struct {
 	*FilteredTransport
-	decoder *json.Decoder
-	encoder *json.Encoder
-	readBuf bytes.Buffer
+	decoder  *json.Decoder
+	encoder  *json.Encoder
+	readBuf  bytes.Buffer
 	writeBuf bytes.Buffer
 }
 
@@ -187,8 +187,8 @@ func NewJSONRPCTransport(underlying io.ReadWriteCloser) *JSONRPCTransport {
 	ft := NewFilteredTransport(underlying)
 	return &JSONRPCTransport{
 		FilteredTransport: ft,
-		decoder:          json.NewDecoder(ft),
-		encoder:          json.NewEncoder(ft),
+		decoder:           json.NewDecoder(ft),
+		encoder:           json.NewEncoder(ft),
 	}
 }
 

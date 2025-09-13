@@ -29,12 +29,12 @@ func NewMockMCPServer() *MockMCPServer {
 		Reader: os.Stdin,
 		Writer: os.Stdout,
 	}
-	
+
 	filteredTransport := filters.NewFilteredTransport(stdioTransport)
-	
+
 	// Add filters
 	setupFilters(filteredTransport)
-	
+
 	return &MockMCPServer{
 		transport: filteredTransport,
 		scanner:   bufio.NewScanner(filteredTransport),
@@ -66,23 +66,23 @@ func setupFilters(transport *filters.FilteredTransport) {
 	loggingFilter := filters.NewLoggingFilter("[Server] ", true)
 	transport.AddInboundFilter(filters.NewFilterAdapter(loggingFilter, "ServerLogging", "logging"))
 	transport.AddOutboundFilter(filters.NewFilterAdapter(loggingFilter, "ServerLogging", "logging"))
-	
+
 	// Add validation filter
 	validationFilter := filters.NewValidationFilter(1024 * 1024) // 1MB max
 	transport.AddInboundFilter(filters.NewFilterAdapter(validationFilter, "ServerValidation", "validation"))
-	
+
 	// Add compression if enabled
 	if os.Getenv("MCP_ENABLE_COMPRESSION") == "true" {
 		compressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
 		transport.AddOutboundFilter(filters.NewFilterAdapter(compressionFilter, "ServerCompression", "compression"))
-		
+
 		// Add decompression for inbound
 		decompressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
 		transport.AddInboundFilter(&DecompressionAdapter{filter: decompressionFilter})
-		
+
 		log.Println("Compression enabled for server")
 	}
-	
+
 	log.Println("Filters configured: logging, validation, optional compression")
 }
 
@@ -177,7 +177,7 @@ func (da *DecompressionAdapter) SetID(id string) {}
 func (s *MockMCPServer) Run() error {
 	log.Println("Mock MCP Server with filters started")
 	log.Println("Waiting for JSON-RPC messages...")
-	
+
 	// Send initialization response
 	initResponse := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -194,21 +194,21 @@ func (s *MockMCPServer) Run() error {
 			},
 		},
 	}
-	
+
 	if err := s.sendMessage(initResponse); err != nil {
 		return fmt.Errorf("failed to send init response: %w", err)
 	}
-	
+
 	// Process incoming messages
 	for s.scanner.Scan() {
 		line := s.scanner.Text()
-		
+
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			log.Printf("Failed to parse message: %v", err)
 			continue
 		}
-		
+
 		// Handle different message types
 		if method, ok := msg["method"].(string); ok {
 			switch method {
@@ -221,11 +221,11 @@ func (s *MockMCPServer) Run() error {
 			}
 		}
 	}
-	
+
 	if err := s.scanner.Err(); err != nil {
 		return fmt.Errorf("scanner error: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -234,15 +234,15 @@ func (s *MockMCPServer) sendMessage(msg interface{}) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if _, err := s.writer.Write(data); err != nil {
 		return err
 	}
-	
+
 	if _, err := s.writer.Write([]byte("\n")); err != nil {
 		return err
 	}
-	
+
 	return s.writer.Flush()
 }
 
@@ -263,7 +263,7 @@ func (s *MockMCPServer) handleListTools(msg map[string]interface{}) {
 			},
 		},
 	}
-	
+
 	if err := s.sendMessage(response); err != nil {
 		log.Printf("Failed to send tools list: %v", err)
 	}
@@ -273,7 +273,7 @@ func (s *MockMCPServer) handleCallTool(msg map[string]interface{}) {
 	params, _ := msg["params"].(map[string]interface{})
 	toolName, _ := params["name"].(string)
 	arguments, _ := params["arguments"].(map[string]interface{})
-	
+
 	var result string
 	switch toolName {
 	case "echo":
@@ -284,7 +284,7 @@ func (s *MockMCPServer) handleCallTool(msg map[string]interface{}) {
 	default:
 		result = "Unknown tool"
 	}
-	
+
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      msg["id"],
@@ -297,7 +297,7 @@ func (s *MockMCPServer) handleCallTool(msg map[string]interface{}) {
 			},
 		},
 	}
-	
+
 	if err := s.sendMessage(response); err != nil {
 		log.Printf("Failed to send tool result: %v", err)
 	}
@@ -306,20 +306,20 @@ func (s *MockMCPServer) handleCallTool(msg map[string]interface{}) {
 func main() {
 	log.SetPrefix("[Filtered Server] ")
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	
+
 	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	
+
 	// Create and run server
 	server := NewMockMCPServer()
-	
+
 	go func() {
 		<-sigChan
 		log.Println("Received interrupt signal, shutting down...")
 		os.Exit(0)
 	}()
-	
+
 	if err := server.Run(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
