@@ -197,7 +197,7 @@ func TestChainConfig_Validate(t *testing.T) {
 
 		found := false
 		for _, err := range errors {
-			if err.Error() == "max_concurrency must be > 0 for parallel execution" {
+			if err.Error() == "max concurrency must be > 0 for parallel mode" {
 				found = true
 				break
 			}
@@ -221,7 +221,7 @@ func TestChainConfig_Validate(t *testing.T) {
 
 		found := false
 		for _, err := range errors {
-			if err.Error() == "buffer_size must be > 0 for pipeline execution" {
+			if err.Error() == "buffer size must be > 0 for pipeline mode" {
 				found = true
 				break
 			}
@@ -245,7 +245,7 @@ func TestChainConfig_Validate(t *testing.T) {
 
 		found := false
 		for _, err := range errors {
-			if err.Error() == "invalid error_handling mode: invalid-mode" {
+			if err.Error() == "invalid error handling: invalid-mode (must be fail-fast, continue, or isolate)" {
 				found = true
 				break
 			}
