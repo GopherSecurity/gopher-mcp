@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GopherSecurity/gopher-mcp/src/filters"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -57,11 +59,32 @@ func main() {
 		cancel()
 	}()
 
-	// Start server on stdio transport
-	log.Println("Starting MCP server on stdio...")
-	transport := &mcp.StdioTransport{}
+	// Start server on stdio transport with filters
+	log.Println("Starting MCP server on stdio with filters...")
 	
-	if err := server.Run(ctx, transport); err != nil {
+	// Create the base stdio transport
+	stdioTransport := &mcp.StdioTransport{}
+	
+	// Create filtered transport wrapper
+	filteredTransport := filters.NewFilteredTransport(stdioTransport)
+	
+	// Add logging filter for debugging
+	loggingFilter := filters.NewLoggingFilter("[Server] ", false)
+	filteredTransport.AddInboundFilter(filters.NewFilterAdapter(loggingFilter, "ServerLogging", "logging"))
+	filteredTransport.AddOutboundFilter(filters.NewFilterAdapter(loggingFilter, "ServerLogging", "logging"))
+	
+	// Add validation filter
+	validationFilter := filters.NewValidationFilter(1024 * 1024) // 1MB max message size
+	filteredTransport.AddInboundFilter(filters.NewFilterAdapter(validationFilter, "ServerValidation", "validation"))
+	
+	// Add compression filter (optional, can be enabled based on config)
+	if os.Getenv("MCP_ENABLE_COMPRESSION") == "true" {
+		compressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
+		filteredTransport.AddOutboundFilter(filters.NewFilterAdapter(compressionFilter, "ServerCompression", "compression"))
+		log.Println("Compression enabled for outbound messages")
+	}
+	
+	if err := server.Run(ctx, filteredTransport); err != nil {
 		log.Printf("Server error: %v", err)
 	}
 
