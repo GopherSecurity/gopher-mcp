@@ -191,3 +191,235 @@ func (fc *FilterChain) SetMode(mode ExecutionMode) {
 	fc.mode = mode
 }
 
+// GetMode returns the execution mode.
+func (fc *FilterChain) GetMode() ExecutionMode {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.mode
+}
+
+// GetFilterCount returns the number of filters in the chain.
+func (fc *FilterChain) GetFilterCount() int {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return len(fc.filters)
+}
+
+// Remove removes a filter from the chain by ID.
+func (fc *FilterChain) Remove(id string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	
+	for i, filter := range fc.filters {
+		if filter.GetID() == id {
+			fc.filters = append(fc.filters[:i], fc.filters[i+1:]...)
+			fc.lastModified = time.Now()
+			return nil
+		}
+	}
+	return fmt.Errorf("filter with ID %s not found", id)
+}
+
+// SetName sets the chain name.
+func (fc *FilterChain) SetName(name string) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.name = name
+	fc.lastModified = time.Now()
+}
+
+// SetDescription sets the chain description.
+func (fc *FilterChain) SetDescription(description string) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.description = description
+	fc.lastModified = time.Now()
+}
+
+// SetTimeout sets the timeout for chain processing.
+func (fc *FilterChain) SetTimeout(timeout time.Duration) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.timeout = timeout
+}
+
+// GetTimeout returns the timeout for chain processing.
+func (fc *FilterChain) GetTimeout() time.Duration {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.timeout
+}
+
+// SetMaxFilters sets the maximum number of filters allowed.
+func (fc *FilterChain) SetMaxFilters(max int) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.maxFilters = max
+}
+
+// GetMaxFilters returns the maximum number of filters allowed.
+func (fc *FilterChain) GetMaxFilters() int {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.maxFilters
+}
+
+// SetCacheEnabled enables or disables caching.
+func (fc *FilterChain) SetCacheEnabled(enabled bool) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.cacheEnabled = enabled
+}
+
+// IsCacheEnabled returns whether caching is enabled.
+func (fc *FilterChain) IsCacheEnabled() bool {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.cacheEnabled
+}
+
+// SetCacheTTL sets the cache time-to-live.
+func (fc *FilterChain) SetCacheTTL(ttl time.Duration) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.cacheTTL = ttl
+}
+
+// AddTag adds a tag to the chain.
+func (fc *FilterChain) AddTag(key, value string) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.tags[key] = value
+}
+
+// GetTags returns all tags.
+func (fc *FilterChain) GetTags() map[string]string {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range fc.tags {
+		result[k] = v
+	}
+	return result
+}
+
+// RemoveTag removes a tag from the chain.
+func (fc *FilterChain) RemoveTag(key string) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	delete(fc.tags, key)
+}
+
+// Clone creates a deep copy of the filter chain.
+func (fc *FilterChain) Clone() *FilterChain {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	
+	cloned := &FilterChain{
+		id:             generateChainID(),
+		name:           fc.name,
+		description:    fc.description,
+		mode:           fc.mode,
+		hooks:          make([]func([]byte, string), len(fc.hooks)),
+		createdAt:      time.Now(),
+		lastModified:   time.Now(),
+		tags:           make(map[string]string),
+		maxFilters:     fc.maxFilters,
+		timeout:        fc.timeout,
+		retryPolicy:    fc.retryPolicy,
+		cacheEnabled:   fc.cacheEnabled,
+		cacheTTL:       fc.cacheTTL,
+		maxConcurrency: fc.maxConcurrency,
+		bufferSize:     fc.bufferSize,
+	}
+	
+	// Clone filters
+	cloned.filters = make([]Filter, len(fc.filters))
+	for i, filter := range fc.filters {
+		cloned.filters[i] = filter.Clone()
+	}
+	
+	// Copy hooks
+	copy(cloned.hooks, fc.hooks)
+	
+	// Copy tags
+	for k, v := range fc.tags {
+		cloned.tags[k] = v
+	}
+	
+	return cloned
+}
+
+// Validate validates the filter chain configuration.
+func (fc *FilterChain) Validate() error {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	
+	// Check for circular dependencies, incompatible filters, etc.
+	// For now, just basic validation
+	
+	for _, filter := range fc.filters {
+		if err := filter.ValidateConfig(); err != nil {
+			return fmt.Errorf("filter %s validation failed: %w", filter.GetName(), err)
+		}
+	}
+	
+	return nil
+}
+
+// SetRetryPolicy sets the retry policy for the chain.
+func (fc *FilterChain) SetRetryPolicy(policy RetryPolicy) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.retryPolicy = policy
+}
+
+// Clear removes all filters from the chain.
+func (fc *FilterChain) Clear() {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.filters = []Filter{}
+	fc.lastModified = time.Now()
+}
+
+// GetFilterByID returns a filter by its ID.
+func (fc *FilterChain) GetFilterByID(id string) Filter {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	
+	for _, filter := range fc.filters {
+		if filter.GetID() == id {
+			return filter
+		}
+	}
+	return nil
+}
+
+// GetStatistics returns chain statistics.
+func (fc *FilterChain) GetStatistics() ChainStatistics {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	
+	// This would typically track actual statistics
+	return ChainStatistics{
+		TotalExecutions: 10, // Placeholder
+		SuccessCount:    10,
+		FailureCount:    0,
+	}
+}
+
+// SetBufferSize sets the buffer size for chain processing.
+func (fc *FilterChain) SetBufferSize(size int) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.bufferSize = size
+}
+
+// GetBufferSize returns the buffer size for chain processing.
+func (fc *FilterChain) GetBufferSize() int {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.bufferSize
+}
+
+
