@@ -2,21 +2,20 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"os"
+	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/pkg/client"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type MCPClient struct {
-	client    *client.MCPClient
-	transport client.Transport
-	ctx       context.Context
+	client  *mcp.Client
+	session *mcp.ClientSession
+	ctx     context.Context
 }
 
 func NewMCPClient(ctx context.Context) *MCPClient {
@@ -32,71 +31,82 @@ func (c *MCPClient) Connect(serverCommand string) error {
 		return fmt.Errorf("invalid server command")
 	}
 
-	// Create stdio transport to communicate with server process
-	transport := client.NewStdioTransport(parts[0], parts[1:]...)
-	c.transport = transport
+	// Create command
+	cmd := exec.Command(parts[0], parts[1:]...)
+	
+	// Create command transport
+	transport := &mcp.CommandTransport{Command: cmd}
 
-	// Create client with options
-	clientOpts := []client.ClientOption{
-		client.WithName("example-mcp-client"),
-		client.WithVersion("1.0.0"),
+	// Create client implementation
+	impl := &mcp.Implementation{
+		Name:    "example-mcp-client",
+		Version: "1.0.0",
 	}
 
-	mcpClient, err := client.NewMCPClient(clientOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to create MCP client: %w", err)
-	}
-
-	c.client = mcpClient
+	// Create client
+	c.client = mcp.NewClient(impl, nil)
 
 	// Connect to server
-	if err := c.client.Connect(c.ctx, c.transport); err != nil {
+	session, err := c.client.Connect(c.ctx, transport, nil)
+	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
 
+	c.session = session
+	
 	log.Println("Connected to MCP server")
 
-	// Initialize session
-	initResult, err := c.client.Initialize(c.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to initialize session: %w", err)
-	}
-
-	log.Printf("Server info: %s v%s", initResult.ServerInfo.Name, initResult.ServerInfo.Version)
-	log.Printf("Capabilities: Tools=%v, Prompts=%v, Resources=%v",
-		initResult.Capabilities.Tools != nil,
-		initResult.Capabilities.Prompts != nil,
-		initResult.Capabilities.Resources != nil)
-
-	return nil
-}
-
-func (c *MCPClient) ListTools() error {
-	tools, err := c.client.ListTools(c.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	fmt.Println("\nAvailable Tools:")
-	fmt.Println("================")
-	for _, tool := range tools.Tools {
-		fmt.Printf("- %s: %s\n", tool.Name, tool.Description)
-		if tool.InputSchema != nil {
-			schemaJSON, _ := json.MarshalIndent(tool.InputSchema, "  ", "  ")
-			fmt.Printf("  Parameters: %s\n", schemaJSON)
+	// Get server info
+	initResult := session.InitializeResult()
+	if initResult != nil && initResult.ServerInfo != nil {
+		log.Printf("Server info: %s v%s", initResult.ServerInfo.Name, initResult.ServerInfo.Version)
+		
+		if initResult.Capabilities != nil {
+			caps := []string{}
+			if initResult.Capabilities.Tools != nil {
+				caps = append(caps, "tools")
+			}
+			if initResult.Capabilities.Prompts != nil {
+				caps = append(caps, "prompts")
+			}
+			if initResult.Capabilities.Resources != nil {
+				caps = append(caps, "resources")
+			}
+			log.Printf("Capabilities: %v", caps)
 		}
 	}
 
 	return nil
 }
 
-func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) error {
-	argsJSON, err := json.Marshal(arguments)
-	if err != nil {
-		return fmt.Errorf("failed to marshal arguments: %w", err)
+func (c *MCPClient) ListTools() error {
+	if c.session == nil {
+		return fmt.Errorf("not connected")
 	}
 
-	result, err := c.client.CallTool(c.ctx, name, json.RawMessage(argsJSON))
+	result, err := c.session.ListTools(c.ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		return fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	fmt.Println("\nAvailable Tools:")
+	fmt.Println("================")
+	for _, tool := range result.Tools {
+		fmt.Printf("- %s: %s\n", tool.Name, tool.Description)
+	}
+
+	return nil
+}
+
+func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) error {
+	if c.session == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	result, err := c.session.CallTool(c.ctx, &mcp.CallToolParams{
+		Name:      name,
+		Arguments: arguments,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to call tool: %w", err)
 	}
@@ -105,11 +115,17 @@ func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) erro
 	fmt.Println("==================")
 	
 	for _, content := range result.Content {
-		if content.Type == "text" {
-			fmt.Println(content.Text)
-		} else {
-			resultJSON, _ := json.MarshalIndent(content, "", "  ")
-			fmt.Println(string(resultJSON))
+		switch v := content.(type) {
+		case *mcp.TextContent:
+			fmt.Println(v.Text)
+		case *mcp.ImageContent:
+			preview := "<binary>"
+			if len(v.Data) > 20 {
+				preview = string(v.Data[:20]) + "..."
+			}
+			fmt.Printf("Image: %s (MIME: %s)\n", preview, v.MIMEType)
+		default:
+			fmt.Printf("%v\n", content)
 		}
 	}
 
@@ -117,14 +133,18 @@ func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) erro
 }
 
 func (c *MCPClient) ListPrompts() error {
-	prompts, err := c.client.ListPrompts(c.ctx)
+	if c.session == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	result, err := c.session.ListPrompts(c.ctx, &mcp.ListPromptsParams{})
 	if err != nil {
 		return fmt.Errorf("failed to list prompts: %w", err)
 	}
 
 	fmt.Println("\nAvailable Prompts:")
 	fmt.Println("==================")
-	for _, prompt := range prompts.Prompts {
+	for _, prompt := range result.Prompts {
 		fmt.Printf("- %s: %s\n", prompt.Name, prompt.Description)
 		if len(prompt.Arguments) > 0 {
 			fmt.Println("  Arguments:")
@@ -142,7 +162,14 @@ func (c *MCPClient) ListPrompts() error {
 }
 
 func (c *MCPClient) GetPrompt(name string, arguments map[string]string) error {
-	result, err := c.client.GetPrompt(c.ctx, name, arguments)
+	if c.session == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	result, err := c.session.GetPrompt(c.ctx, &mcp.GetPromptParams{
+		Name:      name,
+		Arguments: arguments,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get prompt: %w", err)
 	}
@@ -156,36 +183,42 @@ func (c *MCPClient) GetPrompt(name string, arguments map[string]string) error {
 
 	for _, msg := range result.Messages {
 		fmt.Printf("\n[%s]:\n", msg.Role)
-		switch content := msg.Content.(type) {
-		case client.TextContent:
-			fmt.Println(content.Text)
-		case client.ImageContent:
-			fmt.Printf("Image: %s (MIME: %s)\n", content.Data[:20]+"...", content.MimeType)
-		case client.EmbeddedResourceContent:
-			fmt.Printf("Resource: %s\n", content.Resource.URI)
+		switch v := msg.Content.(type) {
+		case *mcp.TextContent:
+			fmt.Println(v.Text)
+		case *mcp.ImageContent:
+			preview := "<binary>"
+			if len(v.Data) > 20 {
+				preview = string(v.Data[:20]) + "..."
+			}
+			fmt.Printf("Image: %s (MIME: %s)\n", preview, v.MIMEType)
 		default:
-			contentJSON, _ := json.MarshalIndent(content, "", "  ")
-			fmt.Println(string(contentJSON))
+			fmt.Printf("%v\n", msg.Content)
 		}
 	}
 
 	return nil
 }
 
-func (c *MCPClient) ListResources() error {
-	resources, err := c.client.ListResources(c.ctx)
+func (c *MCPClient) ListRoots() error {
+	if c.session == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	result, err := c.session.ListResources(c.ctx, &mcp.ListResourcesParams{})
 	if err != nil {
-		return fmt.Errorf("failed to list resources: %w", err)
+		return fmt.Errorf("failed to list roots: %w", err)
 	}
 
 	fmt.Println("\nAvailable Resources:")
 	fmt.Println("====================")
-	for _, resource := range resources.Resources {
+	for _, resource := range result.Resources {
 		fmt.Printf("- %s\n", resource.URI)
-		fmt.Printf("  Name: %s\n", resource.Name)
-		fmt.Printf("  Description: %s\n", resource.Description)
-		if resource.MimeType != "" {
-			fmt.Printf("  MIME Type: %s\n", resource.MimeType)
+		if resource.Name != "" {
+			fmt.Printf("  Name: %s\n", resource.Name)
+		}
+		if resource.Description != "" {
+			fmt.Printf("  Description: %s\n", resource.Description)
 		}
 	}
 
@@ -193,7 +226,13 @@ func (c *MCPClient) ListResources() error {
 }
 
 func (c *MCPClient) ReadResource(uri string) error {
-	result, err := c.client.ReadResource(c.ctx, uri)
+	if c.session == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	result, err := c.session.ReadResource(c.ctx, &mcp.ReadResourceParams{
+		URI: uri,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to read resource: %w", err)
 	}
@@ -204,7 +243,7 @@ func (c *MCPClient) ReadResource(uri string) error {
 	for _, content := range result.Contents {
 		if content.Text != "" {
 			fmt.Println(content.Text)
-		} else if content.Blob != "" {
+		} else if content.Blob != nil {
 			fmt.Printf("Binary data: %d bytes\n", len(content.Blob))
 		}
 	}
@@ -244,7 +283,7 @@ func (c *MCPClient) InteractiveDemo() error {
 	// Calculate
 	if err := c.CallTool("calculate", map[string]interface{}{
 		"operation": "multiply",
-		"a":         42,
+		"a":         42.0,
 		"b":         3.14,
 	}); err != nil {
 		log.Printf("Error calling calculate: %v", err)
@@ -270,9 +309,9 @@ func (c *MCPClient) InteractiveDemo() error {
 		log.Printf("Error getting system_info prompt: %v", err)
 	}
 
-	// List resources
-	if err := c.ListResources(); err != nil {
-		log.Printf("Error listing resources: %v", err)
+	// List resources (roots)
+	if err := c.ListRoots(); err != nil {
+		log.Printf("Error listing roots: %v", err)
 	}
 
 	// Read resources
@@ -292,8 +331,8 @@ func (c *MCPClient) InteractiveDemo() error {
 }
 
 func (c *MCPClient) Disconnect() error {
-	if c.client != nil {
-		return c.client.Close()
+	if c.session != nil {
+		return c.session.Close()
 	}
 	return nil
 }
@@ -301,10 +340,9 @@ func (c *MCPClient) Disconnect() error {
 func main() {
 	// Command line flags
 	var (
-		serverCmd   = flag.String("server", "", "Server command to execute (e.g., 'node server.js')")
+		serverCmd   = flag.String("server", "", "Server command to execute (e.g., 'go run server.go')")
 		interactive = flag.Bool("interactive", true, "Run interactive demo")
 		toolName    = flag.String("tool", "", "Call specific tool")
-		toolArgs    = flag.String("args", "{}", "Tool arguments as JSON")
 	)
 	flag.Parse()
 
@@ -334,10 +372,14 @@ func main() {
 
 	// Run demo or specific tool
 	if *toolName != "" {
-		// Parse tool arguments
-		var args map[string]interface{}
-		if err := json.Unmarshal([]byte(*toolArgs), &args); err != nil {
-			log.Fatalf("Failed to parse tool arguments: %v", err)
+		// Call tool with default arguments
+		args := map[string]interface{}{}
+		if *toolName == "echo" {
+			args["message"] = "Test message"
+		} else if *toolName == "calculate" {
+			args["operation"] = "add"
+			args["a"] = 10.0
+			args["b"] = 20.0
 		}
 
 		// Call tool
