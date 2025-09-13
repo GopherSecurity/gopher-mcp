@@ -115,6 +115,9 @@ test: deps
 		pkg=$$(echo "$$line" | awk '{print $$2}' | sed 's|github.com/GopherSecurity/gopher-mcp/||'); \
 		status=$$(echo "$$line" | awk '{print $$1}'); \
 		time=$$(echo "$$line" | awk '{print $$3, $$4, $$5}'); \
+		if [ "$$status" = "?" ] && echo "$$pkg" | grep -q "^src/"; then \
+			continue; \
+		fi; \
 		if [ "$$status" = "ok" ]; then \
 			printf "  ${GREEN}✓${NC} %-40s %s\n" "$$pkg" "$$time"; \
 		elif [ "$$status" = "FAIL" ]; then \
