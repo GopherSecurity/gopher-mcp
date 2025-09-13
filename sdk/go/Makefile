@@ -112,12 +112,16 @@ test: deps
 	@echo ""
 	@echo "${YELLOW}Package Results:${NC}"
 	@grep -E "^(ok|FAIL|\?)" $(COVERAGE_DIR)/test_report.txt | sort -u | while read line; do \
-		if echo "$$line" | grep -q "^ok"; then \
-			echo "  ${GREEN}✓${NC} $$line"; \
-		elif echo "$$line" | grep -q "^FAIL"; then \
-			echo "  ${RED}✗${NC} $$line"; \
+		pkg=$$(echo "$$line" | awk '{print $$2}' | sed 's|github.com/GopherSecurity/gopher-mcp/||'); \
+		status=$$(echo "$$line" | awk '{print $$1}'); \
+		time=$$(echo "$$line" | awk '{print $$3, $$4, $$5}'); \
+		if [ "$$status" = "ok" ]; then \
+			printf "  ${GREEN}✓${NC} %-40s %s\n" "$$pkg" "$$time"; \
+		elif [ "$$status" = "FAIL" ]; then \
+			printf "  ${RED}✗${NC} %-40s %s\n" "$$pkg" "$$time"; \
 		else \
-			echo "  ${YELLOW}-${NC} $$line"; \
+			no_test=$$(echo "$$line" | grep -o "\[no test files\]" || echo ""); \
+			printf "  ${YELLOW}-${NC} %-40s %s\n" "$$pkg" "$$no_test"; \
 		fi \
 	done
 	@echo ""
