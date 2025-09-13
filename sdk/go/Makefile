@@ -31,8 +31,9 @@ LDFLAGS=-ldflags "-s -w"
 BUILD_FLAGS=-v
 TEST_FLAGS=-v -race -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic
 
-# CGO configuration for C++ library integration
-CGO_ENABLED=1
+# CGO configuration for C++ library integration (optional)
+# Set CGO_ENABLED=1 only if C library is available
+CGO_ENABLED?=0
 CGO_CFLAGS=-I../../include
 CGO_LDFLAGS=-L../../build/lib -lgopher_mcp_c
 
