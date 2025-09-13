@@ -1,14 +1,17 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/GopherSecurity/gopher-mcp/src/filters"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,7 +38,28 @@ func (c *MCPClient) Connect(serverCommand string) error {
 	cmd := exec.Command(parts[0], parts[1:]...)
 	
 	// Create command transport
-	transport := &mcp.CommandTransport{Command: cmd}
+	baseTransport := &mcp.CommandTransport{Command: cmd}
+	
+	// Create filtered transport wrapper
+	filteredTransport := filters.NewFilteredTransport(baseTransport)
+	
+	// Add logging filter for debugging
+	loggingFilter := filters.NewLoggingFilter("[Client] ", false)
+	filteredTransport.AddInboundFilter(filters.NewFilterAdapter(loggingFilter, "ClientLogging", "logging"))
+	filteredTransport.AddOutboundFilter(filters.NewFilterAdapter(loggingFilter, "ClientLogging", "logging"))
+	
+	// Add validation filter
+	validationFilter := filters.NewValidationFilter(1024 * 1024) // 1MB max message size
+	filteredTransport.AddOutboundFilter(filters.NewFilterAdapter(validationFilter, "ClientValidation", "validation"))
+	
+	// Add compression filter (optional, must match server configuration)
+	if os.Getenv("MCP_ENABLE_COMPRESSION") == "true" {
+		compressionFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
+		// For client, we decompress inbound and compress outbound (opposite of server)
+		decompressFilter := filters.NewCompressionFilter(gzip.DefaultCompression)
+		filteredTransport.AddInboundFilter(filters.NewFilterAdapter(decompressFilter, "ClientDecompression", "decompression"))
+		log.Println("Compression enabled for client messages")
+	}
 
 	// Create client implementation
 	impl := &mcp.Implementation{
@@ -46,15 +70,15 @@ func (c *MCPClient) Connect(serverCommand string) error {
 	// Create client
 	c.client = mcp.NewClient(impl, nil)
 
-	// Connect to server
-	session, err := c.client.Connect(c.ctx, transport, nil)
+	// Connect to server using filtered transport
+	session, err := c.client.Connect(c.ctx, filteredTransport, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
 
 	c.session = session
 	
-	log.Println("Connected to MCP server")
+	log.Println("Connected to MCP server with filters")
 
 	// Get server info
 	initResult := session.InitializeResult()
