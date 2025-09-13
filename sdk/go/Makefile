@@ -321,6 +321,8 @@ examples: deps
 	@mkdir -p $(BUILD_DIR)
 	@echo "  Building example server..."
 	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/server ./examples/server.go
+	@echo "  Building example client..."
+	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/client ./examples/client.go
 	@echo "  Building filter test..."
 	@$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/test-filters ./examples/test_filters.go
 	@echo "${GREEN}Examples built successfully!${NC}"
@@ -329,10 +331,14 @@ examples: deps
 	@echo "  Running filter tests..."
 	@$(BUILD_DIR)/test-filters
 	@echo ""
+	@echo "  Testing client-server communication..."
+	@$(BUILD_DIR)/client -server "$(BUILD_DIR)/server" -interactive=true || true
+	@echo ""
 	@echo "${GREEN}Filter examples tested successfully!${NC}"
 	@echo ""
 	@echo "To run the examples manually:"
 	@echo "  Server: ${BUILD_DIR}/server"
+	@echo "  Client: ${BUILD_DIR}/client -server ${BUILD_DIR}/server"
 	@echo "  Filter Test: ${BUILD_DIR}/test-filters"
 	@echo ""
 	@echo "To enable compression, set MCP_ENABLE_COMPRESSION=true"
