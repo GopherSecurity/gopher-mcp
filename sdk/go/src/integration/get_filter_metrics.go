@@ -56,18 +56,22 @@ type MetricsCollector struct {
 
 // GetFilterMetrics retrieves metrics for all filters.
 func (fc *FilteredMCPClient) GetFilterMetrics() *SystemMetrics {
+	// Get system metrics snapshot - only hold lock briefly
 	fc.metricsCollector.mu.RLock()
-	defer fc.metricsCollector.mu.RUnlock()
+	systemMetrics := fc.metricsCollector.systemMetrics
+	chainMetricsCount := len(fc.metricsCollector.chainMetrics)
+	filterMetricsCount := len(fc.metricsCollector.filterMetrics)
+	fc.metricsCollector.mu.RUnlock()
 	
 	// Create system metrics snapshot
 	metrics := &SystemMetrics{
-		TotalRequests:      fc.metricsCollector.systemMetrics.TotalRequests,
-		TotalResponses:     fc.metricsCollector.systemMetrics.TotalResponses,
-		TotalNotifications: fc.metricsCollector.systemMetrics.TotalNotifications,
-		ActiveChains:       len(fc.metricsCollector.chainMetrics),
-		ActiveFilters:      len(fc.metricsCollector.filterMetrics),
-		SystemUptime:       time.Since(fc.metricsCollector.systemMetrics.StartTime),
-		StartTime:          fc.metricsCollector.systemMetrics.StartTime,
+		TotalRequests:      systemMetrics.TotalRequests,
+		TotalResponses:     systemMetrics.TotalResponses,
+		TotalNotifications: systemMetrics.TotalNotifications,
+		ActiveChains:       chainMetricsCount,
+		ActiveFilters:      filterMetricsCount,
+		SystemUptime:       time.Since(systemMetrics.StartTime),
+		StartTime:          systemMetrics.StartTime,
 	}
 	
 	// Get request chain metrics
@@ -107,9 +111,9 @@ func (fc *FilteredMCPClient) getChainMetrics(chain *FilterChain) *ChainMetrics {
 		Filters:     make([]*FilterMetrics, 0, len(chain.filters)),
 	}
 	
-	// Collect metrics for each filter
+	// Collect metrics for each filter - no lock held here
 	for _, filter := range chain.filters {
-		filterMetrics := fc.getFilterMetrics(filter)
+		filterMetrics := fc.getFilterMetricsUnlocked(filter)
 		metrics.Filters = append(metrics.Filters, filterMetrics)
 		metrics.TotalProcessed += filterMetrics.ProcessedCount
 		metrics.TotalDuration += filterMetrics.TotalDuration
@@ -122,8 +126,13 @@ func (fc *FilteredMCPClient) getChainMetrics(chain *FilterChain) *ChainMetrics {
 		)
 	}
 	
-	// Store metrics
+	// Store metrics - check again to avoid race
 	fc.metricsCollector.mu.Lock()
+	// Double-check in case another goroutine created it
+	if existing, exists := fc.metricsCollector.chainMetrics[chainID]; exists {
+		fc.metricsCollector.mu.Unlock()
+		return existing
+	}
 	fc.metricsCollector.chainMetrics[chainID] = metrics
 	fc.metricsCollector.mu.Unlock()
 	
@@ -150,6 +159,39 @@ func (fc *FilteredMCPClient) getFilterMetrics(filter Filter) *FilterMetrics {
 	
 	// Store metrics
 	fc.metricsCollector.mu.Lock()
+	fc.metricsCollector.filterMetrics[filterID] = metrics
+	fc.metricsCollector.mu.Unlock()
+	
+	return metrics
+}
+
+// getFilterMetricsUnlocked retrieves metrics for a single filter without holding the lock.
+// This is used internally when we're already in a metrics collection context.
+func (fc *FilteredMCPClient) getFilterMetricsUnlocked(filter Filter) *FilterMetrics {
+	filterID := filter.GetID()
+	
+	// Try to get existing metrics with minimal locking
+	fc.metricsCollector.mu.RLock()
+	existing, exists := fc.metricsCollector.filterMetrics[filterID]
+	fc.metricsCollector.mu.RUnlock()
+	
+	if exists {
+		return existing
+	}
+	
+	// Create new filter metrics
+	metrics := &FilterMetrics{
+		FilterID:   filterID,
+		FilterName: filter.GetName(),
+	}
+	
+	// Store metrics with double-check pattern
+	fc.metricsCollector.mu.Lock()
+	// Check again in case another goroutine created it
+	if existing, exists := fc.metricsCollector.filterMetrics[filterID]; exists {
+		fc.metricsCollector.mu.Unlock()
+		return existing
+	}
 	fc.metricsCollector.filterMetrics[filterID] = metrics
 	fc.metricsCollector.mu.Unlock()
 	

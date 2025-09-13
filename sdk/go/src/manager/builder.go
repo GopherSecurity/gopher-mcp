@@ -175,12 +175,22 @@ func (cb *ChainBuilder) AddValidator(validator Validator) *ChainBuilder {
 func (cb *ChainBuilder) Validate() error {
 	// Check for accumulated errors
 	if len(cb.errors) > 0 {
-		return fmt.Errorf("builder has validation errors: %v", cb.errors)
+		// Join multiple errors into a single error message
+		var errMessages []string
+		for _, err := range cb.errors {
+			errMessages = append(errMessages, err.Error())
+		}
+		return fmt.Errorf("builder has validation errors: %v", errMessages)
 	}
 	
 	// Validate configuration
-	if err := cb.config.Validate(); err != nil {
-		return fmt.Errorf("invalid chain config: %w", err)
+	if errs := cb.config.Validate(); len(errs) > 0 {
+		// Join multiple validation errors into a single error message
+		var errMessages []string
+		for _, err := range errs {
+			errMessages = append(errMessages, err.Error())
+		}
+		return fmt.Errorf("invalid chain config: %v", errMessages)
 	}
 	
 	// Check if we have any filters
