@@ -9,12 +9,12 @@ import (
 
 // Subscription represents an active subscription.
 type Subscription struct {
-	ID         string
-	Resource   string
-	Filters    []Filter
-	Chain      *FilterChain
-	Active     bool
-	mu         sync.RWMutex
+	ID       string
+	Resource string
+	Filters  []Filter
+	Chain    *FilterChain
+	Active   bool
+	mu       sync.RWMutex
 }
 
 // SubscribeWithFilters subscribes to resources with filters.
@@ -24,7 +24,7 @@ func (fc *FilteredMCPClient) SubscribeWithFilters(resource string, filters ...Fi
 	for _, filter := range filters {
 		subChain.Add(filter)
 	}
-	
+
 	// Create subscription
 	subscription := &Subscription{
 		ID:       generateSubscriptionID(),
@@ -33,7 +33,7 @@ func (fc *FilteredMCPClient) SubscribeWithFilters(resource string, filters ...Fi
 		Chain:    subChain,
 		Active:   true,
 	}
-	
+
 	// Register subscription
 	fc.mu.Lock()
 	if fc.subscriptions == nil {
@@ -41,7 +41,7 @@ func (fc *FilteredMCPClient) SubscribeWithFilters(resource string, filters ...Fi
 	}
 	fc.subscriptions[subscription.ID] = subscription
 	fc.mu.Unlock()
-	
+
 	// Subscribe through MCP client
 	// err := fc.MCPClient.Subscribe(resource)
 	// if err != nil {
@@ -50,10 +50,10 @@ func (fc *FilteredMCPClient) SubscribeWithFilters(resource string, filters ...Fi
 	//     fc.mu.Unlock()
 	//     return nil, err
 	// }
-	
+
 	// Start handling notifications for this subscription
 	go fc.handleSubscriptionNotifications(subscription)
-	
+
 	return subscription, nil
 }
 
@@ -66,31 +66,31 @@ func (fc *FilteredMCPClient) handleSubscriptionNotifications(sub *Subscription) 
 			break
 		}
 		sub.mu.RUnlock()
-		
+
 		// In real implementation, would receive notifications from MCP client
 		// notification := fc.MCPClient.ReceiveNotification()
-		
+
 		// Simulate notification
 		notification := map[string]interface{}{
 			"resource": sub.Resource,
 			"data":     "notification_data",
 		}
-		
+
 		// Apply subscription filters
 		notifData, err := serializeNotification(notification)
 		if err != nil {
 			continue
 		}
-		
+
 		filtered, err := sub.Chain.Process(notifData)
 		if err != nil {
 			// Log filter error
 			continue
 		}
-		
+
 		// Deliver filtered notification
 		fc.deliverNotification(sub.ID, filtered)
-		
+
 		// For simulation, break after one iteration
 		break
 	}
@@ -103,12 +103,12 @@ func (fc *FilteredMCPClient) deliverNotification(subscriptionID string, data []b
 	if err != nil {
 		return
 	}
-	
+
 	// Call registered handlers
 	fc.mu.RLock()
 	handlers := fc.notificationHandlers[subscriptionID]
 	fc.mu.RUnlock()
-	
+
 	for _, handler := range handlers {
 		handler(notification)
 	}
@@ -119,7 +119,7 @@ func (sub *Subscription) Unsubscribe() error {
 	sub.mu.Lock()
 	sub.Active = false
 	sub.mu.Unlock()
-	
+
 	// Unsubscribe through MCP client
 	// return fc.MCPClient.Unsubscribe(sub.Resource)
 	return nil
@@ -129,13 +129,13 @@ func (sub *Subscription) Unsubscribe() error {
 func (sub *Subscription) UpdateFilters(filters ...Filter) {
 	sub.mu.Lock()
 	defer sub.mu.Unlock()
-	
+
 	// Create new chain
 	newChain := NewFilterChain()
 	for _, filter := range filters {
 		newChain.Add(filter)
 	}
-	
+
 	sub.Filters = filters
 	sub.Chain = newChain
 }

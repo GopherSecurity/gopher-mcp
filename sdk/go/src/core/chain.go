@@ -71,21 +71,21 @@ type FilterChain struct {
 // NewFilterChain creates a new filter chain with the given configuration.
 func NewFilterChain(config types.ChainConfig) *FilterChain {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	chain := &FilterChain{
 		filters: make([]Filter, 0),
 		mode:    config.ExecutionMode,
 		config:  config,
-		stats:   types.ChainStatistics{
+		stats: types.ChainStatistics{
 			FilterStats: make(map[string]types.FilterStatistics),
 		},
-		ctx:     ctx,
-		cancel:  cancel,
+		ctx:    ctx,
+		cancel: cancel,
 	}
-	
+
 	// Initialize state to Uninitialized
 	chain.state.Store(types.Uninitialized)
-	
+
 	return chain
 }
 
@@ -233,7 +233,7 @@ func (fc *FilterChain) Remove(name string) error {
 	// Find and remove the filter
 	found := false
 	newFilters := make([]Filter, 0, len(fc.filters))
-	
+
 	for _, filter := range fc.filters {
 		if filter.Name() == name {
 			// Close the filter before removing
@@ -435,7 +435,7 @@ func (fc *FilterChain) updateChainStats(startTime time.Time, success bool) {
 
 	// Calculate latency
 	latency := time.Since(startTime)
-	
+
 	// Update average latency
 	if fc.stats.TotalExecutions > 0 {
 		totalLatency := fc.stats.AverageLatency * time.Duration(fc.stats.TotalExecutions-1)
@@ -468,7 +468,7 @@ func (fc *FilterChain) GetFilters() []Filter {
 	// Create a copy to prevent external modification
 	filters := make([]Filter, len(fc.filters))
 	copy(filters, fc.filters)
-	
+
 	return filters
 }
 
@@ -502,7 +502,7 @@ func (fc *FilterChain) Initialize() error {
 			TimeoutMs:        int(fc.config.Timeout.Milliseconds()),
 			BypassOnError:    fc.config.ErrorHandling == "continue",
 		}
-		
+
 		if err := filter.Initialize(filterConfig); err != nil {
 			// Cleanup already initialized filters
 			for j := len(initialized) - 1; j >= 0; j-- {

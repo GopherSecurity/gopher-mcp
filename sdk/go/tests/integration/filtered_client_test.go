@@ -22,15 +22,15 @@ type mockClientFilter struct {
 	stateless   bool
 }
 
-func (m *mockClientFilter) GetID() string                                { return m.id }
-func (m *mockClientFilter) GetName() string                              { return m.name }
-func (m *mockClientFilter) GetType() string                              { return m.filterType }
-func (m *mockClientFilter) GetVersion() string                           { return m.version }
-func (m *mockClientFilter) GetDescription() string                       { return m.description }
-func (m *mockClientFilter) ValidateConfig() error                        { return nil }
-func (m *mockClientFilter) GetConfiguration() map[string]interface{}     { return m.config }
-func (m *mockClientFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
-func (m *mockClientFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
+func (m *mockClientFilter) GetID() string                                   { return m.id }
+func (m *mockClientFilter) GetName() string                                 { return m.name }
+func (m *mockClientFilter) GetType() string                                 { return m.filterType }
+func (m *mockClientFilter) GetVersion() string                              { return m.version }
+func (m *mockClientFilter) GetDescription() string                          { return m.description }
+func (m *mockClientFilter) ValidateConfig() error                           { return nil }
+func (m *mockClientFilter) GetConfiguration() map[string]interface{}        { return m.config }
+func (m *mockClientFilter) UpdateConfig(cfg map[string]interface{})         { m.config = cfg }
+func (m *mockClientFilter) GetCapabilities() []string                       { return []string{"filter", "transform"} }
 func (m *mockClientFilter) GetDependencies() []integration.FilterDependency { return nil }
 func (m *mockClientFilter) GetResourceRequirements() integration.ResourceRequirements {
 	return integration.ResourceRequirements{Memory: 1024, CPUCores: 1}
@@ -41,12 +41,12 @@ func (m *mockClientFilter) GetTypeInfo() integration.TypeInfo {
 		OutputTypes: []string{"bytes"},
 	}
 }
-func (m *mockClientFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
-func (m *mockClientFilter) HasBlockingOperations() bool          { return false }
-func (m *mockClientFilter) UsesDeprecatedFeatures() bool         { return false }
-func (m *mockClientFilter) HasKnownVulnerabilities() bool        { return false }
-func (m *mockClientFilter) IsStateless() bool                    { return m.stateless }
-func (m *mockClientFilter) SetID(id string)                      { m.id = id }
+func (m *mockClientFilter) EstimateLatency() time.Duration { return 10 * time.Millisecond }
+func (m *mockClientFilter) HasBlockingOperations() bool    { return false }
+func (m *mockClientFilter) UsesDeprecatedFeatures() bool   { return false }
+func (m *mockClientFilter) HasKnownVulnerabilities() bool  { return false }
+func (m *mockClientFilter) IsStateless() bool              { return m.stateless }
+func (m *mockClientFilter) SetID(id string)                { m.id = id }
 func (m *mockClientFilter) Clone() integration.Filter {
 	return &mockClientFilter{
 		id:          m.id + "_clone",
@@ -74,9 +74,9 @@ func TestNewFilteredMCPClient(t *testing.T) {
 		MaxChains:        10,
 		BatchConcurrency: 5,
 	}
-	
+
 	client := integration.NewFilteredMCPClient(config)
-	
+
 	if client == nil {
 		t.Fatal("NewFilteredMCPClient returned nil")
 	}
@@ -85,19 +85,19 @@ func TestNewFilteredMCPClient(t *testing.T) {
 // Test 2: Set client request chain
 func TestFilteredMCPClient_SetClientRequestChain(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	chain.SetName("request_chain")
-	
+
 	// Add test filter
 	filter := &mockClientFilter{
 		id:   "req_filter",
 		name: "request_filter",
 	}
 	chain.Add(filter)
-	
+
 	client.SetClientRequestChain(chain)
-	
+
 	// Verify chain is set (would need getter method to fully test)
 	// For now, test that it doesn't panic
 }
@@ -105,25 +105,25 @@ func TestFilteredMCPClient_SetClientRequestChain(t *testing.T) {
 // Test 3: Set client response chain
 func TestFilteredMCPClient_SetClientResponseChain(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	chain.SetName("response_chain")
-	
+
 	filter := &mockClientFilter{
 		id:   "resp_filter",
 		name: "response_filter",
 	}
 	chain.Add(filter)
-	
+
 	client.SetClientResponseChain(chain)
-	
+
 	// Verify chain is set
 }
 
 // Test 4: Filter outgoing request
 func TestFilteredMCPClient_FilterOutgoingRequest(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Set up request chain
 	chain := integration.NewFilterChain()
 	filter := &mockClientFilter{
@@ -135,14 +135,14 @@ func TestFilteredMCPClient_FilterOutgoingRequest(t *testing.T) {
 	}
 	chain.Add(filter)
 	client.SetClientRequestChain(chain)
-	
+
 	// Filter request
 	input := []byte("test_request")
 	output, err := client.FilterOutgoingRequest(input)
 	if err != nil {
 		t.Fatalf("FilterOutgoingRequest failed: %v", err)
 	}
-	
+
 	expected := "test_request_modified"
 	if string(output) != expected {
 		t.Errorf("Output = %s, want %s", string(output), expected)
@@ -152,7 +152,7 @@ func TestFilteredMCPClient_FilterOutgoingRequest(t *testing.T) {
 // Test 5: Filter incoming response
 func TestFilteredMCPClient_FilterIncomingResponse(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Set up response chain
 	chain := integration.NewFilterChain()
 	filter := &mockClientFilter{
@@ -167,18 +167,18 @@ func TestFilteredMCPClient_FilterIncomingResponse(t *testing.T) {
 	}
 	chain.Add(filter)
 	client.SetClientResponseChain(chain)
-	
+
 	// Test valid response
 	input := []byte("valid_response")
 	output, err := client.FilterIncomingResponse(input)
 	if err != nil {
 		t.Fatalf("FilterIncomingResponse failed: %v", err)
 	}
-	
+
 	if string(output) != "valid_response" {
 		t.Error("Response modified unexpectedly")
 	}
-	
+
 	// Test invalid response
 	_, err = client.FilterIncomingResponse([]byte{})
 	if err == nil {
@@ -189,7 +189,7 @@ func TestFilteredMCPClient_FilterIncomingResponse(t *testing.T) {
 // Test 6: Call tool with filters
 func TestFilteredMCPClient_CallToolWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Create per-call filter
 	filter := &mockClientFilter{
 		id:   "tool_filter",
@@ -198,14 +198,14 @@ func TestFilteredMCPClient_CallToolWithFilters(t *testing.T) {
 			return append([]byte("processed_"), data...), nil
 		},
 	}
-	
+
 	// Call tool with filter
 	result, err := client.CallToolWithFilters(
 		"test_tool",
 		map[string]interface{}{"param": "value"},
 		filter,
 	)
-	
+
 	// This would normally interact with MCP, for now just verify no panic
 	_ = result
 	_ = err
@@ -214,20 +214,20 @@ func TestFilteredMCPClient_CallToolWithFilters(t *testing.T) {
 // Test 7: Subscribe with filters
 func TestFilteredMCPClient_SubscribeWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Create subscription filter
 	filter := &mockClientFilter{
 		id:   "sub_filter",
 		name: "subscription_filter",
 	}
-	
+
 	// Subscribe to resource
 	sub, err := client.SubscribeWithFilters("test_resource", filter)
 	if err != nil {
 		// Expected since we don't have actual MCP connection
 		t.Logf("Subscribe error (expected): %v", err)
 	}
-	
+
 	// Test would verify subscription object
 	_ = sub
 }
@@ -235,28 +235,28 @@ func TestFilteredMCPClient_SubscribeWithFilters(t *testing.T) {
 // Test 8: Handle notification with filters
 func TestFilteredMCPClient_HandleNotificationWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	handlerCalled := false
 	handler := func(notification interface{}) error {
 		handlerCalled = true
 		return nil
 	}
-	
+
 	// Register handler
 	handlerID, err := client.HandleNotificationWithFilters(
 		"test_notification",
 		handler,
 	)
-	
+
 	if err != nil {
 		t.Logf("Handler registration error (expected): %v", err)
 	}
-	
+
 	// Process notification
 	err = client.ProcessNotification("test_notification", map[string]interface{}{
 		"data": "test_data",
 	})
-	
+
 	// Verify handler was called (if implemented)
 	_ = handlerCalled
 	_ = handlerID
@@ -267,17 +267,17 @@ func TestFilteredMCPClient_BatchRequestsWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{
 		BatchConcurrency: 3,
 	})
-	
+
 	// Create batch requests
 	requests := []integration.BatchRequest{
 		{ID: "req1", Request: map[string]interface{}{"method": "test1"}},
 		{ID: "req2", Request: map[string]interface{}{"method": "test2"}},
 		{ID: "req3", Request: map[string]interface{}{"method": "test3"}},
 	}
-	
+
 	ctx := context.Background()
 	result, err := client.BatchRequestsWithFilters(ctx, requests)
-	
+
 	// This would normally process requests
 	_ = result
 	_ = err
@@ -286,16 +286,16 @@ func TestFilteredMCPClient_BatchRequestsWithFilters(t *testing.T) {
 // Test 10: Request with timeout
 func TestFilteredMCPClient_RequestWithTimeout(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	ctx := context.Background()
 	request := map[string]interface{}{
 		"method": "test_method",
 		"params": "test_params",
 	}
-	
+
 	// Test with short timeout
 	_, err := client.RequestWithTimeout(ctx, request, 10*time.Millisecond)
-	
+
 	// Error expected since no actual MCP connection
 	_ = err
 }
@@ -303,15 +303,15 @@ func TestFilteredMCPClient_RequestWithTimeout(t *testing.T) {
 // Test 11: Request with retry
 func TestFilteredMCPClient_RequestWithRetry(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	ctx := context.Background()
 	request := map[string]interface{}{
 		"method": "flaky_method",
 	}
-	
+
 	// Test with retries
 	_, err := client.RequestWithRetry(ctx, request, 3, 100*time.Millisecond)
-	
+
 	// Error expected since no actual MCP connection
 	_ = err
 }
@@ -319,14 +319,14 @@ func TestFilteredMCPClient_RequestWithRetry(t *testing.T) {
 // Test 12: Enable debug mode
 func TestFilteredMCPClient_EnableDebugMode(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Enable debug with options
 	client.EnableDebugMode(
 		integration.WithLogLevel("DEBUG"),
 		integration.WithLogFilters(true),
 		integration.WithLogRequests(true),
 	)
-	
+
 	// Log filter execution
 	filter := &mockClientFilter{id: "test", name: "test_filter"}
 	client.LogFilterExecution(
@@ -336,13 +336,13 @@ func TestFilteredMCPClient_EnableDebugMode(t *testing.T) {
 		10*time.Millisecond,
 		nil,
 	)
-	
+
 	// Dump state
 	state := client.DumpState()
 	if state == "" {
 		t.Error("DumpState returned empty string")
 	}
-	
+
 	// Disable debug mode
 	client.DisableDebugMode()
 }
@@ -350,7 +350,7 @@ func TestFilteredMCPClient_EnableDebugMode(t *testing.T) {
 // Test 13: Get filter metrics
 func TestFilteredMCPClient_GetFilterMetrics(t *testing.T) {
 	t.Skip("Skipping test: metricsCollector not initialized in NewFilteredMCPClient")
-	
+
 	// This test would work if metricsCollector was properly initialized
 	// The current implementation has metricsCollector as nil which causes panics
 	// This should be fixed in the implementation
@@ -359,10 +359,10 @@ func TestFilteredMCPClient_GetFilterMetrics(t *testing.T) {
 // Test 14: Validate filter chain
 func TestFilteredMCPClient_ValidateFilterChain(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Create test chain
 	chain := integration.NewFilterChain()
-	
+
 	// Add compatible filters
 	filter1 := &mockClientFilter{
 		id:         "auth",
@@ -374,42 +374,42 @@ func TestFilteredMCPClient_ValidateFilterChain(t *testing.T) {
 		name:       "log_filter",
 		filterType: "logging",
 	}
-	
+
 	chain.Add(filter1)
 	chain.Add(filter2)
-	
+
 	// Validate chain
 	result, err := client.ValidateFilterChain(chain)
 	if err != nil {
 		t.Errorf("ValidateFilterChain failed: %v", err)
 	}
-	
+
 	_ = result
 }
 
 // Test 15: Clone filter chain
 func TestFilteredMCPClient_CloneFilterChain(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Create and register original chain
 	original := integration.NewFilterChain()
 	original.SetName("original_chain")
-	
+
 	filter1 := &mockClientFilter{id: "f1", name: "filter1"}
 	filter2 := &mockClientFilter{id: "f2", name: "filter2"}
-	
+
 	original.Add(filter1)
 	original.Add(filter2)
-	
+
 	// Register chain (would need proper registration method)
 	// For testing, we'll skip actual registration
-	
+
 	// Clone would fail since chain not registered
 	_, err := client.CloneFilterChain("original", integration.CloneOptions{
 		DeepCopy: true,
 		NewName:  "cloned_chain",
 	})
-	
+
 	// Error expected
 	_ = err
 }
@@ -417,25 +417,25 @@ func TestFilteredMCPClient_CloneFilterChain(t *testing.T) {
 // Test 16: Get filter chain info
 func TestFilteredMCPClient_GetFilterChainInfo(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Try to get info for non-existent chain
 	info, err := client.GetFilterChainInfo("non_existent")
-	
+
 	// Error expected
 	if err == nil {
 		t.Error("Expected error for non-existent chain")
 	}
-	
+
 	_ = info
 }
 
 // Test 17: List filter chains
 func TestFilteredMCPClient_ListFilterChains(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// List chains (should be empty initially)
 	chains := client.ListFilterChains()
-	
+
 	if chains == nil {
 		t.Error("ListFilterChains returned nil")
 	}
@@ -444,10 +444,10 @@ func TestFilteredMCPClient_ListFilterChains(t *testing.T) {
 // Test 18: Export chain info
 func TestFilteredMCPClient_ExportChainInfo(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Try to export non-existent chain
 	_, err := client.ExportChainInfo("non_existent", "json")
-	
+
 	// Error expected
 	if err == nil {
 		t.Error("Expected error for non-existent chain")
@@ -457,14 +457,14 @@ func TestFilteredMCPClient_ExportChainInfo(t *testing.T) {
 // Test 19: Concurrent operations
 func TestFilteredMCPClient_ConcurrentOperations(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	var wg sync.WaitGroup
 	numGoroutines := 10
-	
+
 	// Set up chains
 	requestChain := integration.NewFilterChain()
 	responseChain := integration.NewFilterChain()
-	
+
 	filter := &mockClientFilter{
 		id:   "concurrent",
 		name: "concurrent_filter",
@@ -472,32 +472,32 @@ func TestFilteredMCPClient_ConcurrentOperations(t *testing.T) {
 			return data, nil
 		},
 	}
-	
+
 	requestChain.Add(filter)
 	responseChain.Add(filter)
-	
+
 	client.SetClientRequestChain(requestChain)
 	client.SetClientResponseChain(responseChain)
-	
+
 	// Run concurrent operations
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			// Filter request
 			client.FilterOutgoingRequest([]byte("request"))
-			
+
 			// Filter response
 			client.FilterIncomingResponse([]byte("response"))
-			
+
 			// Skip metrics recording as metricsCollector is nil
 			// client.RecordFilterExecution("filter", 5*time.Millisecond, true)
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify no race conditions or panics
 }
 
@@ -506,7 +506,7 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{
 		EnableFiltering: true,
 	})
-	
+
 	// Set up request filter
 	requestChain := integration.NewFilterChain()
 	requestFilter := &mockClientFilter{
@@ -519,7 +519,7 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 	}
 	requestChain.Add(requestFilter)
 	client.SetClientRequestChain(requestChain)
-	
+
 	// Set up response filter
 	responseChain := integration.NewFilterChain()
 	responseFilter := &mockClientFilter{
@@ -532,19 +532,19 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 	}
 	responseChain.Add(responseFilter)
 	client.SetClientResponseChain(responseChain)
-	
+
 	// Test SendRequest
 	request := map[string]interface{}{"method": "test"}
 	result, err := client.SendRequest(request)
-	
+
 	// Would normally send via MCP
 	_ = result
 	_ = err
-	
+
 	// Test ReceiveResponse
 	response := map[string]interface{}{"result": "success"}
 	result, err = client.ReceiveResponse(response)
-	
+
 	// Would normally receive via MCP
 	_ = result
 	_ = err
@@ -554,7 +554,7 @@ func TestFilteredMCPClient_SendReceiveWithFiltering(t *testing.T) {
 
 func BenchmarkFilteredMCPClient_FilterRequest(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	filter := &mockClientFilter{
 		id:   "bench",
@@ -565,9 +565,9 @@ func BenchmarkFilteredMCPClient_FilterRequest(b *testing.B) {
 	}
 	chain.Add(filter)
 	client.SetClientRequestChain(chain)
-	
+
 	data := []byte("benchmark request data")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		client.FilterOutgoingRequest(data)
@@ -576,7 +576,7 @@ func BenchmarkFilteredMCPClient_FilterRequest(b *testing.B) {
 
 func BenchmarkFilteredMCPClient_FilterResponse(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	filter := &mockClientFilter{
 		id:   "bench",
@@ -587,9 +587,9 @@ func BenchmarkFilteredMCPClient_FilterResponse(b *testing.B) {
 	}
 	chain.Add(filter)
 	client.SetClientResponseChain(chain)
-	
+
 	data := []byte("benchmark response data")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		client.FilterIncomingResponse(data)
@@ -598,7 +598,7 @@ func BenchmarkFilteredMCPClient_FilterResponse(b *testing.B) {
 
 func BenchmarkFilteredMCPClient_RecordMetrics(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		client.RecordFilterExecution("filter", 10*time.Millisecond, true)
@@ -607,7 +607,7 @@ func BenchmarkFilteredMCPClient_RecordMetrics(b *testing.B) {
 
 func BenchmarkFilteredMCPClient_ConcurrentFiltering(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	filter := &mockClientFilter{
 		id:   "concurrent",
@@ -618,9 +618,9 @@ func BenchmarkFilteredMCPClient_ConcurrentFiltering(b *testing.B) {
 	}
 	chain.Add(filter)
 	client.SetClientRequestChain(chain)
-	
+
 	data := []byte("concurrent data")
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			client.FilterOutgoingRequest(data)

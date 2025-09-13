@@ -5,16 +5,16 @@ package manager
 func (cb *ChainBuilder) OptimizeChain() *ChainBuilder {
 	// Analyze filter arrangement
 	cb.analyzeFilters()
-	
+
 	// Combine compatible filters
 	cb.combineCompatible()
-	
+
 	// Parallelize independent filters
 	cb.parallelizeIndependent()
-	
+
 	// Minimize data copying
 	cb.minimizeDataCopy()
-	
+
 	return cb
 }
 

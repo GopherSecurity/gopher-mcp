@@ -23,12 +23,12 @@ type TcpConnectionPool struct {
 
 // PoolConfig configures connection pool behavior.
 type PoolConfig struct {
-	MinConnections   int
-	MaxConnections   int
-	IdleTimeout      time.Duration
-	MaxLifetime      time.Duration
+	MinConnections      int
+	MaxConnections      int
+	IdleTimeout         time.Duration
+	MaxLifetime         time.Duration
 	HealthCheckInterval time.Duration
-	Address          string
+	Address             string
 }
 
 // DefaultPoolConfig returns default pool configuration.
@@ -44,13 +44,13 @@ func DefaultPoolConfig() PoolConfig {
 
 // PooledConnection wraps a connection with metadata.
 type PooledConnection struct {
-	conn       net.Conn
-	id         int
-	created    time.Time
-	lastUsed   time.Time
-	useCount   int64
-	healthy    bool
-	inUse      bool
+	conn     net.Conn
+	id       int
+	created  time.Time
+	lastUsed time.Time
+	useCount int64
+	healthy  bool
+	inUse    bool
 }
 
 // ConnectionFactory creates new connections.
@@ -58,12 +58,12 @@ type ConnectionFactory func(ctx context.Context) (net.Conn, error)
 
 // PoolStats contains pool statistics.
 type PoolStats struct {
-	TotalConnections   int
-	ActiveConnections  int
-	IdleConnections    int
-	TotalRequests      int64
-	FailedRequests     int64
-	AverageWaitTime    time.Duration
+	TotalConnections  int
+	ActiveConnections int
+	IdleConnections   int
+	TotalRequests     int64
+	FailedRequests    int64
+	AverageWaitTime   time.Duration
 }
 
 // NewTcpConnectionPool creates a new connection pool.
@@ -74,7 +74,7 @@ func NewTcpConnectionPool(config PoolConfig, factory ConnectionFactory) (*TcpCon
 		available:   make(chan *PooledConnection, config.MaxConnections),
 		factory:     factory,
 	}
-	
+
 	// Create initial connections
 	for i := 0; i < config.MinConnections; i++ {
 		conn, err := pool.createConnection(context.Background())
@@ -84,13 +84,13 @@ func NewTcpConnectionPool(config PoolConfig, factory ConnectionFactory) (*TcpCon
 		pool.connections = append(pool.connections, conn)
 		pool.available <- conn
 	}
-	
+
 	// Start health checking
 	go pool.healthCheckLoop()
-	
+
 	// Start idle timeout checking
 	go pool.idleTimeoutLoop()
-	
+
 	return pool, nil
 }
 
@@ -99,10 +99,10 @@ func (pool *TcpConnectionPool) Get(ctx context.Context) (*PooledConnection, erro
 	if pool.closed.Load() {
 		return nil, ErrPoolClosed
 	}
-	
+
 	atomic.AddInt64(&pool.stats.TotalRequests, 1)
 	startTime := time.Now()
-	
+
 	select {
 	case conn := <-pool.available:
 		// Check if connection is still valid
@@ -115,11 +115,11 @@ func (pool *TcpConnectionPool) Get(ctx context.Context) (*PooledConnection, erro
 		}
 		// Connection invalid, create new one
 		pool.removeConnection(conn)
-		
+
 	case <-ctx.Done():
 		atomic.AddInt64(&pool.stats.FailedRequests, 1)
 		return nil, ctx.Err()
-		
+
 	default:
 		// No available connections, try to create new one
 		if len(pool.connections) < pool.config.MaxConnections {
@@ -132,7 +132,7 @@ func (pool *TcpConnectionPool) Get(ctx context.Context) (*PooledConnection, erro
 			pool.updateWaitTime(time.Since(startTime))
 			return conn, nil
 		}
-		
+
 		// Wait for available connection
 		select {
 		case conn := <-pool.available:
@@ -145,13 +145,13 @@ func (pool *TcpConnectionPool) Get(ctx context.Context) (*PooledConnection, erro
 			}
 			pool.removeConnection(conn)
 			return pool.Get(ctx) // Retry
-			
+
 		case <-ctx.Done():
 			atomic.AddInt64(&pool.stats.FailedRequests, 1)
 			return nil, ctx.Err()
 		}
 	}
-	
+
 	// Fallback: create new connection
 	return pool.createConnection(ctx)
 }
@@ -162,10 +162,10 @@ func (pool *TcpConnectionPool) Put(conn *PooledConnection) {
 		conn.conn.Close()
 		return
 	}
-	
+
 	conn.inUse = false
 	conn.lastUsed = time.Now()
-	
+
 	if pool.isConnectionValid(conn) {
 		select {
 		case pool.available <- conn:
@@ -188,7 +188,7 @@ func (pool *TcpConnectionPool) createConnection(ctx context.Context) (*PooledCon
 	if err != nil {
 		return nil, err
 	}
-	
+
 	pooledConn := &PooledConnection{
 		conn:     conn,
 		id:       len(pool.connections),
@@ -196,11 +196,11 @@ func (pool *TcpConnectionPool) createConnection(ctx context.Context) (*PooledCon
 		lastUsed: time.Now(),
 		healthy:  true,
 	}
-	
+
 	pool.mu.Lock()
 	pool.connections = append(pool.connections, pooledConn)
 	pool.mu.Unlock()
-	
+
 	return pooledConn, nil
 }
 
@@ -208,7 +208,7 @@ func (pool *TcpConnectionPool) createConnection(ctx context.Context) (*PooledCon
 func (pool *TcpConnectionPool) removeConnection(conn *PooledConnection) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	
+
 	for i, c := range pool.connections {
 		if c.id == conn.id {
 			pool.connections = append(pool.connections[:i], pool.connections[i+1:]...)
@@ -223,12 +223,12 @@ func (pool *TcpConnectionPool) isConnectionValid(conn *PooledConnection) bool {
 	if time.Since(conn.created) > pool.config.MaxLifetime {
 		return false
 	}
-	
+
 	// Check health
 	if !conn.healthy {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -236,7 +236,7 @@ func (pool *TcpConnectionPool) isConnectionValid(conn *PooledConnection) bool {
 func (pool *TcpConnectionPool) healthCheckLoop() {
 	ticker := time.NewTicker(pool.config.HealthCheckInterval)
 	defer ticker.Stop()
-	
+
 	for !pool.closed.Load() {
 		<-ticker.C
 		pool.checkHealth()
@@ -249,14 +249,14 @@ func (pool *TcpConnectionPool) checkHealth() {
 	connections := make([]*PooledConnection, len(pool.connections))
 	copy(connections, pool.connections)
 	pool.mu.RUnlock()
-	
+
 	for _, conn := range connections {
 		if !conn.inUse {
 			// Perform health check (simple write test)
 			conn.conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 			_, err := conn.conn.Write([]byte{})
 			conn.conn.SetWriteDeadline(time.Time{})
-			
+
 			conn.healthy = err == nil
 		}
 	}
@@ -266,7 +266,7 @@ func (pool *TcpConnectionPool) checkHealth() {
 func (pool *TcpConnectionPool) idleTimeoutLoop() {
 	ticker := time.NewTicker(pool.config.IdleTimeout / 2)
 	defer ticker.Stop()
-	
+
 	for !pool.closed.Load() {
 		<-ticker.C
 		pool.removeIdleConnections()
@@ -279,7 +279,7 @@ func (pool *TcpConnectionPool) removeIdleConnections() {
 	connections := make([]*PooledConnection, len(pool.connections))
 	copy(connections, pool.connections)
 	pool.mu.RUnlock()
-	
+
 	for _, conn := range connections {
 		if !conn.inUse && time.Since(conn.lastUsed) > pool.config.IdleTimeout {
 			// Keep minimum connections
@@ -302,10 +302,10 @@ func (pool *TcpConnectionPool) updateWaitTime(duration time.Duration) {
 func (pool *TcpConnectionPool) GetStats() PoolStats {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
-	
+
 	stats := pool.stats
 	stats.TotalConnections = len(pool.connections)
-	
+
 	active := 0
 	for _, conn := range pool.connections {
 		if conn.inUse {
@@ -314,7 +314,7 @@ func (pool *TcpConnectionPool) GetStats() PoolStats {
 	}
 	stats.ActiveConnections = active
 	stats.IdleConnections = stats.TotalConnections - active
-	
+
 	return stats
 }
 
@@ -323,18 +323,18 @@ func (pool *TcpConnectionPool) Close() error {
 	if !pool.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	
+
 	// Close all connections
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	
+
 	for _, conn := range pool.connections {
 		conn.conn.Close()
 	}
-	
+
 	close(pool.available)
 	pool.connections = nil
-	
+
 	return nil
 }
 

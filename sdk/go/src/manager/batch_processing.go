@@ -8,11 +8,11 @@ import (
 
 // BatchProcessor processes messages in batches.
 type BatchProcessor struct {
-	processor  *MessageProcessor
-	batchSize  int
-	timeout    time.Duration
-	buffer     [][]byte
-	results    chan BatchResult
+	processor *MessageProcessor
+	batchSize int
+	timeout   time.Duration
+	buffer    [][]byte
+	results   chan BatchResult
 }
 
 // BatchResult contains batch processing results.
@@ -27,12 +27,12 @@ func (bp *BatchProcessor) ProcessBatch(messages [][]byte) (*BatchResult, error) 
 	if len(messages) > bp.batchSize {
 		return nil, fmt.Errorf("batch size exceeded: %d > %d", len(messages), bp.batchSize)
 	}
-	
+
 	result := &BatchResult{
 		Successful: make([][]byte, 0, len(messages)),
 		Failed:     make([]error, 0),
 	}
-	
+
 	// Process messages
 	for _, msg := range messages {
 		// Process individual message
@@ -45,7 +45,7 @@ func (bp *BatchProcessor) ProcessBatch(messages [][]byte) (*BatchResult, error) 
 		// }
 		_ = msg
 	}
-	
+
 	return result, nil
 }
 
@@ -55,7 +55,7 @@ func (bp *BatchProcessor) AddToBatch(message []byte) error {
 		// Flush batch
 		bp.flush()
 	}
-	
+
 	bp.buffer = append(bp.buffer, message)
 	return nil
 }
@@ -65,7 +65,7 @@ func (bp *BatchProcessor) flush() {
 	if len(bp.buffer) == 0 {
 		return
 	}
-	
+
 	result, _ := bp.ProcessBatch(bp.buffer)
 	bp.results <- *result
 	bp.buffer = bp.buffer[:0]

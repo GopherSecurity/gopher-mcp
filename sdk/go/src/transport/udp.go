@@ -13,46 +13,46 @@ import (
 // UdpTransport implements Transport using UDP sockets.
 type UdpTransport struct {
 	TransportBase
-	
+
 	// Connection
-	conn        *net.UDPConn
-	remoteAddr  *net.UDPAddr
-	localAddr   *net.UDPAddr
-	
+	conn       *net.UDPConn
+	remoteAddr *net.UDPAddr
+	localAddr  *net.UDPAddr
+
 	// Configuration
 	config UdpConfig
-	
+
 	// Reliability layer
 	reliability *UdpReliability
-	
+
 	// Packet handling
 	packetBuffer chan UdpPacket
 	sequenceNum  atomic.Uint64
-	
+
 	// Multicast
 	multicastGroup *net.UDPAddr
-	
+
 	mu sync.RWMutex
 }
 
 // UdpConfig configures UDP transport behavior.
 type UdpConfig struct {
-	LocalAddress    string
-	RemoteAddress   string
-	Port           int
-	MaxPacketSize  int
-	BufferSize     int
-	
+	LocalAddress  string
+	RemoteAddress string
+	Port          int
+	MaxPacketSize int
+	BufferSize    int
+
 	// Reliability
 	EnableReliability bool
 	RetransmitTimeout time.Duration
 	MaxRetransmits    int
-	
+
 	// Multicast
 	EnableMulticast  bool
 	MulticastAddress string
 	MulticastTTL     int
-	
+
 	// Broadcast
 	EnableBroadcast bool
 }
@@ -61,15 +61,15 @@ type UdpConfig struct {
 func DefaultUdpConfig() UdpConfig {
 	return UdpConfig{
 		LocalAddress:      "0.0.0.0",
-		Port:             8081,
-		MaxPacketSize:    1472, // Typical MTU minus headers
-		BufferSize:       65536,
+		Port:              8081,
+		MaxPacketSize:     1472, // Typical MTU minus headers
+		BufferSize:        65536,
 		EnableReliability: false,
 		RetransmitTimeout: 100 * time.Millisecond,
-		MaxRetransmits:   3,
-		EnableMulticast:  false,
-		MulticastTTL:     1,
-		EnableBroadcast:  false,
+		MaxRetransmits:    3,
+		EnableMulticast:   false,
+		MulticastTTL:      1,
+		EnableBroadcast:   false,
 	}
 }
 
@@ -86,17 +86,17 @@ func NewUdpTransport(config UdpConfig) *UdpTransport {
 	baseConfig := DefaultTransportConfig()
 	baseConfig.ReadBufferSize = config.BufferSize
 	baseConfig.WriteBufferSize = config.BufferSize
-	
+
 	transport := &UdpTransport{
 		TransportBase: NewTransportBase(baseConfig),
 		config:        config,
 		packetBuffer:  make(chan UdpPacket, 1000),
 	}
-	
+
 	if config.EnableReliability {
 		transport.reliability = NewUdpReliability(config)
 	}
-	
+
 	return transport
 }
 
@@ -105,33 +105,33 @@ func (ut *UdpTransport) Connect(ctx context.Context) error {
 	if !ut.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
+
 	// Parse addresses
 	localAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ut.config.LocalAddress, ut.config.Port))
 	if err != nil {
 		ut.SetConnected(false)
 		return err
 	}
-	
+
 	// Create UDP connection
 	conn, err := net.ListenUDP("udp", localAddr)
 	if err != nil {
 		ut.SetConnected(false)
 		return err
 	}
-	
+
 	// Configure socket options
 	if err := ut.configureSocket(conn); err != nil {
 		conn.Close()
 		ut.SetConnected(false)
 		return err
 	}
-	
+
 	ut.mu.Lock()
 	ut.conn = conn
 	ut.localAddr = localAddr
 	ut.mu.Unlock()
-	
+
 	// Parse remote address if specified
 	if ut.config.RemoteAddress != "" {
 		remoteAddr, err := net.ResolveUDPAddr("udp", ut.config.RemoteAddress)
@@ -142,7 +142,7 @@ func (ut *UdpTransport) Connect(ctx context.Context) error {
 		}
 		ut.remoteAddr = remoteAddr
 	}
-	
+
 	// Setup multicast if enabled
 	if ut.config.EnableMulticast {
 		if err := ut.setupMulticast(); err != nil {
@@ -151,15 +151,15 @@ func (ut *UdpTransport) Connect(ctx context.Context) error {
 			return err
 		}
 	}
-	
+
 	// Start packet receiver
 	go ut.receivePackets(ctx)
-	
+
 	// Start reliability layer if enabled
 	if ut.reliability != nil {
 		ut.reliability.Start(ut)
 	}
-	
+
 	ut.UpdateConnectTime()
 	return nil
 }
@@ -173,7 +173,7 @@ func (ut *UdpTransport) configureSocket(conn *net.UDPConn) error {
 	if err := conn.SetWriteBuffer(ut.config.BufferSize); err != nil {
 		return err
 	}
-	
+
 	// Enable broadcast if configured
 	if ut.config.EnableBroadcast {
 		file, err := conn.File()
@@ -181,11 +181,11 @@ func (ut *UdpTransport) configureSocket(conn *net.UDPConn) error {
 			return err
 		}
 		defer file.Close()
-		
+
 		// Set SO_BROADCAST option
 		// Platform-specific implementation would go here
 	}
-	
+
 	return nil
 }
 
@@ -195,12 +195,12 @@ func (ut *UdpTransport) setupMulticast() error {
 	if err != nil {
 		return err
 	}
-	
+
 	ut.multicastGroup = addr
-	
+
 	// Join multicast group
 	// Platform-specific multicast join would go here
-	
+
 	return nil
 }
 
@@ -210,14 +210,14 @@ func (ut *UdpTransport) Send(data []byte) error {
 	conn := ut.conn
 	addr := ut.remoteAddr
 	ut.mu.RUnlock()
-	
+
 	if conn == nil {
 		return ErrNotConnected
 	}
-	
+
 	// Fragment if needed
 	packets := ut.fragmentData(data)
-	
+
 	for _, packet := range packets {
 		var err error
 		if addr != nil {
@@ -233,20 +233,20 @@ func (ut *UdpTransport) Send(data []byte) error {
 		} else {
 			return fmt.Errorf("no destination address specified")
 		}
-		
+
 		if err != nil {
 			ut.RecordSendError()
 			return err
 		}
-		
+
 		ut.RecordBytesSent(len(packet))
-		
+
 		// Add to reliability layer if enabled
 		if ut.reliability != nil {
 			ut.reliability.TrackPacket(packet, ut.sequenceNum.Add(1))
 		}
 	}
-	
+
 	return nil
 }
 
@@ -255,16 +255,16 @@ func (ut *UdpTransport) Receive() ([]byte, error) {
 	select {
 	case packet := <-ut.packetBuffer:
 		ut.RecordBytesReceived(len(packet.Data))
-		
+
 		// Handle reliability layer if enabled
 		if ut.reliability != nil {
 			if err := ut.reliability.ProcessReceived(packet); err != nil {
 				return nil, err
 			}
 		}
-		
+
 		return packet.Data, nil
-		
+
 	case <-time.After(time.Second):
 		return nil, fmt.Errorf("receive timeout")
 	}
@@ -273,43 +273,43 @@ func (ut *UdpTransport) Receive() ([]byte, error) {
 // receivePackets continuously receives UDP packets.
 func (ut *UdpTransport) receivePackets(ctx context.Context) {
 	buffer := make([]byte, ut.config.MaxPacketSize)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		
+
 		ut.mu.RLock()
 		conn := ut.conn
 		ut.mu.RUnlock()
-		
+
 		if conn == nil {
 			return
 		}
-		
+
 		n, addr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			ut.RecordReceiveError()
 			continue
 		}
-		
+
 		// Create packet copy
 		data := make([]byte, n)
 		copy(data, buffer[:n])
-		
+
 		packet := UdpPacket{
 			Data:      data,
 			Addr:      addr,
 			Timestamp: time.Now(),
 		}
-		
+
 		// Handle packet reordering if reliability enabled
 		if ut.reliability != nil {
 			packet = ut.reliability.ReorderPacket(packet)
 		}
-		
+
 		select {
 		case ut.packetBuffer <- packet:
 		default:
@@ -324,19 +324,19 @@ func (ut *UdpTransport) fragmentData(data []byte) [][]byte {
 	if len(data) <= ut.config.MaxPacketSize {
 		return [][]byte{data}
 	}
-	
+
 	var packets [][]byte
 	for i := 0; i < len(data); i += ut.config.MaxPacketSize {
 		end := i + ut.config.MaxPacketSize
 		if end > len(data) {
 			end = len(data)
 		}
-		
+
 		packet := make([]byte, end-i)
 		copy(packet, data[i:end])
 		packets = append(packets, packet)
 	}
-	
+
 	return packets
 }
 
@@ -345,19 +345,19 @@ func (ut *UdpTransport) Disconnect() error {
 	if !ut.SetConnected(false) {
 		return nil
 	}
-	
+
 	// Stop reliability layer
 	if ut.reliability != nil {
 		ut.reliability.Stop()
 	}
-	
+
 	ut.mu.Lock()
 	if ut.conn != nil {
 		ut.conn.Close()
 		ut.conn = nil
 	}
 	ut.mu.Unlock()
-	
+
 	ut.UpdateDisconnectTime()
 	return nil
 }
@@ -373,10 +373,10 @@ type UdpReliability struct {
 
 // PendingPacket tracks packet for retransmission.
 type PendingPacket struct {
-	Data         []byte
-	Sequence     uint64
+	Data          []byte
+	Sequence      uint64
 	Transmissions int
-	LastSent     time.Time
+	LastSent      time.Time
 }
 
 // NewUdpReliability creates reliability layer.
@@ -404,12 +404,12 @@ func (ur *UdpReliability) Stop() {
 func (ur *UdpReliability) TrackPacket(data []byte, seq uint64) {
 	ur.mu.Lock()
 	defer ur.mu.Unlock()
-	
+
 	ur.pendingPackets[seq] = &PendingPacket{
-		Data:         data,
-		Sequence:     seq,
+		Data:          data,
+		Sequence:      seq,
 		Transmissions: 1,
-		LastSent:     time.Now(),
+		LastSent:      time.Now(),
 	}
 }
 
@@ -417,17 +417,17 @@ func (ur *UdpReliability) TrackPacket(data []byte, seq uint64) {
 func (ur *UdpReliability) ProcessReceived(packet UdpPacket) error {
 	ur.mu.Lock()
 	defer ur.mu.Unlock()
-	
+
 	// Check for duplicate
 	if _, exists := ur.receivedPackets[packet.Sequence]; exists {
 		return fmt.Errorf("duplicate packet")
 	}
-	
+
 	ur.receivedPackets[packet.Sequence] = time.Now()
-	
+
 	// Send ACK if needed
 	// ACK implementation would go here
-	
+
 	return nil
 }
 
@@ -442,7 +442,7 @@ func (ur *UdpReliability) ReorderPacket(packet UdpPacket) UdpPacket {
 func (ur *UdpReliability) retransmitLoop(transport *UdpTransport) {
 	ticker := time.NewTicker(ur.config.RetransmitTimeout)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -457,7 +457,7 @@ func (ur *UdpReliability) retransmitLoop(transport *UdpTransport) {
 func (ur *UdpReliability) checkRetransmits(transport *UdpTransport) {
 	ur.mu.Lock()
 	defer ur.mu.Unlock()
-	
+
 	now := time.Now()
 	for seq, packet := range ur.pendingPackets {
 		if now.Sub(packet.LastSent) > ur.config.RetransmitTimeout {
@@ -478,7 +478,7 @@ func (ur *UdpReliability) checkRetransmits(transport *UdpTransport) {
 func (ur *UdpReliability) cleanupLoop() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -493,7 +493,7 @@ func (ur *UdpReliability) cleanupLoop() {
 func (ur *UdpReliability) cleanup() {
 	ur.mu.Lock()
 	defer ur.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-30 * time.Second)
 	for seq, timestamp := range ur.receivedPackets {
 		if timestamp.Before(cutoff) {

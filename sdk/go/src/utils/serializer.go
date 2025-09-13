@@ -110,7 +110,7 @@ func (js *JsonSerializer) Marshal(v interface{}) ([]byte, error) {
 	// Get encoder from pool
 	encoder := js.encoderPool.Get().(*json.Encoder)
 	encoder.SetEscapeHTML(js.escapeHTML)
-	
+
 	if js.indent {
 		encoder.SetIndent("", "  ")
 	}
@@ -130,7 +130,7 @@ func (js *JsonSerializer) Marshal(v interface{}) ([]byte, error) {
 	data := buffer.Bytes()
 	result := make([]byte, len(data))
 	copy(result, data)
-	
+
 	if len(result) > 0 && result[len(result)-1] == '\n' {
 		result = result[:len(result)-1]
 	}
@@ -174,7 +174,7 @@ func (js *JsonSerializer) MarshalToWriter(v interface{}, w io.Writer) error {
 	// Stream directly to writer
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(js.escapeHTML)
-	
+
 	if js.indent {
 		encoder.SetIndent("", "  ")
 	}

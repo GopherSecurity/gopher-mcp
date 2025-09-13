@@ -369,10 +369,10 @@ type FilterStatistics struct {
 
 	// ThroughputBps is the current throughput in bytes per second.
 	ThroughputBps float64 `json:"throughput_bps"`
-	
+
 	// ErrorRate is the percentage of errors (0-100).
 	ErrorRate float64 `json:"error_rate"`
-	
+
 	// CustomMetrics allows filters to store custom metrics.
 	CustomMetrics map[string]interface{} `json:"custom_metrics,omitempty"`
 }
@@ -459,7 +459,7 @@ func (r *FilterResult) Validate() error {
 	if r.Status == Error && r.Error == nil {
 		return fmt.Errorf("error status without error field")
 	}
-	
+
 	if r.Status != Error && r.Error != nil {
 		return fmt.Errorf("non-error status with error field: status=%v, error=%v", r.Status, r.Error)
 	}
@@ -508,7 +508,7 @@ func (r *FilterResult) reset() {
 	r.Status = Continue
 	r.Data = nil
 	r.Error = nil
-	
+
 	// Clear metadata map
 	if r.Metadata == nil {
 		r.Metadata = make(map[string]interface{})
@@ -517,7 +517,7 @@ func (r *FilterResult) reset() {
 			delete(r.Metadata, k)
 		}
 	}
-	
+
 	r.StartTime = time.Time{}
 	r.EndTime = time.Time{}
 	r.StopChain = false
@@ -632,7 +632,7 @@ func (e *FilterDataEventArgs) GetData() []byte {
 	if e.Buffer == nil || e.Offset < 0 || e.Length <= 0 {
 		return nil
 	}
-	
+
 	// Ensure we don't exceed buffer bounds
 	end := e.Offset + e.Length
 	if e.Offset >= len(e.Buffer) {
@@ -641,6 +641,6 @@ func (e *FilterDataEventArgs) GetData() []byte {
 	if end > len(e.Buffer) {
 		end = len(e.Buffer)
 	}
-	
+
 	return e.Buffer[e.Offset:end]
 }

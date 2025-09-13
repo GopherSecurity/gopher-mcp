@@ -40,7 +40,7 @@ func (tf *TcpFraming) WriteMessage(w io.Writer, data []byte) error {
 			return err
 		}
 	}
-	
+
 	// Write data
 	n, err := w.Write(data)
 	if err != nil {
@@ -49,14 +49,14 @@ func (tf *TcpFraming) WriteMessage(w io.Writer, data []byte) error {
 	if n != len(data) {
 		return io.ErrShortWrite
 	}
-	
+
 	if tf.mode == DelimiterFraming {
 		// Write delimiter
 		if _, err := w.Write([]byte{tf.delimiter}); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -68,35 +68,35 @@ func (tf *TcpFraming) ReadMessage(r io.Reader) ([]byte, error) {
 		if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 			return nil, err
 		}
-		
+
 		if int(length) > tf.maxSize {
 			return nil, fmt.Errorf("message size %d exceeds max %d", length, tf.maxSize)
 		}
-		
+
 		// Read message
 		data := make([]byte, length)
 		if _, err := io.ReadFull(r, data); err != nil {
 			return nil, err
 		}
-		
+
 		return data, nil
 	}
-	
+
 	// Delimiter-based framing
 	var result []byte
 	buffer := make([]byte, 1)
-	
+
 	for len(result) < tf.maxSize {
 		if _, err := io.ReadFull(r, buffer); err != nil {
 			return nil, err
 		}
-		
+
 		if buffer[0] == tf.delimiter {
 			return result, nil
 		}
-		
+
 		result = append(result, buffer[0])
 	}
-	
+
 	return nil, fmt.Errorf("message exceeds max size %d", tf.maxSize)
 }

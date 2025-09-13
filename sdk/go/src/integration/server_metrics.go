@@ -8,10 +8,10 @@ import (
 
 // ServerMetrics tracks MCP server metrics.
 type ServerMetrics struct {
-	toolInvocations     map[string]*atomic.Int64
-	promptExecutions    map[string]*atomic.Int64
-	resourceAccesses    map[string]*ResourceMetrics
-	protocolErrors      atomic.Int64
+	toolInvocations  map[string]*atomic.Int64
+	promptExecutions map[string]*atomic.Int64
+	resourceAccesses map[string]*ResourceMetrics
+	protocolErrors   atomic.Int64
 }
 
 // ResourceMetrics tracks resource access metrics.
@@ -53,22 +53,22 @@ func (sm *ServerMetrics) RecordProtocolError() {
 // GetStatistics returns server statistics.
 func (sm *ServerMetrics) GetStatistics() map[string]interface{} {
 	stats := make(map[string]interface{})
-	
+
 	// Aggregate tool invocations
 	toolStats := make(map[string]int64)
 	for tool, counter := range sm.toolInvocations {
 		toolStats[tool] = counter.Load()
 	}
 	stats["tools"] = toolStats
-	
+
 	// Aggregate prompt executions
 	promptStats := make(map[string]int64)
 	for prompt, counter := range sm.promptExecutions {
 		promptStats[prompt] = counter.Load()
 	}
 	stats["prompts"] = promptStats
-	
+
 	stats["protocol_errors"] = sm.protocolErrors.Load()
-	
+
 	return stats
 }

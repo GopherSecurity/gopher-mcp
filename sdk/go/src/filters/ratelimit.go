@@ -76,9 +76,9 @@ func (rl *RedisLimiter) TryAcquire(n int) bool {
 	rl.mu.Lock()
 	rl.lastAccess = time.Now()
 	rl.mu.Unlock()
-	
+
 	ctx := context.Background()
-	
+
 	// Execute Lua script for atomic operation
 	result, err := rl.client.Eval(
 		ctx,
@@ -88,19 +88,19 @@ func (rl *RedisLimiter) TryAcquire(n int) bool {
 		int(rl.window.Seconds()),
 		time.Now().Unix(),
 	)
-	
+
 	// Handle Redis failures gracefully - fail open (allow request)
 	if err != nil {
 		// Log error (would use actual logger in production)
 		// For now, fail open to avoid blocking legitimate traffic
 		return true
 	}
-	
+
 	// Check result
 	if allowed, ok := result.(int64); ok {
 		return allowed == 1
 	}
-	
+
 	// Default to allowing on unexpected response
 	return true
 }
@@ -116,7 +116,7 @@ func (rl *RedisLimiter) LastAccess() time.Time {
 type FailureMode int
 
 const (
-	FailOpen FailureMode = iota  // Allow requests when Redis fails
+	FailOpen   FailureMode = iota // Allow requests when Redis fails
 	FailClosed                    // Deny requests when Redis fails
 )
 
@@ -129,14 +129,14 @@ type RedisLimiterWithFailureMode struct {
 // TryAcquireWithFailureMode respects the configured failure mode.
 func (rl *RedisLimiterWithFailureMode) TryAcquire(n int) bool {
 	result := rl.RedisLimiter.TryAcquire(n)
-	
+
 	// Check if Redis is healthy
 	ctx := context.Background()
 	if err := rl.client.Ping(ctx); err != nil {
 		// Redis is down, use failure mode
 		return rl.failureMode == FailOpen
 	}
-	
+
 	return result
 }
 
@@ -144,16 +144,16 @@ func (rl *RedisLimiterWithFailureMode) TryAcquire(n int) bool {
 type TokenBucket struct {
 	// Current number of tokens
 	tokens float64
-	
+
 	// Maximum token capacity
 	capacity float64
-	
+
 	// Token refill rate per second
 	refillRate float64
-	
+
 	// Last refill timestamp
 	lastRefill time.Time
-	
+
 	// Synchronization
 	mu sync.Mutex
 }
@@ -173,27 +173,27 @@ func NewTokenBucket(capacity float64, refillRate float64) *TokenBucket {
 func (tb *TokenBucket) TryAcquire(n int) bool {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
-	
+
 	// Refill tokens based on elapsed time
 	now := time.Now()
 	elapsed := now.Sub(tb.lastRefill).Seconds()
 	tb.lastRefill = now
-	
+
 	// Add tokens based on refill rate
 	tokensToAdd := elapsed * tb.refillRate
 	tb.tokens = tb.tokens + tokensToAdd
-	
+
 	// Cap at maximum capacity
 	if tb.tokens > tb.capacity {
 		tb.tokens = tb.capacity
 	}
-	
+
 	// Check if we have enough tokens
 	if tb.tokens >= float64(n) {
 		tb.tokens -= float64(n)
 		return true
 	}
-	
+
 	return false
 }
 
@@ -208,19 +208,19 @@ func (tb *TokenBucket) LastAccess() time.Time {
 type SlidingWindow struct {
 	// Ring buffer of request timestamps
 	timestamps []time.Time
-	
+
 	// Current position in ring buffer
 	position int
-	
+
 	// Window duration
 	windowSize time.Duration
-	
+
 	// Maximum requests in window
 	limit int
-	
+
 	// Last access time
 	lastAccess time.Time
-	
+
 	// Synchronization
 	mu sync.Mutex
 }
@@ -240,11 +240,11 @@ func NewSlidingWindow(limit int, windowSize time.Duration) *SlidingWindow {
 func (sw *SlidingWindow) TryAcquire(n int) bool {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
-	
+
 	now := time.Now()
 	sw.lastAccess = now
 	windowStart := now.Add(-sw.windowSize)
-	
+
 	// Remove expired entries
 	validTimestamps := make([]time.Time, 0, len(sw.timestamps))
 	for _, ts := range sw.timestamps {
@@ -253,17 +253,17 @@ func (sw *SlidingWindow) TryAcquire(n int) bool {
 		}
 	}
 	sw.timestamps = validTimestamps
-	
+
 	// Check if adding n requests would exceed limit
 	if len(sw.timestamps)+n > sw.limit {
 		return false
 	}
-	
+
 	// Add new timestamps
 	for i := 0; i < n; i++ {
 		sw.timestamps = append(sw.timestamps, now)
 	}
-	
+
 	return true
 }
 
@@ -278,19 +278,19 @@ func (sw *SlidingWindow) LastAccess() time.Time {
 type FixedWindow struct {
 	// Current request count in window
 	count int
-	
+
 	// Window start time
 	windowStart time.Time
-	
+
 	// Maximum requests per window
 	limit int
-	
+
 	// Window duration
 	windowSize time.Duration
-	
+
 	// Last access time
 	lastAccess time.Time
-	
+
 	// Synchronization
 	mu sync.Mutex
 }
@@ -312,21 +312,21 @@ func NewFixedWindow(limit int, windowSize time.Duration) *FixedWindow {
 func (fw *FixedWindow) TryAcquire(n int) bool {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
-	
+
 	now := time.Now()
 	fw.lastAccess = now
-	
+
 	// Reset count if window has expired
 	if now.Sub(fw.windowStart) >= fw.windowSize {
 		fw.windowStart = now
 		fw.count = 0
 	}
-	
+
 	// Check if adding n requests would exceed limit
 	if fw.count+n > fw.limit {
 		return false
 	}
-	
+
 	// Increment counter
 	fw.count += n
 	return true
@@ -352,8 +352,8 @@ type RateLimitStatistics struct {
 
 // KeyStatistics tracks per-key rate limit metrics.
 type KeyStatistics struct {
-	Allowed uint64
-	Denied  uint64
+	Allowed  uint64
+	Denied   uint64
 	LastSeen time.Time
 }
 
@@ -363,22 +363,22 @@ type RateLimitConfig struct {
 	// Algorithm specifies the rate limiting algorithm to use.
 	// Options: "token-bucket", "sliding-window", "fixed-window"
 	Algorithm string
-	
+
 	// RequestsPerSecond defines the sustained request rate.
 	RequestsPerSecond int
-	
+
 	// BurstSize defines the maximum burst capacity.
 	// Only used with token-bucket algorithm.
 	BurstSize int
-	
+
 	// KeyExtractor extracts the rate limit key from context.
 	// If nil, a global rate limit is applied.
 	KeyExtractor func(context.Context) string
-	
+
 	// WindowSize defines the time window for rate limiting.
 	// Used with sliding-window and fixed-window algorithms.
 	WindowSize time.Duration
-	
+
 	// WebhookURL to call when rate limit is exceeded (optional).
 	WebhookURL string
 }
@@ -386,19 +386,19 @@ type RateLimitConfig struct {
 // RateLimitFilter implements rate limiting with multiple algorithms.
 type RateLimitFilter struct {
 	*FilterBase
-	
+
 	// Rate limiters per key
 	limiters sync.Map // map[string]RateLimiter
-	
+
 	// Configuration
 	config RateLimitConfig
-	
+
 	// Cleanup timer
 	cleanupTicker *time.Ticker
-	
+
 	// Statistics
 	stats RateLimitStatistics
-	
+
 	// Synchronization
 	statsMu sync.RWMutex
 }
@@ -412,11 +412,11 @@ func NewRateLimitFilter(config RateLimitConfig) *RateLimitFilter {
 			ByKeyStats: make(map[string]*KeyStatistics),
 		},
 	}
-	
+
 	// Start cleanup ticker
 	f.cleanupTicker = time.NewTicker(1 * time.Minute)
 	go f.cleanupLoop()
-	
+
 	return f
 }
 
@@ -427,22 +427,22 @@ func (f *RateLimitFilter) Process(ctx context.Context, data []byte) (*types.Filt
 	if f.config.KeyExtractor != nil {
 		key = f.config.KeyExtractor(ctx)
 	}
-	
+
 	// Get or create limiter for key
 	limiterI, _ := f.limiters.LoadOrStore(key, f.createLimiter())
 	limiter := limiterI.(RateLimiter)
-	
+
 	// Try to acquire permit
 	allowed := limiter.TryAcquire(1)
-	
+
 	// Update statistics
 	f.updateStats(key, allowed)
-	
+
 	// Return rate limit error if exceeded
 	if !allowed {
 		return f.handleRateLimitExceeded(key)
 	}
-	
+
 	// Process normally if allowed
 	return types.ContinueWith(data), nil
 }
@@ -474,22 +474,22 @@ func (f *RateLimitFilter) createLimiter() RateLimiter {
 func (f *RateLimitFilter) updateStats(key string, allowed bool) {
 	f.statsMu.Lock()
 	defer f.statsMu.Unlock()
-	
+
 	f.stats.TotalRequests++
-	
+
 	if allowed {
 		f.stats.AllowedRequests++
 	} else {
 		f.stats.DeniedRequests++
 	}
-	
+
 	// Update per-key stats
 	keyStats, exists := f.stats.ByKeyStats[key]
 	if !exists {
 		keyStats = &KeyStatistics{}
 		f.stats.ByKeyStats[key] = keyStats
 	}
-	
+
 	if allowed {
 		keyStats.Allowed++
 	} else {
@@ -502,28 +502,28 @@ func (f *RateLimitFilter) updateStats(key string, allowed bool) {
 func (f *RateLimitFilter) handleRateLimitExceeded(key string) (*types.FilterResult, error) {
 	// Calculate retry-after based on algorithm
 	retryAfter := f.calculateRetryAfter()
-	
+
 	// Create metadata with retry information
 	metadata := map[string]interface{}{
 		"retry-after": retryAfter.Seconds(),
 		"key":         key,
 		"algorithm":   f.config.Algorithm,
 	}
-	
+
 	// Update rate limit statistics
 	f.statsMu.Lock()
 	f.stats.DeniedRequests++
 	f.statsMu.Unlock()
-	
+
 	// Optionally call webhook (would be configured separately)
 	if f.config.WebhookURL != "" {
 		go f.callWebhook(key, metadata)
 	}
-	
+
 	// Return error result with metadata
 	result := types.ErrorResult(ErrRateLimited, types.TooManyRequests)
 	result.Metadata = metadata
-	
+
 	return result, nil
 }
 
@@ -561,11 +561,11 @@ func (f *RateLimitFilter) callWebhook(key string, metadata map[string]interface{
 // cleanupLoop periodically removes expired limiters to prevent memory leak.
 func (f *RateLimitFilter) cleanupLoop() {
 	staleThreshold := 5 * time.Minute // Remove limiters not accessed for 5 minutes
-	
+
 	for range f.cleanupTicker.C {
 		now := time.Now()
 		keysToDelete := []string{}
-		
+
 		// Find stale limiters
 		f.limiters.Range(func(key, value interface{}) bool {
 			limiter := value.(RateLimiter)
@@ -574,24 +574,24 @@ func (f *RateLimitFilter) cleanupLoop() {
 			}
 			return true
 		})
-		
+
 		// Remove stale limiters
 		for _, key := range keysToDelete {
 			f.limiters.Delete(key)
-			
+
 			// Remove from statistics
 			f.statsMu.Lock()
 			delete(f.stats.ByKeyStats, key)
 			f.statsMu.Unlock()
 		}
-		
+
 		// Update active limiter count
 		activeCount := 0
 		f.limiters.Range(func(_, _ interface{}) bool {
 			activeCount++
 			return true
 		})
-		
+
 		f.statsMu.Lock()
 		f.stats.ActiveLimiters = activeCount
 		f.statsMu.Unlock()
@@ -603,18 +603,18 @@ func (f *RateLimitFilter) Close() error {
 	if f.cleanupTicker != nil {
 		f.cleanupTicker.Stop()
 	}
-	
+
 	// Clear all limiters
 	f.limiters.Range(func(key, _ interface{}) bool {
 		f.limiters.Delete(key)
 		return true
 	})
-	
+
 	// Call parent Close
 	if f.FilterBase != nil {
 		return f.FilterBase.Close()
 	}
-	
+
 	return nil
 }
 
@@ -622,7 +622,7 @@ func (f *RateLimitFilter) Close() error {
 func (f *RateLimitFilter) GetStatistics() RateLimitStatistics {
 	f.statsMu.RLock()
 	defer f.statsMu.RUnlock()
-	
+
 	// Create a copy of statistics
 	statsCopy := RateLimitStatistics{
 		TotalRequests:   f.stats.TotalRequests,
@@ -631,7 +631,7 @@ func (f *RateLimitFilter) GetStatistics() RateLimitStatistics {
 		ActiveLimiters:  f.stats.ActiveLimiters,
 		ByKeyStats:      make(map[string]*KeyStatistics),
 	}
-	
+
 	// Copy per-key statistics
 	for key, keyStats := range f.stats.ByKeyStats {
 		statsCopy.ByKeyStats[key] = &KeyStatistics{
@@ -640,13 +640,12 @@ func (f *RateLimitFilter) GetStatistics() RateLimitStatistics {
 			LastSeen: keyStats.LastSeen,
 		}
 	}
-	
+
 	// Calculate rates and percentages
 	if statsCopy.TotalRequests > 0 {
 		statsCopy.AllowRate = float64(statsCopy.AllowedRequests) / float64(statsCopy.TotalRequests) * 100.0
 		statsCopy.DenyRate = float64(statsCopy.DeniedRequests) / float64(statsCopy.TotalRequests) * 100.0
 	}
-	
+
 	return statsCopy
 }
-

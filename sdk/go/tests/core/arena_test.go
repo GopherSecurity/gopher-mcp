@@ -76,7 +76,7 @@ func TestArena_Allocate_LargerThanChunk(t *testing.T) {
 	// Allocate more than chunk size
 	largeSize := chunkSize * 2
 	data := arena.Allocate(largeSize)
-	
+
 	if len(data) != largeSize {
 		t.Errorf("Allocated size = %d, want %d", len(data), largeSize)
 	}
@@ -108,7 +108,7 @@ func TestArena_Reset(t *testing.T) {
 
 	// New allocation after reset
 	data2 := arena.Allocate(100)
-	
+
 	// Check that we got a fresh allocation (might reuse memory but should be at offset 0)
 	if len(data2) != 100 {
 		t.Errorf("Allocated size after reset = %d, want 100", len(data2))
@@ -232,7 +232,7 @@ func TestArena_Allocate_ZeroSize(t *testing.T) {
 // Test 10: Concurrent allocations
 func TestArena_Concurrent(t *testing.T) {
 	arena := core.NewArena(1024)
-	
+
 	var wg sync.WaitGroup
 	numGoroutines := 10
 	allocsPerGoroutine := 100
@@ -268,7 +268,7 @@ func TestArena_Concurrent(t *testing.T) {
 
 func BenchmarkArena_Allocate_Small(b *testing.B) {
 	arena := core.NewArena(64 * 1024)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = arena.Allocate(32)
@@ -277,7 +277,7 @@ func BenchmarkArena_Allocate_Small(b *testing.B) {
 
 func BenchmarkArena_Allocate_Medium(b *testing.B) {
 	arena := core.NewArena(64 * 1024)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = arena.Allocate(1024)
@@ -286,7 +286,7 @@ func BenchmarkArena_Allocate_Medium(b *testing.B) {
 
 func BenchmarkArena_Allocate_Large(b *testing.B) {
 	arena := core.NewArena(64 * 1024)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = arena.Allocate(64 * 1024)
@@ -295,7 +295,7 @@ func BenchmarkArena_Allocate_Large(b *testing.B) {
 
 func BenchmarkArena_Reset(b *testing.B) {
 	arena := core.NewArena(64 * 1024)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 100; j++ {
@@ -307,7 +307,7 @@ func BenchmarkArena_Reset(b *testing.B) {
 
 func BenchmarkArena_Concurrent(b *testing.B) {
 	arena := core.NewArena(64 * 1024)
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			_ = arena.Allocate(128)

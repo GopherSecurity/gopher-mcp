@@ -13,22 +13,22 @@ import (
 // TcpTransport implements Transport using TCP sockets.
 type TcpTransport struct {
 	TransportBase
-	
+
 	// Connection
 	conn     net.Conn
 	address  string
 	listener net.Listener // For server mode
-	
+
 	// Configuration
 	config TcpConfig
-	
+
 	// Reconnection
 	reconnectTimer *time.Timer
 	reconnectMu    sync.Mutex
-	
+
 	// Mode
 	isServer bool
-	
+
 	// Synchronization
 	mu sync.RWMutex
 }
@@ -41,22 +41,22 @@ type TcpConfig struct {
 	KeepAlive       bool
 	KeepAlivePeriod time.Duration
 	NoDelay         bool // TCP_NODELAY
-	
+
 	// Timeouts
 	ConnectTimeout time.Duration
 	ReadTimeout    time.Duration
 	WriteTimeout   time.Duration
-	
+
 	// Buffer sizes
 	ReadBufferSize  int
 	WriteBufferSize int
-	
+
 	// Server mode settings
-	ServerMode  bool
-	MaxClients  int
-	ReuseAddr   bool
-	ReusePort   bool
-	
+	ServerMode bool
+	MaxClients int
+	ReuseAddr  bool
+	ReusePort  bool
+
 	// Reconnection
 	EnableReconnect   bool
 	ReconnectInterval time.Duration
@@ -91,10 +91,10 @@ func NewTcpTransport(config TcpConfig) *TcpTransport {
 	baseConfig := DefaultTransportConfig()
 	baseConfig.ReadBufferSize = config.ReadBufferSize
 	baseConfig.WriteBufferSize = config.WriteBufferSize
-	
+
 	// Format address
 	address := fmt.Sprintf("%s:%d", config.Address, config.Port)
-	
+
 	return &TcpTransport{
 		TransportBase: NewTransportBase(baseConfig),
 		address:       address,
@@ -117,14 +117,13 @@ func (t *TcpTransport) connectClient(ctx context.Context) error {
 	if !t.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
-	
+
 	// Create dialer with timeout
 	dialer := &net.Dialer{
 		Timeout:   t.config.ConnectTimeout,
 		KeepAlive: t.config.KeepAlivePeriod,
 	}
-	
+
 	// Connect with context
 	conn, err := dialer.DialContext(ctx, "tcp", t.address)
 	if err != nil {
@@ -135,28 +134,28 @@ func (t *TcpTransport) connectClient(ctx context.Context) error {
 			Cause:   err,
 		}
 	}
-	
+
 	// Configure connection
 	if err := t.configureConnection(conn); err != nil {
 		conn.Close()
 		t.SetConnected(false)
 		return err
 	}
-	
+
 	t.mu.Lock()
 	t.conn = conn
 	t.mu.Unlock()
-	
+
 	// Update statistics
 	t.UpdateConnectTime()
 	t.SetCustomMetric("remote_addr", conn.RemoteAddr().String())
 	t.SetCustomMetric("local_addr", conn.LocalAddr().String())
-	
+
 	// Start reconnection monitoring if enabled
 	if t.config.EnableReconnect {
 		t.startReconnectMonitor()
 	}
-	
+
 	return nil
 }
 
@@ -182,17 +181,17 @@ func (t *TcpTransport) startServer(ctx context.Context) error {
 	if !t.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
+
 	// Configure listener
 	lc := net.ListenConfig{
 		KeepAlive: t.config.KeepAlivePeriod,
 	}
-	
+
 	// Set socket options
 	if t.config.ReuseAddr || t.config.ReusePort {
 		lc.Control = t.setSocketOptions
 	}
-	
+
 	// Start listening
 	listener, err := lc.Listen(ctx, "tcp", t.address)
 	if err != nil {
@@ -203,18 +202,18 @@ func (t *TcpTransport) startServer(ctx context.Context) error {
 			Cause:   err,
 		}
 	}
-	
+
 	t.mu.Lock()
 	t.listener = listener
 	t.mu.Unlock()
-	
+
 	// Update statistics
 	t.UpdateConnectTime()
 	t.SetCustomMetric("listen_addr", listener.Addr().String())
-	
+
 	// Accept connections in background
 	go t.acceptConnections(ctx)
-	
+
 	return nil
 }
 
@@ -224,7 +223,7 @@ func (t *TcpTransport) configureConnection(conn net.Conn) error {
 	if !ok {
 		return fmt.Errorf("not a TCP connection")
 	}
-	
+
 	// Set keep-alive
 	if t.config.KeepAlive {
 		if err := tcpConn.SetKeepAlive(true); err != nil {
@@ -234,14 +233,14 @@ func (t *TcpTransport) configureConnection(conn net.Conn) error {
 			return err
 		}
 	}
-	
+
 	// Set no delay (disable Nagle's algorithm)
 	if t.config.NoDelay {
 		if err := tcpConn.SetNoDelay(true); err != nil {
 			return err
 		}
 	}
-	
+
 	// Set buffer sizes
 	if t.config.ReadBufferSize > 0 {
 		if err := tcpConn.SetReadBuffer(t.config.ReadBufferSize); err != nil {
@@ -253,7 +252,7 @@ func (t *TcpTransport) configureConnection(conn net.Conn) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -265,15 +264,15 @@ func (t *TcpTransport) acceptConnections(ctx context.Context) {
 			return
 		default:
 		}
-		
+
 		t.mu.RLock()
 		listener := t.listener
 		t.mu.RUnlock()
-		
+
 		if listener == nil {
 			return
 		}
-		
+
 		conn, err := listener.Accept()
 		if err != nil {
 			// Check if listener was closed
@@ -282,13 +281,13 @@ func (t *TcpTransport) acceptConnections(ctx context.Context) {
 			}
 			return
 		}
-		
+
 		// Configure new connection
 		if err := t.configureConnection(conn); err != nil {
 			conn.Close()
 			continue
 		}
-		
+
 		// Handle connection (for now, just store first connection)
 		t.mu.Lock()
 		if t.conn == nil {
@@ -307,16 +306,16 @@ func (t *TcpTransport) Send(data []byte) error {
 	t.mu.RLock()
 	conn := t.conn
 	t.mu.RUnlock()
-	
+
 	if conn == nil {
 		return ErrNotConnected
 	}
-	
+
 	// Set write timeout if configured
 	if t.config.WriteTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(t.config.WriteTimeout))
 	}
-	
+
 	n, err := conn.Write(data)
 	if err != nil {
 		t.RecordSendError()
@@ -327,7 +326,7 @@ func (t *TcpTransport) Send(data []byte) error {
 			Cause:   err,
 		}
 	}
-	
+
 	t.RecordBytesSent(n)
 	return nil
 }
@@ -337,16 +336,16 @@ func (t *TcpTransport) Receive() ([]byte, error) {
 	t.mu.RLock()
 	conn := t.conn
 	t.mu.RUnlock()
-	
+
 	if conn == nil {
 		return nil, ErrNotConnected
 	}
-	
+
 	// Set read timeout if configured
 	if t.config.ReadTimeout > 0 {
 		conn.SetReadDeadline(time.Now().Add(t.config.ReadTimeout))
 	}
-	
+
 	buffer := make([]byte, t.config.ReadBufferSize)
 	n, err := conn.Read(buffer)
 	if err != nil {
@@ -358,7 +357,7 @@ func (t *TcpTransport) Receive() ([]byte, error) {
 			Cause:   err,
 		}
 	}
-	
+
 	t.RecordBytesReceived(n)
 	return buffer[:n], nil
 }
@@ -368,28 +367,28 @@ func (t *TcpTransport) Disconnect() error {
 	if !t.SetConnected(false) {
 		return nil // Already disconnected
 	}
-	
+
 	// Stop reconnection timer
 	t.stopReconnectMonitor()
-	
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	// Close connection
 	if t.conn != nil {
 		t.conn.Close()
 		t.conn = nil
 	}
-	
+
 	// Close listener in server mode
 	if t.listener != nil {
 		t.listener.Close()
 		t.listener = nil
 	}
-	
+
 	// Update statistics
 	t.UpdateDisconnectTime()
-	
+
 	return nil
 }
 
@@ -402,7 +401,7 @@ func (t *TcpTransport) handleConnectionError(err error) {
 			t.SetCustomMetric("last_error", "network_error")
 		}
 	}
-	
+
 	// Trigger reconnection if enabled
 	if t.config.EnableReconnect && !t.isServer {
 		t.scheduleReconnect()
@@ -415,14 +414,14 @@ func (t *TcpTransport) startReconnectMonitor() {
 	go func() {
 		ticker := time.NewTicker(t.config.KeepAlivePeriod)
 		defer ticker.Stop()
-		
+
 		for t.IsConnected() {
 			<-ticker.C
-			
+
 			t.mu.RLock()
 			conn := t.conn
 			t.mu.RUnlock()
-			
+
 			if conn == nil {
 				t.scheduleReconnect()
 			}
@@ -434,7 +433,7 @@ func (t *TcpTransport) startReconnectMonitor() {
 func (t *TcpTransport) stopReconnectMonitor() {
 	t.reconnectMu.Lock()
 	defer t.reconnectMu.Unlock()
-	
+
 	if t.reconnectTimer != nil {
 		t.reconnectTimer.Stop()
 		t.reconnectTimer = nil
@@ -445,25 +444,24 @@ func (t *TcpTransport) stopReconnectMonitor() {
 func (t *TcpTransport) scheduleReconnect() {
 	t.reconnectMu.Lock()
 	defer t.reconnectMu.Unlock()
-	
+
 	if t.reconnectTimer != nil {
 		return // Already scheduled
 	}
-	
+
 	t.reconnectTimer = time.AfterFunc(t.config.ReconnectInterval, func() {
 		t.reconnectMu.Lock()
 		t.reconnectTimer = nil
 		t.reconnectMu.Unlock()
-		
+
 		// Attempt reconnection
 		ctx, cancel := context.WithTimeout(context.Background(), t.config.ConnectTimeout)
 		defer cancel()
-		
+
 		t.Disconnect()
 		t.Connect(ctx)
 	})
 }
-
 
 // Close closes the transport.
 func (t *TcpTransport) Close() error {

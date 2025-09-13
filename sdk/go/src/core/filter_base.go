@@ -187,7 +187,7 @@ func (fb *FilterBase) updateStats(bytesProcessed uint64, processingTimeUs uint64
 	// Update counters
 	fb.stats.BytesProcessed += bytesProcessed
 	fb.stats.ProcessCount++
-	
+
 	if isError {
 		fb.stats.ErrorCount++
 	} else {
@@ -196,7 +196,7 @@ func (fb *FilterBase) updateStats(bytesProcessed uint64, processingTimeUs uint64
 
 	// Update timing statistics
 	fb.stats.ProcessingTimeUs += processingTimeUs
-	
+
 	// Update average processing time
 	if fb.stats.ProcessCount > 0 {
 		fb.stats.AverageProcessingTimeUs = float64(fb.stats.ProcessingTimeUs) / float64(fb.stats.ProcessCount)

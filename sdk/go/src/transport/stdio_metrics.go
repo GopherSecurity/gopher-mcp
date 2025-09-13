@@ -11,21 +11,21 @@ type StdioMetrics struct {
 	// Line counters
 	linesRead    atomic.Int64
 	linesWritten atomic.Int64
-	
+
 	// Size tracking
-	bytesRead    atomic.Int64
-	bytesWritten atomic.Int64
+	bytesRead     atomic.Int64
+	bytesWritten  atomic.Int64
 	totalMessages atomic.Int64
-	
+
 	// Throughput
 	readRate  atomic.Value // float64
 	writeRate atomic.Value // float64
-	
+
 	// Timing
-	startTime    time.Time
-	lastReadTime atomic.Value // time.Time
+	startTime     time.Time
+	lastReadTime  atomic.Value // time.Time
 	lastWriteTime atomic.Value // time.Time
-	
+
 	// Message size statistics
 	minMessageSize atomic.Int64
 	maxMessageSize atomic.Int64
@@ -62,7 +62,7 @@ func (sm *StdioMetrics) RecordLineWritten(bytes int) {
 // updateMessageStats updates message size statistics.
 func (sm *StdioMetrics) updateMessageStats(size int) {
 	sm.totalMessages.Add(1)
-	
+
 	// Update min/max
 	sizeInt64 := int64(size)
 	for {
@@ -71,14 +71,14 @@ func (sm *StdioMetrics) updateMessageStats(size int) {
 			break
 		}
 	}
-	
+
 	for {
 		max := sm.maxMessageSize.Load()
 		if sizeInt64 <= max || sm.maxMessageSize.CompareAndSwap(max, sizeInt64) {
 			break
 		}
 	}
-	
+
 	// Update average
 	total := sm.bytesRead.Load() + sm.bytesWritten.Load()
 	messages := sm.totalMessages.Load()
@@ -111,29 +111,29 @@ func (sm *StdioMetrics) GetStats() StdioStats {
 	if v := sm.avgMessageSize.Load(); v != nil {
 		avgSize = v.(float64)
 	}
-	
+
 	readRate := float64(0)
 	if v := sm.readRate.Load(); v != nil {
 		readRate = v.(float64)
 	}
-	
+
 	writeRate := float64(0)
 	if v := sm.writeRate.Load(); v != nil {
 		writeRate = v.(float64)
 	}
-	
+
 	return StdioStats{
-		LinesRead:      sm.linesRead.Load(),
-		LinesWritten:   sm.linesWritten.Load(),
-		BytesRead:      sm.bytesRead.Load(),
-		BytesWritten:   sm.bytesWritten.Load(),
-		TotalMessages:  sm.totalMessages.Load(),
-		MinMessageSize: sm.minMessageSize.Load(),
-		MaxMessageSize: sm.maxMessageSize.Load(),
-		AvgMessageSize: avgSize,
-		ReadThroughput: readRate,
+		LinesRead:       sm.linesRead.Load(),
+		LinesWritten:    sm.linesWritten.Load(),
+		BytesRead:       sm.bytesRead.Load(),
+		BytesWritten:    sm.bytesWritten.Load(),
+		TotalMessages:   sm.totalMessages.Load(),
+		MinMessageSize:  sm.minMessageSize.Load(),
+		MaxMessageSize:  sm.maxMessageSize.Load(),
+		AvgMessageSize:  avgSize,
+		ReadThroughput:  readRate,
 		WriteThroughput: writeRate,
-		Uptime:         time.Since(sm.startTime),
+		Uptime:          time.Since(sm.startTime),
 	}
 }
 
@@ -147,7 +147,7 @@ type StdioStats struct {
 	MinMessageSize  int64
 	MaxMessageSize  int64
 	AvgMessageSize  float64
-	ReadThroughput  float64  // bytes/sec
-	WriteThroughput float64  // bytes/sec
+	ReadThroughput  float64 // bytes/sec
+	WriteThroughput float64 // bytes/sec
 	Uptime          time.Duration
 }

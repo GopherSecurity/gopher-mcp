@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -24,13 +24,13 @@ func NewFilterManager(config FilterManagerConfig) *FilterManager {
 func (fm *FilterManager) Start() error {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	
+
 	if fm.running {
 		return fmt.Errorf("manager already running")
 	}
-	
+
 	fm.startTime = time.Now()
-	
+
 	// Initialize all filters
 	allFilters := fm.registry.GetAll()
 	for id, filter := range allFilters {
@@ -41,7 +41,7 @@ func (fm *FilterManager) Start() error {
 		_ = id
 		_ = filter
 	}
-	
+
 	// Start all chains
 	for name, chain := range fm.chains {
 		// Start chain
@@ -51,26 +51,26 @@ func (fm *FilterManager) Start() error {
 		_ = name
 		_ = chain
 	}
-	
+
 	// Start statistics collection
 	if fm.config.EnableMetrics {
 		fm.StartStatisticsCollection()
 	}
-	
+
 	// Start event processing
 	if fm.events != nil {
 		fm.events.Start()
 	}
-	
+
 	fm.running = true
-	
+
 	// Emit start event
 	if fm.events != nil {
 		fm.events.Emit(ManagerStartedEvent{
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	return nil
 }
 
@@ -78,31 +78,31 @@ func (fm *FilterManager) Start() error {
 func (fm *FilterManager) Stop() error {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	
+
 	if !fm.running {
 		return fmt.Errorf("manager not running")
 	}
-	
+
 	// Signal stop
 	close(fm.stopCh)
-	
+
 	// Stop chains first (in reverse order)
 	chainNames := make([]string, 0, len(fm.chains))
 	for name := range fm.chains {
 		chainNames = append(chainNames, name)
 	}
-	
+
 	// Stop in reverse order
 	for i := len(chainNames) - 1; i >= 0; i-- {
 		chain := fm.chains[chainNames[i]]
 		// chain.Stop()
 		_ = chain
 	}
-	
+
 	// Stop all filters
 	allFilters := fm.registry.GetAll()
 	var wg sync.WaitGroup
-	
+
 	for id, filter := range allFilters {
 		wg.Add(1)
 		go func(id uuid.UUID, f Filter) {
@@ -110,24 +110,24 @@ func (fm *FilterManager) Stop() error {
 			f.Close()
 		}(id, filter)
 	}
-	
+
 	// Wait for all filters to stop
 	wg.Wait()
-	
+
 	// Stop event bus
 	if fm.events != nil {
 		fm.events.Stop()
 	}
-	
+
 	fm.running = false
-	
+
 	// Emit stop event
 	if fm.events != nil {
 		fm.events.Emit(ManagerStoppedEvent{
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	return nil
 }
 
@@ -136,14 +136,14 @@ func (fm *FilterManager) Restart() error {
 	if err := fm.Stop(); err != nil {
 		return fmt.Errorf("failed to stop: %w", err)
 	}
-	
+
 	// Reset state
 	fm.stopCh = make(chan struct{})
-	
+
 	if err := fm.Start(); err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
-	
+
 	return nil
 }
 

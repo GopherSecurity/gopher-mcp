@@ -21,15 +21,15 @@ type mockComponentFilter struct {
 	stateless   bool
 }
 
-func (m *mockComponentFilter) GetID() string                                { return m.id }
-func (m *mockComponentFilter) GetName() string                              { return m.name }
-func (m *mockComponentFilter) GetType() string                              { return m.filterType }
-func (m *mockComponentFilter) GetVersion() string                           { return m.version }
-func (m *mockComponentFilter) GetDescription() string                       { return m.description }
-func (m *mockComponentFilter) ValidateConfig() error                        { return nil }
-func (m *mockComponentFilter) GetConfiguration() map[string]interface{}     { return m.config }
-func (m *mockComponentFilter) UpdateConfig(cfg map[string]interface{})      { m.config = cfg }
-func (m *mockComponentFilter) GetCapabilities() []string                    { return []string{"filter", "transform"} }
+func (m *mockComponentFilter) GetID() string                                   { return m.id }
+func (m *mockComponentFilter) GetName() string                                 { return m.name }
+func (m *mockComponentFilter) GetType() string                                 { return m.filterType }
+func (m *mockComponentFilter) GetVersion() string                              { return m.version }
+func (m *mockComponentFilter) GetDescription() string                          { return m.description }
+func (m *mockComponentFilter) ValidateConfig() error                           { return nil }
+func (m *mockComponentFilter) GetConfiguration() map[string]interface{}        { return m.config }
+func (m *mockComponentFilter) UpdateConfig(cfg map[string]interface{})         { m.config = cfg }
+func (m *mockComponentFilter) GetCapabilities() []string                       { return []string{"filter", "transform"} }
 func (m *mockComponentFilter) GetDependencies() []integration.FilterDependency { return nil }
 func (m *mockComponentFilter) GetResourceRequirements() integration.ResourceRequirements {
 	return integration.ResourceRequirements{Memory: 1024, CPUCores: 1}
@@ -40,12 +40,12 @@ func (m *mockComponentFilter) GetTypeInfo() integration.TypeInfo {
 		OutputTypes: []string{"bytes"},
 	}
 }
-func (m *mockComponentFilter) EstimateLatency() time.Duration       { return 10 * time.Millisecond }
-func (m *mockComponentFilter) HasBlockingOperations() bool          { return false }
-func (m *mockComponentFilter) UsesDeprecatedFeatures() bool         { return false }
-func (m *mockComponentFilter) HasKnownVulnerabilities() bool        { return false }
-func (m *mockComponentFilter) IsStateless() bool                    { return m.stateless }
-func (m *mockComponentFilter) SetID(id string)                      { m.id = id }
+func (m *mockComponentFilter) EstimateLatency() time.Duration { return 10 * time.Millisecond }
+func (m *mockComponentFilter) HasBlockingOperations() bool    { return false }
+func (m *mockComponentFilter) UsesDeprecatedFeatures() bool   { return false }
+func (m *mockComponentFilter) HasKnownVulnerabilities() bool  { return false }
+func (m *mockComponentFilter) IsStateless() bool              { return m.stateless }
+func (m *mockComponentFilter) SetID(id string)                { m.id = id }
 func (m *mockComponentFilter) Clone() integration.Filter {
 	return &mockComponentFilter{
 		id:          m.id + "_clone",
@@ -77,40 +77,40 @@ func TestFilteredMCPServer_Creation(t *testing.T) {
 // Test 2: Server request chain setup
 func TestFilteredMCPServer_SetRequestChain(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	chain := integration.NewFilterChain()
 	chain.SetName("server_request_chain")
-	
+
 	filter := &mockComponentFilter{
 		id:   "req_filter",
 		name: "server_request_filter",
 	}
 	chain.Add(filter)
-	
+
 	server.SetRequestChain(chain)
 }
 
 // Test 3: Server response chain setup
 func TestFilteredMCPServer_SetResponseChain(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	chain := integration.NewFilterChain()
 	chain.SetName("server_response_chain")
-	
+
 	server.SetResponseChain(chain)
 }
 
 // Test 4: Process server request
 func TestFilteredMCPServer_ProcessRequest(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Process request (no chain set, should pass through)
 	input := []byte("test_request")
 	output, err := server.ProcessRequest(input)
 	if err != nil {
 		t.Fatalf("ProcessRequest failed: %v", err)
 	}
-	
+
 	if string(output) != "test_request" {
 		t.Error("Request modified unexpectedly")
 	}
@@ -119,14 +119,14 @@ func TestFilteredMCPServer_ProcessRequest(t *testing.T) {
 // Test 5: Process server response
 func TestFilteredMCPServer_ProcessResponse(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Process response (no chain set, should pass through)
 	input := []byte("test_response")
 	output, err := server.ProcessResponse(input, "req123")
 	if err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
-	
+
 	if string(output) != "test_response" {
 		t.Error("Response modified unexpectedly")
 	}
@@ -135,12 +135,12 @@ func TestFilteredMCPServer_ProcessResponse(t *testing.T) {
 // Test 6: Handle server request
 func TestFilteredMCPServer_HandleRequest(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	request := map[string]interface{}{
 		"method": "test",
 		"params": "data",
 	}
-	
+
 	// Handle request (would interact with actual MCP server)
 	_, err := server.HandleRequest(request)
 	// Error expected as no actual server implementation
@@ -150,11 +150,11 @@ func TestFilteredMCPServer_HandleRequest(t *testing.T) {
 // Test 7: Send server response
 func TestFilteredMCPServer_SendResponse(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	response := map[string]interface{}{
 		"result": "test_result",
 	}
-	
+
 	// Send response (would interact with actual MCP server)
 	err := server.SendResponse(response)
 	// Error expected as no actual server implementation
@@ -164,17 +164,17 @@ func TestFilteredMCPServer_SendResponse(t *testing.T) {
 // Test 8: Register filtered tool
 func TestFilteredMCPServer_RegisterFilteredTool(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Mock tool interface
 	tool := &mockTool{
 		name: "test_tool",
 	}
-	
+
 	filter := &mockComponentFilter{
 		id:   "tool_filter",
 		name: "tool_filter",
 	}
-	
+
 	err := server.RegisterFilteredTool(tool, filter)
 	// May fail as implementation depends on actual MCP server
 	_ = err
@@ -183,17 +183,17 @@ func TestFilteredMCPServer_RegisterFilteredTool(t *testing.T) {
 // Test 9: Register filtered resource
 func TestFilteredMCPServer_RegisterFilteredResource(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Mock resource interface
 	resource := &mockComponentResource{
 		name: "test_resource",
 	}
-	
+
 	filter := &mockComponentFilter{
 		id:   "resource_filter",
 		name: "resource_filter",
 	}
-	
+
 	err := server.RegisterFilteredResource(resource, filter)
 	// May fail as implementation depends on actual MCP server
 	_ = err
@@ -202,17 +202,17 @@ func TestFilteredMCPServer_RegisterFilteredResource(t *testing.T) {
 // Test 10: Register filtered prompt
 func TestFilteredMCPServer_RegisterFilteredPrompt(t *testing.T) {
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Mock prompt interface
 	prompt := &mockPrompt{
 		name: "test_prompt",
 	}
-	
+
 	filter := &mockComponentFilter{
 		id:   "prompt_filter",
 		name: "prompt_filter",
 	}
-	
+
 	err := server.RegisterFilteredPrompt(prompt, filter)
 	// May fail as implementation depends on actual MCP server
 	_ = err
@@ -223,7 +223,7 @@ func TestTimeoutFilter_Creation(t *testing.T) {
 	filter := &integration.TimeoutFilter{
 		Timeout: 100 * time.Millisecond,
 	}
-	
+
 	if filter.Timeout != 100*time.Millisecond {
 		t.Error("Timeout not set correctly")
 	}
@@ -232,15 +232,15 @@ func TestTimeoutFilter_Creation(t *testing.T) {
 // Test 12: Connect with filters
 func TestFilteredMCPClient_ConnectWithFilters(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Mock transport
 	transport := &mockTransport{}
-	
+
 	filter := &mockComponentFilter{
 		id:   "connect_filter",
 		name: "connection_filter",
 	}
-	
+
 	ctx := context.Background()
 	err := client.ConnectWithFilters(ctx, transport, filter)
 	// May fail as implementation depends on actual transport
@@ -253,23 +253,23 @@ func TestBatchRequest_Processing(t *testing.T) {
 		BatchConcurrency: 3,
 		BatchFailFast:    false,
 	})
-	
+
 	requests := []integration.BatchRequest{
 		{ID: "1", Request: map[string]interface{}{"method": "test1"}},
 		{ID: "2", Request: map[string]interface{}{"method": "test2"}},
 		{ID: "3", Request: map[string]interface{}{"method": "test3"}},
 	}
-	
+
 	ctx := context.Background()
 	result, err := client.BatchRequestsWithFilters(ctx, requests)
-	
+
 	// Check result structure
 	if result != nil {
 		if result.SuccessRate() < 0 || result.SuccessRate() > 1 {
 			t.Error("Invalid success rate")
 		}
 	}
-	
+
 	_ = err
 }
 
@@ -279,14 +279,14 @@ func TestSubscription_Lifecycle(t *testing.T) {
 		ID:       "sub123",
 		Resource: "test_resource",
 	}
-	
+
 	// Update filters
 	filter := &mockComponentFilter{
 		id:   "sub_filter",
 		name: "subscription_filter",
 	}
 	sub.UpdateFilters(filter)
-	
+
 	// Unsubscribe
 	err := sub.Unsubscribe()
 	// May fail as no actual subscription exists
@@ -296,7 +296,7 @@ func TestSubscription_Lifecycle(t *testing.T) {
 // Test 15: Debug mode functionality
 func TestDebugMode_Operations(t *testing.T) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	// Enable debug mode with various options
 	client.EnableDebugMode(
 		integration.WithLogLevel("DEBUG"),
@@ -304,13 +304,13 @@ func TestDebugMode_Operations(t *testing.T) {
 		integration.WithLogRequests(true),
 		integration.WithTraceExecution(true),
 	)
-	
+
 	// Dump state
 	state := client.DumpState()
 	if state == "" {
 		t.Error("Empty state dump")
 	}
-	
+
 	// Disable debug mode
 	client.DisableDebugMode()
 }
@@ -322,16 +322,16 @@ func TestValidationResult_Processing(t *testing.T) {
 		Errors:   []integration.ValidationError{},
 		Warnings: []integration.ValidationWarning{},
 	}
-	
+
 	// Add error
 	result.Errors = append(result.Errors, integration.ValidationError{
 		ErrorType: "ERROR",
 		Message:   "Test error",
 	})
-	
+
 	// Should be invalid now
 	result.Valid = false
-	
+
 	if result.Valid {
 		t.Error("Result should be invalid after adding error")
 	}
@@ -345,15 +345,15 @@ func TestCloneOptions_Configuration(t *testing.T) {
 		ReverseOrder:   true,
 		ExcludeFilters: []string{"filter1", "filter2"},
 	}
-	
+
 	if !options.DeepCopy {
 		t.Error("DeepCopy should be true")
 	}
-	
+
 	if options.NewName != "cloned_chain" {
 		t.Error("NewName not set correctly")
 	}
-	
+
 	if len(options.ExcludeFilters) != 2 {
 		t.Error("ExcludeFilters not set correctly")
 	}
@@ -368,7 +368,7 @@ func TestFilterChainInfo_Structure(t *testing.T) {
 		Filters:     []integration.FilterInfo{},
 		Statistics:  integration.ChainStatistics{},
 	}
-	
+
 	// Add filter info
 	info.Filters = append(info.Filters, integration.FilterInfo{
 		ID:       "filter1",
@@ -376,7 +376,7 @@ func TestFilterChainInfo_Structure(t *testing.T) {
 		Type:     "validation",
 		Position: 0,
 	})
-	
+
 	if len(info.Filters) != 1 {
 		t.Error("Filter not added to info")
 	}
@@ -385,7 +385,7 @@ func TestFilterChainInfo_Structure(t *testing.T) {
 // Test 19: Concurrent filter operations
 func TestConcurrent_FilterOperations(t *testing.T) {
 	chain := integration.NewFilterChain()
-	
+
 	// Add multiple filters
 	for i := 0; i < 5; i++ {
 		filter := &mockComponentFilter{
@@ -399,12 +399,12 @@ func TestConcurrent_FilterOperations(t *testing.T) {
 		}
 		chain.Add(filter)
 	}
-	
+
 	// Process concurrently
 	var wg sync.WaitGroup
 	numGoroutines := 50
 	errors := make(chan error, numGoroutines)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
@@ -415,10 +415,10 @@ func TestConcurrent_FilterOperations(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 	close(errors)
-	
+
 	// Check for errors
 	errorCount := 0
 	for err := range errors {
@@ -427,7 +427,7 @@ func TestConcurrent_FilterOperations(t *testing.T) {
 			t.Logf("Concurrent processing error: %v", err)
 		}
 	}
-	
+
 	if errorCount > 0 {
 		t.Errorf("Had %d errors during concurrent processing", errorCount)
 	}
@@ -440,7 +440,7 @@ func TestComplete_IntegrationScenario(t *testing.T) {
 		EnableFiltering: true,
 	})
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Set up client chains
 	clientReqChain := integration.NewFilterChain()
 	clientReqChain.SetName("client_request")
@@ -452,7 +452,7 @@ func TestComplete_IntegrationScenario(t *testing.T) {
 		},
 	})
 	client.SetClientRequestChain(clientReqChain)
-	
+
 	clientRespChain := integration.NewFilterChain()
 	clientRespChain.SetName("client_response")
 	clientRespChain.Add(&mockComponentFilter{
@@ -463,7 +463,7 @@ func TestComplete_IntegrationScenario(t *testing.T) {
 		},
 	})
 	client.SetClientResponseChain(clientRespChain)
-	
+
 	// Set up server chains
 	serverReqChain := integration.NewFilterChain()
 	serverReqChain.SetName("server_request")
@@ -475,7 +475,7 @@ func TestComplete_IntegrationScenario(t *testing.T) {
 		},
 	})
 	server.SetRequestChain(serverReqChain)
-	
+
 	serverRespChain := integration.NewFilterChain()
 	serverRespChain.SetName("server_response")
 	serverRespChain.Add(&mockComponentFilter{
@@ -486,34 +486,34 @@ func TestComplete_IntegrationScenario(t *testing.T) {
 		},
 	})
 	server.SetResponseChain(serverRespChain)
-	
+
 	// Simulate request flow
 	originalRequest := []byte("test_request")
-	
+
 	// Client processes outgoing request
 	clientProcessed, err := client.FilterOutgoingRequest(originalRequest)
 	if err != nil {
 		t.Fatalf("Client request filtering failed: %v", err)
 	}
-	
+
 	// Server processes incoming request
 	_, err = server.ProcessRequest(clientProcessed)
 	if err != nil {
 		t.Fatalf("Server request processing failed: %v", err)
 	}
-	
+
 	// Server processes outgoing response
 	serverResponse, err := server.ProcessResponse([]byte("response"), "req123")
 	if err != nil {
 		t.Fatalf("Server response processing failed: %v", err)
 	}
-	
+
 	// Client processes incoming response
 	finalResponse, err := client.FilterIncomingResponse(serverResponse)
 	if err != nil {
 		t.Fatalf("Client response filtering failed: %v", err)
 	}
-	
+
 	// Verify transformations occurred
 	if len(finalResponse) <= len(originalRequest) {
 		t.Error("Response should be longer after all transformations")
@@ -588,7 +588,7 @@ func (m *mockTransport) Close() error {
 
 func BenchmarkIntegration_FilterChainProcessing(b *testing.B) {
 	chain := integration.NewFilterChain()
-	
+
 	for i := 0; i < 10; i++ {
 		chain.Add(&mockComponentFilter{
 			id:   string(rune('A' + i)),
@@ -598,9 +598,9 @@ func BenchmarkIntegration_FilterChainProcessing(b *testing.B) {
 			},
 		})
 	}
-	
+
 	data := []byte("benchmark data")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		chain.Process(data)
@@ -610,7 +610,7 @@ func BenchmarkIntegration_FilterChainProcessing(b *testing.B) {
 func BenchmarkIntegration_ClientServerFlow(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
 	server := integration.NewFilteredMCPServer()
-	
+
 	// Set up minimal chains
 	clientChain := integration.NewFilterChain()
 	clientChain.Add(&mockComponentFilter{
@@ -621,7 +621,7 @@ func BenchmarkIntegration_ClientServerFlow(b *testing.B) {
 		},
 	})
 	client.SetClientRequestChain(clientChain)
-	
+
 	serverChain := integration.NewFilterChain()
 	serverChain.Add(&mockComponentFilter{
 		id:   "server",
@@ -631,9 +631,9 @@ func BenchmarkIntegration_ClientServerFlow(b *testing.B) {
 		},
 	})
 	server.SetRequestChain(serverChain)
-	
+
 	data := []byte("benchmark data")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Client -> Server -> Client flow
@@ -645,7 +645,7 @@ func BenchmarkIntegration_ClientServerFlow(b *testing.B) {
 
 func BenchmarkIntegration_ConcurrentChains(b *testing.B) {
 	chains := make([]*integration.FilterChain, 10)
-	
+
 	for i := 0; i < 10; i++ {
 		chain := integration.NewFilterChain()
 		chain.Add(&mockComponentFilter{
@@ -657,9 +657,9 @@ func BenchmarkIntegration_ConcurrentChains(b *testing.B) {
 		})
 		chains[i] = chain
 	}
-	
+
 	data := []byte("benchmark data")
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
@@ -671,7 +671,7 @@ func BenchmarkIntegration_ConcurrentChains(b *testing.B) {
 
 func BenchmarkIntegration_ValidationOperations(b *testing.B) {
 	client := integration.NewFilteredMCPClient(integration.ClientConfig{})
-	
+
 	chain := integration.NewFilterChain()
 	for i := 0; i < 5; i++ {
 		chain.Add(&mockComponentFilter{
@@ -680,7 +680,7 @@ func BenchmarkIntegration_ValidationOperations(b *testing.B) {
 			filterType: "validation",
 		})
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		client.ValidateFilterChain(chain)

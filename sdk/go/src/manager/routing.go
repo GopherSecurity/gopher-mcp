@@ -8,8 +8,8 @@ import (
 
 // DefaultRouter implements request routing.
 type DefaultRouter struct {
-	routes    []Route
-	fallback  string
+	routes   []Route
+	fallback string
 }
 
 // Route defines a routing rule.
@@ -28,11 +28,11 @@ func (r *DefaultRouter) Route(message []byte) (string, error) {
 			return route.Chain, nil
 		}
 	}
-	
+
 	// Use fallback
 	if r.fallback != "" {
 		return r.fallback, nil
 	}
-	
+
 	return "", fmt.Errorf("no matching route")
 }

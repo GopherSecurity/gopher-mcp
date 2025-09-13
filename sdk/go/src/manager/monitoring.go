@@ -8,10 +8,10 @@ import (
 
 // ProcessorMonitor monitors processing metrics.
 type ProcessorMonitor struct {
-	requestRate     atomic.Int64
-	latencySum      atomic.Int64
-	latencyCount    atomic.Int64
-	errorRate       atomic.Int64
+	requestRate      atomic.Int64
+	latencySum       atomic.Int64
+	latencyCount     atomic.Int64
+	errorRate        atomic.Int64
 	chainUtilization map[string]*ChainMetrics
 	alertThresholds  AlertThresholds
 }
@@ -25,8 +25,8 @@ type ChainMetrics struct {
 
 // AlertThresholds defines alert conditions.
 type AlertThresholds struct {
-	MaxLatency   time.Duration
-	MaxErrorRate float64
+	MaxLatency    time.Duration
+	MaxErrorRate  float64
 	MinThroughput float64
 }
 
@@ -35,14 +35,14 @@ func (m *ProcessorMonitor) RecordRequest(chain string, latency time.Duration, su
 	m.requestRate.Add(1)
 	m.latencySum.Add(int64(latency))
 	m.latencyCount.Add(1)
-	
+
 	if !success {
 		m.errorRate.Add(1)
 	}
-	
+
 	// Update chain metrics
 	// m.chainUtilization[chain].Invocations++
-	
+
 	// Check thresholds
 	m.checkAlerts(latency)
 }
@@ -60,7 +60,7 @@ func (m *ProcessorMonitor) GetMetrics() map[string]interface{} {
 	if count := m.latencyCount.Load(); count > 0 {
 		avgLatency = time.Duration(m.latencySum.Load() / count)
 	}
-	
+
 	return map[string]interface{}{
 		"request_rate": m.requestRate.Load(),
 		"avg_latency":  avgLatency,

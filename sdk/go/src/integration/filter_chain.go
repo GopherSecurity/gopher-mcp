@@ -21,23 +21,23 @@ const (
 
 // FilterChain represents a chain of filters.
 type FilterChain struct {
-	id              string
-	name            string
-	description     string
-	filters         []Filter
-	mode            ExecutionMode
-	hooks           []func([]byte, string)
-	mu              sync.RWMutex
-	createdAt       time.Time
-	lastModified    time.Time
-	tags            map[string]string
-	maxFilters      int
-	timeout         time.Duration
-	retryPolicy     RetryPolicy
-	cacheEnabled    bool
-	cacheTTL        time.Duration
-	maxConcurrency  int
-	bufferSize      int
+	id             string
+	name           string
+	description    string
+	filters        []Filter
+	mode           ExecutionMode
+	hooks          []func([]byte, string)
+	mu             sync.RWMutex
+	createdAt      time.Time
+	lastModified   time.Time
+	tags           map[string]string
+	maxFilters     int
+	timeout        time.Duration
+	retryPolicy    RetryPolicy
+	cacheEnabled   bool
+	cacheTTL       time.Duration
+	maxConcurrency int
+	bufferSize     int
 }
 
 // Filter interface defines the contract for all filters.
@@ -107,11 +107,11 @@ func NewFilterChain() *FilterChain {
 func (fc *FilterChain) Add(filter Filter) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	
+
 	if len(fc.filters) >= fc.maxFilters {
 		return fmt.Errorf("chain has reached maximum filters limit: %d", fc.maxFilters)
 	}
-	
+
 	fc.filters = append(fc.filters, filter)
 	fc.lastModified = time.Now()
 	return nil
@@ -121,14 +121,14 @@ func (fc *FilterChain) Add(filter Filter) error {
 func (fc *FilterChain) Process(data []byte) ([]byte, error) {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	if len(fc.filters) == 0 {
 		return data, nil
 	}
-	
+
 	result := data
 	var err error
-	
+
 	// Execute filters based on mode
 	switch fc.mode {
 	case ParallelMode:
@@ -146,19 +146,19 @@ func (fc *FilterChain) Process(data []byte) ([]byte, error) {
 			for _, hook := range fc.hooks {
 				hook(result, "before_filter")
 			}
-			
+
 			result, err = filter.Process(result)
 			if err != nil {
 				return nil, fmt.Errorf("filter %s failed: %w", filter.GetName(), err)
 			}
-			
+
 			// Call hooks
 			for _, hook := range fc.hooks {
 				hook(result, "after_filter")
 			}
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -209,7 +209,7 @@ func (fc *FilterChain) GetFilterCount() int {
 func (fc *FilterChain) Remove(id string) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	
+
 	for i, filter := range fc.filters {
 		if filter.GetID() == id {
 			fc.filters = append(fc.filters[:i], fc.filters[i+1:]...)
@@ -314,7 +314,7 @@ func (fc *FilterChain) RemoveTag(key string) {
 func (fc *FilterChain) Clone() *FilterChain {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	cloned := &FilterChain{
 		id:             generateChainID(),
 		name:           fc.name,
@@ -332,21 +332,21 @@ func (fc *FilterChain) Clone() *FilterChain {
 		maxConcurrency: fc.maxConcurrency,
 		bufferSize:     fc.bufferSize,
 	}
-	
+
 	// Clone filters
 	cloned.filters = make([]Filter, len(fc.filters))
 	for i, filter := range fc.filters {
 		cloned.filters[i] = filter.Clone()
 	}
-	
+
 	// Copy hooks
 	copy(cloned.hooks, fc.hooks)
-	
+
 	// Copy tags
 	for k, v := range fc.tags {
 		cloned.tags[k] = v
 	}
-	
+
 	return cloned
 }
 
@@ -354,16 +354,16 @@ func (fc *FilterChain) Clone() *FilterChain {
 func (fc *FilterChain) Validate() error {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	// Check for circular dependencies, incompatible filters, etc.
 	// For now, just basic validation
-	
+
 	for _, filter := range fc.filters {
 		if err := filter.ValidateConfig(); err != nil {
 			return fmt.Errorf("filter %s validation failed: %w", filter.GetName(), err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -386,7 +386,7 @@ func (fc *FilterChain) Clear() {
 func (fc *FilterChain) GetFilterByID(id string) Filter {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	for _, filter := range fc.filters {
 		if filter.GetID() == id {
 			return filter
@@ -399,7 +399,7 @@ func (fc *FilterChain) GetFilterByID(id string) Filter {
 func (fc *FilterChain) GetStatistics() ChainStatistics {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	// This would typically track actual statistics
 	return ChainStatistics{
 		TotalExecutions: 10, // Placeholder
@@ -421,5 +421,3 @@ func (fc *FilterChain) GetBufferSize() int {
 	defer fc.mu.RUnlock()
 	return fc.bufferSize
 }
-
-

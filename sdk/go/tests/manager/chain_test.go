@@ -12,7 +12,7 @@ import (
 func TestFilterManager_CreateChain(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name:           "test-chain",
 		ExecutionMode:  manager.Sequential,
@@ -21,20 +21,20 @@ func TestFilterManager_CreateChain(t *testing.T) {
 		EnableTracing:  false,
 		MaxConcurrency: 1,
 	}
-	
+
 	chain, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("CreateChain failed: %v", err)
 	}
-	
+
 	if chain == nil {
 		t.Fatal("CreateChain returned nil chain")
 	}
-	
+
 	if chain.Name != "test-chain" {
 		t.Errorf("Chain name = %s, want test-chain", chain.Name)
 	}
-	
+
 	if chain.Config.ExecutionMode != manager.Sequential {
 		t.Error("Chain execution mode not set correctly")
 	}
@@ -44,17 +44,17 @@ func TestFilterManager_CreateChain(t *testing.T) {
 func TestFilterManager_CreateDuplicateChain(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "duplicate-chain",
 	}
-	
+
 	// First creation should succeed
 	_, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("First CreateChain failed: %v", err)
 	}
-	
+
 	// Second creation should fail
 	_, err = fm.CreateChain(chainConfig)
 	if err == nil {
@@ -66,26 +66,26 @@ func TestFilterManager_CreateDuplicateChain(t *testing.T) {
 func TestFilterManager_GetChain(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "retrievable-chain",
 	}
-	
+
 	created, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("CreateChain failed: %v", err)
 	}
-	
+
 	// Get chain
 	retrieved, exists := fm.GetChain("retrievable-chain")
 	if !exists {
 		t.Error("Chain should exist")
 	}
-	
+
 	if retrieved.Name != created.Name {
 		t.Error("Retrieved chain doesn't match created chain")
 	}
-	
+
 	// Try to get non-existent chain
 	_, exists = fm.GetChain("non-existent")
 	if exists {
@@ -97,28 +97,28 @@ func TestFilterManager_GetChain(t *testing.T) {
 func TestFilterManager_RemoveChain(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "removable-chain",
 	}
-	
+
 	_, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("CreateChain failed: %v", err)
 	}
-	
+
 	// Remove chain
 	err = fm.RemoveChain("removable-chain")
 	if err != nil {
 		t.Fatalf("RemoveChain failed: %v", err)
 	}
-	
+
 	// Verify it's gone
 	_, exists := fm.GetChain("removable-chain")
 	if exists {
 		t.Error("Chain should not exist after removal")
 	}
-	
+
 	// Removing non-existent chain should fail
 	err = fm.RemoveChain("non-existent")
 	if err == nil {
@@ -131,7 +131,7 @@ func TestFilterManager_ChainCapacityLimit(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	config.MaxChains = 2
 	fm := manager.NewFilterManager(config)
-	
+
 	// Create chains up to limit
 	for i := 0; i < 2; i++ {
 		chainConfig := manager.ChainConfig{
@@ -142,7 +142,7 @@ func TestFilterManager_ChainCapacityLimit(t *testing.T) {
 			t.Fatalf("CreateChain %d failed: %v", i, err)
 		}
 	}
-	
+
 	// Next creation should fail
 	chainConfig := manager.ChainConfig{
 		Name: "overflow",
@@ -163,24 +163,24 @@ func TestChainExecutionModes(t *testing.T) {
 		{"parallel", manager.Parallel},
 		{"pipeline", manager.Pipeline},
 	}
-	
+
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chainConfig := manager.ChainConfig{
 				Name:          tt.name,
 				ExecutionMode: tt.mode,
 			}
-			
+
 			chain, err := fm.CreateChain(chainConfig)
 			if err != nil {
 				t.Fatalf("CreateChain failed: %v", err)
 			}
-			
+
 			if chain.Config.ExecutionMode != tt.mode {
-				t.Errorf("ExecutionMode = %v, want %v", 
+				t.Errorf("ExecutionMode = %v, want %v",
 					chain.Config.ExecutionMode, tt.mode)
 			}
 		})
@@ -191,36 +191,36 @@ func TestChainExecutionModes(t *testing.T) {
 func TestFilterChain_RemoveFilter(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "filter-removal-chain",
 	}
-	
+
 	chain, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("CreateChain failed: %v", err)
 	}
-	
+
 	// Add mock filters to chain
 	id1 := uuid.New()
 	id2 := uuid.New()
 	filter1 := &mockFilter{id: id1, name: "filter1"}
 	filter2 := &mockFilter{id: id2, name: "filter2"}
-	
+
 	chain.Filters = append(chain.Filters, filter1, filter2)
-	
+
 	// Remove first filter
 	chain.RemoveFilter(id1)
-	
+
 	// Verify filter is removed
 	if len(chain.Filters) != 1 {
 		t.Errorf("Chain should have 1 filter, has %d", len(chain.Filters))
 	}
-	
+
 	if chain.Filters[0].GetID() != id2 {
 		t.Error("Wrong filter was removed")
 	}
-	
+
 	// Remove non-existent filter (should be no-op)
 	chain.RemoveFilter(uuid.New())
 	if len(chain.Filters) != 1 {
@@ -232,7 +232,7 @@ func TestFilterChain_RemoveFilter(t *testing.T) {
 func TestChainConfigurations(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	tests := []struct {
 		name   string
 		config manager.ChainConfig
@@ -267,23 +267,23 @@ func TestChainConfigurations(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain, err := fm.CreateChain(tt.config)
 			if err != nil {
 				t.Fatalf("CreateChain failed: %v", err)
 			}
-			
+
 			// Verify config is stored correctly
 			if chain.Config.Name != tt.config.Name {
 				t.Error("Chain config name mismatch")
 			}
-			
+
 			if chain.Config.EnableMetrics != tt.config.EnableMetrics {
 				t.Error("EnableMetrics not set correctly")
 			}
-			
+
 			if chain.Config.EnableTracing != tt.config.EnableTracing {
 				t.Error("EnableTracing not set correctly")
 			}
@@ -295,28 +295,28 @@ func TestChainConfigurations(t *testing.T) {
 func TestChainManagement_WithRunningManager(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	// Start manager
 	err := fm.Start()
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
 	defer fm.Stop()
-	
+
 	// Should be able to create chains while running
 	chainConfig := manager.ChainConfig{
 		Name: "runtime-chain",
 	}
-	
+
 	chain, err := fm.CreateChain(chainConfig)
 	if err != nil {
 		t.Fatalf("CreateChain failed while running: %v", err)
 	}
-	
+
 	if chain == nil {
 		t.Error("Chain should be created while manager is running")
 	}
-	
+
 	// Should be able to remove chains while running
 	err = fm.RemoveChain("runtime-chain")
 	if err != nil {
@@ -328,21 +328,21 @@ func TestChainManagement_WithRunningManager(t *testing.T) {
 func TestChain_EmptyName(t *testing.T) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "", // Empty name
 	}
-	
+
 	// Creating chain with empty name might be allowed or not
 	// depending on validation rules
 	chain, err := fm.CreateChain(chainConfig)
-	
+
 	if err == nil {
 		// If allowed, verify we can still work with it
 		if chain.Name != "" {
 			t.Error("Chain name should be empty as configured")
 		}
-		
+
 		// Should not be retrievable by empty name
 		_, exists := fm.GetChain("")
 		if !exists {
@@ -357,7 +357,7 @@ func TestChain_EmptyName(t *testing.T) {
 func BenchmarkFilterManager_CreateChain(b *testing.B) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		chainConfig := manager.ChainConfig{
@@ -370,12 +370,12 @@ func BenchmarkFilterManager_CreateChain(b *testing.B) {
 func BenchmarkFilterManager_GetChain(b *testing.B) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	chainConfig := manager.ChainConfig{
 		Name: "bench-chain",
 	}
 	fm.CreateChain(chainConfig)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		fm.GetChain("bench-chain")
@@ -385,7 +385,7 @@ func BenchmarkFilterManager_GetChain(b *testing.B) {
 func BenchmarkFilterManager_RemoveChain(b *testing.B) {
 	config := manager.DefaultFilterManagerConfig()
 	fm := manager.NewFilterManager(config)
-	
+
 	// Pre-create chains
 	for i := 0; i < b.N; i++ {
 		chainConfig := manager.ChainConfig{
@@ -393,7 +393,7 @@ func BenchmarkFilterManager_RemoveChain(b *testing.B) {
 		}
 		fm.CreateChain(chainConfig)
 	}
-	
+
 	b.ResetTimer()
 	// Note: This will eventually fail when chains are exhausted
 	// but it measures the removal performance
@@ -407,7 +407,7 @@ func BenchmarkFilterChain_RemoveFilter(b *testing.B) {
 		Name:    "bench",
 		Filters: make([]manager.Filter, 0),
 	}
-	
+
 	// Add many filters
 	for i := 0; i < 100; i++ {
 		filter := &mockFilter{
@@ -416,7 +416,7 @@ func BenchmarkFilterChain_RemoveFilter(b *testing.B) {
 		}
 		chain.Filters = append(chain.Filters, filter)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Remove non-existent filter (worst case)

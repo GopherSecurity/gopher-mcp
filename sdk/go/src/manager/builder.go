@@ -35,14 +35,14 @@ func NewChainBuilder(name string) *ChainBuilder {
 	return &ChainBuilder{
 		filters: make([]core.Filter, 0),
 		config: types.ChainConfig{
-			Name:         name,
-			ExecutionMode: types.Sequential,
+			Name:           name,
+			ExecutionMode:  types.Sequential,
 			MaxConcurrency: 1,
-			BufferSize:   1000,
-			ErrorHandling: "fail-fast",
-			Timeout:      30 * time.Second,
-			EnableMetrics: false,
-			EnableTracing: false,
+			BufferSize:     1000,
+			ErrorHandling:  "fail-fast",
+			Timeout:        30 * time.Second,
+			EnableMetrics:  false,
+			EnableTracing:  false,
 		},
 		validators: make([]Validator, 0),
 		errors:     make([]error, 0),
@@ -55,21 +55,21 @@ func (cb *ChainBuilder) Add(filter core.Filter) *ChainBuilder {
 		cb.errors = append(cb.errors, fmt.Errorf("filter cannot be nil"))
 		return cb
 	}
-	
+
 	// Check for duplicate filter names
 	filterName := filter.Name()
 	if filterName == "" {
 		cb.errors = append(cb.errors, fmt.Errorf("filter name cannot be empty"))
 		return cb
 	}
-	
+
 	for _, existing := range cb.filters {
 		if existing.Name() == filterName {
 			cb.errors = append(cb.errors, fmt.Errorf("filter with name '%s' already exists in chain", filterName))
 			return cb
 		}
 	}
-	
+
 	cb.filters = append(cb.filters, filter)
 	return cb
 }
@@ -77,7 +77,7 @@ func (cb *ChainBuilder) Add(filter core.Filter) *ChainBuilder {
 // WithMode sets the execution mode for the chain.
 func (cb *ChainBuilder) WithMode(mode types.ExecutionMode) *ChainBuilder {
 	cb.config.ExecutionMode = mode
-	
+
 	// Validate mode with current filters
 	if mode == types.Parallel && len(cb.filters) > 0 {
 		// Check if all filters support parallel execution
@@ -87,7 +87,7 @@ func (cb *ChainBuilder) WithMode(mode types.ExecutionMode) *ChainBuilder {
 			_ = filter // Use the filter variable to avoid unused variable error
 		}
 	}
-	
+
 	return cb
 }
 
@@ -97,7 +97,7 @@ func (cb *ChainBuilder) WithTimeout(timeout time.Duration) *ChainBuilder {
 		cb.errors = append(cb.errors, fmt.Errorf("timeout must be positive, got %v", timeout))
 		return cb
 	}
-	
+
 	cb.config.Timeout = timeout
 	return cb
 }
@@ -108,7 +108,7 @@ func (cb *ChainBuilder) WithMetrics(collector MetricsCollector) *ChainBuilder {
 		cb.errors = append(cb.errors, fmt.Errorf("metrics collector cannot be nil"))
 		return cb
 	}
-	
+
 	cb.config.EnableMetrics = true
 	// Store the collector in the config (would need to extend ChainConfig)
 	// For now, just enable metrics
@@ -121,7 +121,7 @@ func (cb *ChainBuilder) WithMaxConcurrency(maxConcurrency int) *ChainBuilder {
 		cb.errors = append(cb.errors, fmt.Errorf("max concurrency must be positive, got %d", maxConcurrency))
 		return cb
 	}
-	
+
 	cb.config.MaxConcurrency = maxConcurrency
 	return cb
 }
@@ -132,7 +132,7 @@ func (cb *ChainBuilder) WithBufferSize(bufferSize int) *ChainBuilder {
 		cb.errors = append(cb.errors, fmt.Errorf("buffer size must be positive, got %d", bufferSize))
 		return cb
 	}
-	
+
 	cb.config.BufferSize = bufferSize
 	return cb
 }
@@ -147,12 +147,12 @@ func (cb *ChainBuilder) WithErrorHandling(strategy string) *ChainBuilder {
 			break
 		}
 	}
-	
+
 	if !valid {
 		cb.errors = append(cb.errors, fmt.Errorf("invalid error handling strategy '%s', must be one of: %v", strategy, validStrategies))
 		return cb
 	}
-	
+
 	cb.config.ErrorHandling = strategy
 	return cb
 }
@@ -182,7 +182,7 @@ func (cb *ChainBuilder) Validate() error {
 		}
 		return fmt.Errorf("builder has validation errors: %v", errMessages)
 	}
-	
+
 	// Validate configuration
 	if errs := cb.config.Validate(); len(errs) > 0 {
 		// Join multiple validation errors into a single error message
@@ -192,19 +192,19 @@ func (cb *ChainBuilder) Validate() error {
 		}
 		return fmt.Errorf("invalid chain config: %v", errMessages)
 	}
-	
+
 	// Check if we have any filters
 	if len(cb.filters) == 0 {
 		return fmt.Errorf("chain must have at least one filter")
 	}
-	
+
 	// Run custom validators
 	for _, validator := range cb.validators {
 		if err := validator.Validate(cb.filters, cb.config); err != nil {
 			return fmt.Errorf("validation failed: %w", err)
 		}
 	}
-	
+
 	// Mode-specific validation
 	switch cb.config.ExecutionMode {
 	case types.Parallel:
@@ -216,7 +216,7 @@ func (cb *ChainBuilder) Validate() error {
 			return fmt.Errorf("pipeline mode requires BufferSize > 0")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -226,28 +226,28 @@ func (cb *ChainBuilder) Build() (*core.FilterChain, error) {
 	if err := cb.Validate(); err != nil {
 		return nil, err
 	}
-	
+
 	// Apply optimizations if requested
 	optimizedFilters := cb.optimize(cb.filters)
-	
+
 	// Create the chain
 	chain := core.NewFilterChain(cb.config)
 	if chain == nil {
 		return nil, fmt.Errorf("failed to create filter chain")
 	}
-	
+
 	// Add all filters to the chain
 	for _, filter := range optimizedFilters {
 		if err := chain.Add(filter); err != nil {
 			return nil, fmt.Errorf("failed to add filter '%s' to chain: %w", filter.Name(), err)
 		}
 	}
-	
+
 	// Initialize the chain
 	if err := chain.Initialize(); err != nil {
 		return nil, fmt.Errorf("failed to initialize chain: %w", err)
 	}
-	
+
 	return chain, nil
 }
 
@@ -259,7 +259,7 @@ func (cb *ChainBuilder) optimize(filters []core.Filter) []core.Filter {
 	// 2. Reorder filters for better performance
 	// 3. Parallelize independent filters
 	// 4. Minimize data copying
-	
+
 	// For now, just return the filters as-is
 	return filters
 }
@@ -315,7 +315,7 @@ func (cv *CompatibilityValidator) Validate(filters []core.Filter, config types.C
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -323,12 +323,12 @@ func (cv *CompatibilityValidator) Validate(filters []core.Filter, config types.C
 func (cv *CompatibilityValidator) areIncompatible(filter1, filter2 core.Filter) bool {
 	// This is a simplified implementation
 	// In reality, you'd have more sophisticated compatibility checking
-	
+
 	// Example: two rate limiters might be redundant
 	if filter1.Type() == "rate-limit" && filter2.Type() == "rate-limit" {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -343,12 +343,12 @@ func (rv *ResourceValidator) Validate(filters []core.Filter, config types.ChainC
 	if len(filters) > rv.MaxFilters {
 		return fmt.Errorf("too many filters: %d exceeds maximum of %d", len(filters), rv.MaxFilters)
 	}
-	
+
 	// Check memory requirements (simplified)
 	totalMemory := int64(len(filters) * 1024) // Assume 1KB per filter
 	if totalMemory > rv.MaxMemory {
 		return fmt.Errorf("estimated memory usage %d exceeds maximum of %d", totalMemory, rv.MaxMemory)
 	}
-	
+
 	return nil
 }

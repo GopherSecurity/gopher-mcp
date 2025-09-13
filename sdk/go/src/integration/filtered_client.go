@@ -4,7 +4,6 @@ package integration
 import (
 	"sync"
 	"time"
-	
 	// "github.com/modelcontextprotocol/go-sdk/pkg/client"
 )
 
@@ -15,19 +14,19 @@ type MCPClient struct {
 
 // FilteredMCPClient wraps MCP client with filtering.
 type FilteredMCPClient struct {
-	*MCPClient // Embedded MCP client
-	requestChain      *FilterChain
-	responseChain     *FilterChain
-	notificationChain *FilterChain
-	subscriptions     map[string]*Subscription
+	*MCPClient           // Embedded MCP client
+	requestChain         *FilterChain
+	responseChain        *FilterChain
+	notificationChain    *FilterChain
+	subscriptions        map[string]*Subscription
 	notificationHandlers map[string][]NotificationHandler
-	filteredHandlers  map[string]*FilteredNotificationHandler
-	customChains      map[string]*FilterChain
-	config            ClientConfig
-	debugMode         *DebugMode
-	metricsCollector  *MetricsCollector
-	reconnectStrategy ReconnectStrategy
-	mu                sync.RWMutex
+	filteredHandlers     map[string]*FilteredNotificationHandler
+	customChains         map[string]*FilterChain
+	config               ClientConfig
+	debugMode            *DebugMode
+	metricsCollector     *MetricsCollector
+	reconnectStrategy    ReconnectStrategy
+	mu                   sync.RWMutex
 }
 
 // ReconnectStrategy defines reconnection behavior.
@@ -47,11 +46,11 @@ type ClientConfig struct {
 // NewFilteredMCPClient creates a filtered MCP client.
 func NewFilteredMCPClient(config ClientConfig) *FilteredMCPClient {
 	return &FilteredMCPClient{
-		MCPClient:     &MCPClient{},
-		requestChain:  &FilterChain{},
-		responseChain: &FilterChain{},
-		config:        config,
-		subscriptions: make(map[string]*Subscription),
+		MCPClient:            &MCPClient{},
+		requestChain:         &FilterChain{},
+		responseChain:        &FilterChain{},
+		config:               config,
+		subscriptions:        make(map[string]*Subscription),
 		notificationHandlers: make(map[string][]NotificationHandler),
 	}
 }

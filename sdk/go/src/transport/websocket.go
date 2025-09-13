@@ -7,104 +7,104 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	
+
 	"github.com/gorilla/websocket"
 )
 
 // WebSocketTransport implements Transport using WebSocket.
 type WebSocketTransport struct {
 	TransportBase
-	
+
 	// Connection
 	conn     *websocket.Conn
 	dialer   *websocket.Dialer
 	upgrader *websocket.Upgrader
-	
+
 	// Configuration
 	config WebSocketConfig
-	
+
 	// Message handling
 	messageType int
 	readBuffer  chan []byte
 	writeBuffer chan []byte
-	
+
 	// Health monitoring
 	pingTicker   *time.Ticker
 	pongReceived chan struct{}
 	lastPong     time.Time
-	
+
 	// Reconnection
 	reconnecting bool
 	reconnectMu  sync.Mutex
-	
+
 	mu sync.RWMutex
 }
 
 // WebSocketConfig configures WebSocket transport behavior.
 type WebSocketConfig struct {
-	URL             string
-	Subprotocols    []string
-	Headers         http.Header
-	
+	URL          string
+	Subprotocols []string
+	Headers      http.Header
+
 	// Message types
-	MessageType     int // websocket.TextMessage or websocket.BinaryMessage
-	
+	MessageType int // websocket.TextMessage or websocket.BinaryMessage
+
 	// Ping/Pong
-	EnablePingPong  bool
-	PingInterval    time.Duration
-	PongTimeout     time.Duration
-	
+	EnablePingPong bool
+	PingInterval   time.Duration
+	PongTimeout    time.Duration
+
 	// Compression
 	EnableCompression bool
 	CompressionLevel  int
-	
+
 	// Reconnection
-	EnableReconnection bool
-	ReconnectInterval  time.Duration
+	EnableReconnection   bool
+	ReconnectInterval    time.Duration
 	MaxReconnectAttempts int
-	
+
 	// Buffering
 	ReadBufferSize   int
 	WriteBufferSize  int
 	MessageQueueSize int
-	
+
 	// Server mode
-	ServerMode      bool
-	ListenAddress   string
+	ServerMode    bool
+	ListenAddress string
 }
 
 // DefaultWebSocketConfig returns default WebSocket configuration.
 func DefaultWebSocketConfig() WebSocketConfig {
 	return WebSocketConfig{
-		URL:                "ws://localhost:8080/ws",
-		MessageType:        websocket.BinaryMessage,
-		EnablePingPong:     true,
-		PingInterval:       30 * time.Second,
-		PongTimeout:        10 * time.Second,
-		EnableCompression:  true,
-		CompressionLevel:   1,
-		EnableReconnection: true,
-		ReconnectInterval:  5 * time.Second,
+		URL:                  "ws://localhost:8080/ws",
+		MessageType:          websocket.BinaryMessage,
+		EnablePingPong:       true,
+		PingInterval:         30 * time.Second,
+		PongTimeout:          10 * time.Second,
+		EnableCompression:    true,
+		CompressionLevel:     1,
+		EnableReconnection:   true,
+		ReconnectInterval:    5 * time.Second,
 		MaxReconnectAttempts: 10,
-		ReadBufferSize:     4096,
-		WriteBufferSize:    4096,
-		MessageQueueSize:   100,
-		ServerMode:         false,
+		ReadBufferSize:       4096,
+		WriteBufferSize:      4096,
+		MessageQueueSize:     100,
+		ServerMode:           false,
 	}
 }
 
 // NewWebSocketTransport creates a new WebSocket transport.
 func NewWebSocketTransport(config WebSocketConfig) *WebSocketTransport {
 	baseConfig := DefaultTransportConfig()
-	
+
 	dialer := &websocket.Dialer{
-		ReadBufferSize:   config.ReadBufferSize,
-		WriteBufferSize:  config.WriteBufferSize,
-		HandshakeTimeout: 10 * time.Second,
-		Subprotocols:     config.Subprotocols,
+		ReadBufferSize:    config.ReadBufferSize,
+		WriteBufferSize:   config.WriteBufferSize,
+		HandshakeTimeout:  10 * time.Second,
+		Subprotocols:      config.Subprotocols,
 		EnableCompression: config.EnableCompression,
 	}
-	
+
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:    config.ReadBufferSize,
 		WriteBufferSize:   config.WriteBufferSize,
@@ -112,7 +112,7 @@ func NewWebSocketTransport(config WebSocketConfig) *WebSocketTransport {
 		EnableCompression: config.EnableCompression,
 		Subprotocols:      config.Subprotocols,
 	}
-	
+
 	return &WebSocketTransport{
 		TransportBase: NewTransportBase(baseConfig),
 		dialer:        dialer,
@@ -130,11 +130,11 @@ func (wst *WebSocketTransport) Connect(ctx context.Context) error {
 	if !wst.SetConnected(true) {
 		return ErrAlreadyConnected
 	}
-	
+
 	if wst.config.ServerMode {
 		return wst.startServer(ctx)
 	}
-	
+
 	// Connect to WebSocket server
 	conn, resp, err := wst.dialer.DialContext(ctx, wst.config.URL, wst.config.Headers)
 	if err != nil {
@@ -145,34 +145,34 @@ func (wst *WebSocketTransport) Connect(ctx context.Context) error {
 			Cause:   err,
 		}
 	}
-	
+
 	if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
 		wst.SetConnected(false)
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	
+
 	wst.mu.Lock()
 	wst.conn = conn
 	wst.mu.Unlock()
-	
+
 	// Configure connection
 	if wst.config.EnableCompression {
 		conn.EnableWriteCompression(true)
 		conn.SetCompressionLevel(wst.config.CompressionLevel)
 	}
-	
+
 	// Set handlers
 	conn.SetPongHandler(wst.handlePong)
 	conn.SetCloseHandler(wst.handleClose)
-	
+
 	// Start goroutines
 	go wst.readLoop()
 	go wst.writeLoop()
-	
+
 	if wst.config.EnablePingPong {
 		wst.startPingPong()
 	}
-	
+
 	wst.UpdateConnectTime()
 	return nil
 }
@@ -184,30 +184,30 @@ func (wst *WebSocketTransport) startServer(ctx context.Context) error {
 		if err != nil {
 			return
 		}
-		
+
 		wst.mu.Lock()
 		wst.conn = conn
 		wst.mu.Unlock()
-		
+
 		// Configure connection
 		if wst.config.EnableCompression {
 			conn.EnableWriteCompression(true)
 			conn.SetCompressionLevel(wst.config.CompressionLevel)
 		}
-		
+
 		// Set handlers
 		conn.SetPongHandler(wst.handlePong)
 		conn.SetCloseHandler(wst.handleClose)
-		
+
 		// Start processing
 		go wst.readLoop()
 		go wst.writeLoop()
-		
+
 		if wst.config.EnablePingPong {
 			wst.startPingPong()
 		}
 	})
-	
+
 	go http.ListenAndServe(wst.config.ListenAddress, nil)
 	return nil
 }
@@ -217,7 +217,7 @@ func (wst *WebSocketTransport) Send(data []byte) error {
 	if !wst.IsConnected() {
 		return ErrNotConnected
 	}
-	
+
 	select {
 	case wst.writeBuffer <- data:
 		return nil
@@ -231,7 +231,7 @@ func (wst *WebSocketTransport) Receive() ([]byte, error) {
 	if !wst.IsConnected() {
 		return nil, ErrNotConnected
 	}
-	
+
 	select {
 	case data := <-wst.readBuffer:
 		wst.RecordBytesReceived(len(data))
@@ -244,16 +244,16 @@ func (wst *WebSocketTransport) Receive() ([]byte, error) {
 // readLoop continuously reads from WebSocket.
 func (wst *WebSocketTransport) readLoop() {
 	defer wst.handleDisconnection()
-	
+
 	for {
 		wst.mu.RLock()
 		conn := wst.conn
 		wst.mu.RUnlock()
-		
+
 		if conn == nil {
 			return
 		}
-		
+
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -261,7 +261,7 @@ func (wst *WebSocketTransport) readLoop() {
 			}
 			return
 		}
-		
+
 		// Handle different message types
 		switch messageType {
 		case websocket.TextMessage, websocket.BinaryMessage:
@@ -282,25 +282,25 @@ func (wst *WebSocketTransport) readLoop() {
 func (wst *WebSocketTransport) writeLoop() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case data := <-wst.writeBuffer:
 			wst.mu.RLock()
 			conn := wst.conn
 			wst.mu.RUnlock()
-			
+
 			if conn == nil {
 				return
 			}
-			
+
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(wst.messageType, data); err != nil {
 				wst.RecordSendError()
 				return
 			}
 			wst.RecordBytesSent(len(data))
-			
+
 		case <-ticker.C:
 			// Periodic flush or keepalive
 		}
@@ -310,23 +310,23 @@ func (wst *WebSocketTransport) writeLoop() {
 // startPingPong starts ping/pong health monitoring.
 func (wst *WebSocketTransport) startPingPong() {
 	wst.pingTicker = time.NewTicker(wst.config.PingInterval)
-	
+
 	go func() {
 		for range wst.pingTicker.C {
 			wst.mu.RLock()
 			conn := wst.conn
 			wst.mu.RUnlock()
-			
+
 			if conn == nil {
 				return
 			}
-			
+
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				wst.handleDisconnection()
 				return
 			}
-			
+
 			// Wait for pong
 			select {
 			case <-wst.pongReceived:
@@ -364,7 +364,7 @@ func (wst *WebSocketTransport) handleDisconnection() {
 	}
 	wst.reconnecting = true
 	wst.reconnectMu.Unlock()
-	
+
 	// Close current connection
 	wst.mu.Lock()
 	if wst.conn != nil {
@@ -372,9 +372,9 @@ func (wst *WebSocketTransport) handleDisconnection() {
 		wst.conn = nil
 	}
 	wst.mu.Unlock()
-	
+
 	wst.SetConnected(false)
-	
+
 	// Attempt reconnection if enabled
 	if wst.config.EnableReconnection {
 		go wst.attemptReconnection()
@@ -388,14 +388,14 @@ func (wst *WebSocketTransport) attemptReconnection() {
 		wst.reconnecting = false
 		wst.reconnectMu.Unlock()
 	}()
-	
+
 	for i := 0; i < wst.config.MaxReconnectAttempts; i++ {
 		time.Sleep(wst.config.ReconnectInterval)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := wst.Connect(ctx)
 		cancel()
-		
+
 		if err == nil {
 			return
 		}
@@ -407,12 +407,12 @@ func (wst *WebSocketTransport) Disconnect() error {
 	if !wst.SetConnected(false) {
 		return nil
 	}
-	
+
 	// Stop ping/pong
 	if wst.pingTicker != nil {
 		wst.pingTicker.Stop()
 	}
-	
+
 	wst.mu.Lock()
 	if wst.conn != nil {
 		// Send close message
@@ -421,7 +421,7 @@ func (wst *WebSocketTransport) Disconnect() error {
 		wst.conn = nil
 	}
 	wst.mu.Unlock()
-	
+
 	wst.UpdateDisconnectTime()
 	return nil
 }
@@ -436,10 +436,10 @@ func (wst *WebSocketTransport) IsHealthy() bool {
 	if !wst.IsConnected() {
 		return false
 	}
-	
+
 	if wst.config.EnablePingPong {
 		return time.Since(wst.lastPong) < wst.config.PongTimeout*2
 	}
-	
+
 	return true
 }

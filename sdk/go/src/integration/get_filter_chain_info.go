@@ -8,64 +8,64 @@ import (
 
 // FilterChainInfo contains detailed chain information.
 type FilterChainInfo struct {
-	ChainID          string
-	Name             string
-	Description      string
-	FilterCount      int
-	Filters          []FilterInfo
-	ExecutionMode    string
-	CreatedAt        time.Time
-	LastModified     time.Time
-	Statistics       ChainStatistics
-	Configuration    ChainConfiguration
-	Dependencies     []Dependency
-	Capabilities     []string
-	Tags             map[string]string
+	ChainID       string
+	Name          string
+	Description   string
+	FilterCount   int
+	Filters       []FilterInfo
+	ExecutionMode string
+	CreatedAt     time.Time
+	LastModified  time.Time
+	Statistics    ChainStatistics
+	Configuration ChainConfiguration
+	Dependencies  []Dependency
+	Capabilities  []string
+	Tags          map[string]string
 }
 
 // FilterInfo contains information about a filter.
 type FilterInfo struct {
-	ID               string
-	Name             string
-	Type             string
-	Version          string
-	Description      string
-	Position         int
-	Configuration    map[string]interface{}
-	InputTypes       []string
-	OutputTypes      []string
-	RequiredFields   []string
-	OptionalFields   []string
-	Capabilities     []string
-	Dependencies     []string
-	ResourceUsage    ResourceInfo
-	PerformanceInfo  PerformanceInfo
+	ID              string
+	Name            string
+	Type            string
+	Version         string
+	Description     string
+	Position        int
+	Configuration   map[string]interface{}
+	InputTypes      []string
+	OutputTypes     []string
+	RequiredFields  []string
+	OptionalFields  []string
+	Capabilities    []string
+	Dependencies    []string
+	ResourceUsage   ResourceInfo
+	PerformanceInfo PerformanceInfo
 }
 
 // ChainStatistics contains chain statistics.
 type ChainStatistics struct {
-	TotalExecutions  int64
-	SuccessCount     int64
-	FailureCount     int64
-	AverageLatency   time.Duration
-	P95Latency       time.Duration
-	P99Latency       time.Duration
-	LastExecuted     time.Time
+	TotalExecutions    int64
+	SuccessCount       int64
+	FailureCount       int64
+	AverageLatency     time.Duration
+	P95Latency         time.Duration
+	P99Latency         time.Duration
+	LastExecuted       time.Time
 	TotalDataProcessed int64
-	ErrorRate        float64
-	Throughput       float64
+	ErrorRate          float64
+	Throughput         float64
 }
 
 // ChainConfiguration contains chain config.
 type ChainConfiguration struct {
-	MaxFilters       int
-	ExecutionTimeout time.Duration
-	RetryPolicy      RetryPolicy
-	CacheEnabled     bool
-	CacheTTL         time.Duration
+	MaxFilters        int
+	ExecutionTimeout  time.Duration
+	RetryPolicy       RetryPolicy
+	CacheEnabled      bool
+	CacheTTL          time.Duration
 	ParallelExecution bool
-	MaxConcurrency   int
-	BufferSize       int
+	MaxConcurrency    int
+	BufferSize        int
 }
 
 // ResourceInfo contains resource usage information.
@@ -78,11 +78,11 @@ type ResourceInfo struct {
 
 // PerformanceInfo contains performance metrics.
 type PerformanceInfo struct {
-	AverageLatency   time.Duration
-	MinLatency       time.Duration
-	MaxLatency       time.Duration
-	Throughput       float64
-	ProcessingRate   float64
+	AverageLatency time.Duration
+	MinLatency     time.Duration
+	MaxLatency     time.Duration
+	Throughput     float64
+	ProcessingRate float64
 }
 
 // Dependency represents a filter dependency.
@@ -105,7 +105,7 @@ type RetryPolicy struct {
 func (fc *FilteredMCPClient) GetFilterChainInfo(chainID string) (*FilterChainInfo, error) {
 	// Find chain by ID
 	var chain *FilterChain
-	
+
 	// Check standard chains
 	switch chainID {
 	case "request":
@@ -122,11 +122,11 @@ func (fc *FilteredMCPClient) GetFilterChainInfo(chainID string) (*FilterChainInf
 		}
 		fc.mu.RUnlock()
 	}
-	
+
 	if chain == nil {
 		return nil, fmt.Errorf("chain not found: %s", chainID)
 	}
-	
+
 	// Build chain info
 	info := &FilterChainInfo{
 		ChainID:       chain.GetID(),
@@ -139,19 +139,19 @@ func (fc *FilteredMCPClient) GetFilterChainInfo(chainID string) (*FilterChainInf
 		Filters:       make([]FilterInfo, 0, len(chain.filters)),
 		Tags:          chain.tags,
 	}
-	
+
 	// Collect filter information
 	for i, filter := range chain.filters {
 		filterInfo := fc.getFilterInfo(filter, i)
 		info.Filters = append(info.Filters, filterInfo)
-		
+
 		// Aggregate capabilities
 		for _, cap := range filterInfo.Capabilities {
 			if !contains(info.Capabilities, cap) {
 				info.Capabilities = append(info.Capabilities, cap)
 			}
 		}
-		
+
 		// Collect dependencies
 		for _, dep := range filter.GetDependencies() {
 			info.Dependencies = append(info.Dependencies, Dependency{
@@ -162,13 +162,13 @@ func (fc *FilteredMCPClient) GetFilterChainInfo(chainID string) (*FilterChainInf
 			})
 		}
 	}
-	
+
 	// Get statistics
 	info.Statistics = fc.getChainStatistics(chainID)
-	
+
 	// Get configuration
 	info.Configuration = fc.getChainConfiguration(chain)
-	
+
 	return info, nil
 }
 
@@ -182,26 +182,26 @@ func (fc *FilteredMCPClient) getFilterInfo(filter Filter, position int) FilterIn
 		Description: filter.GetDescription(),
 		Position:    position,
 	}
-	
+
 	// Get configuration
 	info.Configuration = filter.GetConfiguration()
-	
+
 	// Get type information
 	typeInfo := filter.GetTypeInfo()
 	info.InputTypes = typeInfo.InputTypes
 	info.OutputTypes = typeInfo.OutputTypes
 	info.RequiredFields = typeInfo.RequiredFields
 	info.OptionalFields = typeInfo.OptionalFields
-	
+
 	// Get capabilities
 	info.Capabilities = filter.GetCapabilities()
-	
+
 	// Get dependencies
 	deps := filter.GetDependencies()
 	for _, dep := range deps {
 		info.Dependencies = append(info.Dependencies, dep.Name)
 	}
-	
+
 	// Get resource usage
 	resources := filter.GetResourceRequirements()
 	info.ResourceUsage = ResourceInfo{
@@ -210,10 +210,10 @@ func (fc *FilteredMCPClient) getFilterInfo(filter Filter, position int) FilterIn
 		NetworkBandwidth: resources.NetworkBandwidth,
 		DiskIO:           resources.DiskIO,
 	}
-	
+
 	// Get performance info
 	info.PerformanceInfo = fc.getFilterPerformance(filter.GetID())
-	
+
 	return info
 }
 
@@ -221,23 +221,23 @@ func (fc *FilteredMCPClient) getFilterInfo(filter Filter, position int) FilterIn
 func (fc *FilteredMCPClient) getChainStatistics(chainID string) ChainStatistics {
 	fc.metricsCollector.mu.RLock()
 	defer fc.metricsCollector.mu.RUnlock()
-	
+
 	// Get chain metrics if available
 	if metrics, exists := fc.metricsCollector.chainMetrics[chainID]; exists {
 		return ChainStatistics{
 			TotalExecutions:    metrics.TotalProcessed,
 			SuccessCount:       metrics.TotalProcessed, // Simplified
-			FailureCount:       0,                       // Simplified
+			FailureCount:       0,                      // Simplified
 			AverageLatency:     metrics.AverageDuration,
 			P95Latency:         calculateP95(metrics),
 			P99Latency:         calculateP99(metrics),
-			LastExecuted:       time.Now(), // Simplified
+			LastExecuted:       time.Now(),                    // Simplified
 			TotalDataProcessed: metrics.TotalProcessed * 1024, // Estimate
-			ErrorRate:          0, // Simplified
+			ErrorRate:          0,                             // Simplified
 			Throughput:         calculateThroughput(metrics),
 		}
 	}
-	
+
 	return ChainStatistics{}
 }
 
@@ -259,7 +259,7 @@ func (fc *FilteredMCPClient) getChainConfiguration(chain *FilterChain) ChainConf
 func (fc *FilteredMCPClient) getFilterPerformance(filterID string) PerformanceInfo {
 	fc.metricsCollector.mu.RLock()
 	defer fc.metricsCollector.mu.RUnlock()
-	
+
 	if metrics, exists := fc.metricsCollector.filterMetrics[filterID]; exists {
 		return PerformanceInfo{
 			AverageLatency: metrics.AverageDuration,
@@ -269,7 +269,7 @@ func (fc *FilteredMCPClient) getFilterPerformance(filterID string) PerformanceIn
 			ProcessingRate: float64(metrics.ProcessedCount) / time.Since(fc.metricsCollector.systemMetrics.StartTime).Seconds(),
 		}
 	}
-	
+
 	return PerformanceInfo{}
 }
 
@@ -277,9 +277,9 @@ func (fc *FilteredMCPClient) getFilterPerformance(filterID string) PerformanceIn
 func (fc *FilteredMCPClient) ListFilterChains() []string {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
-	
+
 	chains := []string{}
-	
+
 	// Add standard chains
 	if fc.requestChain != nil {
 		chains = append(chains, "request")
@@ -290,12 +290,12 @@ func (fc *FilteredMCPClient) ListFilterChains() []string {
 	if fc.notificationChain != nil {
 		chains = append(chains, "notification")
 	}
-	
+
 	// Add custom chains
 	for chainID := range fc.customChains {
 		chains = append(chains, chainID)
 	}
-	
+
 	return chains
 }
 
@@ -305,7 +305,7 @@ func (fc *FilteredMCPClient) ExportChainInfo(chainID string, format string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	
+
 	switch format {
 	case "json":
 		return exportChainInfoJSON(info)

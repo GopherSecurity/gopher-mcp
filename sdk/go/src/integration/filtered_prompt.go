@@ -14,13 +14,13 @@ func (fs *FilteredMCPServer) RegisterFilteredPrompt(prompt Prompt, filters ...Fi
 	for _, filter := range filters {
 		chain.Add(filter)
 	}
-	
+
 	// Wrap prompt with filtering
 	filteredPrompt := &FilteredPrompt{
 		prompt: prompt,
 		chain:  chain,
 	}
-	
+
 	// Register with MCP server
 	// return fs.MCPServer.RegisterPrompt(filteredPrompt)
 	_ = filteredPrompt
@@ -37,10 +37,10 @@ type FilteredPrompt struct {
 func (fp *FilteredPrompt) Generate(params interface{}) (string, error) {
 	// Apply filters to inputs
 	// filteredParams := fp.chain.ProcessInput(params)
-	
+
 	// Generate prompt
 	result, err := fp.prompt.Generate(params)
-	
+
 	// Apply filters to output
 	// return fp.chain.ProcessOutput(result), err
 	return result, err

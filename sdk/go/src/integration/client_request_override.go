@@ -10,13 +10,13 @@ func (fc *FilteredMCPClient) SendRequest(request interface{}) (interface{}, erro
 		// Handle filter rejection
 		return nil, err
 	}
-	
+
 	// Send filtered request
 	// response, err := fc.MCPClient.SendRequest(request)
-	
+
 	// Maintain request tracking
 	// fc.trackRequest(request)
-	
+
 	return nil, nil
 }
 

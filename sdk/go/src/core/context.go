@@ -97,7 +97,7 @@ func (mc *MetricsCollector) Get(name string) (float64, bool) {
 func (mc *MetricsCollector) All() map[string]float64 {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
-	
+
 	result := make(map[string]float64, len(mc.metrics))
 	for k, v := range mc.metrics {
 		result[k] = v

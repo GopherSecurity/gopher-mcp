@@ -14,22 +14,22 @@ type TcpMetrics struct {
 	activeConnections    atomic.Int64
 	reconnectionAttempts atomic.Int64
 	failedConnections    atomic.Int64
-	
+
 	// Latency tracking
-	latencies    []time.Duration
-	latencyMu    sync.RWMutex
-	percentiles  LatencyPercentiles
-	
+	latencies   []time.Duration
+	latencyMu   sync.RWMutex
+	percentiles LatencyPercentiles
+
 	// Throughput
-	bytesSent     atomic.Int64
-	bytesReceived atomic.Int64
-	messagesSent  atomic.Int64
+	bytesSent        atomic.Int64
+	bytesReceived    atomic.Int64
+	messagesSent     atomic.Int64
 	messagesReceived atomic.Int64
-	
+
 	// Per-connection stats
 	connStats map[string]*ConnectionStats
 	connMu    sync.RWMutex
-	
+
 	// Timing
 	startTime time.Time
 	lastReset time.Time
@@ -70,7 +70,7 @@ func NewTcpMetrics() *TcpMetrics {
 func (tm *TcpMetrics) RecordConnection(address string) {
 	tm.connectionCount.Add(1)
 	tm.activeConnections.Add(1)
-	
+
 	tm.connMu.Lock()
 	tm.connStats[address] = &ConnectionStats{
 		Address:   address,
@@ -82,7 +82,7 @@ func (tm *TcpMetrics) RecordConnection(address string) {
 // RecordDisconnection records a disconnection.
 func (tm *TcpMetrics) RecordDisconnection(address string) {
 	tm.activeConnections.Add(-1)
-	
+
 	tm.connMu.Lock()
 	delete(tm.connStats, address)
 	tm.connMu.Unlock()
@@ -100,13 +100,13 @@ func (tm *TcpMetrics) RecordReconnectionAttempt(success bool) {
 func (tm *TcpMetrics) RecordLatency(latency time.Duration) {
 	tm.latencyMu.Lock()
 	tm.latencies = append(tm.latencies, latency)
-	
+
 	// Keep only last 10000 samples
 	if len(tm.latencies) > 10000 {
 		tm.latencies = tm.latencies[len(tm.latencies)-10000:]
 	}
 	tm.latencyMu.Unlock()
-	
+
 	// Update percentiles periodically
 	if len(tm.latencies)%100 == 0 {
 		tm.updatePercentiles()
@@ -120,12 +120,12 @@ func (tm *TcpMetrics) updatePercentiles() {
 		tm.latencyMu.RUnlock()
 		return
 	}
-	
+
 	// Copy and sort latencies
 	sorted := make([]time.Duration, len(tm.latencies))
 	copy(sorted, tm.latencies)
 	tm.latencyMu.RUnlock()
-	
+
 	// Simple bubble sort for percentile calculation
 	for i := 0; i < len(sorted); i++ {
 		for j := i + 1; j < len(sorted); j++ {
@@ -134,7 +134,7 @@ func (tm *TcpMetrics) updatePercentiles() {
 			}
 		}
 	}
-	
+
 	// Calculate percentiles
 	tm.percentiles = LatencyPercentiles{
 		P50:  sorted[len(sorted)*50/100],
@@ -149,7 +149,7 @@ func (tm *TcpMetrics) updatePercentiles() {
 func (tm *TcpMetrics) RecordBytes(sent, received int64, address string) {
 	tm.bytesSent.Add(sent)
 	tm.bytesReceived.Add(received)
-	
+
 	tm.connMu.Lock()
 	if stats, exists := tm.connStats[address]; exists {
 		stats.BytesSent += sent
@@ -166,7 +166,7 @@ func (tm *TcpMetrics) RecordMessage(sent bool, address string) {
 	} else {
 		tm.messagesReceived.Add(1)
 	}
-	
+
 	tm.connMu.Lock()
 	if stats, exists := tm.connStats[address]; exists {
 		if sent {
@@ -202,7 +202,7 @@ func (tm *TcpMetrics) GetThroughput() (sendRate, receiveRate float64) {
 func (tm *TcpMetrics) GetConnectionStats() map[string]ConnectionStats {
 	tm.connMu.RLock()
 	defer tm.connMu.RUnlock()
-	
+
 	result := make(map[string]ConnectionStats)
 	for addr, stats := range tm.connStats {
 		result[addr] = *stats
@@ -213,20 +213,20 @@ func (tm *TcpMetrics) GetConnectionStats() map[string]ConnectionStats {
 // GetAggregateStats returns aggregate statistics.
 func (tm *TcpMetrics) GetAggregateStats() TcpStats {
 	sendRate, receiveRate := tm.GetThroughput()
-	
+
 	return TcpStats{
 		ConnectionCount:      tm.connectionCount.Load(),
 		ActiveConnections:    tm.activeConnections.Load(),
 		ReconnectionAttempts: tm.reconnectionAttempts.Load(),
 		FailedConnections:    tm.failedConnections.Load(),
-		BytesSent:           tm.bytesSent.Load(),
-		BytesReceived:       tm.bytesReceived.Load(),
-		MessagesSent:        tm.messagesSent.Load(),
-		MessagesReceived:    tm.messagesReceived.Load(),
-		LatencyPercentiles:  tm.percentiles,
-		SendThroughput:      sendRate,
-		ReceiveThroughput:   receiveRate,
-		Uptime:             time.Since(tm.startTime),
+		BytesSent:            tm.bytesSent.Load(),
+		BytesReceived:        tm.bytesReceived.Load(),
+		MessagesSent:         tm.messagesSent.Load(),
+		MessagesReceived:     tm.messagesReceived.Load(),
+		LatencyPercentiles:   tm.percentiles,
+		SendThroughput:       sendRate,
+		ReceiveThroughput:    receiveRate,
+		Uptime:               time.Since(tm.startTime),
 	}
 }
 
@@ -236,14 +236,14 @@ type TcpStats struct {
 	ActiveConnections    int64
 	ReconnectionAttempts int64
 	FailedConnections    int64
-	BytesSent           int64
-	BytesReceived       int64
-	MessagesSent        int64
-	MessagesReceived    int64
-	LatencyPercentiles  LatencyPercentiles
-	SendThroughput      float64
-	ReceiveThroughput   float64
-	Uptime             time.Duration
+	BytesSent            int64
+	BytesReceived        int64
+	MessagesSent         int64
+	MessagesReceived     int64
+	LatencyPercentiles   LatencyPercentiles
+	SendThroughput       float64
+	ReceiveThroughput    float64
+	Uptime               time.Duration
 }
 
 // Reset clears all metrics.
@@ -256,14 +256,14 @@ func (tm *TcpMetrics) Reset() {
 	tm.bytesReceived.Store(0)
 	tm.messagesSent.Store(0)
 	tm.messagesReceived.Store(0)
-	
+
 	tm.latencyMu.Lock()
 	tm.latencies = tm.latencies[:0]
 	tm.latencyMu.Unlock()
-	
+
 	tm.connMu.Lock()
 	tm.connStats = make(map[string]*ConnectionStats)
 	tm.connMu.Unlock()
-	
+
 	tm.lastReset = time.Now()
 }

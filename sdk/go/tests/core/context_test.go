@@ -35,13 +35,13 @@ func TestNewProcessingContext(t *testing.T) {
 func TestWithCorrelationID(t *testing.T) {
 	parent := context.Background()
 	correlationID := "test-correlation-123"
-	
+
 	ctx := core.WithCorrelationID(parent, correlationID)
-	
+
 	if ctx == nil {
 		t.Fatal("WithCorrelationID returned nil")
 	}
-	
+
 	if ctx.CorrelationID() != correlationID {
 		t.Errorf("CorrelationID = %s, want %s", ctx.CorrelationID(), correlationID)
 	}
@@ -218,7 +218,7 @@ func TestProcessingContext_Metrics(t *testing.T) {
 func TestProcessingContext_Clone(t *testing.T) {
 	parent := context.Background()
 	ctx := core.WithCorrelationID(parent, "original-id")
-	
+
 	// Set properties and metrics
 	ctx.SetProperty("key1", "value1")
 	ctx.SetProperty("key2", 42)
@@ -259,7 +259,7 @@ func TestProcessingContext_TimeoutDeadline(t *testing.T) {
 	// Test WithTimeout
 	timeout := 100 * time.Millisecond
 	timeoutCtx := ctx.WithTimeout(timeout)
-	
+
 	// Properties should be copied
 	if val, _ := timeoutCtx.GetProperty("original"); val != true {
 		t.Error("Properties not copied in WithTimeout")
@@ -274,7 +274,7 @@ func TestProcessingContext_TimeoutDeadline(t *testing.T) {
 	// Test WithDeadline
 	futureTime := time.Now().Add(200 * time.Millisecond)
 	deadlineCtx := ctx.WithDeadline(futureTime)
-	
+
 	// Properties should be copied
 	if val, _ := deadlineCtx.GetProperty("original"); val != true {
 		t.Error("Properties not copied in WithDeadline")
@@ -290,7 +290,7 @@ func TestProcessingContext_TimeoutDeadline(t *testing.T) {
 // Test 10: Concurrent property access
 func TestProcessingContext_Concurrent(t *testing.T) {
 	ctx := core.NewProcessingContext(context.Background())
-	
+
 	var wg sync.WaitGroup
 	numGoroutines := 10
 	opsPerGoroutine := 100
@@ -407,10 +407,10 @@ func TestMetricsCollector_All(t *testing.T) {
 
 func TestMetricsCollector_Concurrent(t *testing.T) {
 	mc := core.NewMetricsCollector()
-	
+
 	var wg sync.WaitGroup
 	numGoroutines := 10
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -422,9 +422,9 @@ func TestMetricsCollector_Concurrent(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Should have the metric
 	if _, ok := mc.Get("shared"); !ok {
 		t.Error("Metric not found after concurrent access")
@@ -435,7 +435,7 @@ func TestMetricsCollector_Concurrent(t *testing.T) {
 
 func BenchmarkProcessingContext_SetProperty(b *testing.B) {
 	ctx := core.NewProcessingContext(context.Background())
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ctx.SetProperty("key", i)
@@ -445,7 +445,7 @@ func BenchmarkProcessingContext_SetProperty(b *testing.B) {
 func BenchmarkProcessingContext_GetProperty(b *testing.B) {
 	ctx := core.NewProcessingContext(context.Background())
 	ctx.SetProperty("key", "value")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ctx.GetProperty("key")
@@ -454,7 +454,7 @@ func BenchmarkProcessingContext_GetProperty(b *testing.B) {
 
 func BenchmarkProcessingContext_RecordMetric(b *testing.B) {
 	ctx := core.NewProcessingContext(context.Background())
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ctx.RecordMetric("metric", float64(i))
@@ -466,7 +466,7 @@ func BenchmarkProcessingContext_Clone(b *testing.B) {
 	for i := 0; i < 10; i++ {
 		ctx.SetProperty("key"+string(rune('0'+i)), i)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = ctx.Clone()
@@ -475,7 +475,7 @@ func BenchmarkProcessingContext_Clone(b *testing.B) {
 
 func BenchmarkProcessingContext_Concurrent(b *testing.B) {
 	ctx := core.NewProcessingContext(context.Background())
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {

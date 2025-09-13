@@ -24,7 +24,7 @@ type RetryConfig struct {
 func (eh *ProcessorErrorHandler) HandleError(err error) error {
 	// Determine error type
 	errorType := classifyError(err)
-	
+
 	// Apply strategy based on error type
 	switch errorType {
 	case "transient":
@@ -48,12 +48,12 @@ func (eh *ProcessorErrorHandler) handlePermanent(err error) error {
 	if eh.fallbackChain != "" {
 		// Switch to fallback
 	}
-	
+
 	// Report error
 	if eh.errorReporter != nil {
 		eh.errorReporter(err)
 	}
-	
+
 	return err
 }
 

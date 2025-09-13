@@ -15,9 +15,9 @@ import (
 
 // Mock implementation of Filter interface
 type mockFilterImpl struct {
-	name       string
-	filterType string
-	stats      types.FilterStatistics
+	name        string
+	filterType  string
+	stats       types.FilterStatistics
 	initialized bool
 	closed      bool
 	processFunc func(context.Context, []byte) (*types.FilterResult, error)
@@ -34,7 +34,7 @@ func (m *mockFilterImpl) Process(ctx context.Context, data []byte) (*types.Filte
 func (m *mockFilterImpl) Initialize(config types.FilterConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.initialized {
 		return errors.New("already initialized")
 	}
@@ -45,7 +45,7 @@ func (m *mockFilterImpl) Initialize(config types.FilterConfig) error {
 func (m *mockFilterImpl) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return errors.New("already closed")
 	}
@@ -71,27 +71,27 @@ func TestFilter_BasicImplementation(t *testing.T) {
 		name:       "test-filter",
 		filterType: "mock",
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.Filter = filter
-	
+
 	// Test Name
 	if filter.Name() != "test-filter" {
 		t.Errorf("Name() = %s, want test-filter", filter.Name())
 	}
-	
+
 	// Test Type
 	if filter.Type() != "mock" {
 		t.Errorf("Type() = %s, want mock", filter.Type())
 	}
-	
+
 	// Test Initialize
 	config := types.FilterConfig{Name: "test"}
 	err := filter.Initialize(config)
 	if err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
-	
+
 	// Test Process
 	data := []byte("test data")
 	result, err := filter.Process(context.Background(), data)
@@ -101,7 +101,7 @@ func TestFilter_BasicImplementation(t *testing.T) {
 	if string(result.Data) != string(data) {
 		t.Errorf("Process result = %s, want %s", result.Data, data)
 	}
-	
+
 	// Test Close
 	err = filter.Close()
 	if err != nil {
@@ -120,16 +120,16 @@ func TestFilter_CustomProcess(t *testing.T) {
 			return types.ContinueWith(transformed), nil
 		},
 	}
-	
+
 	result, err := filter.Process(context.Background(), []byte("data"))
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
-	
+
 	if !transformCalled {
 		t.Error("Custom process function not called")
 	}
-	
+
 	expected := "prefix-data"
 	if string(result.Data) != expected {
 		t.Errorf("Result = %s, want %s", result.Data, expected)
@@ -145,19 +145,19 @@ func TestFilter_ErrorHandling(t *testing.T) {
 			return nil, testErr
 		},
 	}
-	
+
 	_, err := filter.Process(context.Background(), []byte("data"))
 	if err != testErr {
 		t.Errorf("Process error = %v, want %v", err, testErr)
 	}
-	
+
 	// Test double initialization
 	filter2 := &mockFilterImpl{initialized: true}
 	err = filter2.Initialize(types.FilterConfig{})
 	if err == nil {
 		t.Error("Double initialization should return error")
 	}
-	
+
 	// Test double close
 	filter3 := &mockFilterImpl{closed: true}
 	err = filter3.Close()
@@ -201,10 +201,10 @@ func TestLifecycleFilter(t *testing.T) {
 	filter := &mockLifecycleFilter{
 		mockFilterImpl: mockFilterImpl{name: "lifecycle-filter"},
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.LifecycleFilter = filter
-	
+
 	// Test OnAttach
 	chain := core.NewFilterChain(types.ChainConfig{Name: "test-chain"})
 	err := filter.OnAttach(chain)
@@ -217,7 +217,7 @@ func TestLifecycleFilter(t *testing.T) {
 	if filter.chain != chain {
 		t.Error("Chain reference not stored")
 	}
-	
+
 	// Test OnStart
 	err = filter.OnStart(context.Background())
 	if err != nil {
@@ -226,7 +226,7 @@ func TestLifecycleFilter(t *testing.T) {
 	if !filter.started {
 		t.Error("Filter not marked as started")
 	}
-	
+
 	// Test OnStop
 	err = filter.OnStop(context.Background())
 	if err != nil {
@@ -235,7 +235,7 @@ func TestLifecycleFilter(t *testing.T) {
 	if filter.started {
 		t.Error("Filter not marked as stopped")
 	}
-	
+
 	// Test OnDetach
 	err = filter.OnDetach()
 	if err != nil {
@@ -288,14 +288,14 @@ func TestStatefulFilter(t *testing.T) {
 		mockFilterImpl: mockFilterImpl{name: "stateful-filter"},
 		state:          make(map[string]interface{}),
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.StatefulFilter = filter
-	
+
 	// Set some state
 	filter.state["key1"] = "value1"
 	filter.state["key2"] = 42
-	
+
 	// Test GetState
 	state := filter.GetState()
 	stateMap, ok := state.(map[string]interface{})
@@ -305,7 +305,7 @@ func TestStatefulFilter(t *testing.T) {
 	if stateMap["key1"] != "value1" {
 		t.Error("State key1 not preserved")
 	}
-	
+
 	// Test SaveState
 	var buf strings.Builder
 	err := filter.SaveState(&buf)
@@ -316,7 +316,7 @@ func TestStatefulFilter(t *testing.T) {
 	if !strings.Contains(saved, "key1") || !strings.Contains(saved, "key2") {
 		t.Error("State not properly saved")
 	}
-	
+
 	// Test LoadState
 	reader := strings.NewReader("test-data")
 	err = filter.LoadState(reader)
@@ -326,7 +326,7 @@ func TestStatefulFilter(t *testing.T) {
 	if filter.state["loaded"] != "test-data" {
 		t.Error("State not properly loaded")
 	}
-	
+
 	// Test ResetState
 	err = filter.ResetState()
 	if err != nil {
@@ -370,24 +370,24 @@ func TestConfigurableFilter(t *testing.T) {
 		mockFilterImpl: mockFilterImpl{name: "configurable-filter"},
 		configVersion:  "v1",
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.ConfigurableFilter = filter
-	
+
 	// Test ValidateConfig with valid config
 	validConfig := types.FilterConfig{Name: "test"}
 	err := filter.ValidateConfig(validConfig)
 	if err != nil {
 		t.Fatalf("ValidateConfig failed for valid config: %v", err)
 	}
-	
+
 	// Test ValidateConfig with invalid config
 	invalidConfig := types.FilterConfig{Name: ""}
 	err = filter.ValidateConfig(invalidConfig)
 	if err == nil {
 		t.Error("ValidateConfig should fail for invalid config")
 	}
-	
+
 	// Test UpdateConfig
 	newConfig := types.FilterConfig{Name: "updated"}
 	err = filter.UpdateConfig(newConfig)
@@ -397,7 +397,7 @@ func TestConfigurableFilter(t *testing.T) {
 	if filter.config.Name != "updated" {
 		t.Error("Config not updated")
 	}
-	
+
 	// Test GetConfigVersion
 	version := filter.GetConfigVersion()
 	if version == "v1" {
@@ -428,18 +428,18 @@ func TestObservableFilter(t *testing.T) {
 	filter := &mockObservableFilter{
 		mockFilterImpl: mockFilterImpl{name: "observable-filter"},
 		metrics: core.FilterMetrics{
-			RequestsTotal:  100,
-			ErrorsTotal:    5,
+			RequestsTotal: 100,
+			ErrorsTotal:   5,
 		},
 		health: core.HealthStatus{
 			Healthy: true,
 			Status:  "healthy",
 		},
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.ObservableFilter = filter
-	
+
 	// Test GetMetrics
 	metrics := filter.GetMetrics()
 	if metrics.RequestsTotal != 100 {
@@ -448,7 +448,7 @@ func TestObservableFilter(t *testing.T) {
 	if metrics.ErrorsTotal != 5 {
 		t.Errorf("ErrorsTotal = %d, want 5", metrics.ErrorsTotal)
 	}
-	
+
 	// Test GetHealthStatus
 	health := filter.GetHealthStatus()
 	if !health.Healthy {
@@ -457,7 +457,7 @@ func TestObservableFilter(t *testing.T) {
 	if health.Status != "healthy" {
 		t.Errorf("Health status = %s, want healthy", health.Status)
 	}
-	
+
 	// Test GetTraceSpan
 	span := filter.GetTraceSpan()
 	if span != "trace-span-123" {
@@ -509,10 +509,10 @@ func TestHookableFilter(t *testing.T) {
 	filter := &mockHookableFilter{
 		mockFilterImpl: mockFilterImpl{name: "hookable-filter"},
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.HookableFilter = filter
-	
+
 	// Test AddPreHook
 	preHook := func(ctx context.Context, data []byte) ([]byte, error) {
 		return append([]byte("pre-"), data...), nil
@@ -524,7 +524,7 @@ func TestHookableFilter(t *testing.T) {
 	if len(filter.preHooks) != 1 {
 		t.Error("Pre hook not added")
 	}
-	
+
 	// Test AddPostHook
 	postHook := func(ctx context.Context, data []byte) ([]byte, error) {
 		return append(data, []byte("-post")...), nil
@@ -536,7 +536,7 @@ func TestHookableFilter(t *testing.T) {
 	if len(filter.postHooks) != 1 {
 		t.Error("Post hook not added")
 	}
-	
+
 	// Test RemoveHook
 	err := filter.RemoveHook(preID)
 	if err != nil {
@@ -545,7 +545,7 @@ func TestHookableFilter(t *testing.T) {
 	if len(filter.preHooks) != 0 {
 		t.Error("Pre hook not removed")
 	}
-	
+
 	// Test RemoveHook for non-existent hook
 	err = filter.RemoveHook("non-existent")
 	if err == nil {
@@ -580,39 +580,39 @@ func TestBatchFilter(t *testing.T) {
 	filter := &mockBatchFilter{
 		mockFilterImpl: mockFilterImpl{name: "batch-filter"},
 	}
-	
+
 	// Verify interface is satisfied
 	var _ core.BatchFilter = filter
-	
+
 	// Test SetBatchSize
 	filter.SetBatchSize(10)
 	if filter.batchSize != 10 {
 		t.Errorf("Batch size = %d, want 10", filter.batchSize)
 	}
-	
+
 	// Test SetBatchTimeout
 	timeout := 5 * time.Second
 	filter.SetBatchTimeout(timeout)
 	if filter.batchTimeout != timeout {
 		t.Errorf("Batch timeout = %v, want %v", filter.batchTimeout, timeout)
 	}
-	
+
 	// Test ProcessBatch
 	batch := [][]byte{
 		[]byte("item1"),
 		[]byte("item2"),
 		[]byte("item3"),
 	}
-	
+
 	results, err := filter.ProcessBatch(context.Background(), batch)
 	if err != nil {
 		t.Fatalf("ProcessBatch failed: %v", err)
 	}
-	
+
 	if len(results) != 3 {
 		t.Fatalf("Results length = %d, want 3", len(results))
 	}
-	
+
 	for i, result := range results {
 		expected := "batch-item" + string(rune('1'+i))
 		if string(result.Data) != expected {
@@ -640,41 +640,41 @@ func TestComplexFilter_MultipleInterfaces(t *testing.T) {
 			health:  core.HealthStatus{Healthy: true},
 		},
 	}
-	
+
 	// Verify all interfaces are satisfied
 	var _ core.Filter = filter
 	var _ core.LifecycleFilter = filter
 	var _ core.StatefulFilter = filter
 	var _ core.ConfigurableFilter = filter
 	var _ core.ObservableFilter = filter
-	
+
 	// Test that all interface methods work
-	
+
 	// Basic Filter
 	if filter.Name() != "complex-filter" {
 		t.Error("Name() not working")
 	}
-	
+
 	// LifecycleFilter
 	err := filter.OnStart(context.Background())
 	if err != nil {
 		t.Errorf("OnStart failed: %v", err)
 	}
-	
+
 	// StatefulFilter
 	filter.state["test"] = "value"
 	state := filter.GetState()
 	if state.(map[string]interface{})["test"] != "value" {
 		t.Error("StatefulFilter methods not working")
 	}
-	
+
 	// ConfigurableFilter
 	config := types.FilterConfig{Name: "new-config"}
 	err = filter.UpdateConfig(config)
 	if err != nil {
 		t.Errorf("UpdateConfig failed: %v", err)
 	}
-	
+
 	// ObservableFilter
 	metrics := filter.GetMetrics()
 	if metrics.RequestsTotal != 50 {
@@ -691,10 +691,10 @@ func BenchmarkFilter_Process(b *testing.B) {
 			return types.ContinueWith(data), nil
 		},
 	}
-	
+
 	data := []byte("benchmark data")
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		filter.Process(ctx, data)
@@ -705,11 +705,11 @@ func BenchmarkFilter_GetStats(b *testing.B) {
 	filter := &mockFilterImpl{
 		name: "bench-filter",
 		stats: types.FilterStatistics{
-			BytesProcessed: 1000,
+			BytesProcessed:   1000,
 			PacketsProcessed: 100,
 		},
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = filter.GetStats()
@@ -725,7 +725,7 @@ func BenchmarkStatefulFilter_SaveState(b *testing.B) {
 			"key3": true,
 		},
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var buf strings.Builder
@@ -737,7 +737,7 @@ func BenchmarkBatchFilter_ProcessBatch(b *testing.B) {
 	filter := &mockBatchFilter{
 		mockFilterImpl: mockFilterImpl{name: "bench-filter"},
 	}
-	
+
 	batch := [][]byte{
 		[]byte("item1"),
 		[]byte("item2"),
@@ -746,7 +746,7 @@ func BenchmarkBatchFilter_ProcessBatch(b *testing.B) {
 		[]byte("item5"),
 	}
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		filter.ProcessBatch(ctx, batch)

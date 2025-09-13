@@ -3,7 +3,7 @@ package manager
 
 import (
 	"sync"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -11,10 +11,10 @@ import (
 type FilterRegistry struct {
 	// Primary index by UUID
 	filters map[uuid.UUID]Filter
-	
+
 	// Secondary index by name
 	nameIndex map[string]uuid.UUID
-	
+
 	// Synchronization
 	mu sync.RWMutex
 }
@@ -39,7 +39,7 @@ func NewFilterRegistry() *FilterRegistry {
 func (fr *FilterRegistry) Add(id uuid.UUID, filter Filter) {
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
-	
+
 	fr.filters[id] = filter
 	if name := filter.GetName(); name != "" {
 		fr.nameIndex[name] = id
@@ -50,17 +50,17 @@ func (fr *FilterRegistry) Add(id uuid.UUID, filter Filter) {
 func (fr *FilterRegistry) Remove(id uuid.UUID) (Filter, bool) {
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
-	
+
 	filter, exists := fr.filters[id]
 	if !exists {
 		return nil, false
 	}
-	
+
 	delete(fr.filters, id)
 	if name := filter.GetName(); name != "" {
 		delete(fr.nameIndex, name)
 	}
-	
+
 	return filter, true
 }
 
@@ -68,7 +68,7 @@ func (fr *FilterRegistry) Remove(id uuid.UUID) (Filter, bool) {
 func (fr *FilterRegistry) Get(id uuid.UUID) (Filter, bool) {
 	fr.mu.RLock()
 	defer fr.mu.RUnlock()
-	
+
 	filter, exists := fr.filters[id]
 	return filter, exists
 }
@@ -77,12 +77,12 @@ func (fr *FilterRegistry) Get(id uuid.UUID) (Filter, bool) {
 func (fr *FilterRegistry) GetByName(name string) (Filter, bool) {
 	fr.mu.RLock()
 	defer fr.mu.RUnlock()
-	
+
 	id, exists := fr.nameIndex[name]
 	if !exists {
 		return nil, false
 	}
-	
+
 	return fr.filters[id], true
 }
 
@@ -90,7 +90,7 @@ func (fr *FilterRegistry) GetByName(name string) (Filter, bool) {
 func (fr *FilterRegistry) CheckNameUniqueness(name string) bool {
 	fr.mu.RLock()
 	defer fr.mu.RUnlock()
-	
+
 	_, exists := fr.nameIndex[name]
 	return !exists
 }
@@ -99,7 +99,7 @@ func (fr *FilterRegistry) CheckNameUniqueness(name string) bool {
 func (fr *FilterRegistry) GetAll() map[uuid.UUID]Filter {
 	fr.mu.RLock()
 	defer fr.mu.RUnlock()
-	
+
 	result := make(map[uuid.UUID]Filter)
 	for id, filter := range fr.filters {
 		result[id] = filter
@@ -111,6 +111,6 @@ func (fr *FilterRegistry) GetAll() map[uuid.UUID]Filter {
 func (fr *FilterRegistry) Count() int {
 	fr.mu.RLock()
 	defer fr.mu.RUnlock()
-	
+
 	return len(fr.filters)
 }

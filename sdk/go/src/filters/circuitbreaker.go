@@ -18,37 +18,37 @@ type State int
 // CircuitBreakerMetrics tracks circuit breaker performance metrics.
 type CircuitBreakerMetrics struct {
 	// State tracking
-	CurrentState      State
-	StateChanges      uint64
-	TimeInClosed      time.Duration
-	TimeInOpen        time.Duration
-	TimeInHalfOpen    time.Duration
-	LastStateChange   time.Time
-	
+	CurrentState    State
+	StateChanges    uint64
+	TimeInClosed    time.Duration
+	TimeInOpen      time.Duration
+	TimeInHalfOpen  time.Duration
+	LastStateChange time.Time
+
 	// Success/Failure rates
-	TotalRequests     uint64
+	TotalRequests      uint64
 	SuccessfulRequests uint64
-	FailedRequests    uint64
-	RejectedRequests  uint64
-	SuccessRate       float64
-	FailureRate       float64
-	
+	FailedRequests     uint64
+	RejectedRequests   uint64
+	SuccessRate        float64
+	FailureRate        float64
+
 	// Recovery metrics
-	LastOpenTime      time.Time
-	LastRecoveryTime  time.Duration
+	LastOpenTime        time.Time
+	LastRecoveryTime    time.Duration
 	AverageRecoveryTime time.Duration
-	RecoveryAttempts  uint64
+	RecoveryAttempts    uint64
 }
 
 const (
 	// Closed state - normal operation, requests pass through.
 	// The circuit breaker monitors for failures.
 	Closed State = iota
-	
+
 	// Open state - circuit is open, rejecting all requests immediately.
 	// This protects the downstream service from overload.
 	Open
-	
+
 	// HalfOpen state - testing recovery, allowing limited requests.
 	// Used to check if the downstream service has recovered.
 	HalfOpen
@@ -76,30 +76,30 @@ type CircuitBreakerConfig struct {
 	// FailureThreshold is the number of consecutive failures before opening the circuit.
 	// Once this threshold is reached, the circuit breaker transitions to Open state.
 	FailureThreshold int
-	
+
 	// SuccessThreshold is the number of consecutive successes required to close
 	// the circuit from half-open state.
 	SuccessThreshold int
-	
+
 	// Timeout is the duration to wait before transitioning from Open to HalfOpen state.
 	// After this timeout, the circuit breaker will allow test requests.
 	Timeout time.Duration
-	
+
 	// HalfOpenMaxAttempts limits the number of concurrent requests allowed
 	// when the circuit is in half-open state.
 	HalfOpenMaxAttempts int
-	
+
 	// FailureRate is the failure rate threshold (0.0 to 1.0).
 	// If the failure rate exceeds this threshold, the circuit opens.
 	FailureRate float64
-	
+
 	// MinimumRequestVolume is the minimum number of requests required
 	// before the failure rate is calculated and considered.
 	MinimumRequestVolume int
-	
+
 	// OnStateChange is an optional callback for state transitions.
 	OnStateChange StateChangeCallback
-	
+
 	// Logger for logging state transitions (optional).
 	Logger func(format string, args ...interface{})
 }
@@ -119,32 +119,32 @@ func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 // CircuitBreakerFilter implements the circuit breaker pattern.
 type CircuitBreakerFilter struct {
 	*FilterBase
-	
+
 	// Current state (atomic.Value stores State)
 	state atomic.Value
-	
+
 	// Failure counter
 	failures atomic.Int64
-	
+
 	// Success counter
 	successes atomic.Int64
-	
+
 	// Last failure time (atomic.Value stores time.Time)
 	lastFailureTime atomic.Value
-	
+
 	// Configuration
 	config CircuitBreakerConfig
-	
+
 	// Sliding window for failure rate calculation
 	slidingWindow *ring.Ring
 	windowMu      sync.Mutex
-	
+
 	// Half-open state limiter
 	halfOpenAttempts atomic.Int32
-	
+
 	// Metrics tracking
-	metrics CircuitBreakerMetrics
-	metricsMu sync.RWMutex
+	metrics        CircuitBreakerMetrics
+	metricsMu      sync.RWMutex
 	stateStartTime time.Time
 }
 
@@ -155,48 +155,48 @@ func NewCircuitBreakerFilter(config CircuitBreakerConfig) *CircuitBreakerFilter 
 		config:        config,
 		slidingWindow: ring.New(100), // Last 100 requests for rate calculation
 	}
-	
+
 	// Initialize state
 	f.state.Store(Closed)
 	f.lastFailureTime.Store(time.Time{})
 	f.stateStartTime = time.Now()
-	
+
 	// Initialize metrics
 	f.metrics.CurrentState = Closed
 	f.metrics.LastStateChange = time.Now()
-	
+
 	return f
 }
 
 // transitionTo performs thread-safe state transitions with logging and callbacks.
 func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 	currentState := f.state.Load().(State)
-	
+
 	// Validate transition
 	if !f.isValidTransition(currentState, newState) {
 		// Log invalid transition attempt
 		if f.config.Logger != nil {
-			f.config.Logger("Circuit breaker: invalid transition from %s to %s", 
+			f.config.Logger("Circuit breaker: invalid transition from %s to %s",
 				currentState.String(), newState.String())
 		}
 		return false
 	}
-	
+
 	// Atomic state change
 	if !f.state.CompareAndSwap(currentState, newState) {
 		// State changed by another goroutine
 		return false
 	}
-	
+
 	// Log successful transition
 	if f.config.Logger != nil {
-		f.config.Logger("Circuit breaker: state changed from %s to %s", 
+		f.config.Logger("Circuit breaker: state changed from %s to %s",
 			currentState.String(), newState.String())
 	}
-	
+
 	// Update metrics (would integrate with actual metrics system)
 	f.updateMetrics(currentState, newState)
-	
+
 	// Handle transition side effects
 	switch newState {
 	case Open:
@@ -204,36 +204,36 @@ func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 		f.lastFailureTime.Store(time.Now())
 		f.failures.Store(0)
 		f.successes.Store(0)
-		
+
 		if f.config.Logger != nil {
 			f.config.Logger("Circuit breaker opened at %v", time.Now())
 		}
-		
+
 	case HalfOpen:
 		// Reset counters for testing phase
 		f.failures.Store(0)
 		f.successes.Store(0)
-		
+
 		if f.config.Logger != nil {
 			f.config.Logger("Circuit breaker entering half-open state for testing")
 		}
-		
+
 	case Closed:
 		// Reset all counters
 		f.failures.Store(0)
 		f.successes.Store(0)
 		f.lastFailureTime.Store(time.Time{})
-		
+
 		if f.config.Logger != nil {
 			f.config.Logger("Circuit breaker closed - normal operation resumed")
 		}
 	}
-	
+
 	// Call optional state change callback
 	if f.config.OnStateChange != nil {
 		go f.config.OnStateChange(currentState, newState)
 	}
-	
+
 	return true
 }
 
@@ -241,10 +241,10 @@ func (f *CircuitBreakerFilter) transitionTo(newState State) bool {
 func (f *CircuitBreakerFilter) updateMetrics(from, to State) {
 	f.metricsMu.Lock()
 	defer f.metricsMu.Unlock()
-	
+
 	now := time.Now()
 	elapsed := now.Sub(f.stateStartTime)
-	
+
 	// Update time in state
 	switch from {
 	case Closed:
@@ -264,18 +264,18 @@ func (f *CircuitBreakerFilter) updateMetrics(from, to State) {
 	case HalfOpen:
 		f.metrics.TimeInHalfOpen += elapsed
 	}
-	
+
 	// Update state tracking
 	f.metrics.CurrentState = to
 	f.metrics.StateChanges++
 	f.metrics.LastStateChange = now
 	f.stateStartTime = now
-	
+
 	// Record open time
 	if to == Open {
 		f.metrics.LastOpenTime = now
 	}
-	
+
 	// Update filter base statistics if available
 	if f.FilterBase != nil {
 		stats := f.FilterBase.GetStats()
@@ -307,12 +307,12 @@ func (f *CircuitBreakerFilter) isValidTransition(from, to State) bool {
 // shouldTransitionToOpen checks if we should open the circuit.
 func (f *CircuitBreakerFilter) shouldTransitionToOpen() bool {
 	failures := f.failures.Load()
-	
+
 	// Check absolute failure threshold
 	if failures >= int64(f.config.FailureThreshold) {
 		return true
 	}
-	
+
 	// Check failure rate if we have enough volume
 	total := f.failures.Load() + f.successes.Load()
 	if total >= int64(f.config.MinimumRequestVolume) {
@@ -321,7 +321,7 @@ func (f *CircuitBreakerFilter) shouldTransitionToOpen() bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -331,7 +331,7 @@ func (f *CircuitBreakerFilter) shouldTransitionToHalfOpen() bool {
 	if lastFailure.IsZero() {
 		return false
 	}
-	
+
 	return time.Since(lastFailure) >= f.config.Timeout
 }
 
@@ -340,12 +340,12 @@ func (f *CircuitBreakerFilter) tryTransitionToHalfOpen() bool {
 	// Only transition if we're currently in Open state
 	expectedState := Open
 	newState := HalfOpen
-	
+
 	// Check timeout first to avoid unnecessary CAS operations
 	if !f.shouldTransitionToHalfOpen() {
 		return false
 	}
-	
+
 	// Atomic compare-and-swap for race-free transition
 	return f.state.CompareAndSwap(expectedState, newState)
 }
@@ -359,16 +359,16 @@ func (f *CircuitBreakerFilter) shouldTransitionToClosed() bool {
 func (f *CircuitBreakerFilter) recordFailure() {
 	// Increment failure counter
 	f.failures.Add(1)
-	
+
 	// Add to sliding window
 	f.windowMu.Lock()
 	f.slidingWindow.Value = false // false = failure
 	f.slidingWindow = f.slidingWindow.Next()
 	f.windowMu.Unlock()
-	
+
 	// Check state and thresholds
 	currentState := f.state.Load().(State)
-	
+
 	switch currentState {
 	case Closed:
 		// Check if we should open the circuit
@@ -385,16 +385,16 @@ func (f *CircuitBreakerFilter) recordFailure() {
 func (f *CircuitBreakerFilter) recordSuccess() {
 	// Increment success counter
 	f.successes.Add(1)
-	
+
 	// Add to sliding window
 	f.windowMu.Lock()
 	f.slidingWindow.Value = true // true = success
 	f.slidingWindow = f.slidingWindow.Next()
 	f.windowMu.Unlock()
-	
+
 	// Check state
 	currentState := f.state.Load().(State)
-	
+
 	if currentState == HalfOpen {
 		// Check if we should close the circuit
 		if f.shouldTransitionToClosed() {
@@ -407,7 +407,7 @@ func (f *CircuitBreakerFilter) recordSuccess() {
 func (f *CircuitBreakerFilter) calculateFailureRate() float64 {
 	f.windowMu.Lock()
 	defer f.windowMu.Unlock()
-	
+
 	var failures, total int
 	f.slidingWindow.Do(func(v interface{}) {
 		if v != nil {
@@ -417,18 +417,18 @@ func (f *CircuitBreakerFilter) calculateFailureRate() float64 {
 			}
 		}
 	})
-	
+
 	if total == 0 {
 		return 0
 	}
-	
+
 	return float64(failures) / float64(total)
 }
 
 // Process implements the Filter interface with circuit breaker logic.
 func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types.FilterResult, error) {
 	currentState := f.state.Load().(State)
-	
+
 	switch currentState {
 	case Open:
 		// Try atomic transition to half-open if timeout elapsed
@@ -444,24 +444,24 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 			return nil, fmt.Errorf("circuit breaker is open")
 		}
 	}
-	
+
 	// Handle half-open state with limited attempts
 	if currentState == HalfOpen {
 		// Check concurrent attempt limit
 		attempts := f.halfOpenAttempts.Add(1)
 		defer f.halfOpenAttempts.Add(-1)
-		
+
 		if attempts > int32(f.config.HalfOpenMaxAttempts) {
 			// Too many concurrent attempts, reject
 			f.updateRequestMetrics(false, true)
 			return nil, fmt.Errorf("circuit breaker half-open limit exceeded")
 		}
 	}
-	
+
 	// Process the request (would normally call downstream)
 	// For now, we'll simulate processing
 	result := f.processDownstream(ctx, data)
-	
+
 	// Record outcome
 	if result.Status == types.Error {
 		f.recordFailure()
@@ -474,7 +474,7 @@ func (f *CircuitBreakerFilter) Process(ctx context.Context, data []byte) (*types
 		f.recordSuccess()
 		f.updateRequestMetrics(true, false)
 	}
-	
+
 	return result, nil
 }
 
@@ -490,7 +490,7 @@ func (f *CircuitBreakerFilter) processDownstream(ctx context.Context, data []byt
 // Public method to record outcomes from external sources.
 func (f *CircuitBreakerFilter) RecordSuccess() {
 	currentState := f.state.Load().(State)
-	
+
 	switch currentState {
 	case Closed:
 		// In closed state, reset failure count on success
@@ -499,17 +499,17 @@ func (f *CircuitBreakerFilter) RecordSuccess() {
 		}
 		// Increment success counter
 		f.successes.Add(1)
-		
+
 	case HalfOpen:
 		// In half-open, increment success counter
 		f.successes.Add(1)
-		
+
 		// Check if we should transition to closed
 		if f.shouldTransitionToClosed() {
 			f.transitionTo(Closed)
 		}
 	}
-	
+
 	// Update sliding window
 	f.windowMu.Lock()
 	f.slidingWindow.Value = true
@@ -521,27 +521,27 @@ func (f *CircuitBreakerFilter) RecordSuccess() {
 // Public method to record outcomes from external sources.
 func (f *CircuitBreakerFilter) RecordFailure() {
 	currentState := f.state.Load().(State)
-	
+
 	// Increment failure counter
 	f.failures.Add(1)
-	
+
 	// Update sliding window
 	f.windowMu.Lock()
 	f.slidingWindow.Value = false
 	f.slidingWindow = f.slidingWindow.Next()
 	f.windowMu.Unlock()
-	
+
 	switch currentState {
 	case Closed:
 		// Check thresholds for opening
 		if f.shouldTransitionToOpen() {
 			f.transitionTo(Open)
 		}
-		
+
 	case HalfOpen:
 		// Any failure in half-open immediately opens
 		f.transitionTo(Open)
-		
+
 	case Open:
 		// Already open, just record the failure
 	}
@@ -551,16 +551,16 @@ func (f *CircuitBreakerFilter) RecordFailure() {
 func (f *CircuitBreakerFilter) GetMetrics() CircuitBreakerMetrics {
 	f.metricsMu.RLock()
 	defer f.metricsMu.RUnlock()
-	
+
 	// Create a copy of metrics
 	metricsCopy := f.metrics
-	
+
 	// Calculate current rates
 	if metricsCopy.TotalRequests > 0 {
 		metricsCopy.SuccessRate = float64(metricsCopy.SuccessfulRequests) / float64(metricsCopy.TotalRequests)
 		metricsCopy.FailureRate = float64(metricsCopy.FailedRequests) / float64(metricsCopy.TotalRequests)
 	}
-	
+
 	// Update time in current state
 	currentState := f.state.Load().(State)
 	elapsed := time.Since(f.stateStartTime)
@@ -572,7 +572,7 @@ func (f *CircuitBreakerFilter) GetMetrics() CircuitBreakerMetrics {
 	case HalfOpen:
 		metricsCopy.TimeInHalfOpen += elapsed
 	}
-	
+
 	return metricsCopy
 }
 
@@ -580,9 +580,9 @@ func (f *CircuitBreakerFilter) GetMetrics() CircuitBreakerMetrics {
 func (f *CircuitBreakerFilter) updateRequestMetrics(success bool, rejected bool) {
 	f.metricsMu.Lock()
 	defer f.metricsMu.Unlock()
-	
+
 	f.metrics.TotalRequests++
-	
+
 	if rejected {
 		f.metrics.RejectedRequests++
 	} else if success {

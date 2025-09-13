@@ -5,7 +5,7 @@ package integration
 func (fc *FilteredMCPClient) ReceiveResponse(response interface{}) (interface{}, error) {
 	// Receive response
 	// response, err := fc.MCPClient.ReceiveResponse()
-	
+
 	// Apply response filters
 	data, _ := extractResponseData(response)
 	filtered, err := fc.FilterIncomingResponse(data)
@@ -13,7 +13,7 @@ func (fc *FilteredMCPClient) ReceiveResponse(response interface{}) (interface{},
 		// Handle filter error
 		return nil, err
 	}
-	
+
 	// Return filtered response
 	_ = filtered
 	return response, nil

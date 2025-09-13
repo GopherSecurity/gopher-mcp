@@ -28,22 +28,22 @@ type timeWrapper struct {
 type ErrorHandler struct {
 	// Configuration
 	config ErrorHandlerConfig
-	
+
 	// Error tracking
-	errorCount     atomic.Int64
-	lastError      atomic.Value // stores *errorWrapper
-	errorHistory   []ErrorRecord
-	
+	errorCount   atomic.Int64
+	lastError    atomic.Value // stores *errorWrapper
+	errorHistory []ErrorRecord
+
 	// Reconnection state
 	reconnecting   atomic.Bool
 	reconnectCount atomic.Int64
 	lastReconnect  atomic.Value // stores *timeWrapper
-	
+
 	// Callbacks
 	onError      func(error)
 	onReconnect  func()
 	onFatalError func(error)
-	
+
 	mu sync.RWMutex
 }
 
@@ -106,14 +106,14 @@ func (eh *ErrorHandler) HandleError(err error) error {
 	if err == nil {
 		return nil
 	}
-	
+
 	eh.errorCount.Add(1)
 	eh.lastError.Store(&errorWrapper{err: err})
-	
+
 	// Categorize error
 	category := eh.categorizeError(err)
 	retryable := eh.isRetryable(err)
-	
+
 	// Record error
 	eh.recordError(ErrorRecord{
 		Error:     err,
@@ -121,15 +121,15 @@ func (eh *ErrorHandler) HandleError(err error) error {
 		Category:  category,
 		Retryable: retryable,
 	})
-	
+
 	// Create meaningful error message
 	enhancedErr := eh.enhanceError(err, category)
-	
+
 	// Trigger callback
 	if eh.onError != nil {
 		eh.onError(enhancedErr)
 	}
-	
+
 	// Check if fatal
 	if category == FatalError {
 		if eh.onFatalError != nil {
@@ -137,12 +137,12 @@ func (eh *ErrorHandler) HandleError(err error) error {
 		}
 		return enhancedErr
 	}
-	
+
 	// Attempt recovery if retryable
 	if retryable && eh.config.EnableAutoReconnect {
 		go eh.attemptReconnection()
 	}
-	
+
 	return enhancedErr
 }
 
@@ -152,17 +152,17 @@ func (eh *ErrorHandler) categorizeError(err error) ErrorCategory {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return IOError
 	}
-	
+
 	// Check for closed pipe
 	if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE) {
 		return IOError
 	}
-	
+
 	// Check for signal interrupts first (before network errors)
 	if errors.Is(err, syscall.EINTR) {
 		return SignalError
 	}
-	
+
 	// Check for network errors
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -171,27 +171,27 @@ func (eh *ErrorHandler) categorizeError(err error) ErrorCategory {
 		}
 		return NetworkError
 	}
-	
+
 	// Check for connection refused
 	if errors.Is(err, syscall.ECONNREFUSED) {
 		return NetworkError
 	}
-	
+
 	// Check for connection reset
 	if errors.Is(err, syscall.ECONNRESET) {
 		return NetworkError
 	}
-	
+
 	// Check for broken pipe
 	if errors.Is(err, syscall.EPIPE) {
 		return IOError
 	}
-	
+
 	// Check for protocol errors
 	if isProtocolError(err) {
 		return ProtocolError
 	}
-	
+
 	// Default to IO error
 	return IOError
 }
@@ -202,37 +202,37 @@ func (eh *ErrorHandler) isRetryable(err error) bool {
 	if errors.Is(err, io.EOF) {
 		return false
 	}
-	
+
 	// Protocol errors are not retryable
 	if isProtocolError(err) {
 		return false
 	}
-	
+
 	// Signal interrupts are retryable
 	if errors.Is(err, syscall.EINTR) {
 		return true
 	}
-	
+
 	// Connection errors are retryable (check before net.Error)
-	if errors.Is(err, syscall.ECONNREFUSED) || 
-	   errors.Is(err, syscall.ECONNRESET) ||
-	   errors.Is(err, io.ErrClosedPipe) {
+	if errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, io.ErrClosedPipe) {
 		return true
 	}
-	
+
 	// Network errors are generally retryable
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return netErr.Temporary() || netErr.Timeout()
 	}
-	
+
 	return false
 }
 
 // enhanceError creates a meaningful error message.
 func (eh *ErrorHandler) enhanceError(err error, category ErrorCategory) error {
 	var prefix string
-	
+
 	switch category {
 	case NetworkError:
 		prefix = "network error"
@@ -249,21 +249,21 @@ func (eh *ErrorHandler) enhanceError(err error, category ErrorCategory) error {
 	default:
 		prefix = "transport error"
 	}
-	
+
 	// Add context about error state
 	errorCount := eh.errorCount.Load()
 	reconnectCount := eh.reconnectCount.Load()
-	
+
 	msg := fmt.Sprintf("%s: %v (errors: %d, reconnects: %d)",
 		prefix, err, errorCount, reconnectCount)
-	
+
 	// Add recovery suggestion
 	if eh.isRetryable(err) {
 		msg += " - will attempt reconnection"
 	} else {
 		msg += " - not retryable"
 	}
-	
+
 	return &TransportError{
 		Code:    fmt.Sprintf("TRANSPORT_%s", category.String()),
 		Message: msg,
@@ -278,21 +278,21 @@ func (eh *ErrorHandler) attemptReconnection() {
 		return
 	}
 	defer eh.reconnecting.Store(false)
-	
+
 	delay := eh.config.ReconnectDelay
-	
+
 	for attempt := 1; attempt <= eh.config.MaxReconnectAttempts; attempt++ {
 		eh.reconnectCount.Add(1)
 		eh.lastReconnect.Store(&timeWrapper{t: time.Now()})
-		
+
 		// Trigger reconnect callback
 		if eh.onReconnect != nil {
 			eh.onReconnect()
 		}
-		
+
 		// Wait before next attempt
 		time.Sleep(delay)
-		
+
 		// Increase delay with backoff
 		delay = time.Duration(float64(delay) * eh.config.ReconnectBackoff)
 		if delay > eh.config.MaxReconnectDelay {
@@ -305,9 +305,9 @@ func (eh *ErrorHandler) attemptReconnection() {
 func (eh *ErrorHandler) recordError(record ErrorRecord) {
 	eh.mu.Lock()
 	defer eh.mu.Unlock()
-	
+
 	eh.errorHistory = append(eh.errorHistory, record)
-	
+
 	// Trim history if needed
 	if len(eh.errorHistory) > eh.config.ErrorHistorySize {
 		eh.errorHistory = eh.errorHistory[len(eh.errorHistory)-eh.config.ErrorHistorySize:]
@@ -349,7 +349,7 @@ func (eh *ErrorHandler) SetFatalErrorCallback(cb func(error)) {
 func (eh *ErrorHandler) GetErrorHistory() []ErrorRecord {
 	eh.mu.RLock()
 	defer eh.mu.RUnlock()
-	
+
 	result := make([]ErrorRecord, len(eh.errorHistory))
 	copy(result, eh.errorHistory)
 	return result
@@ -371,7 +371,7 @@ func (eh *ErrorHandler) IsRecoverable() bool {
 	if lastErr == nil {
 		return true
 	}
-	
+
 	return eh.isRetryable(lastErr)
 }
 
@@ -379,7 +379,7 @@ func (eh *ErrorHandler) IsRecoverable() bool {
 func (eh *ErrorHandler) Reset() {
 	eh.mu.Lock()
 	defer eh.mu.Unlock()
-	
+
 	eh.errorCount.Store(0)
 	eh.reconnectCount.Store(0)
 	eh.lastError.Store(&errorWrapper{err: nil})
@@ -436,10 +436,10 @@ func containsHelper(s, substr string) bool {
 
 // ReconnectionLogic provides reconnection strategy.
 type ReconnectionLogic struct {
-	handler  *ErrorHandler
+	handler   *ErrorHandler
 	transport Transport
-	ctx      context.Context
-	cancel   context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // NewReconnectionLogic creates reconnection logic for a transport.

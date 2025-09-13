@@ -162,7 +162,7 @@ func (mm *MemoryManager) GetCurrentUsage() int64 {
 // UpdateUsage atomically updates the current memory usage.
 func (mm *MemoryManager) UpdateUsage(delta int64) {
 	newUsage := atomic.AddInt64(&mm.currentUsage, delta)
-	
+
 	// Update peak usage if necessary
 	mm.mu.Lock()
 	if newUsage > mm.stats.PeakUsage {
@@ -297,12 +297,12 @@ func (mm *MemoryManager) Get(size int) *types.Buffer {
 
 	// Get the appropriate pool
 	pool := mm.GetPoolForSize(size)
-	
+
 	var buffer *types.Buffer
 	if pool != nil {
 		// Get from pool
 		buffer = pool.Get(size)
-		
+
 		mm.mu.Lock()
 		mm.stats.PoolHits++
 		mm.mu.Unlock()
@@ -310,7 +310,7 @@ func (mm *MemoryManager) Get(size int) *types.Buffer {
 		// No pool for this size, allocate directly
 		buffer = &types.Buffer{}
 		buffer.Grow(size)
-		
+
 		mm.mu.Lock()
 		mm.stats.PoolMisses++
 		mm.mu.Unlock()
@@ -319,7 +319,7 @@ func (mm *MemoryManager) Get(size int) *types.Buffer {
 	// Update memory usage
 	if buffer != nil {
 		mm.UpdateUsage(int64(buffer.Cap()))
-		
+
 		mm.mu.Lock()
 		mm.stats.AllocationCount++
 		mm.stats.TotalAllocated += uint64(buffer.Cap())
@@ -342,11 +342,11 @@ func (mm *MemoryManager) Put(buffer *types.Buffer) {
 
 	// Clear buffer contents for security
 	buffer.Reset()
-	
+
 	// Update memory usage
 	bufferSize := buffer.Cap()
 	mm.UpdateUsage(-int64(bufferSize))
-	
+
 	mm.mu.Lock()
 	mm.stats.ReleaseCount++
 	mm.stats.TotalReleased += uint64(bufferSize)
@@ -363,7 +363,7 @@ func (mm *MemoryManager) Put(buffer *types.Buffer) {
 	// Return to appropriate pool
 	poolSize := mm.selectPoolSize(bufferSize)
 	pool := mm.GetPoolForSize(bufferSize)
-	
+
 	if pool != nil && poolSize == bufferSize {
 		// Only return to pool if it matches the pool size exactly
 		pool.Put(buffer)
@@ -375,7 +375,7 @@ func (mm *MemoryManager) Put(buffer *types.Buffer) {
 // Setting to 0 disables the memory limit.
 func (mm *MemoryManager) SetMaxMemory(bytes int64) {
 	atomic.StoreInt64(&mm.maxMemory, bytes)
-	
+
 	// Trigger cleanup if over limit
 	if bytes > 0 {
 		currentUsage := atomic.LoadInt64(&mm.currentUsage)

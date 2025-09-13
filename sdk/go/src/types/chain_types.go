@@ -68,7 +68,7 @@ type ChainConfig struct {
 
 	// EnableTracing enables execution tracing for debugging.
 	EnableTracing bool `json:"enable_tracing"`
-	
+
 	// BypassOnError allows chain to continue on errors.
 	BypassOnError bool `json:"bypass_on_error"`
 }

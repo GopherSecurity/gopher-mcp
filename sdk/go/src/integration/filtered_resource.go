@@ -15,13 +15,13 @@ func (fs *FilteredMCPServer) RegisterFilteredResource(resource Resource, filters
 	for _, filter := range filters {
 		chain.Add(filter)
 	}
-	
+
 	// Wrap resource with access control
 	filteredResource := &FilteredResource{
 		resource: resource,
 		chain:    chain,
 	}
-	
+
 	// Register with MCP server
 	// return fs.MCPServer.RegisterResource(filteredResource)
 	_ = filteredResource
@@ -41,7 +41,7 @@ func (fr *FilteredResource) Read() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Apply filters to read data
 	// return fr.chain.Process(data)
 	return data, nil
@@ -54,7 +54,7 @@ func (fr *FilteredResource) Write(data []byte) error {
 	// if err != nil {
 	//     return err
 	// }
-	
+
 	// Write to resource
 	return fr.resource.Write(data)
 }
