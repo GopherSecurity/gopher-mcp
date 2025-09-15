@@ -22,25 +22,28 @@ namespace {
 // Mock filter factory for testing
 class MockFilterFactory : public filter::FilterFactory {
  public:
-  explicit MockFilterFactory(const std::string& name) : name_(name) {}
-  
-  std::string name() const override { return name_; }
-  std::string version() const override { return "1.0.0"; }
-  std::vector<std::string> dependencies() const override { return {}; }
-  std::string configSchema() const override { return "{}"; }
-  
+  explicit MockFilterFactory(const std::string& name) : name_(name) {
+    // Initialize metadata
+    metadata_.name = name_;
+    metadata_.version = "1.0.0";
+    metadata_.dependencies = {};
+    metadata_.config_schema = json::JsonValue::object();
+    metadata_.description = "Mock filter for testing";
+  }
+
+  const filter::FilterFactoryMetadata& getMetadata() const override {
+    return metadata_;
+  }
+
   network::FilterSharedPtr createFilter(const json::JsonValue& config) const override {
     // Return nullptr to indicate filter needs runtime dependencies
     // This is acceptable for chain creation tests
     return nullptr;
   }
   
-  bool validateConfig(const json::JsonValue& config) const override {
-    return true;
-  }
-  
  private:
   std::string name_;
+  filter::FilterFactoryMetadata metadata_;
 };
 
 class ChainFromJsonTest : public ::testing::Test {
