@@ -298,6 +298,20 @@ class AdvancedFilterChain {
   
   mcp_dispatcher_t getDispatcher() const { return dispatcher_; }
 
+  // Getters for export functionality
+  const std::string& getName() const { return name_; }
+  mcp_chain_execution_mode_t getMode() const { return mode_; }
+  mcp_routing_strategy_t getRouting() const { return routing_; }
+  uint32_t getMaxParallel() const { return max_parallel_; }
+  uint32_t getBufferSize() const { return buffer_size_; }
+  uint32_t getTimeoutMs() const { return timeout_ms_; }
+  bool getStopOnError() const { return stop_on_error_; }
+
+  // Access to nodes for export (with mutex lock)
+  std::vector<std::unique_ptr<FilterNode>>& getNodes() { return nodes_; }
+  const std::vector<std::unique_ptr<FilterNode>>& getNodes() const { return nodes_; }
+  std::mutex& getMutex() const { return mutex_; }
+
  private:
   mcp_filter_status_t processSequential(
       mcp_buffer_handle_t buffer, const mcp_protocol_metadata_t* metadata) {
@@ -705,7 +719,9 @@ MCP_API mcp_result_t mcp_chain_pause(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 
     // Check thread affinity - pause must be called from dispatcher thread
     if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
-      GOPHER_LOG(Error, "Chain pause must be called from dispatcher thread");
+      try {
+        GOPHER_LOG(Error, "Chain pause must be called from dispatcher thread");
+      } catch (...) {}
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -732,7 +748,9 @@ MCP_API mcp_result_t mcp_chain_resume(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 
     // Check thread affinity - resume must be called from dispatcher thread
     if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
-      GOPHER_LOG(Error, "Chain resume must be called from dispatcher thread");
+      try {
+        GOPHER_LOG(Error, "Chain resume must be called from dispatcher thread");
+      } catch (...) {}
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -759,7 +777,9 @@ MCP_API mcp_result_t mcp_chain_reset(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 
     // Check thread affinity - reset must be called from dispatcher thread
     if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
-      GOPHER_LOG(Error, "Chain reset must be called from dispatcher thread");
+      try {
+        GOPHER_LOG(Error, "Chain reset must be called from dispatcher thread");
+      } catch (...) {}
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -792,7 +812,9 @@ MCP_API mcp_result_t mcp_chain_set_filter_enabled(mcp_filter_chain_t chain,
 
     // Check thread affinity - filter enable/disable must be called from dispatcher thread
     if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
-      GOPHER_LOG(Error, "Chain set_filter_enabled must be called from dispatcher thread");
+      try {
+        GOPHER_LOG(Error, "Chain set_filter_enabled must be called from dispatcher thread");
+      } catch (...) {}
       return MCP_ERROR_INVALID_STATE;
     }
 
@@ -863,14 +885,17 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
   
   // 1. Validate inputs
   if (!dispatcher || !json_config) {
-    GOPHER_LOG(Error, "Invalid inputs to chain creation: dispatcher={}, config={}", 
-               dispatcher ? "valid" : "null", json_config ? "valid" : "null");
+    try {
+      GOPHER_LOG(Error, "Invalid inputs to chain creation");
+    } catch (...) {}
     return 0;
   }
   
   // 2. Check thread affinity - chain creation must occur on dispatcher thread
   if (!isOnDispatcherThread(dispatcher)) {
-    GOPHER_LOG(Error, "Chain creation must be called from dispatcher thread");
+    try {
+      GOPHER_LOG(Error, "Chain creation must be called from dispatcher thread");
+    } catch (...) {}
     return 0;
   }
   
@@ -885,24 +910,24 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     size_t filter_count = filters.size();
     bool has_typed_config = (normalized_count > 0);
     
-    GOPHER_LOG(Info, "Creating chain from JSON with {} filters, {} normalized from typed_config", 
-               filter_count, normalized_count);
+    // Log only in debug builds or reduce to trace level
+    GOPHER_LOG(Debug, "Creating chain with {} filters", filter_count);
     
     // 5. Validate all filter types exist in registry
     for (size_t i = 0; i < filter_count; ++i) {
       std::string filter_type = filters[i]["type"].getString();
       
       if (!mcp::filter::FilterRegistry::instance().hasFactory(filter_type)) {
-        GOPHER_LOG(Error, "Unknown filter type '{}' at index {}", filter_type, i);
+        try {
+          GOPHER_LOG(Error, "Unknown filter type at index {}", i);
+        } catch (...) {}
         return 0;
       }
       
-      GOPHER_LOG(Debug, "Filter {}: type='{}', has_config={}", 
-                 i, filter_type, filters[i].contains("config"));
+      // Remove verbose per-filter logging from hot path
     }
     
-    GOPHER_LOG(Info, "Chain configuration validated: {} filters, has_typed_config={}", 
-               filter_count, has_typed_config);
+    // Reduce logging verbosity in hot path
     
     // 6. Create chain using ConfigurableFilterChainFactory
     auto factory = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(config);
@@ -918,7 +943,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
         error_msg << "[" << i << "] " << errors[i];
       }
       
-      GOPHER_LOG(Error, "Chain validation failed: {}", error_msg.str());
+      try {
+        GOPHER_LOG(Error, "Chain validation failed: {}", error_msg.str());
+      } catch (...) {}
       return 0;
     }
     
@@ -932,8 +959,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     }
     
     if (created_filters.size() != filter_count) {
-      GOPHER_LOG(Warning, "Factory created {} filters, expected {}", 
-                 created_filters.size(), filter_count);
+      try {
+        GOPHER_LOG(Warning, "Filter count mismatch");
+      } catch (...) {}
     }
     
     // 8. Store filters in handle manager for lifetime management
@@ -942,7 +970,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     
     for (const auto& filter : created_filters) {
       if (!filter) {
-        GOPHER_LOG(Error, "Factory created null filter");
+        try {
+          GOPHER_LOG(Error, "Factory created null filter");
+        } catch (...) {}
         // Clean up already created handles
         for (auto handle : filter_handles) {
           mcp::filter_api::g_filter_manager.release(handle);
@@ -953,7 +983,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
       // Store in filter manager to get handle
       auto handle = mcp::filter_api::g_filter_manager.store(filter);
       if (handle == 0) {
-        GOPHER_LOG(Error, "Failed to store filter in handle manager");
+        try {
+          GOPHER_LOG(Error, "Failed to store filter");
+        } catch (...) {}
         // Clean up already created handles
         for (auto h : filter_handles) {
           mcp::filter_api::g_filter_manager.release(h);
@@ -961,7 +993,7 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
         return 0;
       }
       filter_handles.push_back(handle);
-      GOPHER_LOG(Debug, "Stored filter with handle {}", handle);
+      // Remove verbose per-filter logging from hot path
     }
     
     // 9. Create the chain instance with configuration from JSON
@@ -1018,7 +1050,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     auto unified = std::make_shared<UnifiedFilterChain>(chain_shared);
     auto handle = mcp::c_api_internal::g_unified_chain_manager.store(unified);
     
-    GOPHER_LOG(Info, "Chain created successfully with handle {}", handle);
+    try {
+      GOPHER_LOG(Debug, "Chain created with handle {}", handle);
+    } catch (...) {}
     
     return handle;
     
@@ -1043,17 +1077,21 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
 
 MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  GOPHER_LOG(Debug, "Exporting chain {} to JSON", chain);
+  // Remove debug logging from hot path - export is used for cloning
   
   auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
   if (!unified_chain) {
-    GOPHER_LOG(Warning, "Chain {} not found for export", chain);
+    try {
+      GOPHER_LOG(Warning, "Chain not found for export");
+    } catch (...) {}
     return mcp_json_create_null();
   }
   
   auto chain_ptr = unified_chain->getAdvancedChain();
   if (!chain_ptr) {
-    GOPHER_LOG(Warning, "Chain {} is not an advanced chain", chain);
+    try {
+      GOPHER_LOG(Warning, "Chain is not an advanced chain");
+    } catch (...) {}
     return mcp_json_create_null();
   }
   
@@ -1062,23 +1100,23 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     auto config = mcp::json::JsonValue::object();
     
     // Export chain properties
-    config["name"] = mcp::json::JsonValue(chain_ptr->name_.empty() ? 
-                                          "exported_chain" : chain_ptr->name_);
-    config["mode"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->mode_));
-    config["routing"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->routing_));
-    config["max_parallel"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->max_parallel_));
-    config["buffer_size"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->buffer_size_));
-    config["timeout_ms"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->timeout_ms_));
-    config["stop_on_error"] = mcp::json::JsonValue(chain_ptr->stop_on_error_);
+    config["name"] = mcp::json::JsonValue(chain_ptr->getName().empty() ?
+                                          "exported_chain" : chain_ptr->getName());
+    config["mode"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->getMode()));
+    config["routing"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->getRouting()));
+    config["max_parallel"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->getMaxParallel()));
+    config["buffer_size"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->getBufferSize()));
+    config["timeout_ms"] = mcp::json::JsonValue(static_cast<int64_t>(chain_ptr->getTimeoutMs()));
+    config["stop_on_error"] = mcp::json::JsonValue(chain_ptr->getStopOnError());
     
     // Export filters array
     auto filters_array = mcp::json::JsonValue::array();
     
     // Lock to safely access nodes
     {
-      std::lock_guard<std::mutex> lock(chain_ptr->mutex_);
-      
-      for (const auto& node : chain_ptr->nodes_) {
+      std::lock_guard<std::mutex> lock(chain_ptr->getMutex());
+
+      for (const auto& node : chain_ptr->getNodes()) {
         auto filter_obj = mcp::json::JsonValue::object();
         
         // Get filter handle from the node
@@ -1134,8 +1172,7 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
     config["filters"] = filters_array;
     
     auto c_api_json = mcp::c_api::internal::convertToCApi(config);
-    GOPHER_LOG(Info, "Chain {} exported to JSON with {} filters", 
-               chain, filters_array.size());
+    // Remove info logging from hot path
     return c_api_json;
     
   } catch (const std::bad_alloc&) {
@@ -1158,30 +1195,38 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
 
 MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     MCP_NOEXCEPT {
-  GOPHER_LOG(Debug, "Cloning chain {}", chain);
+  // Remove debug logging from hot path - clone is performance critical
   
   auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
   if (!unified_chain) {
-    GOPHER_LOG(Warning, "Chain {} not found for cloning", chain);
+    try {
+      GOPHER_LOG(Warning, "Chain not found for cloning");
+    } catch (...) {}
     return 0;
   }
   
   auto chain_ptr = unified_chain->getAdvancedChain();
   if (!chain_ptr) {
-    GOPHER_LOG(Warning, "Chain {} is not an advanced chain, cannot clone", chain);
+    try {
+      GOPHER_LOG(Warning, "Chain is not advanced, cannot clone");
+    } catch (...) {}
     return 0;
   }
   
   // Get the dispatcher from the original chain
   mcp_dispatcher_t dispatcher = chain_ptr->getDispatcher();
   if (!dispatcher) {
-    GOPHER_LOG(Error, "Chain {} has no dispatcher, cannot clone", chain);
+    try {
+      GOPHER_LOG(Error, "Chain has no dispatcher");
+    } catch (...) {}
     return 0;
   }
   
   // Check thread affinity - clone must be called from dispatcher thread
   if (!isOnDispatcherThread(dispatcher)) {
-    GOPHER_LOG(Error, "Chain clone must be called from dispatcher thread");
+    try {
+      GOPHER_LOG(Error, "Clone must be called from dispatcher thread");
+    } catch (...) {}
     return 0;
   }
   
@@ -1191,7 +1236,9 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     // Export chain to JSON
     json_config = mcp_chain_export_to_json(chain);
     if (!json_config) {
-      GOPHER_LOG(Error, "Failed to export chain {} for cloning", chain);
+      try {
+        GOPHER_LOG(Error, "Failed to export chain for cloning");
+      } catch (...) {}
       return 0;
     }
     
@@ -1202,9 +1249,7 @@ MCP_API mcp_filter_chain_t mcp_chain_clone(mcp_filter_chain_t chain)
     mcp_json_free(json_config);
     json_config = nullptr;
     
-    if (new_handle) {
-      GOPHER_LOG(Info, "Chain {} cloned to new chain {}", chain, new_handle);
-    }
+    // Remove info logging from hot path
     
     return new_handle;
     
