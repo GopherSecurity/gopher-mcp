@@ -776,7 +776,6 @@ if(BUILD_C_API)
         gopher-mcp-static
         gopher-mcp-event-static
         gopher-mcp-logging-static
-        gopher-mcp-filter-static
         ${LIBEVENT_LIBRARIES}
         ${OPENSSL_LIBRARIES}
         gtest
