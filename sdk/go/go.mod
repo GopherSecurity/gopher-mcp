@@ -1,4 +1,4 @@
-module github.com/GopherSecurity/gopher-mcp
+module github.com/GopherSecurity/gopher-mcp/sdk/go
 
 go 1.21
 
