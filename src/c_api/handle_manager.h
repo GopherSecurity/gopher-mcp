@@ -26,6 +26,10 @@ class HandleManager {
 
   HandleManager() : next_handle_(1) {}
 
+  /**
+   * Store a shared pointer and return a handle.
+   * The HandleManager will maintain a shared reference to the object.
+   */
   uint64_t store(SharedPtr obj) {
     if (!obj)
       return 0;
@@ -34,6 +38,20 @@ class HandleManager {
     uint64_t handle = next_handle_.fetch_add(1, std::memory_order_relaxed);
     handles_[handle] = obj;
     return handle;
+  }
+
+  /**
+   * Store a unique pointer and return a handle.
+   * Ownership is transferred to the HandleManager, which will convert
+   * it to a shared_ptr internally. This allows call sites that create
+   * unique_ptr objects to store them without manual conversion.
+   */
+  uint64_t store(std::unique_ptr<T> obj) {
+    if (!obj)
+      return 0;
+    
+    // Convert unique_ptr to shared_ptr, transferring ownership
+    return store(SharedPtr(std::move(obj)));
   }
 
   SharedPtr get(uint64_t handle) {

@@ -1,0 +1,18 @@
+{
+  "filter_chains": [
+    {
+      "name": "server",
+      "filters": [
+        {
+          "type": "json_rpc",
+          "name": "json_rpc_protocol",
+          "config": {
+            "mode": "server",
+            "use_framing": false,
+            "strict_mode": true
+          }
+        }
+      ]
+    }
+  ]
+}

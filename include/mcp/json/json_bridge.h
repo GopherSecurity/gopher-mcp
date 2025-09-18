@@ -57,6 +57,8 @@ class JsonValue {
   bool isString() const;
   bool isArray() const;
   bool isObject() const;
+  // Emptiness check for containers and strings; null is empty
+  bool empty() const;
 
   // Value getters (throw if wrong type)
   bool getBool() const;
