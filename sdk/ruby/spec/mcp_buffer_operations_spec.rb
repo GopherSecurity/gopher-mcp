@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'spec_helper'
 
 RSpec.describe McpFilterSdk::FilterBuffer do
@@ -25,7 +27,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       result = buffer.add_data(test_data)
 
       expect(result).to be true
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
     end
 
     it 'handles empty data gracefully' do
@@ -52,7 +54,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
   describe '#clear' do
     it 'clears the buffer content' do
       buffer.add_data('Test data')
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
 
       buffer.clear
       expect(buffer.size).to eq(0)
@@ -64,7 +66,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       expect(buffer.get_size).to eq(0)
 
       buffer.add_data('Test')
-      expect(buffer.get_size).to be > 0
+      expect(buffer.get_size).to be.positive?
     end
   end
 
@@ -93,7 +95,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       buffer.add_data('Third')
 
       # Verify buffer has grown
-      expect(buffer.get_size).to be > 0
+      expect(buffer.get_size).to be.positive?
 
       # Clear and verify
       buffer.clear
@@ -105,7 +107,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
 
       result = buffer.add_data(large_data)
       expect(result).to be true
-      expect(buffer.get_size).to be > 0
+      expect(buffer.get_size).to be.positive?
     end
   end
 end

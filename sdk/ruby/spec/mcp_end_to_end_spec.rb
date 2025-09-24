@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'spec_helper'
 
 RSpec.describe 'MCP Filter SDK End-to-End Integration' do
@@ -17,7 +19,7 @@ RSpec.describe 'MCP Filter SDK End-to-End Integration' do
     it 'processes data through complete filter chain' do
       # Create filters
       filter1 = filter_manager.create_filter('uppercase', {
-                                               on_data: ->(data) { data.upcase },
+                                               on_data: lambda(&:upcase),
                                                on_error: ->(error) { puts "Filter1 error: #{error}" }
                                              })
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk/mcp_filter_api'
 require 'mcp_filter_sdk/mcp_filter_chain'
 require 'mcp_filter_sdk/types/index'

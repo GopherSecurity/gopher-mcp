@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'spec_helper'
 
 RSpec.describe McpFilterSdk::FilterBuffer do
@@ -20,7 +22,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
     it 'creates buffer with default capacity when not specified' do
       default_buffer = described_class.new
       default_buffer.initialize!
-      expect(default_buffer.capacity).to be > 0
+      expect(default_buffer.capacity).to be.positive?
       default_buffer.cleanup!
     end
   end
@@ -31,7 +33,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       result = buffer.add(test_data)
 
       expect(result).to be true
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
     end
 
     it 'handles binary data correctly' do
@@ -39,7 +41,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       result = buffer.add(binary_data)
 
       expect(result).to be true
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
     end
 
     it 'handles empty data' do
@@ -52,7 +54,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       result = buffer.add(large_data)
 
       expect(result).to be true
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
     end
   end
 
@@ -82,7 +84,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
   describe '#clear' do
     it 'clears all data from buffer' do
       buffer.add('Test data')
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
 
       buffer.clear
       expect(buffer.size).to eq(0)
@@ -100,7 +102,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       expect(buffer.size).to eq(0)
 
       buffer.add('Test')
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
     end
 
     it 'updates size after adding data' do
@@ -149,7 +151,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       buffer.add('Second')
       buffer.add('Third')
 
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
       expect(buffer.is_empty?).to be false
     end
 
@@ -189,7 +191,7 @@ RSpec.describe McpFilterSdk::FilterBuffer do
       expect(buffer.size).to eq(0)
 
       buffer.add('Test')
-      expect(buffer.size).to be > 0
+      expect(buffer.size).to be.positive?
 
       buffer.clear
       expect(buffer.size).to eq(0)

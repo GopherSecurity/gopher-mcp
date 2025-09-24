@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'socket'
 require 'json'
 require 'securerandom'
@@ -154,14 +156,13 @@ module McpFilterSdk
 
       puts "📡 Starting UDP transport on #{host}:#{port}"
 
+      @udp_socket = UDPSocket.new
       if @config.host.nil?
         # Server mode
-        @udp_socket = UDPSocket.new
         @udp_socket.bind(host, port)
         puts "🚀 UDP server listening on port #{port}"
       else
         # Client mode
-        @udp_socket = UDPSocket.new
         @udp_socket.connect(host, port)
         puts '🔗 Connected to UDP server'
       end
@@ -199,7 +200,7 @@ module McpFilterSdk
     end
 
     def handle_tcp_client(client_socket, connection_id)
-      while line = client_socket.gets
+      while (line = client_socket.gets)
         puts "📥 Received from #{connection_id}: #{line.chomp}"
         # Process received message
       end

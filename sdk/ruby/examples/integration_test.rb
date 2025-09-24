@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 require_relative '../lib/mcp_filter_sdk'
 
@@ -58,12 +59,12 @@ class IntegrationTest
       filters = {}
 
       filters[:uppercase] = @manager.create_filter('uppercase', {
-                                                     on_data: ->(data) { data.upcase },
+                                                     on_data: lambda(&:upcase),
                                                      on_error: ->(error) { "Error: #{error}" }
                                                    })
 
       filters[:reverse] = @manager.create_filter('reverse', {
-                                                   on_data: ->(data) { data.reverse },
+                                                   on_data: lambda(&:reverse),
                                                    on_error: ->(error) { "Error: #{error}" }
                                                  })
 
@@ -147,7 +148,7 @@ class IntegrationTest
 
     begin
       # Add filters to transport
-      @filters.each do |_name, filter|
+      @filters.each_value do |filter|
         @transport.add_filter(filter)
       end
 
@@ -301,7 +302,7 @@ class IntegrationTest
   end
 
   def display_results
-    puts "\n" + '=' * 50
+    puts "\n#{'=' * 50}"
     puts '📊 INTEGRATION TEST RESULTS'
     puts '=' * 50
 
