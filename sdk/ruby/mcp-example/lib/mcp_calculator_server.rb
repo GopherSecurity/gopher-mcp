@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk'
 require 'json'
 
@@ -121,7 +123,7 @@ class McpCalculatorServer
     when 'multiply'
       params['a'] * params['b']
     when 'divide'
-      raise 'Division by zero' if params['b'] == 0
+      raise 'Division by zero' if params['b'].zero?
 
       params['a'].to_f / params['b']
     when 'power'
@@ -169,7 +171,7 @@ class CalculatorFilter
 end
 
 # Main execution
-if __FILE__ == $0
+if __FILE__ == $PROGRAM_NAME
   server = McpCalculatorServer.new
   server.start
 end

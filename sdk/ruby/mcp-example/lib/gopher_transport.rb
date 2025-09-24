@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk'
 
 # This file demonstrates how to use GopherTransport directly
@@ -114,7 +116,7 @@ module McpExample
 end
 
 # Example usage
-if __FILE__ == $0
+if __FILE__ == $PROGRAM_NAME
   puts '🚀 GopherTransport Wrapper Example'
   puts '=================================='
 

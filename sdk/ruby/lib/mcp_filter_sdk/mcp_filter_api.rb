@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk/mcp_ffi_bindings'
 require 'mcp_filter_sdk/mcp_c_structs'
 require 'mcp_filter_sdk/types/index'
@@ -64,9 +66,7 @@ module McpFilterSdk
       return unless @initialized
 
       # Clean up all filters
-      @filters.each do |_name, filter|
-        filter.destroy
-      end
+      @filters.each_value(&:destroy)
       @filters.clear
 
       @initialized = false

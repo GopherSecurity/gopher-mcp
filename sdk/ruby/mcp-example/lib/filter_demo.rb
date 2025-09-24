@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk'
 require 'json'
 
@@ -204,7 +206,7 @@ class FilterDemo
 end
 
 # Main execution
-if __FILE__ == $0
+if __FILE__ == $PROGRAM_NAME
   demo = FilterDemo.new
   demo.run
 end

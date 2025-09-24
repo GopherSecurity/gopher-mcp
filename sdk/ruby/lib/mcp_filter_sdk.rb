@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk/version'
 require 'mcp_filter_sdk/mcp_c_structs'
 require 'mcp_filter_sdk/mcp_ffi_bindings'

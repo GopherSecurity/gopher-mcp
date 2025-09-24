@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mcp_filter_sdk/types/mcp_types'
 
 module McpFilterSdk

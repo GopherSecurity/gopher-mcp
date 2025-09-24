@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module McpFilterSdk
   module Types
     # Filter Status Enum
