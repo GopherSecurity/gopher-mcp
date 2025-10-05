@@ -694,7 +694,7 @@ class McpServer : public application::ApplicationBase,
     // Convert RequestId to string key
     std::string key = holds_alternative<std::string>(id)
                           ? get<std::string>(id)
-                          : std::to_string(get<int>(id));
+                          : std::to_string(get<int64_t>(id));
     auto it = pending_requests_.find(key);
     return (it != pending_requests_.end() && it->second->cancelled.load());
   }

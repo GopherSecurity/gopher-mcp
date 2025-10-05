@@ -349,13 +349,13 @@ TEST_F(MCPTypesTest, RequestIdTypeAlias) {
 
   // Test int variant
   RequestId intId = 456;
-  EXPECT_TRUE(mcp::holds_alternative<int>(intId));
-  EXPECT_EQ(mcp::get<int>(intId), 456);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(intId));
+  EXPECT_EQ(mcp::get<int64_t>(intId), 456);
 
   // Test assignment
   stringId = 789;
-  EXPECT_TRUE(mcp::holds_alternative<int>(stringId));
-  EXPECT_EQ(mcp::get<int>(stringId), 789);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(stringId));
+  EXPECT_EQ(mcp::get<int64_t>(stringId), 789);
 }
 
 TEST_F(MCPTypesTest, ProgressTokenTypeAlias) {
@@ -366,8 +366,8 @@ TEST_F(MCPTypesTest, ProgressTokenTypeAlias) {
 
   // Test int variant
   ProgressToken intToken = 999;
-  EXPECT_TRUE(mcp::holds_alternative<int>(intToken));
-  EXPECT_EQ(mcp::get<int>(intToken), 999);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(intToken));
+  EXPECT_EQ(mcp::get<int64_t>(intToken), 999);
 }
 
 TEST_F(MCPTypesTest, CursorTypeAlias) {
@@ -393,8 +393,8 @@ TEST_F(MCPTypesTest, RequestIdFactoriesExtensive) {
 
   // Test int factory
   auto id3 = make_request_id(12345);
-  EXPECT_TRUE(mcp::holds_alternative<int>(id3));
-  EXPECT_EQ(mcp::get<int>(id3), 12345);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id3));
+  EXPECT_EQ(mcp::get<int64_t>(id3), 12345);
 
   // Test with empty string
   auto id4 = make_request_id("");
@@ -403,13 +403,13 @@ TEST_F(MCPTypesTest, RequestIdFactoriesExtensive) {
 
   // Test with negative int
   auto id5 = make_request_id(-1);
-  EXPECT_TRUE(mcp::holds_alternative<int>(id5));
-  EXPECT_EQ(mcp::get<int>(id5), -1);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id5));
+  EXPECT_EQ(mcp::get<int64_t>(id5), -1);
 
   // Test with max int
   auto id6 = make_request_id(std::numeric_limits<int>::max());
-  EXPECT_TRUE(mcp::holds_alternative<int>(id6));
-  EXPECT_EQ(mcp::get<int>(id6), std::numeric_limits<int>::max());
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id6));
+  EXPECT_EQ(mcp::get<int64_t>(id6), std::numeric_limits<int>::max());
 }
 
 // Extensive tests for ProgressToken factory functions
@@ -426,8 +426,8 @@ TEST_F(MCPTypesTest, ProgressTokenFactoriesExtensive) {
 
   // Test int factory
   auto token3 = make_progress_token(54321);
-  EXPECT_TRUE(mcp::holds_alternative<int>(token3));
-  EXPECT_EQ(mcp::get<int>(token3), 54321);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token3));
+  EXPECT_EQ(mcp::get<int64_t>(token3), 54321);
 
   // Test with special characters in string
   auto token4 = make_progress_token("token-with-special-!@#$%^&*()");
@@ -436,8 +436,8 @@ TEST_F(MCPTypesTest, ProgressTokenFactoriesExtensive) {
 
   // Test with zero
   auto token5 = make_progress_token(0);
-  EXPECT_TRUE(mcp::holds_alternative<int>(token5));
-  EXPECT_EQ(mcp::get<int>(token5), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token5));
+  EXPECT_EQ(mcp::get<int64_t>(token5), 0);
 }
 
 // Extensive tests for Role enum
@@ -548,8 +548,8 @@ TEST_F(MCPTypesTest, MakeMethodRequestExtensive) {
   // Test with int RequestId
   auto req2 = make_method_request(make_request_id(456), "another/method", 42);
 
-  EXPECT_TRUE(mcp::holds_alternative<int>(req2.first));
-  EXPECT_EQ(mcp::get<int>(req2.first), 456);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(req2.first));
+  EXPECT_EQ(mcp::get<int64_t>(req2.first), 456);
   EXPECT_EQ(req2.second.method, "another/method");
   EXPECT_TRUE(req2.second.is_type<int>());
 
@@ -844,8 +844,8 @@ TEST_F(MCPTypesTest, ProtocolTypeAliases) {
 
   // RequestId - int variant
   RequestId id2 = 42;
-  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
-  EXPECT_EQ(mcp::get<int>(id2), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id2));
+  EXPECT_EQ(mcp::get<int64_t>(id2), 42);
 
   // ProgressToken - string variant
   ProgressToken token1 = std::string("progress-abc");
@@ -854,8 +854,8 @@ TEST_F(MCPTypesTest, ProtocolTypeAliases) {
 
   // ProgressToken - int variant
   ProgressToken token2 = 99;
-  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
-  EXPECT_EQ(mcp::get<int>(token2), 99);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token2));
+  EXPECT_EQ(mcp::get<int64_t>(token2), 99);
 
   // Cursor (simple string alias)
   Cursor cursor = "cursor-token-xyz";
@@ -950,8 +950,8 @@ TEST_F(MCPTypesTest, RequestIdFactoriesComprehensive) {
 
   // Test int overload
   auto id2 = make_request_id(42);
-  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
-  EXPECT_EQ(mcp::get<int>(id2), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id2));
+  EXPECT_EQ(mcp::get<int64_t>(id2), 42);
 
   // Test const char* overload
   auto id3 = make_request_id("literal-456");
@@ -964,12 +964,12 @@ TEST_F(MCPTypesTest, RequestIdFactoriesComprehensive) {
   EXPECT_EQ(mcp::get<std::string>(id4), "");
 
   auto id5 = make_request_id(0);  // Zero
-  EXPECT_TRUE(mcp::holds_alternative<int>(id5));
-  EXPECT_EQ(mcp::get<int>(id5), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id5));
+  EXPECT_EQ(mcp::get<int64_t>(id5), 0);
 
   auto id6 = make_request_id(-1);  // Negative
-  EXPECT_TRUE(mcp::holds_alternative<int>(id6));
-  EXPECT_EQ(mcp::get<int>(id6), -1);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id6));
+  EXPECT_EQ(mcp::get<int64_t>(id6), -1);
 }
 
 // Test ProgressToken factory functions comprehensively
@@ -981,8 +981,8 @@ TEST_F(MCPTypesTest, ProgressTokenFactoriesComprehensive) {
 
   // Test int overload
   auto token2 = make_progress_token(100);
-  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
-  EXPECT_EQ(mcp::get<int>(token2), 100);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token2));
+  EXPECT_EQ(mcp::get<int64_t>(token2), 100);
 
   // Test const char* overload
   auto token3 = make_progress_token("literal-token");
@@ -995,8 +995,8 @@ TEST_F(MCPTypesTest, ProgressTokenFactoriesComprehensive) {
   EXPECT_EQ(mcp::get<std::string>(token4), "");
 
   auto token5 = make_progress_token(0);  // Zero
-  EXPECT_TRUE(mcp::holds_alternative<int>(token5));
-  EXPECT_EQ(mcp::get<int>(token5), 0);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token5));
+  EXPECT_EQ(mcp::get<int64_t>(token5), 0);
 }
 
 // Test make_method_request function
@@ -1335,17 +1335,17 @@ TEST_F(MCPTypesTest, EdgeCasesAndBoundaryValues) {
 
   // Zero and negative numbers
   auto zero_id = make_request_id(0);
-  EXPECT_EQ(mcp::get<int>(zero_id), 0);
+  EXPECT_EQ(mcp::get<int64_t>(zero_id), 0);
 
   auto negative_id = make_request_id(-999);
-  EXPECT_EQ(mcp::get<int>(negative_id), -999);
+  EXPECT_EQ(mcp::get<int64_t>(negative_id), -999);
 
   // Maximum/minimum values
   auto max_int_id = make_request_id(std::numeric_limits<int>::max());
-  EXPECT_EQ(mcp::get<int>(max_int_id), std::numeric_limits<int>::max());
+  EXPECT_EQ(mcp::get<int64_t>(max_int_id), std::numeric_limits<int>::max());
 
   auto min_int_id = make_request_id(std::numeric_limits<int>::min());
-  EXPECT_EQ(mcp::get<int>(min_int_id), std::numeric_limits<int>::min());
+  EXPECT_EQ(mcp::get<int64_t>(min_int_id), std::numeric_limits<int>::min());
 
   // Error with data - using simplified ErrorData type
   Error error_with_data(400, "Bad request");

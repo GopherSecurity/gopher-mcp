@@ -802,8 +802,8 @@ TEST_F(MCPTypeHelpersTest, RequestIdFactories) {
 
   // Integer ID
   auto id2 = make_request_id(42);
-  EXPECT_TRUE(mcp::holds_alternative<int>(id2));
-  EXPECT_EQ(mcp::get<int>(id2), 42);
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(id2));
+  EXPECT_EQ(mcp::get<int64_t>(id2), 42);
 
   // C-string ID (should convert to std::string)
   auto id3 = make_request_id("req-456");
@@ -817,7 +817,7 @@ TEST_F(MCPTypeHelpersTest, ProgressTokenFactories) {
   EXPECT_TRUE(mcp::holds_alternative<std::string>(token1));
 
   auto token2 = make_progress_token(100);
-  EXPECT_TRUE(mcp::holds_alternative<int>(token2));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(token2));
 }
 
 // Test ContentBlock factories
@@ -941,7 +941,7 @@ TEST_F(MCPTypeHelpersTest, JSONRPCFactories) {
   // Test request creation
   auto req1 = make_request(make_request_id(1), "initialize");
   EXPECT_EQ(req1.jsonrpc, "2.0");
-  EXPECT_TRUE(mcp::holds_alternative<int>(req1.id));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(req1.id));
   EXPECT_EQ(req1.method, "initialize");
   EXPECT_FALSE(req1.params.has_value());
 

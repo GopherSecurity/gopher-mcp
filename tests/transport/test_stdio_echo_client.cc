@@ -214,8 +214,8 @@ class StdioEchoClientTest : public ::testing::Test {
       received_responses_.push_back(response);
 
       // Check pending request
-      if (holds_alternative<int>(response.id)) {
-        int id = get<int>(response.id);
+      if (holds_alternative<int64_t>(response.id)) {
+        int id = get<int64_t>(response.id);
         auto it = pending_requests_.find(id);
         if (it != pending_requests_.end()) {
           completed_requests_[id] = it->second;
@@ -469,8 +469,8 @@ TEST_F(StdioEchoClientTest, RequestResponse) {
   EXPECT_EQ(1, client.getCompletedRequests().size());
 
   auto& response = client.getReceivedResponses()[0];
-  EXPECT_TRUE(holds_alternative<int>(response.id));
-  EXPECT_EQ(request_id, get<int>(response.id));
+  EXPECT_TRUE(holds_alternative<int64_t>(response.id));
+  EXPECT_EQ(request_id, get<int64_t>(response.id));
 
   client.stop();
 }

@@ -87,8 +87,8 @@ R"({"jsonrpc":"2.0","id":123,"method":"test_method","params":{"key":"value"}})";
 
   // Verify callback
   EXPECT_EQ(1, callbacks_.request_called_);
-  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_request_.id));
-  EXPECT_EQ(123, mcp::get<int>(callbacks_.last_request_.id));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(callbacks_.last_request_.id));
+  EXPECT_EQ(123, mcp::get<int64_t>(callbacks_.last_request_.id));
   EXPECT_EQ("test_method", callbacks_.last_request_.method);
   EXPECT_TRUE(callbacks_.last_request_.params.has_value());
 }
@@ -127,8 +127,8 @@ R"({"jsonrpc":"2.0","id":456,"result":{"status":"ok"}})";
 
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
-  EXPECT_EQ(456, mcp::get<int>(callbacks_.last_response_.id));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(callbacks_.last_response_.id));
+  EXPECT_EQ(456, mcp::get<int64_t>(callbacks_.last_response_.id));
   EXPECT_TRUE(callbacks_.last_response_.result.has_value());
   EXPECT_FALSE(callbacks_.last_response_.error.has_value());
 }
@@ -149,8 +149,8 @@ found","data":"test_method"}})";
 
   // Verify callback
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
-  EXPECT_EQ(789, mcp::get<int>(callbacks_.last_response_.id));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(callbacks_.last_response_.id));
+  EXPECT_EQ(789, mcp::get<int64_t>(callbacks_.last_response_.id));
   EXPECT_FALSE(callbacks_.last_response_.result.has_value());
   EXPECT_TRUE(callbacks_.last_response_.error.has_value());
   EXPECT_EQ(-32601, callbacks_.last_response_.error->code);
@@ -408,8 +408,8 @@ TEST_F(McpConnectionManagerTest, MessageCallbackForwarding) {
   manager_->onResponse(response);
 
   EXPECT_EQ(1, callbacks_.response_called_);
-  EXPECT_TRUE(mcp::holds_alternative<int>(callbacks_.last_response_.id));
-  EXPECT_EQ(2, mcp::get<int>(callbacks_.last_response_.id));
+  EXPECT_TRUE(mcp::holds_alternative<int64_t>(callbacks_.last_response_.id));
+  EXPECT_EQ(2, mcp::get<int64_t>(callbacks_.last_response_.id));
 
   // Simulate error
   Error error;

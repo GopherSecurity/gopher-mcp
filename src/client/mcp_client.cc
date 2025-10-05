@@ -409,7 +409,7 @@ std::future<Response> McpClient::sendRequest(const std::string& method,
   }
 
   // Generate request ID
-  RequestId id = next_request_id_++;
+  RequestId id = static_cast<int64_t>(next_request_id_++);
 
   // Create request context
   auto context = std::make_shared<RequestContext>(id, method);
@@ -983,7 +983,7 @@ std::future<CreateMessageResult> McpClient::createMessage(
   // to use messages and preferences parameters directly
 
   // Send request
-  RequestId id = next_request_id_++;
+  RequestId id = static_cast<int64_t>(next_request_id_++);
   auto context = std::make_shared<RequestContext>(id, "messages/create");
   context->params = make_optional(params);
   context->start_time = std::chrono::steady_clock::now();
