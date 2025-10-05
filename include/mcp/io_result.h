@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <string>
 
 #ifdef _WIN32
 #include <winsock2.h>
