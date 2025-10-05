@@ -294,7 +294,8 @@ class RequestTracker {
   void trackRequest(RequestPtr request) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Extract int64_t ID from RequestId
-    int64_t id = holds_alternative<int64_t>(request->id) ? get<int64_t>(request->id) : 0;
+    int64_t id =
+        holds_alternative<int64_t>(request->id) ? get<int64_t>(request->id) : 0;
     pending_requests_[id] = request;
   }
 
@@ -336,7 +337,9 @@ class RequestTracker {
 
     // Remove timed out requests from tracking
     for (const auto& request : timed_out) {
-      int64_t id = holds_alternative<int64_t>(request->id) ? get<int64_t>(request->id) : 0;
+      int64_t id = holds_alternative<int64_t>(request->id)
+                       ? get<int64_t>(request->id)
+                       : 0;
       pending_requests_.erase(id);
     }
 

@@ -150,7 +150,9 @@ inline RequestId make_request_id(const std::string& id) {
   return RequestId(id);
 }
 
-inline RequestId make_request_id(int id) { return RequestId(static_cast<int64_t>(id)); }
+inline RequestId make_request_id(int id) {
+  return RequestId(static_cast<int64_t>(id));
+}
 
 inline RequestId make_request_id(int64_t id) { return RequestId(id); }
 
