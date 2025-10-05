@@ -282,7 +282,7 @@ TEST_F(HttpSseFilterChainFactoryTest, DISABLED_ProcessHttpRequest) {
     EXPECT_CALL(*message_callbacks_, onRequest(_))
         .WillOnce([](const jsonrpc::Request& req) {
           EXPECT_EQ("initialize", req.method);
-          EXPECT_EQ(1, get<int>(req.id));
+          EXPECT_EQ(1, get<int64_t>(req.id));
         });
 
     // Send the HTTP request through the filter chain
@@ -331,7 +331,7 @@ TEST_F(HttpSseFilterChainFactoryTest, DISABLED_ProcessSseEvents) {
     // We expect the JSON-RPC response to be parsed from SSE event
     EXPECT_CALL(*message_callbacks_, onResponse(_))
         .WillOnce([](const jsonrpc::Response& resp) {
-          EXPECT_EQ(1, get<int>(resp.id));
+          EXPECT_EQ(1, get<int64_t>(resp.id));
           EXPECT_TRUE(resp.result.has_value());
         });
 

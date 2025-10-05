@@ -142,7 +142,7 @@ TEST_F(JsonRpcFilterChainFactoryTest, DirectCallbacksAdapter) {
     EXPECT_CALL(*message_callbacks_, onRequest(_))
         .WillOnce([](const jsonrpc::Request& req) {
           EXPECT_EQ("test.method", req.method);
-          EXPECT_EQ(123, get<int>(req.id));
+          EXPECT_EQ(123, get<int64_t>(req.id));
         });
 
     adapter.onRequest(request);
@@ -167,7 +167,7 @@ TEST_F(JsonRpcFilterChainFactoryTest, DirectCallbacksAdapter) {
 
     EXPECT_CALL(*message_callbacks_, onResponse(_))
         .WillOnce([](const jsonrpc::Response& resp) {
-          EXPECT_EQ(456, get<int>(resp.id));
+          EXPECT_EQ(456, get<int64_t>(resp.id));
         });
 
     adapter.onResponse(response);

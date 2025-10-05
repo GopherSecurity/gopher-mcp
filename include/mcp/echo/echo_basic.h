@@ -651,8 +651,8 @@ class EchoClientBase {
     std::lock_guard<std::mutex> lock(pending_mutex_);
 
     int id = 0;
-    if (holds_alternative<int>(response.id)) {
-      id = get<int>(response.id);
+    if (holds_alternative<int64_t>(response.id)) {
+      id = get<int64_t>(response.id);
     }
 
     auto it = pending_requests_.find(id);
