@@ -103,7 +103,7 @@ class CApiFilter : public network::NetworkFilterBase {
       : callbacks_(callbacks), handle_(0) {}
 
   void setHandle(mcp_filter_t h) { handle_ = h; }
-  
+
   // Add setter for callbacks
   void setCallbacks(const mcp_filter_callbacks_t& callbacks) {
     callbacks_ = callbacks;
@@ -132,7 +132,8 @@ class CApiFilter : public network::NetworkFilterBase {
   }
 
   // New method for direct buffer handle processing
-  network::FilterStatus onDataWithHandle(uint64_t buffer_handle, bool end_stream) {
+  network::FilterStatus onDataWithHandle(uint64_t buffer_handle,
+                                         bool end_stream) {
     if (!callbacks_.on_data) {
       return network::FilterStatus::Continue;
     }
@@ -691,21 +692,22 @@ MCP_API mcp_result_t mcp_filter_post_data(mcp_filter_t filter,
       if (data && length > 0) {
         buffer->add(data, length);
       }
-      
+
       // Create a buffer handle and pass it to the callback
       auto buffer_handle = g_buffer_manager.store(buffer);
-      
+
       // Call the filter's onDataWithHandle method to trigger callback execution
-      auto status = capi_filter->onDataWithHandle(buffer_handle, false); // end_stream = false
-      
+      auto status = capi_filter->onDataWithHandle(buffer_handle,
+                                                  false);  // end_stream = false
+
       // If callback was provided, call it with the result
       if (callback) {
-        mcp_result_t result = (status == mcp::network::FilterStatus::Continue) 
-                              ? MCP_OK 
-                              : MCP_ERROR_INVALID_STATE;
+        mcp_result_t result = (status == mcp::network::FilterStatus::Continue)
+                                  ? MCP_OK
+                                  : MCP_ERROR_INVALID_STATE;
         callback(result, user_data);
       }
-      
+
       return MCP_OK;
     } else {
       // For non-CApiFilter filters, just return success for now
