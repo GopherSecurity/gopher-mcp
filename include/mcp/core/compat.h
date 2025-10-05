@@ -48,22 +48,8 @@ inline constexpr auto in_place = std::in_place;
 
 using bad_optional_access = std::bad_optional_access;
 
-// make_optional helpers
-template <typename T>
-constexpr optional<typename std::decay<T>::type> make_optional(T&& value) {
-  return std::make_optional(std::forward<T>(value));
-}
-
-template <typename T, typename... Args>
-constexpr optional<T> make_optional(Args&&... args) {
-  return std::make_optional<T>(std::forward<Args>(args)...);
-}
-
-template <typename T, typename U, typename... Args>
-constexpr optional<T> make_optional(std::initializer_list<U> il,
-                                    Args&&... args) {
-  return std::make_optional<T>(il, std::forward<Args>(args)...);
-}
+// Import std functions into mcp namespace
+using std::make_optional;
 #else
 // Use mcp:: implementations (already defined in optional.h)
 // Just need to ensure they're in the mcp namespace
@@ -75,77 +61,11 @@ using variant = std::variant<Types...>;
 
 using bad_variant_access = std::bad_variant_access;
 
-template <typename T, typename... Types>
-constexpr T* get_if(variant<Types...>* v) noexcept {
-  return std::get_if<T>(v);
-}
-
-template <typename T, typename... Types>
-constexpr const T* get_if(const variant<Types...>* v) noexcept {
-  return std::get_if<T>(v);
-}
-
-template <typename T, typename... Types>
-constexpr T& get(variant<Types...>& v) {
-  return std::get<T>(v);
-}
-
-template <typename T, typename... Types>
-constexpr const T& get(const variant<Types...>& v) {
-  return std::get<T>(v);
-}
-
-template <typename T, typename... Types>
-constexpr T&& get(variant<Types...>&& v) {
-  return std::get<T>(std::move(v));
-}
-
-template <typename T, typename... Types>
-constexpr const T&& get(const variant<Types...>&& v) {
-  return std::get<T>(std::move(v));
-}
-
-template <typename T, typename... Types>
-constexpr bool holds_alternative(const variant<Types...>& v) noexcept {
-  return std::holds_alternative<T>(v);
-}
-
-template <typename Visitor, typename... Variants>
-constexpr decltype(auto) visit(Visitor&& vis, Variants&&... vars) {
-  return std::visit(std::forward<Visitor>(vis),
-                    std::forward<Variants>(vars)...);
-}
-
-// Helper for index-based operations
-template <std::size_t I, typename... Types>
-constexpr auto& get(variant<Types...>& v) {
-  return std::get<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr const auto& get(const variant<Types...>& v) {
-  return std::get<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr auto&& get(variant<Types...>&& v) {
-  return std::get<I>(std::move(v));
-}
-
-template <std::size_t I, typename... Types>
-constexpr const auto&& get(const variant<Types...>&& v) {
-  return std::get<I>(std::move(v));
-}
-
-template <std::size_t I, typename... Types>
-constexpr auto* get_if(variant<Types...>* v) noexcept {
-  return std::get_if<I>(v);
-}
-
-template <std::size_t I, typename... Types>
-constexpr const auto* get_if(const variant<Types...>* v) noexcept {
-  return std::get_if<I>(v);
-}
+// Import std functions into mcp namespace for ADL
+using std::get;
+using std::get_if;
+using std::holds_alternative;
+using std::visit;
 #else
 // Use mcp:: implementations and provide std-like free functions
 
