@@ -232,7 +232,7 @@ class MetricsFilter : public network::NetworkFilterBase,
     }
 
     // Start tracking request latency
-    if (holds_alternative<int>(request.id) ||
+    if (holds_alternative<int64_t>(request.id) ||
         holds_alternative<std::string>(request.id)) {
       std::lock_guard<std::mutex> lock(request_mutex_);
       pending_requests_[requestIdToString(request.id)] =

@@ -348,8 +348,8 @@ void AdvancedEchoClient::processMessage(const std::string& message) {
       // Response
       auto response = json::from_json<jsonrpc::Response>(json_val);
 
-      if (holds_alternative<int>(response.id)) {
-        int id = get<int>(response.id);
+      if (holds_alternative<int64_t>(response.id)) {
+        int id = get<int64_t>(response.id);
         auto request = request_manager_->getRequest(id);
 
         if (request) {

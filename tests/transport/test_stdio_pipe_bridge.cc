@@ -502,8 +502,8 @@ TEST_F(StdioPipeBridgeTest, JsonRpcMessageFlow) {
     jsonrpc::Response parsed_response =
         json::from_json<jsonrpc::Response>(response_json);
 
-    EXPECT_TRUE(holds_alternative<int>(parsed_response.id));
-    EXPECT_EQ(1, get<int>(parsed_response.id));
+    EXPECT_TRUE(holds_alternative<int64_t>(parsed_response.id));
+    EXPECT_EQ(1, get<int64_t>(parsed_response.id));
     EXPECT_TRUE(parsed_response.result.has_value());
     EXPECT_FALSE(parsed_response.error.has_value());
   }
@@ -719,8 +719,8 @@ class MockBridgeClient : public McpProtocolCallbacks {
     received_responses_.push_back(response);
 
     // Check pending request
-    if (holds_alternative<int>(response.id)) {
-      int id = get<int>(response.id);
+    if (holds_alternative<int64_t>(response.id)) {
+      int id = get<int64_t>(response.id);
       auto it = pending_requests_.find(id);
       if (it != pending_requests_.end()) {
         completed_requests_[id] = it->second;
@@ -1090,8 +1090,8 @@ TEST_F(StdioPipeBridgeTest, MultipleSequentialRequests) {
     auto response_json = json::JsonValue::parse(responses[i]);
     jsonrpc::Response parsed =
         json::from_json<jsonrpc::Response>(response_json);
-    EXPECT_TRUE(holds_alternative<int>(parsed.id));
-    EXPECT_EQ(static_cast<int>(i + 1), get<int>(parsed.id));
+    EXPECT_TRUE(holds_alternative<int64_t>(parsed.id));
+    EXPECT_EQ(static_cast<int>(i + 1), get<int64_t>(parsed.id));
   }
   server.stop();
 }

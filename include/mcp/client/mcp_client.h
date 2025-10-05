@@ -293,15 +293,15 @@ class RequestTracker {
   // Add request to tracking
   void trackRequest(RequestPtr request) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Extract int ID from RequestId
-    int id = holds_alternative<int>(request->id) ? get<int>(request->id) : 0;
+    // Extract int64_t ID from RequestId
+    int64_t id = holds_alternative<int64_t>(request->id) ? get<int64_t>(request->id) : 0;
     pending_requests_[id] = request;
   }
 
   // Get request by ID without removing
   RequestPtr getRequest(const RequestId& id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    int int_id = holds_alternative<int>(id) ? get<int>(id) : 0;
+    int64_t int_id = holds_alternative<int64_t>(id) ? get<int64_t>(id) : 0;
     auto it = pending_requests_.find(int_id);
     if (it != pending_requests_.end()) {
       return it->second;
@@ -312,7 +312,7 @@ class RequestTracker {
   // Remove and return request
   RequestPtr removeRequest(const RequestId& id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    int int_id = holds_alternative<int>(id) ? get<int>(id) : 0;
+    int64_t int_id = holds_alternative<int64_t>(id) ? get<int64_t>(id) : 0;
     auto it = pending_requests_.find(int_id);
     if (it != pending_requests_.end()) {
       auto request = it->second;
@@ -336,7 +336,7 @@ class RequestTracker {
 
     // Remove timed out requests from tracking
     for (const auto& request : timed_out) {
-      int id = holds_alternative<int>(request->id) ? get<int>(request->id) : 0;
+      int64_t id = holds_alternative<int64_t>(request->id) ? get<int64_t>(request->id) : 0;
       pending_requests_.erase(id);
     }
 
@@ -352,7 +352,7 @@ class RequestTracker {
   mutable std::mutex mutex_;
   std::chrono::milliseconds timeout_;
   // Store using int ID extracted from RequestId
-  std::unordered_map<int, RequestPtr> pending_requests_;
+  std::unordered_map<int64_t, RequestPtr> pending_requests_;
 };
 
 /**

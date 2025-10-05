@@ -789,7 +789,7 @@ JsonValue serialize_InitializeRequest(const InitializeRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -807,7 +807,7 @@ JsonValue serialize_PingRequest(const PingRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -820,7 +820,7 @@ JsonValue serialize_CompleteRequest(const CompleteRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -837,7 +837,7 @@ JsonValue serialize_SetLevelRequest(const SetLevelRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -852,7 +852,7 @@ JsonValue serialize_CallToolRequest(const CallToolRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -871,7 +871,7 @@ JsonValue serialize_ListToolsRequest(const ListToolsRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -916,7 +916,7 @@ JsonValue serialize_GetPromptRequest(const GetPromptRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -935,7 +935,7 @@ JsonValue serialize_ListPromptsRequest(const ListPromptsRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -968,7 +968,7 @@ JsonValue serialize_ReadResourceRequest(const ReadResourceRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -982,7 +982,7 @@ JsonValue serialize_ListResourcesRequest(const ListResourcesRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -999,7 +999,7 @@ JsonValue serialize_ListResourceTemplatesRequest(
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -1015,7 +1015,7 @@ JsonValue serialize_SubscribeRequest(const SubscribeRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -1029,7 +1029,7 @@ JsonValue serialize_UnsubscribeRequest(const UnsubscribeRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -1055,7 +1055,7 @@ JsonValue serialize_ListRootsRequest(const ListRootsRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -1069,7 +1069,7 @@ JsonValue serialize_CreateMessageRequest(const CreateMessageRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 
@@ -1121,7 +1121,7 @@ JsonValue serialize_ElicitRequest(const ElicitRequest& request) {
   // Add base class ID if present
   if ((mcp::holds_alternative<std::string>(request.id) &&
        !mcp::get<std::string>(request.id).empty()) ||
-      mcp::holds_alternative<int>(request.id)) {
+      mcp::holds_alternative<int64_t>(request.id)) {
     builder.add("id", to_json(request.id));
   }
 

@@ -364,8 +364,8 @@ TEST_F(StdioEchoServerTest, DISABLED_RequestEcho) {
   jsonrpc::Response parsed_response =
       json::from_json<jsonrpc::Response>(response_json);
 
-  EXPECT_TRUE(holds_alternative<int>(parsed_response.id));
-  EXPECT_EQ(1, get<int>(parsed_response.id));
+  EXPECT_TRUE(holds_alternative<int64_t>(parsed_response.id));
+  EXPECT_EQ(1, get<int64_t>(parsed_response.id));
   EXPECT_TRUE(parsed_response.result.has_value());
 
   server.stop();
@@ -467,8 +467,8 @@ TEST_F(StdioEchoServerTest, DISABLED_MultipleRequests) {
     auto response_json = json::JsonValue::parse(responses[i]);
     jsonrpc::Response parsed =
         json::from_json<jsonrpc::Response>(response_json);
-    EXPECT_TRUE(holds_alternative<int>(parsed.id));
-    EXPECT_EQ(static_cast<int>(i + 1), get<int>(parsed.id));
+    EXPECT_TRUE(holds_alternative<int64_t>(parsed.id));
+    EXPECT_EQ(static_cast<int>(i + 1), get<int64_t>(parsed.id));
   }
 
   server.stop();

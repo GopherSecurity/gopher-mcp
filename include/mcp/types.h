@@ -32,8 +32,10 @@ constexpr int INTERNAL_ERROR = -32603;
 }  // namespace jsonrpc
 
 // Protocol type aliases
-using RequestId = variant<std::string, int>;
-using ProgressToken = variant<std::string, int>;
+// JSON-RPC allows string or number for request IDs and progress tokens
+// Using int64_t to support large numeric IDs without overflow
+using RequestId = variant<std::string, int64_t>;
+using ProgressToken = variant<std::string, int64_t>;
 using Cursor = std::string;
 
 // Enum definitions
@@ -148,7 +150,9 @@ inline RequestId make_request_id(const std::string& id) {
   return RequestId(id);
 }
 
-inline RequestId make_request_id(int id) { return RequestId(id); }
+inline RequestId make_request_id(int id) { return RequestId(static_cast<int64_t>(id)); }
+
+inline RequestId make_request_id(int64_t id) { return RequestId(id); }
 
 inline RequestId make_request_id(const char* id) {
   return RequestId(std::string(id));

@@ -92,8 +92,8 @@ TEST_F(JsonRpcProtocolFilterTest, ParseRequest) {
   EXPECT_CALL(*callbacks_, onRequest(_))
       .WillOnce([](const jsonrpc::Request& req) {
         EXPECT_EQ("test.method", req.method);
-        EXPECT_TRUE(holds_alternative<int>(req.id));
-        EXPECT_EQ(1, get<int>(req.id));
+        EXPECT_TRUE(holds_alternative<int64_t>(req.id));
+        EXPECT_EQ(1, get<int64_t>(req.id));
       });
 
   // Create JSON-RPC request
@@ -137,8 +137,8 @@ TEST_F(JsonRpcProtocolFilterTest, ParseResponse) {
   // Expect onResponse to be called
   EXPECT_CALL(*callbacks_, onResponse(_))
       .WillOnce([](const jsonrpc::Response& resp) {
-        EXPECT_TRUE(holds_alternative<int>(resp.id));
-        EXPECT_EQ(42, get<int>(resp.id));
+        EXPECT_TRUE(holds_alternative<int64_t>(resp.id));
+        EXPECT_EQ(42, get<int64_t>(resp.id));
         EXPECT_TRUE(resp.result.has_value());
       });
 
@@ -414,7 +414,7 @@ TEST_F(JsonRpcProtocolFilterIntegrationTest, EndToEndMessageFlow) {
   EXPECT_CALL(*server_callbacks_, onRequest(_))
       .WillOnce([](const jsonrpc::Request& req) {
         EXPECT_EQ("test.method", req.method);
-        EXPECT_EQ(123, get<int>(req.id));
+        EXPECT_EQ(123, get<int64_t>(req.id));
       });
   
   // Send request from client

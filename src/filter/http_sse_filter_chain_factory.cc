@@ -90,10 +90,10 @@ class HttpSseJsonRpcProtocolFilter;
 
 // Utility function to convert RequestId to string for logging
 static std::string requestIdToString(const RequestId& id) {
-  if (id.holds_alternative<std::string>()) {
-    return id.get<std::string>();
-  } else if (id.holds_alternative<int>()) {
-    return std::to_string(id.get<int>());
+  if (holds_alternative<std::string>(id)) {
+    return get<std::string>(id);
+  } else if (holds_alternative<int64_t>(id)) {
+    return std::to_string(get<int64_t>(id));
   }
   return "<unknown>";
 }
