@@ -19,7 +19,7 @@ namespace logging {
 class Logger : public std::enable_shared_from_this<Logger> {
  public:
   explicit Logger(const std::string& name, LogMode mode = LogMode::Async)
-      : name_(name), mode_(mode), effective_level_(LogLevel::Info) {
+      : effective_level_(LogLevel::Info), name_(name), mode_(mode) {
     // Temporarily disable async mode to fix hanging tests
     if (mode == LogMode::Async) {
       mode_ = LogMode::Sync;  // Force sync mode for now
