@@ -277,6 +277,11 @@ struct overload : Fs... {
 template <typename... Fs>
 overload(Fs...) -> overload<Fs...>;
 
+template <typename... Fs>
+constexpr auto make_overload(Fs&&... fs) {
+  return overload<Fs...>{std::forward<Fs>(fs)...};
+}
+
 template <typename Variant, typename... Visitors>
 auto match(Variant&& v, Visitors&&... visitors) {
   return std::visit(overload{std::forward<Visitors>(visitors)...},
