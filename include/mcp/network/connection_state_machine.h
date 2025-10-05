@@ -291,7 +291,7 @@ class ConnectionStateMachine {
   ConnectionStateMachine(event::Dispatcher& dispatcher,
                          const ConnectionStateMachineConfig& config);
 
-  ~ConnectionStateMachine();
+  virtual ~ConnectionStateMachine();
 
   // ===== Core State Machine Interface =====
 
