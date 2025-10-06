@@ -50,10 +50,6 @@ protected:
 
 // Test that handle-returning functions return nullptr/0 on exception
 TEST_F(FilterChainExceptionSafetyTest, HandleReturningFunctionsReturnNullOnException) {
-  // Test mcp_chain_builder_create_ex with null config
-  mcp_filter_chain_builder_t builder = mcp_chain_builder_create_ex(dispatcher_, nullptr);
-  EXPECT_EQ(builder, nullptr);
-  
   // Test mcp_chain_create_from_json with null json
   mcp_filter_chain_t chain = mcp_chain_create_from_json(dispatcher_, nullptr);
   EXPECT_EQ(chain, 0);
@@ -80,9 +76,17 @@ TEST_F(FilterChainExceptionSafetyTest, HandleReturningFunctionsReturnNullOnExcep
 TEST_F(FilterChainExceptionSafetyTest, StatusReturningFunctionsReturnErrorOnException) {
   // Test functions with invalid parameters
   mcp_result_t result;
-  
-  // Test mcp_chain_builder_add_node with null builder
-  result = mcp_chain_builder_add_node(nullptr, nullptr);
+
+  result = mcp_chain_validate_json(nullptr, nullptr);
+  EXPECT_EQ(result, MCP_ERROR_INVALID_ARGUMENT);
+
+  result = mcp_chain_validate_config(nullptr, nullptr);
+  EXPECT_EQ(result, MCP_ERROR_INVALID_ARGUMENT);
+
+  result = mcp_chain_assemble_from_json(dispatcher_, nullptr, nullptr);
+  EXPECT_EQ(result, MCP_ERROR_INVALID_ARGUMENT);
+
+  result = mcp_chain_assemble_from_config(dispatcher_, nullptr, nullptr);
   EXPECT_EQ(result, MCP_ERROR_INVALID_ARGUMENT);
   
   // Test mcp_chain_pause with invalid chain

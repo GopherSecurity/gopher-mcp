@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/logging/log_macros.h"
 
 #define GOPHER_LOG_COMPONENT "capi.json.converter"
@@ -18,58 +19,6 @@ namespace c_api {
 namespace internal {
 
 namespace {
-
-// Helper to recursively convert C API JSON to internal JsonValue
-json::JsonValue convertValue(mcp_json_value_t json) {
-  if (!json) {
-    return json::JsonValue();  // null
-  }
-  
-  mcp_json_type_t type = mcp_json_get_type(json);
-  
-  switch (type) {
-    case MCP_JSON_TYPE_NULL:
-      return json::JsonValue();
-      
-    case MCP_JSON_TYPE_BOOL:
-      return json::JsonValue(mcp_json_get_bool(json));
-      
-    case MCP_JSON_TYPE_NUMBER: {
-      double num = mcp_json_get_number(json);
-      // Try to preserve integer type if possible
-      if (num == static_cast<int64_t>(num)) {
-        return json::JsonValue(static_cast<int64_t>(num));
-      }
-      return json::JsonValue(num);
-    }
-    
-    case MCP_JSON_TYPE_STRING: {
-      const char* str = mcp_json_get_string(json);
-      return json::JsonValue(str ? std::string(str) : std::string());
-    }
-    
-    case MCP_JSON_TYPE_ARRAY: {
-      auto array = json::JsonValue::array();
-      size_t size = mcp_json_array_size(json);
-      for (size_t i = 0; i < size; ++i) {
-        mcp_json_value_t elem = mcp_json_array_get(json, i);
-        array.push_back(convertValue(elem));
-      }
-      return array;
-    }
-    
-    case MCP_JSON_TYPE_OBJECT: {
-      auto obj = json::JsonValue::object();
-      // For now, we'll create an empty object as we don't have iteration API in C
-      // TODO: Add iteration support to C API
-      GOPHER_LOG(Warning, "Object iteration not yet supported in C API conversion");
-      return obj;
-    }
-    
-    default:
-      throw std::runtime_error("Unknown JSON type in C API handle");
-  }
-}
 
 // Helper to recursively convert internal JsonValue to C API JSON
 mcp_json_value_t convertToHandle(const json::JsonValue& json) {
@@ -124,9 +73,21 @@ mcp_json_value_t convertToHandle(const json::JsonValue& json) {
 }  // anonymous namespace
 
 json::JsonValue convertFromCApi(mcp_json_value_t json) {
+  if (!json) {
+    return json::JsonValue();
+  }
+
+  char* serialized = mcp_json_stringify(json);
+  if (!serialized) {
+    throw std::runtime_error("Unable to stringify C API JSON value");
+  }
+
   try {
-    return convertValue(json);
+    json::JsonValue value = json::JsonValue::parse(serialized);
+    ::mcp_string_free(serialized);
+    return value;
   } catch (const std::exception& e) {
+    ::mcp_string_free(serialized);
     GOPHER_LOG(Error, "Failed to convert C API JSON to JsonValue: {}", e.what());
     throw std::runtime_error(std::string("JSON conversion failed: ") + e.what());
   }
@@ -174,53 +135,66 @@ size_t normalizeFilterChain(json::JsonValue& config) {
   if (!config.isObject()) {
     throw std::runtime_error("Configuration must be an object");
   }
-  
+
+  if (!config.contains("name") || !config["name"].isString()) {
+    config["name"] = json::JsonValue("default");
+  }
+
+  if (!config.contains("transport_type") || !config["transport_type"].isString()) {
+    config["transport_type"] = json::JsonValue("tcp");
+  }
+
   if (!config.contains("filters")) {
     throw std::runtime_error("Configuration missing 'filters' array");
   }
-  
+
   auto& filters = config["filters"];
   if (!filters.isArray()) {
     throw std::runtime_error("'filters' must be an array");
   }
-  
+
   size_t normalized_count = 0;
-  size_t filter_count = filters.size();
-  
+  const size_t filter_count = filters.size();
+
   for (size_t i = 0; i < filter_count; ++i) {
     auto& filter = filters[i];
-    
+
     if (!filter.isObject()) {
       throw std::runtime_error(
           "Filter at index " + std::to_string(i) + " is not an object");
     }
-    
-    // Normalize typed_config if present
+
     if (normalizeTypedConfig(filter)) {
       normalized_count++;
     }
-    
-    // Ensure 'type' field exists
-    if (!filter.contains("type")) {
-      // Try to use 'name' as 'type' if available
-      if (filter.contains("name") && filter["name"].isString()) {
-        filter["type"] = filter["name"];
-        GOPHER_LOG(Debug, "Using 'name' as 'type' for filter at index {}", i);
-      } else {
-        throw std::runtime_error(
-            "Filter at index " + std::to_string(i) + " missing required 'type' field");
-      }
-    }
-    
-    // Validate type is a string
-    if (!filter["type"].isString()) {
+
+    if (!filter.contains("type") || !filter["type"].isString()) {
       throw std::runtime_error(
-          "Filter at index " + std::to_string(i) + " has non-string 'type' field");
+          "Filter at index " + std::to_string(i) + " missing required 'type' field");
+    }
+
+    if (!filter.contains("name") || !filter["name"].isString() ||
+        filter["name"].getString().empty()) {
+      std::string fallback_name = filter["type"].getString("filter");
+      fallback_name += ":" + std::to_string(i);
+      filter["name"] = json::JsonValue(fallback_name);
+    }
+
+    if (!filter.contains("config") || !filter["config"].isObject()) {
+      filter["config"] = json::JsonValue::object();
+    }
+
+    if (!filter.contains("enabled")) {
+      filter["enabled"] = json::JsonValue(true);
+    }
+
+    if (!filter.contains("enabled_when")) {
+      filter["enabled_when"] = json::JsonValue::object();
     }
   }
-  
-  GOPHER_LOG(Debug, "Normalized {} of {} filters", normalized_count, filter_count);
-  
+
+  GOPHER_LOG(Debug, "Normalized {} typed configs across {} filters", normalized_count, filter_count);
+
   return normalized_count;
 }
 

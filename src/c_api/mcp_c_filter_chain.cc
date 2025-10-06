@@ -10,9 +10,11 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -21,10 +23,16 @@
 #include "mcp/c_api/mcp_c_filter_buffer.h"
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_bridge.h"
+#include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/network/filter.h"
-#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/network/connection.h"
+#include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/filter_registry.h"
+#include "mcp/filter/filter_context.h"
+#include "mcp/config/types.h"
 #include "mcp/logging/log_macros.h"
+#include "mcp/mcp_connection_manager.h"
 
 #include "handle_manager.h"
 #include "json_value_converter.h"
@@ -47,29 +55,212 @@ extern "C" {
 namespace mcp {
 namespace filter_chain {
 
-// ============================================================================
-// Thread Affinity Helpers
-// ============================================================================
+namespace {
 
-/**
- * @brief Check if current thread is the dispatcher's thread
- * @param dispatcher The dispatcher handle to check against
- * @return true if on the correct thread, false otherwise
- */
-static inline bool isOnDispatcherThread(mcp_dispatcher_t dispatcher) {
-  if (!dispatcher) {
-    return false;
+class NullProtocolCallbacks : public McpProtocolCallbacks {
+ public:
+  void onRequest(const jsonrpc::Request&) override {}
+  void onNotification(const jsonrpc::Notification&) override {}
+  void onResponse(const jsonrpc::Response&) override {}
+  void onConnectionEvent(network::ConnectionEvent) override {}
+  void onError(const Error&) override {}
+};
+
+class CapturingFilterManager : public network::FilterManager {
+ public:
+  void addReadFilter(network::ReadFilterSharedPtr) override {}
+  void addWriteFilter(network::WriteFilterSharedPtr) override {}
+  void addFilter(network::FilterSharedPtr filter) override {
+    if (filter) {
+      filters_.push_back(std::move(filter));
+    }
   }
-  
-  // Use the existing C API function that checks thread affinity
-  // This internally compares std::this_thread::get_id() with the 
-  // dispatcher's stored thread_id
-  return mcp_dispatcher_is_thread(dispatcher) == MCP_TRUE;
+  void removeReadFilter(network::ReadFilterSharedPtr) override {}
+  bool initializeReadFilters() override { return true; }
+  void onRead() override {}
+  network::FilterStatus onWrite() override {
+    return network::FilterStatus::Continue;
+  }
+  void onConnectionEvent(network::ConnectionEvent) override {}
+
+  const std::vector<network::FilterSharedPtr>& filters() const {
+    return filters_;
+  }
+
+ private:
+ std::vector<network::FilterSharedPtr> filters_;
+};
+
+void freeStringArray(char** values, size_t count) {
+  if (!values) {
+    return;
+  }
+
+  for (size_t i = 0; i < count; ++i) {
+    if (values[i]) {
+      mcp_free(values[i]);
+    }
+  }
+  mcp_free(values);
 }
 
-// ============================================================================
-// Filter Node Implementation
-// ============================================================================
+void assignStringArray(const std::vector<std::string>& source,
+                       char*** target,
+                       size_t* target_count) {
+  if (!target || !target_count) {
+    return;
+  }
+
+  *target = nullptr;
+  *target_count = 0;
+
+  if (source.empty()) {
+    return;
+  }
+
+  char** entries = static_cast<char**>(mcp_malloc(sizeof(char*) * source.size()));
+  if (!entries) {
+    throw std::bad_alloc();
+  }
+
+  size_t index = 0;
+  try {
+    for (const auto& item : source) {
+      entries[index] = mcp_strdup(item.c_str());
+      if (!entries[index]) {
+        throw std::bad_alloc();
+      }
+      ++index;
+    }
+  } catch (...) {
+    freeStringArray(entries, index);
+    throw;
+  }
+
+  *target = entries;
+  *target_count = source.size();
+}
+
+config::FilterChainConfig convertFilterChainConfig(
+    const mcp_filter_chain_config_t& config) {
+  config::FilterChainConfig cpp_config;
+
+  if (config.name && std::strlen(config.name) > 0) {
+    cpp_config.name = config.name;
+  } else {
+    cpp_config.name = "default";
+  }
+
+  if (config.transport_type && std::strlen(config.transport_type) > 0) {
+    cpp_config.transport_type = config.transport_type;
+  } else {
+    cpp_config.transport_type = "tcp";
+  }
+
+  if (config.filter_count > 0 && !config.filters) {
+    throw std::invalid_argument(
+        "Filter chain configuration missing filter array pointer");
+  }
+
+  for (size_t i = 0; i < config.filter_count; ++i) {
+    const mcp_chain_filter_config_t& entry = config.filters[i];
+    config::FilterConfig filter_config;
+
+    if (entry.type && std::strlen(entry.type) > 0) {
+      filter_config.type = entry.type;
+    }
+
+    if (entry.name && std::strlen(entry.name) > 0) {
+      filter_config.name = entry.name;
+    } else if (!filter_config.type.empty()) {
+      filter_config.name = filter_config.type + ":" + std::to_string(i);
+    }
+
+    if (entry.config) {
+      filter_config.config = mcp::c_api::internal::convertFromCApi(entry.config);
+    } else {
+      filter_config.config = mcp::json::JsonValue::object();
+    }
+
+    filter_config.enabled = (entry.enabled != MCP_FALSE);
+
+    if (entry.enabled_when) {
+      filter_config.enabled_when =
+          mcp::c_api::internal::convertFromCApi(entry.enabled_when);
+    } else {
+      filter_config.enabled_when = mcp::json::JsonValue::object();
+    }
+
+    cpp_config.filters.push_back(std::move(filter_config));
+  }
+
+  return cpp_config;
+}
+
+void populateValidationResult(const mcp::filter::ValidationResult& validation,
+                              mcp_chain_validation_result_t* out) {
+  if (!out) {
+    return;
+  }
+
+  out->valid = validation.valid ? MCP_TRUE : MCP_FALSE;
+  out->errors = nullptr;
+  out->warnings = nullptr;
+  out->error_count = 0;
+  out->warning_count = 0;
+
+  try {
+    assignStringArray(validation.errors, &out->errors, &out->error_count);
+    assignStringArray(validation.warnings, &out->warnings, &out->warning_count);
+  } catch (...) {
+    freeStringArray(out->errors, out->error_count);
+    freeStringArray(out->warnings, out->warning_count);
+    out->errors = nullptr;
+    out->warnings = nullptr;
+    out->error_count = 0;
+    out->warning_count = 0;
+    throw;
+  }
+}
+
+void populateAssemblyResult(const mcp::filter::AssemblyResult& assembly,
+                            mcp_filter_chain_t chain_handle,
+                            mcp_chain_assembly_result_t* out) {
+  if (!out) {
+    return;
+  }
+
+  out->success = assembly.success ? MCP_TRUE : MCP_FALSE;
+  out->chain = chain_handle;
+  out->error_message = nullptr;
+  out->created_filters = nullptr;
+  out->warnings = nullptr;
+  out->created_filter_count = 0;
+  out->warning_count = 0;
+
+  if (!assembly.error_message.empty()) {
+    out->error_message = mcp_strdup(assembly.error_message.c_str());
+  }
+
+  try {
+    assignStringArray(assembly.created_filters,
+                     &out->created_filters,
+                     &out->created_filter_count);
+    assignStringArray(assembly.warnings, &out->warnings, &out->warning_count);
+  } catch (...) {
+    if (out->error_message) {
+      mcp_free(out->error_message);
+      out->error_message = nullptr;
+    }
+    freeStringArray(out->created_filters, out->created_filter_count);
+    out->created_filters = nullptr;
+    out->created_filter_count = 0;
+    freeStringArray(out->warnings, out->warning_count);
+    out->warnings = nullptr;
+    out->warning_count = 0;
+    throw;
+  }
+}
 
 class FilterNode {
  public:
@@ -120,6 +311,21 @@ class FilterNode {
   std::chrono::microseconds total_duration_{0};
 };
 
+}  // anonymous namespace
+
+}  // namespace filter_chain
+}  // namespace mcp
+
+// Forward declaration of unified chain manager defined later in this file.
+namespace mcp {
+namespace c_api_internal {
+extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
+}  // namespace c_api_internal
+}  // namespace mcp
+
+namespace mcp {
+namespace filter_chain {
+
 // ============================================================================
 // Advanced Filter Chain Implementation
 // ============================================================================
@@ -138,8 +344,17 @@ class AdvancedFilterChain {
         state_(MCP_CHAIN_STATE_IDLE),
         dispatcher_(dispatcher) {}
 
+  ~AdvancedFilterChain() {
+    for (auto handle : filter_handles_) {
+      ::mcp::filter_api::g_filter_manager.release(handle);
+    }
+  }
+
   void addNode(std::unique_ptr<FilterNode> node) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (node) {
+      filter_handles_.push_back(node->getFilter());
+    }
     nodes_.push_back(std::move(node));
     sortNodes();
   }
@@ -473,14 +688,172 @@ public:
   // Owned filters for lifetime management
   // Made public for direct assignment during creation
   std::vector<network::FilterSharedPtr> owned_filters_;
+  std::vector<mcp_filter_t> filter_handles_;
 };
 
-// Use HandleManager from shared header
-using c_api_internal::HandleManager;
-using c_api_internal::UnifiedFilterChain;
+::mcp::filter::AssemblyResult assembleChainWithAssembler(
+    const config::FilterChainConfig& chain_config,
+    ::mcp::filter::FilterChainAssembler& assembler,
+    const ::mcp::filter::FilterCreationContext& context,
+    CapturingFilterManager& manager) {
+  return assembler.assembleFilterChain(chain_config, context, manager);
+}
 
-// Global unified handle manager for all chain types
-extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
+mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
+                                   const config::FilterChainConfig& chain_config,
+                                   mcp_chain_assembly_result_t* out) {
+  if (!out) {
+    return MCP_ERROR_INVALID_ARGUMENT;
+  }
+
+  out->success = MCP_FALSE;
+  out->chain = 0;
+  out->error_message = nullptr;
+  out->created_filters = nullptr;
+  out->warnings = nullptr;
+  out->created_filter_count = 0;
+  out->warning_count = 0;
+
+  if (!dispatcher) {
+    ::mcp::filter::AssemblyResult assembly(false);
+    assembly.error_message = "Dispatcher handle is required";
+    populateAssemblyResult(assembly, 0, out);
+    return MCP_ERROR_INVALID_ARGUMENT;
+  }
+
+  auto* dispatcher_impl =
+      reinterpret_cast<::mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+  if (!dispatcher_impl || !dispatcher_impl->dispatcher) {
+    ::mcp::filter::AssemblyResult assembly(false);
+    assembly.error_message = "Dispatcher is not initialized";
+    populateAssemblyResult(assembly, 0, out);
+    return MCP_ERROR_INVALID_STATE;
+  }
+
+  try {
+    NullProtocolCallbacks callbacks;
+    ::mcp::filter::TransportMetadata metadata;
+    CapturingFilterManager manager;
+    ::mcp::filter::FilterChainAssembler assembler(
+        ::mcp::filter::FilterRegistry::instance());
+
+    ::mcp::filter::FilterCreationContext context(
+        *dispatcher_impl->dispatcher,
+        callbacks,
+        ::mcp::filter::ConnectionMode::Server,
+        metadata);
+
+    auto assembly =
+        assembleChainWithAssembler(chain_config, assembler, context, manager);
+
+    std::unique_ptr<filter_chain::AdvancedFilterChain> chain;
+    mcp_filter_chain_t handle = 0;
+    std::vector<mcp_filter_t> filter_handles;
+    bool handles_adopted = false;
+
+    if (assembly.success) {
+      const auto& filters = manager.filters();
+      filter_handles.reserve(filters.size());
+
+      for (const auto& filter_instance : filters) {
+        auto handle_candidate =
+            ::mcp::filter_api::g_filter_manager.store(filter_instance);
+        if (handle_candidate == 0) {
+          assembly.success = false;
+          assembly.error_message = "Failed to store filter handle";
+          break;
+        }
+        filter_handles.push_back(handle_candidate);
+      }
+
+      if (assembly.success) {
+        std::string chain_name = chain_config.name.empty()
+                                     ? std::string("configurable_chain")
+                                     : chain_config.name;
+
+        mcp_chain_config_t basic_config = {
+            chain_name.c_str(),
+            MCP_CHAIN_MODE_SEQUENTIAL,
+            MCP_ROUTING_ROUND_ROBIN,
+            1,
+            8192,
+            30000,
+            MCP_TRUE};
+
+        chain = std::make_unique<AdvancedFilterChain>(basic_config, dispatcher);
+        chain->owned_filters_ = manager.filters();
+
+        for (size_t i = 0; i < filter_handles.size(); ++i) {
+          const auto& filter_cfg = chain_config.filters[i];
+          std::string filter_name = !filter_cfg.name.empty()
+                                        ? filter_cfg.name
+                                        : (!filter_cfg.type.empty()
+                                               ? filter_cfg.type
+                                               : std::string("filter") +
+                                                     std::to_string(i));
+
+          mcp_filter_node_t node = {
+              filter_handles[i],
+              filter_name.c_str(),
+              static_cast<uint32_t>(i),
+              filter_cfg.enabled ? MCP_TRUE : MCP_FALSE,
+              MCP_FALSE,
+              nullptr};
+
+          chain->addNode(std::make_unique<FilterNode>(node));
+        }
+
+        handles_adopted = true;
+
+        auto chain_shared =
+            std::shared_ptr<AdvancedFilterChain>(std::move(chain));
+        auto unified = std::make_shared<::mcp::c_api_internal::UnifiedFilterChain>(
+            chain_shared);
+        handle =
+            ::mcp::c_api_internal::g_unified_chain_manager.store(unified);
+
+        if (handle == 0) {
+          assembly.success = false;
+          assembly.error_message = "Failed to store chain handle";
+        }
+      }
+    }
+
+    if (!assembly.success && !handles_adopted) {
+      for (auto handle_candidate : filter_handles) {
+        ::mcp::filter_api::g_filter_manager.release(handle_candidate);
+      }
+    }
+
+    populateAssemblyResult(assembly, handle, out);
+
+    return assembly.success ? MCP_OK : MCP_ERROR_INVALID_STATE;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception& e) {
+    ::mcp::filter::AssemblyResult assembly(false);
+    assembly.error_message = e.what();
+    populateAssemblyResult(assembly, 0, out);
+    return MCP_ERROR_UNKNOWN;
+  }
+}
+
+}  // namespace filter_chain
+}  // namespace mcp
+
+// ============================================================================
+// Thread Affinity Helpers
+// ============================================================================
+
+namespace {
+
+static inline bool isOnDispatcherThread(mcp_dispatcher_t dispatcher) {
+  if (!dispatcher) {
+    return false;
+  }
+
+  return mcp_dispatcher_is_thread(dispatcher) == MCP_TRUE;
+}
 
 // ============================================================================
 // Chain Router Implementation
@@ -570,8 +943,7 @@ struct ChainPool {
   }
 };
 
-}  // namespace filter_chain
-}  // namespace mcp
+}  // anonymous namespace
 
 // Define the global unified chain manager (shared with mcp_c_filter_api.cc)
 namespace mcp {
@@ -584,106 +956,153 @@ HandleManager<UnifiedFilterChain> g_unified_chain_manager;
 // C API Implementation
 // ============================================================================
 
-using namespace mcp::filter_chain;
-
 extern "C" {
 
-// Advanced Chain Builder
-
-MCP_API mcp_filter_chain_builder_t
-mcp_chain_builder_create_ex(mcp_dispatcher_t dispatcher,
-                            const mcp_chain_config_t* config) MCP_NOEXCEPT {
-  if (!config)
-    return nullptr;
-
-  try {
-    // Use the function from mcp_filter_api.cc to create the builder
-    return mcp_filter_chain_builder_create(dispatcher);
-  } catch (const std::bad_alloc&) {
-    // Out of memory - no logging to avoid further allocations
-    return nullptr;
-  } catch (const std::exception&) {
-    // Other known exception - avoid complex logging
-    return nullptr;
-  } catch (...) {
-    // Unknown exception - return safe default
-    return nullptr;
-  }
-}
-
-MCP_API mcp_result_t
-mcp_chain_builder_add_node(mcp_filter_chain_builder_t builder,
-                           const mcp_filter_node_t* node) MCP_NOEXCEPT {
-  if (!builder || !node)
+MCP_API mcp_result_t mcp_chain_validate_json(
+    mcp_json_value_t json_config,
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT {
+  if (!result) {
     return MCP_ERROR_INVALID_ARGUMENT;
+  }
 
   try {
-    // TODO: Add node to builder
-    return MCP_OK;
+    auto json_value = mcp::c_api::internal::convertFromCApi(json_config);
+    mcp::c_api::internal::normalizeFilterChain(json_value);
+
+    auto chain_config =
+        mcp::config::FilterChainConfig::fromJson(json_value);
+    mcp::filter::FilterChainAssembler assembler(
+        mcp::filter::FilterRegistry::instance());
+    auto validation = assembler.validateFilterChain(chain_config);
+    mcp::filter_chain::populateValidationResult(validation, result);
+    return validation.valid ? MCP_OK : MCP_ERROR_INVALID_ARGUMENT;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
-  } catch (const std::exception&) {
-    return MCP_ERROR_UNKNOWN;
-  } catch (...) {
+  } catch (const std::exception& e) {
+    mcp::filter::ValidationResult failure;
+    failure.valid = false;
+    failure.errors.push_back(e.what());
+    try {
+      mcp::filter_chain::populateValidationResult(failure, result);
+    } catch (...) {
+      mcp_chain_validation_result_free(result);
+      return MCP_ERROR_OUT_OF_MEMORY;
+    }
     return MCP_ERROR_UNKNOWN;
   }
 }
 
-MCP_API mcp_result_t
-mcp_chain_builder_add_conditional(mcp_filter_chain_builder_t builder,
-                                  const mcp_filter_condition_t* condition,
-                                  mcp_filter_t filter) MCP_NOEXCEPT {
-  if (!builder || !condition)
+MCP_API mcp_result_t mcp_chain_validate_config(
+    const mcp_filter_chain_config_t* config,
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT {
+  if (!config || !result) {
     return MCP_ERROR_INVALID_ARGUMENT;
+  }
 
   try {
-    // TODO: Add conditional filter
-    return MCP_OK;
+    auto chain_config = mcp::filter_chain::convertFilterChainConfig(*config);
+    mcp::filter::FilterChainAssembler assembler(
+        mcp::filter::FilterRegistry::instance());
+    auto validation = assembler.validateFilterChain(chain_config);
+    mcp::filter_chain::populateValidationResult(validation, result);
+    return validation.valid ? MCP_OK : MCP_ERROR_INVALID_ARGUMENT;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
-  } catch (const std::exception&) {
-    return MCP_ERROR_UNKNOWN;
-  } catch (...) {
+  } catch (const std::exception& e) {
+    mcp::filter::ValidationResult failure;
+    failure.valid = false;
+    failure.errors.push_back(e.what());
+    try {
+      mcp::filter_chain::populateValidationResult(failure, result);
+    } catch (...) {
+      mcp_chain_validation_result_free(result);
+      return MCP_ERROR_OUT_OF_MEMORY;
+    }
     return MCP_ERROR_UNKNOWN;
   }
 }
 
-MCP_API mcp_result_t
-mcp_chain_builder_add_parallel_group(mcp_filter_chain_builder_t builder,
-                                     const mcp_filter_t* filters,
-                                     size_t count) MCP_NOEXCEPT {
-  if (!builder || !filters)
+MCP_API void mcp_chain_validation_result_free(
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT {
+  if (!result) {
+    return;
+  }
+  mcp::filter_chain::freeStringArray(result->errors, result->error_count);
+  mcp::filter_chain::freeStringArray(result->warnings, result->warning_count);
+  result->errors = nullptr;
+  result->warnings = nullptr;
+  result->error_count = 0;
+  result->warning_count = 0;
+  result->valid = MCP_FALSE;
+}
+
+MCP_API mcp_result_t mcp_chain_assemble_from_json(
+    mcp_dispatcher_t dispatcher,
+    mcp_json_value_t json_config,
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT {
+  if (!result) {
     return MCP_ERROR_INVALID_ARGUMENT;
+  }
 
   try {
-    // TODO: Add parallel group
-    return MCP_OK;
+    auto json_value = mcp::c_api::internal::convertFromCApi(json_config);
+    mcp::c_api::internal::normalizeFilterChain(json_value);
+    auto chain_config =
+        mcp::config::FilterChainConfig::fromJson(json_value);
+    return mcp::filter_chain::assembleChainInternal(dispatcher, chain_config,
+                                                    result);
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
-  } catch (const std::exception&) {
-    return MCP_ERROR_UNKNOWN;
-  } catch (...) {
+  } catch (const std::exception& e) {
+    mcp::filter::AssemblyResult failure(false);
+    failure.success = false;
+    failure.error_message = e.what();
+    mcp::filter_chain::populateAssemblyResult(failure, 0, result);
     return MCP_ERROR_UNKNOWN;
   }
 }
 
-MCP_API mcp_result_t
-mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
-                             mcp_routing_function_t router,
-                             void* user_data) MCP_NOEXCEPT {
-  if (!builder)
+MCP_API mcp_result_t mcp_chain_assemble_from_config(
+    mcp_dispatcher_t dispatcher,
+    const mcp_filter_chain_config_t* config,
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT {
+  if (!config || !result) {
     return MCP_ERROR_INVALID_ARGUMENT;
+  }
 
   try {
-    // TODO: Set custom router
-    return MCP_OK;
+    auto chain_config =
+        mcp::filter_chain::convertFilterChainConfig(*config);
+    return mcp::filter_chain::assembleChainInternal(dispatcher, chain_config,
+                                                    result);
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
-  } catch (const std::exception&) {
-    return MCP_ERROR_UNKNOWN;
-  } catch (...) {
+  } catch (const std::exception& e) {
+    mcp::filter::AssemblyResult failure(false);
+    failure.success = false;
+    failure.error_message = e.what();
+    mcp::filter_chain::populateAssemblyResult(failure, 0, result);
     return MCP_ERROR_UNKNOWN;
   }
+}
+
+MCP_API void mcp_chain_assembly_result_free(
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT {
+  if (!result) {
+    return;
+  }
+  if (result->error_message) {
+    mcp_free(result->error_message);
+    result->error_message = nullptr;
+  }
+  mcp::filter_chain::freeStringArray(result->created_filters, result->created_filter_count);
+  mcp::filter_chain::freeStringArray(result->warnings, result->warning_count);
+  result->created_filters = nullptr;
+  result->warnings = nullptr;
+  result->created_filter_count = 0;
+  result->warning_count = 0;
+  result->success = MCP_FALSE;
+  // Do not modify chain handle ownership here.
 }
 
 // Chain Management
@@ -882,197 +1301,32 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
 
 MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT {
-  
-  // 1. Validate inputs
   if (!dispatcher || !json_config) {
     try {
       GOPHER_LOG(Error, "Invalid inputs to chain creation");
     } catch (...) {}
     return 0;
   }
-  
-  // 2. Check thread affinity - chain creation must occur on dispatcher thread
+
   if (!isOnDispatcherThread(dispatcher)) {
     try {
       GOPHER_LOG(Error, "Chain creation must be called from dispatcher thread");
     } catch (...) {}
     return 0;
   }
-  
-  try {
-    // 3. Convert JSON and normalize
-    auto config = mcp::c_api::internal::convertFromCApi(json_config);
-    
-    // 4. Normalize the filter chain configuration
-    size_t normalized_count = mcp::c_api::internal::normalizeFilterChain(config);
-    
-    auto& filters = config["filters"];
-    size_t filter_count = filters.size();
-    bool has_typed_config = (normalized_count > 0);
-    
-    // Log only in debug builds or reduce to trace level
-    GOPHER_LOG(Debug, "Creating chain with {} filters", filter_count);
-    
-    // 5. Validate all filter types exist in registry
-    for (size_t i = 0; i < filter_count; ++i) {
-      std::string filter_type = filters[i]["type"].getString();
-      
-      if (!mcp::filter::FilterRegistry::instance().hasFactory(filter_type)) {
-        try {
-          GOPHER_LOG(Error, "Unknown filter type at index {}", i);
-        } catch (...) {}
-        return 0;
-      }
-      
-      // Remove verbose per-filter logging from hot path
-    }
-    
-    // Reduce logging verbosity in hot path
-    
-    // 6. Create chain using ConfigurableFilterChainFactory
-    auto factory = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(config);
-    
-    // Validate the chain configuration
-    if (!factory->getBuilder().validate()) {
-      auto errors = factory->getBuilder().getValidationErrors();
-      
-      // Log aggregated errors
-      std::stringstream error_msg;
-      for (size_t i = 0; i < errors.size(); ++i) {
-        if (i > 0) error_msg << "; ";
-        error_msg << "[" << i << "] " << errors[i];
-      }
-      
-      try {
-        GOPHER_LOG(Error, "Chain validation failed: {}", error_msg.str());
-      } catch (...) {}
-      return 0;
-    }
-    
-    // 7. Build real filters using the factory
-    auto& builder = factory->getBuilder();
-    auto created_filters = builder.buildFilters();
-    
-    if (created_filters.empty()) {
-      GOPHER_LOG(Error, "Factory failed to create any filters");
-      return 0;
-    }
-    
-    if (created_filters.size() != filter_count) {
-      try {
-        GOPHER_LOG(Warning, "Filter count mismatch");
-      } catch (...) {}
-    }
-    
-    // 8. Store filters in handle manager for lifetime management
-    std::vector<mcp_filter_t> filter_handles;
-    filter_handles.reserve(created_filters.size());
-    
-    for (const auto& filter : created_filters) {
-      if (!filter) {
-        try {
-          GOPHER_LOG(Error, "Factory created null filter");
-        } catch (...) {}
-        // Clean up already created handles
-        for (auto handle : filter_handles) {
-          mcp::filter_api::g_filter_manager.release(handle);
-        }
-        return 0;
-      }
-      
-      // Store in filter manager to get handle
-      auto handle = mcp::filter_api::g_filter_manager.store(filter);
-      if (handle == 0) {
-        try {
-          GOPHER_LOG(Error, "Failed to store filter");
-        } catch (...) {}
-        // Clean up already created handles
-        for (auto h : filter_handles) {
-          mcp::filter_api::g_filter_manager.release(h);
-        }
-        return 0;
-      }
-      filter_handles.push_back(handle);
-      // Remove verbose per-filter logging from hot path
-    }
-    
-    // 9. Create the chain instance with configuration from JSON
-    mcp_chain_config_t chain_config = {
-      .name = config.contains("name") ? config["name"].getString().c_str() : "json_configured_chain",
-      .mode = config.contains("mode") ? 
-              static_cast<mcp_chain_execution_mode_t>(config["mode"].getInt()) : 
-              MCP_CHAIN_MODE_SEQUENTIAL,
-      .routing = config.contains("routing") ? 
-                 static_cast<mcp_routing_strategy_t>(config["routing"].getInt()) : 
-                 MCP_ROUTING_ROUND_ROBIN,
-      .max_parallel = config.contains("max_parallel") ? 
-                      static_cast<uint32_t>(config["max_parallel"].getInt()) : 1,
-      .buffer_size = config.contains("buffer_size") ? 
-                     static_cast<uint32_t>(config["buffer_size"].getInt()) : 8192,
-      .timeout_ms = config.contains("timeout_ms") ? 
-                    static_cast<uint32_t>(config["timeout_ms"].getInt()) : 30000,
-      .stop_on_error = config.contains("stop_on_error") ? 
-                       config["stop_on_error"].getBool() : true
-    };
-    
-    auto chain = std::make_unique<AdvancedFilterChain>(chain_config, dispatcher);
-    
-    // Note: Filters are already stored in g_filter_manager with handles
-    // We don't need to store them again in the chain
-    
-    // Add filter nodes with real handles
-    for (size_t i = 0; i < filter_handles.size(); ++i) {
-      auto& filter_config = filters[i];
-      std::string filter_type = filter_config["type"].getString();
-      std::string filter_name = filter_config.contains("name") ? 
-                                filter_config["name"].getString() : filter_type;
-      
-      mcp_filter_node_t node = {
-        .filter = filter_handles[i],  // Real filter handle
-        .name = filter_name.c_str(),
-        .priority = filter_config.contains("priority") ? 
-                    static_cast<uint32_t>(filter_config["priority"].getInt()) : 
-                    static_cast<uint32_t>(i),
-        .enabled = filter_config.contains("enabled") ? 
-                   filter_config["enabled"].getBool() : true,
-        .bypass_on_error = filter_config.contains("bypass_on_error") ? 
-                           filter_config["bypass_on_error"].getBool() : false,
-        .config = nullptr
-      };
-      
-      auto filter_node = std::make_unique<FilterNode>(node);
-      chain->addNode(std::move(filter_node));
-    }
-    
-    // 10. Register chain with unified handle manager
-    // Convert unique_ptr to shared_ptr
-    auto chain_shared = std::shared_ptr<AdvancedFilterChain>(std::move(chain));
-    auto unified = std::make_shared<UnifiedFilterChain>(chain_shared);
-    auto handle = mcp::c_api_internal::g_unified_chain_manager.store(unified);
-    
-    try {
-      GOPHER_LOG(Debug, "Chain created with handle {}", handle);
-    } catch (...) {}
-    
-    return handle;
-    
-  } catch (const std::bad_alloc&) {
-    // Avoid complex logging that might allocate memory
-    try {
-      GOPHER_LOG(Error, "Chain creation failed: out of memory");
-    } catch (...) {}
-    return 0;
-  } catch (const std::exception& e) {
-    try {
-      GOPHER_LOG(Error, "Chain creation failed with exception: {}", e.what());
-    } catch (...) {}
-    return 0;
-  } catch (...) {
-    try {
-      GOPHER_LOG(Error, "Chain creation failed with unknown exception");
-    } catch (...) {}
+
+  mcp_chain_assembly_result_t assembly_result{};
+  mcp_result_t status = mcp_chain_assemble_from_json(dispatcher, json_config,
+                                                     &assembly_result);
+  if (status != MCP_OK || assembly_result.success != MCP_TRUE) {
+    mcp_chain_assembly_result_free(&assembly_result);
     return 0;
   }
+
+  mcp_filter_chain_t handle = assembly_result.chain;
+  assembly_result.chain = 0;
+  mcp_chain_assembly_result_free(&assembly_result);
+  return handle;
 }
 
 MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
