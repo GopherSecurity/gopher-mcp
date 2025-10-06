@@ -36,6 +36,19 @@
 #include "mcp/network/socket.h"
 
 namespace mcp {
+
+// Forward declarations
+class McpProtocolCallbacks;
+
+namespace config {
+struct ListenerConfig;
+}  // namespace config
+
+namespace filter {
+class ConfigurableFilterChainFactory;
+class FilterChainFactory;
+}  // namespace filter
+
 namespace network {
 
 // Forward declarations
@@ -241,6 +254,9 @@ struct TcpListenerConfig : public ListenerConfig {
 
   // Socket for pre-bound listeners
   SocketSharedPtr socket;
+
+  // Filter chain factory for processing connections
+  std::shared_ptr<FilterChainFactory> filter_chain_factory;
 };
 
 /**
@@ -276,6 +292,11 @@ class TcpActiveListener : public TcpListenerCallbacks {
                     TcpListenerConfig config,
                     ListenerCallbacks& parent_cb);
 
+  // New constructor accepting listener configuration from config
+  TcpActiveListener(event::Dispatcher& dispatcher,
+                    const mcp::config::ListenerConfig& listener_config,
+                    ListenerCallbacks& parent_cb);
+
   ~TcpActiveListener();
 
   // Control interface
@@ -287,6 +308,12 @@ class TcpActiveListener : public TcpListenerCallbacks {
   // Configuration
   void setRejectFraction(UnitFloat fraction);
   void configureLoadShedPoints(LoadShedPoint& load_shed_point);
+
+  /**
+   * Inject protocol callbacks used by config-driven filter chains.
+   * Must be called before filter chains are created for connections.
+   */
+  void setProtocolCallbacks(McpProtocolCallbacks& callbacks);
 
   // ListenerCallbacks interface
   void onAccept(ConnectionSocketPtr&& socket) override;
@@ -312,12 +339,26 @@ class TcpActiveListener : public TcpListenerCallbacks {
    */
   void createConnection(ConnectionSocketPtr&& socket);
 
+  /**
+   * Configure filter chain on connection from listener configuration
+   */
+  void configureFilterChain(network::FilterManager& filter_manager);
+
   event::Dispatcher& dispatcher_;
   TcpListenerConfig config_;
   ListenerCallbacks& parent_cb_;
 
   // The actual listener
   std::unique_ptr<TcpListenerImpl> listener_;
+
+  // Optional listener config (when using config-driven construction)
+  std::unique_ptr<mcp::config::ListenerConfig> listener_config_;
+
+  // Optional configurable filter chain factory (when using config-driven construction)
+  std::unique_ptr<mcp::filter::ConfigurableFilterChainFactory> filter_factory_;
+
+  // Protocol callback target for modular filter chains.
+  McpProtocolCallbacks* protocol_callbacks_{nullptr};
 
   // Random generator for this listener
   std::mt19937 random_;

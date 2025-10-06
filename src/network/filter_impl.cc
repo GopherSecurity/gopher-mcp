@@ -19,7 +19,7 @@ FilterManagerImpl::FilterManagerImpl(FilterManagerConnection& connection,
     : connection_(connection),
       dispatcher_(&dispatcher),
       current_read_filter_(read_filters_.end()),
-      current_write_filter_(write_filters_.end()) {
+      current_write_filter_(write_filters_.rend()) {
   // Store the dispatcher for later use
   // We'll create the state machine lazily when initializeReadFilters is called
   // to ensure we're in the dispatcher thread
@@ -165,8 +165,8 @@ FilterStatus FilterManagerImpl::onWrite() {
     return FilterStatus::Continue;
   }
 
-  // Process through write filters
-  current_write_filter_ = write_filters_.begin();
+  // Process through write filters (reverse order for write path)
+  current_write_filter_ = write_filters_.rbegin();
   FilterStatus status = onContinueWriting(*current_buffer, end_stream);
 
   return status;
@@ -174,18 +174,19 @@ FilterStatus FilterManagerImpl::onWrite() {
 
 FilterStatus FilterManagerImpl::onContinueWriting(Buffer& buffer,
                                                   bool end_stream) {
-  if (current_write_filter_ == write_filters_.end()) {
+  if (current_write_filter_ == write_filters_.rend()) {
     return FilterStatus::Continue;
   }
 
   // No buffered data needed - we're processing the current write buffer
   // directly
 
-  std::vector<WriteFilterSharedPtr>::iterator entry = current_write_filter_;
-  current_write_filter_ = write_filters_.end();
+  std::vector<WriteFilterSharedPtr>::reverse_iterator entry =
+      current_write_filter_;
+  current_write_filter_ = write_filters_.rend();
 
   FilterStatus result = FilterStatus::Continue;
-  for (; entry != write_filters_.end(); entry++) {
+  for (; entry != write_filters_.rend(); ++entry) {
     FilterStatus status = (*entry)->onWrite(buffer, end_stream);
     if (status == FilterStatus::StopIteration) {
       result = FilterStatus::StopIteration;
@@ -235,6 +236,42 @@ void FilterManagerImpl::continueReading() {
 
 bool FilterManagerImpl::shouldContinueFilterChain() {
   return current_read_filter_ != read_filters_.end();
+}
+
+void FilterManagerImpl::injectReadDataToFilterChain(Buffer& data,
+                                                    bool end_stream) {
+  if (!initialized_) {
+    return;
+  }
+
+  if (data.length() == 0) {
+    return;
+  }
+
+  auto saved_current = current_read_filter_;
+  auto start = saved_current;
+
+  if (start == read_filters_.end()) {
+    start = read_filters_.begin();
+  } else {
+    ++start;  // advance to next filter after the caller
+  }
+
+  if (start == read_filters_.end()) {
+    return;  // nothing downstream to consume injected data
+  }
+
+  current_read_filter_ = read_filters_.end();
+
+  for (auto it = start; it != read_filters_.end(); ++it) {
+    FilterStatus status = (*it)->onData(data, end_stream);
+    if (status == FilterStatus::StopIteration || data.length() == 0) {
+      current_read_filter_ = it;
+      break;
+    }
+  }
+
+  current_read_filter_ = saved_current;
 }
 
 void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data,
