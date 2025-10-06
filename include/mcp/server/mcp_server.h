@@ -43,6 +43,11 @@
 
 namespace mcp {
 
+// Forward declarations from config layer
+namespace config {
+struct ListenerConfig;
+}  // namespace config
+
 // Forward declarations from network layer
 namespace network {
 class ListenerCallbacks;
@@ -631,6 +636,10 @@ class McpServer : public application::ApplicationBase,
   void shutdown() override;
   bool isRunning() const { return server_running_; }
 
+  // Listener configuration-based startup
+  VoidResult createListenersFromConfig(const std::vector<mcp::config::ListenerConfig>& listeners);
+  void startListener(const mcp::config::ListenerConfig& listener_config);
+
   // Handler registration
   void registerRequestHandler(
       const std::string& method,
@@ -788,6 +797,9 @@ class McpServer : public application::ApplicationBase,
   // IMPROVEMENT: Using TcpActiveListener for robust listener management
   // Following production architecture for better connection lifecycle handling
   std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
+
+  // Pending listener configurations (for config-driven startup)
+  std::vector<mcp::config::ListenerConfig> pending_listener_configs_;
 
   // Store active connections to manage their lifetime
   // Following production pattern: server owns connections until they close

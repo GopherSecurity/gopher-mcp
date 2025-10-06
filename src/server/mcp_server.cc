@@ -11,7 +11,7 @@
 #include <iostream>
 #include <sstream>
 
-#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -20,6 +20,8 @@
 // to avoid conflicts with existing connection management in
 // connection_manager.h
 #include "mcp/network/server_listener_impl.h"
+#include "mcp/config/listener_config.h"
+#include "mcp/config/types.h"
 
 namespace mcp {
 namespace server {
@@ -182,35 +184,58 @@ void McpServer::performListen() {
       // Following production pattern: Filters handle ALL protocol logic
       // HTTP codec, SSE codec, and JSON-RPC are ALL filters
       
-      // Use configurable factory if filter chain config is provided
+      // Use new config-driven constructor if filter chain config is provided
+      std::unique_ptr<network::TcpActiveListener> tcp_listener;
+
       if (config_.filter_chain_config.has_value()) {
-        std::cerr << "[INFO] Using configurable filter chain factory from config"
+        std::cerr << "[INFO] Using config-driven TCP listener with configurable filter chain"
                   << std::endl;
+
+        // Create a ListenerConfig from the filter chain configuration
+        mcp::config::ListenerConfig listener_config;
+        listener_config.name = "http_sse_listener";
+        listener_config.address.socket_address.address = "127.0.0.1";  // Default to localhost
+        listener_config.address.socket_address.port_value = port;  // Use port extracted from address parameter
+
+        // Convert JsonValue filter chain config to FilterChainConfig
         const json::JsonValue& chain_config = config_.filter_chain_config.value();
-        tcp_config.filter_chain_factory =
-            std::make_shared<filter::ConfigurableFilterChainFactory>(chain_config);
+        auto filter_chain_config = config::FilterChainConfig::fromJson(chain_config);
+        listener_config.filter_chains.push_back(filter_chain_config);
+
+        // Use new constructor that accepts mcp::config::ListenerConfig
+        tcp_listener = std::make_unique<network::TcpActiveListener>(
+            *main_dispatcher_,
+            listener_config,
+            *this
+        );
+
+        if (protocol_callbacks_) {
+          tcp_listener->setProtocolCallbacks(*protocol_callbacks_);
+        }
       } else {
-        // Fallback to default HTTP/SSE factory for backward compatibility
+        // Fallback to old constructor with default HTTP/SSE factory for backward compatibility
         std::cerr << "[INFO] Using default HTTP/SSE filter chain factory"
                   << std::endl;
+
         tcp_config.filter_chain_factory =
             std::make_shared<filter::HttpSseFilterChainFactory>(
                 *main_dispatcher_, *protocol_callbacks_);
+
+        tcp_config.backlog = 128;
+        tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
+        tcp_config.max_connections_per_event = 10;  // Process up to 10 accepts per event
+
+        // Use old constructor that takes TcpListenerConfig
+        tcp_listener = std::make_unique<network::TcpActiveListener>(
+            *main_dispatcher_,
+            std::move(tcp_config),
+            *this
+        );
+
+        if (protocol_callbacks_) {
+          tcp_listener->setProtocolCallbacks(*protocol_callbacks_);
+        }
       }
-
-      tcp_config.backlog = 128;
-      tcp_config.per_connection_buffer_limit = config_.buffer_high_watermark;
-      tcp_config.max_connections_per_event =
-          10;  // Process up to 10 accepts per event
-
-      // Create TcpActiveListener with this server as callbacks
-      // Following production pattern: listener owns socket, manages accepts,
-      // creates connections
-      auto tcp_listener = std::make_unique<network::TcpActiveListener>(
-          *main_dispatcher_,
-          std::move(tcp_config),  // Move config to avoid copying unique_ptrs
-          *this                   // We implement ListenerCallbacks
-      );
 
       // Enable the listener to start accepting connections
       tcp_listener->enable();
@@ -258,20 +283,22 @@ void McpServer::performListen() {
 // Run the main event loop
 // This should be called from the main thread after listen()
 void McpServer::run() {
-  if (listen_address_.empty()) {
-    std::cerr << "[ERROR] No listen address specified. Call listen() first."
-              << std::endl;
+  // Check if we have either a listen address or pending listener configs
+  if (listen_address_.empty() && pending_listener_configs_.empty()) {
+    std::cerr << "[ERROR] No listen address or listener configurations specified. "
+              << "Call listen() or createListenersFromConfig() first." << std::endl;
     return;
   }
 
   if (!initialized_) {
-    std::cerr << "[ERROR] Server not initialized. Call listen() first."
+    std::cerr << "[ERROR] Server not initialized. Call listen() or createListenersFromConfig() first."
               << std::endl;
     return;
   }
 
   // Set flag to perform listen on first run iteration
-  need_perform_listen_ = true;
+  need_perform_listen_ = !listen_address_.empty();
+  bool need_start_listeners = !pending_listener_configs_.empty();
 
   // Override the base class run to handle listening in dispatcher thread
   std::cerr << "[INFO] Running main event loop" << std::endl;
@@ -290,6 +317,21 @@ void McpServer::run() {
     // Directly call performListen since we're now in the dispatcher thread
     performListen();
     need_perform_listen_ = false;
+  }
+
+  // Start listeners from configuration if provided
+  if (need_start_listeners) {
+    std::cerr << "[INFO] Starting listeners from configuration" << std::endl;
+    for (const auto& listener_config : pending_listener_configs_) {
+      startListener(listener_config);
+    }
+    pending_listener_configs_.clear(); // Clear after starting
+    server_running_ = true;
+
+    // Start background tasks for session cleanup and resource updates
+    startBackgroundTasks();
+
+    std::cerr << "[INFO] All listeners started successfully!" << std::endl;
   }
 
   // Following production pattern: use blocking dispatch loop
@@ -1230,6 +1272,73 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
 
   std::cerr << "[DEBUG] New connection established, session: "
             << session->getId() << std::endl;
+}
+
+// Listener configuration-based server startup methods
+
+VoidResult McpServer::createListenersFromConfig(const std::vector<mcp::config::ListenerConfig>& listeners) {
+  // Initialize the application if not already done
+  if (!initialized_) {
+    initialize();  // Create dispatchers and workers (including main dispatcher)
+
+    // Verify main dispatcher was created
+    if (!main_dispatcher_) {
+      std::cerr << "[ERROR] Failed to create main dispatcher" << std::endl;
+      return makeVoidError(
+          Error(jsonrpc::INTERNAL_ERROR, "Dispatcher initialization failed"));
+    }
+  }
+
+  // Validate listener configurations
+  for (const auto& listener_config : listeners) {
+    try {
+      listener_config.validate();
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Invalid listener config for '" << listener_config.name
+                << "': " << e.what() << std::endl;
+      return makeVoidError(
+          Error(jsonrpc::INVALID_PARAMS, "Invalid listener configuration: " + std::string(e.what())));
+    }
+  }
+
+  // Store listeners for deferred creation in run()
+  pending_listener_configs_ = listeners;
+
+  std::cerr << "[INFO] Configured " << listeners.size() << " listener(s) for startup" << std::endl;
+  return makeVoidSuccess();
+}
+
+void McpServer::startListener(const mcp::config::ListenerConfig& listener_config) {
+  try {
+    std::cerr << "[INFO] Starting listener '" << listener_config.name
+              << "' on " << listener_config.address.socket_address.address
+              << ":" << listener_config.address.socket_address.port_value << std::endl;
+
+    // Create TcpActiveListener with the new constructor
+    auto tcp_listener = std::make_unique<network::TcpActiveListener>(
+        *main_dispatcher_,
+        listener_config,
+        *this  // We implement ListenerCallbacks
+    );
+
+    if (protocol_callbacks_) {
+      tcp_listener->setProtocolCallbacks(*protocol_callbacks_);
+    }
+
+    // Enable the listener to start accepting connections
+    tcp_listener->enable();
+
+    // Store the listener
+    tcp_listeners_.push_back(std::move(tcp_listener));
+
+    std::cerr << "[DEBUG] Successfully started listener '" << listener_config.name
+              << "'" << std::endl;
+
+  } catch (const std::exception& e) {
+    std::cerr << "[ERROR] Failed to start listener '" << listener_config.name
+              << "': " << e.what() << std::endl;
+    // Continue with other listeners rather than failing entirely
+  }
 }
 
 }  // namespace server
