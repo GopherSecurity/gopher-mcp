@@ -291,7 +291,7 @@ inline RequestId to_cpp_request_id(const mcp_request_id_t& id) {
   if (id.type == mcp_request_id::MCP_REQUEST_ID_STRING) {
     return RequestId(to_cpp_string(id.value.string_value));
   } else {
-    return RequestId(static_cast<int>(id.value.number_value));
+    return RequestId(static_cast<int64_t>(id.value.number_value));
   }
 }
 
@@ -305,7 +305,7 @@ inline mcp_request_id_t to_c_request_id(const RequestId& id) {
     result.value.string_value = to_c_string(mcp::get<std::string>(id));
   } else {
     result.type = mcp_request_id::MCP_REQUEST_ID_NUMBER;
-    result.value.number_value = mcp::get<int>(id);
+    result.value.number_value = mcp::get<int64_t>(id);
   }
   return result;
 }
@@ -322,7 +322,7 @@ inline ProgressToken to_cpp_progress_token(const mcp_progress_token_t& token) {
   if (token.type == mcp_progress_token::MCP_PROGRESS_TOKEN_STRING) {
     return ProgressToken(to_cpp_string(token.value.string_value));
   } else {
-    return ProgressToken(static_cast<int>(token.value.number_value));
+    return ProgressToken(static_cast<int64_t>(token.value.number_value));
   }
 }
 
@@ -336,7 +336,7 @@ inline mcp_progress_token_t to_c_progress_token(const ProgressToken& token) {
     result.value.string_value = to_c_string(mcp::get<std::string>(token));
   } else {
     result.type = mcp_progress_token::MCP_PROGRESS_TOKEN_NUMBER;
-    result.value.number_value = mcp::get<int>(token);
+    result.value.number_value = mcp::get<int64_t>(token);
   }
   return result;
 }
