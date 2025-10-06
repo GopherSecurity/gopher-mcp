@@ -2,6 +2,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/filter/filter_context.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
@@ -99,7 +100,15 @@ class JsonRpcProtocolFilter : public network::Filter {
   };
 
   /**
-   * Constructor
+   * Constructor with FilterCreationContext for config-driven filter chains
+   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param config Filter-specific configuration
+   */
+  JsonRpcProtocolFilter(const filter::FilterCreationContext& context,
+                        const json::JsonValue& config);
+
+  /**
+   * Constructor (legacy)
    * @param handler Application message handler for protocol events
    * @param dispatcher Event dispatcher for async operations
    * @param is_server True for server mode, false for client mode
@@ -156,6 +165,9 @@ class JsonRpcProtocolFilter : public network::Filter {
    * @param data Buffer containing message to frame
    */
   void frameMessage(Buffer& data);
+
+  // Protocol callback bridge (using MessageHandler interface)
+  std::unique_ptr<MessageHandler> protocol_bridge_;
 
   MessageHandler& handler_;
   event::Dispatcher& dispatcher_;

@@ -15,6 +15,7 @@
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <string_view>
 
 #include "mcp/http/llhttp_parser.h"
 #include "mcp/network/connection.h"
@@ -22,11 +23,59 @@
 namespace mcp {
 namespace filter {
 
+// HttpFilterChainBridge implementation
+
+HttpCodecFilter::HttpFilterChainBridge::HttpFilterChainBridge(HttpCodecFilter& parent_filter)
+    : parent_filter_(parent_filter) {
+  std::cerr << "[DEBUG] HttpFilterChainBridge created" << std::endl;
+}
+
+void HttpCodecFilter::HttpFilterChainBridge::onHeaders(
+    const std::map<std::string, std::string>& headers, bool keep_alive) {
+  std::cerr << "[DEBUG] HttpFilterChainBridge::onHeaders - received "
+            << headers.size() << " headers" << std::endl;
+
+  (void)headers;
+  (void)keep_alive;
+}
+
+void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data, bool end_stream) {
+  std::cerr << "[DEBUG] HttpFilterChainBridge::onBody - received "
+            << data.length() << " bytes, end_stream=" << end_stream << std::endl;
+
+  if (!data.empty()) {
+    forwardBodyToNextFilter(data, end_stream);
+  }
+}
+
+void HttpCodecFilter::HttpFilterChainBridge::onMessageComplete() {
+  std::cerr << "[DEBUG] HttpFilterChainBridge::onMessageComplete" << std::endl;
+}
+
+void HttpCodecFilter::HttpFilterChainBridge::onError(const std::string& error) {
+  std::cerr << "[ERROR] HttpFilterChainBridge::onError - " << error << std::endl;
+  // Error handling - could inject error into filter chain if needed
+}
+
+void HttpCodecFilter::HttpFilterChainBridge::forwardBodyToNextFilter(
+    const std::string& body, bool end_stream) {
+  if (!parent_filter_.read_callbacks_ || body.empty()) {
+    return;
+  }
+
+  std::cerr << "[TRACE] HttpFilterChainBridge forwarding body chunk: " << body
+            << std::endl;
+
+  OwnedBuffer buffer;
+  buffer.add(body);
+  parent_filter_.read_callbacks_->injectReadDataToFilterChain(buffer, end_stream);
+}
+
 // Constructor
 HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
                                  event::Dispatcher& dispatcher,
                                  bool is_server)
-    : message_callbacks_(callbacks),
+    : message_callbacks_(&callbacks),
       dispatcher_(dispatcher),
       is_server_(is_server) {
   // Initialize HTTP parser callbacks
@@ -62,6 +111,52 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
 
   // Initialize stream context for first request
   // HTTP/1.1 uses stream_id 0 (only one stream per connection)
+  current_stream_ = stream_manager_.getOrCreateContext(0);
+}
+
+// Constructor with FilterCreationContext for config-driven filter chains
+HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
+                                 const json::JsonValue& config)
+    : message_callbacks_(nullptr),
+      dispatcher_(context.dispatcher),
+      is_server_(context.isServer()) {
+
+  // Create the filter bridge - this will be used to coordinate body forwarding
+  filter_bridge_ = std::make_unique<HttpFilterChainBridge>(*this);
+  message_callbacks_ = filter_bridge_.get();
+
+  // Initialize HTTP parser callbacks
+  parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
+
+  // Create HTTP/1.1 parser using llhttp
+  http::HttpParserType parser_type = is_server_
+                                         ? http::HttpParserType::REQUEST
+                                         : http::HttpParserType::RESPONSE;
+  parser_ = std::make_unique<http::LLHttpParser>(
+      parser_type, parser_callbacks_.get(), http::HttpVersion::HTTP_1_1);
+
+  // Initialize message encoder
+  message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
+
+  // Initialize HTTP codec state machine with same defaults for now
+  // TODO: Extract timeout values from config parameter
+  HttpCodecStateMachineConfig sm_config;
+  sm_config.is_server = is_server_;
+  sm_config.header_timeout = std::chrono::milliseconds(30000);
+  sm_config.body_timeout = std::chrono::milliseconds(60000);
+  sm_config.idle_timeout = std::chrono::milliseconds(120000);
+  sm_config.enable_keep_alive = true;
+  sm_config.state_change_callback =
+      [this](const HttpCodecStateTransitionContext& ctx) {
+        onCodecStateChange(ctx);
+      };
+  sm_config.error_callback = [this](const std::string& error) {
+    onCodecError(error);
+  };
+
+  state_machine_ = std::make_unique<HttpCodecStateMachine>(dispatcher_, sm_config);
+
+  // Initialize stream context for first request
   current_stream_ = stream_manager_.getOrCreateContext(0);
 }
 
@@ -135,13 +230,33 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
 
       // Use the HTTP version from the request for transparent protocol handling
       std::ostringstream version_str;
-      version_str << "HTTP/" << static_cast<int>(current_stream_->http_major)
-                  << "." << static_cast<int>(current_stream_->http_minor);
+      if (current_stream_) {
+        version_str << "HTTP/" << static_cast<int>(current_stream_->http_major)
+                    << "." << static_cast<int>(current_stream_->http_minor);
+      } else {
+        version_str << "HTTP/1.1";
+      }
       response << version_str.str() << " 200 OK\r\n";
 
-      // Check if this is an SSE response based on Accept header
-      bool is_sse_response =
-          (current_stream_->accept_header == "text/event-stream");
+      // Detect SSE either via Accept header or the formatted payload
+      bool is_sse_response = false;
+      if (current_stream_) {
+        std::string accept_lower = current_stream_->accept_header;
+        std::transform(accept_lower.begin(), accept_lower.end(),
+                       accept_lower.begin(), ::tolower);
+        if (accept_lower.find("text/event-stream") != std::string::npos) {
+          is_sse_response = true;
+        }
+      }
+
+      if (!is_sse_response) {
+        // Heuristic: SSE payloads contain event/data lines
+        std::string_view payload_view(body_data);
+        if (payload_view.find("event:") != std::string_view::npos &&
+            payload_view.find("data:") != std::string_view::npos) {
+          is_sse_response = true;
+        }
+      }
 
       if (is_sse_response) {
         // SSE response headers
@@ -157,9 +272,13 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         response << "Content-Type: application/json\r\n";
         response << "Content-Length: " << body_length << "\r\n";
         response << "Cache-Control: no-cache\r\n";
-        response << "Connection: "
-                 << (current_stream_->keep_alive ? "keep-alive" : "close")
-                 << "\r\n";
+        if (current_stream_) {
+          response << "Connection: "
+                   << (current_stream_->keep_alive ? "keep-alive" : "close")
+                   << "\r\n";
+        } else {
+          response << "Connection: keep-alive\r\n";
+        }
         response << "\r\n";
         response << body_data;
       }
@@ -241,7 +360,9 @@ void HttpCodecFilter::dispatch(Buffer& data) {
 
 void HttpCodecFilter::handleParserError(const std::string& error) {
   state_machine_->handleEvent(HttpCodecEvent::ParseError);
-  message_callbacks_.onError(error);
+  if (message_callbacks_) {
+    message_callbacks_->onError(error);
+  }
 }
 
 void HttpCodecFilter::sendMessageData(Buffer& data) {
@@ -430,8 +551,10 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
   }
 
   // Notify callbacks
-  parent_.message_callbacks_.onHeaders(parent_.current_stream_->headers,
-                                       parent_.current_stream_->keep_alive);
+  if (parent_.message_callbacks_) {
+    parent_.message_callbacks_->onHeaders(parent_.current_stream_->headers,
+                                          parent_.current_stream_->keep_alive);
+  }
 
   return http::ParserCallbackResult::Success;
 }
@@ -461,10 +584,15 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
 
   // Send body to callbacks
   if (parent_.current_stream_ && !parent_.current_stream_->body.empty()) {
-    parent_.message_callbacks_.onBody(parent_.current_stream_->body, true);
+    if (parent_.message_callbacks_) {
+      parent_.message_callbacks_->onBody(parent_.current_stream_->body, true);
+    }
+
   }
 
-  parent_.message_callbacks_.onMessageComplete();
+  if (parent_.message_callbacks_) {
+    parent_.message_callbacks_->onMessageComplete();
+  }
   return http::ParserCallbackResult::Success;
 }
 
@@ -601,7 +729,9 @@ void HttpCodecFilter::onCodecStateChange(
 
 void HttpCodecFilter::onCodecError(const std::string& error) {
   // Handle codec-level errors
-  message_callbacks_.onError("HTTP codec error: " + error);
+  if (message_callbacks_) {
+    message_callbacks_->onError("HTTP codec error: " + error);
+  }
 }
 
 }  // namespace filter
