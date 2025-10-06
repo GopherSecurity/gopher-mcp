@@ -648,20 +648,20 @@ inline mcp_request_id_t to_c_request_id_safe(const mcp::RequestId& id) {
     const auto& str = mcp::get<std::string>(id);
     return mcp_request_id_create_string(str.c_str());
   } else {
-    return mcp_request_id_create_number(mcp::get<int>(id));
+    return mcp_request_id_create_number(mcp::get<int64_t>(id));
   }
 }
 
 inline mcp::RequestId to_cpp_request_id_safe(mcp_request_id_t id) {
   if (!id) {
-    return mcp::RequestId(0);
+    return mcp::RequestId(static_cast<int64_t>(0));
   }
 
   if (mcp_request_id_is_string(id)) {
     const char* str = mcp_request_id_get_string(id);
     return mcp::RequestId(str ? std::string(str) : std::string());
   } else {
-    return mcp::RequestId(static_cast<int>(mcp_request_id_get_number(id)));
+    return mcp::RequestId(static_cast<int64_t>(mcp_request_id_get_number(id)));
   }
 }
 
