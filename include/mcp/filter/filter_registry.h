@@ -10,6 +10,7 @@
 #include "mcp/core/compat.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/network/filter.h"
+#include "mcp/filter/filter_context.h"
 
 namespace mcp {
 namespace filter {
@@ -17,6 +18,10 @@ namespace filter {
 // Forward declarations
 class FilterFactory;
 using FilterFactoryPtr = std::shared_ptr<FilterFactory>;
+
+// Context-aware filter factory function type
+using ContextAwareFilterFactory = std::function<network::FilterSharedPtr(
+    const FilterCreationContext&, const json::JsonValue&)>;
 
 /**
  * Factory metadata for tracking versioning and dependencies
@@ -149,6 +154,65 @@ class FilterRegistry {
    */
   void clearFactories();
 
+  // Context-aware filter factory methods
+
+  /**
+   * Register a context-aware filter factory with basic metadata
+   *
+   * @param name Filter type name
+   * @param factory Context-aware factory function
+   * @param metadata Basic filter metadata
+   * @return true if registered successfully, false if name already exists
+   */
+  bool registerContextFactory(const std::string& name,
+                             ContextAwareFilterFactory factory,
+                             const BasicFilterMetadata& metadata);
+
+  /**
+   * Create a filter with context
+   *
+   * @param name Filter type name
+   * @param context Filter creation context
+   * @param config Configuration for the filter
+   * @return Created filter instance
+   * @throws std::runtime_error if filter type is unknown or creation fails
+   */
+  network::FilterSharedPtr createFilterWithContext(
+      const std::string& name,
+      const FilterCreationContext& context,
+      const json::JsonValue& config) const;
+
+  /**
+   * Check if a context-aware factory is registered
+   *
+   * @param name Filter type name
+   * @return true if registered, false otherwise
+   */
+  bool hasContextFactory(const std::string& name) const;
+
+  /**
+   * Get basic metadata for a filter
+   *
+   * @param name Filter type name
+   * @return Pointer to metadata or nullptr if not found
+   */
+  const BasicFilterMetadata* getBasicMetadata(const std::string& name) const;
+
+  /**
+   * List all registered context-aware factories
+   *
+   * @return Vector of registered factory names
+   */
+  std::vector<std::string> listContextFactories() const;
+
+  /**
+   * Validate a basic filter chain
+   *
+   * @param filter_names List of filter names in order
+   * @return true if all filters exist and chain is valid
+   */
+  bool validateBasicFilterChain(const std::vector<std::string>& filter_names) const;
+
  private:
   // Private constructor for singleton
   FilterRegistry();
@@ -163,6 +227,10 @@ class FilterRegistry {
   // Thread-safe factory storage
   mutable std::mutex mutex_;
   std::map<std::string, FilterFactoryPtr> factories_;
+
+  // Context-aware factory storage
+  std::map<std::string, ContextAwareFilterFactory> context_factories_;
+  std::map<std::string, BasicFilterMetadata> basic_metadata_;
 
   // Initialization flag
   std::atomic<bool> initialized_{false};

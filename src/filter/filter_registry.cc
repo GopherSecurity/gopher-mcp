@@ -165,11 +165,142 @@ bool FilterRegistry::hasFactory(const std::string& name) const {
 
 void FilterRegistry::clearFactories() {
   std::lock_guard<std::mutex> lock(mutex_);
-  
+
   size_t count = factories_.size();
+  size_t context_count = context_factories_.size();
+
   factories_.clear();
-  
-  GOPHER_LOG(Info, "Cleared {} filter factories from registry", count);
+  context_factories_.clear();
+  basic_metadata_.clear();
+
+  GOPHER_LOG(Info, "Cleared {} traditional and {} context-aware filter factories from registry",
+             count, context_count);
+}
+
+// Context-aware filter factory methods
+
+bool FilterRegistry::registerContextFactory(const std::string& name,
+                                           ContextAwareFilterFactory factory,
+                                           const BasicFilterMetadata& metadata) {
+  if (!factory) {
+    GOPHER_LOG(Error, "Attempted to register null context factory for filter: {}", name);
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  // Check for duplicate registration
+  auto it = context_factories_.find(name);
+  if (it != context_factories_.end()) {
+    GOPHER_LOG(Warning, "Context filter factory '{}' already registered - ignoring duplicate",
+               name);
+    return false;
+  }
+
+  // Validate metadata
+  try {
+    metadata.validate();
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Invalid metadata for context filter '{}': {}", name, e.what());
+    return false;
+  }
+
+  // Register the factory and metadata
+  context_factories_[name] = factory;
+  basic_metadata_[name] = metadata;
+
+  GOPHER_LOG(Info, "Registered context filter factory '{}' version {} (total context factories: {})",
+             name, metadata.version, context_factories_.size());
+
+  return true;
+}
+
+network::FilterSharedPtr FilterRegistry::createFilterWithContext(
+    const std::string& name,
+    const FilterCreationContext& context,
+    const json::JsonValue& config) const {
+
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto it = context_factories_.find(name);
+  if (it == context_factories_.end()) {
+    GOPHER_LOG(Error, "Unknown context filter type '{}' requested", name);
+    throw std::runtime_error("Unknown context filter type: " + name);
+  }
+
+  const ContextAwareFilterFactory& factory = it->second;
+
+  try {
+    GOPHER_LOG(Debug, "Creating context filter instance of type '{}' for {} mode",
+               name, context.getModeString());
+
+    auto filter = factory(context, config);
+
+    if (!filter) {
+      GOPHER_LOG(Error, "Context factory for '{}' returned null filter", name);
+      throw std::runtime_error("Failed to create context filter: " + name);
+    }
+
+    GOPHER_LOG(Debug, "Successfully created context filter instance of type '{}'", name);
+    return filter;
+
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Failed to create context filter '{}': {}", name, e.what());
+    throw std::runtime_error("Failed to create context filter '" + name + "': " + e.what());
+  }
+}
+
+bool FilterRegistry::hasContextFactory(const std::string& name) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return context_factories_.find(name) != context_factories_.end();
+}
+
+const BasicFilterMetadata* FilterRegistry::getBasicMetadata(const std::string& name) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  auto it = basic_metadata_.find(name);
+  if (it != basic_metadata_.end()) {
+    return &it->second;
+  }
+
+  GOPHER_LOG(Debug, "Basic metadata for '{}' not found in registry", name);
+  return nullptr;
+}
+
+std::vector<std::string> FilterRegistry::listContextFactories() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  std::vector<std::string> names;
+  names.reserve(context_factories_.size());
+
+  for (const auto& pair : context_factories_) {
+    names.push_back(pair.first);
+  }
+
+  // Sort for consistent ordering
+  std::sort(names.begin(), names.end());
+
+  return names;
+}
+
+bool FilterRegistry::validateBasicFilterChain(const std::vector<std::string>& filter_names) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  if (filter_names.empty()) {
+    GOPHER_LOG(Warning, "Cannot validate empty filter chain");
+    return false;
+  }
+
+  // Check that all filter types exist in context factory registry
+  for (const auto& filter_name : filter_names) {
+    if (context_factories_.find(filter_name) == context_factories_.end()) {
+      GOPHER_LOG(Warning, "Filter type '{}' not found in context factory registry", filter_name);
+      return false;
+    }
+  }
+
+  GOPHER_LOG(Debug, "Successfully validated filter chain with {} filters", filter_names.size());
+  return true;
 }
 
 }  // namespace filter
