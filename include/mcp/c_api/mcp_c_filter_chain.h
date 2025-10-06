@@ -107,6 +107,43 @@ typedef struct mcp_chain_stats {
   uint32_t active_filters;
 } mcp_chain_stats_t;
 
+// Filter configuration entry used for assembler driven creation
+typedef struct mcp_chain_filter_config_struct {
+  const char* type;
+  const char* name;
+  mcp_json_value_t config;
+  mcp_bool_t enabled;
+  mcp_json_value_t enabled_when;
+} mcp_chain_filter_config_t;
+
+// High-level filter chain configuration for assembler consumption
+typedef struct mcp_filter_chain_config {
+  const char* name;
+  const char* transport_type;
+  const mcp_chain_filter_config_t* filters;
+  size_t filter_count;
+} mcp_filter_chain_config_t;
+
+// Validation result exposed through the C ABI
+typedef struct mcp_chain_validation_result {
+  mcp_bool_t valid;
+  size_t error_count;
+  char** errors;
+  size_t warning_count;
+  char** warnings;
+} mcp_chain_validation_result_t;
+
+// Assembly result capturing diagnostics and the produced chain
+typedef struct mcp_chain_assembly_result {
+  mcp_bool_t success;
+  mcp_filter_chain_t chain;
+  char* error_message;
+  size_t created_filter_count;
+  char** created_filters;
+  size_t warning_count;
+  char** warnings;
+} mcp_chain_assembly_result_t;
+
 // Router configuration
 typedef struct mcp_router_config {
   mcp_routing_strategy_t strategy;
@@ -137,66 +174,6 @@ typedef mcp_bool_t (*mcp_filter_match_cb)(
     mcp_buffer_handle_t buffer,
     const mcp_protocol_metadata_t* metadata,
     void* user_data);
-
-/* ============================================================================
- * Advanced Chain Builder
- * ============================================================================
- */
-
-/**
- * Create chain builder with configuration
- * @param dispatcher Event dispatcher
- * @param config Chain configuration
- * @return Builder handle or NULL on error
- */
-MCP_API mcp_filter_chain_builder_t mcp_chain_builder_create_ex(
-    mcp_dispatcher_t dispatcher, const mcp_chain_config_t* config) MCP_NOEXCEPT;
-
-/**
- * Add filter node to chain
- * @param builder Chain builder
- * @param node Filter node configuration
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t
-mcp_chain_builder_add_node(mcp_filter_chain_builder_t builder,
-                           const mcp_filter_node_t* node) MCP_NOEXCEPT;
-
-/**
- * Add conditional filter
- * @param builder Chain builder
- * @param condition Condition for filter execution
- * @param filter Filter to execute if condition met
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t
-mcp_chain_builder_add_conditional(mcp_filter_chain_builder_t builder,
-                                  const mcp_filter_condition_t* condition,
-                                  mcp_filter_t filter) MCP_NOEXCEPT;
-
-/**
- * Add parallel filter group
- * @param builder Chain builder
- * @param filters Array of filters to run in parallel
- * @param count Number of filters
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t
-mcp_chain_builder_add_parallel_group(mcp_filter_chain_builder_t builder,
-                                     const mcp_filter_t* filters,
-                                     size_t count) MCP_NOEXCEPT;
-
-/**
- * Set custom routing function
- * @param builder Chain builder
- * @param router Custom routing function
- * @param user_data User data for router
- * @return MCP_OK on success
- */
-MCP_API mcp_result_t
-mcp_chain_builder_set_router(mcp_filter_chain_builder_t builder,
-                             mcp_routing_function_t router,
-                             void* user_data) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Chain Management
@@ -305,6 +282,54 @@ MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
                                            mcp_filter_chain_t chain2,
                                            mcp_chain_execution_mode_t mode)
     MCP_NOEXCEPT;
+
+/* ============================================================================
+ * Config-driven Assembler Helpers
+ * ============================================================================
+ */
+
+/**
+ * Validate a JSON configuration using the assembler semantics.
+ */
+MCP_API mcp_result_t mcp_chain_validate_json(
+    mcp_json_value_t json_config,
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
+
+/**
+ * Validate an in-memory configuration using the assembler semantics.
+ */
+MCP_API mcp_result_t mcp_chain_validate_config(
+    const mcp_filter_chain_config_t* config,
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
+
+/**
+ * Release memory associated with a validation result structure.
+ */
+MCP_API void mcp_chain_validation_result_free(
+    mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
+
+/**
+ * Assemble a chain from JSON configuration while capturing diagnostics.
+ */
+MCP_API mcp_result_t mcp_chain_assemble_from_json(
+    mcp_dispatcher_t dispatcher,
+    mcp_json_value_t json_config,
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
+
+/**
+ * Assemble a chain from in-memory configuration while capturing diagnostics.
+ */
+MCP_API mcp_result_t mcp_chain_assemble_from_config(
+    mcp_dispatcher_t dispatcher,
+    const mcp_filter_chain_config_t* config,
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
+
+/**
+ * Release memory associated with an assembly result structure. The caller
+ * retains ownership of the produced chain handle.
+ */
+MCP_API void mcp_chain_assembly_result_free(
+    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Chain Router
