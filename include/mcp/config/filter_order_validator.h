@@ -18,10 +18,16 @@
 
 #include "mcp/core/compat.h"
 #include "mcp/json/json_bridge.h"
-#include "mcp/filter/filter_chain_builder.h"
+// TODO : Update filter order validator for new architecture
+// The filter order validator needs to be updated to work with the new
+// FilterChainAssembler architecture instead of the old filter_chain_builder
+// #include "mcp/filter/filter_chain_assembler.h"
 
 namespace mcp {
 namespace config {
+
+// TODO : Restore entire FilterOrderValidator system for new architecture
+#if 0
 
 /**
  * Filter stage taxonomy
@@ -94,12 +100,16 @@ enum class TransportType {
   Stdio        // Standard I/O ordering
 };
 
-/**
+// TODO : Restore FilterOrderValidator class for new architecture
+/*
  * Filter order validator
- * 
+ *
  * Validates filter chains against stage taxonomy and explicit constraints.
  * Provides transport-specific validation rules and detailed error reporting.
+ *
+ * TODO : Restore FilterOrderValidator implementation
  */
+/*
 class FilterOrderValidator : public filter::DependencyValidator {
  public:
   FilterOrderValidator();
@@ -271,21 +281,27 @@ class FilterOrderValidator : public filter::DependencyValidator {
   // Initialize transport-specific orderings
   void initializeTransportOrderings();
 };
+*/
 
-/**
+*/
+
+// TODO : Restore utility functions for new architecture
+/*
  * Create a default filter order validator with built-in rules
- * 
+ *
  * @return Shared pointer to configured validator
  */
-std::shared_ptr<FilterOrderValidator> createDefaultValidator();
+// std::shared_ptr<FilterOrderValidator> createDefaultValidator();
 
-/**
+/*
  * Get stage name as string
- * 
+ *
  * @param stage Filter stage
  * @return Stage name
  */
-const char* getFilterStageName(FilterStage stage);
+// const char* getFilterStageName(FilterStage stage);
+
+#endif  // TODO
 
 }  // namespace config
 }  // namespace mcp
