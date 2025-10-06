@@ -1,6 +1,8 @@
 # Filter unit tests
 cmake_minimum_required(VERSION 3.14)
 
+option(MCP_ENABLE_LEGACY_FILTER_TESTS "Build legacy filter chain validation tests" OFF)
+
 # Circuit Breaker Filter Test - Disabled due to timing issues with RealIoTestBase
 # add_executable(test_circuit_breaker_filter
 #   test_circuit_breaker_filter.cc
@@ -203,47 +205,118 @@ target_link_libraries(test_qos_factories
 )
 add_test(NAME QosFactoriesTest COMMAND test_qos_factories)
 
-# Filter Chain Builder Test
-add_executable(test_filter_chain_builder
-  test_filter_chain_builder.cc
-)
-target_link_libraries(test_filter_chain_builder
-  PRIVATE
-  gopher-mcp
-  gopher-mcp-logging
-  gtest
-  gtest_main
-  gmock
-  Threads::Threads
-)
-add_test(NAME FilterChainBuilderTest COMMAND test_filter_chain_builder)
+if(MCP_ENABLE_LEGACY_FILTER_TESTS)
+  # Filter Chain Builder Test
+  add_executable(test_filter_chain_builder
+    test_filter_chain_builder.cc
+  )
+  target_link_libraries(test_filter_chain_builder
+    PRIVATE
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+  )
+  add_test(NAME FilterChainBuilderTest COMMAND test_filter_chain_builder)
 
-# Configurable Filter Chain Test
-add_executable(test_configurable_filter_chain
-  test_configurable_filter_chain.cc
-)
-target_link_libraries(test_configurable_filter_chain
-  PRIVATE
-  gopher-mcp
-  gopher-mcp-logging
-  gtest
-  gtest_main
-  gmock
-  Threads::Threads
-)
-add_test(NAME ConfigurableFilterChainTest COMMAND test_configurable_filter_chain)
+  # Configurable Filter Chain Test
+  add_executable(test_configurable_filter_chain
+    test_configurable_filter_chain.cc
+  )
+  target_link_libraries(test_configurable_filter_chain
+    PRIVATE
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+  )
+  add_test(NAME ConfigurableFilterChainTest COMMAND test_configurable_filter_chain)
 
-# Filter Ordering Validator Test
-add_executable(test_filter_ordering
-  test_filter_ordering.cc
+  # Filter Ordering Validator Test
+  add_executable(test_filter_ordering
+    test_filter_ordering.cc
+  )
+  target_link_libraries(test_filter_ordering
+    PRIVATE
+    gopher-mcp
+    gopher-mcp-logging
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+  )
+  add_test(NAME FilterOrderingTest COMMAND test_filter_ordering)
+
+  # Context-aware Filter Factories Test
+  add_executable(test_context_aware_factories
+    test_context_aware_factories.cc
+    ../../src/filter/http_codec_filter_factory.cc
+    ../../src/filter/sse_codec_filter_factory.cc
+    ../../src/filter/json_rpc_dispatcher_filter_factory.cc
+  )
+  target_link_libraries(test_context_aware_factories
+    PRIVATE
+    gopher-mcp
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+  )
+  add_test(NAME ContextAwareFactoriesTest COMMAND test_context_aware_factories)
+
+  # Filter Integration Test
+  add_executable(test_filter_integration
+    test_filter_integration.cc
+    ../../src/filter/http_codec_filter_factory.cc
+    ../../src/filter/sse_codec_filter_factory.cc
+    ../../src/filter/json_rpc_dispatcher_filter_factory.cc
+  )
+  target_link_libraries(test_filter_integration
+    PRIVATE
+    gopher-mcp
+    gtest
+    gtest_main
+    gmock
+    Threads::Threads
+  )
+  add_test(NAME FilterIntegrationTest COMMAND test_filter_integration)
+endif()
+
+# Basic Filter Registry Test
+add_executable(test_basic_filter_registry
+  test_basic_filter_registry.cc
+  ../../src/filter/http_codec_filter_factory.cc
+  ../../src/filter/sse_codec_filter_factory.cc
+  ../../src/filter/json_rpc_dispatcher_filter_factory.cc
 )
-target_link_libraries(test_filter_ordering
+target_link_libraries(test_basic_filter_registry
   PRIVATE
   gopher-mcp
-  gopher-mcp-logging
   gtest
   gtest_main
   gmock
   Threads::Threads
 )
-add_test(NAME FilterOrderingTest COMMAND test_filter_ordering)
+add_test(NAME BasicFilterRegistryTest COMMAND test_basic_filter_registry)
+
+# Filter Chain Assembler Test
+add_executable(test_filter_chain_assembler
+  test_filter_chain_assembler.cc
+  ../../src/filter/filter_chain_assembler.cc
+  ../../src/filter/http_codec_filter_factory.cc
+  ../../src/filter/sse_codec_filter_factory.cc
+  ../../src/filter/json_rpc_dispatcher_filter_factory.cc
+)
+target_link_libraries(test_filter_chain_assembler
+  PRIVATE
+  gopher-mcp
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterChainAssemblerTest COMMAND test_filter_chain_assembler)
