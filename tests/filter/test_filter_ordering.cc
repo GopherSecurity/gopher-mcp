@@ -8,7 +8,7 @@
 #include <iostream>
 
 #include "mcp/config/filter_order_validator.h"
-#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 
@@ -32,7 +32,8 @@ namespace {
 // Helper to create FilterConfig
 FilterConfig createFilter(const std::string& name, bool enabled = true) {
   FilterConfig config;
-  config.name = name;
+  config.type = name;  // Use name as type for factory lookup
+  config.name = name + "_instance";  // Add suffix for unique instance name
   config.enabled = enabled;
   config.config = JsonValue::object();
   return config;
@@ -322,11 +323,11 @@ TEST_F(FilterOrderValidatorTest, ReorderByStage) {
   auto reordered = validator_->reorder(filters);
   
   ASSERT_EQ(5u, reordered.size());
-  EXPECT_EQ("rate_limit", reordered[0].name);       // Security
-  EXPECT_EQ("circuit_breaker", reordered[1].name);  // QoS
-  EXPECT_EQ("metrics", reordered[2].name);          // Observability
-  EXPECT_EQ("http_codec", reordered[3].name);       // Protocol
-  EXPECT_EQ("json_rpc", reordered[4].name);         // Application
+  EXPECT_EQ("rate_limit", reordered[0].type);       // Security
+  EXPECT_EQ("circuit_breaker", reordered[1].type);  // QoS
+  EXPECT_EQ("metrics", reordered[2].type);          // Observability
+  EXPECT_EQ("http_codec", reordered[3].type);       // Protocol
+  EXPECT_EQ("json_rpc", reordered[4].type);         // Application
 }
 
 TEST_F(FilterOrderValidatorTest, ReorderWithDependencies) {
@@ -341,9 +342,9 @@ TEST_F(FilterOrderValidatorTest, ReorderWithDependencies) {
   ASSERT_EQ(3u, reordered.size());
   // http_codec must come before sse_codec due to dependency
   auto http_pos = std::find_if(reordered.begin(), reordered.end(),
-                               [](const FilterConfig& f) { return f.name == "http_codec"; });
+                               [](const FilterConfig& f) { return f.type == "http_codec"; });
   auto sse_pos = std::find_if(reordered.begin(), reordered.end(),
-                              [](const FilterConfig& f) { return f.name == "sse_codec"; });
+                              [](const FilterConfig& f) { return f.type == "sse_codec"; });
   
   EXPECT_LT(std::distance(reordered.begin(), http_pos),
             std::distance(reordered.begin(), sse_pos));

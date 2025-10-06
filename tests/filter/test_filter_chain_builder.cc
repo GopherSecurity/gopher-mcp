@@ -8,7 +8,7 @@
 
 #include <chrono>
 
-#include "mcp/filter/filter_chain_builder.h"
+#include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
