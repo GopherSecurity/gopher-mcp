@@ -385,13 +385,13 @@ set(MCP_CORE_SOURCES
     src/filter/http_routing_filter.cc
     src/filter/protocol_detection_filter.cc
     src/filter/filter_registry.cc
-    src/filter/http_codec_factory.cc
-    src/filter/sse_codec_factory.cc
-    src/filter/json_rpc_factory.cc
+    src/filter/http_codec_filter_factory.cc
+    src/filter/sse_codec_filter_factory.cc
+    src/filter/json_rpc_dispatcher_filter_factory.cc
     src/filter/rate_limit_factory.cc
     src/filter/circuit_breaker_factory.cc
     src/filter/metrics_factory.cc
-    src/filter/filter_chain_builder.cc
+    src/filter/filter_chain_assembler.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
@@ -399,7 +399,8 @@ set(MCP_CORE_SOURCES
     src/config/config_merger.cc
     src/config/config_validator.cc
     src/config/units.cc
-    src/config/filter_order_validator.cc
+    # TODO : Re-enable filter order validator for new architecture
+    # src/config/filter_order_validator.cc
     src/config/predicate_evaluator.cc
 )
 
