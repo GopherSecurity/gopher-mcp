@@ -7,6 +7,7 @@
  */
 
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
