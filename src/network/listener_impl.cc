@@ -101,13 +101,14 @@ VoidResult ActiveListener::listen() {
   // Create socket
   if (config_.bind_to_port) {
     // Use the global createListenSocket function
+    SocketCreationOptions socket_opts;
+    socket_opts.non_blocking = true;
+    socket_opts.close_on_exec = true;
+    socket_opts.reuse_address = true;  // Essential for server sockets
+
     auto socket = createListenSocket(
         config_.address,
-        SocketCreationOptions{
-            .non_blocking = true,
-            .close_on_exec = true,
-            .reuse_address = true  // Essential for server sockets
-        },
+        socket_opts,
         config_.bind_to_port);
 
     if (!socket) {
@@ -387,7 +388,8 @@ std::vector<std::reference_wrapper<Listener>>
 ListenerManagerImpl::getAllListeners() {
   std::vector<std::reference_wrapper<Listener>> result;
   for (auto& pair : listeners_) {
-    result.push_back(std::ref(*pair.second));
+    // Cast to base class reference explicitly
+    result.push_back(std::ref(static_cast<Listener&>(*pair.second)));
   }
   return result;
 }
