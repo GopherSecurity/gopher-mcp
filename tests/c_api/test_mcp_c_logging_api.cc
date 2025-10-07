@@ -5,10 +5,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
+#include <sys/stat.h>
 #include <thread>
 #include <vector>
 
@@ -20,6 +21,18 @@
 namespace mcp {
 namespace c_api {
 namespace {
+
+// Helper functions to replace std::filesystem
+namespace {
+bool file_exists(const std::string& path) {
+  struct stat buffer;
+  return (stat(path.c_str(), &buffer) == 0);
+}
+
+void remove_file(const std::string& path) {
+  std::remove(path.c_str());
+}
+}  // namespace
 
 // Test fixture for logging API tests
 class LoggingApiTest : public ::testing::Test {
@@ -42,10 +55,10 @@ class LoggingApiTest : public ::testing::Test {
 
   void cleanupTestFiles() {
     // Remove test log files
-    std::filesystem::remove("test.log");
-    std::filesystem::remove("test_rotating.log");
+    remove_file("test.log");
+    remove_file("test_rotating.log");
     for (int i = 0; i < 10; ++i) {
-      std::filesystem::remove("test_rotating.log." + std::to_string(i));
+      remove_file("test_rotating.log." + std::to_string(i));
     }
   }
 
@@ -228,8 +241,8 @@ TEST_F(LoggingApiTest, RotatingFileSink) {
   EXPECT_EQ(mcp_logger_flush(logger_handle), MCP_LOG_OK);
 
   // Check that rotation occurred
-  EXPECT_TRUE(std::filesystem::exists("test_rotating.log"));
-  EXPECT_TRUE(std::filesystem::exists("test_rotating.log.0"));
+  EXPECT_TRUE(file_exists("test_rotating.log"));
+  EXPECT_TRUE(file_exists("test_rotating.log.0"));
 
   mcp_logger_release(logger_handle);
   mcp_sink_release(sink_handle);
@@ -493,7 +506,7 @@ TEST_F(LoggingApiTest, ShutdownCleanup) {
   mcp_sink_release(sink2);
 
   // Clean up files
-  std::filesystem::remove("test1.log");
+  remove_file("test1.log");
 }
 
 // Test error conditions
