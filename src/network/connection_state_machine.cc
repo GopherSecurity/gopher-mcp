@@ -328,15 +328,13 @@ void ConnectionStateMachine::forceTransition(ConnectionMachineState new_state,
   auto old_state = current_state_.load();
 
   // Create transition context
-  StateTransitionContext context{
-      .from_state = old_state,
-      .to_state = new_state,
-      .triggering_event = ConnectionStateMachineEvent::ResetRequested,
-      .timestamp = std::chrono::steady_clock::now(),
-      .reason = "FORCED: " + reason,
-      .time_in_previous_state = getTimeInCurrentState()};
-
-  // Update metrics
+  StateTransitionContext context;
+  context.from_state = old_state;
+  context.to_state = new_state;
+  context.triggering_event = ConnectionStateMachineEvent::ResetRequested;
+  context.timestamp = std::chrono::steady_clock::now();
+  context.reason = "FORCED: " + reason;
+  context.time_in_previous_state = getTimeInCurrentState();
   context.bytes_read_in_state = state_bytes_read_;
   context.bytes_written_in_state = state_bytes_written_;
   state_bytes_read_ = 0;
@@ -474,15 +472,13 @@ bool ConnectionStateMachine::transitionTo(ConnectionMachineState new_state,
   transition_in_progress_ = true;
 
   // Create transition context
-  StateTransitionContext context{
-      .from_state = old_state,
-      .to_state = new_state,
-      .triggering_event = event,
-      .timestamp = std::chrono::steady_clock::now(),
-      .reason = reason,
-      .time_in_previous_state = getTimeInCurrentState()};
-
-  // Update metrics
+  StateTransitionContext context;
+  context.from_state = old_state;
+  context.to_state = new_state;
+  context.triggering_event = event;
+  context.timestamp = std::chrono::steady_clock::now();
+  context.reason = reason;
+  context.time_in_previous_state = getTimeInCurrentState();
   context.bytes_read_in_state = state_bytes_read_;
   context.bytes_written_in_state = state_bytes_written_;
   state_bytes_read_ = 0;
