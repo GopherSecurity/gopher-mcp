@@ -234,16 +234,26 @@ template <size_t N>
 struct string_literal {
   char value[N];
 
+#if __cplusplus >= 201703L
+  // C++17 and later: can use constexpr with loops
   constexpr string_literal(const char (&str)[N]) {
     for (size_t i = 0; i < N; ++i) {
       value[i] = str[i];
     }
   }
+#else
+  // C++14: constexpr constructors can't have loops
+  string_literal(const char (&str)[N]) {
+    for (size_t i = 0; i < N; ++i) {
+      value[i] = str[i];
+    }
+  }
+#endif
 
   constexpr const char* c_str() const { return value; }
   constexpr size_t size() const { return N - 1; }
 
-  constexpr bool operator==(const string_literal& other) const {
+  bool operator==(const string_literal& other) const {
     for (size_t i = 0; i < N; ++i) {
       if (value[i] != other.value[i])
         return false;
@@ -254,7 +264,7 @@ struct string_literal {
 
 // Deduction guide for C++17, but we'll use make function for C++14
 template <size_t N>
-constexpr string_literal<N> make_string_literal(const char (&str)[N]) {
+inline string_literal<N> make_string_literal(const char (&str)[N]) {
   return string_literal<N>(str);
 }
 

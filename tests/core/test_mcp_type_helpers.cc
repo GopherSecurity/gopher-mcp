@@ -474,12 +474,13 @@ TEST_F(MCPTypeHelpersTest, ObjectBuilderComplex) {
 
 TEST_F(MCPTypeHelpersTest, StringLiteralBasic) {
   // Test construction and comparison
-  constexpr auto lit1 = make_string_literal("hello");
-  constexpr auto lit2 = make_string_literal("hello");
-  constexpr auto lit3 = make_string_literal("world");
+  auto lit1 = make_string_literal("hello");
+  auto lit2 = make_string_literal("hello");
+  auto lit3 = make_string_literal("world");
 
-  static_assert(lit1 == lit2, "Same literals should be equal");
-  static_assert(!(lit1 == lit3), "Different literals should not be equal");
+  // Test equality
+  EXPECT_TRUE(lit1 == lit2);
+  EXPECT_FALSE(lit1 == lit3);
 
   // Test c_str and size
   EXPECT_STREQ(lit1.c_str(), "hello");
@@ -489,24 +490,24 @@ TEST_F(MCPTypeHelpersTest, StringLiteralBasic) {
   EXPECT_EQ(lit3.size(), 5u);
 
   // Test empty string
-  constexpr auto empty = make_string_literal("");
+  auto empty = make_string_literal("");
   EXPECT_STREQ(empty.c_str(), "");
   EXPECT_EQ(empty.size(), 0u);
 }
 
 TEST_F(MCPTypeHelpersTest, StringLiteralEdgeCases) {
   // Test with special characters
-  constexpr auto special = make_string_literal("Hello\nWorld\t!");
+  auto special = make_string_literal("Hello\nWorld\t!");
   EXPECT_STREQ(special.c_str(), "Hello\nWorld\t!");
   EXPECT_EQ(special.size(), 13u);
 
   // Test with numbers
-  constexpr auto numbers = make_string_literal("12345");
+  auto numbers = make_string_literal("12345");
   EXPECT_STREQ(numbers.c_str(), "12345");
   EXPECT_EQ(numbers.size(), 5u);
 
   // Test long string
-  constexpr auto long_str = make_string_literal(
+  auto long_str = make_string_literal(
       "This is a very long string literal that tests the string_literal "
       "template");
   EXPECT_EQ(long_str.size(), 73u);
