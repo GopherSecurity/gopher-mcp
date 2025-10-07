@@ -39,7 +39,7 @@ extern "C" {
 #define MCP_API_EXPORT __attribute__((visibility("default")))
 #define MCP_API_IMPORT
 #define MCP_CALLBACK
-#define MCP_NOEXCEPT __attribute__((nothrow))
+#define MCP_NOEXCEPT  // GCC 7 doesn't allow attributes on function definitions
 #else
 #define MCP_API_EXPORT
 #define MCP_API_IMPORT
