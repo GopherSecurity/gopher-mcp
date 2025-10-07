@@ -78,7 +78,9 @@ std::string DefaultFormatter::format(const LogMessage& msg) const {
   if (!msg.key_values.empty()) {
     oss << " {";
     bool first = true;
-    for (const auto& [key, value] : msg.key_values) {
+    for (const auto& kv : msg.key_values) {
+      const auto& key = kv.first;
+      const auto& value = kv.second;
       if (!first)
         oss << ", ";
       oss << key << "=" << value;
@@ -167,7 +169,9 @@ std::string JsonFormatter::format(const LogMessage& msg) const {
   if (!msg.key_values.empty()) {
     oss << ",\"metadata\":{";
     bool first = true;
-    for (const auto& [key, value] : msg.key_values) {
+    for (const auto& kv : msg.key_values) {
+      const auto& key = kv.first;
+      const auto& value = kv.second;
       if (!first)
         oss << ",";
       oss << "\"" << escapeJson(key) << "\":\"" << escapeJson(value) << "\"";

@@ -129,7 +129,9 @@ class HttpHeadersImpl : public HttpHeaders {
 
   HttpHeaderMap getMap() const override {
     HttpHeaderMap result;
-    for (const auto& [name, values] : headers_) {
+    for (const auto& header : headers_) {
+      const auto& name = header.first;
+      const auto& values = header.second;
       if (!values.empty()) {
         // Join multiple values with comma
         std::string joined;
@@ -146,8 +148,8 @@ class HttpHeadersImpl : public HttpHeaders {
 
   void forEach(std::function<void(const std::string&, const std::string&)> cb)
       const override {
-    for (const auto& [name, value] : ordered_headers_) {
-      cb(name, value);
+    for (const auto& header : ordered_headers_) {
+      cb(header.first, header.second);
     }
   }
 

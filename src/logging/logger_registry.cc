@@ -70,10 +70,13 @@ void LoggerRegistry::setGlobalLevel(LogLevel level) {
   global_level_ = level;
 
   // Update all existing loggers
-  for (auto& [name, logger] : loggers_) {
+  for (auto& logger_pair : loggers_) {
+    auto& name = logger_pair.first;
+    auto& logger = logger_pair.second;
     // Check if logger has specific pattern
     bool has_pattern = false;
-    for (const auto& [pattern, _] : patterns_) {
+    for (const auto& pattern_pair : patterns_) {
+      const auto& pattern = pattern_pair.pattern;
       std::regex re(pattern);
       if (std::regex_match(name, re)) {
         has_pattern = true;
@@ -93,7 +96,9 @@ void LoggerRegistry::setComponentLevel(Component component, LogLevel level) {
 
   // Update existing component loggers
   std::string comp_prefix = componentToString(component);
-  for (auto& [name, logger] : loggers_) {
+  for (auto& logger_pair : loggers_) {
+    auto& name = logger_pair.first;
+    auto& logger = logger_pair.second;
     if (name.find(comp_prefix + ".") == 0) {
       logger->setLevel(level);
     }
@@ -107,7 +112,9 @@ void LoggerRegistry::setPattern(const std::string& pattern, LogLevel level) {
   patterns_.emplace_back(pattern, level);
 
   // Update existing loggers that match the pattern
-  for (auto& [name, logger] : loggers_) {
+  for (auto& logger_pair : loggers_) {
+    auto& name = logger_pair.first;
+    auto& logger = logger_pair.second;
     if (std::regex_match(name, patterns_.back().pattern)) {
       logger->setLevel(level);
     }
@@ -188,7 +195,9 @@ std::vector<std::string> LoggerRegistry::getLoggerNames() const {
   std::vector<std::string> names;
   names.reserve(loggers_.size());
 
-  for (const auto& [name, logger] : loggers_) {
+  for (const auto& logger_pair : loggers_) {
+    const auto& name = logger_pair.first;
+    const auto& logger = logger_pair.second;
     names.push_back(name);
   }
 
@@ -204,7 +213,9 @@ void LoggerRegistry::setBloomFilter(bool enabled,
     bloom_filter_ = BloomFilter<std::string>(size, num_hashes);
 
     // Add all existing logger names
-    for (const auto& [name, logger] : loggers_) {
+    for (const auto& logger_pair : loggers_) {
+    const auto& name = logger_pair.first;
+    const auto& logger = logger_pair.second;
       bloom_filter_.add(name);
       logger->setBloomFilterHint(&bloom_filter_);
     }
@@ -212,7 +223,9 @@ void LoggerRegistry::setBloomFilter(bool enabled,
     bloom_filter_.clear();
 
     // Clear bloom filter hints
-    for (auto& [name, logger] : loggers_) {
+    for (auto& logger_pair : loggers_) {
+    auto& name = logger_pair.first;
+    auto& logger = logger_pair.second;
       logger->setBloomFilterHint(nullptr);
     }
   }
