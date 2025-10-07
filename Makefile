@@ -107,6 +107,16 @@ verbose:
 	@./build.sh --verbose
 
 # Format all source files (C++ and TypeScript)
+format-cpp:
+	@echo "Formatting C++ files with clang-format..."
+	@if command -v clang-format >/dev/null 2>&1; then \
+	        find . -path "./build*" -prune -o \( -name "*.h" -o -name "*.cpp" -o -name "*.cc" \) -print | xargs clang-format -i; \
+	        echo "C++ formatting complete."; \
+	else \
+	        echo "Warning: clang-format not found, skipping C++ formatting."; \
+	        echo "Install clang-format to format C++ files: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	fi
+
 format:
 	@echo "Formatting all source files..."
 	@echo "Formatting C++ files with clang-format..."
@@ -709,6 +719,7 @@ help:
 	@echo ""
 	@echo "┌─ CODE QUALITY TARGETS ──────────────────────────────────────────────┐"
 	@echo "│ make format        Auto-format all source files (C++, TypeScript, Python, Rust, Ruby, C#, Go, Java) │"
+	@echo "│ make format-cpp    Format only C++ files with clang-format           │"
 	@echo "│ make format-ts     Format only TypeScript files with prettier        │"
 	@echo "│ make format-python Format only Python files with black               │"
 	@echo "│ make format-rust   Format only Rust files with rustfmt               │"
@@ -734,6 +745,7 @@ help:
 	@echo "│                                                                       │"
 	@echo "│ Development workflow:                                                │"
 	@echo "│   $$ make format          # Format all code (C++, TypeScript, Python, Rust, Ruby, C#, Go, Java) │"
+	@echo "│   $$ make format-cpp      # Format only C++ files                    │"
 	@echo "│   $$ make format-ts       # Format only TypeScript files             │"
 	@echo "│   $$ make format-python   # Format only Python files                 │"
 	@echo "│   $$ make format-rust     # Format only Rust files                   │"
