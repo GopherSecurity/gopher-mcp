@@ -17,9 +17,11 @@
 #ifndef MCP_TRANSPORT_SSL_CONTEXT_H
 #define MCP_TRANSPORT_SSL_CONTEXT_H
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "mcp/core/result.h"
