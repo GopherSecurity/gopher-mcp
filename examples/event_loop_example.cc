@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <fcntl.h>
 #include <iostream>
 #include <thread>
