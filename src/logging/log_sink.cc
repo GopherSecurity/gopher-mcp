@@ -1,11 +1,5 @@
 #include "mcp/logging/log_sink.h"
 
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-
 namespace mcp {
 namespace logging {
 
