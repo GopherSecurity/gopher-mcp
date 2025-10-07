@@ -251,13 +251,13 @@ CallToolResult executeSampleTool(const std::string& name,
                          : "";
     double a = holds_alternative<double>(a_it->second)
                    ? get<double>(a_it->second)
-                   : (holds_alternative<long long>(a_it->second)
-                          ? static_cast<double>(get<long long>(a_it->second))
+                   : (holds_alternative<int64_t>(a_it->second)
+                          ? static_cast<double>(get<int64_t>(a_it->second))
                           : 0.0);
     double b = holds_alternative<double>(b_it->second)
                    ? get<double>(b_it->second)
-                   : (holds_alternative<long long>(b_it->second)
-                          ? static_cast<double>(get<long long>(b_it->second))
+                   : (holds_alternative<int64_t>(b_it->second)
+                          ? static_cast<double>(get<int64_t>(b_it->second))
                           : 0.0);
 
     double calc_result = 0;
