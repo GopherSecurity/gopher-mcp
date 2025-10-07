@@ -106,10 +106,8 @@ VoidResult ActiveListener::listen() {
     socket_opts.close_on_exec = true;
     socket_opts.reuse_address = true;  // Essential for server sockets
 
-    auto socket = createListenSocket(
-        config_.address,
-        socket_opts,
-        config_.bind_to_port);
+    auto socket =
+        createListenSocket(config_.address, socket_opts, config_.bind_to_port);
 
     if (!socket) {
       Error err;

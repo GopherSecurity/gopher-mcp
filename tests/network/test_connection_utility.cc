@@ -285,12 +285,11 @@ TEST_F(ConnectionUtilityTest, ComprehensiveSocketStateValidation) {
       // For boolean options on macOS, any non-zero value means enabled
       if (opt.level == IPPROTO_TCP && opt.optname == TCP_NODELAY) {
         EXPECT_NE(0, value) << "Option " << opt.name << " should be enabled";
-      } else if (opt.level == SOL_SOCKET &&
-                 (opt.optname == SO_KEEPALIVE
+      } else if (opt.level == SOL_SOCKET && (opt.optname == SO_KEEPALIVE
 #ifdef SO_NOSIGPIPE
-                  || opt.optname == SO_NOSIGPIPE
+                                             || opt.optname == SO_NOSIGPIPE
 #endif
-                 )) {
+                                             )) {
         EXPECT_NE(0, value) << "Option " << opt.name << " should be enabled";
       } else {
         EXPECT_EQ(opt.expected_value, value)
