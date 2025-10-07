@@ -14,6 +14,7 @@
  * - Statistics and monitoring
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -503,7 +504,7 @@ class CallbackTracker {
   bool waitForCallback(const std::string& name,
                        std::chrono::milliseconds timeout) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return cv_.wait_for(lock, timeout, [this, &name]() {
+    return cv_.wait_for(lock, timeout, [this, &name]() -> bool {
       return std::find(callbacks_.begin(), callbacks_.end(), name) !=
              callbacks_.end();
     });
