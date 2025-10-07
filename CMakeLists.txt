@@ -248,7 +248,12 @@ if(MCP_USE_NGHTTP2)
         message(STATUS "nghttp2 is a larger dependency and requires compilation. Please be patient.")
         FetchContent_MakeAvailable(nghttp2)
         message(STATUS "nghttp2 download and configuration complete.")
-        
+
+        # Enable position-independent code for shared library linking
+        if(TARGET nghttp2_static)
+            set_target_properties(nghttp2_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        endif()
+
         set(NGHTTP2_FOUND TRUE)
         set(NGHTTP2_INCLUDE_DIRS 
             ${nghttp2_SOURCE_DIR}/lib/includes 
