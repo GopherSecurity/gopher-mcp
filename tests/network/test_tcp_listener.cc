@@ -269,8 +269,13 @@ TEST_F(TcpListenerTest, CreateAndEnable) {
     // Create socket using MCP socket interface
     auto socket = createListenSocket(
         address_,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        []() {
+          SocketCreationOptions opts;
+          opts.non_blocking = true;
+          opts.close_on_exec = true;
+          opts.reuse_address = true;
+          return opts;
+        }(),
         true);
 
     ASSERT_NE(socket, nullptr);
@@ -306,8 +311,13 @@ TEST_F(TcpListenerTest, RejectFraction) {
     // Create socket using MCP abstractions
     auto socket = createListenSocket(
         address_,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        []() {
+          SocketCreationOptions opts;
+          opts.non_blocking = true;
+          opts.close_on_exec = true;
+          opts.reuse_address = true;
+          return opts;
+        }(),
         true);
 
     ASSERT_NE(socket, nullptr);
@@ -336,8 +346,13 @@ TEST_F(TcpListenerTest, ConnectionAcceptanceWithMcpIo) {
   executeInDispatcher([this, &port]() {
     auto listen_socket = createListenSocket(
         address_,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        []() {
+          SocketCreationOptions opts;
+          opts.non_blocking = true;
+          opts.close_on_exec = true;
+          opts.reuse_address = true;
+          return opts;
+        }(),
         true);
 
     ASSERT_NE(listen_socket, nullptr);
@@ -456,8 +471,13 @@ TEST_F(TcpListenerTest, DataTransferUsingMcpBuffer) {
   executeInDispatcher([this, &port]() {
     auto listen_socket = createListenSocket(
         address_,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        []() {
+          SocketCreationOptions opts;
+          opts.non_blocking = true;
+          opts.close_on_exec = true;
+          opts.reuse_address = true;
+          return opts;
+        }(),
         true);
 
     ASSERT_NE(listen_socket, nullptr);
@@ -539,8 +559,13 @@ TEST_F(TcpListenerTest, BatchedAccepts) {
     // Create listener with batched accepts
     auto listen_socket = createListenSocket(
         address_,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        []() {
+          SocketCreationOptions opts;
+          opts.non_blocking = true;
+          opts.close_on_exec = true;
+          opts.reuse_address = true;
+          return opts;
+        }(),
         true);
 
     ASSERT_NE(listen_socket, nullptr);
