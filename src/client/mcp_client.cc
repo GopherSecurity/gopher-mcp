@@ -808,8 +808,8 @@ std::future<CallToolResult> McpClient::callTool(
   params["name"] = name;
   if (arguments.has_value()) {
     // Arguments is a Metadata object, merge it
-    for (const auto& [key, value] : arguments.value()) {
-      params["arguments." + key] = value;
+    for (const auto& arg : arguments.value()) {
+      params["arguments." + arg.first] = arg.second;
     }
   }
 
@@ -889,8 +889,8 @@ std::future<GetPromptResult> McpClient::getPrompt(
   params["name"] = name;
   if (arguments.has_value()) {
     // Arguments is a Metadata object, merge it
-    for (const auto& [key, value] : arguments.value()) {
-      params["arguments." + key] = value;
+    for (const auto& arg : arguments.value()) {
+      params["arguments." + arg.first] = arg.second;
     }
   }
 
@@ -1188,8 +1188,8 @@ std::vector<std::future<Response>> McpClient::sendBatch(
     const std::vector<std::pair<std::string, optional<Metadata>>>& requests) {
   std::vector<std::future<Response>> futures;
 
-  for (const auto& [method, params] : requests) {
-    futures.push_back(sendRequest(method, params));
+  for (const auto& request : requests) {
+    futures.push_back(sendRequest(request.first, request.second));
   }
 
   return futures;
