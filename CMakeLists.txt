@@ -194,7 +194,10 @@ if(MCP_USE_LLHTTP)
         
         add_library(llhttp STATIC ${LLHTTP_SOURCES})
         target_include_directories(llhttp PUBLIC ${llhttp_SOURCE_DIR}/include)
-        
+
+        # Enable position-independent code for shared library linking
+        set_target_properties(llhttp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
         # Disable warnings for third-party code
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(llhttp PRIVATE -w)
