@@ -1,13 +1,25 @@
-#include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <sys/stat.h>
 
 #include <gtest/gtest.h>
 
 #include "mcp/logging/log_sink.h"
 
 using namespace mcp::logging;
-namespace fs = std::__fs::filesystem;
+
+// Helper functions to replace std::filesystem
+namespace {
+bool file_exists(const std::string& path) {
+  struct stat buffer;
+  return (stat(path.c_str(), &buffer) == 0);
+}
+
+void remove_file(const std::string& path) {
+  std::remove(path.c_str());
+}
+}  // namespace
 
 class TestLogSink : public LogSink {
  public:
@@ -44,10 +56,10 @@ class LogSinkTest : public ::testing::Test {
   void TearDown() override {
     // Clean up test files
     for (const auto& file : test_files_) {
-      fs::remove(file);
+      remove_file(file);
       // Also remove rotated files
       for (int i = 1; i <= 10; ++i) {
-        fs::remove(file + "." + std::to_string(i));
+        remove_file(file + "." + std::to_string(i));
       }
     }
   }
@@ -152,7 +164,7 @@ TEST_F(LogSinkTest, RotatingFileSinkBasic) {
   }
 
   // Check file exists and has content
-  EXPECT_TRUE(fs::exists(test_file));
+  EXPECT_TRUE(file_exists(test_file));
 
   std::ifstream file(test_file);
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -185,8 +197,8 @@ TEST_F(LogSinkTest, RotatingFileSinkRotation) {
   }
 
   // Check that rotation happened
-  EXPECT_TRUE(fs::exists(test_file));
-  EXPECT_TRUE(fs::exists(test_file + ".1"));
+  EXPECT_TRUE(file_exists(test_file));
+  EXPECT_TRUE(file_exists(test_file + ".1"));
 }
 
 TEST_F(LogSinkTest, SinkGuardRAII) {
