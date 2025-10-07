@@ -533,10 +533,14 @@ std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
   SocketSharedPtr socket = config.socket;
   if (!socket && config.address) {
     // Create and bind socket
+    SocketCreationOptions socket_opts;
+    socket_opts.non_blocking = true;
+    socket_opts.close_on_exec = true;
+    socket_opts.reuse_address = true;
+
     auto socket_result = createListenSocket(
         config.address,
-        SocketCreationOptions{
-            .non_blocking = true, .close_on_exec = true, .reuse_address = true},
+        socket_opts,
         config.bind_to_port);
 
     if (socket_result) {
