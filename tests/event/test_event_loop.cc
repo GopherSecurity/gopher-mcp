@@ -457,7 +457,9 @@ TEST_F(EventLoopTest, DISABLED_Watchdog) {
   // Watchdog registration creates internal timers which need dispatcher thread
   class TestWatchdog : public WatchDog {
    public:
-    TestWatchdog() : thread_id_(std::this_thread::get_id()) {}
+    TestWatchdog()
+        : thread_id_(std::this_thread::get_id()),
+          last_touch_time_(std::chrono::steady_clock::now()) {}
 
     void touch() override {
       touch_count_++;
