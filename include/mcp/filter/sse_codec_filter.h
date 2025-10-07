@@ -5,6 +5,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/filter/filter_context.h"
 #include "mcp/filter/sse_codec_state_machine.h"
 #include "mcp/http/sse_parser.h"
 #include "mcp/network/filter.h"
@@ -96,11 +97,18 @@ class SseCodecFilter : public network::Filter {
   };
 
   /**
-   * Constructor
+   * Constructor with FilterCreationContext for config-driven filter chains
+   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param config Filter-specific configuration
+   */
+  SseCodecFilter(const filter::FilterCreationContext& context,
+                 const json::JsonValue& config);
+
+  /**
+   * Constructor (legacy)
    * @param callbacks Event callbacks for application layer
    * @param dispatcher Event dispatcher for async operations
-   * @param is_server True for server mode (encoding), false for client
-   * (decoding)
+   * @param is_server True for server mode (encoding), false for client (decoding)
    */
   SseCodecFilter(EventCallbacks& callbacks,
                  event::Dispatcher& dispatcher,
@@ -197,12 +205,32 @@ class SseCodecFilter : public network::Filter {
   void sendKeepAliveComment();
 
   // Components
-  EventCallbacks& event_callbacks_;
+  EventCallbacks* event_callbacks_;
   event::Dispatcher& dispatcher_;
   bool is_server_;  // True for server mode (encoding)
 
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
+
+  // Filter chain bridge for context-based construction
+  class SseFilterChainBridge : public EventCallbacks {
+  public:
+    explicit SseFilterChainBridge(SseCodecFilter& parent_filter);
+
+    // EventCallbacks implementation
+    void onEvent(const std::string& event,
+                 const std::string& data,
+                 const optional<std::string>& id) override;
+    void onComment(const std::string& comment) override;
+    void onError(const std::string& error) override;
+
+  private:
+    void forwardJsonRpcToNextFilter(const std::string& payload, bool end_stream);
+
+    SseCodecFilter& parent_filter_;
+};
+
+  std::unique_ptr<SseFilterChainBridge> filter_bridge_;
 
   std::unique_ptr<http::SseParser> parser_;
   std::unique_ptr<ParserCallbacks> parser_callbacks_;
