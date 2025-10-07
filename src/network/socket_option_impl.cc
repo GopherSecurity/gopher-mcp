@@ -17,6 +17,16 @@
 namespace mcp {
 namespace network {
 
+// Socket option name constants - must be defined before use
+#ifdef SO_ATTACH_REUSEPORT_CBPF
+#define MCP_ATTACH_REUSEPORT_CBPF \
+  MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF)
+#else
+#define MCP_ATTACH_REUSEPORT_CBPF SocketOptionName()
+#endif
+
+const SocketOptionName MCP_SO_ATTACH_REUSEPORT_CBPF = MCP_ATTACH_REUSEPORT_CBPF;
+
 // ===== Base SocketOption Implementation =====
 
 SocketOptionImpl::SocketOptionImpl(const SocketOptionName& optname,
@@ -448,17 +458,6 @@ const SocketOptionName SOCKET_TCP_KEEPCNT =
 #else
 const SocketOptionName SOCKET_TCP_KEEPCNT;
 #endif
-
-// Fix the macro reference
-#ifdef SO_ATTACH_REUSEPORT_CBPF
-#define MCP_ATTACH_REUSEPORT_CBPF \
-  MCP_MAKE_SOCKET_OPTION_NAME(SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF)
-#else
-#define MCP_ATTACH_REUSEPORT_CBPF SocketOptionName()
-#endif
-
-// Define the constant used in the code
-const SocketOptionName MCP_SO_ATTACH_REUSEPORT_CBPF = MCP_ATTACH_REUSEPORT_CBPF;
 
 // IPv6 transparent option
 #ifdef IPV6_TRANSPARENT
