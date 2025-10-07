@@ -533,8 +533,8 @@ void SslStateMachine::executeExitAction(SslSocketState state,
 void SslStateMachine::notifyStateChange(SslSocketState old_state,
                                         SslSocketState new_state) {
   // Already in dispatcher thread, no locking needed
-  for (const auto& [id, callback] : state_listeners_) {
-    callback(old_state, new_state);
+  for (const auto& listener : state_listeners_) {
+    listener.second(old_state, new_state);
   }
 }
 
