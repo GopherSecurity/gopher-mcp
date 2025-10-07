@@ -9,11 +9,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <sys/stat.h>
 #include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <sys/stat.h>
 
 #include "mcp/c_api/mcp_c_logging_api.h"
 #include "mcp/c_api/mcp_c_types.h"
@@ -29,9 +29,7 @@ bool file_exists(const std::string& path) {
   return (stat(path.c_str(), &buffer) == 0);
 }
 
-void remove_file(const std::string& path) {
-  std::remove(path.c_str());
-}
+void remove_file(const std::string& path) { std::remove(path.c_str()); }
 }  // namespace
 
 // Test fixture for logging API tests

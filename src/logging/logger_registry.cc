@@ -214,8 +214,8 @@ void LoggerRegistry::setBloomFilter(bool enabled,
 
     // Add all existing logger names
     for (const auto& logger_pair : loggers_) {
-    const auto& name = logger_pair.first;
-    const auto& logger = logger_pair.second;
+      const auto& name = logger_pair.first;
+      const auto& logger = logger_pair.second;
       bloom_filter_.add(name);
       logger->setBloomFilterHint(&bloom_filter_);
     }
@@ -224,8 +224,8 @@ void LoggerRegistry::setBloomFilter(bool enabled,
 
     // Clear bloom filter hints
     for (auto& logger_pair : loggers_) {
-    auto& name = logger_pair.first;
-    auto& logger = logger_pair.second;
+      auto& name = logger_pair.first;
+      auto& logger = logger_pair.second;
       logger->setBloomFilterHint(nullptr);
     }
   }

@@ -1,9 +1,9 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
-#include <sys/stat.h>
 
 #include <gtest/gtest.h>
+#include <sys/stat.h>
 
 #include "mcp/logging/log_sink.h"
 
@@ -16,9 +16,7 @@ bool file_exists(const std::string& path) {
   return (stat(path.c_str(), &buffer) == 0);
 }
 
-void remove_file(const std::string& path) {
-  std::remove(path.c_str());
-}
+void remove_file(const std::string& path) { std::remove(path.c_str()); }
 }  // namespace
 
 class TestLogSink : public LogSink {

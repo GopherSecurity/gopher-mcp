@@ -322,10 +322,8 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
     socket_opts.close_on_exec = true;
     socket_opts.reuse_address = true;
 
-    auto socket_result = createListenSocket(
-        config_.address,
-        socket_opts,
-        config_.bind_to_port);
+    auto socket_result =
+        createListenSocket(config_.address, socket_opts, config_.bind_to_port);
     std::cerr << "[DEBUG] createListenSocket returned: "
               << (socket_result ? "SUCCESS" : "NULL") << std::endl;
 
@@ -538,10 +536,8 @@ std::unique_ptr<TcpListenerImpl> ListenerFactory::createTcpListener(
     socket_opts.close_on_exec = true;
     socket_opts.reuse_address = true;
 
-    auto socket_result = createListenSocket(
-        config.address,
-        socket_opts,
-        config.bind_to_port);
+    auto socket_result =
+        createListenSocket(config.address, socket_opts, config.bind_to_port);
 
     if (socket_result) {
       socket = std::move(socket_result);
