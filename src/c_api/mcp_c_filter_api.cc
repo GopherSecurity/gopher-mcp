@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "mcp/buffer.h"
+#include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
@@ -512,9 +513,28 @@ MCP_API void mcp_filter_chain_release(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 MCP_API mcp_filter_manager_t mcp_filter_manager_create(
     mcp_connection_t connection, mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   try {
-    // TODO: Get actual connection and dispatcher objects
-    // For now, create with nullptrs
-    auto wrapper = std::make_shared<FilterManagerWrapper>(nullptr, nullptr);
+    // Get actual connection and dispatcher objects from the handles
+    mcp::network::Connection* conn = nullptr;
+    mcp::event::Dispatcher* disp = nullptr;
+
+    if (connection) {
+      // Cast the opaque handle to the actual implementation
+      auto conn_impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
+      if (conn_impl && conn_impl->connection) {
+        conn = conn_impl->connection.get();
+      }
+    }
+
+    if (dispatcher) {
+      // Cast the opaque handle to the actual implementation
+      auto disp_impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+      if (disp_impl && disp_impl->dispatcher) {
+        disp = disp_impl->dispatcher.get();
+      }
+    }
+
+    // Now create wrapper with actual objects instead of nullptr
+    auto wrapper = std::make_shared<FilterManagerWrapper>(conn, disp);
     return g_filter_manager_manager.store(wrapper);
   } catch (...) {
     return 0;
