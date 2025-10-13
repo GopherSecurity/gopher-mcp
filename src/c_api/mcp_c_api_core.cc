@@ -80,8 +80,8 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     impl->running = true;
     impl->dispatcher_thread_id = std::this_thread::get_id();
 
-    // Run the event loop (blocks)
-    impl->dispatcher->run(mcp::event::RunType::Block);
+    // Run the event loop (blocks until exit() called)
+    impl->dispatcher->run(mcp::event::RunType::RunUntilExit);
 
     impl->running = false;
     return MCP_OK;
@@ -109,8 +109,8 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
         impl->dispatcher->createTimer([impl]() { impl->dispatcher->exit(); });
     timer->enableTimer(std::chrono::milliseconds(timeout_ms));
 
-    // Run the event loop
-    impl->dispatcher->run(mcp::event::RunType::Block);
+    // Run the event loop until exit() is invoked or the timer fires
+    impl->dispatcher->run(mcp::event::RunType::RunUntilExit);
 
     impl->running = false;
     return MCP_OK;
