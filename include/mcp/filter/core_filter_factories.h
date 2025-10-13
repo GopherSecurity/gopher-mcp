@@ -29,5 +29,34 @@ void registerSseCodecFilterFactory();
  */
 void registerJsonRpcDispatcherFilterFactory();
 
+/**
+ * Register rate limit filter factory with the global registry
+ * This function should be called during application initialization
+ */
+void registerRateLimitFilterFactory();
+
+/**
+ * Register circuit breaker filter factory with the global registry
+ * This function should be called during application initialization
+ */
+void registerCircuitBreakerFilterFactory();
+
+/**
+ * Register metrics filter factory with the global registry
+ * This function should be called during application initialization
+ */
+void registerMetricsFilterFactory();
+
+/**
+ * Register all built-in core filters
+ *
+ * This function ensures filter factory registrars are referenced,
+ * preventing linker dead-code elimination in static builds.
+ * The actual registration happens via static initializers.
+ *
+ * Safe to call multiple times.
+ */
+void registerAllCoreFilters();
+
 }  // namespace filter
 }  // namespace mcp
