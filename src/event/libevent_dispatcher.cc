@@ -15,40 +15,6 @@ namespace event {
 
 namespace {
 
-// Global once_flag to ensure libevent initialization happens only once across
-// all libraries that link this code
-static std::once_flag& getLibeventInitFlag() {
-  static std::once_flag init_flag;
-  return init_flag;
-}
-
-// Initialize libevent for thread safety - called once per process
-static void initializeLibeventGlobally() {
-#ifdef _WIN32
-  evthread_use_windows_threads();
-#else
-  evthread_use_pthreads();
-#endif
-  // Note: event_enable_debug_mode() is NOT called automatically because:
-  // 1. It can only be called once per process
-  // 2. When this code is compiled into multiple libraries (static/shared),
-  //    each library's static initializer would try to call it
-  // 3. This causes "event_enable_debug_mode was called twice!" errors
-  // Users can call event_enable_debug_mode() explicitly before creating
-  // dispatchers if needed.
-}
-
-// Initialize libevent for thread safety
-struct LibeventInitializer {
-  LibeventInitializer() {
-    // Use call_once to ensure initialization only happens once across the entire
-    // process, even when this code is compiled into multiple libraries
-    std::call_once(getLibeventInitFlag(), initializeLibeventGlobally);
-  }
-};
-
-static LibeventInitializer libevent_initializer;
-
 // Convert our event types to libevent flags
 short toLibeventEvents(uint32_t events, FileTriggerType trigger) {
   short result = 0;
@@ -99,10 +65,31 @@ uint32_t fromLibeventEvents(short events) {
   return result;
 }
 
+// Lazy initialization for libevent threading support
+// Uses std::call_once to ensure thread-safe one-time initialization
+// This avoids blocking in static initialization which was causing hangs
+void ensureLibeventThreadingInitialized() {
+  static std::once_flag init_flag;
+  std::call_once(init_flag, []() {
+#ifdef _WIN32
+    evthread_use_windows_threads();
+#else
+    evthread_use_pthreads();
+#endif
+    // Enable debug mode in debug builds
+#ifndef NDEBUG
+    event_enable_debug_mode();
+#endif
+  });
+}
+
 }  // namespace
 
 // LibeventDispatcher implementation
 LibeventDispatcher::LibeventDispatcher(const std::string& name) : name_(name) {
+  // Initialize libevent threading support on first use (lazy initialization)
+  ensureLibeventThreadingInitialized();
+
   // Don't set thread_id_ here - it should only be set when run() is called
   initializeLibevent();
   updateApproximateMonotonicTime();
@@ -284,6 +271,8 @@ SignalEventPtr LibeventDispatcher::listenForSignal(int signal_num,
 }
 
 void LibeventDispatcher::run(RunType type) {
+  // Reset exit flag to allow dispatcher reuse
+  exit_requested_ = false;
   thread_id_ = std::this_thread::get_id();
 
   // Run any pending post callbacks before starting
