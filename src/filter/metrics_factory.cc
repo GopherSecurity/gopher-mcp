@@ -418,8 +418,28 @@ class MetricsFilterFactory : public FilterFactory {
   mutable FilterFactoryMetadata metadata_;
 };
 
-// Register the factory with the filter registry
+/**
+ * Explicit registration function for static linking support
+ * This ensures the factory is registered even when static initializers don't run
+ */
+void registerMetricsFilterFactory() {
+  static bool registered = false;
+  if (!registered) {
+    FilterRegistry::instance().registerFactory(
+        "metrics",
+        std::make_shared<MetricsFilterFactory>());
+    registered = true;
+    GOPHER_LOG(Debug, "MetricsFilterFactory explicitly registered");
+  }
+}
+
+// Register the factory with the filter registry via static initializer
 REGISTER_FILTER_FACTORY(MetricsFilterFactory, "metrics")
+
+// Export for static linking - using magic number as sentinel value
+extern "C" {
+  void* metrics_filter_registrar_ref = (void*)0xDEADBEEF;
+}
 
 }  // namespace filter
 }  // namespace mcp
