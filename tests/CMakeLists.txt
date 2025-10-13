@@ -106,7 +106,10 @@ if(BUILD_C_API)
     add_executable(test_json_chain_creation_simple c_api/test_json_chain_creation_simple.cc)
     add_executable(test_chain_from_json c_api/test_chain_from_json.cc)
     add_executable(test_unified_chain_handles c_api/test_unified_chain_handles.cc)
-    
+    add_executable(test_filter_only_api c_api/test_filter_only_api.cc)
+    add_executable(test_filter_only_api_simple c_api/test_filter_only_api_simple.cc)
+    add_executable(test_filter_registration_simple c_api/test_filter_registration_simple.cc)
+
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
     # - test_c_api_types.cc  
@@ -832,7 +835,60 @@ if(BUILD_C_API)
     if(LLHTTP_FOUND)
         target_link_libraries(test_unified_chain_handles llhttp)
     endif()
-    
+
+    target_link_libraries(test_filter_only_api
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+
+    if(NGHTTP2_FOUND)
+        target_link_libraries(test_filter_only_api nghttp2)
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_filter_only_api llhttp)
+    endif()
+
+    # Simple version of filter-only API test (without dispatcher complexity)
+    target_link_libraries(test_filter_only_api_simple
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+
+    if(NGHTTP2_FOUND)
+        target_link_libraries(test_filter_only_api_simple nghttp2)
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_filter_only_api_simple llhttp)
+    endif()
+
+    # Simple filter registration test (verifies all core filters are registered)
+    target_link_libraries(test_filter_registration_simple
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+
+    if(NGHTTP2_FOUND)
+        target_link_libraries(test_filter_registration_simple nghttp2)
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_filter_registration_simple llhttp)
+    endif()
+
     target_link_libraries(test_mcp_c_raii
         gopher_mcp_c_static  # Use static library for access to internal symbols
         gopher-mcp-static
