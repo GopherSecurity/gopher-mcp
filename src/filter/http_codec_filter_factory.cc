@@ -64,5 +64,10 @@ struct HttpCodecFilterRegistrar {
 static HttpCodecFilterRegistrar http_codec_filter_registrar;
 }
 
+// Export for static linking - using magic number as sentinel value
+extern "C" {
+  void* http_codec_filter_registrar_ref = (void*)0xDEADBEEF;
+}
+
 }  // namespace filter
 }  // namespace mcp

@@ -63,5 +63,10 @@ struct JsonRpcDispatcherFilterRegistrar {
 static JsonRpcDispatcherFilterRegistrar json_rpc_dispatcher_filter_registrar;
 }
 
+// Export for static linking - using magic number as sentinel value
+extern "C" {
+  void* json_rpc_dispatcher_registrar_ref = (void*)0xDEADBEEF;
+}
+
 }  // namespace filter
 }  // namespace mcp
