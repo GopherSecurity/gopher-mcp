@@ -7,12 +7,30 @@
 
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include "mcp/c_api/mcp_c_api_json.h"
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/logging/log_macros.h"
 
 #define GOPHER_LOG_COMPONENT "capi.json.converter"
+
+// Forward declare internal structure so we can access it directly
+struct mcp_json_value_impl {
+  mcp_json_type_t type;
+  std::variant<std::monostate,                                    // null
+               bool,                                              // boolean
+               double,                                            // number
+               std::string,                                       // string
+               std::vector<mcp_json_value_t>,                     // array
+               std::unordered_map<std::string, mcp_json_value_t>  // object
+               >
+      value;
+
+  mcp_json_value_impl() : type(MCP_JSON_TYPE_NULL), value(std::monostate{}) {}
+};
 
 namespace mcp {
 namespace c_api {
@@ -73,23 +91,90 @@ mcp_json_value_t convertToHandle(const json::JsonValue& json) {
 }  // anonymous namespace
 
 json::JsonValue convertFromCApi(mcp_json_value_t json) {
+  fprintf(stderr, "[convertFromCApi] ENTRY with json=%p\n", json); fflush(stderr);
+
   if (!json) {
+    fprintf(stderr, "[convertFromCApi] Null json, returning empty JsonValue\n"); fflush(stderr);
     return json::JsonValue();
   }
 
-  char* serialized = mcp_json_stringify(json);
-  if (!serialized) {
-    throw std::runtime_error("Unable to stringify C API JSON value");
-  }
+  // Get the type of the C API JSON value
+  mcp_json_type_t type = mcp_json_get_type(json);
+  fprintf(stderr, "[convertFromCApi] Type: %d\n", type); fflush(stderr);
 
-  try {
-    json::JsonValue value = json::JsonValue::parse(serialized);
-    ::mcp_string_free(serialized);
-    return value;
-  } catch (const std::exception& e) {
-    ::mcp_string_free(serialized);
-    GOPHER_LOG(Error, "Failed to convert C API JSON to JsonValue: {}", e.what());
-    throw std::runtime_error(std::string("JSON conversion failed: ") + e.what());
+  switch (type) {
+    case MCP_JSON_TYPE_NULL:
+      fprintf(stderr, "[convertFromCApi] Returning null JsonValue\n"); fflush(stderr);
+      return json::JsonValue();
+
+    case MCP_JSON_TYPE_BOOL: {
+      mcp_bool_t value = mcp_json_get_bool(json);
+      fprintf(stderr, "[convertFromCApi] Returning bool: %d\n", value); fflush(stderr);
+      return json::JsonValue(value == MCP_TRUE);
+    }
+
+    case MCP_JSON_TYPE_NUMBER: {
+      double value = mcp_json_get_number(json);
+      fprintf(stderr, "[convertFromCApi] Returning number: %f\n", value); fflush(stderr);
+      return json::JsonValue(value);
+    }
+
+    case MCP_JSON_TYPE_STRING: {
+      const char* value = mcp_json_get_string(json);
+      fprintf(stderr, "[convertFromCApi] Returning string: %s\n", value ? value : "(null)"); fflush(stderr);
+      return json::JsonValue(value ? std::string(value) : std::string());
+    }
+
+    case MCP_JSON_TYPE_ARRAY: {
+      fprintf(stderr, "[convertFromCApi] Converting array\n"); fflush(stderr);
+      json::JsonValue array = json::JsonValue::array();
+      size_t size = mcp_json_array_size(json);
+      fprintf(stderr, "[convertFromCApi] Array size: %zu\n", size); fflush(stderr);
+
+      for (size_t i = 0; i < size; ++i) {
+        mcp_json_value_t elem = mcp_json_array_get(json, i);
+        if (elem) {
+          fprintf(stderr, "[convertFromCApi] Converting array element %zu\n", i); fflush(stderr);
+          array.push_back(convertFromCApi(elem));
+        } else {
+          fprintf(stderr, "[convertFromCApi] Array element %zu is null, appending null\n", i); fflush(stderr);
+          array.push_back(json::JsonValue());
+        }
+      }
+      fprintf(stderr, "[convertFromCApi] Array conversion complete\n"); fflush(stderr);
+      return array;
+    }
+
+    case MCP_JSON_TYPE_OBJECT: {
+      fprintf(stderr, "[convertFromCApi] Converting object\n"); fflush(stderr);
+      json::JsonValue object = json::JsonValue::object();
+
+      // Access the internal structure to iterate over object keys
+      // mcp_json_value_t is actually mcp_json_value_impl*
+      auto* impl = reinterpret_cast<mcp_json_value_impl*>(json);
+
+      if (impl->type == MCP_JSON_TYPE_OBJECT) {
+        auto& map = std::get<std::unordered_map<std::string, mcp_json_value_t>>(impl->value);
+        fprintf(stderr, "[convertFromCApi] Object has %zu keys\n", map.size()); fflush(stderr);
+
+        for (const auto& [key, value] : map) {
+          fprintf(stderr, "[convertFromCApi] Converting object key: %s\n", key.c_str()); fflush(stderr);
+          if (value) {
+            object[key] = convertFromCApi(value);
+          } else {
+            fprintf(stderr, "[convertFromCApi] Value for key '%s' is null\n", key.c_str()); fflush(stderr);
+            object[key] = json::JsonValue();
+          }
+        }
+      }
+
+      fprintf(stderr, "[convertFromCApi] Object conversion complete\n"); fflush(stderr);
+      return object;
+    }
+
+    default:
+      fprintf(stderr, "[convertFromCApi] Unknown type: %d\n", type); fflush(stderr);
+      throw std::runtime_error("Unknown C API JSON type");
   }
 }
 
