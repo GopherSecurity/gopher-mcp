@@ -367,8 +367,28 @@ class CircuitBreakerFilterFactory : public FilterFactory {
   mutable FilterFactoryMetadata metadata_;
 };
 
-// Register the factory with the filter registry
+/**
+ * Explicit registration function for static linking support
+ * This ensures the factory is registered even when static initializers don't run
+ */
+void registerCircuitBreakerFilterFactory() {
+  static bool registered = false;
+  if (!registered) {
+    FilterRegistry::instance().registerFactory(
+        "circuit_breaker",
+        std::make_shared<CircuitBreakerFilterFactory>());
+    registered = true;
+    GOPHER_LOG(Debug, "CircuitBreakerFilterFactory explicitly registered");
+  }
+}
+
+// Register the factory with the filter registry via static initializer
 REGISTER_FILTER_FACTORY(CircuitBreakerFilterFactory, "circuit_breaker")
+
+// Export for static linking - using magic number as sentinel value
+extern "C" {
+  void* circuit_breaker_filter_registrar_ref = (void*)0xDEADBEEF;
+}
 
 }  // namespace filter
 }  // namespace mcp

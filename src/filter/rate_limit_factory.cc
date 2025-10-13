@@ -380,8 +380,28 @@ class RateLimitFilterFactory : public FilterFactory {
   mutable FilterFactoryMetadata metadata_;
 };
 
-// Register the factory with the filter registry
+/**
+ * Explicit registration function for static linking support
+ * This ensures the factory is registered even when static initializers don't run
+ */
+void registerRateLimitFilterFactory() {
+  static bool registered = false;
+  if (!registered) {
+    FilterRegistry::instance().registerFactory(
+        "rate_limit",
+        std::make_shared<RateLimitFilterFactory>());
+    registered = true;
+    GOPHER_LOG(Debug, "RateLimitFilterFactory explicitly registered");
+  }
+}
+
+// Register the factory with the filter registry via static initializer
 REGISTER_FILTER_FACTORY(RateLimitFilterFactory, "rate_limit")
+
+// Export for static linking - using magic number as sentinel value
+extern "C" {
+  void* rate_limit_filter_registrar_ref = (void*)0xDEADBEEF;
+}
 
 }  // namespace filter
 }  // namespace mcp
