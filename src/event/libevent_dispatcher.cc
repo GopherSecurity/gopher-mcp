@@ -63,9 +63,12 @@ uint32_t fromLibeventEvents(short events) {
   return result;
 }
 
-// Initialize libevent for thread safety
-struct LibeventInitializer {
-  LibeventInitializer() {
+// Lazy initialization for libevent threading support
+// Uses std::call_once to ensure thread-safe one-time initialization
+// This avoids blocking in static initialization which was causing hangs
+void ensureLibeventThreadingInitialized() {
+  static std::once_flag init_flag;
+  std::call_once(init_flag, []() {
 #ifdef _WIN32
     evthread_use_windows_threads();
 #else
@@ -75,15 +78,16 @@ struct LibeventInitializer {
 #ifndef NDEBUG
     event_enable_debug_mode();
 #endif
-  }
-};
-
-static LibeventInitializer libevent_initializer;
+  });
+}
 
 }  // namespace
 
 // LibeventDispatcher implementation
 LibeventDispatcher::LibeventDispatcher(const std::string& name) : name_(name) {
+  // Initialize libevent threading support on first use (lazy initialization)
+  ensureLibeventThreadingInitialized();
+
   // Don't set thread_id_ here - it should only be set when run() is called
   initializeLibevent();
   updateApproximateMonotonicTime();
@@ -265,6 +269,8 @@ SignalEventPtr LibeventDispatcher::listenForSignal(int signal_num,
 }
 
 void LibeventDispatcher::run(RunType type) {
+  // Reset exit flag to allow dispatcher reuse
+  exit_requested_ = false;
   thread_id_ = std::this_thread::get_id();
 
   // Run any pending post callbacks before starting
