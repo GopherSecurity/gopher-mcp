@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "mcp/c_api/mcp_c_filter_api.h"
@@ -264,12 +265,13 @@ void populateAssemblyResult(const mcp::filter::AssemblyResult& assembly,
 
 class FilterNode {
  public:
-  FilterNode(const mcp_filter_node_t& config)
+  FilterNode(const mcp_filter_node_t& config, std::string type = {})
       : filter_(config.filter),
         name_(config.name ? config.name : ""),
         priority_(config.priority),
         enabled_(config.enabled),
-        bypass_on_error_(config.bypass_on_error) {}
+        bypass_on_error_(config.bypass_on_error),
+        type_(std::move(type)) {}
 
   mcp_filter_t getFilter() const { return filter_; }
   const std::string& getName() const { return name_; }
@@ -278,6 +280,9 @@ class FilterNode {
   bool shouldBypassOnError() const { return bypass_on_error_; }
 
   void setEnabled(bool enabled) { enabled_.store(enabled); }
+
+  const std::string& getType() const { return type_; }
+  void setType(std::string type) { type_ = std::move(type); }
 
   // Statistics
   void recordProcessing(std::chrono::microseconds duration) {
@@ -303,6 +308,7 @@ class FilterNode {
   uint32_t priority_;
   std::atomic<bool> enabled_;
   bool bypass_on_error_;
+  std::string type_;
 
   // Statistics
   std::atomic<uint64_t> total_processed_{0};
@@ -718,7 +724,7 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
     ::mcp::filter::AssemblyResult assembly(false);
     assembly.error_message = "Dispatcher handle is required";
     populateAssemblyResult(assembly, 0, out);
-    return MCP_ERROR_INVALID_ARGUMENT;
+    return MCP_OK;
   }
 
   auto* dispatcher_impl =
@@ -727,7 +733,7 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
     ::mcp::filter::AssemblyResult assembly(false);
     assembly.error_message = "Dispatcher is not initialized";
     populateAssemblyResult(assembly, 0, out);
-    return MCP_ERROR_INVALID_STATE;
+    return MCP_OK;
   }
 
   try {
@@ -800,7 +806,8 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
               MCP_FALSE,
               nullptr};
 
-          chain->addNode(std::make_unique<FilterNode>(node));
+          chain->addNode(std::make_unique<FilterNode>(
+              node, filter_cfg.type));
         }
 
         handles_adopted = true;
@@ -827,14 +834,14 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
 
     populateAssemblyResult(assembly, handle, out);
 
-    return assembly.success ? MCP_OK : MCP_ERROR_INVALID_STATE;
+    return MCP_OK;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
   } catch (const std::exception& e) {
     ::mcp::filter::AssemblyResult assembly(false);
     assembly.error_message = e.what();
     populateAssemblyResult(assembly, 0, out);
-    return MCP_ERROR_UNKNOWN;
+    return MCP_OK;
   }
 }
 
@@ -975,7 +982,7 @@ MCP_API mcp_result_t mcp_chain_validate_json(
         mcp::filter::FilterRegistry::instance());
     auto validation = assembler.validateFilterChain(chain_config);
     mcp::filter_chain::populateValidationResult(validation, result);
-    return validation.valid ? MCP_OK : MCP_ERROR_INVALID_ARGUMENT;
+    return MCP_OK;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
   } catch (const std::exception& e) {
@@ -1005,7 +1012,7 @@ MCP_API mcp_result_t mcp_chain_validate_config(
         mcp::filter::FilterRegistry::instance());
     auto validation = assembler.validateFilterChain(chain_config);
     mcp::filter_chain::populateValidationResult(validation, result);
-    return validation.valid ? MCP_OK : MCP_ERROR_INVALID_ARGUMENT;
+    return MCP_OK;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
   } catch (const std::exception& e) {
@@ -1058,7 +1065,7 @@ MCP_API mcp_result_t mcp_chain_assemble_from_json(
     failure.success = false;
     failure.error_message = e.what();
     mcp::filter_chain::populateAssemblyResult(failure, 0, result);
-    return MCP_ERROR_UNKNOWN;
+    return MCP_OK;
   }
 }
 
@@ -1082,7 +1089,7 @@ MCP_API mcp_result_t mcp_chain_assemble_from_config(
     failure.success = false;
     failure.error_message = e.what();
     mcp::filter_chain::populateAssemblyResult(failure, 0, result);
-    return MCP_ERROR_UNKNOWN;
+    return MCP_OK;
   }
 }
 
@@ -1378,36 +1385,26 @@ MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
         
         // Try to determine filter type from registry or use a generic type
         // For now we'll use the node name as a basis for the type
-        std::string filter_type = node->getName();
-        
-        // Check if this is one of the known filter types
-        if (filter_type.find("http_codec") != std::string::npos) {
-          filter_type = "http_codec";
-        } else if (filter_type.find("sse_codec") != std::string::npos) {
-          filter_type = "sse_codec";
-        } else if (filter_type.find("json_rpc") != std::string::npos) {
-          filter_type = "json_rpc";
-        } else if (filter_type.find("passthrough") != std::string::npos) {
-          filter_type = "passthrough";
-        } else if (filter_type.find("buffer") != std::string::npos) {
-          filter_type = "buffer";
-        } else if (filter_type.find("router") != std::string::npos) {
-          filter_type = "router";
-        } else if (filter_type.find("transform") != std::string::npos) {
-          filter_type = "transform";
-        } else if (filter_type.find("validation") != std::string::npos) {
-          filter_type = "validation";
-        } else if (filter_type.find("rate_limit") != std::string::npos) {
-          filter_type = "rate_limit";
-        } else if (filter_type.find("metrics") != std::string::npos) {
-          filter_type = "metrics";
-        } else if (filter_type.find("logging") != std::string::npos) {
-          filter_type = "logging";
-        } else {
-          // Default to passthrough if we can't determine the type
-          filter_type = "passthrough";
+        std::string filter_type = node->getType();
+        if (filter_type.empty()) {
+          // Fallback to heuristic based on node name for legacy chains
+          filter_type = node->getName();
+
+          if (filter_type.find("http_codec") != std::string::npos) {
+            filter_type = "http.codec";
+          } else if (filter_type.find("sse_codec") != std::string::npos) {
+            filter_type = "sse.codec";
+          } else if (filter_type.find("json_rpc") != std::string::npos) {
+            filter_type = "json_rpc.dispatcher";
+          } else if (filter_type.find("rate_limit") != std::string::npos) {
+            filter_type = "rate_limit";
+          } else if (filter_type.find("metrics") != std::string::npos) {
+            filter_type = "metrics";
+          } else if (filter_type.find("circuit_breaker") != std::string::npos) {
+            filter_type = "circuit_breaker";
+          }
         }
-        
+
         filter_obj["type"] = mcp::json::JsonValue(filter_type);
         filter_obj["name"] = mcp::json::JsonValue(node->getName());
         filter_obj["priority"] = mcp::json::JsonValue(static_cast<int64_t>(node->getPriority()));
