@@ -929,7 +929,7 @@ std::future<GetPromptResult> McpClient::getPrompt(
 std::future<VoidResult> McpClient::setLogLevel(
     enums::LoggingLevel::Value level) {
   auto params = make_metadata();
-  params["level"] = static_cast<int>(level);
+  params["level"] = static_cast<int64_t>(level);
 
   auto future = sendRequest("logging/setLevel", make_optional(params));
 
@@ -970,7 +970,7 @@ std::future<CreateMessageResult> McpClient::createMessage(
   auto params = make_metadata();
 
   // Add messages (simplified - real implementation needs proper serialization)
-  params["messages.count"] = static_cast<int>(messages.size());
+  params["messages.count"] = static_cast<int64_t>(messages.size());
 
   // Add optional preferences
   if (preferences.has_value()) {
@@ -995,7 +995,7 @@ std::future<CreateMessageResult> McpClient::createMessage(
   for (size_t i = 0; i < messages.size(); ++i) {
     const auto& msg = messages[i];
     std::string prefix = "messages." + std::to_string(i) + ".";
-    builder.add(prefix + "role", static_cast<int>(msg.role));
+    builder.add(prefix + "role", static_cast<int64_t>(msg.role));
 
     // Handle content based on type
     if (holds_alternative<TextContent>(msg.content)) {
