@@ -331,7 +331,7 @@ TEST_F(RequestManagerTest, ConcurrentRequests) {
   std::vector<int> ids;
 
   for (int i = 0; i < num_requests; ++i) {
-    auto params = make<Metadata>().add("index", i).build();
+    auto params = make<Metadata>().add("index", static_cast<int64_t>(i)).build();
     ids.push_back(request_manager->addRequest(
         "test.method." + std::to_string(i), params));
   }

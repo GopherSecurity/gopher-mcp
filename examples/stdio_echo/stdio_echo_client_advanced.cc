@@ -44,7 +44,7 @@ void runDemoScenarios(AdvancedEchoClient& client) {
     std::cerr << "[DEMO] Scenario 1: Simple echo request" << std::endl;
     auto metadata = make<Metadata>()
                         .add("message", "Hello, Echo Server!")
-                        .add("test_id", 1)
+                        .add("test_id", static_cast<int64_t>(1))
                         .build();
 
     auto future = client.sendRequest("echo", metadata);
@@ -68,7 +68,7 @@ void runDemoScenarios(AdvancedEchoClient& client) {
 
     for (int i = 0; i < 5; ++i) {
       auto metadata = make<Metadata>()
-                          .add("batch_item", i)
+                          .add("batch_item", static_cast<int64_t>(i))
                           .add("message", "Batch message " + std::to_string(i))
                           .build();
       batch.push_back({"echo/batch", metadata});

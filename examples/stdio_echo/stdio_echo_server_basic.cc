@@ -90,8 +90,8 @@ class BasicEchoServer : public echo::EchoServerBase {
                     .add("server", config_.server_name)
                     .add("params_count",
                          request.params.has_value()
-                             ? static_cast<int>(request.params.value().size())
-                             : 0)
+                             ? static_cast<int64_t>(request.params.value().size())
+                             : static_cast<int64_t>(0))
                     .add("timestamp", std::chrono::system_clock::now()
                                           .time_since_epoch()
                                           .count())

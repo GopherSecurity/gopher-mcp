@@ -204,7 +204,7 @@ TEST_F(MCPTypeHelpersTest, MetadataBasic) {
   // Test adding different types
   add_metadata(meta1, "null", nullptr);
   add_metadata(meta1, "bool", true);
-  add_metadata(meta1, "int", 42);
+  add_metadata(meta1, "int", static_cast<int64_t>(42));
   add_metadata(meta1, "double", 3.14);
   add_metadata(meta1, "string", std::string("test"));
 
@@ -235,7 +235,7 @@ TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
   EXPECT_TRUE(mcp::holds_alternative<std::string>(meta[""]));
 
   // Test overwriting values
-  add_metadata(meta, "key", 1);
+  add_metadata(meta, "key", static_cast<int64_t>(1));
   EXPECT_TRUE(mcp::holds_alternative<int64_t>(meta["key"]));
 
   add_metadata(meta, "key", "overwritten");
@@ -248,7 +248,7 @@ TEST_F(MCPTypeHelpersTest, MetadataEdgeCases) {
 
   // Test large metadata
   for (int i = 0; i < 1000; ++i) {
-    add_metadata(meta, "key" + std::to_string(i), i);
+    add_metadata(meta, "key" + std::to_string(i), static_cast<int64_t>(i));
   }
   EXPECT_GE(meta.size(), 1000u);
 }
@@ -740,7 +740,7 @@ TEST_F(MCPTypeHelpersTest, PerformanceLargeMetadata) {
 
   auto meta = make_metadata();
   for (int i = 0; i < 10000; ++i) {
-    add_metadata(meta, "key_" + std::to_string(i), i);
+    add_metadata(meta, "key_" + std::to_string(i), static_cast<int64_t>(i));
   }
 
   auto end = std::chrono::steady_clock::now();
@@ -1010,7 +1010,7 @@ TEST_F(MCPTypeHelpersTest, IntegrationCompleteRequest) {
   // Build a complete tool call request
   auto tool_params = make_metadata();
   add_metadata(tool_params, "expression", "sqrt(16) + 3^2");
-  add_metadata(tool_params, "precision", 2);
+  add_metadata(tool_params, "precision", static_cast<int64_t>(2));
 
   auto call_params = make_tool_call("calculator", tool_params);
 

@@ -149,8 +149,8 @@ TEST(BuildersTest, InitializeResultBuilder) {
 TEST(BuildersTest, CallToolRequestBuilder) {
   auto request = make<CallToolRequest>("calculator")
                      .argument("operation", "add")
-                     .argument("x", 5)
-                     .argument("y", 3)
+                     .argument("x", static_cast<int64_t>(5))
+                     .argument("y", static_cast<int64_t>(3))
                      .build();
 
   EXPECT_EQ(request.name, "calculator");

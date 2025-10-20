@@ -265,7 +265,7 @@ TEST_F(MCPSerializationTest, JsonRpcRequest) {
   // Request with params
   Metadata params = make_metadata();
   add_metadata(params, "key1", "value1");
-  add_metadata(params, "key2", 123);
+  add_metadata(params, "key2", static_cast<int64_t>(123));
   jsonrpc::Request param_req(make_request_id("req-456"), "method_with_params",
                              params);
   testRoundTrip(param_req);
@@ -286,7 +286,7 @@ TEST_F(MCPSerializationTest, JsonRpcResponse) {
   // Response with metadata result
   Metadata result_meta = make_metadata();
   add_metadata(result_meta, "status", "complete");
-  add_metadata(result_meta, "count", 42);
+  add_metadata(result_meta, "count", static_cast<int64_t>(42));
   auto meta_resp = jsonrpc::Response::success(make_request_id(2), result_meta);
   testRoundTrip(meta_resp);
 }
@@ -298,7 +298,7 @@ TEST_F(MCPSerializationTest, JsonRpcNotification) {
   // Notification with params
   Metadata notif_params = make_metadata();
   add_metadata(notif_params, "event", "update");
-  add_metadata(notif_params, "timestamp", 1234567890);
+  add_metadata(notif_params, "timestamp", static_cast<int64_t>(1234567890));
   jsonrpc::Notification param_notif("event_notification", notif_params);
   testRoundTrip(param_notif);
 }
@@ -410,8 +410,8 @@ TEST_F(MCPSerializationTest, CallToolRequest) {
   // Tool call with arguments
   Metadata args = make_metadata();
   add_metadata(args, "operation", "add");
-  add_metadata(args, "a", 5);
-  add_metadata(args, "b", 3);
+  add_metadata(args, "a", static_cast<int64_t>(5));
+  add_metadata(args, "b", static_cast<int64_t>(3));
   CallToolRequest arg_req = make_tool_call("calculator", args);
   arg_req.id = make_request_id("tool-1");
   testRoundTrip(arg_req);
@@ -505,7 +505,7 @@ TEST_F(MCPSerializationTest, LoggingMessageNotification) {
   full_notif.level = enums::LoggingLevel::ERROR;
   full_notif.logger = mcp::make_optional(std::string("MyApp.Module"));
   Metadata log_data = make_metadata();
-  add_metadata(log_data, "error_code", 500);
+  add_metadata(log_data, "error_code", static_cast<int64_t>(500));
   add_metadata(log_data, "message", "Internal error");
   full_notif.data = log_data;
   testRoundTrip(full_notif);
@@ -533,7 +533,7 @@ TEST_F(MCPSerializationTest, SamplingParams) {
                               .stopSequence("</end>")
                               .stopSequence("STOP")
                               .metadata("source", "test")
-                              .metadata("version", 2)
+                              .metadata("version", static_cast<int64_t>(2))
                               .build();
   testRoundTrip(params);
 }
@@ -806,8 +806,8 @@ TEST_F(MCPSerializationTest, SpecialCharacters) {
 TEST_F(MCPSerializationTest, LargeNumbers) {
   // Large integers in metadata
   Metadata meta = make_metadata();
-  add_metadata(meta, "large_int", 9223372036854775807LL);  // Max int64
-  add_metadata(meta, "negative_int", -9223372036854775807LL);
+  add_metadata(meta, "large_int", static_cast<int64_t>(9223372036854775807LL));  // Max int64
+  add_metadata(meta, "negative_int", static_cast<int64_t>(-9223372036854775807LL));
   testRoundTrip(meta);
 
   // Large doubles
@@ -855,7 +855,7 @@ TEST_F(MCPSerializationTest, ComplexMetadata) {
 
   // Various types
   add_metadata(meta, "string", "value");
-  add_metadata(meta, "int", 42);
+  add_metadata(meta, "int", static_cast<int64_t>(42));
   add_metadata(meta, "double", 3.14159);
   add_metadata(meta, "bool_true", true);
   add_metadata(meta, "bool_false", false);
@@ -974,7 +974,7 @@ TEST_F(MCPSerializationTest, GetPromptRequest) {
   with_args.id = make_request_id(2);
   Metadata args = make_metadata();
   add_metadata(args, "name", "Alice");
-  add_metadata(args, "age", 30);
+  add_metadata(args, "age", static_cast<int64_t>(30));
   with_args.arguments = mcp::make_optional(args);
   testRoundTrip(with_args);
 }

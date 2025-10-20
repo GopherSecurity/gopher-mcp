@@ -121,10 +121,10 @@ TEST_F(MCPSerializationExtensiveTest, NumericBoundaries) {
 
   // Test in metadata
   Metadata meta = make_metadata();
-  add_metadata(meta, "max_int", std::numeric_limits<int>::max());
-  add_metadata(meta, "min_int", std::numeric_limits<int>::min());
-  add_metadata(meta, "max_long", std::numeric_limits<long long>::max());
-  add_metadata(meta, "min_long", std::numeric_limits<long long>::min());
+  add_metadata(meta, "max_int", static_cast<int64_t>(std::numeric_limits<int>::max()));
+  add_metadata(meta, "min_int", static_cast<int64_t>(std::numeric_limits<int>::min()));
+  add_metadata(meta, "max_long", static_cast<int64_t>(std::numeric_limits<long long>::max()));
+  add_metadata(meta, "min_long", static_cast<int64_t>(std::numeric_limits<long long>::min()));
 
   // Note: JSON doesn't support Infinity or NaN directly
   add_metadata(meta, "max_double", std::numeric_limits<double>::max());
