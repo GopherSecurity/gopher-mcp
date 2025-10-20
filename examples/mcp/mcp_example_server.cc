@@ -656,7 +656,7 @@ void setupServer(McpServer& server, bool verbose) {
           auto pong =
               make<Metadata>()
                   .add("pong", true)
-                  .add("timestamp", static_cast<long long>(std::time(nullptr)))
+                  .add("timestamp", static_cast<int64_t>(std::time(nullptr)))
                   .build();
 
           return jsonrpc::Response::success(request.id,
