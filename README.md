@@ -178,6 +178,7 @@ Multiple transport implementations:
 
 ### MCP C++ Prerequisites
 - C++14 or later compiler (MCP CPP supports C++14/17/20)
+  - GCC 8.0+ (Linux)
 - CMake 3.10+ for building MCP C++ SDK
 - libevent 2.1+ (event loop for MCP protocol)
 - OpenSSL 1.1+ (for MCP SSL/TLS transport)
