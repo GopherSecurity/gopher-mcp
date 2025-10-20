@@ -670,7 +670,7 @@ void setupServer(McpServer& server, bool verbose) {
               make<Metadata>()
                   .add("echo", true)
                   .add("session_id", session.getId())
-                  .add("timestamp", static_cast<long long>(std::time(nullptr)))
+                  .add("timestamp", static_cast<int64_t>(std::time(nullptr)))
                   .build();
 
           if (request.params.has_value()) {
@@ -697,14 +697,14 @@ void setupServer(McpServer& server, bool verbose) {
               make<Metadata>()
                   .add("running", server.isRunning())
                   .add("uptime_seconds",
-                       static_cast<long long>(
+                       static_cast<int64_t>(
                            std::time(nullptr)))  // Just use current time
                   .add("sessions_active",
-                       static_cast<long long>(stats.sessions_active.load()))
+                       static_cast<int64_t>(stats.sessions_active.load()))
                   .add("requests_total",
-                       static_cast<long long>(stats.requests_total.load()))
+                       static_cast<int64_t>(stats.requests_total.load()))
                   .add("connections_active",
-                       static_cast<long long>(stats.connections_active.load()))
+                       static_cast<int64_t>(stats.connections_active.load()))
                   .build();
 
           return jsonrpc::Response::success(request.id,
@@ -717,7 +717,7 @@ void setupServer(McpServer& server, bool verbose) {
           auto health =
               make<Metadata>()
                   .add("status", "healthy")
-                  .add("timestamp", static_cast<long long>(std::time(nullptr)))
+                  .add("timestamp", static_cast<int64_t>(std::time(nullptr)))
                   .build();
 
           return jsonrpc::Response::success(request.id,
