@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <iostream>
+#include <sys/select.h>
 #include <unistd.h>
 #include <vector>
 
@@ -349,12 +350,44 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
   // - The bridge thread handles the blocking read, allowing ConnectionImpl to
   // use events
   //
-  // Flow: stdin_fd -> [blocking read] -> buffer -> [write] -> write_pipe_fd ->
-  // ConnectionImpl
+  // Flow: stdin_fd -> [select with timeout] -> [read] -> buffer -> [write] ->
+  // write_pipe_fd -> ConnectionImpl
+  //
+  // Use select() with timeout to avoid blocking indefinitely and allow
+  // periodic checks of the *running flag
 
   std::vector<char> buffer(config_.buffer_size);
 
   while (*running) {
+    // Use select() with 100ms timeout to wait for data while remaining responsive
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(stdin_fd, &readfds);
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;  // 100ms timeout
+
+    int select_result = ::select(stdin_fd + 1, &readfds, nullptr, nullptr, &tv);
+
+    if (select_result < 0) {
+      // select() error
+      int err = errno;
+      if (err != EINTR) {
+        failure_reason_ = "Error in select(): ";
+        failure_reason_ += strerror(err);
+        break;
+      }
+      // EINTR means interrupted by signal, just retry
+      continue;
+    }
+
+    if (select_result == 0) {
+      // Timeout - no data available, loop back to check *running
+      continue;
+    }
+
+    // Data is available, read it
     ssize_t bytes_read = ::read(stdin_fd, buffer.data(), buffer.size());
 
     if (bytes_read > 0) {
@@ -391,8 +424,7 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
         failure_reason_ += strerror(err);
         break;
       }
-      // Otherwise, retry
-      usleep(1000);  // Sleep 1ms
+      // Otherwise, retry via select() timeout
     }
   }
 
@@ -410,12 +442,41 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
   // Flow: ConnectionImpl -> conn_to_stdout_pipe_[1] -> conn_to_stdout_pipe_[0]
   // -> stdout_fd
   //
-  // This thread blocks on reading from the pipe and writes to stdout
-  // It ensures responses reach the test's stdout pipe
+  // Use select() with timeout to wait for data while remaining responsive
+  // This allows the thread to exit promptly when *running becomes false
 
   std::vector<char> buffer(config_.buffer_size);
 
   while (*running) {
+    // Use select() with 100ms timeout to wait for data while remaining responsive
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(read_pipe_fd, &readfds);
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;  // 100ms timeout
+
+    int select_result = ::select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
+
+    if (select_result < 0) {
+      // select() error
+      int err = errno;
+      if (err != EINTR) {
+        failure_reason_ = "Error in select(): ";
+        failure_reason_ += strerror(err);
+        break;
+      }
+      // EINTR means interrupted by signal, just retry
+      continue;
+    }
+
+    if (select_result == 0) {
+      // Timeout - no data available, loop back to check *running
+      continue;
+    }
+
+    // Data is available, read it
     ssize_t bytes_read = ::read(read_pipe_fd, buffer.data(), buffer.size());
 
     if (bytes_read > 0) {
@@ -458,8 +519,7 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
         failure_reason_ += strerror(err);
         break;
       }
-      // Otherwise, retry
-      usleep(1000);  // Sleep 1ms
+      // Otherwise, retry via select() timeout
     }
   }
 
