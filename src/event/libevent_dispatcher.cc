@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <unistd.h>
 
 #include <event2/event.h>
@@ -13,6 +14,41 @@ namespace mcp {
 namespace event {
 
 namespace {
+
+// Global once_flag to ensure libevent initialization happens only once across
+// all libraries that link this code
+static std::once_flag& getLibeventInitFlag() {
+  static std::once_flag init_flag;
+  return init_flag;
+}
+
+// Initialize libevent for thread safety - called once per process
+static void initializeLibeventGlobally() {
+#ifdef _WIN32
+  evthread_use_windows_threads();
+#else
+  evthread_use_pthreads();
+#endif
+  // Note: event_enable_debug_mode() is NOT called automatically because:
+  // 1. It can only be called once per process
+  // 2. When this code is compiled into multiple libraries (static/shared),
+  //    each library's static initializer would try to call it
+  // 3. This causes "event_enable_debug_mode was called twice!" errors
+  // Users can call event_enable_debug_mode() explicitly before creating
+  // dispatchers if needed.
+}
+
+// Initialize libevent for thread safety
+struct LibeventInitializer {
+  LibeventInitializer() {
+    // Use call_once to ensure initialization only happens once across the entire
+    // process, even when this code is compiled into multiple libraries
+    std::call_once(getLibeventInitFlag(), initializeLibeventGlobally);
+  }
+};
+
+static LibeventInitializer libevent_initializer;
+
 // Convert our event types to libevent flags
 short toLibeventEvents(uint32_t events, FileTriggerType trigger) {
   short result = 0;
@@ -62,23 +98,6 @@ uint32_t fromLibeventEvents(short events) {
   }
   return result;
 }
-
-// Initialize libevent for thread safety
-struct LibeventInitializer {
-  LibeventInitializer() {
-#ifdef _WIN32
-    evthread_use_windows_threads();
-#else
-    evthread_use_pthreads();
-#endif
-    // Enable debug mode in debug builds
-#ifndef NDEBUG
-    event_enable_debug_mode();
-#endif
-  }
-};
-
-static LibeventInitializer libevent_initializer;
 
 }  // namespace
 
