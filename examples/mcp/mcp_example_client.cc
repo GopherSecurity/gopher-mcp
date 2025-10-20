@@ -350,7 +350,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     std::vector<std::future<jsonrpc::Response>> stress_futures;
     for (int i = 0; i < 10; ++i) {
       auto params =
-          make<Metadata>().add("request_id", i).add("test", true).build();
+          make<Metadata>().add("request_id", static_cast<int64_t>(i)).add("test", true).build();
 
       stress_futures.push_back(
           client.sendRequest("echo", make_optional(params)));
