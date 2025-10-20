@@ -1279,7 +1279,7 @@ TEST_F(MCPTypesTest, BuilderPatternsComprehensive) {
                     .stopSequence("STOP")
                     .metadata("model", "gpt-4")
                     .metadata("stream", true)
-                    .metadata("timeout", 30)
+                    .metadata("timeout", static_cast<int64_t>(30))
                     .build();
 
   ASSERT_TRUE(params.temperature.has_value());

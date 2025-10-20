@@ -529,7 +529,7 @@ TEST_F(StdioEchoClientTest, ConcurrentRequests) {
   std::vector<int> request_ids;
   for (int i = 0; i < 10; ++i) {
     Metadata params;
-    add_metadata(params, "index", i);
+    add_metadata(params, "index", static_cast<int64_t>(i));
     int id = client.sendRequest("test." + std::to_string(i), params);
     request_ids.push_back(id);
   }

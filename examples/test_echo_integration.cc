@@ -12,7 +12,7 @@ int main() {
     auto request =
         mcp::make<mcp::jsonrpc::Request>(mcp::make_request_id(1), "test.echo")
             .param("message", "Hello, World!")
-            .param("timestamp", 1234567890)
+            .param("timestamp", static_cast<int64_t>(1234567890))
             .build();
 
     std::cout << "✓ Request built successfully\n";
