@@ -102,7 +102,7 @@ void runDemoScenarios(AdvancedEchoClient& client) {
     for (int i = 0; i < 20; ++i) {
       auto metadata = make<Metadata>()
                           .add("stress_test", true)
-                          .add("request_id", i)
+                          .add("request_id", static_cast<int64_t>(i))
                           .build();
       stress_futures.push_back(client.sendRequest("echo/stress", metadata));
     }
@@ -125,7 +125,7 @@ void runDemoScenarios(AdvancedEchoClient& client) {
     for (int i = 0; i < 3; ++i) {
       auto metadata = make<Metadata>()
                           .add("notification_type", "heartbeat")
-                          .add("sequence", i)
+                          .add("sequence", static_cast<int64_t>(i))
                           .build();
 
       auto result = client.sendNotification("heartbeat", metadata);
@@ -235,7 +235,7 @@ int main(int argc, char* argv[]) {
       auto metadata =
           make<Metadata>()
               .add("message", "Periodic echo request")
-              .add("sequence", request_count++)
+              .add("sequence", static_cast<int64_t>(request_count++))
               .add("timestamp",
                    std::chrono::duration_cast<std::chrono::milliseconds>(
                        std::chrono::system_clock::now().time_since_epoch())
@@ -262,8 +262,8 @@ int main(int argc, char* argv[]) {
       std::vector<std::pair<std::string, Metadata>> batch;
       for (int i = 0; i < 3; ++i) {
         auto metadata = make<Metadata>()
-                            .add("batch_sequence", request_count)
-                            .add("item", i)
+                            .add("batch_sequence", static_cast<int64_t>(request_count))
+                            .add("item", static_cast<int64_t>(i))
                             .build();
         batch.push_back({"echo/batch", metadata});
       }
@@ -277,7 +277,7 @@ int main(int argc, char* argv[]) {
     if (request_count % 5 == 0) {
       auto metadata = make<Metadata>()
                           .add("type", "heartbeat")
-                          .add("sequence", request_count)
+                          .add("sequence", static_cast<int64_t>(request_count))
                           .build();
 
       g_client->sendNotification("heartbeat", metadata);
@@ -291,7 +291,7 @@ int main(int argc, char* argv[]) {
     std::cerr << "\n[INFO] Sending shutdown request..." << std::endl;
     auto metadata = make<Metadata>()
                         .add("reason", "client_shutdown")
-                        .add("total_requests", request_count)
+                        .add("total_requests", static_cast<int64_t>(request_count))
                         .build();
 
     auto future = g_client->sendRequest("shutdown", metadata);
