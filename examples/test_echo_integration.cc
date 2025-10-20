@@ -93,7 +93,7 @@ int main() {
     std::cout << "\nTest 5: Building Metadata Structures\n";
     auto complex_metadata = mcp::make<mcp::Metadata>()
                                 .add("string_field", "test_string")
-                                .add("int_field", 42)
+                                .add("int_field", static_cast<int64_t>(42))
                                 .add("double_field", 3.14159)
                                 .add("bool_field", true)
                                 .build();
