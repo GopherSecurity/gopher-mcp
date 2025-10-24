@@ -6,7 +6,7 @@
  * that can be passed to the C++ library functions.
  */
 
-import koffi from "koffi";
+import * as koffi from "koffi";
 
 // ============================================================================
 // C Struct Definitions
@@ -95,13 +95,41 @@ export const FilterConditionStruct = koffi.struct(`mcp_filter_condition_${unique
   target_filter: "uint64",
 });
 
-// Filter configuration struct
+// Assembler filter configuration struct (matches mcp_c_filter_chain.h)
 export const FilterConfigStruct = koffi.struct(`mcp_filter_config_${uniqueId}`, {
+  type: "string",
   name: "string",
-  type: "int",
-  settings: "void*", // JSON value
-  layer: "int",
-  memory_pool: "uint64",
+  config: "void*", // JSON value
+  enabled: "int",
+  enabled_when: "void*", // JSON value
+});
+
+// Filter chain configuration struct for assembler
+export const FilterChainConfigStruct = koffi.struct(`mcp_filter_chain_config_${uniqueId}`, {
+  name: "string",
+  transport_type: "string",
+  filters: "void*", // Pointer to filter config array
+  filter_count: "size_t",
+});
+
+// Validation result struct
+export const ValidationResultStruct = koffi.struct(`mcp_chain_validation_result_${uniqueId}`, {
+  valid: "int",
+  error_count: "size_t",
+  errors: "char**",
+  warning_count: "size_t",
+  warnings: "char**",
+});
+
+// Assembly result struct
+export const AssemblyResultStruct = koffi.struct(`mcp_chain_assembly_result_${uniqueId}`, {
+  success: "int",
+  chain: "uint64",
+  error_message: "string",
+  created_filter_count: "size_t",
+  created_filters: "char**",
+  warning_count: "size_t",
+  warnings: "char**",
 });
 
 // Protocol metadata struct

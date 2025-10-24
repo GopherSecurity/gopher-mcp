@@ -7,9 +7,16 @@
  */
 
 import { existsSync } from "fs";
-import koffi from "koffi";
+import * as koffi from "koffi";
 import { arch, platform } from "os";
 import { join } from "path";
+
+// Transport type enum matching C API
+export enum TransportType {
+  MCP_TRANSPORT_HTTP_SSE = 0,  // HTTP with Server-Sent Events
+  MCP_TRANSPORT_STDIO = 1,     // Standard input/output
+  MCP_TRANSPORT_PIPE = 2       // Named pipe
+}
 
 // Library configuration for different platforms and architectures
 const LIBRARY_CONFIG = {
@@ -209,51 +216,75 @@ try {
       args: ["uint64_t", "void*"],
     },
 
-    // Filter chain functions from mcp_filter_api.h and mcp_filter_chain.h
+    // Assembler-based chain functions from mcp_c_filter_chain.h
     {
-      name: "mcp_filter_chain_builder_create",
-      signature: "void*",
-      args: ["uint64_t"],
-    },
-    {
-      name: "mcp_chain_builder_create_ex",
-      signature: "void*",
-      args: ["uint64_t", "void*"],
-    },
-    {
-      name: "mcp_chain_builder_add_node",
+      name: "mcp_chain_validate_json",
       signature: "int",
       args: ["void*", "void*"],
     },
     {
-      name: "mcp_filter_chain_add_filter",
+      name: "mcp_chain_validate_config",
       signature: "int",
-      args: ["void*", "uint64_t", "int", "uint64_t"],
+      args: ["void*", "void*"],
     },
-    { name: "mcp_filter_chain_build", signature: "uint64_t", args: ["void*"] },
     {
-      name: "mcp_filter_chain_builder_destroy",
+      name: "mcp_chain_validation_result_free",
       signature: "void",
       args: ["void*"],
+    },
+    {
+      name: "mcp_chain_assemble_from_json",
+      signature: "int",
+      args: ["void*", "void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer)
+    },
+    {
+      name: "mcp_chain_assemble_from_config",
+      signature: "int",
+      args: ["void*", "void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer)
+    },
+    {
+      name: "mcp_chain_assembly_result_free",
+      signature: "void",
+      args: ["void*"],
+    },
+    {
+      name: "mcp_chain_create_from_json",
+      signature: "uint64_t",
+      args: ["void*", "void*"],  // dispatcher is mcp_dispatcher_t (pointer), not uint64_t
+    },
+    {
+      name: "mcp_chain_create_from_json_async",
+      signature: "void",
+      args: [
+        "void*",   // mcp_dispatcher_t
+        "void*",   // mcp_json_value_t
+        "void*",   // callback function pointer
+        "void*"    // user_data
+      ]
     },
     { name: "mcp_filter_chain_retain", signature: "void", args: ["uint64_t"] },
     { name: "mcp_filter_chain_release", signature: "void", args: ["uint64_t"] },
 
-    // Missing chain functions from mcp_c_filter_chain.h
-    {
-      name: "mcp_chain_builder_add_conditional",
-      signature: "int",
-      args: ["void*", "void*", "uint64_t"],
-    },
-    {
-      name: "mcp_chain_builder_add_parallel_group",
-      signature: "int",
-      args: ["void*", "void*", "size_t"],
-    },
+    // Chain state and control functions from mcp_c_filter_chain.h
     { name: "mcp_chain_get_state", signature: "int", args: ["uint64_t"] },
     { name: "mcp_chain_pause", signature: "int", args: ["uint64_t"] },
     { name: "mcp_chain_resume", signature: "int", args: ["uint64_t"] },
     { name: "mcp_chain_reset", signature: "int", args: ["uint64_t"] },
+    {
+      name: "mcp_chain_set_filter_enabled",
+      signature: "int",
+      args: ["uint64_t", "string", "int"]  // chain, filter_name, enabled
+    },
+    {
+      name: "mcp_chain_get_stats",
+      signature: "int",
+      args: ["uint64_t", "void*"]  // chain, stats pointer
+    },
+    {
+      name: "mcp_chain_export_to_json",
+      signature: "void*",  // returns mcp_json_value_t
+      args: ["uint64_t"]  // chain
+    },
 
     // Buffer functions from mcp_filter_buffer.h
     {
@@ -425,7 +456,7 @@ try {
     {
       name: "mcp_filter_manager_create",
       signature: "uint64_t",
-      args: ["uint64_t", "uint64_t"],
+      args: ["void*", "void*"],  // Changed from uint64_t to void* to accept opaque handles
     },
     {
       name: "mcp_filter_manager_add_filter",
@@ -521,6 +552,7 @@ try {
     },
 
     // JSON utilities (from mcp_c_collections.h)
+    { name: "mcp_json_parse", signature: "void*", args: ["string"] },
     { name: "mcp_json_create_object", signature: "void*", args: [] },
     { name: "mcp_json_create_string", signature: "void*", args: ["string"] },
     { name: "mcp_json_create_number", signature: "void*", args: ["double"] },
@@ -529,6 +561,67 @@ try {
     { name: "mcp_json_free", signature: "void", args: ["void*"] },
     { name: "mcp_json_stringify", signature: "string", args: ["void*"] },
 
+    // Async Filter Processing
+    {
+      name: "mcp_filter_chain_initialize",
+      signature: "int",           // mcp_result_t
+      args: ["uint64_t"]          // chain handle
+    },
+    {
+      name: "mcp_filter_chain_shutdown",
+      signature: "int",           // mcp_result_t
+      args: ["uint64_t"]          // chain handle
+    },
+    {
+      name: "mcp_chain_submit_incoming",
+      signature: "int",           // mcp_status_t return
+      args: [
+        "uint64_t",              // chain handle
+        "string",                // message_json
+        "void*",                 // user_data (Buffer with callback ID)
+        "void*",                 // callback function pointer
+        "void*"                  // error pointer
+      ]
+    },
+    {
+      name: "mcp_chain_submit_outgoing",
+      signature: "int",           // mcp_status_t return
+      args: [
+        "uint64_t",              // chain handle
+        "string",                // message_json
+        "void*",                 // user_data
+        "void*",                 // callback function pointer
+        "void*"                  // error pointer
+      ]
+    },
+
+    // Error handling functions (from mcp_c_types_api.h)
+    {
+      name: "mcp_error_create",
+      signature: "void*",  // returns mcp_error_t
+      args: ["int32_t", "string"]  // code, message
+    },
+    {
+      name: "mcp_error_free",
+      signature: "void",
+      args: ["void*"]  // error handle
+    },
+    {
+      name: "mcp_error_get_code",
+      signature: "int32_t",
+      args: ["void*"]  // error handle
+    },
+    {
+      name: "mcp_error_get_message",
+      signature: "string",
+      args: ["void*"]  // error handle
+    },
+    {
+      name: "mcp_error_get_data",
+      signature: "string",
+      args: ["void*"]  // error handle
+    },
+
     // Core MCP functions (from mcp_c_api.h)
     { name: "mcp_init", signature: "int", args: ["void*"] },
     { name: "mcp_shutdown", signature: "void", args: [] },
@@ -536,6 +629,20 @@ try {
     { name: "mcp_get_version", signature: "string", args: [] },
     { name: "mcp_get_last_error", signature: "void*", args: [] },
     { name: "mcp_clear_last_error", signature: "void", args: [] },
+
+    // Dispatcher lifecycle functions
+    { name: "mcp_dispatcher_create", signature: "void*", args: [] },
+    { name: "mcp_dispatcher_run", signature: "int", args: ["void*"] },
+    { name: "mcp_dispatcher_run_timeout", signature: "int", args: ["void*", "int"] },
+    { name: "mcp_dispatcher_start_background", signature: "int", args: ["void*"] },
+    { name: "mcp_dispatcher_join", signature: "void", args: ["void*"] },
+    { name: "mcp_dispatcher_stop", signature: "void", args: ["void*"] },
+    { name: "mcp_dispatcher_destroy", signature: "void", args: ["void*"] },
+
+    // Connection lifecycle functions
+    { name: "mcp_connection_create_client", signature: "void*", args: ["void*", "int"] },
+    { name: "mcp_connection_configure", signature: "int", args: ["void*", "void*", "void*", "void*"] },
+    { name: "mcp_connection_destroy", signature: "void", args: ["void*"] },
   ];
 
   // Try to bind each function
