@@ -6,6 +6,7 @@
 #include "mcp/buffer.h"
 #include "mcp/core/result.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/filter/filter_context.h"
 #include "mcp/filter/http_codec_state_machine.h"
 #include "mcp/filter/http_stream_context.h"
 #include "mcp/http/http_parser.h"
@@ -108,7 +109,15 @@ class HttpCodecFilter : public network::Filter {
   };
 
   /**
-   * Constructor
+   * Constructor with FilterCreationContext for config-driven filter chains
+   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param config Filter-specific configuration
+   */
+  HttpCodecFilter(const filter::FilterCreationContext& context,
+                  const json::JsonValue& config);
+
+  /**
+   * Constructor (legacy)
    * @param callbacks Message callbacks for the application layer
    * @param dispatcher Event dispatcher for async operations
    * @param is_server True for server mode, false for client mode
@@ -146,6 +155,14 @@ class HttpCodecFilter : public network::Filter {
    * Used after encodeHeaders/encodeData to get the built message
    */
   void getMessageBuffer(Buffer& buffer) { buffer.move(message_buffer_); }
+
+  /**
+   * Get read filter callbacks for data injection
+   * Used by callback bridges to forward data to next filter
+   */
+  network::ReadFilterCallbacks* getReadFilterCallbacks() const {
+    return read_callbacks_;
+  }
 
  private:
   // Inner class implementing MessageEncoder
@@ -218,11 +235,31 @@ class HttpCodecFilter : public network::Filter {
   void onCodecError(const std::string& error);
 
   // Components
-  MessageCallbacks& message_callbacks_;
+  MessageCallbacks* message_callbacks_;
   event::Dispatcher& dispatcher_;
   bool is_server_;
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
+
+  // Filter chain bridge for context-based construction
+  class HttpFilterChainBridge : public MessageCallbacks {
+  public:
+    explicit HttpFilterChainBridge(HttpCodecFilter& parent_filter);
+
+    // MessageCallbacks implementation
+    void onHeaders(const std::map<std::string, std::string>& headers,
+                   bool keep_alive) override;
+    void onBody(const std::string& data, bool end_stream) override;
+    void onMessageComplete() override;
+    void onError(const std::string& error) override;
+
+  private:
+    void forwardBodyToNextFilter(const std::string& body, bool end_stream);
+
+    HttpCodecFilter& parent_filter_;
+  };
+
+  std::unique_ptr<HttpFilterChainBridge> filter_bridge_;
 
   std::unique_ptr<http::HttpParser> parser_;
   std::unique_ptr<ParserCallbacks> parser_callbacks_;

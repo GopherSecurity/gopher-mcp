@@ -305,7 +305,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
       init_params["clientVersion"] = config_.client_version;
 
       // Send request and get response
-      auto future = sendRequest("initialize", make_optional(init_params));
+      auto future = sendRequest("initialize", mcp::make_optional(init_params));
       auto response = future.get();
 
       if (response.error.has_value()) {
@@ -338,7 +338,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
                 holds_alternative<std::string>(version_it->second)
                     ? get<std::string>(version_it->second)
                     : "");
-            init_result.serverInfo = make_optional(server_info);
+            init_result.serverInfo = mcp::make_optional(server_info);
           }
 
           // Extract capabilities (simplified)
@@ -347,26 +347,26 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
           auto tools_it = metadata.find("capabilities.tools");
           if (tools_it != metadata.end() &&
               holds_alternative<bool>(tools_it->second)) {
-            caps.tools = make_optional(get<bool>(tools_it->second));
+            caps.tools = mcp::make_optional(get<bool>(tools_it->second));
           }
 
           auto prompts_it = metadata.find("capabilities.prompts");
           if (prompts_it != metadata.end() &&
               holds_alternative<bool>(prompts_it->second)) {
-            caps.prompts = make_optional(get<bool>(prompts_it->second));
+            caps.prompts = mcp::make_optional(get<bool>(prompts_it->second));
           }
 
           auto resources_it = metadata.find("capabilities.resources");
           if (resources_it != metadata.end() &&
               holds_alternative<bool>(resources_it->second)) {
-            caps.resources = make_optional(variant<bool, ResourcesCapability>(
+            caps.resources = mcp::make_optional(variant<bool, ResourcesCapability>(
                 get<bool>(resources_it->second)));
           }
 
           auto logging_it = metadata.find("capabilities.logging");
           if (logging_it != metadata.end() &&
               holds_alternative<bool>(logging_it->second)) {
-            caps.logging = make_optional(get<bool>(logging_it->second));
+            caps.logging = mcp::make_optional(get<bool>(logging_it->second));
           }
 
           init_result.capabilities = caps;
@@ -592,7 +592,7 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       }
 
       http_config.server_address = server_addr;
-      config.http_sse_config = make_optional(http_config);
+      config.http_sse_config = mcp::make_optional(http_config);
       break;
     }
 
@@ -602,7 +602,7 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
 
     case TransportType::Stdio: {
       transport::StdioTransportSocketConfig stdio_config;
-      config.stdio_config = make_optional(stdio_config);
+      config.stdio_config = mcp::make_optional(stdio_config);
       break;
     }
   }
@@ -625,7 +625,7 @@ std::future<ListResourcesResult> McpClient::listResources(
     params["cursor"] = cursor.value();
   }
 
-  auto future = sendRequest("resources/list", make_optional(params));
+  auto future = sendRequest("resources/list", mcp::make_optional(params));
 
   // Create promise for ListResourcesResult
   auto result_promise = std::make_shared<std::promise<ListResourcesResult>>();
@@ -661,7 +661,7 @@ std::future<ReadResourceResult> McpClient::readResource(
   auto params = make_metadata();
   params["uri"] = uri;
 
-  auto future = sendRequest("resources/read", make_optional(params));
+  auto future = sendRequest("resources/read", mcp::make_optional(params));
 
   // Create promise for ReadResourceResult
   auto result_promise = std::make_shared<std::promise<ReadResourceResult>>();
@@ -696,7 +696,7 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
   auto params = make_metadata();
   params["uri"] = uri;
 
-  auto future = sendRequest("resources/subscribe", make_optional(params));
+  auto future = sendRequest("resources/subscribe", mcp::make_optional(params));
 
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
@@ -732,7 +732,7 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
   auto params = make_metadata();
   params["uri"] = uri;
 
-  auto future = sendRequest("resources/unsubscribe", make_optional(params));
+  auto future = sendRequest("resources/unsubscribe", mcp::make_optional(params));
 
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
@@ -771,7 +771,7 @@ std::future<ListToolsResult> McpClient::listTools(
     params["cursor"] = cursor.value();
   }
 
-  auto future = sendRequest("tools/list", make_optional(params));
+  auto future = sendRequest("tools/list", mcp::make_optional(params));
 
   // Create promise for ListToolsResult
   auto result_promise = std::make_shared<std::promise<ListToolsResult>>();
@@ -813,7 +813,7 @@ std::future<CallToolResult> McpClient::callTool(
     }
   }
 
-  auto future = sendRequest("tools/call", make_optional(params));
+  auto future = sendRequest("tools/call", mcp::make_optional(params));
 
   // Create promise for CallToolResult
   auto result_promise = std::make_shared<std::promise<CallToolResult>>();
@@ -851,7 +851,7 @@ std::future<ListPromptsResult> McpClient::listPrompts(
     params["cursor"] = cursor.value();
   }
 
-  auto future = sendRequest("prompts/list", make_optional(params));
+  auto future = sendRequest("prompts/list", mcp::make_optional(params));
 
   // Create promise for ListPromptsResult
   auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
@@ -894,7 +894,7 @@ std::future<GetPromptResult> McpClient::getPrompt(
     }
   }
 
-  auto future = sendRequest("prompts/get", make_optional(params));
+  auto future = sendRequest("prompts/get", mcp::make_optional(params));
 
   // Create promise for GetPromptResult
   auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
@@ -931,7 +931,7 @@ std::future<VoidResult> McpClient::setLogLevel(
   auto params = make_metadata();
   params["level"] = static_cast<int64_t>(level);
 
-  auto future = sendRequest("logging/setLevel", make_optional(params));
+  auto future = sendRequest("logging/setLevel", mcp::make_optional(params));
 
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
@@ -985,7 +985,7 @@ std::future<CreateMessageResult> McpClient::createMessage(
   // Send request
   RequestId id = static_cast<int64_t>(next_request_id_++);
   auto context = std::make_shared<RequestContext>(id, "messages/create");
-  context->params = make_optional(params);
+  context->params = mcp::make_optional(params);
   context->start_time = std::chrono::steady_clock::now();
 
   // Build parameters with proper structure
@@ -1029,7 +1029,7 @@ std::future<CreateMessageResult> McpClient::createMessage(
     }
   }
 
-  context->params = make_optional(builder.build());
+  context->params = mcp::make_optional(builder.build());
 
   sendRequestInternal(context);
 

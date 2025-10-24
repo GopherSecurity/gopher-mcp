@@ -86,6 +86,12 @@ class ReadFilterCallbacks {
    * Check if we should continue filter iteration on new data
    */
   virtual bool shouldContinueFilterChain() = 0;
+
+  /**
+   * Inject decoded data directly into the downstream read filter chain.
+   * Filters use this to hand off protocol payloads to the next filter.
+   */
+  virtual void injectReadDataToFilterChain(Buffer& data, bool end_stream) = 0;
 };
 
 /**
@@ -359,6 +365,7 @@ class FilterManagerImpl : public FilterManager,
     upstream_host_ = host;
   }
   bool shouldContinueFilterChain() override;
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override;
 
   // WriteFilterCallbacks interface
   void injectWriteDataToFilterChain(Buffer& data, bool end_stream) override;
@@ -382,7 +389,7 @@ class FilterManagerImpl : public FilterManager,
 
   // Current filter being processed
   std::vector<ReadFilterSharedPtr>::iterator current_read_filter_;
-  std::vector<WriteFilterSharedPtr>::iterator current_write_filter_;
+  std::vector<WriteFilterSharedPtr>::reverse_iterator current_write_filter_;
 
   // State machine for managing filter chain lifecycle
   std::unique_ptr<FilterChainStateMachine> state_machine_;
@@ -432,6 +439,10 @@ class NetworkFilterBase : public Filter, protected FilterCallbacks {
 
   bool shouldContinueFilterChain() override {
     return read_callbacks_->shouldContinueFilterChain();
+  }
+
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override {
+    read_callbacks_->injectReadDataToFilterChain(data, end_stream);
   }
 
   void injectWriteDataToFilterChain(Buffer& data, bool end_stream) override {

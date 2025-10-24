@@ -15,6 +15,11 @@
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/network/socket_impl.h"
+#include "mcp/network/transport_socket.h"
+#include "mcp/config/listener_config.h"
+#include "mcp/filter/filter_chain_assembler.h"
+#include "mcp/filter/filter_context.h"
+#include "mcp/mcp_connection_manager.h"
 #include "mcp/stream_info/stream_info_impl.h"
 
 namespace mcp {
@@ -22,6 +27,64 @@ namespace network {
 
 // Static member initialization
 std::atomic<uint64_t> TcpActiveListener::next_listener_tag_{1};
+
+namespace {
+
+class NullProtocolCallbacks : public McpProtocolCallbacks {
+ public:
+  void onRequest(const jsonrpc::Request&) override {}
+  void onNotification(const jsonrpc::Notification&) override {}
+  void onResponse(const jsonrpc::Response&) override {}
+  void onError(const Error&) override {}
+  void onConnectionEvent(ConnectionEvent) override {}
+};
+
+McpProtocolCallbacks& fallbackCallbacks() {
+  static NullProtocolCallbacks callbacks;
+  return callbacks;
+}
+
+TcpListenerConfig convertListenerConfig(
+    const mcp::config::ListenerConfig& listener_config) {
+  TcpListenerConfig config;
+  config.name = listener_config.name;
+  config.bind_to_port = true;
+  config.backlog = 128;
+  config.max_connections_per_event = 1;
+  config.ignore_global_conn_limit = false;
+  config.bypass_overload_manager = false;
+  config.initial_reject_fraction = 0.0f;
+
+  auto address_impl = Address::parseInternetAddressNoPort(
+      listener_config.address.socket_address.address,
+      listener_config.address.socket_address.port_value);
+  if (address_impl) {
+    config.address = address_impl;
+  } else {
+    std::cerr << "[TCP LISTENER] Invalid listener address '"
+              << listener_config.address.socket_address.address << "'" << std::endl;
+  }
+
+  config.transport_socket_factory =
+      std::make_shared<RawBufferTransportSocketFactory>();
+
+  return config;
+}
+
+filter::TransportMetadata buildTransportMetadata(
+    const mcp::config::ListenerConfig* listener_config) {
+  filter::TransportMetadata metadata;
+  if (!listener_config) {
+    return metadata;
+  }
+
+  metadata.local_address = listener_config->address.socket_address.address;
+  metadata.local_port = listener_config->address.socket_address.port_value;
+  metadata.alpn = {"http/1.1"};
+  return metadata;
+}
+
+}  // namespace
 
 // Placeholder for LoadShedPoint until we implement overload manager
 class LoadShedPoint {
@@ -311,6 +374,10 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
             << " socket=" << (config_.socket ? "PROVIDED" : "NULL")
             << std::endl;
 
+  if (!config_.transport_socket_factory) {
+    config_.transport_socket_factory = std::make_shared<RawBufferTransportSocketFactory>();
+  }
+
   // Create socket if not provided
   if (!config_.socket && config_.address) {
     std::cerr << "[DEBUG] Creating listen socket for "
@@ -364,6 +431,17 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
   }
 }
 
+TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
+                                     const mcp::config::ListenerConfig& listener_config,
+                                     ListenerCallbacks& parent_cb)
+    : TcpActiveListener(dispatcher, convertListenerConfig(listener_config), parent_cb) {
+  listener_config_ = std::make_unique<mcp::config::ListenerConfig>(listener_config);
+  if (!listener_config_->filter_chains.empty()) {
+    filter_factory_ = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(
+        listener_config_->filter_chains[0]);
+  }
+}
+
 TcpActiveListener::~TcpActiveListener() {
   disable();
   // Clean up any pending filter contexts
@@ -392,6 +470,30 @@ void TcpActiveListener::configureLoadShedPoints(
     LoadShedPoint& load_shed_point) {
   if (listener_) {
     listener_->configureLoadShedPoints(load_shed_point);
+  }
+}
+
+void TcpActiveListener::setProtocolCallbacks(McpProtocolCallbacks& callbacks) {
+  protocol_callbacks_ = &callbacks;
+}
+
+void TcpActiveListener::configureFilterChain(network::FilterManager& filter_manager) {
+  if (!filter_factory_) {
+    std::cerr << "[TCP LISTENER] No config-driven filter factory available" << std::endl;
+    return;
+  }
+
+  filter::TransportMetadata metadata =
+      buildTransportMetadata(listener_config_.get());
+
+  McpProtocolCallbacks& callbacks =
+      protocol_callbacks_ ? *protocol_callbacks_ : fallbackCallbacks();
+
+  filter::FilterCreationContext context(
+      dispatcher_, callbacks, filter::ConnectionMode::Server, metadata);
+
+  if (!filter_factory_->createFilterChain(context, filter_manager)) {
+    std::cerr << "[TCP LISTENER] Failed to assemble configurable filter chain" << std::endl;
   }
 }
 
@@ -483,37 +585,31 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
     // Apply filter chain if configured
     // Following production pattern: filter chain factory adds filters to
     // connection
-    if (config_.filter_chain_factory) {
-      // Get filter manager from connection
-      auto* conn_impl = dynamic_cast<ConnectionImpl*>(connection.get());
-      if (conn_impl) {
-        std::cerr << "[DEBUG] Creating filter chain for connection"
-                  << std::endl;
-        // Create filter chain via filter manager
-        bool success = config_.filter_chain_factory->createFilterChain(
-            conn_impl->filterManager());
-        if (success) {
-          std::cerr << "[DEBUG] Filter chain created successfully" << std::endl;
-        } else {
-          std::cerr << "[ERROR] Failed to create filter chain" << std::endl;
-        }
+    auto* conn_impl = dynamic_cast<ConnectionImpl*>(connection.get());
+    if (conn_impl) {
+      std::cerr << "[DEBUG] Creating filter chain for connection" << std::endl;
 
-        // Initialize read filters after they've been added
+      bool success = false;
+      if (filter_factory_) {
+        configureFilterChain(conn_impl->filterManager());
+        success = true;
+      } else if (config_.filter_chain_factory) {
+        success = config_.filter_chain_factory->createFilterChain(
+            conn_impl->filterManager());
+      } else {
+        std::cerr << "[WARNING] No filter chain factory configured" << std::endl;
+      }
+
+      if (success) {
         conn_impl->initializeReadFilters();
         std::cerr << "[DEBUG] Read filters initialized" << std::endl;
-      } else {
-        std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl"
-                  << std::endl;
       }
     } else {
-      std::cerr << "[WARNING] No filter chain factory configured" << std::endl;
+      std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl" << std::endl;
     }
 
-    // Hand off to parent (usually ListenerManager)
     parent_cb_.onNewConnection(std::move(connection));
   } else {
-    // No transport socket factory configured
-    // Just pass the socket to parent
     parent_cb_.onAccept(std::move(socket));
   }
 }

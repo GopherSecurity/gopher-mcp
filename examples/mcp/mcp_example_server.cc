@@ -91,6 +91,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <ctime>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <signal.h>
@@ -120,6 +121,7 @@ struct ServerOptions {
   int max_sessions = 100;
   bool metrics = false;
   bool verbose = false;
+  std::string config_file;  // Configuration file path
 
   // Advanced options
   int session_timeout_minutes = 30;
@@ -167,6 +169,7 @@ void printUsage(const char* program) {
   std::cerr << "  --workers <n>        Number of worker threads (default: 4)\n";
   std::cerr
       << "  --max-sessions <n>   Maximum concurrent sessions (default: 100)\n";
+  std::cerr << "  --config <path>      Configuration file (JSON format)\n";
   std::cerr << "  --metrics            Enable metrics endpoint\n";
   std::cerr << "  --verbose            Enable verbose logging\n";
   std::cerr
@@ -201,6 +204,8 @@ ServerOptions parseArguments(int argc, char* argv[]) {
       options.metrics = true;
     } else if (arg == "--verbose") {
       options.verbose = true;
+    } else if (arg == "--config" && i + 1 < argc) {
+      options.config_file = argv[++i];
     } else if (arg == "--rpc-path" && i + 1 < argc) {
       options.http_rpc_path = argv[++i];
     } else if (arg == "--sse-path" && i + 1 < argc) {
@@ -952,6 +957,78 @@ int main(int argc, char* argv[]) {
 
   // Experimental capabilities
   config.capabilities.experimental = make_optional(Metadata());
+
+  // Parse configuration file if provided
+  if (!options.config_file.empty()) {
+    std::cerr << "[INFO] Loading configuration from: " << options.config_file
+              << std::endl;
+    
+    std::ifstream config_file(options.config_file);
+    if (!config_file) {
+      std::cerr << "[ERROR] Cannot open config file: " << options.config_file
+                << std::endl;
+      return 1;
+    }
+    
+    std::string json_str((std::istreambuf_iterator<char>(config_file)),
+                         std::istreambuf_iterator<char>());
+    
+    try {
+      auto json_config = mcp::json::JsonValue::parse(json_str);
+      
+      // Look for filter chains configuration
+      if (json_config.contains("filter_chains")) {
+        auto& chains = json_config["filter_chains"];
+        if (chains.isArray()) {
+          for (size_t i = 0; i < chains.size(); ++i) {
+            auto& chain = chains[i];
+            // Look for the server chain
+            if (chain.contains("name") && 
+                chain["name"].getString() == "server") {
+              // Store the entire chain configuration
+              config.filter_chain_config = make_optional(chain);
+              std::cerr << "[CONFIG] Found server filter chain configuration"
+                        << std::endl;
+              
+              // Log the filters that will be created
+              if (chain.contains("filters") && chain["filters"].isArray()) {
+                auto& filters = chain["filters"];
+                std::cerr << "[CONFIG] Filter chain will include " 
+                          << filters.size() << " filters:" << std::endl;
+                for (size_t j = 0; j < filters.size(); ++j) {
+                  if (filters[j].contains("type")) {
+                    std::string filter_type = filters[j]["type"].getString();
+                    std::cerr << "[CONFIG]   - " << filter_type;
+                    
+                    // Special handling for json_rpc to show framing config
+                    if (filter_type == "json_rpc" && 
+                        filters[j].contains("config") &&
+                        filters[j]["config"].contains("use_framing")) {
+                      bool use_framing = filters[j]["config"]["use_framing"].getBool();
+                      std::cerr << " (framing: " 
+                                << (use_framing ? "enabled" : "disabled") << ")";
+                    }
+                    std::cerr << std::endl;
+                  }
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!config.filter_chain_config.has_value()) {
+        std::cerr << "[WARNING] No server filter chain found in config file"
+                  << std::endl;
+      }
+    }
+    catch (const std::exception& e) {
+      std::cerr << "[ERROR] Failed to parse config file: " << e.what()
+                << std::endl;
+      return 1;
+    }
+  }
 
   // Create server
   std::cerr << "[INFO] Creating MCP server..." << std::endl;
