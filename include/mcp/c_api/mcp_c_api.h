@@ -260,6 +260,20 @@ MCP_API mcp_result_t mcp_dispatcher_run_timeout(
     mcp_dispatcher_t dispatcher, uint32_t timeout_ms) MCP_NOEXCEPT;
 
 /**
+ * Start dispatcher event loop on background thread
+ * @param dispatcher Dispatcher handle
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_dispatcher_start_background(
+    mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+
+/**
+ * Join background dispatcher thread (blocks until thread exits)
+ * @param dispatcher Dispatcher handle
+ */
+MCP_API void mcp_dispatcher_join(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+
+/**
  * Stop the dispatcher
  * @param dispatcher Dispatcher handle
  */

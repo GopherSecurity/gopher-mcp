@@ -352,6 +352,11 @@ struct mcp_dispatcher_impl : public HandleBase {
       dispatcher->exit();
       running = false;
     }
+    if (background_thread.joinable() &&
+        background_thread.get_id() != std::this_thread::get_id()) {
+      background_thread.join();
+    }
+    background_thread_running = false;
     /* Clean up all timers */
     timers.clear();
   }
@@ -362,6 +367,8 @@ struct mcp_dispatcher_impl : public HandleBase {
   std::unique_ptr<mcp::event::Dispatcher> dispatcher;
   std::thread::id dispatcher_thread_id;
   std::atomic<bool> running{false};
+  std::thread background_thread;
+  std::atomic<bool> background_thread_running{false};
 
   /* Timer management with RAII */
   struct TimerInfo {
