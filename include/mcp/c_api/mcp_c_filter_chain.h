@@ -176,6 +176,53 @@ typedef mcp_bool_t (*mcp_filter_match_cb)(
     void* user_data);
 
 /* ============================================================================
+ * Filter Result Types
+ * ============================================================================
+ */
+
+// Filter decision enum
+typedef enum {
+  MCP_FILTER_DECISION_ALLOW = 0,      // Continue processing
+  MCP_FILTER_DECISION_DENY = 1,       // Reject the message
+  MCP_FILTER_DECISION_DELAY = 2,      // Delay processing
+  MCP_FILTER_DECISION_QUEUE = 3,      // Queue for later
+  MCP_FILTER_DECISION_TRANSFORM = 4   // Message was transformed
+} mcp_filter_decision_t;
+
+// Filter result structure
+typedef struct mcp_filter_result {
+  mcp_filter_decision_t decision;      // Filter decision
+  char* transformed_message;           // Transformed message (NULL if unchanged)
+  char* reason;                        // Reason for decision (NULL if not provided)
+  uint32_t delay_ms;                   // Delay in milliseconds (0 if no delay)
+  void* metadata;                      // Additional metadata (reserved for future use)
+} mcp_filter_result_t;
+
+/* ============================================================================
+ * Async Request Queue Types
+ * ============================================================================
+ */
+
+/**
+ * Callback invoked when async filter processing completes
+ * @param user_data User-provided data (e.g., callback ID encoded in Buffer)
+ * @param result Filter result (NULL on error)
+ * @param error Error information (NULL on success)
+ */
+typedef void (*mcp_filter_callback_t)(
+    void* user_data,
+    mcp_filter_result_t* result,
+    mcp_error_t* error);
+
+/* Status codes for async operations */
+typedef enum {
+  MCP_STATUS_OK = 0,                   // Request queued successfully
+  MCP_STATUS_QUEUE_FULL = 1,          // Queue at capacity, try again
+  MCP_STATUS_INVALID_ARGUMENT = 2,    // Invalid parameters
+  MCP_STATUS_NOT_INITIALIZED = 3      // Chain not initialized (CRITICAL: must be present)
+} mcp_status_t;
+
+/* ============================================================================
  * Chain Management
  * ============================================================================
  */
@@ -241,6 +288,81 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
                                                   mcp_chain_event_cb callback,
                                                   void* user_data) MCP_NOEXCEPT;
 
+/**
+ * Update filter chain dependencies with runtime services
+ *
+ * This function allows updating the callbacks and services that were injected
+ * during chain creation. Use this when the chain was created with temporary
+ * callbacks (like NullProtocolCallbacks) and you want to provide the real ones.
+ *
+ * Thread Safety: Must be called from dispatcher thread
+ *
+ * @param chain Filter chain handle
+ * @param callbacks Protocol callbacks for filter event emission (BORROWED)
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_chain_update_dependencies(
+    mcp_filter_chain_t chain,
+    void* callbacks) MCP_NOEXCEPT;
+
+/* ============================================================================
+ * Filter Chain Lifecycle Management
+ * ============================================================================
+ */
+
+/**
+ * Initialize filter chain (must be called before processing)
+ * @param chain Filter chain handle
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_filter_chain_initialize(
+    mcp_filter_chain_t chain) MCP_NOEXCEPT;
+
+/**
+ * Shutdown filter chain (cleanup resources)
+ * @param chain Filter chain handle
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_filter_chain_shutdown(
+    mcp_filter_chain_t chain) MCP_NOEXCEPT;
+
+/* ============================================================================
+ * Async Filter Processing
+ * ============================================================================
+ */
+
+/**
+ * Submit incoming message for async processing
+ * @param chain Filter chain handle
+ * @param message_json JSON-encoded message
+ * @param user_data User data passed to callback (e.g., Buffer with callback ID)
+ * @param callback Callback invoked when processing completes
+ * @param error Output error information
+ * @return MCP_STATUS_OK if submitted, error code otherwise
+ */
+MCP_API mcp_status_t mcp_chain_submit_incoming(
+    mcp_filter_chain_t chain,
+    const char* message_json,
+    void* user_data,
+    mcp_filter_callback_t callback,
+    mcp_error_t* error) MCP_NOEXCEPT;
+
+/**
+ * Submit outgoing message for async processing
+ * @param chain Filter chain handle
+ * @param message_json JSON-encoded message
+ * @param user_data User data passed to callback (e.g., Buffer with callback ID)
+ * @param callback Callback invoked when processing completes
+ * @param error Output error information
+ * @return MCP_STATUS_OK if submitted, error code otherwise
+ */
+MCP_API mcp_status_t mcp_chain_submit_outgoing(
+    mcp_filter_chain_t chain,
+    const char* message_json,
+    void* user_data,
+    mcp_filter_callback_t callback,
+    mcp_error_t* error) MCP_NOEXCEPT;
+
 /* ============================================================================
  * Dynamic Chain Composition
  * ============================================================================
@@ -254,6 +376,33 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
  */
 MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
     mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT;
+
+/**
+ * Create filter chain from JSON configuration asynchronously.
+ *
+ * This function posts the chain creation to the dispatcher thread and invokes
+ * the callback when complete. This is required because mcp_chain_create_from_json
+ * enforces thread affinity (must be called on dispatcher thread).
+ *
+ * Thread-safe: Can be called from any thread.
+ * The callback will be invoked on the dispatcher thread.
+ *
+ * @param dispatcher Dispatcher handle
+ * @param config JSON configuration handle
+ * @param callback Completion callback (chain_handle=0 indicates failure)
+ *                 Signature: void callback(uint64_t chain_handle,
+ *                                         int32_t error_code,
+ *                                         const char* error_msg,
+ *                                         void* user_data)
+ * @param user_data User data passed to callback
+ */
+MCP_API void mcp_chain_create_from_json_async(
+    mcp_dispatcher_t dispatcher,
+    mcp_json_value_t config,
+    void (*callback)(uint64_t chain_handle, int32_t error_code,
+                     const char* error_msg, void* user_data),
+    void* user_data
+) MCP_NOEXCEPT;
 
 /**
  * Export chain configuration to JSON
