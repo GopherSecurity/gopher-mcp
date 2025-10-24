@@ -451,12 +451,21 @@ MCP_API mcp_json_value_t mcp_json_create_array(void) MCP_NOEXCEPT {
 }
 
 MCP_API mcp_json_value_t mcp_json_create_object(void) MCP_NOEXCEPT {
+  fprintf(stderr, "[mcp_json_create_object] ENTRY\n"); fflush(stderr);
   try {
+    fprintf(stderr, "[mcp_json_create_object] About to call make_unique\n"); fflush(stderr);
     auto json = std::make_unique<mcp_json_value_impl>();
+    fprintf(stderr, "[mcp_json_create_object] make_unique completed\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_json_create_object] Setting type\n"); fflush(stderr);
     json->type = MCP_JSON_TYPE_OBJECT;
+    fprintf(stderr, "[mcp_json_create_object] Creating unordered_map\n"); fflush(stderr);
     json->value = std::unordered_map<std::string, mcp_json_value_t>();
-    return json.release();
+    fprintf(stderr, "[mcp_json_create_object] Releasing pointer\n"); fflush(stderr);
+    auto result = json.release();
+    fprintf(stderr, "[mcp_json_create_object] EXIT - returning %p\n", result); fflush(stderr);
+    return result;
   } catch (...) {
+    fprintf(stderr, "[mcp_json_create_object] EXCEPTION CAUGHT\n"); fflush(stderr);
     return nullptr;
   }
 }
