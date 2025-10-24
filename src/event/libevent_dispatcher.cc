@@ -189,7 +189,7 @@ bool LibeventDispatcher::isThreadSafe() const {
 void LibeventDispatcher::registerWatchdog(
     const WatchDogSharedPtr& watchdog,
     std::chrono::milliseconds min_touch_interval) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
 
   watchdog_registration_ = std::make_unique<WatchdogRegistration>();
   watchdog_registration_->watchdog = watchdog;
@@ -213,13 +213,13 @@ FileEventPtr LibeventDispatcher::createFileEvent(int fd,
                                                  FileReadyCb cb,
                                                  FileTriggerType trigger,
                                                  uint32_t events) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
   return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger,
                                          events);
 }
 
 TimerPtr LibeventDispatcher::createTimer(TimerCb cb) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
   return std::make_unique<TimerImpl>(*this, std::move(cb));
 }
 
@@ -239,12 +239,12 @@ TimerPtr LibeventDispatcher::createScaledTimer(ScaledTimerMinimum /*minimum*/,
 
 SchedulableCallbackPtr LibeventDispatcher::createSchedulableCallback(
     std::function<void()> cb) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
   return std::make_unique<SchedulableCallbackImpl>(*this, std::move(cb));
 }
 
 void LibeventDispatcher::deferredDelete(DeferredDeletablePtr&& to_delete) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
   deferred_delete_list_.push_back(std::move(to_delete));
 
   // Schedule deferred delete callback if not already scheduled
@@ -266,7 +266,7 @@ void LibeventDispatcher::exit() {
 
 SignalEventPtr LibeventDispatcher::listenForSignal(int signal_num,
                                                    SignalCb cb) {
-  assert(isThreadSafe());
+  assert(thread_id_ == std::thread::id() || isThreadSafe());
   return std::make_unique<SignalEventImpl>(*this, signal_num, std::move(cb));
 }
 
