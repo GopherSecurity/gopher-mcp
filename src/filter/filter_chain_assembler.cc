@@ -82,8 +82,7 @@ ValidationResult FilterChainAssembler::validateFilterChain(
 
   // Basic validation checks
   if (config.filters.empty()) {
-    result.valid = false;
-    result.errors.push_back("Filter chain cannot be empty");
+    result.valid = true;
     return result;
   }
 
