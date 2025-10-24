@@ -9,13 +9,7 @@
 
 import * as koffi from "koffi";
 import { mcpFilterLib } from "./mcp-ffi-bindings";
-// C struct conversion utilities (imported but not used yet)
-// import {
-//   createChainConfigStruct,
-//   createFilterNodeStruct,
-//   createFilterConditionStruct,
-//   freeStruct
-// } from "./mcp-c-structs";
+import { ValidationResultStruct, AssemblyResultStruct } from "./mcp-c-structs";
 import { ProtocolMetadata } from "./mcp-filter-api";
 
 // ============================================================================
@@ -43,6 +37,10 @@ export enum MatchCondition {
   NONE = 2, // Match no conditions
   CUSTOM = 99, // Custom match function
 }
+
+const MCP_OK = 0;
+
+type JsonHandle = any;
 
 export enum ChainState {
   IDLE = 0,
@@ -124,74 +122,248 @@ export type FilterMatchCallback = (
 ) => boolean;
 
 // ============================================================================
-// Advanced Chain Builder
+// Assembler-based Chain Configuration
 // ============================================================================
 
+export interface FilterConfig {
+  type: string;
+  name?: string;
+  config?: any; // JSON configuration
+  enabled?: boolean;
+  enabledWhen?: any; // JSON condition
+}
+
+export interface FilterChainConfig {
+  name?: string;
+  transportType?: string;
+  filters: FilterConfig[];
+}
+
+// ============================================================================
+// Canonical Listener-based Configuration (matching C++ ListenerConfig)
+// ============================================================================
+
+export interface SocketAddress {
+  address: string;
+  port_value: number;
+}
+
+export interface Address {
+  socket_address: SocketAddress;
+}
+
+export interface FilterSpec {
+  name: string;
+  type: string;
+  config?: any; // Optional filter-specific configuration
+}
+
+export interface FilterChain {
+  filters: FilterSpec[];
+  name?: string;
+  transport_socket?: any; // Optional TLS configuration
+}
+
+export interface ListenerConfig {
+  name: string;
+  address: Address;
+  filter_chains: FilterChain[];
+  per_connection_buffer_limit_bytes?: number;
+  metadata?: any;
+}
+
+export interface CanonicalConfig {
+  listeners: ListenerConfig[];
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface AssemblyResult {
+  success: boolean;
+  chain?: number;
+  errorMessage?: string;
+  createdFilters: string[];
+  warnings: string[];
+}
+
+function normalizeFilterChainConfig(config: FilterChainConfig): Record<string, unknown> {
+  const filters = config.filters || [];
+  return {
+    name: config.name ?? "default",
+    transport_type: config.transportType ?? "tcp",
+    filters: filters.map((filter, index) => ({
+      type: filter.type,
+      name: filter.name ?? `${filter.type || "filter"}:${index}`,
+      config: filter.config ?? {},
+      // Note: enabled and enabled_when fields removed - they're not supported by C API during chain creation
+      // These can be set later via mcp_chain_set_filter_enabled() if needed
+    })),
+  };
+}
+
 /**
- * Create chain builder with configuration
+ * Convert canonical listener configuration to assembler format
  */
-export function createChainBuilderEx(dispatcher: number, _config: ChainConfig): any {
-  // For now, use the basic chain builder since the advanced one requires a valid C struct
-  // The advanced config will be implemented later when proper C struct conversion is ready
-  // TODO: Implement proper C struct conversion when the C++ side is ready
-  const builder = mcpFilterLib.mcp_filter_chain_builder_create(dispatcher);
-  return builder;
-}
+function canonicalToAssemblerConfig(config: CanonicalConfig): FilterChainConfig {
+  // For now, we'll take the first listener's first filter chain
+  // In a full implementation, this could be more sophisticated
+  if (!config.listeners || config.listeners.length === 0) {
+    throw new Error("No listeners defined in canonical configuration");
+  }
 
-export function buildFilterChain(builder: any): number {
-  return mcpFilterLib.mcp_filter_chain_build(builder);
-}
+  const listener = config.listeners[0];
+  if (!listener || !listener.filter_chains || listener.filter_chains.length === 0) {
+    throw new Error("No filter chains defined in listener");
+  }
 
-export function destroyFilterChainBuilder(builder: any): void {
-  mcpFilterLib.mcp_filter_chain_builder_destroy(builder);
+  const filterChain = listener.filter_chains[0];
+  if (!filterChain) {
+    throw new Error("No filter chain at index 0");
+  }
+
+  return {
+    name: filterChain.name || listener.name,
+    transportType: "tcp", // Default, could be inferred from listener type
+    filters: (filterChain.filters || []).map(filter => ({
+      type: filter.type,
+      name: filter.name,
+      config: filter.config,
+      enabled: true,
+    })),
+  };
 }
 
 /**
- * Add filter node to chain
+ * Check if configuration is in canonical format
  */
-export function addFilterNodeToChain(builder: any, node: FilterNode): number {
-  // Use the simpler mcp_filter_chain_add_filter function instead of mcp_chain_builder_add_node
-  // This avoids the need for complex C struct conversion
-  return mcpFilterLib.mcp_filter_chain_add_filter(
-    builder,
-    node.filter,
-    0, // MCP_FILTER_POSITION_FIRST
-    0 // No reference filter
-  ) as number;
+function isCanonicalConfig(config: any): config is CanonicalConfig {
+  return config &&
+         typeof config === 'object' &&
+         'listeners' in config &&
+         Array.isArray(config.listeners);
+}
+
+function createJsonHandleFromConfig(config: FilterChainConfig): JsonHandle {
+  const normalized = normalizeFilterChainConfig(config);
+  const jsonStr = JSON.stringify(normalized);
+  const handle = mcpFilterLib.mcp_json_parse(jsonStr);
+  if (!handle) {
+    throw new Error("Failed to parse filter chain configuration JSON");
+  }
+  return handle;
 }
 
 /**
- * Add conditional filter
+ * Validate filter chain configuration using the assembler-aware API
  */
-export function addConditionalFilter(
-  builder: any,
-  _condition: FilterCondition,
-  filter: number
+export function validateFilterChainConfig(config: FilterChainConfig): ValidationResult {
+  const jsonHandle = createJsonHandleFromConfig(config);
+  const resultPtr = koffi.alloc(ValidationResultStruct, 1);
+
+  try {
+    const status = mcpFilterLib.mcp_chain_validate_json(
+      jsonHandle,
+      koffi.as(resultPtr, "void*")
+    ) as number;
+
+    if (status !== MCP_OK) {
+      return { valid: false, errors: [`Validation failed with code: ${status}`], warnings: [] };
+    }
+
+    const buffer: Buffer = resultPtr;
+    const valid = buffer.readUInt8(0) !== 0;
+
+    return { valid, errors: [], warnings: [] };
+  } finally {
+    mcpFilterLib.mcp_chain_validation_result_free(koffi.as(resultPtr, "void*"));
+    koffi.free(resultPtr);
+    mcpFilterLib.mcp_json_free(jsonHandle);
+  }
+}
+
+/**
+ * Assemble filter chain from configuration
+ */
+export function assembleFilterChain(dispatcher: any, config: FilterChainConfig): AssemblyResult {
+  const jsonHandle = createJsonHandleFromConfig(config);
+  const resultPtr = koffi.alloc(AssemblyResultStruct, 1);
+
+  try {
+    const status = mcpFilterLib.mcp_chain_assemble_from_json(
+      dispatcher,
+      jsonHandle,
+      koffi.as(resultPtr, "void*")
+    ) as number;
+
+    const buffer: Buffer = resultPtr;
+    const successFlag = buffer.readUInt8(0) !== 0;
+    const chainHandle = Number(buffer.readBigUInt64LE(8));
+
+    const success = status === MCP_OK && successFlag;
+    let errorMessage: string | undefined;
+
+    if (!success) {
+      errorMessage = status !== MCP_OK ? `Assembly failed with code: ${status}` : "Assembler reported failure";
+    }
+
+    const assemblyResult: AssemblyResult = {
+      success,
+      createdFilters: [],
+      warnings: [],
+    };
+
+    if (success && chainHandle !== 0) {
+      assemblyResult.chain = chainHandle;
+    }
+
+    if (errorMessage) {
+      assemblyResult.errorMessage = errorMessage;
+    }
+
+    return assemblyResult;
+  } finally {
+    mcpFilterLib.mcp_chain_assembly_result_free(koffi.as(resultPtr, "void*"));
+    koffi.free(resultPtr);
+    mcpFilterLib.mcp_json_free(jsonHandle);
+  }
+}
+
+/**
+ * Create filter chain directly from canonical configuration using assembler
+ */
+export function canonicalConfigToNormalizedJson(config: CanonicalConfig): string {
+  const chainConfig = canonicalToAssemblerConfig(config);
+  const normalized = normalizeFilterChainConfig(chainConfig);
+  return JSON.stringify(normalized);
+}
+
+export function createFilterChainFromConfig(
+  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  config: CanonicalConfig
 ): number {
-  // For now, pass null as condition since the C++ function expects a pointer to C struct
-  // TODO: Implement proper C struct conversion when the C++ side is ready
-  return mcpFilterLib.mcp_chain_builder_add_conditional(builder, null, filter) as number;
+  if (!isCanonicalConfig(config)) {
+    throw new Error("Configuration must be in canonical format with 'listeners' array");
+  }
+
+  const jsonStr = canonicalConfigToNormalizedJson(config);
+  const jsonHandle = mcpFilterLib.mcp_json_parse(jsonStr);
+  try {
+    const rawHandle = mcpFilterLib.mcp_chain_create_from_json(dispatcher, jsonHandle);
+    // Convert koffi pointer/uint64_t to number
+    const handle = typeof rawHandle === 'number' ? rawHandle : Number(rawHandle);
+    if (!handle) {
+      throw new Error("Failed to create filter chain from configuration");
+    }
+    return handle;
+  } finally {
+    mcpFilterLib.mcp_json_free(jsonHandle);
+  }
 }
 
-/**
- * Add parallel filter group
- */
-export function addParallelFilterGroup(builder: any, filters: number[], count: number): number {
-  // Convert JavaScript array to C array using koffi
-  const filtersArray = koffi.as(filters, "uint64_t *");
-  return mcpFilterLib.mcp_chain_builder_add_parallel_group(builder, filtersArray, count) as number;
-}
-
-/**
- * Set custom routing function
- */
-export function setChainBuilderRouter(
-  builder: any,
-  router: RoutingFunction,
-  userData: any
-): number {
-  return mcpFilterLib.mcp_chain_builder_set_router(builder, router, userData) as number;
-}
 
 // ============================================================================
 // Chain Management
@@ -427,143 +599,114 @@ export function validateChain(chain: number, errors: any): number {
 // ============================================================================
 
 /**
- * Create a simple sequential chain
+ * Create a simple sequential chain using canonical configuration
  */
 export function createSimpleChain(
-  dispatcher: number,
-  filters: number[],
-  name: string = "simple-chain"
+  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  filterTypes: string[],
+  name: string = "simple-chain",
+  port: number = 8080
 ): number {
-  const config: ChainConfig = {
-    name,
-    mode: ChainExecutionMode.SEQUENTIAL,
-    routing: RoutingStrategy.ROUND_ROBIN,
-    maxParallel: 1,
-    bufferSize: 8192,
-    timeoutMs: 5000,
-    stopOnError: false,
+  // Build canonical configuration
+  const config: CanonicalConfig = {
+    listeners: [
+      {
+        name: `${name}_listener`,
+        address: {
+          socket_address: {
+            address: "127.0.0.1",
+            port_value: port,
+          },
+        },
+        filter_chains: [
+          {
+            filters: filterTypes.map((type, index) => ({
+              name: `filter_${index}`,
+              type: type,
+            })),
+          },
+        ],
+      },
+    ],
   };
 
-  const builder = createChainBuilderEx(dispatcher, config);
-  if (!builder) {
-    throw new Error("Failed to create chain builder");
-  }
-
-  try {
-    // Add all filters in sequence
-    for (const filter of filters) {
-      const result = addFilterNodeToChain(builder, {
-        filter,
-        name: `filter-${filter}`,
-        priority: 0,
-        enabled: true,
-        bypassOnError: false,
-        config: null,
-      });
-
-      if (result !== 0) {
-        throw new Error(`Failed to add filter ${filter} to chain`);
-      }
-    }
-
-    // Build the chain
-    const chain = mcpFilterLib.mcp_filter_chain_build(builder);
-    if (!chain) {
-      throw new Error("Failed to build filter chain");
-    }
-
-    return chain as number;
-  } finally {
-    // Clean up builder
-    mcpFilterLib.mcp_filter_chain_builder_destroy(builder);
-  }
+  return createFilterChainFromConfig(dispatcher, config);
 }
 
 /**
  * Create a parallel processing chain
+ * Note: Parallel execution is handled by the filter chain implementation
  */
 export function createParallelChain(
-  dispatcher: number,
-  filters: number[],
+  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  filterTypes: string[],
   maxParallel: number = 4,
-  name: string = "parallel-chain"
+  name: string = "parallel-chain",
+  port: number = 8080
 ): number {
-  const config: ChainConfig = {
-    name,
-    mode: ChainExecutionMode.PARALLEL,
-    routing: RoutingStrategy.ROUND_ROBIN,
-    maxParallel,
-    bufferSize: 8192,
-    timeoutMs: 5000,
-    stopOnError: false,
+  // For parallel chains, we still use the canonical config
+  // The parallel execution mode would be specified in the filter config
+  const config: CanonicalConfig = {
+    listeners: [
+      {
+        name: `${name}_listener`,
+        address: {
+          socket_address: {
+            address: "127.0.0.1",
+            port_value: port,
+          },
+        },
+        filter_chains: [
+          {
+            filters: filterTypes.map((type, index) => ({
+              name: `parallel_filter_${index}`,
+              type: type,
+              config: {
+                execution_mode: "parallel",
+                max_parallel: maxParallel,
+              },
+            })),
+          },
+        ],
+      },
+    ],
   };
 
-  const builder = createChainBuilderEx(dispatcher, config);
-  if (!builder) {
-    throw new Error("Failed to create parallel chain builder");
-  }
-
-  try {
-    // Add parallel filter group
-    const result = addParallelFilterGroup(builder, filters, filters.length);
-    if (result !== 0) {
-      throw new Error("Failed to add parallel filter group");
-    }
-
-    // Build the chain
-    const chain = mcpFilterLib.mcp_filter_chain_build(builder);
-    if (!chain) {
-      throw new Error("Failed to build parallel filter chain");
-    }
-
-    return chain as number;
-  } finally {
-    // Clean up builder
-    mcpFilterLib.mcp_filter_chain_builder_destroy(builder);
-  }
+  return createFilterChainFromConfig(dispatcher, config);
 }
 
 /**
  * Create a conditional chain with routing
+ * Note: Conditional routing would be implemented via filter configuration
  */
 export function createConditionalChain(
-  dispatcher: number,
-  conditions: Array<{ condition: FilterCondition; chain: number }>,
-  name: string = "conditional-chain"
+  dispatcher: any,  // mcp_dispatcher_t (pointer type)
+  filterConfigs: Array<{ type: string; condition?: any }>,
+  name: string = "conditional-chain",
+  port: number = 8080
 ): number {
-  const config: ChainConfig = {
-    name,
-    mode: ChainExecutionMode.CONDITIONAL,
-    routing: RoutingStrategy.CUSTOM,
-    maxParallel: 1,
-    bufferSize: 8192,
-    timeoutMs: 5000,
-    stopOnError: false,
+  const config: CanonicalConfig = {
+    listeners: [
+      {
+        name: `${name}_listener`,
+        address: {
+          socket_address: {
+            address: "127.0.0.1",
+            port_value: port,
+          },
+        },
+        filter_chains: [
+          {
+            filters: filterConfigs.map((fc, index) => ({
+              name: `conditional_filter_${index}`,
+              type: fc.type,
+              config: fc.condition ? { condition: fc.condition } : undefined,
+            })),
+          },
+        ],
+      },
+    ],
   };
 
-  const builder = createChainBuilderEx(dispatcher, config);
-  if (!builder) {
-    throw new Error("Failed to create conditional chain builder");
-  }
-
-  try {
-    // Add conditional filters
-    for (const { condition, chain } of conditions) {
-      const result = addConditionalFilter(builder, condition, chain);
-      if (result !== 0) {
-        throw new Error(`Failed to add conditional filter for chain ${chain}`);
-      }
-    }
-
-    // Build the chain
-    const chainHandle = mcpFilterLib.mcp_filter_chain_build(builder);
-    if (!chainHandle) {
-      throw new Error("Failed to build conditional filter chain");
-    }
-
-    return chainHandle as number;
-  } finally {
-    // Clean up builder
-    mcpFilterLib.mcp_filter_chain_builder_destroy(builder);
-  }
+  return createFilterChainFromConfig(dispatcher, config);
 }
