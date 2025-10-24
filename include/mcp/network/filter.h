@@ -8,6 +8,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/core/compat.h"
+#include "mcp/filter/filter_service_types.h"
 #include "mcp/network/transport_socket.h"
 
 namespace mcp {
@@ -188,6 +189,97 @@ class WriteFilter {
 class Filter : public ReadFilter, public WriteFilter {
  public:
   virtual ~Filter() = default;
+};
+
+/**
+ * Optional interface for filters requiring runtime dependency injection
+ *
+ * Filters that need access to dispatcher (for timers), callbacks (for events),
+ * metrics (for observability), or circuit breaker state should implement this.
+ *
+ * DEFAULT IMPLEMENTATIONS:
+ * All methods have default no-op implementations, so filters only override
+ * the methods for services they actually need.
+ *
+ * OWNERSHIP CONTRACTS:
+ * - dispatcher, callbacks: BORROWED - do not delete, do not access after chain destroyed
+ * - metrics, circuit_breaker: SHARED - safe to hold as member variables
+ *
+ * THREAD SAFETY:
+ * - setDispatcher/setCallbacks: Called once during chain initialization
+ * - setMetrics/setCircuitBreaker: Called once during chain initialization
+ * - All set* methods MUST be thread-safe with filter processing methods
+ */
+class DependencyInjectionAware {
+ public:
+  virtual ~DependencyInjectionAware() = default;
+
+  /**
+   * Inject event dispatcher for scheduling timers/posting work
+   *
+   * OWNERSHIP: BORROWED - Filter must not delete
+   * LIFETIME: Valid until chain destruction
+   *
+   * Example usage (RateLimitFilter):
+   *   dispatcher_ptr_ = dispatcher;  // Store pointer
+   *   timer_ = dispatcher->createTimer([this]() { refillTokens(); });
+   *   timer_->enableTimer(std::chrono::seconds(1));
+   */
+  virtual void setDispatcher(filter::DispatcherService dispatcher) {
+    // Default: no-op
+    (void)dispatcher;
+  }
+
+  /**
+   * Inject protocol callbacks for emitting protocol events
+   *
+   * OWNERSHIP: BORROWED - Filter must not delete
+   * LIFETIME: Application must ensure outlives chain
+   *
+   * Example usage (JsonRpcDispatcherFilter):
+   *   callbacks_ptr_ = callbacks;  // Store pointer
+   *   callbacks->onRequest(request);  // Emit event
+   *
+   * NOTE: May be nullptr if NullProtocolCallbacks used
+   */
+  virtual void setCallbacks(filter::CallbacksService callbacks) {
+    // Default: no-op
+    (void)callbacks;
+  }
+
+  /**
+   * Inject metrics sink for recording metrics
+   *
+   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
+   * LIFETIME: Managed by refcount
+   *
+   * Example usage (RateLimitFilter):
+   *   metrics_ = metrics;  // Store shared_ptr
+   *   if (metrics_) {
+   *     metrics_->incrementCounter("rate_limit.rejected");
+   *   }
+   */
+  virtual void setMetrics(filter::MetricsService metrics) {
+    // Default: no-op
+    (void)metrics;
+  }
+
+  /**
+   * Inject circuit breaker state for failure tracking
+   *
+   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
+   * LIFETIME: Managed by refcount
+   *
+   * Example usage (CircuitBreakerFilter):
+   *   circuit_breaker_ = circuit_breaker;  // Store shared_ptr
+   *   if (circuit_breaker_->circuit_open.load()) {
+   *     return FilterStatus::StopIteration;  // Fast-fail
+   *   }
+   */
+  virtual void setCircuitBreaker(filter::CircuitBreakerService circuit_breaker) {
+    // Default: no-op
+    (void)circuit_breaker;
+  }
 };
 
 /**
