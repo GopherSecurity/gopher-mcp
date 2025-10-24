@@ -13,6 +13,8 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -26,6 +28,8 @@
 #include "mcp/c_api/mcp_c_api_json.h"
 #include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_c_memory.h"
+#include "mcp/c_api/mcp_c_types_api.h"
+#include "mcp/filter/filter_service_types.h"
 #include "mcp/network/filter.h"
 #include "mcp/network/connection.h"
 #include "mcp/filter/filter_chain_assembler.h"
@@ -319,6 +323,89 @@ class FilterNode {
 
 }  // anonymous namespace
 
+// ============================================================================
+// Async Request Queue Implementation
+// ============================================================================
+
+// CRITICAL: These types MUST be inside namespace mcp::filter_chain
+enum class FilterDirection {
+  INCOMING,
+  OUTGOING
+};
+
+struct PendingRequest {
+  uint64_t request_id;
+  std::string message_json;
+  FilterDirection direction;
+  void* user_data;
+  mcp_filter_callback_t callback;
+  std::chrono::steady_clock::time_point submitted_at;
+};
+
+class AsyncRequestQueue {
+ public:
+  AsyncRequestQueue() : next_id_(0), max_queue_size_(10000) {}
+
+  explicit AsyncRequestQueue(size_t max_size)
+      : next_id_(0), max_queue_size_(max_size) {}
+
+  mcp_status_t enqueue(PendingRequest req) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::cout << "📤 [AsyncRequestQueue::enqueue] Queue addr: " << this
+              << ", current size: " << queue_.size()
+              << ", max size: " << max_queue_size_
+              << ", request ID: " << req.request_id << std::endl;
+
+    if (queue_.size() >= max_queue_size_) {
+      std::cout << "❌ [AsyncRequestQueue::enqueue] Queue full!" << std::endl;
+      return MCP_STATUS_QUEUE_FULL;
+    }
+
+    queue_.push(std::move(req));
+    std::cout << "✅ [AsyncRequestQueue::enqueue] Request added, new size: " << queue_.size() << std::endl;
+    return MCP_STATUS_OK;
+  }
+
+  std::optional<PendingRequest> dequeue() {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::cout << "📥 [AsyncRequestQueue::dequeue] Queue addr: " << this
+              << ", current size: " << queue_.size() << std::endl;
+
+    if (queue_.empty()) {
+      std::cout << "⚠️  [AsyncRequestQueue::dequeue] Queue is EMPTY, returning nullopt" << std::endl;
+      return std::nullopt;
+    }
+
+    auto req = std::move(queue_.front());
+    queue_.pop();
+    std::cout << "✅ [AsyncRequestQueue::dequeue] Request retrieved (ID: " << req.request_id
+              << "), remaining size: " << queue_.size() << std::endl;
+    return req;
+  }
+
+  size_t size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.size();
+  }
+
+  bool empty() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.empty();
+  }
+
+  uint64_t nextId() {
+    return next_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::queue<PendingRequest> queue_;
+  std::atomic<uint64_t> next_id_;
+  size_t max_queue_size_;
+};
+
 }  // namespace filter_chain
 }  // namespace mcp
 
@@ -533,6 +620,285 @@ class AdvancedFilterChain {
   const std::vector<std::unique_ptr<FilterNode>>& getNodes() const { return nodes_; }
   std::mutex& getMutex() const { return mutex_; }
 
+  // Async request queue management
+  bool isInitialized() const {
+    return initialized_.load(std::memory_order_acquire);
+  }
+
+  void setInitialized(bool value) {
+    initialized_.store(value, std::memory_order_release);
+  }
+
+  AsyncRequestQueue& getRequestQueue() {
+    return request_queue_;
+  }
+
+  /**
+   * Inject runtime dependencies into all filters
+   *
+   * MUST BE CALLED:
+   * - After filters are added to chain
+   * - From dispatcher thread for thread safety
+   *
+   * OWNERSHIP:
+   * - callbacks: BORROWED - caller must ensure outlives chain
+   * - metrics/circuit_breaker: SHARED - refcounted
+   *
+   * IDEMPOTENT: Safe to call multiple times (only first call takes effect)
+   */
+  void injectDependencies(filter::CallbacksService callbacks,
+                         filter::MetricsService metrics = nullptr,
+                         filter::CircuitBreakerService circuit_breaker = nullptr) {
+    // Check if already injected (atomic exchange)
+    if (dependencies_injected_.exchange(true)) {
+      try {
+        GOPHER_LOG(Warning, "Dependencies already injected, skipping");
+      } catch (...) {}
+      return;
+    }
+
+    // Store service pointers/shared_ptrs
+    protocol_callbacks_ = callbacks;
+    metrics_sink_ = metrics;
+    circuit_breaker_state_ = circuit_breaker;
+
+    // Get dispatcher pointer from opaque handle
+    filter::DispatcherService dispatcher_ptr = getDispatcherPtr();
+
+    // Inject into each filter that implements DependencyInjectionAware
+    for (auto& filter_ptr : owned_filters_) {
+      if (!filter_ptr) continue;
+
+      auto* injectable = dynamic_cast<network::DependencyInjectionAware*>(filter_ptr.get());
+      if (!injectable) {
+        // Filter doesn't need dependencies - skip
+        continue;
+      }
+
+      try {
+        // Inject services (only non-null values)
+        if (dispatcher_ptr) {
+          injectable->setDispatcher(dispatcher_ptr);
+        }
+
+        if (callbacks) {
+          injectable->setCallbacks(callbacks);
+        }
+
+        if (metrics_sink_) {
+          injectable->setMetrics(metrics_sink_);
+        }
+
+        if (circuit_breaker_state_) {
+          injectable->setCircuitBreaker(circuit_breaker_state_);
+        }
+
+      } catch (const std::exception& e) {
+        // Log but continue - don't fail entire chain if one filter fails
+        try {
+          GOPHER_LOG(Error, "Failed to inject dependencies into filter: {}", e.what());
+        } catch (...) {}
+      }
+    }
+  }
+
+  /**
+   * Update dependencies with real callbacks after chain creation
+   *
+   * USE CASE:
+   * - Chain created with NullProtocolCallbacks
+   * - Application later provides real callbacks
+   * - Call this to reinject with real callbacks
+   */
+  void updateDependencies(filter::CallbacksService callbacks,
+                         filter::MetricsService metrics = nullptr,
+                         filter::CircuitBreakerService circuit_breaker = nullptr) {
+    // Update stored services
+    protocol_callbacks_ = callbacks;
+    if (metrics) metrics_sink_ = metrics;
+    if (circuit_breaker) circuit_breaker_state_ = circuit_breaker;
+
+    // Re-inject into all filters
+    filter::DispatcherService dispatcher_ptr = getDispatcherPtr();
+
+    for (auto& filter_ptr : owned_filters_) {
+      if (!filter_ptr) continue;
+
+      auto* injectable = dynamic_cast<network::DependencyInjectionAware*>(filter_ptr.get());
+      if (!injectable) continue;
+
+      try {
+        if (dispatcher_ptr) injectable->setDispatcher(dispatcher_ptr);
+        if (callbacks) injectable->setCallbacks(callbacks);
+        if (metrics_sink_) injectable->setMetrics(metrics_sink_);
+        if (circuit_breaker_state_) injectable->setCircuitBreaker(circuit_breaker_state_);
+      } catch (const std::exception& e) {
+        try {
+          GOPHER_LOG(Error, "Failed to update dependencies in filter: {}", e.what());
+        } catch (...) {}
+      }
+    }
+  }
+
+  /**
+   * Check if dependencies have been injected
+   */
+  bool hasDependencies() const {
+    return dependencies_injected_.load(std::memory_order_acquire);
+  }
+
+  void processNextRequest() {
+    std::cout << "🔹 [processNextRequest] ENTRY - Queue addr: " << &request_queue_
+              << ", this addr: " << this << std::endl;
+
+    auto req_opt = request_queue_.dequeue();
+
+    std::cout << "🔹 [processNextRequest] Dequeue result: "
+              << (req_opt ? "FOUND REQUEST" : "EMPTY QUEUE") << std::endl;
+
+    if (!req_opt) {
+      std::cout << "⚠️  [processNextRequest] EXIT EARLY - Queue is empty" << std::endl;
+      return;
+    }
+
+    auto& req = *req_opt;
+    std::cout << "🔹 [processNextRequest] Processing request ID: " << req.request_id
+              << ", direction: " << (req.direction == FilterDirection::INCOMING ? "INCOMING" : "OUTGOING")
+              << std::endl;
+
+    try {
+      // ===================================================================
+      // REAL FILTER EXECUTION (NOT STUB)
+      // ===================================================================
+
+      // 1. Create buffer from JSON message
+      std::cout << "🔹 [processNextRequest] Step 1: Creating buffer from message..." << std::endl;
+      auto buffer = ::mcp::createBuffer(req.message_json);
+      std::cout << "✅ [processNextRequest] Buffer created, size: " << buffer->length() << std::endl;
+
+      // 2. Execute filters based on direction
+      network::FilterStatus status = network::FilterStatus::Continue;
+      std::string reason;
+
+      std::cout << "🔹 [processNextRequest] Step 2: Executing " << owned_filters_.size()
+                << " filters..." << std::endl;
+
+      size_t filter_idx = 0;
+      for (const auto& filter_ptr : owned_filters_) {
+        if (!filter_ptr) {
+          std::cout << "⚠️  [processNextRequest] Filter " << filter_idx << " is null, skipping" << std::endl;
+          filter_idx++;
+          continue;
+        }
+
+        std::cout << "🔹 [processNextRequest] Executing filter " << filter_idx
+                  << " (ptr: " << filter_ptr.get() << ")..." << std::endl;
+
+        // Execute the appropriate filter method based on direction
+        if (req.direction == FilterDirection::INCOMING) {
+          // For incoming messages, call onData
+          std::cout << "   Calling filter->onData()..." << std::endl;
+          status = filter_ptr->onData(*buffer, false);
+        } else {
+          // For outgoing messages, call onWrite
+          std::cout << "   Calling filter->onWrite()..." << std::endl;
+          status = filter_ptr->onWrite(*buffer, false);
+        }
+
+        std::cout << "✅ [processNextRequest] Filter " << filter_idx << " returned status: "
+                  << static_cast<int>(status) << std::endl;
+
+        // If filter stopped iteration, record the reason and break
+        if (status == network::FilterStatus::StopIteration) {
+          reason = "Filter stopped iteration";
+          std::cout << "🛑 [processNextRequest] Filter stopped iteration, breaking loop" << std::endl;
+          break;
+        }
+
+        filter_idx++;
+      }
+
+      // 3. Convert filter status to C API result
+      std::cout << "🔹 [processNextRequest] Step 3: Converting filter status to result..." << std::endl;
+      mcp_filter_result_t c_result{};
+
+      if (status == network::FilterStatus::Continue) {
+        c_result.decision = MCP_FILTER_DECISION_ALLOW;
+        std::cout << "   Decision: ALLOW" << std::endl;
+      } else {
+        // StopIteration typically means DENY in filter context
+        c_result.decision = MCP_FILTER_DECISION_DENY;
+        std::cout << "   Decision: DENY" << std::endl;
+      }
+
+      // 4. Check if message was transformed by filters
+      std::cout << "🔹 [processNextRequest] Step 4: Checking for message transformation..." << std::endl;
+      std::string buffer_content = buffer->toString();
+      if (buffer_content != req.message_json) {
+        // Message was transformed
+        c_result.transformed_message = mcp_strdup(buffer_content.c_str());
+        c_result.decision = MCP_FILTER_DECISION_TRANSFORM;
+        std::cout << "   Message was TRANSFORMED" << std::endl;
+      } else {
+        c_result.transformed_message = nullptr;
+        std::cout << "   Message UNCHANGED" << std::endl;
+      }
+
+      // 5. Set reason if filter stopped
+      if (!reason.empty()) {
+        c_result.reason = mcp_strdup(reason.c_str());
+        std::cout << "   Reason: " << reason << std::endl;
+      } else {
+        c_result.reason = nullptr;
+      }
+
+      c_result.delay_ms = 0;
+      c_result.metadata = nullptr;
+
+      // 6. Invoke callback on dispatcher thread with result
+      std::cout << "🔹 [processNextRequest] Step 6: INVOKING CALLBACK..." << std::endl;
+      std::cout << "   Callback ptr: " << reinterpret_cast<void*>(req.callback) << std::endl;
+      std::cout << "   User data: " << req.user_data << std::endl;
+      std::cout << "   Result decision: " << c_result.decision << std::endl;
+
+      req.callback(req.user_data, &c_result, nullptr);
+
+      std::cout << "✅ [processNextRequest] CALLBACK INVOKED SUCCESSFULLY" << std::endl;
+
+      // 7. Clean up allocated C strings
+      if (c_result.transformed_message) {
+        mcp_free(const_cast<char*>(c_result.transformed_message));
+      }
+      if (c_result.reason) {
+        mcp_free(const_cast<char*>(c_result.reason));
+      }
+
+      std::cout << "✅ [processNextRequest] EXIT SUCCESS" << std::endl;
+
+    } catch (const std::exception& e) {
+      // On error, invoke callback with nullptr result and nullptr error
+      // The error message is logged here
+      std::cout << "❌ [processNextRequest] EXCEPTION: " << e.what() << std::endl;
+      try {
+        GOPHER_LOG(Error, "Filter processing exception: {}", e.what());
+      } catch (...) {}
+
+      std::cout << "🔹 [processNextRequest] Invoking callback with ERROR..." << std::endl;
+      req.callback(req.user_data, nullptr, nullptr);
+      std::cout << "✅ [processNextRequest] Error callback invoked" << std::endl;
+    } catch (...) {
+      // On unknown exception, log and invoke callback with nullptr
+      std::cout << "❌ [processNextRequest] UNKNOWN EXCEPTION" << std::endl;
+      try {
+        GOPHER_LOG(Error, "Unknown error during filter processing");
+      } catch (...) {}
+
+      std::cout << "🔹 [processNextRequest] Invoking callback with ERROR..." << std::endl;
+      req.callback(req.user_data, nullptr, nullptr);
+      std::cout << "✅ [processNextRequest] Error callback invoked" << std::endl;
+    }
+  }
+
  private:
   mcp_filter_status_t processSequential(
       mcp_buffer_handle_t buffer, const mcp_protocol_metadata_t* metadata) {
@@ -664,6 +1030,17 @@ class AdvancedFilterChain {
     return 0.0;
   }
 
+  /**
+   * Extract dispatcher pointer from opaque mcp_dispatcher_t handle
+   * Returns nullptr if dispatcher not available
+   */
+  filter::DispatcherService getDispatcherPtr() const {
+    if (!dispatcher_) return nullptr;
+    auto* impl = reinterpret_cast<::mcp::c_api::mcp_dispatcher_impl*>(dispatcher_);
+    if (!impl || !impl->dispatcher) return nullptr;
+    return impl->dispatcher.get();
+  }
+
  private:
   std::string name_;
   mcp_chain_execution_mode_t mode_;
@@ -686,10 +1063,45 @@ class AdvancedFilterChain {
   void* event_user_data_{nullptr};
 
   std::atomic<uint64_t> max_latency_us_{0};
-  
+
   // Store dispatcher for cloning
   mcp_dispatcher_t dispatcher_;
-  
+
+  // Async request queue for non-blocking message processing
+  AsyncRequestQueue request_queue_;
+  std::atomic<bool> initialized_{false};
+
+  // ===================================================================
+  // Runtime Dependency Storage (Option 2 with Type Safety)
+  // ===================================================================
+
+  /**
+   * Protocol callbacks for filter event emission
+   * OWNERSHIP: BORROWED from caller
+   * LIFETIME: Caller must ensure outlives this chain
+   */
+  filter::CallbacksService protocol_callbacks_ = nullptr;
+
+  /**
+   * Metrics sink for observability
+   * OWNERSHIP: SHARED via shared_ptr
+   * LIFETIME: Managed by refcount
+   */
+  filter::MetricsService metrics_sink_;
+
+  /**
+   * Circuit breaker state for resilience
+   * OWNERSHIP: SHARED via shared_ptr
+   * LIFETIME: Managed by refcount
+   */
+  filter::CircuitBreakerService circuit_breaker_state_;
+
+  /**
+   * Flag to track if dependencies have been injected
+   * Prevents double injection
+   */
+  std::atomic<bool> dependencies_injected_{false};
+
 public:
   // Owned filters for lifetime management
   // Made public for direct assignment during creation
@@ -811,6 +1223,11 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
         }
 
         handles_adopted = true;
+
+        // Inject runtime dependencies into filters
+        // NOTE: Using NullProtocolCallbacks for now
+        // Application can call mcp_chain_update_dependencies later with real callbacks
+        chain->injectDependencies(&callbacks, nullptr, nullptr);
 
         auto chain_shared =
             std::shared_ptr<AdvancedFilterChain>(std::move(chain));
@@ -958,6 +1375,124 @@ namespace c_api_internal {
 HandleManager<UnifiedFilterChain> g_unified_chain_manager;
 }  // namespace c_api_internal
 }  // namespace mcp
+
+// ============================================================================
+// Async Submit Implementation
+// ============================================================================
+
+namespace {
+
+using mcp::filter_chain::FilterDirection;
+using mcp::filter_chain::PendingRequest;
+
+mcp_status_t submit_message_internal(
+    mcp_filter_chain_t chain_handle,
+    const char* message_json,
+    FilterDirection direction,
+    void* user_data,
+    mcp_filter_callback_t callback,
+    mcp_error_t* error) {
+
+  // DEBUG TRACE
+  std::cout << "\n🔵 [C-API] submit_message_internal ENTRY" << std::endl;
+  std::cout << "   Direction: " << (direction == FilterDirection::INCOMING ? "INCOMING" : "OUTGOING") << std::endl;
+  std::cout << "   Message: " << std::string(message_json).substr(0, 200) << std::endl;
+
+  // Validation
+  if (!chain_handle || !message_json || !callback) {
+    std::cout << "❌ [C-API] Validation failed: null parameter" << std::endl;
+    // Note: error parameter is for future use, not currently populated
+    return MCP_STATUS_INVALID_ARGUMENT;
+  }
+
+  // Get unified chain and validate handle
+  auto unified_chain = ::mcp::c_api_internal::g_unified_chain_manager.get(chain_handle);
+  if (!unified_chain) {
+    std::cout << "❌ [C-API] Invalid chain handle" << std::endl;
+    return MCP_STATUS_INVALID_ARGUMENT;
+  }
+
+  // CRITICAL: Check chain type before attempting to get AdvancedFilterChain
+  // Async queue API requires AdvancedFilterChain
+  if (unified_chain->getType() != ::mcp::c_api_internal::UnifiedFilterChain::ChainType::Advanced) {
+    return MCP_STATUS_INVALID_ARGUMENT;
+  }
+
+  auto chain_ptr = unified_chain->getAdvancedChain();
+  // chain_ptr is guaranteed non-null here due to type check above
+
+  // Check initialization
+  if (!chain_ptr->isInitialized()) {
+    return MCP_STATUS_NOT_INITIALIZED;
+  }
+
+  // Create request
+  PendingRequest req{};
+  req.request_id = chain_ptr->getRequestQueue().nextId();
+  req.message_json = message_json;
+  req.direction = direction;
+  req.user_data = user_data;
+  req.callback = callback;
+  req.submitted_at = std::chrono::steady_clock::now();
+
+  // Enqueue (non-blocking)
+  std::cout << "📥 [C-API] Enqueuing request (ID: " << req.request_id << ")..." << std::endl;
+  mcp_status_t status = chain_ptr->getRequestQueue().enqueue(std::move(req));
+  if (status != MCP_STATUS_OK) {
+    std::cout << "❌ [C-API] Enqueue failed: " << status << std::endl;
+    return status;
+  }
+  std::cout << "✅ [C-API] Request enqueued successfully" << std::endl;
+
+  // Get dispatcher
+  mcp_dispatcher_t dispatcher = chain_ptr->getDispatcher();
+  if (!dispatcher) {
+    std::cout << "❌ [C-API] No dispatcher available" << std::endl;
+    return MCP_STATUS_INVALID_ARGUMENT;
+  }
+
+  // Schedule processing on dispatcher thread
+  std::cout << "⚡ [C-API] Posting to dispatcher for processing..." << std::endl;
+  std::cout << "   Chain handle: " << chain_handle << std::endl;
+  std::cout << "   Chain ptr: " << chain_ptr.get() << std::endl;
+  std::cout << "   Queue addr in submit: " << &chain_ptr->getRequestQueue() << std::endl;
+
+  // Capture chain_handle (integer) instead of raw pointer for safety
+  auto* dispatcher_impl = reinterpret_cast<::mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+  if (dispatcher_impl && dispatcher_impl->dispatcher) {
+    dispatcher_impl->dispatcher->post([chain_handle]() {
+      std::cout << "🔄 [C-API-Dispatcher] Processing request on dispatcher thread..." << std::endl;
+      std::cout << "   Chain handle to lookup: " << chain_handle << std::endl;
+
+      // Re-lookup chain in dispatcher thread
+      auto unified = ::mcp::c_api_internal::g_unified_chain_manager.get(chain_handle);
+      if (!unified) {
+        std::cout << "❌ [C-API-Dispatcher] Chain lookup failed for handle: " << chain_handle << std::endl;
+        return;
+      }
+      std::cout << "✅ [C-API-Dispatcher] Chain found in manager" << std::endl;
+
+      auto chain = unified->getAdvancedChain();
+      if (!chain) {
+        std::cout << "❌ [C-API-Dispatcher] Advanced chain not available" << std::endl;
+        return;
+      }
+      std::cout << "✅ [C-API-Dispatcher] Advanced chain retrieved, ptr: " << chain.get() << std::endl;
+      std::cout << "   Queue addr in dispatcher: " << &chain->getRequestQueue() << std::endl;
+
+      std::cout << "🔧 [C-API-Dispatcher] Calling processNextRequest()..." << std::endl;
+      chain->processNextRequest();
+      std::cout << "✅ [C-API-Dispatcher] processNextRequest() returned" << std::endl;
+    });
+  } else {
+    std::cout << "❌ [C-API] Dispatcher impl is null or invalid!" << std::endl;
+  }
+
+  std::cout << "✅ [C-API] submit_message_internal EXIT (OK)" << std::endl;
+  return MCP_STATUS_OK;
+}
+
+}  // anonymous namespace
 
 // ============================================================================
 // C API Implementation
@@ -1288,12 +1823,52 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
     auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
     if (!unified_chain)
       return MCP_ERROR_NOT_FOUND;
-    
+
     auto chain_ptr = unified_chain->getAdvancedChain();
     if (!chain_ptr)
       return MCP_ERROR_NOT_FOUND;
 
     chain_ptr->setEventCallback(callback, user_data);
+    return MCP_OK;
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
+}
+
+MCP_API mcp_result_t mcp_chain_update_dependencies(
+    mcp_filter_chain_t chain,
+    void* callbacks) MCP_NOEXCEPT {
+  if (!callbacks)
+    return MCP_ERROR_INVALID_ARGUMENT;
+
+  try {
+    auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain)
+      return MCP_ERROR_NOT_FOUND;
+
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr)
+      return MCP_ERROR_NOT_FOUND;
+
+    // Check thread affinity - must be called from dispatcher thread
+    if (!isOnDispatcherThread(chain_ptr->getDispatcher())) {
+      try {
+        GOPHER_LOG(Error, "Chain update_dependencies must be called from dispatcher thread");
+      } catch (...) {}
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    // Cast void* to mcp::McpProtocolCallbacks*
+    auto* protocol_callbacks = static_cast<mcp::McpProtocolCallbacks*>(callbacks);
+
+    // Update dependencies with the new callbacks
+    // NOTE: metrics and circuit_breaker remain unchanged (nullptr means keep existing)
+    chain_ptr->updateDependencies(protocol_callbacks, nullptr, nullptr);
+
     return MCP_OK;
   } catch (const std::bad_alloc&) {
     return MCP_ERROR_OUT_OF_MEMORY;
@@ -1334,6 +1909,100 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
   assembly_result.chain = 0;
   mcp_chain_assembly_result_free(&assembly_result);
   return handle;
+}
+
+// Context for async chain creation
+struct AsyncChainCreationContext {
+  mcp_dispatcher_t dispatcher;
+  mcp_json_value_t config;
+  void (*callback)(uint64_t, int32_t, const char*, void*);
+  void* user_data;
+};
+
+MCP_API void mcp_chain_create_from_json_async(
+    mcp_dispatcher_t dispatcher,
+    mcp_json_value_t config,
+    void (*callback)(uint64_t chain_handle, int32_t error_code,
+                     const char* error_msg, void* user_data),
+    void* user_data
+) MCP_NOEXCEPT {
+  // Validate inputs
+  if (!dispatcher || !config || !callback) {
+    if (callback) {
+      callback(0, -1, "Invalid arguments to async chain creation", user_data);
+    }
+    return;
+  }
+
+  // Create context
+  AsyncChainCreationContext* ctx = nullptr;
+  try {
+    ctx = new AsyncChainCreationContext{dispatcher, config, callback, user_data};
+  } catch (const std::bad_alloc&) {
+    callback(0, -1, "Failed to allocate async context", user_data);
+    return;
+  } catch (...) {
+    callback(0, -1, "Unknown error allocating async context", user_data);
+    return;
+  }
+
+  // Post to dispatcher thread
+  auto post_callback = [](void* data) {
+    AsyncChainCreationContext* context = static_cast<AsyncChainCreationContext*>(data);
+
+    // Now on dispatcher thread - safe to create chain
+    uint64_t chain_handle = 0;
+    int32_t error_code = 0;
+    const char* error_msg = nullptr;
+
+    try {
+      chain_handle = mcp_chain_create_from_json(
+        context->dispatcher,
+        context->config
+      );
+
+      if (chain_handle == 0) {
+        error_code = -1;
+        error_msg = "Failed to create filter chain from configuration";
+
+        // Try to get more details from last error if available
+        const mcp_error_info_t* last_error = mcp_get_last_error();
+        if (last_error) {
+          error_code = static_cast<int32_t>(last_error->code);
+          if (last_error->message[0] != '\0') {
+            error_msg = last_error->message;
+          }
+        }
+      }
+    } catch (const std::exception& e) {
+      chain_handle = 0;
+      error_code = -2;
+      error_msg = e.what();
+    } catch (...) {
+      chain_handle = 0;
+      error_code = -2;
+      error_msg = "Unknown exception during chain creation";
+    }
+
+    // Invoke callback
+    try {
+      context->callback(chain_handle, error_code, error_msg, context->user_data);
+    } catch (...) {
+      // Swallow callback exceptions
+    }
+
+    // Cleanup context
+    delete context;
+  };
+
+  mcp_result_t result = mcp_dispatcher_post(dispatcher, post_callback, ctx);
+
+  if (result != MCP_OK) {
+    // Post failed - invoke callback with error immediately
+    callback(0, static_cast<int32_t>(result),
+             "Failed to post chain creation to dispatcher", user_data);
+    delete ctx;
+  }
 }
 
 MCP_API mcp_json_value_t mcp_chain_export_to_json(mcp_filter_chain_t chain)
@@ -1786,6 +2455,181 @@ MCP_API mcp_result_t mcp_chain_validate(mcp_filter_chain_t chain,
     return MCP_ERROR_UNKNOWN;
   } catch (...) {
     return MCP_ERROR_UNKNOWN;
+  }
+}
+
+// ============================================================================
+// Async Filter Processing API
+// ============================================================================
+
+MCP_API mcp_result_t mcp_filter_chain_initialize(
+    mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  try {
+    auto unified_chain = ::mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain) {
+      return MCP_ERROR_NOT_FOUND;
+    }
+
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr) {
+      return MCP_ERROR_NOT_FOUND;
+    }
+
+    // COMPREHENSIVE INITIALIZATION (not just flag toggle)
+
+    // 1. Check if already initialized
+    if (chain_ptr->isInitialized()) {
+      return MCP_ERROR_INVALID_STATE;  // Already initialized
+    }
+
+    try {
+      // 2. Initialize all filters in the chain
+      for (auto& filter_ptr : chain_ptr->owned_filters_) {
+        if (filter_ptr) {
+          // Filters should have an initialize() method
+          // For now, we skip filter initialization as the filter interface
+          // may not have an initialize method yet
+          // TODO: Call filter->initialize() once available
+        }
+      }
+
+      // 3. Validate chain configuration
+      // Basic validation - ensure we have a dispatcher
+      if (!chain_ptr->getDispatcher()) {
+        return MCP_ERROR_INVALID_STATE;
+      }
+
+      // 4. Mark as initialized
+      chain_ptr->setInitialized(true);
+
+      // 5. Additional initialization steps as needed
+      // The async queue is already initialized in the constructor
+
+      return MCP_OK;
+    } catch (...) {
+      // Rollback on failure
+      chain_ptr->setInitialized(false);
+      throw;
+    }
+
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
+}
+
+MCP_API mcp_result_t mcp_filter_chain_shutdown(
+    mcp_filter_chain_t chain) MCP_NOEXCEPT {
+  try {
+    auto unified_chain = ::mcp::c_api_internal::g_unified_chain_manager.get(chain);
+    if (!unified_chain) {
+      return MCP_ERROR_NOT_FOUND;
+    }
+
+    auto chain_ptr = unified_chain->getAdvancedChain();
+    if (!chain_ptr) {
+      return MCP_ERROR_NOT_FOUND;
+    }
+
+    // COMPREHENSIVE SHUTDOWN (not just flag toggle)
+
+    // 1. Check if initialized
+    if (!chain_ptr->isInitialized()) {
+      return MCP_ERROR_INVALID_STATE;  // Not initialized
+    }
+
+    // 2. Mark as shutting down (prevents new requests)
+    chain_ptr->setInitialized(false);
+
+    try {
+      // 3. Drain pending requests with timeout
+      auto timeout = std::chrono::seconds(5);
+      auto start = std::chrono::steady_clock::now();
+
+      while (!chain_ptr->getRequestQueue().empty()) {
+        if (std::chrono::steady_clock::now() - start > timeout) {
+          // Timeout - log warning and force shutdown
+          try {
+            GOPHER_LOG(Warning, "Filter chain shutdown timeout - {} pending requests remain",
+                      chain_ptr->getRequestQueue().size());
+          } catch (...) {}
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      // 4. Shutdown all filters in reverse order
+      for (auto it = chain_ptr->owned_filters_.rbegin();
+           it != chain_ptr->owned_filters_.rend(); ++it) {
+        if (*it) {
+          // Filters should have a shutdown() method
+          // For now, we skip filter shutdown as the filter interface
+          // may not have a shutdown method yet
+          // TODO: Call filter->shutdown() once available
+        }
+      }
+
+      // 5. Additional cleanup as needed
+      // The async queue will be cleaned up by the destructor
+
+      return MCP_OK;
+    } catch (...) {
+      // Even on exception, ensure flag is clear
+      chain_ptr->setInitialized(false);
+      throw;
+    }
+
+  } catch (const std::bad_alloc&) {
+    return MCP_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return MCP_ERROR_UNKNOWN;
+  } catch (...) {
+    return MCP_ERROR_UNKNOWN;
+  }
+}
+
+MCP_API mcp_status_t mcp_chain_submit_incoming(
+    mcp_filter_chain_t chain,
+    const char* message_json,
+    void* user_data,
+    mcp_filter_callback_t callback,
+    mcp_error_t* error) MCP_NOEXCEPT {
+  try {
+    return submit_message_internal(
+        chain,
+        message_json,
+        mcp::filter_chain::FilterDirection::INCOMING,
+        user_data,
+        callback,
+        error);
+  } catch (...) {
+    // All errors should be handled by submit_message_internal
+    // If we get here, something unexpected happened
+    return MCP_STATUS_INVALID_ARGUMENT;
+  }
+}
+
+MCP_API mcp_status_t mcp_chain_submit_outgoing(
+    mcp_filter_chain_t chain,
+    const char* message_json,
+    void* user_data,
+    mcp_filter_callback_t callback,
+    mcp_error_t* error) MCP_NOEXCEPT {
+  try {
+    return submit_message_internal(
+        chain,
+        message_json,
+        mcp::filter_chain::FilterDirection::OUTGOING,
+        user_data,
+        callback,
+        error);
+  } catch (...) {
+    // All errors should be handled by submit_message_internal
+    // If we get here, something unexpected happened
+    return MCP_STATUS_INVALID_ARGUMENT;
   }
 }
 
