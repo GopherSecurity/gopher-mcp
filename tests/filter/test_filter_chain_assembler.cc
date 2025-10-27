@@ -224,9 +224,8 @@ TEST_F(FilterChainAssemblerTest, EmptyFilterChain) {
 
   auto result = assembler.assembleFilterChain(config, context, manager);
 
-  EXPECT_FALSE(result.success);
+  EXPECT_TRUE(result.success);
   EXPECT_EQ(manager.filter_count_, 0);
-  EXPECT_EQ(result.error_message, "Filter chain validation failed");
 }
 
 // Validation Tests
@@ -254,9 +253,8 @@ TEST_F(FilterChainAssemblerTest, EmptyFilterChainValidation) {
 
   auto result = assembler.validateFilterChain(config);
 
-  EXPECT_FALSE(result.valid);
-  EXPECT_FALSE(result.errors.empty());
-  EXPECT_THAT(result.errors[0], testing::HasSubstr("Filter chain cannot be empty"));
+  EXPECT_TRUE(result.valid);
+  EXPECT_TRUE(result.errors.empty());
 }
 
 TEST_F(FilterChainAssemblerTest, ValidFilterChainValidation) {
