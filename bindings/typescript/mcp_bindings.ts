@@ -1,9 +1,12 @@
 /**
  * TypeScript/Node.js bindings for Gopher MCP library
- * 
+ *
  * This demonstrates how to create Node.js bindings using N-API/node-addon-api.
  * The C API provides a stable ABI that can be wrapped for JavaScript/TypeScript.
- * 
+ *
+ * Updated to use the new assembler-based filter chain configuration API
+ * instead of the deprecated builder pattern.
+ *
  * Similar patterns can be used for:
  * - Deno (via FFI)
  * - Bun (via FFI)
@@ -57,6 +60,46 @@ export enum TransportType {
     HTTP_SSE = 2,
     STDIO = 3,
     PIPE = 4
+}
+
+/**
+ * Filter configuration for assembler-based chain creation
+ */
+export interface FilterConfig {
+    type: string;
+    name?: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    enabledWhen?: Record<string, unknown>;
+}
+
+/**
+ * Filter chain configuration using assembler pattern
+ */
+export interface FilterChainConfig {
+    name?: string;
+    transportType?: string;
+    filters: FilterConfig[];
+}
+
+/**
+ * Validation result from chain configuration validation
+ */
+export interface ValidationResult {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+}
+
+/**
+ * Assembly result from chain assembly
+ */
+export interface AssemblyResult {
+    success: boolean;
+    chain?: number;
+    errorMessage?: string;
+    createdFilters: string[];
+    warnings: string[];
 }
 
 /**
@@ -181,10 +224,101 @@ interface NativeBinding {
     serverSendResponse(handle: number, requestId: RequestId, result: unknown): MCPResult;
     serverSendError(handle: number, requestId: RequestId, error: unknown): MCPResult;
     serverDestroy(handle: number): void;
+
+    // Filter Chain (Assembler-based API)
+    validateFilterChainConfig(config: FilterChainConfig): ValidationResult;
+    assembleFilterChain(dispatcher: number, config: FilterChainConfig): AssemblyResult;
+    createFilterChainFromConfig(dispatcher: number, config: FilterChainConfig): number;
+    filterChainRetain(handle: number): void;
+    filterChainRelease(handle: number): void;
+    filterChainGetState(handle: number): number;
+    filterChainPause(handle: number): MCPResult;
+    filterChainResume(handle: number): MCPResult;
+    filterChainReset(handle: number): MCPResult;
 }
 
 // Load native module (in real implementation)
 // const native: NativeBinding = require('./build/Release/mcp_native.node');
+
+/**
+ * Filter Chain wrapper class using assembler pattern
+ */
+export class FilterChain {
+    private handle: number;
+    private native: NativeBinding;
+
+    constructor(native: NativeBinding, handle: number) {
+        this.native = native;
+        this.handle = handle;
+    }
+
+    /**
+     * Create a filter chain from configuration
+     */
+    static async create(native: NativeBinding, dispatcher: number, config: FilterChainConfig): Promise<FilterChain> {
+        // Validate configuration first
+        const validation = native.validateFilterChainConfig(config);
+        if (!validation.valid) {
+            throw new Error(`Filter chain configuration validation failed: ${validation.errors.join(', ')}`);
+        }
+
+        // Assemble the chain
+        const assembly = native.assembleFilterChain(dispatcher, config);
+        if (!assembly.success) {
+            throw new Error(`Filter chain assembly failed: ${assembly.errorMessage}`);
+        }
+
+        if (!assembly.chain) {
+            throw new Error('Assembly succeeded but no chain was returned');
+        }
+
+        return new FilterChain(native, assembly.chain);
+    }
+
+    /**
+     * Get the current state of the filter chain
+     */
+    getState(): number {
+        return this.native.filterChainGetState(this.handle);
+    }
+
+    /**
+     * Pause the filter chain
+     */
+    pause(): void {
+        const result = this.native.filterChainPause(this.handle);
+        if (result !== MCPResult.OK) {
+            throw new Error(`Failed to pause filter chain: ${result}`);
+        }
+    }
+
+    /**
+     * Resume the filter chain
+     */
+    resume(): void {
+        const result = this.native.filterChainResume(this.handle);
+        if (result !== MCPResult.OK) {
+            throw new Error(`Failed to resume filter chain: ${result}`);
+        }
+    }
+
+    /**
+     * Reset the filter chain
+     */
+    reset(): void {
+        const result = this.native.filterChainReset(this.handle);
+        if (result !== MCPResult.OK) {
+            throw new Error(`Failed to reset filter chain: ${result}`);
+        }
+    }
+
+    /**
+     * Release the filter chain resources
+     */
+    destroy(): void {
+        this.native.filterChainRelease(this.handle);
+    }
+}
 
 /**
  * High-level TypeScript wrapper
@@ -192,7 +326,7 @@ interface NativeBinding {
 export class MCPLibrary {
     private native: NativeBinding;
     private initialized = false;
-    
+
     constructor(native: NativeBinding) {
         this.native = native;
     }
