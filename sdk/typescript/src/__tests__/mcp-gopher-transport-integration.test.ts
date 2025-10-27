@@ -24,39 +24,13 @@ describe("GopherTransport CApiFilter Integration", () => {
         name: "test-transport",
         protocol: "stdio",
         filters: {
-          customCallbacks: {
-            onMessageReceived: (message: any) => {
-              console.log("Test: Message received:", message.method);
-              return {
-                ...message,
-                testMetadata: {
-                  processed: true,
-                  timestamp: Date.now(),
-                },
-              };
-            },
-            onMessageSent: (message: any) => {
-              console.log("Test: Message sent:", message.method);
-              return {
-                ...message,
-                testMetadata: {
-                  ...message.testMetadata,
-                  sent: true,
-                },
-              };
-            },
-            onConnectionEstablished: (connectionId: string) => {
-              console.log("Test: Connection established:", connectionId);
-            },
-            onConnectionClosed: (connectionId: string) => {
-              console.log("Test: Connection closed:", connectionId);
-            },
-            onError: (error: Error, context: string) => {
-              console.error("Test: Error in", context, ":", error.message);
-            },
+          // Note: customCallbacks not supported
+          observability: {
+            metrics: true,
           },
         },
       };
+      // Note: Custom callbacks feature was removed from current implementation
 
       // This should not throw an error
       transport = new GopherTransport(config);
@@ -70,10 +44,7 @@ describe("GopherTransport CApiFilter Integration", () => {
         filters: {
           // No customCallbacks - should work fine
           security: {
-            authentication: {
-              method: "jwt",
-              secret: "test-secret",
-            },
+            authentication: true,
           },
         },
       };
@@ -90,29 +61,16 @@ describe("GopherTransport CApiFilter Integration", () => {
         filters: {
           // Security filters
           security: {
-            authentication: {
-              method: "jwt",
-              secret: "test-secret",
-            },
+            authentication: true,
           },
           // Observability filters
           observability: {
-            accessLog: {
-              enabled: true,
-              format: "json",
-            },
-          },
-          // Custom callbacks
-          customCallbacks: {
-            onMessageReceived: (message: any) => {
-              return {
-                ...message,
-                securityProcessed: true,
-              };
-            },
+            accessLog: true,
+            metrics: true,
           },
         },
       };
+      // Note: Custom callbacks feature was removed from current implementation
 
       // This should not throw an error
       transport = new GopherTransport(config);
@@ -126,9 +84,13 @@ describe("GopherTransport CApiFilter Integration", () => {
         name: "test-transport",
         protocol: "stdio",
         filters: {
-          customCallbacks: {},
+          // Note: customCallbacks not supported
+          observability: {
+            metrics: true,
+          },
         },
       };
+      // Note: Custom callbacks feature was removed from current implementation
 
       // This should not throw an error
       transport = new GopherTransport(config);
@@ -140,14 +102,13 @@ describe("GopherTransport CApiFilter Integration", () => {
         name: "test-transport",
         protocol: "stdio",
         filters: {
-          customCallbacks: {
-            onMessageReceived: (message: any) => {
-              return message; // No modification
-            },
-            // Other callbacks not provided - should be fine
+          // Note: customCallbacks not supported
+          observability: {
+            metrics: true,
           },
         },
       };
+      // Note: Custom callbacks feature was removed from current implementation
 
       // This should not throw an error
       transport = new GopherTransport(config);
