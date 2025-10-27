@@ -109,6 +109,7 @@ if(BUILD_C_API)
     add_executable(test_filter_only_api c_api/test_filter_only_api.cc)
     add_executable(test_filter_only_api_simple c_api/test_filter_only_api_simple.cc)
     add_executable(test_filter_registration_simple c_api/test_filter_registration_simple.cc)
+    add_executable(test_async_filter_queue c_api/test_async_filter_queue.cc)
 
     # Old tests removed - they used obsolete struct-based API:
     # - test_c_api_basic.cc
@@ -887,6 +888,25 @@ if(BUILD_C_API)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_filter_registration_simple llhttp)
+    endif()
+
+    # Async filter queue test
+    target_link_libraries(test_async_filter_queue
+        gopher_mcp_c_static
+        gopher-mcp-static
+        gopher-mcp-event-static
+        ${LIBEVENT_LIBRARIES}
+        ${OPENSSL_LIBRARIES}
+        gtest
+        gtest_main
+        Threads::Threads
+    )
+
+    if(NGHTTP2_FOUND)
+        target_link_libraries(test_async_filter_queue ${NGHTTP2_LIBRARIES})
+    endif()
+    if(LLHTTP_FOUND)
+        target_link_libraries(test_async_filter_queue llhttp)
     endif()
 
     target_link_libraries(test_mcp_c_raii
