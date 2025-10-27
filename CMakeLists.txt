@@ -391,6 +391,9 @@ set(MCP_CORE_SOURCES
     src/filter/rate_limit_factory.cc
     src/filter/circuit_breaker_factory.cc
     src/filter/metrics_factory.cc
+    src/filter/request_logger_filter.cc
+    src/filter/request_logger_factory.cc
+    src/filter/core_filter_factories.cc
     src/filter/filter_chain_assembler.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
