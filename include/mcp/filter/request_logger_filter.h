@@ -1,10 +1,10 @@
 /**
  * @file request_logger_filter.h
- * @brief JSON-RPC request/response logging filter for Scenario 2
+ * @brief JSON-RPC request/response logging filter for Hybrid SDK
  *
  * This filter logs JSON-RPC messages flowing through the MCP filter chain.
  * It is transport agnostic and operates purely at the protocol layer,
- * making it suitable for Scenario 2 where the official SDK owns HTTP/SSE.
+ * making it suitable for hybrid SDK mode where the official SDK owns HTTP/SSE.
  */
 
 #pragma once
