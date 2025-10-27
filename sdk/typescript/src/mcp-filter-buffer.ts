@@ -618,3 +618,72 @@ export function compareBuffers(buffer1: number, buffer2: number): number {
 
   return 0;
 }
+
+// ============================================================================
+// Convenience functions for backward compatibility
+// ============================================================================
+
+/**
+ * Create a simple buffer with specified size
+ * This is a convenience wrapper for createBufferOwned
+ */
+export function createBuffer(size: number): number {
+  return createBufferOwned(size, BufferOwnership.EXCLUSIVE);
+}
+
+/**
+ * Write data to buffer
+ * This is a convenience wrapper for addDataToBuffer
+ */
+export function writeBufferData(buffer: number, data: Uint8Array, offset: number = 0): number {
+  if (offset > 0) {
+    // If offset is specified, we need to drain first then add
+    drainBuffer(buffer, offset);
+  }
+  return addDataToBuffer(buffer, data, data.length);
+}
+
+/**
+ * Read data from buffer
+ * This is a convenience wrapper for peekBufferData
+ */
+export function readBufferData(buffer: number, size: number): Uint8Array {
+  const data = new Uint8Array(size);
+  const result = peekBufferData(buffer, 0, data, size);
+  if (result !== 0) {
+    throw new Error("Failed to read buffer data");
+  }
+  return data;
+}
+
+/**
+ * Release a buffer (no-op for RAII)
+ * In the C++ implementation, buffers are automatically released via RAII
+ */
+export function releaseBuffer(_buffer: number): void {
+  // No-op - buffers are automatically released via RAII in C++
+  // This function exists for backward compatibility
+}
+
+/**
+ * Destroy a buffer pool (no-op for RAII)
+ * In the C++ implementation, pools are automatically released via RAII
+ */
+export function destroyBufferPool(_pool: any): void {
+  // No-op - pools are automatically released via RAII in C++
+  // This function exists for backward compatibility
+}
+
+/**
+ * Create buffer pool with simple parameters
+ * This overloads the existing createBufferPoolEx with simple numeric parameters
+ */
+export function createBufferPoolSimple(bufferSize: number, maxBuffers: number, preallocCount: number): any {
+  return createBufferPoolEx({
+    bufferSize,
+    maxBuffers,
+    preallocCount,
+    useThreadLocal: false,
+    zeroOnAlloc: false
+  });
+}
