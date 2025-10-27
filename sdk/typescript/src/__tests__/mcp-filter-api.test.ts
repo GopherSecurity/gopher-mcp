@@ -26,7 +26,7 @@ import {
   retainFilter,
 } from "../mcp-filter-api";
 
-import { buildFilterChain, destroyFilterChainBuilder } from "../mcp-filter-chain";
+// Note: buildFilterChain and destroyFilterChainBuilder were removed in favor of canonical config
 
 // Use real C++ library instead of mocks
 
@@ -90,22 +90,8 @@ describe("Filter API", () => {
       expect(typeof result).toBe("number");
     });
 
-    it("should build filter chain", () => {
-      const builder = createFilterChainBuilder(0);
-
-      const result = buildFilterChain(builder);
-
-      // With real library, we expect a valid chain handle or 0 for error
-      expect(typeof result).toBe("number");
-      expect(result).toBeGreaterThanOrEqual(0);
-    });
-
-    it("should destroy filter chain builder", () => {
-      const builder = createFilterChainBuilder(0);
-
-      // This function should not throw with real library
-      expect(() => destroyFilterChainBuilder(builder)).not.toThrow();
-    });
+    // Note: buildFilterChain and destroyFilterChainBuilder tests removed
+    // These functions were replaced by createFilterChainFromConfig with canonical configuration
   });
 
   describe("Filter Manager", () => {

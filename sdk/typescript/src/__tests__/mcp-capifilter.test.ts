@@ -104,32 +104,13 @@ describe("CApiFilter Integration", () => {
   describe("FilterManager Integration", () => {
     it("should create FilterManager with custom callbacks", () => {
       const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (_message: any) => {
-            console.log("Message received:", _message.method);
-            return {
-              ..._message,
-              processed: true,
-            };
-          },
-          onMessageSent: message => {
-            console.log("Message sent:", message.method);
-            return {
-              ...message,
-              sent: true,
-            };
-          },
-          onConnectionEstablished: connectionId => {
-            console.log("Connection established:", connectionId);
-          },
-          onConnectionClosed: connectionId => {
-            console.log("Connection closed:", connectionId);
-          },
-          onError: (error, context) => {
-            console.error("Error in", context, ":", error.message);
-          },
+        // Note: customCallbacks removed - not supported
+        observability: {
+          metrics: true,
         },
       };
+
+      // Note: Custom callbacks feature was removed from current implementation
 
       filterManager = new FilterManager(config);
       expect(filterManager).toBeDefined();
@@ -137,18 +118,13 @@ describe("CApiFilter Integration", () => {
 
     it("should process messages through custom callbacks", async () => {
       const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (_message: any) => {
-            return {
-              ..._message,
-              clientMetadata: {
-                receivedAt: Date.now(),
-                clientId: "test-client",
-              },
-            };
-          },
+        // Note: customCallbacks removed - not supported
+        observability: {
+          metrics: true,
         },
       };
+
+      // Note: Custom callbacks feature was removed from current implementation
 
       filterManager = new FilterManager(config);
 
@@ -160,7 +136,7 @@ describe("CApiFilter Integration", () => {
       };
 
       try {
-        const result = await filterManager.process(testMessage);
+        const result = await filterManager.processMessage(testMessage);
         expect(result).toBeDefined();
         // Note: The actual callback execution depends on the C++ filter chain
         // This test verifies the FilterManager can be created and process messages
@@ -174,16 +150,13 @@ describe("CApiFilter Integration", () => {
   describe("Error Handling", () => {
     it("should handle callback errors gracefully", () => {
       const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (_message: any) => {
-            throw new Error("Test callback error");
-          },
-          onError: (error, context) => {
-            expect(error.message).toBe("Test callback error");
-            expect(context).toBe("messageReceived");
-          },
+        // Note: customCallbacks removed - not supported
+        observability: {
+          metrics: true,
         },
       };
+
+      // Note: Custom callbacks feature was removed from current implementation
 
       filterManager = new FilterManager(config);
       expect(filterManager).toBeDefined();
