@@ -28,6 +28,7 @@ extern "C" {
   __attribute__((weak)) void* rate_limit_filter_registrar_ref;
   __attribute__((weak)) void* circuit_breaker_filter_registrar_ref;
   __attribute__((weak)) void* metrics_filter_registrar_ref;
+  __attribute__((weak)) void* request_logger_registrar_ref;
 #else
   extern void* http_codec_filter_registrar_ref;
   extern void* sse_codec_filter_registrar_ref;
@@ -35,8 +36,11 @@ extern "C" {
   extern void* rate_limit_filter_registrar_ref;
   extern void* circuit_breaker_filter_registrar_ref;
   extern void* metrics_filter_registrar_ref;
+  extern void* request_logger_registrar_ref;
 #endif
 }
+
+void registerRequestLoggerFactory();
 
 void registerAllCoreFilters() {
   // Reference the sentinel symbols to force linker to include the translation units
@@ -46,7 +50,8 @@ void registerAllCoreFilters() {
     json_rpc_dispatcher_registrar_ref,
     rate_limit_filter_registrar_ref,
     circuit_breaker_filter_registrar_ref,
-    metrics_filter_registrar_ref
+    metrics_filter_registrar_ref,
+    request_logger_registrar_ref
   };
   (void)refs; // Prevent compiler optimization
 
@@ -58,6 +63,7 @@ void registerAllCoreFilters() {
   registerRateLimitFilterFactory();
   registerCircuitBreakerFilterFactory();
   registerMetricsFilterFactory();
+  registerRequestLoggerFactory();
 
   // Count how many factories are registered
   auto factory_count = FilterRegistry::instance().listContextFactories().size();
