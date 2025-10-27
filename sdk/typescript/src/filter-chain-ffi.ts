@@ -80,13 +80,13 @@ function decodeChainStats(
   };
 
   return {
-    total_processed: asNumber(decoded.total_processed),
-    total_errors: asNumber(decoded.total_errors),
-    total_bypassed: asNumber(decoded.total_bypassed),
-    avg_latency_ms: asNumber(decoded.avg_latency_ms),
-    max_latency_ms: asNumber(decoded.max_latency_ms),
-    throughput_mbps: asNumber(decoded.throughput_mbps),
-    active_filters: asNumber(decoded.active_filters),
+    total_processed: asNumber(decoded['total_processed']),
+    total_errors: asNumber(decoded['total_errors']),
+    total_bypassed: asNumber(decoded['total_bypassed']),
+    avg_latency_ms: asNumber(decoded['avg_latency_ms']),
+    max_latency_ms: asNumber(decoded['max_latency_ms']),
+    throughput_mbps: asNumber(decoded['throughput_mbps']),
+    active_filters: asNumber(decoded['active_filters']),
   };
 }
 

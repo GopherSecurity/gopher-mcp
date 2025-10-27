@@ -10,7 +10,7 @@
 import * as koffi from "koffi";
 import { mcpFilterLib, TransportType } from "./mcp-ffi-bindings";
 
-const MCP_OK = 0;
+// const MCP_OK = 0; // Currently unused
 
 const dispatcherPumpState = new Map<pointer, { active: boolean }>();
 

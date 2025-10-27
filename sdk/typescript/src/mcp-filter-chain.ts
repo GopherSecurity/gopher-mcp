@@ -166,7 +166,7 @@ export interface FilterChain {
 
 export interface ListenerConfig {
   name: string;
-  address: Address;
+  address?: Address; // Optional for hybrid SDK mode where SDK handles transport
   filter_chains: FilterChain[];
   per_connection_buffer_limit_bytes?: number;
   metadata?: any;

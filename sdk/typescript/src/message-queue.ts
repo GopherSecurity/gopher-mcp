@@ -111,7 +111,8 @@ export class MessageQueue {
     if (this.queue.length === 0) {
       return 0;
     }
-    return Date.now() - this.queue[0].timestamp;
+    const oldest = this.queue[0];
+    return oldest ? Date.now() - oldest.timestamp : 0;
   }
 
   /**
