@@ -4,48 +4,439 @@
 
 This is the **Hybrid implementation** - combining:
 - **Official MCP SDK** (`@modelcontextprotocol/sdk`) for protocol handling
-- **HTTP+SSE transport** (`StreamableHTTPServerTransport`) for web-accessible server
+- **HTTP transport** (`StreamableHTTPServerTransport`, default stateless JSON mode with optional `--stateful` flag) for web-accessible server
 - **Gopher-MCP C++ filters** for enterprise features (request logging and extensible filters)
 
 This demonstrates how to add production-grade filtering to existing MCP SDK applications with minimal code changes, now accessible over HTTP.
 
+By default the server runs in **stateless JSON mode** for easy multi-client usage. Pass `--stateful` on the command line to re-enable session-managed SSE streaming when you need the original behavior.
+
 ## Architecture
 
+### High-Level Overview
+
+This example demonstrates a **production-ready hybrid architecture** that combines the official MCP SDK with Gopher-MCP enterprise filters. This approach enables you to leverage the SDK's protocol compliance while adding advanced features like request logging, rate limiting, circuit breakers, and metrics collection.
+
 ```
-┌─────────────────────────────────┐
-│   MCP Client (Web/HTTP)         │
-└───────────┬─────────────────────┘
-            │ (HTTP/SSE)
-┌───────────▼─────────────────────┐
-│  Node HTTP Server               │
-│  - /mcp endpoint                │
-│  - /health endpoint             │
-└───────────┬─────────────────────┘
-            │
-┌───────────▼─────────────────────┐
-│  Official MCP SDK               │
-│  - Server class                 │
-│  - StreamableHTTPServerTransport│
-│  - Protocol handling            │
-└───────────┬─────────────────────┘
-            │
-┌───────────▼─────────────────────┐
-│  GopherFilteredTransport        │
-│  (Message Interception Layer)   │
-└───────────┬─────────────────────┘
-            │ (FFI via Koffi)
-┌───────────▼─────────────────────┐
-│  Gopher C++ Filters             │
-│  - Request Logger               │
-│  - (Extensible for more)        │
-└─────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    MCP Client (Web/HTTP)                        │
+│  • StreamableHTTPClientTransport                                │
+│  • Standard MCP SDK (no modifications needed)                   │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTP
+                         │ POST /mcp (JSON-RPC 2.0)
+┌────────────────────────▼────────────────────────────────────────┐
+│                   Node.js HTTP Server                           │
+│  • http.createServer()                                          │
+│  • Routes: /mcp (main), /health (monitoring)                    │
+│  • Request validation & routing                                 │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│              Official MCP SDK - Server                          │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Server Instance                                          │  │
+│  │  • name: "calculator-server-hybrid"                      │  │
+│  │  • version: "1.0.0"                                      │  │
+│  │  • capabilities: { tools: {} }                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Request Handlers                                         │  │
+│  │  • ListToolsRequestSchema → returns tool definitions     │  │
+│  │  • CallToolRequestSchema → executes tool logic           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ StreamableHTTPServerTransport                            │  │
+│  │  • Handles HTTP protocol (JSON responses, no SSE stream) │  │
+│  │  • Stateless mode (no shared session ID)                 │  │
+│  │  • Bi-directional JSON-RPC 2.0 communication             │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ MCP Messages (JSON-RPC)
+┌────────────────────────▼────────────────────────────────────────┐
+│          GopherFilteredTransport (Interception Layer)           │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Message Interception Points                              │  │
+│  │  • onConnect() → initialize filter chain                 │  │
+│  │  • onMessage(msg) → process incoming messages            │  │
+│  │  • send(msg) → process outgoing messages                 │  │
+│  │  • onClose() → cleanup filter resources                  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Transport Wrapping                                       │  │
+│  │  • Wraps StreamableHTTPServerTransport                   │  │
+│  │  • Delegates to SDK transport for protocol handling      │  │
+│  │  • Intercepts messages for filter processing            │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ FFI Calls (via Koffi)
+┌────────────────────────▼────────────────────────────────────────┐
+│            Gopher-MCP C++ Filter Chain                          │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Dispatcher (Event Loop)                                  │  │
+│  │  • createHybridDispatcher() → creates libevent loop      │  │
+│  │  • Manages filter lifecycle                              │  │
+│  │  • Handles async operations                              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Filter Chain Assembly (from config-hybrid.json)          │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 1. Request Logger Filter                          │  │  │
+│  │  │    • Logs all JSON-RPC requests/responses         │  │  │
+│  │  │    • Configurable log levels & formats            │  │  │
+│  │  │    • Payload inspection with size limits          │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 2. [Future] Rate Limiter                          │  │  │
+│  │  │    • Token bucket / sliding window                │  │  │
+│  │  │    • Per-client or global limits                  │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 3. [Future] Circuit Breaker                       │  │  │
+│  │  │    • Failure detection & auto-recovery            │  │  │
+│  │  │    • Prevents cascading failures                  │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 4. [Future] Metrics Collector                     │  │  │
+│  │  │    • Request/response metrics                     │  │  │
+│  │  │    • Latency tracking                             │  │  │
+│  │  │    • Prometheus-compatible export                 │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### Component Breakdown
+
+#### 1. **Application Layer** (TypeScript)
+**Location**: `calculator-server-hybrid.ts`
+
+**Responsibilities**:
+- Define MCP tools and their business logic
+- Manage application state (CalculatorState class)
+- Handle tool invocations (calculate, memory, history)
+- Coordinate server lifecycle and graceful shutdown
+
+**Key Classes**:
+```typescript
+class CalculatorState {
+  // Application-specific state management
+  - memory: number
+  - history: Array<{id, operation, result, timestamp}>
+  - storeMemory(), recallMemory(), clearMemory()
+  - addToHistory(), getHistory(), getStatistics()
+}
+```
+
+**Tool Registration Pattern**:
+```typescript
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    { name: 'calculate', description: '...', inputSchema: {...} },
+    { name: 'memory', description: '...', inputSchema: {...} },
+    { name: 'history', description: '...', inputSchema: {...} }
+  ]
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // Execute tool logic based on request.params.name
+  // Return { content: [...], isError?: boolean }
+});
+```
+
+#### 2. **MCP SDK Layer** (Official SDK)
+**Package**: `@modelcontextprotocol/sdk`
+
+**Components**:
+- **Server**: MCP server instance with capabilities
+- **StreamableHTTPServerTransport**: HTTP protocol implementation (stateless JSON responses)
+- **Request Handlers**: Process MCP protocol messages
+
+**Integration Points**:
+```typescript
+const server = new Server({ name, version }, { capabilities });
+const sdkTransport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: undefined,
+  enableJsonResponse: true,
+});
+await server.connect(filteredTransport); // Connect via wrapped transport
+```
+
+#### 3. **Filter Integration Layer** (TypeScript Wrapper)
+**Location**: `sdk/typescript/src/gopher-filtered-transport.ts`
+
+**Responsibilities**:
+- Wrap SDK transport to intercept messages
+- Interface with C++ filters via FFI (Koffi)
+- Convert between TypeScript and C representations
+- Manage filter lifecycle
+
+**Key Methods**:
+```typescript
+class GopherFilteredTransport {
+  constructor(baseTransport, options: {
+    dispatcherHandle: number,
+    filterConfig: CanonicalConfig,
+    debugLogging?: boolean
+  })
+
+  // Transport interface (delegates to SDK)
+  async start(): Promise<void>
+  async send(message): Promise<void>
+  async close(): Promise<void>
+
+  // Filter-specific extensions
+  setFilterEnabled(name: string, enabled: boolean): void
+  getMetrics(): Promise<Metrics>
+}
+```
+
+#### 4. **C++ Filter Chain Layer**
+**Location**: `src/c_api/`, `src/filter/`
+
+**Components**:
+- **Dispatcher**: libevent-based event loop for async operations
+- **Filter Registry**: Available filter implementations
+- **Filter Chain Assembler**: Builds chain from configuration
+- **Individual Filters**: Request logger, rate limiter, circuit breaker, metrics
+
+**C API Functions**:
+```c
+// Dispatcher management
+gopher_dispatcher_handle_t* createHybridDispatcher();
+void destroyHybridDispatcher(gopher_dispatcher_handle_t*);
+
+// Filter chain management
+gopher_filter_chain_t* createFilterChain(config);
+void processMessage(chain, message);
+void destroyFilterChain(chain);
+```
+
+### Data Flow
+
+#### Incoming Request Flow
+```
+1. HTTP Client → POST /mcp
+   ↓
+2. Node HTTP Server → handleRequest()
+   ↓
+3. GopherFilteredTransport.handleRequest()
+   ↓
+4. StreamableHTTPServerTransport (SDK)
+   ↓ Parses HTTP request body
+5. GopherFilteredTransport.onMessage()
+   ↓ FFI call
+6. C++ Request Logger Filter → Logs request
+   ↓
+7. Returns to TypeScript
+   ↓
+8. SDK Server → Request Handler
+   ↓
+9. CalculatorState → Execute tool logic
+   ↓ Return result
+10. SDK → Prepare response
+    ↓
+11. GopherFilteredTransport.send()
+    ↓ FFI call
+12. C++ Request Logger Filter → Logs response
+    ↓
+13. StreamableHTTPServerTransport → HTTP response
+    ↓
+14. HTTP Client ← JSON-RPC result
+```
+
+#### Message Interception Points
+```typescript
+// Incoming message (from client)
+HTTP Request
+  → Node Server
+    → filteredTransport.handleRequest()
+      → [C++ Filters: Request Logger]
+        → SDK Transport (parse HTTP JSON)
+          → SDK Server (handle JSON-RPC)
+            → Tool Handler (execute logic)
+
+// Outgoing message (to client)
+Tool Result
+  → SDK Server (format JSON-RPC)
+    → filteredTransport.send()
+      → [C++ Filters: Request Logger]
+        → SDK Transport (format HTTP response)
+          → HTTP Response
+```
+
+### Configuration System
+
+#### Filter Configuration (`config-hybrid.json`)
+```json
+{
+  "listeners": [
+    {
+      "name": "http_mcp_server_listener",
+      "filter_chains": [
+        {
+          "name": "http_server_filters",
+          "filters": [
+            {
+              "name": "request_logger",
+              "type": "request_logger",
+              "config": {
+                "log_level": "debug",
+                "log_format": "pretty",
+                "include_timestamps": true,
+                "include_payload": true,
+                "max_payload_length": 1000,
+                "output": "stdout"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Configuration Flow**:
+1. Load JSON from `config-hybrid.json`
+2. Parse into `CanonicalConfig` TypeScript type
+3. Pass to `GopherFilteredTransport` constructor
+4. Convert to C structures via FFI
+5. C++ Filter Chain Assembler validates and builds chain
+6. Filters initialized with their specific configs
+
+### Key Design Patterns
+
+#### 1. **Transport Wrapper Pattern**
+- GopherFilteredTransport wraps StreamableHTTPServerTransport
+- Implements same interface, adds filter processing
+- Transparent to SDK Server (no SDK modifications)
+- Delegates protocol handling to SDK
+
+#### 2. **FFI Bridge Pattern**
+- TypeScript ↔ C++ communication via Koffi
+- Opaque handles for C++ objects (dispatcher, filter chain)
+- Explicit resource management (create/destroy functions)
+- Type-safe conversions between JS and C types
+
+#### 3. **Configuration-Driven Architecture**
+- Filter chain defined in JSON configuration
+- Runtime assembly from configuration
+- No code changes to add/remove/reorder filters
+- Supports multiple environments (dev, staging, prod configs)
+
+#### 4. **Graceful Lifecycle Management**
+```typescript
+// Initialization order
+1. createHybridDispatcher()      // C++ event loop
+2. Load filter configuration     // JSON → TypeScript
+3. Create SDK transport          // MCP protocol
+4. Create GopherFilteredTransport // Wrap with filters
+5. Connect server to transport   // Activate
+6. Start HTTP server             // Listen
+
+// Shutdown order (reverse)
+1. Close HTTP server
+2. Close filtered transport       // Cleanup filters
+3. Destroy dispatcher             // Stop event loop
+4. Exit process
+```
+
+### Building Your Own Hybrid Application
+
+#### Template Structure
+```typescript
+// 1. Import required modules
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { GopherFilteredTransport } from "../../../sdk/typescript/src/gopher-filtered-transport.js";
+import { createHybridDispatcher, destroyHybridDispatcher } from "../../../sdk/typescript/src/filter-dispatcher.js";
+import type { CanonicalConfig } from "../../../sdk/typescript/src/filter-types.js";
+
+// 2. Define your application state
+class YourApplicationState {
+  // Your business logic state
+}
+
+// 3. Create and configure server
+async function createYourServer() {
+  // Load filter configuration
+  const filterConfig: CanonicalConfig = JSON.parse(
+    fs.readFileSync("config.json", "utf-8")
+  );
+
+  // Create MCP server
+  const server = new Server({
+    name: 'your-server-name',
+    version: '1.0.0'
+  }, {
+    capabilities: { tools: {} }
+  });
+
+  // Create application state
+  const state = new YourApplicationState();
+
+  // Register your tools
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+      { name: 'your_tool', description: '...', inputSchema: {...} }
+    ]
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    // Handle tool calls
+    const { name, arguments: args } = request.params;
+    // Execute your business logic
+    return { content: [...] };
+  });
+
+  // Create dispatcher and transport stack
+  const dispatcher = createHybridDispatcher();
+  const sdkTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  const filteredTransport = new GopherFilteredTransport(sdkTransport, {
+    dispatcherHandle: dispatcher,
+    filterConfig: filterConfig,
+    debugLogging: process.env.DEBUG === '1'
+  });
+
+  // Connect and start
+  await server.connect(filteredTransport);
+
+  const httpServer = http.createServer(async (req, res) => {
+    await filteredTransport.handleRequest(req, res);
+  });
+
+  httpServer.listen(PORT, HOST);
+
+  // Setup graceful shutdown
+  process.on('SIGINT', async () => {
+    await httpServer.close();
+    await filteredTransport.close();
+    destroyHybridDispatcher(dispatcher);
+    process.exit(0);
+  });
+}
+```
+
+#### Customization Points
+
+1. **Application State**: Replace `CalculatorState` with your domain model
+2. **Tool Definitions**: Define tools specific to your use case
+3. **Tool Handlers**: Implement business logic for each tool
+4. **Filter Configuration**: Enable/configure filters as needed:
+   - Request logging for observability
+   - Rate limiting for API protection
+   - Circuit breaker for resilience
+   - Metrics for monitoring
 
 ## Key Features
 
 ### Hybrid Benefits
 - ✅ **Uses official SDK** - Compatible with SDK ecosystem and updates
-- ✅ **HTTP+SSE transport** - Web-accessible over HTTP on port 8080
+- ✅ **HTTP transport** - Stateless JSON responses over HTTP on port 8080 (opt-in stateful SSE via `--stateful`)
 - ✅ **Enterprise filters** - Production-grade features from C++ implementation
 - ✅ **Easy migration** - Drop-in enhancement for existing SDK apps
 - ✅ **Best of both worlds** - SDK simplicity + Gopher power
@@ -68,6 +459,11 @@ All commands assume you've already run `npm install` inside `sdk/typescript`.
 ```bash
 cd examples/typescript/calculator-hybrid
 npx tsx calculator-server-hybrid.ts
+```
+
+Want the original SSE/session behaviour? Start with:
+```bash
+npx tsx calculator-server-hybrid.ts --stateful
 ```
 
 **Terminal 2 - Start Client** (in a new terminal):
@@ -100,6 +496,13 @@ calc> stats
 • Operations: +: 1, ×: 1
 ```
 
+### Connection Model & Concurrency
+
+- The server now runs `StreamableHTTPServerTransport` in **stateless JSON mode** (`sessionIdGenerator: undefined`, `enableJsonResponse: true`), so each client initializes cleanly without sharing session state.
+- In stateless mode, standalone SSE streams (`GET /mcp`) are intentionally disabled and return HTTP 405. All interactions flow through `POST /mcp`, which the SDK automatically handles via JSON responses.
+- This change eliminates the `Invalid Request: Server already initialized` error when reconnecting and allows multiple calculator clients to stay connected simultaneously.
+- Need SSE streaming or explicit session IDs? Start the server with `--stateful` to enable session-managed mode. In that configuration the server accepts GET `/mcp` SSE streams but behaves like the original single-session transport (only one initialization flow per active session).
+
 ### Prerequisites
 
 1. **Build C++ library**:
@@ -127,6 +530,12 @@ cd examples/typescript/calculator-hybrid
 npx tsx calculator-server-hybrid.ts
 ```
 
+Enable stateful SSE mode:
+```bash
+cd examples/typescript/calculator-hybrid
+npx tsx calculator-server-hybrid.ts --stateful
+```
+
 Or with environment variables:
 ```bash
 cd examples/typescript/calculator-hybrid
@@ -144,6 +553,7 @@ Expected output:
 ```
 🚀 Starting Calculator Server (Scenario 2: Hybrid SDK + Filters)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 Server mode: Stateless (JSON responses, SSE disabled)
 📡 Creating dispatcher for filter chain...
 ✅ Dispatcher created
 
@@ -159,7 +569,7 @@ Expected output:
 
 🏗️  Architecture:
   • Protocol: Official MCP SDK
-  • Transport: StreamableHTTPServerTransport (HTTP/SSE)
+  • Transport: StreamableHTTPServerTransport (HTTP (stateless JSON responses))
   • Filters: Gopher-MCP C++ via wrapper
 
 📚 Available Tools:
@@ -181,13 +591,15 @@ Expected output:
 🎯 Server ready and waiting for connections...
 ```
 
+> When launched with `--stateful`, the startup banner reports `Server mode: Stateful…` and the transport line reads `StreamableHTTPServerTransport (HTTP/SSE (stateful sessions))`.
+
 ### Run the Client
 
-The calculator client is a **simple MCP client** using only the standard SDK (no filters). It connects to the server over HTTP+SSE.
+The calculator client is a **simple MCP client** using only the standard SDK (no filters). It connects to the server using the Streamable HTTP transport; in the default stateless configuration the server responds with JSON (standalone SSE streams are disabled).
 
 **Architecture**: Pure Standard SDK
 - Protocol: `@modelcontextprotocol/sdk`
-- Transport: `StreamableHTTPClientTransport` (HTTP+SSE)
+- Transport: `StreamableHTTPClientTransport` (HTTP transport)
 - Filters: **None** (simple, clean implementation)
 - Methods: Uses `client.callTool()` for MCP tool calls
 
@@ -208,7 +620,7 @@ cd examples/typescript/calculator-hybrid
 ```
 This uses the same `tsx` executable bundled with the SDK workspace.
 
-Expected output:
+Expected output (transport banner still mentions HTTP+SSE because it is printed by the SDK):
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧮 MCP Calculator Client (Simple - No Filters)
@@ -467,10 +879,10 @@ DEBUG=1 npm run server:hybrid
 
 ### Server Comparison
 
-| Feature | Pure SDK | Hybrid Server (HTTP+SSE) | Native |
+| Feature | Pure SDK | Hybrid Server (HTTP stateless) | Native |
 |---------|----------|--------------------------|---------|
 | Protocol | Official SDK | Official SDK | C++ Native |
-| Transport | stdio/HTTP | HTTP+SSE | HTTP+SSE |
+| Transport | stdio/HTTP | HTTP (stateless JSON) | HTTP+SSE |
 | Filters | ❌ None | ✅ Gopher C++ | ✅ Gopher C++ |
 | Request Logging | Basic | ✅ Advanced | ✅ Advanced |
 | Rate Limiting | ❌ | ✅ (configurable) | ✅ |
@@ -480,11 +892,13 @@ DEBUG=1 npm run server:hybrid
 | Complexity | Low | Medium | High |
 | Migration Effort | N/A | Minimal | Moderate |
 
+> Need SSE streaming or session tracking? Launch the hybrid server with `--stateful` to opt into the original session-managed transport.
+
 ### Client Comparison
 
 This example includes a **simple client** (`calculator-client-hybrid.ts`) that uses:
 - ✅ Pure standard MCP SDK (no filters)
-- ✅ `StreamableHTTPClientTransport` for HTTP+SSE
+- ✅ `StreamableHTTPClientTransport` for HTTP transport
 - ✅ Interactive CLI interface
 - ✅ No FFI overhead (client-side)
 - ✅ Clean, minimal implementation
@@ -516,7 +930,6 @@ if (result.content && result.content[0].type === 'text') {
 ```typescript
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { randomUUID } from "node:crypto";
 
 const server = new Server({
   name: "my-server",
@@ -524,7 +937,8 @@ const server = new Server({
 });
 
 const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: () => randomUUID()
+  sessionIdGenerator: undefined,
+  enableJsonResponse: true,
 });
 
 await server.connect(transport);
@@ -536,7 +950,6 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { GopherFilteredTransport } from "./gopher-filtered-transport.js";
 import { createHybridDispatcher, destroyHybridDispatcher } from "./filter-dispatcher.js";
-import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 
 const server = new Server({
@@ -549,7 +962,9 @@ const dispatcher = createHybridDispatcher();
 
 // Create base transport
 const baseTransport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: () => randomUUID()
+  // Mirror the default stateless mode used by the example CLI (use --stateful at runtime if you need session IDs).
+  sessionIdGenerator: undefined,
+  enableJsonResponse: true,
 });
 
 // Wrap with filters
@@ -668,6 +1083,8 @@ const response = await client.request({
     params: { name: 'calculate', arguments: {...} }
 });
 ```
+
+> If you want this code to run in stateful/SSE mode at startup, replace `sessionIdGenerator: undefined` with `sessionIdGenerator: () => randomUUID()` and remove `enableJsonResponse`. The CLI example achieves the same effect on demand via the `--stateful` flag.
 
 **✅ Correct** - Using high-level callTool:
 ```typescript
