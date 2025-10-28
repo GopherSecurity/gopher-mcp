@@ -39,6 +39,23 @@ const MCP_ENDPOINT = "/mcp";
 const configPath = path.join(__dirname, "config-hybrid.json");
 const filterConfig: CanonicalConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
+type ServerMode = "stateless" | "stateful";
+
+function parseServerMode(argv: string[]): ServerMode {
+  let mode: ServerMode = "stateless";
+  for (const arg of argv) {
+    if (arg === "--stateful" || arg === "--mode=stateful") {
+      mode = "stateful";
+    } else if (arg === "--stateless" || arg === "--mode=stateless") {
+      mode = "stateless";
+    }
+  }
+  return mode;
+}
+
+const SERVER_MODE: ServerMode = parseServerMode(process.argv.slice(2));
+const IS_STATEFUL = SERVER_MODE === "stateful";
+
 // Global state (shared across connections)
 let globalDispatcher: number | null = null;
 let serverInstance: Server | null = null;
@@ -72,7 +89,22 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
-  console.log(`✅ [HTTP] Valid MCP endpoint request`);
+  console.log(`✅ [HTTP] Valid MCP endpoint request (mode=${SERVER_MODE})`);
+
+  // Stateless mode disables standalone SSE streams to avoid shared session state conflicts.
+  if (!IS_STATEFUL && req.method === "GET") {
+    console.log(`❌ [HTTP] 405 - SSE stream not supported for ${url.pathname}`);
+    res.writeHead(405, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method Not Allowed: Server does not expose a standalone SSE stream in stateless mode (use --stateful to enable)"
+      },
+      id: null
+    }));
+    return;
+  }
 
   if (!filteredTransport) {
     console.log(`❌ [HTTP] 503 - Filtered transport not initialized`);
@@ -165,6 +197,7 @@ class CalculatorState {
 async function createCalculatorServer() {
     console.log('🚀 Starting Calculator Server (Scenario 2: Hybrid SDK + Filters)');
     console.log('━'.repeat(60));
+    console.log(`🔧 Server mode: ${SERVER_MODE === "stateful" ? "Stateful (session-managed, SSE enabled)" : "Stateless (JSON responses, SSE disabled)"}`);
 
     // Create MCP server using official SDK
     const server = new Server({
@@ -429,9 +462,16 @@ async function createCalculatorServer() {
 
     // Initialize MCP server and transport stack
     serverInstance = server;
-    sdkTransport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-    });
+    const transportOptions = IS_STATEFUL
+        ? {
+            sessionIdGenerator: () => randomUUID(),
+        }
+        : {
+            // Stateless mode allows multiple clients without session conflicts.
+            sessionIdGenerator: undefined,
+            enableJsonResponse: true,
+        };
+    sdkTransport = new StreamableHTTPServerTransport(transportOptions);
     filteredTransport = new GopherFilteredTransport(sdkTransport, {
         dispatcherHandle: globalDispatcher,
         filterConfig: filterConfig,
@@ -462,7 +502,7 @@ async function createCalculatorServer() {
             console.log('');
             console.log('🏗️  Architecture:');
             console.log('  • Protocol: Official MCP SDK');
-            console.log('  • Transport: StreamableHTTPServerTransport (HTTP/SSE)');
+            console.log(`  • Transport: StreamableHTTPServerTransport (${IS_STATEFUL ? 'HTTP/SSE (stateful sessions)' : 'HTTP (stateless JSON responses)'})`);
             console.log('  • Filters: Gopher-MCP C++ via wrapper');
             console.log('');
             console.log('📚 Available Tools:');
