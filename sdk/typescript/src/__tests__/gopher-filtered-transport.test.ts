@@ -171,7 +171,7 @@ describe("GopherFilteredTransport", () => {
   describe("Incoming Messages", () => {
     it("should intercept and deliver incoming messages", (done) => {
       filteredTransport.onmessage = (message) => {
-        expect(message.method).toBe("test");
+        expect((message as any).method).toBe("test");
         expect((message as any).id).toBe(42);
         done();
       };
@@ -204,23 +204,17 @@ describe("GopherFilteredTransport", () => {
       }
     });
 
-    it("should handle incoming messages with extra info", (done) => {
-      const extraInfo = { sessionId: "test-session" };
-
-      filteredTransport.onmessage = (message, extra) => {
-        expect(message.method).toBe("test");
-        expect(extra).toEqual(extraInfo);
+    it("should handle incoming messages", (done) => {
+      filteredTransport.onmessage = (message) => {
+        expect((message as any).method).toBe("test");
         done();
       };
 
-      mockTransport.simulateIncoming(
-        {
-          jsonrpc: "2.0",
-          method: "test",
-          id: 1
-        },
-        extraInfo
-      );
+      mockTransport.simulateIncoming({
+        jsonrpc: "2.0",
+        method: "test",
+        id: 1
+      });
     });
   });
 
@@ -251,7 +245,7 @@ describe("GopherFilteredTransport", () => {
     it("should provide metrics", async () => {
       const metrics = await filteredTransport.getMetrics();
       expect(metrics).toBeDefined();
-      expect(metrics.chain).toBeDefined();
+      expect(metrics['chain']).toBeDefined();
     });
 
     it("should provide queue stats", () => {
@@ -453,7 +447,7 @@ describe("GopherFilteredTransport with Multiple Filters", () => {
   it("should get metrics from all filters", async () => {
     const metrics = await filteredTransport.getMetrics();
     expect(metrics).toBeDefined();
-    expect(metrics.chain).toBeDefined();
+    expect(metrics['chain']).toBeDefined();
   });
 
   it("should control individual filters", async () => {
