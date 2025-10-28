@@ -15,7 +15,11 @@
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
     "prepublishOnly": "npm run build",
-    "server:hybrid": "tsx ../../examples/typescript/calculator-scenario2/calculator-server-hybrid.ts"
+    "server:hybrid": "tsx ../../examples/typescript/calculator-hybrid/calculator-server-hybrid.ts",
+    "example:async": "tsx examples/async-transport-example.ts",
+    "example:assembler": "tsx examples/assembler-example.ts",
+    "example:basic": "tsx examples/basic-usage.ts",
+    "example:filtered": "tsx examples/filtered-transport-example.ts"
   },
   "keywords": [
     "mcp",
@@ -38,6 +42,7 @@
     "koffi": "^2.13.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.4",
     "@types/jest": "^29.5.14",
     "@types/node": "^18.19.123",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
