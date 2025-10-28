@@ -1,0 +1,41 @@
+{
+  "listeners": [
+    {
+      "name": "calculator_hybrid_listener",
+      "filter_chains": [
+        {
+          "name": "calculator_filters",
+          "filters": [
+            {
+              "name": "rate_limiter",
+              "type": "rate_limiter",
+              "config": {
+                "algorithm": "token_bucket",
+                "requests_per_second": 100,
+                "burst_size": 20
+              }
+            },
+            {
+              "name": "circuit_breaker",
+              "type": "circuit_breaker",
+              "config": {
+                "failure_threshold": 5,
+                "success_threshold": 3,
+                "timeout_ms": 60000,
+                "half_open_requests": 3
+              }
+            },
+            {
+              "name": "metrics",
+              "type": "metrics",
+              "config": {
+                "export_format": "prometheus",
+                "export_interval_ms": 10000
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

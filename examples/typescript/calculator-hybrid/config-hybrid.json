@@ -1,0 +1,26 @@
+{
+  "listeners": [
+    {
+      "name": "http_mcp_server_listener",
+      "filter_chains": [
+        {
+          "name": "http_server_filters",
+          "filters": [
+            {
+              "name": "request_logger",
+              "type": "request_logger",
+              "config": {
+                "log_level": "debug",
+                "log_format": "pretty",
+                "include_timestamps": true,
+                "include_payload": true,
+                "max_payload_length": 1000,
+                "output": "stdout"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
