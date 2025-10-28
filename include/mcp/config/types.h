@@ -1812,7 +1812,6 @@ struct ServerConfig {
               "server.filter_chains[" + std::to_string(idx) + "]",
               "Parse error: " + std::string(e.what()));
         }
-        idx++;
       }
     }
 

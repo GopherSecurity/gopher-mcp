@@ -226,7 +226,6 @@ struct ServerConfigWithValidation : public ServerConfig {
         }
 
         config.transports.push_back(TransportConfig::fromJson(transport_json));
-        idx++;
       }
     }
 
