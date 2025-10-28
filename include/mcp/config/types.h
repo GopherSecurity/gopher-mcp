@@ -195,8 +195,8 @@ struct NodeConfig {
 
     if (!metadata.empty()) {
       auto metaObj = mcp::json::JsonValue::object();
-      for (const auto& [key, value] : metadata) {
-        metaObj[key] = mcp::json::JsonValue(value);
+      for (const auto& kv : metadata) {
+        metaObj[kv.first] = mcp::json::JsonValue(kv.second);
       }
       builder.add("metadata", metaObj);
     }
