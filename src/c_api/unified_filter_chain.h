@@ -13,6 +13,8 @@
 
 #include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/c_api/mcp_c_filter_api.h"
+#include "mcp/filter/filter_service_types.h"
+#include "mcp/filter/circuit_breaker_callbacks.h"
 
 // Forward declarations to avoid circular dependencies
 namespace mcp {
@@ -85,6 +87,16 @@ public:
    * Format can be "text", "json", or "dot"
    */
   std::string dump(const std::string& format) const;
+
+  /** Apply circuit breaker callbacks (advanced chains only). */
+  bool setCircuitBreakerCallbacks(
+      std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks);
+
+  /** Clear circuit breaker callbacks (advanced chains only). */
+  bool clearCircuitBreakerCallbacks();
+
+  /** Check if circuit breaker callbacks are currently registered. */
+  bool hasCircuitBreakerCallbacks() const;
 
 private:
   ChainType type_;

@@ -11,6 +11,14 @@
 namespace mcp {
 namespace filter_chain {
 class AdvancedFilterChain;
+
+void advanced_chain_set_circuit_breaker_callbacks(
+    AdvancedFilterChain& chain,
+    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks);
+void advanced_chain_clear_circuit_breaker_callbacks(
+    AdvancedFilterChain& chain);
+bool advanced_chain_has_circuit_breaker_callbacks(
+    const AdvancedFilterChain& chain);
 }
 namespace filter_api {
 class FilterChain;
@@ -76,6 +84,31 @@ std::string UnifiedFilterChain::dump(const std::string& format) const {
   }
   
   return oss.str();
+}
+
+bool UnifiedFilterChain::setCircuitBreakerCallbacks(
+    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks) {
+  if (type_ == ChainType::Advanced && advanced_chain_) {
+    advanced_chain_set_circuit_breaker_callbacks(
+        *advanced_chain_, std::move(callbacks));
+    return true;
+  }
+  return false;
+}
+
+bool UnifiedFilterChain::clearCircuitBreakerCallbacks() {
+  if (type_ == ChainType::Advanced && advanced_chain_) {
+    advanced_chain_clear_circuit_breaker_callbacks(*advanced_chain_);
+    return true;
+  }
+  return false;
+}
+
+bool UnifiedFilterChain::hasCircuitBreakerCallbacks() const {
+  if (type_ == ChainType::Advanced && advanced_chain_) {
+    return advanced_chain_has_circuit_breaker_callbacks(*advanced_chain_);
+  }
+  return false;
 }
 
 }  // namespace c_api_internal
