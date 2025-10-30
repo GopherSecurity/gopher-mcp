@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+#include "circuit_breaker_callbacks.h"
+
 namespace mcp {
 
 // Forward declarations
@@ -14,6 +16,10 @@ class Dispatcher;
 class McpProtocolCallbacks;
 
 namespace filter {
+
+// Forward declarations
+class CircuitBreakerFilter;
+class CircuitBreakerCallbacks;
 
 // ============================================================================
 // CONCRETE SERVICE TYPE DEFINITIONS
@@ -141,6 +147,12 @@ struct RuntimeServices {
 
   /// SHARED: Circuit breaker state (see CircuitBreakerService docs)
   CircuitBreakerService circuit_breaker;
+
+  /// SHARED: Circuit breaker callbacks for state change notifications
+  /// - Reference counted, automatically managed
+  /// - Used by CircuitBreakerFilter to notify application of events
+  /// - Can be nullptr if no callbacks registered
+  std::shared_ptr<CircuitBreakerCallbacks> circuit_breaker_callbacks;
 
   /**
    * Helper: Cast shared_services from FilterCreationContext
