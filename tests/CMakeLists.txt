@@ -454,10 +454,12 @@ target_link_libraries(test_full_stack_transport
 target_link_libraries(test_application_base_refactored
     gopher-mcp
     gopher-mcp-event
+    gopher-mcp-logging
     gtest
     gmock
     gtest_main
     Threads::Threads
+    fmt::fmt
 )
 
 # Transport socket state machine test libraries

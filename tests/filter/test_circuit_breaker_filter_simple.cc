@@ -64,7 +64,7 @@ class CircuitBreakerFilterSimpleTest : public ::testing::Test {
     jsonrpc::Response resp;
     resp.jsonrpc = "2.0";
     resp.id = id;
-    resp.error = make_optional(Error(error_code, "Test error"));
+    resp.error = mcp::make_optional(Error(error_code, "Test error"));
     return resp;
   }
 
@@ -73,7 +73,7 @@ class CircuitBreakerFilterSimpleTest : public ::testing::Test {
     jsonrpc::Response resp;
     resp.jsonrpc = "2.0";
     resp.id = id;
-    resp.result = make_optional(jsonrpc::ResponseResult(nullptr));
+    resp.result = mcp::make_optional(jsonrpc::ResponseResult(nullptr));
     return resp;
   }
 

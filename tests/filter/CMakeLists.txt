@@ -25,10 +25,12 @@ add_executable(test_circuit_breaker_filter_simple
 target_link_libraries(test_circuit_breaker_filter_simple
   PRIVATE
   gopher-mcp
+  gopher-mcp-logging
   gtest
   gtest_main
   gmock
   Threads::Threads
+  fmt::fmt
 )
 add_test(NAME CircuitBreakerFilterSimpleTest COMMAND test_circuit_breaker_filter_simple)
 
@@ -39,10 +41,12 @@ add_executable(test_circuit_breaker_basic
 target_link_libraries(test_circuit_breaker_basic
   PRIVATE
   gopher-mcp
+  gopher-mcp-logging
   gtest
   gtest_main
   gmock
   Threads::Threads
+  fmt::fmt
 )
 add_test(NAME CircuitBreakerBasicTest COMMAND test_circuit_breaker_basic)
 
