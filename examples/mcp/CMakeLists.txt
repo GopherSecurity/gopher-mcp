@@ -5,11 +5,12 @@ add_executable(mcp_example_client
     mcp_example_client.cc
 )
 
-target_link_libraries(mcp_example_client 
-    gopher-mcp 
+target_link_libraries(mcp_example_client
+    gopher-mcp
     gopher-mcp-event
     gopher-mcp-echo-advanced  # For advanced features
     ${LIBEVENT_LIBRARIES}
+    fmt::fmt
 )
 
 # MCP Server Example
@@ -22,6 +23,7 @@ target_link_libraries(mcp_example_server
     gopher-mcp-event
     gopher-mcp-echo-advanced  # For advanced features
     ${LIBEVENT_LIBRARIES}
+    fmt::fmt
 )
 
 # Config-driven MCP Server Example
@@ -33,6 +35,7 @@ target_link_libraries(mcp_config_example_server
     gopher-mcp
     gopher-mcp-event
     ${LIBEVENT_LIBRARIES}
+    fmt::fmt
 )
 
 # Install targets
