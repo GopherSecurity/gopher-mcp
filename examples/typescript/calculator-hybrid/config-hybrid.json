@@ -7,6 +7,18 @@
           "name": "http_server_filters",
           "filters": [
             {
+              "name": "rate_limiter",
+              "type": "rate_limit",
+              "config": {
+                "strategy": "token_bucket",
+                "bucket_capacity": 5,
+                "refill_rate": 2,
+                "allow_burst": true,
+                "burst_size": 3,
+                "debug_token_count": true
+              }
+            },
+            {
               "name": "request_logger",
               "type": "request_logger",
               "config": {
