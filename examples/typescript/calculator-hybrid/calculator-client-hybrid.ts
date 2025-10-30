@@ -217,7 +217,21 @@ class SimpleCalculatorCLI {
             console.log(`⏱️  Response time: ${latency}ms`);
 
         } catch (error) {
-            console.error(`❌ Calculation error: ${error instanceof Error ? error.message : String(error)}`);
+            if (error instanceof Error) {
+                // Check if it's a rate limit error
+                const errorMsg = error.message.toLowerCase();
+                if (errorMsg.includes('rate limit') ||
+                    errorMsg.includes('too many requests') ||
+                    errorMsg.includes('denied') && errorMsg.includes('rate')) {
+                    console.error(`⏸️  Rate limited: Server is limiting requests`);
+                    console.log('💡 Hint: Server allows 2 requests per second with a burst of 8');
+                    console.log('   Wait a moment before trying again...');
+                } else {
+                    console.error(`❌ Calculation error: ${error.message}`);
+                }
+            } else {
+                console.error(`❌ Calculation error: ${String(error)}`);
+            }
         }
     }
 
