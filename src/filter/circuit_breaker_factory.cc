@@ -5,18 +5,59 @@
 
 #include "mcp/filter/filter_registry.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/filter_context.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
 
-#define GOPHER_LOG_COMPONENT "filter.factory.qos"
+#define GOPHER_LOG_COMPONENT "filter.factory.circuit_breaker"
 
 namespace mcp {
 namespace filter {
 
+namespace {
+
 /**
- * Factory for creating CircuitBreakerFilter instances
- * 
+ * @brief Default/stub callbacks for circuit breaker
+ *
+ * These are used when no FFI callbacks are provided. They log events
+ * but don't propagate them to application code.
+ */
+class DefaultCircuitBreakerCallbacks : public CircuitBreakerCallbacks {
+ public:
+  void onStateChange(CircuitState old_state, CircuitState new_state,
+                     const std::string& reason) override {
+    const char* old_state_str = stateToString(old_state);
+    const char* new_state_str = stateToString(new_state);
+    GOPHER_LOG(Info, "Circuit breaker state changed: %s -> %s (reason: %s)",
+               old_state_str, new_state_str, reason.c_str());
+  }
+
+  void onRequestBlocked(const std::string& method) override {
+    GOPHER_LOG(Warning, "Circuit breaker blocked request: %s", method.c_str());
+  }
+
+  void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
+    GOPHER_LOG(Debug, "Circuit breaker health: success_rate=%.2f%% latency=%lums",
+               success_rate * 100.0, static_cast<unsigned long>(latency_ms));
+  }
+
+ private:
+  static const char* stateToString(CircuitState state) {
+    switch (state) {
+      case CircuitState::CLOSED: return "CLOSED";
+      case CircuitState::OPEN: return "OPEN";
+      case CircuitState::HALF_OPEN: return "HALF_OPEN";
+      default: return "UNKNOWN";
+    }
+  }
+};
+
+}  // namespace
+
+/**
+ * Context-aware factory for creating CircuitBreakerFilter instances
+ *
  * Configuration schema:
  * {
  *   "failure_threshold": number,          // Consecutive failures to open (default: 5)
@@ -31,363 +72,152 @@ namespace filter {
  *   "track_4xx_as_errors": boolean        // Count client errors as failures (default: false)
  * }
  */
-class CircuitBreakerFilterFactory : public FilterFactory {
- public:
-  CircuitBreakerFilterFactory() {
-    // Initialize metadata
-    metadata_.name = "circuit_breaker";
-    metadata_.version = "1.0.0";
-    metadata_.description = "Circuit breaker filter for cascading failure protection";
-    metadata_.dependencies = {"network", "json_rpc_protocol"};
-    
-    // Define configuration schema
-    metadata_.config_schema = json::JsonObjectBuilder()
-        .add("type", "object")
-        .add("properties", json::JsonObjectBuilder()
-            .add("failure_threshold", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 100)
-                .add("default", 5)
-                .add("description", "Consecutive failures to open circuit")
-                .build())
-            .add("error_rate_threshold", json::JsonObjectBuilder()
-                .add("type", "number")
-                .add("minimum", 0.0)
-                .add("maximum", 1.0)
-                .add("default", 0.5)
-                .add("description", "Error rate threshold to open circuit (0.0-1.0)")
-                .build())
-            .add("min_requests", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 1000)
-                .add("default", 10)
-                .add("description", "Minimum requests before checking error rate")
-                .build())
-            .add("timeout_ms", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1000)
-                .add("maximum", 300000)
-                .add("default", 30000)
-                .add("description", "Time in milliseconds before attempting recovery")
-                .build())
-            .add("window_size_ms", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1000)
-                .add("maximum", 600000)
-                .add("default", 60000)
-                .add("description", "Sliding window size for metrics in milliseconds")
-                .build())
-            .add("half_open_max_requests", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 100)
-                .add("default", 3)
-                .add("description", "Maximum requests allowed in half-open state")
-                .build())
-            .add("half_open_success_threshold", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 100)
-                .add("default", 2)
-                .add("description", "Successful requests needed to close circuit")
-                .build())
-            .add("track_timeouts", json::JsonObjectBuilder()
-                .add("type", "boolean")
-                .add("default", true)
-                .add("description", "Track timeouts as failures")
-                .build())
-            .add("track_errors", json::JsonObjectBuilder()
-                .add("type", "boolean")
-                .add("default", true)
-                .add("description", "Track errors as failures")
-                .build())
-            .add("track_4xx_as_errors", json::JsonObjectBuilder()
-                .add("type", "boolean")
-                .add("default", false)
-                .add("description", "Count 4xx client errors as failures")
-                .build())
-            .build())
-        .add("additionalProperties", false)
-        .build();
-    
-    GOPHER_LOG(Debug, "CircuitBreakerFilterFactory initialized");
-  }
+network::FilterSharedPtr createCircuitBreakerFilter(
+    const FilterCreationContext& context,
+    const json::JsonValue& config) {
 
-  ~CircuitBreakerFilterFactory() {
-    GOPHER_LOG(Debug, "CircuitBreakerFilterFactory destroyed");
-  }
+  GOPHER_LOG(Info, "Creating CircuitBreakerFilter instance");
 
-  network::FilterSharedPtr createFilter(const json::JsonValue& config) const override {
-    GOPHER_LOG(Info, "Creating CircuitBreakerFilter instance");
-    
-    // Apply defaults if needed
-    auto final_config = applyDefaults(config);
-    
-    // Validate configuration
-    if (!validateConfig(final_config)) {
-      GOPHER_LOG(Error, "Invalid configuration for CircuitBreakerFilter");
-      throw std::runtime_error("Invalid CircuitBreakerFilter configuration");
-    }
-    
-    // Extract configuration values
-    int failure_threshold = final_config["failure_threshold"].getInt(5);
-    double error_rate_threshold = final_config["error_rate_threshold"].getFloat(0.5);
-    int min_requests = final_config["min_requests"].getInt(10);
-    int timeout_ms = final_config["timeout_ms"].getInt(30000);
-    int window_size_ms = final_config["window_size_ms"].getInt(60000);
-    int half_open_max_requests = final_config["half_open_max_requests"].getInt(3);
-    int half_open_success_threshold = final_config["half_open_success_threshold"].getInt(2);
-    bool track_timeouts = final_config["track_timeouts"].getBool(true);
-    bool track_errors = final_config["track_errors"].getBool(true);
-    bool track_4xx_as_errors = final_config["track_4xx_as_errors"].getBool(false);
-    
-    // Log configuration
-    GOPHER_LOG(Debug, "CircuitBreakerFilter config: failure_threshold=%d error_rate=%.2f "
-               "min_requests=%d timeout=%dms window=%dms half_open_max=%d half_open_success=%d",
-               failure_threshold, error_rate_threshold, min_requests,
-               timeout_ms, window_size_ms, half_open_max_requests, half_open_success_threshold);
-    
-    GOPHER_LOG(Debug, "CircuitBreakerFilter tracking: timeouts=%s errors=%s 4xx_as_errors=%s",
-               track_timeouts ? "yes" : "no",
-               track_errors ? "yes" : "no",
-               track_4xx_as_errors ? "yes" : "no");
-    
-    // Validate logical consistency
-    if (half_open_success_threshold > half_open_max_requests) {
-      GOPHER_LOG(Warning, "half_open_success_threshold (%d) > half_open_max_requests (%d) - circuit may never close",
-                 half_open_success_threshold, half_open_max_requests);
-    }
-    
-    // Note: The actual filter creation requires CircuitBreakerFilter::Callbacks
-    // which should be injected through a different mechanism (e.g., connection context)
-    // For now, we return nullptr as a placeholder - the real implementation
-    // would get these dependencies from the filter chain context
-    
-    GOPHER_LOG(Warning, "CircuitBreakerFilter creation requires runtime dependencies (callbacks)");
-    GOPHER_LOG(Warning, "Returning placeholder - actual filter creation should be done by chain builder");
-    
-    // In a real implementation, the filter chain builder would provide these dependencies
-    // and create the filter properly. This factory just validates and prepares the config.
-    return nullptr;
-  }
+  // Extract configuration values with defaults
+  CircuitBreakerConfig cb_config;
 
-  const FilterFactoryMetadata& getMetadata() const override {
-    return metadata_;
-  }
-
-  json::JsonValue getDefaultConfig() const override {
-    return json::JsonObjectBuilder()
-        .add("failure_threshold", 5)
-        .add("error_rate_threshold", 0.5)
-        .add("min_requests", 10)
-        .add("timeout_ms", 30000)
-        .add("window_size_ms", 60000)
-        .add("half_open_max_requests", 3)
-        .add("half_open_success_threshold", 2)
-        .add("track_timeouts", true)
-        .add("track_errors", true)
-        .add("track_4xx_as_errors", false)
-        .build();
-  }
-
-  bool validateConfig(const json::JsonValue& config) const override {
-    if (!config.isObject()) {
-      GOPHER_LOG(Error, "CircuitBreakerFilter config must be an object");
-      return false;
-    }
-    
-    // Validate failure_threshold if present
+  if (config.isObject()) {
     if (config.contains("failure_threshold")) {
-      if (!config["failure_threshold"].isInteger()) {
-        GOPHER_LOG(Error, "failure_threshold must be an integer");
-        return false;
-      }
-      int threshold = config["failure_threshold"].getInt();
-      if (threshold < 1 || threshold > 100) {
-        GOPHER_LOG(Error, "failure_threshold %d out of range [1, 100]", threshold);
-        return false;
-      }
+      cb_config.failure_threshold = static_cast<size_t>(
+          config["failure_threshold"].getInt(5));
     }
-    
-    // Validate error_rate_threshold if present
+
     if (config.contains("error_rate_threshold")) {
-      if (!config["error_rate_threshold"].isNumber()) {
-        GOPHER_LOG(Error, "error_rate_threshold must be a number");
-        return false;
-      }
-      double rate = config["error_rate_threshold"].getFloat();
-      if (rate < 0.0 || rate > 1.0) {
-        GOPHER_LOG(Error, "error_rate_threshold %.2f out of range [0.0, 1.0]", rate);
-        return false;
-      }
+      cb_config.error_rate_threshold =
+          config["error_rate_threshold"].getFloat(0.5);
     }
-    
-    // Validate min_requests if present
+
     if (config.contains("min_requests")) {
-      if (!config["min_requests"].isInteger()) {
-        GOPHER_LOG(Error, "min_requests must be an integer");
-        return false;
-      }
-      int min_req = config["min_requests"].getInt();
-      if (min_req < 1 || min_req > 1000) {
-        GOPHER_LOG(Error, "min_requests %d out of range [1, 1000]", min_req);
-        return false;
-      }
+      cb_config.min_requests = static_cast<size_t>(
+          config["min_requests"].getInt(10));
     }
-    
-    // Validate timeout_ms if present
+
     if (config.contains("timeout_ms")) {
-      if (!config["timeout_ms"].isInteger()) {
-        GOPHER_LOG(Error, "timeout_ms must be an integer");
-        return false;
-      }
-      int timeout = config["timeout_ms"].getInt();
-      if (timeout < 1000 || timeout > 300000) {
-        GOPHER_LOG(Error, "timeout_ms %d out of range [1000, 300000]", timeout);
-        return false;
-      }
+      cb_config.timeout = std::chrono::milliseconds(
+          config["timeout_ms"].getInt(30000));
     }
-    
-    // Validate window_size_ms if present
+
     if (config.contains("window_size_ms")) {
-      if (!config["window_size_ms"].isInteger()) {
-        GOPHER_LOG(Error, "window_size_ms must be an integer");
-        return false;
-      }
-      int window = config["window_size_ms"].getInt();
-      if (window < 1000 || window > 600000) {
-        GOPHER_LOG(Error, "window_size_ms %d out of range [1000, 600000]", window);
-        return false;
-      }
+      cb_config.window_size = std::chrono::milliseconds(
+          config["window_size_ms"].getInt(60000));
     }
-    
-    // Validate half_open_max_requests if present
+
     if (config.contains("half_open_max_requests")) {
-      if (!config["half_open_max_requests"].isInteger()) {
-        GOPHER_LOG(Error, "half_open_max_requests must be an integer");
-        return false;
-      }
-      int max_req = config["half_open_max_requests"].getInt();
-      if (max_req < 1 || max_req > 100) {
-        GOPHER_LOG(Error, "half_open_max_requests %d out of range [1, 100]", max_req);
-        return false;
-      }
+      cb_config.half_open_max_requests = static_cast<size_t>(
+          config["half_open_max_requests"].getInt(3));
     }
-    
-    // Validate half_open_success_threshold if present
+
     if (config.contains("half_open_success_threshold")) {
-      if (!config["half_open_success_threshold"].isInteger()) {
-        GOPHER_LOG(Error, "half_open_success_threshold must be an integer");
-        return false;
-      }
-      int success = config["half_open_success_threshold"].getInt();
-      if (success < 1 || success > 100) {
-        GOPHER_LOG(Error, "half_open_success_threshold %d out of range [1, 100]", success);
-        return false;
-      }
+      cb_config.half_open_success_threshold = static_cast<size_t>(
+          config["half_open_success_threshold"].getInt(2));
     }
-    
-    // Validate boolean fields
-    if (config.contains("track_timeouts") && !config["track_timeouts"].isBoolean()) {
-      GOPHER_LOG(Error, "track_timeouts must be a boolean");
-      return false;
+
+    if (config.contains("track_timeouts")) {
+      cb_config.track_timeouts = config["track_timeouts"].getBool(true);
     }
-    
-    if (config.contains("track_errors") && !config["track_errors"].isBoolean()) {
-      GOPHER_LOG(Error, "track_errors must be a boolean");
-      return false;
+
+    if (config.contains("track_errors")) {
+      cb_config.track_errors = config["track_errors"].getBool(true);
     }
-    
-    if (config.contains("track_4xx_as_errors") && !config["track_4xx_as_errors"].isBoolean()) {
-      GOPHER_LOG(Error, "track_4xx_as_errors must be a boolean");
-      return false;
+
+    if (config.contains("track_4xx_as_errors")) {
+      cb_config.track_4xx_as_errors =
+          config["track_4xx_as_errors"].getBool(false);
     }
-    
-    // Warn about boundary values
-    if (config.contains("error_rate_threshold")) {
-      double rate = config["error_rate_threshold"].getFloat();
-      if (rate < 0.1) {
-        GOPHER_LOG(Warning, "error_rate_threshold %.2f is very low - circuit may open frequently", rate);
-      } else if (rate > 0.9) {
-        GOPHER_LOG(Warning, "error_rate_threshold %.2f is very high - circuit may never open", rate);
-      }
-    }
-    
-    if (config.contains("timeout_ms")) {
-      int timeout = config["timeout_ms"].getInt();
-      if (timeout < 5000) {
-        GOPHER_LOG(Warning, "timeout_ms %dms is very short - circuit may oscillate", timeout);
-      } else if (timeout > 120000) {
-        GOPHER_LOG(Warning, "timeout_ms %dms is very long - recovery may be delayed", timeout);
-      }
-    }
-    
-    if (config.contains("failure_threshold")) {
-      int threshold = config["failure_threshold"].getInt();
-      if (threshold == 1) {
-        GOPHER_LOG(Warning, "failure_threshold is 1 - circuit will open on first failure");
-      }
-    }
-    
-    // Check for logical consistency
-    if (config.contains("half_open_max_requests") && config.contains("half_open_success_threshold")) {
-      int max_req = config["half_open_max_requests"].getInt();
-      int success = config["half_open_success_threshold"].getInt();
-      if (success > max_req) {
-        GOPHER_LOG(Error, "half_open_success_threshold (%d) cannot exceed half_open_max_requests (%d)",
-                   success, max_req);
-        return false;
-      }
-    }
-    
-    GOPHER_LOG(Debug, "CircuitBreakerFilter configuration validated successfully");
-    return true;
   }
 
- private:
-  json::JsonValue applyDefaults(const json::JsonValue& config) const {
-    auto defaults = getDefaultConfig();
-    if (!config.isObject()) {
-      GOPHER_LOG(Debug, "Using all defaults for CircuitBreakerFilter");
-      return defaults;
-    }
-    
-    // Merge config with defaults
-    json::JsonValue result = defaults;
-    for (const auto& key : config.keys()) {
-      result.set(key, config[key]);
-    }
-    
-    GOPHER_LOG(Debug, "Applied defaults to CircuitBreakerFilter configuration");
-    return result;
+  // Log configuration
+  GOPHER_LOG(Debug, "CircuitBreakerFilter config: failure_threshold=%zu error_rate=%.2f "
+             "min_requests=%zu timeout=%ldms window=%ldms half_open_max=%zu half_open_success=%zu",
+             cb_config.failure_threshold, cb_config.error_rate_threshold,
+             cb_config.min_requests,
+             static_cast<long>(cb_config.timeout.count()),
+             static_cast<long>(cb_config.window_size.count()),
+             cb_config.half_open_max_requests, cb_config.half_open_success_threshold);
+
+  // Validate logical consistency
+  if (cb_config.half_open_success_threshold > cb_config.half_open_max_requests) {
+    GOPHER_LOG(Warning, "half_open_success_threshold (%zu) > half_open_max_requests (%zu) - circuit may never close",
+               cb_config.half_open_success_threshold, cb_config.half_open_max_requests);
   }
 
-  mutable FilterFactoryMetadata metadata_;
-};
+  // Get callbacks from context, or use default stub callbacks
+  // Priority: 1) RuntimeServices (shared), 2) Direct field (deprecated), 3) Default stub
+  std::shared_ptr<CircuitBreakerCallbacks> callbacks_ptr;
 
-/**
- * Explicit registration function for static linking support
- * This ensures the factory is registered even when static initializers don't run
- */
-void registerCircuitBreakerFilterFactory() {
-  static bool registered = false;
-  if (!registered) {
-    FilterRegistry::instance().registerFactory(
-        "circuit_breaker",
-        std::make_shared<CircuitBreakerFilterFactory>());
-    registered = true;
-    GOPHER_LOG(Debug, "CircuitBreakerFilterFactory explicitly registered");
+  // Try to get callbacks from RuntimeServices (Option 2 approach)
+  auto runtime_services = RuntimeServices::fromSharedServices(context.shared_services);
+  if (runtime_services && runtime_services->circuit_breaker_callbacks) {
+    GOPHER_LOG(Info, "Using circuit breaker callbacks from RuntimeServices");
+    callbacks_ptr = runtime_services->circuit_breaker_callbacks;
+  } else if (context.circuit_breaker_callbacks) {
+    // Fallback to direct field for backward compatibility
+    GOPHER_LOG(Info, "Using circuit breaker callbacks from direct context field");
+    callbacks_ptr = context.circuit_breaker_callbacks;
+  } else {
+    GOPHER_LOG(Info, "Using default (stub) circuit breaker callbacks");
+    callbacks_ptr = std::make_shared<DefaultCircuitBreakerCallbacks>();
   }
+
+  auto filter = std::make_shared<CircuitBreakerFilter>(callbacks_ptr, cb_config);
+
+  GOPHER_LOG(Info, "Created circuit_breaker filter successfully");
+
+  return filter;
 }
 
-// Register the factory with the filter registry via static initializer
-REGISTER_FILTER_FACTORY(CircuitBreakerFilterFactory, "circuit_breaker")
+
+/**
+ * Register circuit breaker filter factory
+ */
+void registerCircuitBreakerFilterFactory() {
+  auto& registry = FilterRegistry::instance();
+
+  // Define metadata
+  BasicFilterMetadata metadata;
+  metadata.name = "circuit_breaker";
+  metadata.version = "1.0.0";
+  metadata.description =
+      "Circuit breaker filter for cascading failure protection";
+
+  // Define default configuration
+  json::JsonObjectBuilder defaults;
+  defaults.add("failure_threshold", 5)
+      .add("error_rate_threshold", 0.5)
+      .add("min_requests", 10)
+      .add("timeout_ms", 30000)
+      .add("window_size_ms", 60000)
+      .add("half_open_max_requests", 3)
+      .add("half_open_success_threshold", 2)
+      .add("track_timeouts", true)
+      .add("track_errors", true)
+      .add("track_4xx_as_errors", false);
+  metadata.default_config = defaults.build();
+
+  // Register context-aware factory
+  registry.registerContextFactory("circuit_breaker",
+                                  createCircuitBreakerFilter, metadata);
+
+  GOPHER_LOG(Info, "Registered circuit_breaker filter factory (context-aware)");
+}
+
+namespace {
+struct CircuitBreakerRegistrar {
+  CircuitBreakerRegistrar() { registerCircuitBreakerFilterFactory(); }
+};
+
+static CircuitBreakerRegistrar circuit_breaker_registrar;
+}  // namespace
 
 // Export for static linking - using magic number as sentinel value
 extern "C" {
-  void* circuit_breaker_filter_registrar_ref = (void*)0xDEADBEEF;
+void* circuit_breaker_filter_registrar_ref =
+    reinterpret_cast<void*>(0xDEADBEEF);
 }
 
 }  // namespace filter
