@@ -38,6 +38,7 @@
 #include "mcp/json/json_bridge.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/filter/metrics_filter.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
 
@@ -792,6 +793,8 @@ class McpServer : public application::ApplicationBase,
   McpServerConfig config_;
   McpServerStats server_stats_;
   std::unique_ptr<ServerProtocolCallbacks> protocol_callbacks_;
+  std::shared_ptr<filter::MetricsFilter> metrics_filter_;
+  std::shared_ptr<filter::MetricsFilter::MetricsCallbacks> metrics_callbacks_;
 
   // Connection management (production pattern)
   // IMPROVEMENT: Using TcpActiveListener for robust listener management

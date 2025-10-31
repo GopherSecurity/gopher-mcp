@@ -81,8 +81,8 @@ void McpServer::setupEnhancedFilterChain(
       cb_config.half_open_max_requests = 3;
 
       auto callbacks = std::make_shared<CircuitBreakerCallbacksImpl>(*this);
-      auto filter =
-          std::make_shared<filter::CircuitBreakerFilter>(*callbacks, cb_config);
+    auto filter =
+        std::make_shared<filter::CircuitBreakerFilter>(callbacks, cb_config);
 
       // Store callbacks to keep them alive
       circuit_breaker_callbacks_ = callbacks;
@@ -229,11 +229,13 @@ void McpServer::setupEnhancedFilterChain(
 
     auto callbacks = std::make_shared<MetricsCallbacksImpl>(*this);
     auto filter =
-        std::make_shared<filter::MetricsFilter>(callbacks, metrics_config);
+        std::make_shared<filter::MetricsFilter>(*callbacks, metrics_config);
+    auto adapter = filter->createNetworkAdapter();
 
     metrics_callbacks_ = callbacks;
+    metrics_filter_ = filter;
 
-    return filter;
+    return adapter;
   });
 
   // Layer 5: Request Validation
