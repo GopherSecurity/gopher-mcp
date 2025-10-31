@@ -11,11 +11,24 @@
               "type": "rate_limit",
               "config": {
                 "strategy": "token_bucket",
-                "bucket_capacity": 5,
-                "refill_rate": 2,
+                "bucket_capacity": 100,
+                "refill_rate": 50,
                 "allow_burst": true,
-                "burst_size": 3,
-                "debug_token_count": true
+                "burst_size": 25,
+                "debug_token_count": false
+              }
+            },
+            {
+              "name": "metrics",
+              "type": "metrics",
+              "config": {
+                "provider": "internal",
+                "rate_update_interval_seconds": 1,
+                "report_interval_seconds": 10,
+                "max_latency_threshold_ms": 5000,
+                "error_rate_threshold": 10,
+                "track_methods": true,
+                "enable_histograms": false
               }
             },
             {
