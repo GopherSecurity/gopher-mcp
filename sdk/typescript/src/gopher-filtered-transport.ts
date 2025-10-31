@@ -158,6 +158,11 @@ export class GopherFilteredTransport implements Transport {
     }
   }
 
+  /** Expose native filter chain handle for callback registration. */
+  getChainHandle(): number {
+    return this.filterChain.getHandle();
+  }
+
   /**
    * Wrap SDK transport callbacks to intercept messages
    *
