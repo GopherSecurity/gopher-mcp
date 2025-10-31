@@ -27,6 +27,7 @@ set(MCP_C_API_SOURCES
     mcp_c_filter_buffer.cc       # Buffer API implementation
     mcp_c_filter_chain.cc        # Filter chain implementation
     mcp_c_filter_callbacks.cc    # Circuit breaker callbacks API
+    mcp_c_metrics_callbacks.cc   # Metrics callbacks API
     json_value_converter.cc      # JSON value conversion utilities
     unified_filter_chain.cc      # Unified filter chain wrapper
 
