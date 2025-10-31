@@ -88,7 +88,8 @@ ValidationResult FilterChainAssembler::validateFilterChain(
 
   // Check that all filter types exist in registry
   for (const auto& filter_config : config.filters) {
-    if (!registry_.hasContextFactory(filter_config.type)) {
+    if (!registry_.hasContextFactory(filter_config.type) &&
+        !registry_.hasFactory(filter_config.type)) {
       result.valid = false;
       result.errors.push_back("Unknown filter type: " + filter_config.type);
     }
@@ -111,8 +112,12 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
     const FilterCreationContext& context) {
 
   // Simple filter creation using registry
-  return registry_.createFilterWithContext(
-      filter_config.type, context, filter_config.config);
+  if (registry_.hasContextFactory(filter_config.type)) {
+    return registry_.createFilterWithContext(filter_config.type, context,
+                                             filter_config.config);
+  }
+
+  return registry_.createFilter(filter_config.type, filter_config.config);
 }
 
 void FilterChainAssembler::validateBasicOrdering(
