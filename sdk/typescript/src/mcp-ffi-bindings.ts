@@ -285,6 +285,21 @@ try {
       signature: "void*",  // returns mcp_json_value_t
       args: ["uint64_t"]  // chain
     },
+    {
+      name: "mcp_filter_chain_set_metrics_callbacks",
+      signature: "int",
+      args: ["uint64_t", "void*"],
+    },
+    {
+      name: "mcp_filter_chain_clear_metrics_callbacks",
+      signature: "int",
+      args: ["uint64_t"],
+    },
+    {
+      name: "mcp_filter_chain_has_metrics_callbacks",
+      signature: "int",
+      args: ["uint64_t"],
+    },
 
     // Buffer functions from mcp_filter_buffer.h
     {
