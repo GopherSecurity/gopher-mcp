@@ -128,16 +128,22 @@ class MetricsFilterFactory : public FilterFactory {
   }
 
   network::FilterSharedPtr createFilter(const json::JsonValue& config) const override {
+    std::cout << "[MetricsFactory] Creating MetricsFilter instance - START" << std::endl;
     GOPHER_LOG(Info, "Creating MetricsFilter instance");
-    
+
     // Apply defaults if needed
+    std::cout << "[MetricsFactory] Applying defaults to config" << std::endl;
     auto final_config = applyDefaults(config);
+    std::cout << "[MetricsFactory] Defaults applied successfully" << std::endl;
     
     // Validate configuration
+    std::cout << "[MetricsFactory] Validating configuration" << std::endl;
     if (!validateConfig(final_config)) {
+      std::cout << "[MetricsFactory] Configuration validation FAILED!" << std::endl;
       GOPHER_LOG(Error, "Invalid configuration for MetricsFilter");
       throw std::runtime_error("Invalid MetricsFilter configuration");
     }
+    std::cout << "[MetricsFactory] Configuration validated successfully" << std::endl;
     
     // Extract configuration values
     std::string provider = final_config["provider"].getString("internal");
@@ -188,18 +194,38 @@ class MetricsFilterFactory : public FilterFactory {
     if (track_methods && rate_update_interval == 1) {
       GOPHER_LOG(Debug, "Method-level tracking with 1s rate updates - suitable for detailed monitoring");
     }
-    
-    // Note: The actual filter creation requires MetricsFilter::MetricsCallbacks
-    // which should be injected through a different mechanism (e.g., connection context)
-    // For now, we return nullptr as a placeholder - the real implementation
-    // would get these dependencies from the filter chain context
-    
-    GOPHER_LOG(Warning, "MetricsFilter creation requires runtime dependencies (callbacks)");
-    GOPHER_LOG(Warning, "Returning placeholder - actual filter creation should be done by chain builder");
-    
-    // In a real implementation, the filter chain builder would provide these dependencies
-    // and create the filter properly. This factory just validates and prepares the config.
-    return nullptr;
+
+    // Create default no-op callbacks that will be replaced by actual callbacks
+    // set via setMetricsCallbacks() on the AdvancedFilterChain
+    class DefaultMetricsCallbacks : public filter::MetricsFilter::MetricsCallbacks {
+     public:
+      void onMetricsUpdate(const filter::ConnectionMetrics& metrics) override {
+        // No-op by default - callbacks will be set later via C API
+      }
+      void onThresholdExceeded(const std::string& metric_name,
+                               uint64_t value,
+                               uint64_t threshold) override {
+        // No-op by default - callbacks will be set later via C API
+      }
+    };
+
+    auto callbacks = std::make_shared<DefaultMetricsCallbacks>();
+
+    // Build MetricsFilter::Config struct
+    filter::MetricsFilter::Config metrics_config;
+    metrics_config.rate_update_interval = std::chrono::seconds(rate_update_interval);
+    metrics_config.report_interval = std::chrono::seconds(report_interval);
+    metrics_config.max_latency_threshold_ms = max_latency_threshold;
+    metrics_config.error_rate_threshold = error_rate_threshold;
+    metrics_config.bytes_threshold = bytes_threshold;
+    metrics_config.track_methods = track_methods;
+    metrics_config.enable_histograms = enable_histograms;
+
+    // Create the filter with the prepared config and default callbacks
+    std::cout << "[MetricsFactory] Creating MetricsFilter instance with callbacks" << std::endl;
+    auto filter = std::make_shared<filter::MetricsFilter>(callbacks, metrics_config);
+    std::cout << "[MetricsFactory] MetricsFilter instance created successfully!" << std::endl;
+    return filter;
   }
 
   const FilterFactoryMetadata& getMetadata() const override {
@@ -226,176 +252,158 @@ class MetricsFilterFactory : public FilterFactory {
       GOPHER_LOG(Error, "MetricsFilter config must be an object");
       return false;
     }
-    
-    // Validate provider if present
+
+    auto validateIntegerField = [&](const char* field_name,
+                                    int min_value,
+                                    int max_value) -> bool {
+      if (!config.contains(field_name)) {
+        return true;
+      }
+
+      const auto& field = config[field_name];
+      double numeric_value = 0.0;
+
+      if (field.isInteger()) {
+        numeric_value = static_cast<double>(field.getInt64());
+      } else if (field.isNumber()) {
+        numeric_value = field.getFloat();
+      } else {
+        GOPHER_LOG(Error, "%s must be numeric", field_name);
+        return false;
+      }
+
+      double rounded = std::round(numeric_value);
+      if (std::fabs(numeric_value - rounded) > 1e-6) {
+        GOPHER_LOG(Error, "%s must be an integer value (got %f)",
+                   field_name, numeric_value);
+        return false;
+      }
+
+      int value = static_cast<int>(rounded);
+      if (value < min_value || value > max_value) {
+        GOPHER_LOG(Error, "%s %d out of range [%d, %d]",
+                   field_name, value, min_value, max_value);
+        return false;
+      }
+
+      return true;
+    };
+
+    auto validateInt64Field = [&](const char* field_name,
+                                  int64_t min_value,
+                                  int64_t max_value) -> bool {
+      if (!config.contains(field_name)) {
+        return true;
+      }
+
+      const auto& field = config[field_name];
+      long double numeric_value = 0.0L;
+
+      if (field.isInteger()) {
+        numeric_value = static_cast<long double>(field.getInt64());
+      } else if (field.isNumber()) {
+        numeric_value = static_cast<long double>(field.getFloat());
+      } else {
+        GOPHER_LOG(Error, "%s must be numeric", field_name);
+        return false;
+      }
+
+      long double rounded = std::round(numeric_value);
+      if (std::fabsl(numeric_value - rounded) > 1e-6L) {
+        GOPHER_LOG(Error, "%s must be an integer value (got %Lf)",
+                   field_name, numeric_value);
+        return false;
+      }
+
+      int64_t value = static_cast<int64_t>(rounded);
+      if (value < min_value || value > max_value) {
+        GOPHER_LOG(Error,
+                   "%s %lld out of range [%lld, %lld]",
+                   field_name,
+                   static_cast<long long>(value),
+                   static_cast<long long>(min_value),
+                   static_cast<long long>(max_value));
+        return false;
+      }
+
+      return true;
+    };
+
     if (config.contains("provider")) {
       std::string provider = config["provider"].getString("");
-      if (provider != "internal" && provider != "prometheus" && provider != "custom") {
-        GOPHER_LOG(Error, "Invalid provider '%s' - must be one of: internal, prometheus, custom", 
+      if (provider != "internal" && provider != "prometheus" &&
+          provider != "custom") {
+        GOPHER_LOG(Error,
+                   "Invalid provider '%s' - must be one of: internal, prometheus, custom",
                    provider.c_str());
         return false;
       }
-      
-      // Validate provider-specific fields
+
       if (provider == "custom" && !config.contains("custom_endpoint")) {
-        GOPHER_LOG(Warning, "Custom provider selected but custom_endpoint not specified");
+        GOPHER_LOG(Warning,
+                   "Custom provider selected but custom_endpoint not specified");
       }
     }
-    
-    // Validate rate_update_interval_seconds if present
-    if (config.contains("rate_update_interval_seconds")) {
-      if (!config["rate_update_interval_seconds"].isInteger()) {
-        GOPHER_LOG(Error, "rate_update_interval_seconds must be an integer");
-        return false;
-      }
-      int interval = config["rate_update_interval_seconds"].getInt();
-      if (interval < 1 || interval > 60) {
-        GOPHER_LOG(Error, "rate_update_interval_seconds %d out of range [1, 60]", interval);
-        return false;
-      }
+
+    if (!validateIntegerField("rate_update_interval_seconds", 1, 60)) {
+      return false;
     }
-    
-    // Validate report_interval_seconds if present
-    if (config.contains("report_interval_seconds")) {
-      if (!config["report_interval_seconds"].isInteger()) {
-        GOPHER_LOG(Error, "report_interval_seconds must be an integer");
-        return false;
-      }
-      int interval = config["report_interval_seconds"].getInt();
-      if (interval < 1 || interval > 3600) {
-        GOPHER_LOG(Error, "report_interval_seconds %d out of range [1, 3600]", interval);
-        return false;
-      }
+
+    if (!validateIntegerField("report_interval_seconds", 1, 3600)) {
+      return false;
     }
-    
-    // Validate max_latency_threshold_ms if present
-    if (config.contains("max_latency_threshold_ms")) {
-      if (!config["max_latency_threshold_ms"].isInteger()) {
-        GOPHER_LOG(Error, "max_latency_threshold_ms must be an integer");
-        return false;
-      }
-      int threshold = config["max_latency_threshold_ms"].getInt();
-      if (threshold < 100 || threshold > 60000) {
-        GOPHER_LOG(Error, "max_latency_threshold_ms %d out of range [100, 60000]", threshold);
-        return false;
-      }
+
+    if (!validateIntegerField("max_latency_threshold_ms", 100, 60000)) {
+      return false;
     }
-    
-    // Validate error_rate_threshold if present
-    if (config.contains("error_rate_threshold")) {
-      if (!config["error_rate_threshold"].isInteger()) {
-        GOPHER_LOG(Error, "error_rate_threshold must be an integer");
-        return false;
-      }
-      int threshold = config["error_rate_threshold"].getInt();
-      if (threshold < 1 || threshold > 1000) {
-        GOPHER_LOG(Error, "error_rate_threshold %d out of range [1, 1000]", threshold);
-        return false;
-      }
+
+    if (!validateIntegerField("error_rate_threshold", 1, 1000)) {
+      return false;
     }
-    
-    // Validate bytes_threshold if present
-    if (config.contains("bytes_threshold")) {
-      if (!config["bytes_threshold"].isInteger()) {
-        GOPHER_LOG(Error, "bytes_threshold must be an integer");
-        return false;
-      }
-      int64_t threshold = config["bytes_threshold"].getInt64();
-      if (threshold < 1024 || threshold > 10737418240LL) {  // 1KB to 10GB
-        GOPHER_LOG(Error, "bytes_threshold %lld out of range [1024, 10737418240]", threshold);
-        return false;
-      }
+
+    if (!validateInt64Field("bytes_threshold", 1024, 10737418240LL)) {
+      return false;
     }
-    
-    // Validate prometheus_port if present
-    if (config.contains("prometheus_port")) {
-      if (!config["prometheus_port"].isInteger()) {
-        GOPHER_LOG(Error, "prometheus_port must be an integer");
-        return false;
-      }
-      int port = config["prometheus_port"].getInt();
-      if (port < 1024 || port > 65535) {
-        GOPHER_LOG(Error, "prometheus_port %d out of range [1024, 65535]", port);
-        return false;
-      }
+
+    if (config.contains("track_methods") &&
+        !config["track_methods"].isBoolean()) {
+      GOPHER_LOG(Error, "track_methods must be a boolean");
+      return false;
     }
-    
-    // Validate prometheus_path if present
+
+    if (config.contains("enable_histograms") &&
+        !config["enable_histograms"].isBoolean()) {
+      GOPHER_LOG(Error, "enable_histograms must be a boolean");
+      return false;
+    }
+
+    if (!validateIntegerField("prometheus_port", 1024, 65535)) {
+      return false;
+    }
+
     if (config.contains("prometheus_path")) {
       if (!config["prometheus_path"].isString()) {
         GOPHER_LOG(Error, "prometheus_path must be a string");
         return false;
       }
       std::string path = config["prometheus_path"].getString();
-      if (path.empty() || path[0] != '/') {
-        GOPHER_LOG(Error, "prometheus_path must start with '/' (got '%s')", path.c_str());
+      if (path.empty() || path.front() != '/') {
+        GOPHER_LOG(Error,
+                   "prometheus_path must start with '/' (got '%s')",
+                   path.c_str());
         return false;
       }
     }
-    
-    // Validate custom_endpoint if present
-    if (config.contains("custom_endpoint")) {
-      if (!config["custom_endpoint"].isString()) {
-        GOPHER_LOG(Error, "custom_endpoint must be a string");
-        return false;
-      }
-      std::string endpoint = config["custom_endpoint"].getString();
-      if (endpoint.empty()) {
-        GOPHER_LOG(Error, "custom_endpoint cannot be empty");
-        return false;
-      }
-    }
-    
-    // Validate boolean fields
-    if (config.contains("track_methods") && !config["track_methods"].isBoolean()) {
-      GOPHER_LOG(Error, "track_methods must be a boolean");
+
+    if (config.contains("custom_endpoint") &&
+        !config["custom_endpoint"].isString()) {
+      GOPHER_LOG(Error, "custom_endpoint must be a string");
       return false;
     }
-    
-    if (config.contains("enable_histograms") && !config["enable_histograms"].isBoolean()) {
-      GOPHER_LOG(Error, "enable_histograms must be a boolean");
-      return false;
-    }
-    
-    // Warn about boundary values
-    if (config.contains("max_latency_threshold_ms")) {
-      int threshold = config["max_latency_threshold_ms"].getInt();
-      if (threshold < 1000) {
-        GOPHER_LOG(Warning, "max_latency_threshold_ms %dms is very low - may trigger frequent alerts", 
-                   threshold);
-      } else if (threshold > 30000) {
-        GOPHER_LOG(Warning, "max_latency_threshold_ms %dms is very high - may miss performance issues", 
-                   threshold);
-      }
-    }
-    
-    if (config.contains("report_interval_seconds")) {
-      int interval = config["report_interval_seconds"].getInt();
-      if (interval < 5) {
-        GOPHER_LOG(Warning, "report_interval_seconds %d is very short - may impact performance", interval);
-      }
-    }
-    
-    if (config.contains("bytes_threshold")) {
-      int64_t threshold = config["bytes_threshold"].getInt64();
-      if (threshold > 1073741824LL) {  // 1GB
-        GOPHER_LOG(Warning, "bytes_threshold %lld is very high - alerts may be delayed", threshold);
-      }
-    }
-    
-    // Check logical consistency
-    if (config.contains("rate_update_interval_seconds") && config.contains("report_interval_seconds")) {
-      int rate_update = config["rate_update_interval_seconds"].getInt();
-      int report = config["report_interval_seconds"].getInt();
-      if (rate_update > report) {
-        GOPHER_LOG(Warning, "rate_update_interval_seconds (%d) > report_interval_seconds (%d) - rate calculations may be inaccurate",
-                   rate_update, report);
-      }
-    }
-    
-    GOPHER_LOG(Debug, "MetricsFilter configuration validated successfully");
+
     return true;
   }
+
 
  private:
   json::JsonValue applyDefaults(const json::JsonValue& config) const {
@@ -404,13 +412,24 @@ class MetricsFilterFactory : public FilterFactory {
       GOPHER_LOG(Debug, "Using all defaults for MetricsFilter");
       return defaults;
     }
-    
-    // Merge config with defaults
+
     json::JsonValue result = defaults;
     for (const auto& key : config.keys()) {
-      result.set(key, config[key]);
+      const auto& value = config[key];
+      if (value.isBoolean()) {
+        result.set(key, json::JsonValue(value.getBool()));
+      } else if (value.isInteger()) {
+        result.set(key, json::JsonValue(value.getInt64()));
+      } else if (value.isNumber()) {
+        // Preserve floating point precision if provided
+        result.set(key, json::JsonValue(value.getFloat()));
+      } else if (value.isString()) {
+        result.set(key, json::JsonValue(value.getString()));
+      } else {
+        result.set(key, value);
+      }
     }
-    
+
     GOPHER_LOG(Debug, "Applied defaults to MetricsFilter configuration");
     return result;
   }
@@ -425,13 +444,40 @@ class MetricsFilterFactory : public FilterFactory {
 void registerMetricsFilterFactory() {
   static bool registered = false;
   if (!registered) {
-    FilterRegistry::instance().registerFactory(
-        "metrics",
-        std::make_shared<MetricsFilterFactory>());
+    auto& registry = FilterRegistry::instance();
+
+    auto factory = std::make_shared<MetricsFilterFactory>();
+    if (!registry.registerFactory("metrics", factory)) {
+      GOPHER_LOG(Error, "Failed to register traditional metrics factory (duplicate?)");
+    }
+
+    BasicFilterMetadata basic_metadata;
+    basic_metadata.name = "metrics";
+    basic_metadata.version = factory->getMetadata().version;
+    basic_metadata.description = factory->getMetadata().description;
+    basic_metadata.default_config = factory->getDefaultConfig();
+
+    if (!registry.registerContextFactory(
+            "metrics",
+            [factory](const FilterCreationContext& context,
+                      const json::JsonValue& cfg) -> network::FilterSharedPtr {
+              (void)context;  // Currently no context-specific behaviour needed
+              return factory->createFilter(cfg);
+            },
+            basic_metadata)) {
+      GOPHER_LOG(Error, "Failed to register context-aware metrics factory (duplicate?)");
+    }
+
     registered = true;
     GOPHER_LOG(Debug, "MetricsFilterFactory explicitly registered");
   }
 }
+
+struct MetricsFilterRegistrar {
+  MetricsFilterRegistrar() { registerMetricsFilterFactory(); }
+};
+
+static MetricsFilterRegistrar metrics_filter_registrar_instance;
 
 // Register the factory with the filter registry via static initializer
 REGISTER_FILTER_FACTORY(MetricsFilterFactory, "metrics")

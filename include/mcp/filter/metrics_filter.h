@@ -33,6 +33,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 
 #include "../network/filter.h"
@@ -151,14 +152,28 @@ class MetricsFilter : public network::NetworkFilterBase,
    * @param callbacks Metrics event callbacks
    * @param config Metrics configuration
    */
-  MetricsFilter(MetricsCallbacks& callbacks, const Config& config)
-      : callbacks_(callbacks), config_(config) {
+  MetricsFilter(std::shared_ptr<MetricsCallbacks> callbacks,
+                const Config& config)
+      : config_(config) {
+    initializeCallbacks(std::move(callbacks));
     metrics_.connection_start = std::chrono::steady_clock::now();
     metrics_.last_activity = metrics_.connection_start;
+    last_receive_rate_update_ = metrics_.connection_start;
+    last_send_rate_update_ = metrics_.connection_start;
+    last_report_time_ = metrics_.connection_start;
+  }
 
-    // Start periodic reporting if configured
-    if (config_.report_interval.count() > 0) {
-      startReportingTimer();
+  /**
+   * Update the active callbacks at runtime.
+   *
+   * Passing nullptr reverts to the default callbacks that were established
+   * during construction (no-op callbacks if none were provided).
+   */
+  void setCallbacks(std::shared_ptr<MetricsCallbacks> callbacks) {
+    if (callbacks) {
+      callbacks_ = std::move(callbacks);
+    } else {
+      callbacks_ = default_callbacks_;
     }
   }
 
@@ -174,9 +189,11 @@ class MetricsFilter : public network::NetworkFilterBase,
 
     // Check thresholds
     if (metrics_.bytes_received > config_.bytes_threshold) {
-      callbacks_.onThresholdExceeded("bytes_received", metrics_.bytes_received,
-                                     config_.bytes_threshold);
+      notifyThresholdExceeded("bytes_received", metrics_.bytes_received,
+                              config_.bytes_threshold);
     }
+
+    maybeReportMetrics(metrics_.last_activity);
 
     return network::FilterStatus::Continue;
   }
@@ -189,6 +206,8 @@ class MetricsFilter : public network::NetworkFilterBase,
 
     // Update send rate
     updateSendRate(bytes);
+
+    maybeReportMetrics(metrics_.last_activity);
 
     return network::FilterStatus::Continue;
   }
@@ -214,6 +233,11 @@ class MetricsFilter : public network::NetworkFilterBase,
     metrics_.latency_samples = 0;
     metrics_.connection_start = std::chrono::steady_clock::now();
     metrics_.last_activity = metrics_.connection_start;
+    last_receive_rate_update_ = metrics_.connection_start;
+    last_send_rate_update_ = metrics_.connection_start;
+    bytes_received_since_last_update_.store(0);
+    bytes_sent_since_last_update_.store(0);
+    last_report_time_ = metrics_.connection_start;
 
     // Clear request tracking
     pending_requests_.clear();
@@ -243,6 +267,8 @@ class MetricsFilter : public network::NetworkFilterBase,
     if (next_callbacks_) {
       next_callbacks_->onRequest(request);
     }
+
+    maybeReportMetrics(std::chrono::steady_clock::now());
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
@@ -256,6 +282,8 @@ class MetricsFilter : public network::NetworkFilterBase,
     if (next_callbacks_) {
       next_callbacks_->onNotification(notification);
     }
+
+    maybeReportMetrics(std::chrono::steady_clock::now());
   }
 
   void onResponse(const jsonrpc::Response& response) override {
@@ -282,6 +310,8 @@ class MetricsFilter : public network::NetworkFilterBase,
     if (next_callbacks_) {
       next_callbacks_->onResponse(response);
     }
+
+    maybeReportMetrics(std::chrono::steady_clock::now());
   }
 
   void onProtocolError(const Error& error) override {
@@ -291,6 +321,8 @@ class MetricsFilter : public network::NetworkFilterBase,
     if (next_callbacks_) {
       next_callbacks_->onProtocolError(error);
     }
+
+    maybeReportMetrics(std::chrono::steady_clock::now());
   }
 
   /**
@@ -324,34 +356,56 @@ class MetricsFilter : public network::NetworkFilterBase,
     snapshot.latency_samples = metrics_.latency_samples.load();
     snapshot.connection_start = metrics_.connection_start;
     snapshot.last_activity = metrics_.last_activity;
+    snapshot.current_receive_rate_bps = metrics_.current_receive_rate_bps;
+    snapshot.current_send_rate_bps = metrics_.current_send_rate_bps;
+    snapshot.peak_receive_rate_bps = metrics_.peak_receive_rate_bps;
+    snapshot.peak_send_rate_bps = metrics_.peak_send_rate_bps;
     snapshot.method_latencies_ms = metrics_.method_latencies_ms;
     snapshot.method_counts = metrics_.method_counts;
+    snapshot.method_errors = metrics_.method_errors;
   }
 
  private:
   void updateReceiveRate(size_t bytes) {
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        now - last_rate_update_);
+        now - last_receive_rate_update_);
 
     if (elapsed >= config_.rate_update_interval) {
-      double rate = (bytes_since_last_update_ * 8.0) / elapsed.count();
+      double rate =
+          (bytes_received_since_last_update_.load() * 8.0) / elapsed.count();
       metrics_.current_receive_rate_bps = rate;
 
       if (rate > metrics_.peak_receive_rate_bps) {
         metrics_.peak_receive_rate_bps = rate;
       }
 
-      bytes_since_last_update_ = 0;
-      last_rate_update_ = now;
+      bytes_received_since_last_update_.store(0);
+      last_receive_rate_update_ = now;
     } else {
-      bytes_since_last_update_ += bytes;
+      bytes_received_since_last_update_ += bytes;
     }
   }
 
   void updateSendRate(size_t bytes) {
-    // Similar to updateReceiveRate but for send
-    // Implementation omitted for brevity
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        now - last_send_rate_update_);
+
+    if (elapsed >= config_.rate_update_interval) {
+      double rate =
+          (bytes_sent_since_last_update_.load() * 8.0) / elapsed.count();
+      metrics_.current_send_rate_bps = rate;
+
+      if (rate > metrics_.peak_send_rate_bps) {
+        metrics_.peak_send_rate_bps = rate;
+      }
+
+      bytes_sent_since_last_update_.store(0);
+      last_send_rate_update_ = now;
+    } else {
+      bytes_sent_since_last_update_ += bytes;
+    }
   }
 
   void updateLatencyMetrics(uint64_t latency_ms) {
@@ -366,8 +420,8 @@ class MetricsFilter : public network::NetworkFilterBase,
       metrics_.max_latency_ms = latency_ms;
 
       if (latency_ms > config_.max_latency_threshold_ms) {
-        callbacks_.onThresholdExceeded("latency_ms", latency_ms,
-                                       config_.max_latency_threshold_ms);
+        notifyThresholdExceeded("latency_ms", latency_ms,
+                                config_.max_latency_threshold_ms);
       }
     }
   }
@@ -382,18 +436,69 @@ class MetricsFilter : public network::NetworkFilterBase,
       uint64_t error_rate =
           (metrics_.errors_received + metrics_.protocol_errors) / age.count();
       if (error_rate > config_.error_rate_threshold) {
-        callbacks_.onThresholdExceeded("error_rate", error_rate,
-                                       config_.error_rate_threshold);
+        notifyThresholdExceeded("error_rate", error_rate,
+                                config_.error_rate_threshold);
       }
     }
   }
 
-  void startReportingTimer() {
-    // TODO: Implement periodic reporting using dispatcher timer
-    // This would call callbacks_.onMetricsUpdate(metrics_) periodically
+  void notifyThresholdExceeded(const std::string& metric_name,
+                               uint64_t value,
+                               uint64_t threshold) {
+    auto callbacks = callbacks_;
+    if (callbacks) {
+      callbacks->onThresholdExceeded(metric_name, value, threshold);
+    }
   }
 
-  MetricsCallbacks& callbacks_;
+  void maybeReportMetrics(std::chrono::steady_clock::time_point now) {
+    if (config_.report_interval.count() <= 0) {
+      return;
+    }
+    if ((now - last_report_time_) < config_.report_interval) {
+      return;
+    }
+
+    last_report_time_ = now;
+    reportMetrics();
+  }
+
+  void reportMetrics() {
+    auto callbacks = callbacks_;
+    if (!callbacks) {
+      return;
+    }
+
+    ConnectionMetrics snapshot;
+    getMetrics(snapshot);
+    callbacks->onMetricsUpdate(snapshot);
+  }
+
+  void initializeCallbacks(std::shared_ptr<MetricsCallbacks> callbacks) {
+    if (callbacks) {
+      default_callbacks_ = std::move(callbacks);
+    } else {
+      default_callbacks_ = getNullCallbacks();
+    }
+    callbacks_ = default_callbacks_;
+  }
+
+  static std::shared_ptr<MetricsCallbacks> getNullCallbacks() {
+    static std::shared_ptr<MetricsCallbacks> noop =
+        std::make_shared<NullMetricsCallbacks>();
+    return noop;
+  }
+
+  class NullMetricsCallbacks : public MetricsCallbacks {
+   public:
+    void onMetricsUpdate(const ConnectionMetrics&) override {}
+    void onThresholdExceeded(const std::string&,
+                             uint64_t,
+                             uint64_t) override {}
+  };
+
+  std::shared_ptr<MetricsCallbacks> callbacks_;
+  std::shared_ptr<MetricsCallbacks> default_callbacks_;
   Config config_;
   JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
 
@@ -401,8 +506,11 @@ class MetricsFilter : public network::NetworkFilterBase,
   ConnectionMetrics metrics_;
 
   // Rate calculation state
-  std::chrono::steady_clock::time_point last_rate_update_;
-  std::atomic<size_t> bytes_since_last_update_{0};
+  std::chrono::steady_clock::time_point last_receive_rate_update_;
+  std::chrono::steady_clock::time_point last_send_rate_update_;
+  std::atomic<size_t> bytes_received_since_last_update_{0};
+  std::atomic<size_t> bytes_sent_since_last_update_{0};
+  std::chrono::steady_clock::time_point last_report_time_;
 
   // Request tracking for latency (using string key to avoid variant comparison
   // issues)
