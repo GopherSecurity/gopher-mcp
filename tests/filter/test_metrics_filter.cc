@@ -4,7 +4,6 @@
  */
 
 #include <chrono>
-#include <memory>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -55,7 +54,7 @@ class MetricsFilterTest : public test::RealIoTestBase {
   void SetUp() override {
     RealIoTestBase::SetUp();
 
-    callbacks_ = std::make_shared<NiceMock<MockMetricsCallbacks>>();
+    callbacks_ = std::make_unique<NiceMock<MockMetricsCallbacks>>();
     next_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
 
     // Default config
@@ -68,13 +67,17 @@ class MetricsFilterTest : public test::RealIoTestBase {
   }
 
   void TearDown() override {
-    executeInDispatcher([this]() { filter_.reset(); });
+    executeInDispatcher([this]() {
+      adapter_.reset();
+      filter_.reset();
+    });
     RealIoTestBase::TearDown();
   }
 
   void createFilter() {
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<MetricsFilter>(callbacks_, config_);
+      filter_ = std::make_shared<MetricsFilter>(*callbacks_, config_);
+      adapter_ = filter_->createNetworkAdapter();
       filter_->setNextCallbacks(next_callbacks_.get());
     });
   }
@@ -110,8 +113,9 @@ class MetricsFilterTest : public test::RealIoTestBase {
   }
 
  protected:
-  std::unique_ptr<MetricsFilter> filter_;
-  std::shared_ptr<MockMetricsCallbacks> callbacks_;
+  std::shared_ptr<MetricsFilter> filter_;
+  std::shared_ptr<MetricsFilter::NetworkAdapter> adapter_;
+  std::unique_ptr<MockMetricsCallbacks> callbacks_;
   std::unique_ptr<MockJsonRpcCallbacks> next_callbacks_;
   MetricsFilter::Config config_;
 };
@@ -123,12 +127,13 @@ TEST_F(MetricsFilterTest, ByteCounting) {
   executeInDispatcher([this]() {
     // Track received bytes
     auto recv_buffer = createBufferWithSize(1024);
-    EXPECT_EQ(filter_->onData(*recv_buffer, false),
+    ASSERT_TRUE(adapter_);
+    EXPECT_EQ(adapter_->onData(*recv_buffer, false),
               network::FilterStatus::Continue);
 
     // Track sent bytes
     auto send_buffer = createBufferWithSize(2048);
-    EXPECT_EQ(filter_->onWrite(*send_buffer, false),
+    EXPECT_EQ(adapter_->onWrite(*send_buffer, false),
               network::FilterStatus::Continue);
 
     // Check metrics
@@ -270,7 +275,8 @@ TEST_F(MetricsFilterTest, BytesThresholdExceeded) {
   executeInDispatcher([this]() {
     // Send data exceeding threshold
     auto buffer = createBufferWithSize(6 * 1024);
-    filter_->onData(*buffer, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer, false);
   });
 }
 
@@ -322,7 +328,8 @@ TEST_F(MetricsFilterTest, RateCalculations) {
   executeInDispatcher([this]() {
     // Send data
     auto buffer1 = createBufferWithSize(1024);
-    filter_->onData(*buffer1, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer1, false);
   });
 
   // Wait for rate update
@@ -331,7 +338,8 @@ TEST_F(MetricsFilterTest, RateCalculations) {
   executeInDispatcher([this]() {
     // Send more data
     auto buffer2 = createBufferWithSize(2048);
-    filter_->onData(*buffer2, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer2, false);
 
     // Check rates
     ConnectionMetrics metrics;
@@ -352,7 +360,8 @@ TEST_F(MetricsFilterTest, PeriodicMetricsReporting) {
   executeInDispatcher([this]() {
     // Generate some activity
     auto buffer = createBufferWithSize(1024);
-    filter_->onData(*buffer, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer, false);
 
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
@@ -369,7 +378,8 @@ TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
   executeInDispatcher([this]() {
     // Generate some metrics
     auto buffer = createBufferWithSize(1024);
-    filter_->onData(*buffer, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer, false);
 
     auto req = createRequest("test.method", 1);
     filter_->onRequest(req);
@@ -381,7 +391,8 @@ TEST_F(MetricsFilterTest, NewConnectionResetsMetrics) {
     EXPECT_GT(metrics1.requests_received, 0);
 
     // New connection
-    filter_->onNewConnection();
+    ASSERT_TRUE(adapter_);
+    adapter_->onNewConnection();
 
     // Metrics should be reset
     ConnectionMetrics metrics2;
@@ -430,7 +441,8 @@ TEST_F(MetricsFilterTest, ConnectionTiming) {
 
   executeInDispatcher([this]() {
     // New connection starts timing
-    filter_->onNewConnection();
+    ASSERT_TRUE(adapter_);
+    adapter_->onNewConnection();
 
     ConnectionMetrics metrics1;
     filter_->getMetrics(metrics1);
@@ -438,7 +450,8 @@ TEST_F(MetricsFilterTest, ConnectionTiming) {
 
     // Activity updates last activity time
     auto buffer = createBufferWithSize(1024);
-    filter_->onData(*buffer, false);
+    ASSERT_TRUE(adapter_);
+    adapter_->onData(*buffer, false);
 
     std::this_thread::sleep_for(50ms);
 

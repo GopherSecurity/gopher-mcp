@@ -44,7 +44,7 @@ debug:
 release:
 	@./build.sh --release
 
-# Build without running tests (includes C API by default)
+# Build without running tests (C API is built by default)
 build:
 	@echo "Building with install prefix: $(PREFIX)"
 	@if [ "$(NEED_SUDO)" = "yes" ]; then \
@@ -58,7 +58,7 @@ build-with-options:
 	@cmake -B build -DCMAKE_INSTALL_PREFIX="$(PREFIX)" $(CMAKE_ARGS)
 	@cmake --build build --config $(CONFIG)
 
-# Build only C++ libraries (no C API)
+# Build only C++ libraries (excludes C API which is built by default)
 build-cpp-only:
 	@echo "Building C++ libraries only (no C API, prefix: $(PREFIX))..."
 	@cmake -B build -DBUILD_C_API=OFF -DCMAKE_INSTALL_PREFIX="$(PREFIX)"

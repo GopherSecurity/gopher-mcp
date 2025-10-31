@@ -4,7 +4,6 @@
  */
 
 #include <chrono>
-#include <memory>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -36,19 +35,21 @@ class MockMetricsCallbacks : public MetricsFilter::MetricsCallbacks {
 class MetricsFilterSimpleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    callbacks_ = std::make_shared<NiceMock<MockMetricsCallbacks>>();
+    callbacks_ = std::make_unique<NiceMock<MockMetricsCallbacks>>();
 
     // Basic configuration
     config_.max_latency_threshold_ms = 5000;
     config_.error_rate_threshold = 10;
     config_.bytes_threshold = 100 * 1024 * 1024;
 
-    filter_ = std::make_unique<MetricsFilter>(callbacks_, config_);
+    filter_ = std::make_shared<MetricsFilter>(*callbacks_, config_);
+    adapter_ = filter_->createNetworkAdapter();
   }
 
  protected:
-  std::unique_ptr<MetricsFilter> filter_;
-  std::shared_ptr<MockMetricsCallbacks> callbacks_;
+  std::shared_ptr<MetricsFilter> filter_;
+  std::shared_ptr<MetricsFilter::NetworkAdapter> adapter_;
+  std::unique_ptr<MockMetricsCallbacks> callbacks_;
   MetricsFilter::Config config_;
 };
 
@@ -62,11 +63,12 @@ TEST_F(MetricsFilterSimpleTest, ConfigurationAccepted) {
 // Test network filter interface (basic data passthrough)
 TEST_F(MetricsFilterSimpleTest, NetworkFilterInterface) {
   // These should just pass through without blocking
-  EXPECT_EQ(filter_->onNewConnection(), network::FilterStatus::Continue);
+  ASSERT_TRUE(adapter_);
+  EXPECT_EQ(adapter_->onNewConnection(), network::FilterStatus::Continue);
 
   auto buffer = createBuffer();
-  EXPECT_EQ(filter_->onData(*buffer, false), network::FilterStatus::Continue);
-  EXPECT_EQ(filter_->onWrite(*buffer, false), network::FilterStatus::Continue);
+  EXPECT_EQ(adapter_->onData(*buffer, false), network::FilterStatus::Continue);
+  EXPECT_EQ(adapter_->onWrite(*buffer, false), network::FilterStatus::Continue);
 }
 
 // Test metrics retrieval
