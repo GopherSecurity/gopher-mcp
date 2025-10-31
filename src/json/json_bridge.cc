@@ -393,7 +393,7 @@ void JsonValue::set(const std::string& key, const JsonValue& value) {
       throw JsonException("Value is not an object");
     }
   }
-  impl_->json_[key] = value.impl_->json_;
+  impl_->json_[key] = access_json_const(value.impl_);
 }
 
 std::vector<std::string> JsonValue::keys() const {
