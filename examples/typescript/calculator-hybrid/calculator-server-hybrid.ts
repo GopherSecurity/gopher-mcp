@@ -20,6 +20,13 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "../../../sdk/type
 import { GopherFilteredTransport } from "../../../sdk/typescript/src/gopher-filtered-transport.js";
 import { createHybridDispatcher, destroyHybridDispatcher } from "../../../sdk/typescript/src/filter-dispatcher.js";
 import type { CanonicalConfig } from "../../../sdk/typescript/src/filter-types.js";
+import {
+  registerMetricsCallbacks,
+  unregisterMetricsCallbacks,
+  type MetricsCallbacks,
+  type MetricsSnapshot,
+  type MetricsThresholdEvent
+} from "../../../sdk/typescript/src/index.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -62,6 +69,16 @@ let serverInstance: Server | null = null;
 let sdkTransport: StreamableHTTPServerTransport | null = null;
 let filteredTransport: GopherFilteredTransport | null = null;
 let httpServer: http.Server | null = null;
+let metricsCallbackHandle: any = null;
+
+/**
+ * Format bytes for human-readable display
+ */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
+}
 
 /**
  * Handle incoming HTTP requests
@@ -482,6 +499,43 @@ async function createCalculatorServer() {
     await server.connect(filteredTransport);
     console.log('✅ Server connected');
 
+    // Register metrics callbacks
+    console.log('\n📊 Registering metrics callbacks...');
+    try {
+        const callbacks: MetricsCallbacks = {
+            onMetricsUpdate: (snapshot: MetricsSnapshot) => {
+                const avgLatency = snapshot.latencySamples > 0n
+                    ? Number(snapshot.totalLatencyMs) / Number(snapshot.latencySamples)
+                    : 0;
+                const timestamp = new Date().toISOString();
+
+                console.log(`\n📊 [Metrics] Requests: ${snapshot.requestsReceived}, Avg Latency: ${avgLatency.toFixed(2)}ms`);
+                console.log(`   Bytes RX: ${formatBytes(Number(snapshot.bytesReceived))}, TX: ${formatBytes(Number(snapshot.bytesSent))}`);
+                console.log(`   Errors: ${snapshot.errorsReceived}, Protocol Errors: ${snapshot.protocolErrors}`);
+            },
+            onThresholdExceeded: (event: MetricsThresholdEvent) => {
+                console.log(`\n⚠️ [Metrics Alert] ${event.metric} exceeded threshold!`);
+                console.log(`   Value: ${event.value}, Threshold: ${event.threshold}`);
+            },
+            onError: (error: Error) => {
+                console.error('❌ [Metrics] Callback error:', error);
+            }
+        };
+
+        metricsCallbackHandle = registerMetricsCallbacks(
+            filteredTransport.getChainHandle(),
+            callbacks
+        );
+
+        if (metricsCallbackHandle) {
+            console.log('✅ Metrics callbacks registered');
+        } else {
+            console.log('⚠️  No metrics filter in chain');
+        }
+    } catch (error) {
+        console.error('❌ Failed to register metrics callbacks:', error);
+    }
+
     // Create HTTP server
     const httpSrv = http.createServer((req, res) => {
         handleRequest(req, res).catch((error) => {
@@ -539,6 +593,20 @@ async function createCalculatorServer() {
                 });
             });
             httpServer = null;
+        }
+
+        // Unregister metrics callbacks
+        if (metricsCallbackHandle && filteredTransport) {
+            try {
+                unregisterMetricsCallbacks(
+                    filteredTransport.getChainHandle(),
+                    metricsCallbackHandle
+                );
+                console.log('✅ Metrics callbacks unregistered');
+            } catch (error) {
+                console.error('⚠️  Error unregistering metrics callbacks:', error);
+            }
+            metricsCallbackHandle = null;
         }
 
         // Close filtered transport
