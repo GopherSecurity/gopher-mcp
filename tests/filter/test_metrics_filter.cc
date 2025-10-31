@@ -4,6 +4,7 @@
  */
 
 #include <chrono>
+#include <memory>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -54,7 +55,7 @@ class MetricsFilterTest : public test::RealIoTestBase {
   void SetUp() override {
     RealIoTestBase::SetUp();
 
-    callbacks_ = std::make_unique<NiceMock<MockMetricsCallbacks>>();
+    callbacks_ = std::make_shared<NiceMock<MockMetricsCallbacks>>();
     next_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
 
     // Default config
@@ -73,7 +74,7 @@ class MetricsFilterTest : public test::RealIoTestBase {
 
   void createFilter() {
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<MetricsFilter>(*callbacks_, config_);
+      filter_ = std::make_unique<MetricsFilter>(callbacks_, config_);
       filter_->setNextCallbacks(next_callbacks_.get());
     });
   }
@@ -110,7 +111,7 @@ class MetricsFilterTest : public test::RealIoTestBase {
 
  protected:
   std::unique_ptr<MetricsFilter> filter_;
-  std::unique_ptr<MockMetricsCallbacks> callbacks_;
+  std::shared_ptr<MockMetricsCallbacks> callbacks_;
   std::unique_ptr<MockJsonRpcCallbacks> next_callbacks_;
   MetricsFilter::Config config_;
 };

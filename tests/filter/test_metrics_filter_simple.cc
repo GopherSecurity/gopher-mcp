@@ -4,6 +4,7 @@
  */
 
 #include <chrono>
+#include <memory>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -35,19 +36,19 @@ class MockMetricsCallbacks : public MetricsFilter::MetricsCallbacks {
 class MetricsFilterSimpleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    callbacks_ = std::make_unique<NiceMock<MockMetricsCallbacks>>();
+    callbacks_ = std::make_shared<NiceMock<MockMetricsCallbacks>>();
 
     // Basic configuration
     config_.max_latency_threshold_ms = 5000;
     config_.error_rate_threshold = 10;
     config_.bytes_threshold = 100 * 1024 * 1024;
 
-    filter_ = std::make_unique<MetricsFilter>(*callbacks_, config_);
+    filter_ = std::make_unique<MetricsFilter>(callbacks_, config_);
   }
 
  protected:
   std::unique_ptr<MetricsFilter> filter_;
-  std::unique_ptr<MockMetricsCallbacks> callbacks_;
+  std::shared_ptr<MockMetricsCallbacks> callbacks_;
   MetricsFilter::Config config_;
 };
 

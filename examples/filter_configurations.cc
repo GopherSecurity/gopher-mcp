@@ -7,6 +7,8 @@
  * clients vs servers and in what order.
  */
 
+#include <memory>
+
 #include "mcp/client/mcp_client.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
@@ -101,7 +103,7 @@ class ProductionMcpClient : public client::McpClient {
 
       // CLIENT-SPECIFIC: Focus on integration health
       // Track success rates and latencies per method
-      return std::make_shared<filter::MetricsFilter>(*metrics_callbacks_,
+      return std::make_shared<filter::MetricsFilter>(metrics_callbacks_,
                                                      config);
     });
 
@@ -251,7 +253,7 @@ class ProductionMcpServer : public server::McpServer {
 
       // SERVER-SPECIFIC: Comprehensive metrics for monitoring
       // Export to Prometheus, track SLAs
-      return std::make_shared<filter::MetricsFilter>(*metrics_callbacks_,
+      return std::make_shared<filter::MetricsFilter>(metrics_callbacks_,
                                                      config);
     });
 
@@ -351,7 +353,8 @@ class DevelopmentMcpSetup {
       config.report_interval =
           std::chrono::seconds(1);  // Frequent for debugging
       config.track_methods = true;
-      return std::make_shared<filter::MetricsFilter>(callbacks, config);
+      return std::make_shared<filter::MetricsFilter>(
+          std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>{}, config);
     });
 
     builder.addFilter(createJsonRpcFilter());
