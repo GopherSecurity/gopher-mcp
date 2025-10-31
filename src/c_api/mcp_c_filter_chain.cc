@@ -1288,7 +1288,9 @@ bool AdvancedFilterChain::setMetricsCallbacks(
 
   bool has_metrics_filter = false;
   for (const auto& filter_ptr : owned_filters_) {
-    if (std::dynamic_pointer_cast<filter::MetricsFilter>(filter_ptr)) {
+    if (std::dynamic_pointer_cast<filter::MetricsFilter>(filter_ptr) ||
+        std::dynamic_pointer_cast<filter::MetricsFilter::NetworkAdapter>(
+            filter_ptr)) {
       has_metrics_filter = true;
       break;
     }
@@ -1339,6 +1341,17 @@ void AdvancedFilterChain::applyMetricsCallbacksToFilters(
         std::dynamic_pointer_cast<filter::MetricsFilter>(filter_ptr);
     if (metrics_filter) {
       metrics_filter->setCallbacks(callbacks);
+      continue;
+    }
+
+    auto metrics_adapter =
+        std::dynamic_pointer_cast<filter::MetricsFilter::NetworkAdapter>(
+            filter_ptr);
+    if (metrics_adapter) {
+      auto owner = metrics_adapter->getMetricsFilter();
+      if (owner) {
+        owner->setCallbacks(callbacks);
+      }
     }
   }
 }
