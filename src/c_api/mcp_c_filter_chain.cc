@@ -36,6 +36,7 @@
 #include "mcp/filter/filter_registry.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/metrics_filter.h"
 #include "mcp/config/types.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
@@ -69,6 +70,13 @@ void advanced_chain_set_circuit_breaker_callbacks(
 void advanced_chain_clear_circuit_breaker_callbacks(
     AdvancedFilterChain& chain);
 bool advanced_chain_has_circuit_breaker_callbacks(
+    const AdvancedFilterChain& chain);
+
+bool advanced_chain_set_metrics_callbacks(
+    AdvancedFilterChain& chain,
+    std::shared_ptr<mcp::filter::MetricsFilter::MetricsCallbacks> callbacks);
+void advanced_chain_clear_metrics_callbacks(AdvancedFilterChain& chain);
+bool advanced_chain_has_metrics_callbacks(
     const AdvancedFilterChain& chain);
 
 namespace {
@@ -758,6 +766,8 @@ class AdvancedFilterChain {
         } catch (...) {}
       }
     }
+
+    applyMetricsCallbacksToFilters(metrics_callbacks_override_);
   }
 
   /**
@@ -1227,6 +1237,8 @@ public:
    * Made public for direct assignment during chain creation
    */
   std::shared_ptr<filter::RuntimeServices> runtime_services_;
+  std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>
+      metrics_callbacks_override_;
 
   friend void advanced_chain_set_circuit_breaker_callbacks(
       AdvancedFilterChain&,
@@ -1235,6 +1247,22 @@ public:
       AdvancedFilterChain&);
   friend bool advanced_chain_has_circuit_breaker_callbacks(
       const AdvancedFilterChain&);
+  friend bool advanced_chain_set_metrics_callbacks(
+      AdvancedFilterChain&,
+      std::shared_ptr<mcp::filter::MetricsFilter::MetricsCallbacks>);
+  friend void advanced_chain_clear_metrics_callbacks(
+      AdvancedFilterChain&);
+  friend bool advanced_chain_has_metrics_callbacks(
+      const AdvancedFilterChain&);
+
+  bool setMetricsCallbacks(
+      std::shared_ptr<filter::MetricsFilter::MetricsCallbacks> callbacks);
+  void clearMetricsCallbacks();
+  bool hasMetricsCallbacks() const;
+
+ private:
+  void applyMetricsCallbacksToFilters(
+      const std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>& callbacks);
 };
 
 void advanced_chain_set_circuit_breaker_callbacks(
@@ -1252,6 +1280,82 @@ bool advanced_chain_has_circuit_breaker_callbacks(
     const AdvancedFilterChain& chain) {
   auto services = const_cast<AdvancedFilterChain&>(chain).getRuntimeServices();
   return services && services->circuit_breaker_callbacks;
+}
+
+bool AdvancedFilterChain::setMetricsCallbacks(
+    std::shared_ptr<filter::MetricsFilter::MetricsCallbacks> callbacks) {
+  metrics_callbacks_override_ = std::move(callbacks);
+
+  bool has_metrics_filter = false;
+  for (const auto& filter_ptr : owned_filters_) {
+    if (std::dynamic_pointer_cast<filter::MetricsFilter>(filter_ptr)) {
+      has_metrics_filter = true;
+      break;
+    }
+  }
+
+  auto dispatcher_ptr = getDispatcherPtr();
+  auto callbacks_copy = metrics_callbacks_override_;
+  auto apply = [this, callbacks_copy]() {
+    this->applyMetricsCallbacksToFilters(callbacks_copy);
+  };
+
+  if (dispatcher_ptr) {
+    dispatcher_ptr->post(apply);
+  } else {
+    apply();
+  }
+
+  return has_metrics_filter;
+}
+
+void AdvancedFilterChain::clearMetricsCallbacks() {
+  metrics_callbacks_override_.reset();
+
+  auto dispatcher_ptr = getDispatcherPtr();
+  auto apply = [this]() {
+    this->applyMetricsCallbacksToFilters(nullptr);
+  };
+
+  if (dispatcher_ptr) {
+    dispatcher_ptr->post(apply);
+  } else {
+    apply();
+  }
+}
+
+bool AdvancedFilterChain::hasMetricsCallbacks() const {
+  return static_cast<bool>(metrics_callbacks_override_);
+}
+
+void AdvancedFilterChain::applyMetricsCallbacksToFilters(
+    const std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>& callbacks) {
+  for (auto& filter_ptr : owned_filters_) {
+    if (!filter_ptr) {
+      continue;
+    }
+
+    auto metrics_filter =
+        std::dynamic_pointer_cast<filter::MetricsFilter>(filter_ptr);
+    if (metrics_filter) {
+      metrics_filter->setCallbacks(callbacks);
+    }
+  }
+}
+
+bool advanced_chain_set_metrics_callbacks(
+    AdvancedFilterChain& chain,
+    std::shared_ptr<mcp::filter::MetricsFilter::MetricsCallbacks> callbacks) {
+  return chain.setMetricsCallbacks(std::move(callbacks));
+}
+
+void advanced_chain_clear_metrics_callbacks(AdvancedFilterChain& chain) {
+  chain.clearMetricsCallbacks();
+}
+
+bool advanced_chain_has_metrics_callbacks(
+    const AdvancedFilterChain& chain) {
+  return chain.hasMetricsCallbacks();
 }
 
 ::mcp::filter::AssemblyResult assembleChainWithAssembler(
