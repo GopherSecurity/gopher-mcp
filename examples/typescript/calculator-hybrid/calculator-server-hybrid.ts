@@ -27,6 +27,7 @@ import {
   type MetricsSnapshot,
   type MetricsThresholdEvent
 } from "../../../sdk/typescript/src/index.js";
+import type { CircuitBreakerCallbacks, CircuitRequestBlockedEvent, CircuitBreakerHealth } from "../../../sdk/typescript/src/types/circuit-breaker.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -45,6 +46,31 @@ const MCP_ENDPOINT = "/mcp";
 // Load filter configuration from JSON file
 const configPath = path.join(__dirname, "config-hybrid.json");
 const filterConfig: CanonicalConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+type CircuitBreakerModule = typeof import("../../../sdk/typescript/src/types/circuit-breaker.js");
+
+let circuitBreakerModulePromise: Promise<CircuitBreakerModule> | null = null;
+
+function isModuleNotFound(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND"
+  );
+}
+
+function loadCircuitBreakerModule(): Promise<CircuitBreakerModule> {
+  if (!circuitBreakerModulePromise) {
+    circuitBreakerModulePromise = import("../../../sdk/typescript/dist/src/types/circuit-breaker.js").catch((error) => {
+      if (isModuleNotFound(error)) {
+        return import("../../../sdk/typescript/src/types/circuit-breaker.js");
+      }
+      throw error;
+    });
+  }
+  return circuitBreakerModulePromise;
+}
 
 type ServerMode = "stateless" | "stateful";
 
@@ -215,6 +241,8 @@ async function createCalculatorServer() {
     console.log('🚀 Starting Calculator Server (Scenario 2: Hybrid SDK + Filters)');
     console.log('━'.repeat(60));
     console.log(`🔧 Server mode: ${SERVER_MODE === "stateful" ? "Stateful (session-managed, SSE enabled)" : "Stateless (JSON responses, SSE disabled)"}`);
+
+    const { circuitStateToString } = await loadCircuitBreakerModule();
 
     // Create MCP server using official SDK
     const server = new Server({
@@ -536,6 +564,52 @@ async function createCalculatorServer() {
         console.error('❌ Failed to register metrics callbacks:', error);
     }
 
+    // Set up circuit breaker callbacks
+    console.log('\n🛡️ Setting up circuit breaker callbacks...');
+    const circuitBreakerCallbacks: CircuitBreakerCallbacks = {
+        onStateChange: (event) => {
+            const oldStateStr = circuitStateToString(event.oldState);
+            const newStateStr = circuitStateToString(event.newState);
+            console.log(`\n⚡ Circuit Breaker State Change:`);
+            console.log(`   From: ${oldStateStr} → To: ${newStateStr}`);
+            console.log(`   Reason: ${event.reason}`);
+        },
+
+        onRequestBlocked: (event: CircuitRequestBlockedEvent) => {
+            console.log(`\n⛔ Request blocked by circuit breaker`);
+            console.log(`   Method: ${event.method}`);
+        },
+
+        onHealthUpdate: (health: CircuitBreakerHealth) => {
+            if (process.env['DEBUG'] === '1') {
+                console.log(`\n📊 Circuit breaker health update:`);
+                console.log(`   Success rate: ${(health.successRate * 100).toFixed(2)}%`);
+                console.log(`   Avg latency: ${health.averageLatencyMs.toFixed(2)} ms`);
+            }
+        },
+
+        onError: (error: Error) => {
+            console.error(`\n❌ Circuit Breaker Error:`, error);
+        }
+    };
+
+    // Register callbacks with the filter chain
+    try {
+        const filterChain = (filteredTransport as any).filterChain;
+        if (filterChain && typeof filterChain.setCircuitBreakerCallbacks === 'function') {
+            const registered = filterChain.setCircuitBreakerCallbacks(circuitBreakerCallbacks);
+            if (registered) {
+                console.log('✅ Circuit breaker callbacks registered');
+            } else {
+                console.log('⚠️  Circuit breaker callbacks not supported by current runtime');
+            }
+        } else {
+            console.log('⚠️  Circuit breaker callbacks not available (filter chain not accessible)');
+        }
+    } catch (error) {
+        console.error('⚠️  Failed to set circuit breaker callbacks:', error);
+    }
+
     // Create HTTP server
     const httpSrv = http.createServer((req, res) => {
         handleRequest(req, res).catch((error) => {
@@ -566,6 +640,7 @@ async function createCalculatorServer() {
             console.log('');
             console.log('🛡️  Active Filters:');
             console.log('  • Request Logger - Prints JSON-RPC traffic');
+            console.log('  • Circuit Breaker - Protects against cascading failures');
             console.log('');
             console.log(`🌐 Server Address: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
             console.log('');

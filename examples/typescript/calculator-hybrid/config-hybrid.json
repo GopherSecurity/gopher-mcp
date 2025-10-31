@@ -42,6 +42,22 @@
                 "max_payload_length": 1000,
                 "output": "stdout"
               }
+            },
+            {
+              "name": "circuit_breaker",
+              "type": "circuit_breaker",
+              "config": {
+                "failure_threshold": 5,
+                "error_rate_threshold": 0.5,
+                "min_requests": 10,
+                "timeout_ms": 10000,
+                "window_size_ms": 60000,
+                "half_open_max_requests": 3,
+                "half_open_success_threshold": 2,
+                "track_timeouts": true,
+                "track_errors": true,
+                "track_4xx_as_errors": false
+              }
             }
           ]
         }
