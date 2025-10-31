@@ -658,6 +658,23 @@ try {
     { name: "mcp_connection_create_client", signature: "void*", args: ["void*", "int"] },
     { name: "mcp_connection_configure", signature: "int", args: ["void*", "void*", "void*", "void*"] },
     { name: "mcp_connection_destroy", signature: "void", args: ["void*"] },
+
+    // Circuit breaker callback functions (from mcp_c_filter_callbacks.h)
+    {
+      name: "mcp_filter_chain_set_circuit_breaker_callbacks",
+      signature: "int",
+      args: ["void*", "void*"]  // chain handle (mcp_filter_chain_handle_t*), callbacks struct pointer
+    },
+    {
+      name: "mcp_filter_chain_clear_circuit_breaker_callbacks",
+      signature: "int",
+      args: ["void*"]  // chain handle (mcp_filter_chain_handle_t*)
+    },
+    {
+      name: "mcp_circuit_state_to_string",
+      signature: "string",
+      args: ["int"]  // mcp_circuit_state_t
+    },
   ];
 
   // Try to bind each function

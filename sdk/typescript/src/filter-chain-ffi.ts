@@ -17,6 +17,8 @@ import type {
   FilterDecision,
   FilterResult,
 } from './filter-types';
+import type { CircuitBreakerCallbacks } from './types/circuit-breaker';
+import { CircuitBreakerCallbackHandle, registerCircuitBreakerCallbacks, unregisterCircuitBreakerCallbacks } from './circuit-breaker-callbacks';
 
 const MCP_OK = 0;
 
@@ -172,6 +174,9 @@ export class FilterChain {
 
   // Callback for async chain creation
   private creationCallback: koffi.IKoffiRegisteredCallback | null = null;
+
+  // Circuit breaker callback handle
+  private circuitBreakerCallbackHandle: CircuitBreakerCallbackHandle | null = null;
 
   /**
    * Create a new filter chain from canonical configuration
@@ -917,6 +922,75 @@ export class FilterChain {
   }
 
   /**
+   * Set circuit breaker callbacks for the filter chain
+   *
+   * This method registers callbacks to receive notifications about circuit breaker
+   * state changes and events. Only one set of callbacks can be registered at a time.
+   * Calling this method again will replace the previous callbacks.
+   *
+   * @param callbacks - Circuit breaker callbacks to register
+   * @returns `true` when callbacks were registered with the native runtime, `false`
+   *          when the current runtime does not yet support circuit breaker callbacks.
+   * @throws Error if the chain is destroyed or registration fails
+   *
+   * @example
+   * ```typescript
+   * chain.setCircuitBreakerCallbacks({
+   *   onStateChange: (event) => {
+   *     console.log(`Circuit state changed from ${event.oldState} to ${event.newState}`);
+   *   },
+   *   onRequestBlocked: (event) => {
+   *     console.warn(`Circuit breaker blocked method ${event.method}`);
+   *   }
+   * });
+   * ```
+   */
+  setCircuitBreakerCallbacks(callbacks: CircuitBreakerCallbacks): boolean {
+    if (this.destroyed) {
+      throw new Error('FilterChain has been destroyed');
+    }
+
+    // Unregister previous callbacks if any
+    if (this.circuitBreakerCallbackHandle) {
+      try {
+        unregisterCircuitBreakerCallbacks(this.handle, this.circuitBreakerCallbackHandle);
+      } catch (error) {
+        console.error('Error unregistering previous circuit breaker callbacks:', error);
+      }
+      this.circuitBreakerCallbackHandle = null;
+    }
+
+    // Register new callbacks
+    try {
+      const handle = registerCircuitBreakerCallbacks(this.handle, callbacks);
+      if (!handle) {
+        return false;
+      }
+      this.circuitBreakerCallbackHandle = handle;
+      return true;
+    } catch (error) {
+      this.circuitBreakerCallbackHandle = null;
+      throw error;
+    }
+  }
+
+  /**
+   * Remove circuit breaker callbacks from the filter chain
+   *
+   * This method unregisters any previously set circuit breaker callbacks.
+   */
+  clearCircuitBreakerCallbacks(): void {
+    if (this.circuitBreakerCallbackHandle) {
+      try {
+        unregisterCircuitBreakerCallbacks(this.handle, this.circuitBreakerCallbackHandle);
+      } catch (error) {
+        console.error('Error unregistering circuit breaker callbacks:', error);
+      }
+      this.circuitBreakerCallbackHandle = null;
+    }
+  }
+
+  /**
    * Process an outgoing message through the filter chain
    *
    * @param message - Message to process
@@ -939,6 +1013,9 @@ export class FilterChain {
     if (this.destroyed) {
       return; // Already destroyed, idempotent
     }
+
+    // Clean up circuit breaker callbacks
+    this.clearCircuitBreakerCallbacks();
 
     // Shutdown if still initialized (this also cleans up callbacks)
     if (this.initialized) {

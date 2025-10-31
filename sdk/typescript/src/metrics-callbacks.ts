@@ -31,31 +31,63 @@ function normalizeNumber(value: unknown): number {
   return Number(value ?? 0);
 }
 
+type RawMetricsSnapshot = Record<string, unknown> & {
+  bytes_received?: unknown;
+  bytes_sent?: unknown;
+  messages_received?: unknown;
+  messages_sent?: unknown;
+  requests_received?: unknown;
+  requests_sent?: unknown;
+  responses_received?: unknown;
+  responses_sent?: unknown;
+  notifications_received?: unknown;
+  notifications_sent?: unknown;
+  errors_received?: unknown;
+  errors_sent?: unknown;
+  protocol_errors?: unknown;
+  total_latency_ms?: unknown;
+  min_latency_ms?: unknown;
+  max_latency_ms?: unknown;
+  latency_samples?: unknown;
+  current_receive_rate_bps?: unknown;
+  current_send_rate_bps?: unknown;
+  peak_receive_rate_bps?: unknown;
+  peak_send_rate_bps?: unknown;
+  connection_uptime_ms?: unknown;
+  idle_time_ms?: unknown;
+};
+
+type RegisteredCallbacks = {
+  on_metrics_update: koffi.IKoffiRegisteredCallback | null;
+  on_threshold_exceeded: koffi.IKoffiRegisteredCallback | null;
+};
+
 function toMetricsSnapshot(raw: Record<string, unknown>): MetricsSnapshot {
+  const metrics = raw as RawMetricsSnapshot;
   return {
-    bytesReceived: normalizeNumber(raw.bytes_received),
-    bytesSent: normalizeNumber(raw.bytes_sent),
-    messagesReceived: normalizeNumber(raw.messages_received),
-    messagesSent: normalizeNumber(raw.messages_sent),
-    requestsReceived: normalizeNumber(raw.requests_received),
-    requestsSent: normalizeNumber(raw.requests_sent),
-    responsesReceived: normalizeNumber(raw.responses_received),
-    responsesSent: normalizeNumber(raw.responses_sent),
-    notificationsReceived: normalizeNumber(raw.notifications_received),
-    notificationsSent: normalizeNumber(raw.notifications_sent),
-    errorsReceived: normalizeNumber(raw.errors_received),
-    errorsSent: normalizeNumber(raw.errors_sent),
-    protocolErrors: normalizeNumber(raw.protocol_errors),
-    totalLatencyMs: normalizeNumber(raw.total_latency_ms),
-    minLatencyMs: normalizeNumber(raw.min_latency_ms),
-    maxLatencyMs: normalizeNumber(raw.max_latency_ms),
-    latencySamples: normalizeNumber(raw.latency_samples),
-    currentReceiveRateBps: normalizeNumber(raw.current_receive_rate_bps),
-    currentSendRateBps: normalizeNumber(raw.current_send_rate_bps),
-    peakReceiveRateBps: normalizeNumber(raw.peak_receive_rate_bps),
-    peakSendRateBps: normalizeNumber(raw.peak_send_rate_bps),
-    connectionUptimeMs: normalizeNumber(raw.connection_uptime_ms),
-    idleTimeMs: normalizeNumber(raw.idle_time_ms),
+    bytesReceived: normalizeNumber(metrics.bytes_received),
+    bytesSent: normalizeNumber(metrics.bytes_sent),
+    messagesReceived: normalizeNumber(metrics.messages_received),
+    messagesSent: normalizeNumber(metrics.messages_sent),
+    requestsReceived: normalizeNumber(metrics.requests_received),
+    requestsSent: normalizeNumber(metrics.requests_sent),
+    responsesReceived: normalizeNumber(metrics.responses_received),
+    responsesSent: normalizeNumber(metrics.responses_sent),
+    notificationsReceived: normalizeNumber(metrics.notifications_received),
+    notificationsSent: normalizeNumber(metrics.notifications_sent),
+    errorsReceived: normalizeNumber(metrics.errors_received),
+    errorsSent: normalizeNumber(metrics.errors_sent),
+    protocolErrors: normalizeNumber(metrics.protocol_errors),
+    totalLatencyMs: normalizeNumber(metrics.total_latency_ms),
+    minLatencyMs: normalizeNumber(metrics.min_latency_ms),
+    maxLatencyMs: normalizeNumber(metrics.max_latency_ms),
+    latencySamples: normalizeNumber(metrics.latency_samples),
+    currentReceiveRateBps: normalizeNumber(metrics.current_receive_rate_bps),
+    currentSendRateBps: normalizeNumber(metrics.current_send_rate_bps),
+    peakReceiveRateBps: normalizeNumber(metrics.peak_receive_rate_bps),
+    peakSendRateBps: normalizeNumber(metrics.peak_send_rate_bps),
+    connectionUptimeMs: normalizeNumber(metrics.connection_uptime_ms),
+    idleTimeMs: normalizeNumber(metrics.idle_time_ms),
   };
 }
 
@@ -115,7 +147,7 @@ export class MetricsCallbackHandle {
       user_data: 'void *',
     });
 
-    const registered: Record<string, koffi.IKoffiRegisteredCallback | null> = {
+    const registered: RegisteredCallbacks = {
       on_metrics_update: null,
       on_threshold_exceeded: null,
     };
