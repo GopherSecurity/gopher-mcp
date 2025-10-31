@@ -590,7 +590,7 @@ class FilterChainBuilder {
   // Add metrics collection filter
   FilterChainBuilder& withMetrics(const filter::MetricsFilter::Config& config) {
     auto callbacks = std::make_shared<ApplicationMetricsCallbacks>(stats_);
-    auto filter = std::make_shared<filter::MetricsFilter>(*callbacks, config);
+    auto filter = std::make_shared<filter::MetricsFilter>(callbacks, config);
     filters_.push_back(filter);
     metrics_filter_ = filter;
     return *this;

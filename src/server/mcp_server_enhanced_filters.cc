@@ -229,7 +229,7 @@ void McpServer::setupEnhancedFilterChain(
 
     auto callbacks = std::make_shared<MetricsCallbacksImpl>(*this);
     auto filter =
-        std::make_shared<filter::MetricsFilter>(*callbacks, metrics_config);
+        std::make_shared<filter::MetricsFilter>(callbacks, metrics_config);
 
     metrics_callbacks_ = callbacks;
 

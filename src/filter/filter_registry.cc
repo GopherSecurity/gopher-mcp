@@ -90,14 +90,21 @@ bool FilterRegistry::registerFactory(const std::string& name,
 network::FilterSharedPtr FilterRegistry::createFilter(
     const std::string& name,
     const json::JsonValue& config) const {
-  
+
+  std::cout << "[FilterRegistry] createFilter called for: " << name << std::endl;
   std::lock_guard<std::mutex> lock(mutex_);
-  
+
   auto it = factories_.find(name);
   if (it == factories_.end()) {
+    std::cout << "[FilterRegistry] ERROR: Filter factory '" << name << "' NOT FOUND!" << std::endl;
+    std::cout << "[FilterRegistry] Available factories:" << std::endl;
+    for (const auto& pair : factories_) {
+      std::cout << "[FilterRegistry]   - " << pair.first << std::endl;
+    }
     GOPHER_LOG(Error, "Unknown filter type '{}' requested", name);
     throw std::runtime_error("Unknown filter type: " + name);
   }
+  std::cout << "[FilterRegistry] Found factory for: " << name << std::endl;
 
   FilterFactoryPtr factory = it->second;
   

@@ -703,7 +703,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
       }
     };
 
-    static SimpleMetricsCallbacks metrics_callbacks;
+    auto metrics_callbacks = std::make_shared<SimpleMetricsCallbacks>();
     filter::MetricsFilter::Config metrics_config;
     metrics_config.track_methods = true;
 
