@@ -6,26 +6,6 @@
  *
  * This filter collects detailed metrics about connection performance,
  * request/response patterns, and protocol-specific statistics.
- *
- * Server Usage:
- * - Monitor service health and performance
- * - Track request rates, error rates, and latencies
- * - Per-method statistics for capacity planning
- * - Identify performance bottlenecks
- * - Feed metrics to monitoring systems (Prometheus, Grafana)
- *
- * Client Usage:
- * - Monitor integration health with MCP servers
- * - Track API call performance and reliability
- * - Identify slow endpoints or methods
- * - Monitor retry rates and circuit breaker trips
- * - Debug connection issues
- *
- * Both Benefit From:
- * - Latency percentiles (p50, p95, p99)
- * - Throughput measurements (requests/sec, bytes/sec)
- * - Error rate tracking
- * - Method-level granularity
  */
 
 #pragma once
@@ -35,6 +15,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 #include "../network/filter.h"
 #include "../types.h"
@@ -89,445 +72,486 @@ struct ConnectionMetrics {
 };
 
 /**
- * Enhanced metrics collection filter
- *
- * This filter collects comprehensive metrics about:
- * - Data transfer (bytes, messages)
- * - Protocol operations (requests, responses, notifications)
- * - Performance (latency, throughput)
- * - Errors and failures
- * - Method-specific statistics
+ * Enhanced metrics collection filter supporting both Scenario 1 (native stack)
+ * and Scenario 2 (SDK hybrid) deployments. The core class focuses on
+ * protocol-level observations; an optional NetworkAdapter bridges byte-level
+ * counters when the full transport stack is available.
  */
-class MetricsFilter : public network::NetworkFilterBase,
-                      public JsonRpcProtocolFilter::MessageHandler {
+class MetricsFilter : public JsonRpcProtocolFilter::MessageHandler,
+                      public std::enable_shared_from_this<MetricsFilter> {
  public:
-  /**
-   * Callbacks for metrics events
-   */
+  class NetworkAdapter;
+
+  /** Callbacks for metrics events */
   class MetricsCallbacks {
    public:
     virtual ~MetricsCallbacks() = default;
 
-    /**
-     * Called periodically with current metrics snapshot
-     * @param metrics Current metrics
-     */
+    /** Called periodically with current metrics snapshot */
     virtual void onMetricsUpdate(const ConnectionMetrics& metrics) = 0;
 
-    /**
-     * Called when a threshold is exceeded
-     * @param metric_name Name of the metric that exceeded threshold
-     * @param value Current value
-     * @param threshold Threshold that was exceeded
-     */
+    /** Called when a threshold is exceeded */
     virtual void onThresholdExceeded(const std::string& metric_name,
                                      uint64_t value,
                                      uint64_t threshold) = 0;
   };
 
-  /**
-   * Configuration for metrics collection
-   */
+  /** Configuration for metrics collection */
   struct Config {
-    // Update interval for rate calculations
     std::chrono::seconds rate_update_interval{1};
-
-    // Reporting interval
     std::chrono::seconds report_interval{10};
-
-    // Thresholds for alerts
     uint64_t max_latency_threshold_ms = 5000;
     uint64_t error_rate_threshold = 10;            // errors per minute
     uint64_t bytes_threshold = 100 * 1024 * 1024;  // 100MB
-
-    // Enable detailed method tracking
     bool track_methods = true;
-
-    // Enable latency histograms
     bool enable_histograms = false;
   };
 
-  /**
-   * Constructor
-   * @param callbacks Metrics event callbacks
-   * @param config Metrics configuration
-   */
+  MetricsFilter(MetricsCallbacks& callbacks, const Config& config);
   MetricsFilter(std::shared_ptr<MetricsCallbacks> callbacks,
-                const Config& config)
-      : config_(config) {
-    initializeCallbacks(std::move(callbacks));
-    metrics_.connection_start = std::chrono::steady_clock::now();
-    metrics_.last_activity = metrics_.connection_start;
-    last_receive_rate_update_ = metrics_.connection_start;
-    last_send_rate_update_ = metrics_.connection_start;
-    last_report_time_ = metrics_.connection_start;
-  }
+                const Config& config);
+
+  void setCallbacks(MetricsCallbacks& callbacks);
+  void setCallbacks(std::shared_ptr<MetricsCallbacks> callbacks);
 
   /**
-   * Update the active callbacks at runtime.
-   *
-   * Passing nullptr reverts to the default callbacks that were established
-   * during construction (no-op callbacks if none were provided).
+   * Create a transport-layer adapter that feeds byte-level statistics into the
+   * collector. In Scenario 1 this adapter is inserted into the network filter
+   * chain; Scenario 2 can skip it entirely and rely on protocol events only.
    */
-  void setCallbacks(std::shared_ptr<MetricsCallbacks> callbacks) {
-    if (callbacks) {
-      callbacks_ = std::move(callbacks);
-    } else {
-      callbacks_ = default_callbacks_;
+  std::shared_ptr<NetworkAdapter> createNetworkAdapter();
+
+  /** Called when a new connection is established */
+  void onConnectionOpened();
+
+  /** Called when a connection is torn down */
+  void onConnectionClosed();
+
+  /** Record bytes received from the network or SDK transport */
+  void recordIncomingBytes(size_t bytes);
+
+  /** Record bytes sent to the network or SDK transport */
+  void recordOutgoingBytes(size_t bytes);
+
+  /** JsonRpcProtocolFilter::MessageHandler overrides */
+  void onRequest(const jsonrpc::Request& request) override;
+  void onNotification(const jsonrpc::Notification& notification) override;
+  void onResponse(const jsonrpc::Response& response) override;
+  void onProtocolError(const Error& error) override;
+
+  /** Chain to the next message handler */
+  void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks);
+
+  /** Populate a snapshot with the current metrics */
+  void getMetrics(ConnectionMetrics& snapshot) const;
+
+ private:
+ friend class NetworkAdapter;
+
+  void initializeMetricsState();
+  void resetConnectionMetrics();
+  void updateReceiveRate(size_t bytes);
+  void updateSendRate(size_t bytes);
+  void updateLatencyMetrics(uint64_t latency_ms);
+  void checkErrorThreshold();
+  void startReportingTimer();
+  std::string requestIdToString(const RequestId& id) const;
+
+  void recordActivity();
+
+  std::shared_ptr<MetricsCallbacks> callbacks_holder_;
+  std::shared_ptr<MetricsCallbacks> default_callbacks_holder_;
+  MetricsCallbacks* callbacks_{nullptr};
+  MetricsCallbacks* default_callbacks_{nullptr};
+  Config config_;
+  JsonRpcProtocolFilter::MessageHandler* next_callbacks_{nullptr};
+
+  ConnectionMetrics metrics_;
+
+  // Rate calculation state
+  std::chrono::steady_clock::time_point last_receive_rate_update_{};
+  std::chrono::steady_clock::time_point last_send_rate_update_{};
+  std::atomic<size_t> bytes_since_last_receive_update_{0};
+  std::atomic<size_t> bytes_since_last_send_update_{0};
+
+  // Request tracking for latency (using string key to avoid variant comparison)
+  std::map<std::string, std::chrono::steady_clock::time_point>
+      pending_requests_;
+  mutable std::mutex request_mutex_;
+
+  // Method metrics mutex
+  mutable std::mutex method_mutex_;
+};
+
+/**
+ * Optional transport adapter that feeds network-level events into the
+ * MetricsFilter. Owns a shared reference so the collector stays alive
+ * whenever the adapter is installed in a filter chain.
+ */
+class MetricsFilter::NetworkAdapter : public network::NetworkFilterBase {
+ public:
+  explicit NetworkAdapter(std::shared_ptr<MetricsFilter> owner);
+
+  network::FilterStatus onData(Buffer& data, bool end_stream) override;
+  network::FilterStatus onWrite(Buffer& data, bool end_stream) override;
+  network::FilterStatus onNewConnection() override;
+
+  std::shared_ptr<MetricsFilter> getMetricsFilter() const;
+
+ private:
+  std::shared_ptr<MetricsFilter> owner_;
+};
+
+}  // namespace filter
+}  // namespace mcp
+
+// === Inline Implementations ===
+
+namespace mcp {
+namespace filter {
+
+inline MetricsFilter::MetricsFilter(MetricsCallbacks& callbacks,
+                                    const Config& config)
+    : callbacks_holder_(nullptr),
+      default_callbacks_holder_(nullptr),
+      callbacks_(&callbacks),
+      default_callbacks_(&callbacks),
+      config_(config) {
+  initializeMetricsState();
+}
+
+inline MetricsFilter::MetricsFilter(
+    std::shared_ptr<MetricsCallbacks> callbacks, const Config& config)
+    : callbacks_holder_(std::move(callbacks)),
+      default_callbacks_holder_(callbacks_holder_),
+      callbacks_(callbacks_holder_.get()),
+      default_callbacks_(callbacks_),
+      config_(config) {
+  if (!callbacks_holder_) {
+    throw std::invalid_argument("Metrics callbacks must not be null");
+  }
+  initializeMetricsState();
+}
+
+inline void MetricsFilter::initializeMetricsState() {
+  if (!callbacks_) {
+    throw std::invalid_argument("Metrics callbacks must not be null");
+  }
+  auto now = std::chrono::steady_clock::now();
+  metrics_.connection_start = now;
+  metrics_.last_activity = now;
+  last_receive_rate_update_ = now;
+  last_send_rate_update_ = now;
+
+  if (config_.report_interval.count() > 0) {
+    startReportingTimer();
+  }
+}
+
+inline std::shared_ptr<MetricsFilter::NetworkAdapter>
+MetricsFilter::createNetworkAdapter() {
+  return std::make_shared<NetworkAdapter>(shared_from_this());
+}
+
+inline void MetricsFilter::setCallbacks(MetricsCallbacks& callbacks) {
+  callbacks_holder_.reset();
+  callbacks_ = &callbacks;
+  default_callbacks_holder_.reset();
+  default_callbacks_ = callbacks_;
+  if (!callbacks_) {
+    throw std::invalid_argument("Metrics callbacks must not be null");
+  }
+}
+
+inline void MetricsFilter::setCallbacks(
+    std::shared_ptr<MetricsCallbacks> callbacks) {
+  if (callbacks) {
+    callbacks_holder_ = std::move(callbacks);
+    callbacks_ = callbacks_holder_.get();
+  } else {
+    callbacks_holder_ = default_callbacks_holder_;
+    if (!callbacks_holder_) {
+      callbacks_holder_.reset();
     }
+    callbacks_ = default_callbacks_;
+  }
+  if (!callbacks_) {
+    throw std::invalid_argument("Metrics callbacks must not be null");
+  }
+}
+
+inline void MetricsFilter::onConnectionOpened() {
+  resetConnectionMetrics();
+}
+
+inline void MetricsFilter::onConnectionClosed() {
+  metrics_.last_activity = std::chrono::steady_clock::now();
+}
+
+inline void MetricsFilter::recordIncomingBytes(size_t bytes) {
+  metrics_.bytes_received += bytes;
+  metrics_.messages_received++;
+  recordActivity();
+  updateReceiveRate(bytes);
+
+  if (metrics_.bytes_received > config_.bytes_threshold) {
+    callbacks_->onThresholdExceeded("bytes_received",
+                                    metrics_.bytes_received,
+                                    config_.bytes_threshold);
+  }
+}
+
+inline void MetricsFilter::recordOutgoingBytes(size_t bytes) {
+  metrics_.bytes_sent += bytes;
+  metrics_.messages_sent++;
+  recordActivity();
+  updateSendRate(bytes);
+}
+
+inline void MetricsFilter::onRequest(const jsonrpc::Request& request) {
+  metrics_.requests_received++;
+  recordActivity();
+
+  if (config_.track_methods) {
+    std::lock_guard<std::mutex> lock(method_mutex_);
+    metrics_.method_counts[request.method]++;
   }
 
-  // Filter interface implementation
-  network::FilterStatus onData(Buffer& data, bool end_stream) override {
-    size_t bytes = data.length();
-    metrics_.bytes_received += bytes;
-    metrics_.messages_received++;
-    metrics_.last_activity = std::chrono::steady_clock::now();
-
-    // Update receive rate
-    updateReceiveRate(bytes);
-
-    // Check thresholds
-    if (metrics_.bytes_received > config_.bytes_threshold) {
-      notifyThresholdExceeded("bytes_received", metrics_.bytes_received,
-                              config_.bytes_threshold);
-    }
-
-    maybeReportMetrics(metrics_.last_activity);
-
-    return network::FilterStatus::Continue;
+  if (holds_alternative<int>(request.id) ||
+      holds_alternative<std::string>(request.id)) {
+    std::lock_guard<std::mutex> lock(request_mutex_);
+    pending_requests_[requestIdToString(request.id)] =
+        std::chrono::steady_clock::now();
   }
 
-  network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-    size_t bytes = data.length();
-    metrics_.bytes_sent += bytes;
-    metrics_.messages_sent++;
-    metrics_.last_activity = std::chrono::steady_clock::now();
+  if (next_callbacks_) {
+    next_callbacks_->onRequest(request);
+  }
+}
 
-    // Update send rate
-    updateSendRate(bytes);
+inline void MetricsFilter::onNotification(
+    const jsonrpc::Notification& notification) {
+  metrics_.notifications_received++;
+  recordActivity();
 
-    maybeReportMetrics(metrics_.last_activity);
-
-    return network::FilterStatus::Continue;
+  if (config_.track_methods) {
+    std::lock_guard<std::mutex> lock(method_mutex_);
+    metrics_.method_counts[notification.method]++;
   }
 
-  network::FilterStatus onNewConnection() override {
-    // Reset metrics for new connection
-    metrics_.bytes_received = 0;
-    metrics_.bytes_sent = 0;
-    metrics_.messages_received = 0;
-    metrics_.messages_sent = 0;
-    metrics_.requests_sent = 0;
-    metrics_.requests_received = 0;
-    metrics_.responses_sent = 0;
-    metrics_.responses_received = 0;
-    metrics_.notifications_sent = 0;
-    metrics_.notifications_received = 0;
-    metrics_.errors_sent = 0;
-    metrics_.errors_received = 0;
-    metrics_.protocol_errors = 0;
-    metrics_.total_latency_ms = 0;
-    metrics_.min_latency_ms = UINT64_MAX;
-    metrics_.max_latency_ms = 0;
-    metrics_.latency_samples = 0;
-    metrics_.connection_start = std::chrono::steady_clock::now();
-    metrics_.last_activity = metrics_.connection_start;
-    last_receive_rate_update_ = metrics_.connection_start;
-    last_send_rate_update_ = metrics_.connection_start;
-    bytes_received_since_last_update_.store(0);
-    bytes_sent_since_last_update_.store(0);
-    last_report_time_ = metrics_.connection_start;
-
-    // Clear request tracking
-    pending_requests_.clear();
-
-    return network::FilterStatus::Continue;
+  if (next_callbacks_) {
+    next_callbacks_->onNotification(notification);
   }
+}
 
-  // JsonRpcProtocolFilter::Callbacks implementation
-  void onRequest(const jsonrpc::Request& request) override {
-    metrics_.requests_received++;
+inline void MetricsFilter::onResponse(const jsonrpc::Response& response) {
+  metrics_.responses_received++;
+  recordActivity();
 
-    // Track method
-    if (config_.track_methods) {
-      std::lock_guard<std::mutex> lock(method_mutex_);
-      metrics_.method_counts[request.method]++;
-    }
-
-    // Start tracking request latency
-    if (holds_alternative<int64_t>(request.id) ||
-        holds_alternative<std::string>(request.id)) {
-      std::lock_guard<std::mutex> lock(request_mutex_);
-      pending_requests_[requestIdToString(request.id)] =
-          std::chrono::steady_clock::now();
-    }
-
-    // Forward to next handler
-    if (next_callbacks_) {
-      next_callbacks_->onRequest(request);
-    }
-
-    maybeReportMetrics(std::chrono::steady_clock::now());
-  }
-
-  void onNotification(const jsonrpc::Notification& notification) override {
-    metrics_.notifications_received++;
-
-    if (config_.track_methods) {
-      std::lock_guard<std::mutex> lock(method_mutex_);
-      metrics_.method_counts[notification.method]++;
-    }
-
-    if (next_callbacks_) {
-      next_callbacks_->onNotification(notification);
-    }
-
-    maybeReportMetrics(std::chrono::steady_clock::now());
-  }
-
-  void onResponse(const jsonrpc::Response& response) override {
-    metrics_.responses_received++;
-
-    // Calculate latency if we have the original request
+  {
     std::lock_guard<std::mutex> lock(request_mutex_);
     auto it = pending_requests_.find(requestIdToString(response.id));
     if (it != pending_requests_.end()) {
       auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::steady_clock::now() - it->second)
                          .count();
-
-      updateLatencyMetrics(latency);
+      updateLatencyMetrics(static_cast<uint64_t>(latency));
       pending_requests_.erase(it);
     }
-
-    // Track errors
-    if (response.error.has_value()) {
-      metrics_.errors_received++;
-      checkErrorThreshold();
-    }
-
-    if (next_callbacks_) {
-      next_callbacks_->onResponse(response);
-    }
-
-    maybeReportMetrics(std::chrono::steady_clock::now());
   }
 
-  void onProtocolError(const Error& error) override {
-    metrics_.protocol_errors++;
+  if (response.error.has_value()) {
+    metrics_.errors_received++;
     checkErrorThreshold();
+  }
 
-    if (next_callbacks_) {
-      next_callbacks_->onProtocolError(error);
+  if (next_callbacks_) {
+    next_callbacks_->onResponse(response);
+  }
+}
+
+inline void MetricsFilter::onProtocolError(const Error& error) {
+  (void)error;
+  metrics_.protocol_errors++;
+  recordActivity();
+  checkErrorThreshold();
+
+  if (next_callbacks_) {
+    next_callbacks_->onProtocolError(error);
+  }
+}
+
+inline void MetricsFilter::setNextCallbacks(
+    JsonRpcProtocolFilter::MessageHandler* callbacks) {
+  next_callbacks_ = callbacks;
+}
+
+inline void MetricsFilter::getMetrics(ConnectionMetrics& snapshot) const {
+  std::lock_guard<std::mutex> lock(method_mutex_);
+  snapshot.bytes_received = metrics_.bytes_received.load();
+  snapshot.bytes_sent = metrics_.bytes_sent.load();
+  snapshot.messages_received = metrics_.messages_received.load();
+  snapshot.messages_sent = metrics_.messages_sent.load();
+  snapshot.requests_sent = metrics_.requests_sent.load();
+  snapshot.requests_received = metrics_.requests_received.load();
+  snapshot.responses_sent = metrics_.responses_sent.load();
+  snapshot.responses_received = metrics_.responses_received.load();
+  snapshot.notifications_sent = metrics_.notifications_sent.load();
+  snapshot.notifications_received = metrics_.notifications_received.load();
+  snapshot.errors_sent = metrics_.errors_sent.load();
+  snapshot.errors_received = metrics_.errors_received.load();
+  snapshot.protocol_errors = metrics_.protocol_errors.load();
+  snapshot.total_latency_ms = metrics_.total_latency_ms.load();
+  snapshot.min_latency_ms = metrics_.min_latency_ms.load();
+  snapshot.max_latency_ms = metrics_.max_latency_ms.load();
+  snapshot.latency_samples = metrics_.latency_samples.load();
+  snapshot.connection_start = metrics_.connection_start;
+  snapshot.last_activity = metrics_.last_activity;
+  snapshot.method_latencies_ms = metrics_.method_latencies_ms;
+  snapshot.method_counts = metrics_.method_counts;
+}
+
+inline void MetricsFilter::resetConnectionMetrics() {
+  metrics_.bytes_received = 0;
+  metrics_.bytes_sent = 0;
+  metrics_.messages_received = 0;
+  metrics_.messages_sent = 0;
+  metrics_.requests_sent = 0;
+  metrics_.requests_received = 0;
+  metrics_.responses_sent = 0;
+  metrics_.responses_received = 0;
+  metrics_.notifications_sent = 0;
+  metrics_.notifications_received = 0;
+  metrics_.errors_sent = 0;
+  metrics_.errors_received = 0;
+  metrics_.protocol_errors = 0;
+  metrics_.total_latency_ms = 0;
+  metrics_.min_latency_ms = UINT64_MAX;
+  metrics_.max_latency_ms = 0;
+  metrics_.latency_samples = 0;
+  metrics_.connection_start = std::chrono::steady_clock::now();
+  metrics_.last_activity = metrics_.connection_start;
+  last_receive_rate_update_ = metrics_.connection_start;
+  last_send_rate_update_ = metrics_.connection_start;
+  bytes_since_last_receive_update_ = 0;
+  bytes_since_last_send_update_ = 0;
+
+  std::lock_guard<std::mutex> lock(request_mutex_);
+  pending_requests_.clear();
+}
+
+inline void MetricsFilter::updateReceiveRate(size_t bytes) {
+  auto now = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+      now - last_receive_rate_update_);
+
+  if (elapsed >= config_.rate_update_interval && elapsed.count() > 0) {
+    double rate = (bytes_since_last_receive_update_ * 8.0) / elapsed.count();
+    metrics_.current_receive_rate_bps = rate;
+    if (rate > metrics_.peak_receive_rate_bps) {
+      metrics_.peak_receive_rate_bps = rate;
     }
-
-    maybeReportMetrics(std::chrono::steady_clock::now());
+    bytes_since_last_receive_update_ = 0;
+    last_receive_rate_update_ = now;
+  } else {
+    bytes_since_last_receive_update_ += bytes;
   }
+}
 
-  /**
-   * Set the next callbacks in the chain
-   */
-  void setNextCallbacks(JsonRpcProtocolFilter::MessageHandler* callbacks) {
-    next_callbacks_ = callbacks;
-  }
+inline void MetricsFilter::updateSendRate(size_t bytes) {
+  auto now = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+      now - last_send_rate_update_);
 
-  /**
-   * Get current metrics snapshot
-   */
-  void getMetrics(ConnectionMetrics& snapshot) const {
-    std::lock_guard<std::mutex> lock(method_mutex_);
-    snapshot.bytes_received = metrics_.bytes_received.load();
-    snapshot.bytes_sent = metrics_.bytes_sent.load();
-    snapshot.messages_received = metrics_.messages_received.load();
-    snapshot.messages_sent = metrics_.messages_sent.load();
-    snapshot.requests_sent = metrics_.requests_sent.load();
-    snapshot.requests_received = metrics_.requests_received.load();
-    snapshot.responses_sent = metrics_.responses_sent.load();
-    snapshot.responses_received = metrics_.responses_received.load();
-    snapshot.notifications_sent = metrics_.notifications_sent.load();
-    snapshot.notifications_received = metrics_.notifications_received.load();
-    snapshot.errors_sent = metrics_.errors_sent.load();
-    snapshot.errors_received = metrics_.errors_received.load();
-    snapshot.protocol_errors = metrics_.protocol_errors.load();
-    snapshot.total_latency_ms = metrics_.total_latency_ms.load();
-    snapshot.min_latency_ms = metrics_.min_latency_ms.load();
-    snapshot.max_latency_ms = metrics_.max_latency_ms.load();
-    snapshot.latency_samples = metrics_.latency_samples.load();
-    snapshot.connection_start = metrics_.connection_start;
-    snapshot.last_activity = metrics_.last_activity;
-    snapshot.current_receive_rate_bps = metrics_.current_receive_rate_bps;
-    snapshot.current_send_rate_bps = metrics_.current_send_rate_bps;
-    snapshot.peak_receive_rate_bps = metrics_.peak_receive_rate_bps;
-    snapshot.peak_send_rate_bps = metrics_.peak_send_rate_bps;
-    snapshot.method_latencies_ms = metrics_.method_latencies_ms;
-    snapshot.method_counts = metrics_.method_counts;
-    snapshot.method_errors = metrics_.method_errors;
-  }
-
- private:
-  void updateReceiveRate(size_t bytes) {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        now - last_receive_rate_update_);
-
-    if (elapsed >= config_.rate_update_interval) {
-      double rate =
-          (bytes_received_since_last_update_.load() * 8.0) / elapsed.count();
-      metrics_.current_receive_rate_bps = rate;
-
-      if (rate > metrics_.peak_receive_rate_bps) {
-        metrics_.peak_receive_rate_bps = rate;
-      }
-
-      bytes_received_since_last_update_.store(0);
-      last_receive_rate_update_ = now;
-    } else {
-      bytes_received_since_last_update_ += bytes;
+  if (elapsed >= config_.rate_update_interval && elapsed.count() > 0) {
+    double rate = (bytes_since_last_send_update_ * 8.0) / elapsed.count();
+    metrics_.current_send_rate_bps = rate;
+    if (rate > metrics_.peak_send_rate_bps) {
+      metrics_.peak_send_rate_bps = rate;
     }
+    bytes_since_last_send_update_ = 0;
+    last_send_rate_update_ = now;
+  } else {
+    bytes_since_last_send_update_ += bytes;
+  }
+}
+
+inline void MetricsFilter::updateLatencyMetrics(uint64_t latency_ms) {
+  metrics_.total_latency_ms += latency_ms;
+  metrics_.latency_samples++;
+
+  auto current_min = metrics_.min_latency_ms.load();
+  if (latency_ms < current_min) {
+    metrics_.min_latency_ms = latency_ms;
   }
 
-  void updateSendRate(size_t bytes) {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        now - last_send_rate_update_);
-
-    if (elapsed >= config_.rate_update_interval) {
-      double rate =
-          (bytes_sent_since_last_update_.load() * 8.0) / elapsed.count();
-      metrics_.current_send_rate_bps = rate;
-
-      if (rate > metrics_.peak_send_rate_bps) {
-        metrics_.peak_send_rate_bps = rate;
-      }
-
-      bytes_sent_since_last_update_.store(0);
-      last_send_rate_update_ = now;
-    } else {
-      bytes_sent_since_last_update_ += bytes;
-    }
-  }
-
-  void updateLatencyMetrics(uint64_t latency_ms) {
-    metrics_.total_latency_ms += latency_ms;
-    metrics_.latency_samples++;
-
-    if (latency_ms < metrics_.min_latency_ms) {
-      metrics_.min_latency_ms = latency_ms;
-    }
-
-    if (latency_ms > metrics_.max_latency_ms) {
-      metrics_.max_latency_ms = latency_ms;
-
-      if (latency_ms > config_.max_latency_threshold_ms) {
-        notifyThresholdExceeded("latency_ms", latency_ms,
-                                config_.max_latency_threshold_ms);
-      }
-    }
-  }
-
-  void checkErrorThreshold() {
-    // Check error rate
-    auto now = std::chrono::steady_clock::now();
-    auto age = std::chrono::duration_cast<std::chrono::minutes>(
-        now - metrics_.connection_start);
-
-    if (age.count() > 0) {
-      uint64_t error_rate =
-          (metrics_.errors_received + metrics_.protocol_errors) / age.count();
-      if (error_rate > config_.error_rate_threshold) {
-        notifyThresholdExceeded("error_rate", error_rate,
-                                config_.error_rate_threshold);
-      }
-    }
-  }
-
-  void notifyThresholdExceeded(const std::string& metric_name,
-                               uint64_t value,
-                               uint64_t threshold) {
-    auto callbacks = callbacks_;
-    if (callbacks) {
-      callbacks->onThresholdExceeded(metric_name, value, threshold);
+  auto current_max = metrics_.max_latency_ms.load();
+  if (latency_ms > current_max) {
+    metrics_.max_latency_ms = latency_ms;
+    if (latency_ms > config_.max_latency_threshold_ms) {
+      callbacks_->onThresholdExceeded("latency_ms", latency_ms,
+                                      config_.max_latency_threshold_ms);
     }
   }
+}
 
-  void maybeReportMetrics(std::chrono::steady_clock::time_point now) {
-    if (config_.report_interval.count() <= 0) {
-      return;
+inline void MetricsFilter::checkErrorThreshold() {
+  auto now = std::chrono::steady_clock::now();
+  auto age = std::chrono::duration_cast<std::chrono::minutes>(
+      now - metrics_.connection_start);
+
+  if (age.count() > 0) {
+    uint64_t error_rate =
+        (metrics_.errors_received + metrics_.protocol_errors) /
+        static_cast<uint64_t>(age.count());
+    if (error_rate > config_.error_rate_threshold) {
+      callbacks_->onThresholdExceeded("error_rate", error_rate,
+                                      config_.error_rate_threshold);
     }
-    if ((now - last_report_time_) < config_.report_interval) {
-      return;
-    }
-
-    last_report_time_ = now;
-    reportMetrics();
   }
+}
 
-  void reportMetrics() {
-    auto callbacks = callbacks_;
-    if (!callbacks) {
-      return;
-    }
+inline void MetricsFilter::startReportingTimer() {
+  // TODO: Implement periodic reporting using dispatcher timer
+  // This would call callbacks_->onMetricsUpdate(metrics_) periodically
+}
 
-    ConnectionMetrics snapshot;
-    getMetrics(snapshot);
-    callbacks->onMetricsUpdate(snapshot);
-  }
+inline std::string MetricsFilter::requestIdToString(
+    const RequestId& id) const {
+  return visit(make_overload([](const std::string& s) { return s; },
+                             [](int i) { return std::to_string(i); }),
+               id);
+}
 
-  void initializeCallbacks(std::shared_ptr<MetricsCallbacks> callbacks) {
-    if (callbacks) {
-      default_callbacks_ = std::move(callbacks);
-    } else {
-      default_callbacks_ = getNullCallbacks();
-    }
-    callbacks_ = default_callbacks_;
-  }
+inline void MetricsFilter::recordActivity() {
+  metrics_.last_activity = std::chrono::steady_clock::now();
+}
 
-  static std::shared_ptr<MetricsCallbacks> getNullCallbacks() {
-    static std::shared_ptr<MetricsCallbacks> noop =
-        std::make_shared<NullMetricsCallbacks>();
-    return noop;
-  }
+inline MetricsFilter::NetworkAdapter::NetworkAdapter(
+    std::shared_ptr<MetricsFilter> owner)
+    : owner_(std::move(owner)) {}
 
-  class NullMetricsCallbacks : public MetricsCallbacks {
-   public:
-    void onMetricsUpdate(const ConnectionMetrics&) override {}
-    void onThresholdExceeded(const std::string&,
-                             uint64_t,
-                             uint64_t) override {}
-  };
+inline network::FilterStatus MetricsFilter::NetworkAdapter::onData(
+    Buffer& data, bool /*end_stream*/) {
+  owner_->recordIncomingBytes(data.length());
+  return network::FilterStatus::Continue;
+}
 
-  std::shared_ptr<MetricsCallbacks> callbacks_;
-  std::shared_ptr<MetricsCallbacks> default_callbacks_;
-  Config config_;
-  JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
+inline network::FilterStatus MetricsFilter::NetworkAdapter::onWrite(
+    Buffer& data, bool /*end_stream*/) {
+  owner_->recordOutgoingBytes(data.length());
+  return network::FilterStatus::Continue;
+}
 
-  // Metrics data
-  ConnectionMetrics metrics_;
+inline network::FilterStatus MetricsFilter::NetworkAdapter::onNewConnection() {
+  owner_->onConnectionOpened();
+  return network::FilterStatus::Continue;
+}
 
-  // Rate calculation state
-  std::chrono::steady_clock::time_point last_receive_rate_update_;
-  std::chrono::steady_clock::time_point last_send_rate_update_;
-  std::atomic<size_t> bytes_received_since_last_update_{0};
-  std::atomic<size_t> bytes_sent_since_last_update_{0};
-  std::chrono::steady_clock::time_point last_report_time_;
-
-  // Request tracking for latency (using string key to avoid variant comparison
-  // issues)
-  std::map<std::string, std::chrono::steady_clock::time_point>
-      pending_requests_;
-
-  // Helper to convert RequestId to string key
-  std::string requestIdToString(const RequestId& id) const {
-    return visit(make_overload([](const std::string& s) { return s; },
-                               [](int i) { return std::to_string(i); }),
-                 id);
-  }
-  mutable std::mutex request_mutex_;
-
-  // Method metrics mutex
-  mutable std::mutex method_mutex_;
-};
+inline std::shared_ptr<MetricsFilter>
+MetricsFilter::NetworkAdapter::getMetricsFilter() const {
+  return owner_;
+}
 
 }  // namespace filter
 }  // namespace mcp
