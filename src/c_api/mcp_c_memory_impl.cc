@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/c_api/mcp_c_types.h"
+#include "mcp/filter/core_filter_factories.h"
 
 namespace {
 
@@ -82,12 +84,18 @@ extern "C" {
  */
 
 MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
+  fprintf(stderr, "[mcp_init] Entry\n"); fflush(stderr);
+
+  fprintf(stderr, "[mcp_init] About to acquire mutex lock\n"); fflush(stderr);
   std::lock_guard<std::mutex> lock(g_state.mutex);
+  fprintf(stderr, "[mcp_init] Mutex lock acquired\n"); fflush(stderr);
 
   if (g_state.initialized) {
+    fprintf(stderr, "[mcp_init] Already initialized, returning OK\n"); fflush(stderr);
     return MCP_OK;  // Already initialized
   }
 
+  fprintf(stderr, "[mcp_init] Setting up allocator\n"); fflush(stderr);
   if (allocator) {
     g_state.allocator = *allocator;
     g_state.custom_allocator = true;
@@ -104,7 +112,26 @@ MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
     g_state.custom_allocator = false;
   }
 
+  // Register all core filters for static linking support
+  fprintf(stderr, "[mcp_init] Registering core filters for static linking\n"); fflush(stderr);
+  {
+    // Use std::call_once to ensure filters are only registered once
+    static std::once_flag filter_init_flag;
+    std::call_once(filter_init_flag, []() {
+      try {
+        // Register all core filters to ensure they're linked
+        mcp::filter::registerAllCoreFilters();
+        fprintf(stderr, "[mcp_init] Core filters registered successfully\n"); fflush(stderr);
+      } catch (const std::exception& e) {
+        fprintf(stderr, "[mcp_init] WARNING: Failed to register filters: %s\n", e.what()); fflush(stderr);
+        // Continue anyway - filters might be registered via other means
+      }
+    });
+  }
+
+  fprintf(stderr, "[mcp_init] Setting initialized flag\n"); fflush(stderr);
   g_state.initialized = true;
+  fprintf(stderr, "[mcp_init] Exit - returning OK\n"); fflush(stderr);
   return MCP_OK;
 }
 
@@ -317,6 +344,65 @@ MCP_API char* mcp_strdup(const char* str) MCP_NOEXCEPT {
 }
 
 MCP_API void mcp_string_free(char* str) MCP_NOEXCEPT { mcp_free(str); }
+
+/* ============================================================================
+ * String Buffer Helpers (for MCP_TYPE_STRING handles)
+ * ============================================================================
+ */
+
+struct mcp_string_buffer_impl {
+  char* data{nullptr};
+  size_t length{0};
+};
+
+MCP_API mcp_string_buffer_t* mcp_string_dup(mcp_string_t str) MCP_NOEXCEPT {
+  // Allocate outer box that will be treated as the handle
+  auto* box = static_cast<mcp_string_buffer_t*>(mcp_malloc(sizeof(mcp_string_buffer_t)));
+  if (!box) {
+    return nullptr;
+  }
+
+  auto* impl = new (std::nothrow) mcp_string_buffer_impl();
+  if (!impl) {
+    mcp_free(box);
+    return nullptr;
+  }
+
+  // Duplicate string data
+  if (str.data && str.length > 0) {
+    impl->data = static_cast<char*>(mcp_malloc(str.length + 1));
+    if (!impl->data) {
+      delete impl;
+      mcp_free(box);
+      return nullptr;
+    }
+    std::memcpy(impl->data, str.data, str.length);
+    impl->data[str.length] = '\0';
+    impl->length = str.length;
+  } else {
+    // Empty string
+    impl->data = nullptr;
+    impl->length = 0;
+  }
+
+  *box = impl;
+  return box;
+}
+
+MCP_API void mcp_string_buffer_free(mcp_string_buffer_t* buffer) MCP_NOEXCEPT {
+  if (!buffer) {
+    return;
+  }
+  mcp_string_buffer_t impl = *buffer;
+  if (impl) {
+    if (impl->data) {
+      mcp_free(impl->data);
+      impl->data = nullptr;
+    }
+    delete impl;
+  }
+  mcp_free(buffer);
+}
 
 MCP_API void* mcp_malloc(size_t size) MCP_NOEXCEPT {
   if (!g_state.initialized) {

@@ -1,360 +1,161 @@
 /**
  * @file mcp-end-to-end.test.ts
- * @brief End-to-end integration tests with real C library
- *
- * This test file covers complete message processing workflows including:
- * - Full filter chain execution
- * - Message transformation through callbacks
- * - Real-time processing
- * - Error handling and recovery
+ * @brief End-to-end style tests for the FilterManager using mocked FFI bindings
  */
 
-import { FilterManager, FilterManagerConfig, JSONRPCMessage } from "../mcp-filter-manager";
+import { FilterManager, JSONRPCMessage } from "../mcp-filter-manager";
+import * as FilterApi from "../mcp-filter-api";
+import * as BufferModule from "../mcp-filter-buffer";
+import * as FilterChain from "../mcp-filter-chain";
 
-// Use real C++ library instead of mocks
-describe("End-to-End Integration", () => {
-  let filterManager: FilterManager;
+jest.mock("../mcp-ffi-bindings", () => ({
+  mcpFilterLib: {},
+}));
+
+jest.mock("../mcp-filter-api", () => {
+  const FilterStatus = {
+    CONTINUE: 0,
+    STOP_ITERATION: 1,
+    ERROR: -1,
+  } as const;
+
+  return {
+    FilterStatus,
+    createFilterManager: jest.fn(() => 9001),
+    initializeFilterManager: jest.fn(() => FilterStatus.CONTINUE),
+    addChainToManager: jest.fn(),
+    postDataToFilter: jest.fn(() => FilterStatus.CONTINUE),
+    releaseFilterChain: jest.fn(),
+    releaseFilterManager: jest.fn(),
+  };
+});
+
+jest.mock("../mcp-filter-buffer", () => {
+  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+  const defaultBytes = encode({ jsonrpc: "2.0", result: "ok" });
+
+  return {
+    BufferOwnership: {
+      NONE: 0,
+      SHARED: 1,
+      EXCLUSIVE: 2,
+      EXTERNAL: 3,
+    },
+    createBufferPoolSimple: jest.fn(() => 6001),
+    destroyBufferPool: jest.fn(),
+    createBuffer: jest.fn(() => 7001),
+    writeBufferData: jest.fn(),
+    getBufferLength: jest.fn(() => defaultBytes.length),
+    readBufferData: jest.fn(() => defaultBytes),
+    releaseBuffer: jest.fn(),
+  };
+});
+
+jest.mock("../mcp-filter-chain", () => ({
+  createFilterChainFromConfig: jest.fn(() => 8001),
+  ChainExecutionMode: { SEQUENTIAL: 0, PARALLEL: 1 },
+  RoutingStrategy: { ROUND_ROBIN: 0, LEAST_LOADED: 1 },
+}));
+
+const filterApiMocks = FilterApi as jest.Mocked<typeof FilterApi>;
+const bufferMocks = BufferModule as jest.Mocked<typeof BufferModule>;
+const filterChainMocks = FilterChain as jest.Mocked<typeof FilterChain>;
+
+const encodeMessage = (payload: JSONRPCMessage) =>
+  new TextEncoder().encode(JSON.stringify(payload));
+
+describe("FilterManager end-to-end behaviour", () => {
+  let manager: FilterManager;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    // Default buffer mocks should return a successful JSON-RPC message
+    const successPayload: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      result: "Message processed",
+    };
+    const successBytes = encodeMessage(successPayload);
+
+    bufferMocks.getBufferLength.mockImplementation(() => successBytes.length);
+    bufferMocks.readBufferData.mockImplementation(() => successBytes);
+    filterApiMocks.postDataToFilter.mockImplementation(
+      () => FilterApi.FilterStatus.CONTINUE
+    );
+
+    manager = new FilterManager({
+      mcp: { jsonRpcProtocol: true, sseCodec: true },
+      observability: { metrics: true },
+    });
+  });
 
   afterEach(() => {
-    if (filterManager) {
-      filterManager.destroy();
+    if (manager) {
+      manager.destroy();
     }
   });
 
-  describe("Complete Message Processing", () => {
-    it("should process messages through complete filter chain", async () => {
-      const config: FilterManagerConfig = {
-        // Security filters
-        security: {
-          authentication: {
-            method: "jwt",
-            secret: "test-secret",
-          },
-          authorization: {
-            enabled: true,
-            policy: "allow",
-            rules: [
-              {
-                resource: "tools/*",
-                action: "call",
-                conditions: { authenticated: true },
-              },
-            ],
-          },
-        },
+  it("processes a single message through the mocked pipeline", async () => {
+    const request: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "demo" },
+    };
 
-        // Observability filters
-        observability: {
-          accessLog: {
-            enabled: true,
-            format: "json",
-            fields: ["timestamp", "method", "sessionId"],
-            output: "console",
-          },
-          metrics: {
-            enabled: true,
-            labels: {
-              service: "test-service",
-              version: "1.0.0",
-            },
-          },
-        },
+    const response = await manager.processMessage(request);
 
-        // Custom callbacks for real-time processing
-        customCallbacks: {
-          onMessageReceived: (message: JSONRPCMessage) => {
-            console.log("📥 E2E: Processing message:", message.method);
+    expect(response.jsonrpc).toBe("2.0");
+    expect(response.result).toBe("Message processed");
 
-            // Add processing metadata
-            if ("id" in message) {
-              return {
-                ...message,
-                processingMetadata: {
-                  receivedAt: Date.now(),
-                  processingId: `proc-${Math.random().toString(36).substr(2, 9)}`,
-                  stage: "received",
-                },
-              };
-            }
-            return null;
-          },
+    expect(bufferMocks.createBuffer).toHaveBeenCalledTimes(1);
+    expect(filterApiMocks.postDataToFilter).toHaveBeenCalledTimes(1);
+  });
 
-          onMessageSent: (message: JSONRPCMessage) => {
-            console.log("📤 E2E: Sending message:", message.method);
+  it("produces per-message results when running a batch", async () => {
+    const messages: JSONRPCMessage[] = [
+      { jsonrpc: "2.0", id: 1, method: "one" },
+      { jsonrpc: "2.0", id: 2, method: "two" },
+    ];
 
-            // Add sending metadata
-            if ("id" in message) {
-              return {
-                ...message,
-                processingMetadata: {
-                  ...(message as any).processingMetadata,
-                  sentAt: Date.now(),
-                  stage: "sent",
-                },
-              };
-            }
-            return null;
-          },
+    // Simulate a failure for the second message
+    filterApiMocks.postDataToFilter
+      .mockImplementationOnce(() => FilterApi.FilterStatus.CONTINUE)
+      .mockImplementationOnce(() => FilterApi.FilterStatus.STOP_ITERATION);
 
-          onConnectionEstablished: (connectionId: string) => {
-            console.log("🔗 E2E: Connection established:", connectionId);
-          },
+    const results = await manager.processBatch(messages);
 
-          onConnectionClosed: (connectionId: string) => {
-            console.log("🔌 E2E: Connection closed:", connectionId);
-          },
+    expect(results).toHaveLength(2);
+    expect(results[0]?.result).toBe("Message processed");
+    expect(results[1]?.error).toBeDefined();
+    expect(results[1]?.id).toBe(2);
+  });
 
-          onError: (error: Error, context: string) => {
-            console.error("❌ E2E: Error in", context, ":", error.message);
-          },
-        },
+  it("rebuilds the filter chain when the configuration changes", async () => {
+    await manager.updateConfig({
+      http: { codec: true },
+      security: { authentication: true },
+    });
 
-        // Error handling
-        errorHandling: {
-          stopOnError: false,
-          retryAttempts: 2,
-          fallbackBehavior: "passthrough",
-        },
-      };
-
-      filterManager = new FilterManager(config);
-
-      // Test different message types
-      const testMessages: JSONRPCMessage[] = [
-        {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "test-tool",
-            arguments: { input: "test" },
-          },
-        },
-        {
-          jsonrpc: "2.0",
-          id: 2,
-          method: "notifications/update",
-          params: {
-            type: "status",
-            data: { status: "processing" },
-          },
-        },
-        {
-          jsonrpc: "2.0",
-          id: 3,
-          result: {
-            success: true,
-            data: { result: "test-result" },
-          },
-        },
+    expect(filterApiMocks.releaseFilterChain).toHaveBeenCalledTimes(1);
+    expect(filterChainMocks.createFilterChainFromConfig).toHaveBeenCalledTimes(2);
+    // Second call should use the updated configuration
+    const lastCall =
+      filterChainMocks.createFilterChainFromConfig.mock.calls[
+        filterChainMocks.createFilterChainFromConfig.mock.calls.length - 1
       ];
 
-      for (const message of testMessages) {
-        try {
-          console.log("🔄 E2E: Processing message:", message.method || "response");
-          const result = await filterManager.process(message);
-
-          // Verify the message was processed
-          expect(result).toBeDefined();
-          expect(result.jsonrpc).toBe("2.0");
-
-          // Verify processing metadata was added
-          if ("id" in result && "processingMetadata" in result) {
-            expect((result as any).processingMetadata).toBeDefined();
-            expect((result as any).processingMetadata.stage).toBeDefined();
-          }
-
-          console.log("✅ E2E: Message processed successfully");
-        } catch (error) {
-          // Expected for now since we don't have a real C++ filter chain running
-          console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
-        }
-      }
-    });
-
-    it("should handle message transformation workflows", async () => {
-      const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (message: JSONRPCMessage) => {
-            // Transform request messages
-            if ("method" in message && message.method === "tools/call") {
-              return {
-                ...message,
-                params: {
-                  ...message.params,
-                  transformed: true,
-                  transformTimestamp: Date.now(),
-                },
-              };
-            }
-            return null;
-          },
-
-          onMessageSent: (message: JSONRPCMessage) => {
-            // Transform response messages
-            if ("result" in message) {
-              return {
-                ...message,
-                result: {
-                  ...message.result,
-                  responseTransformed: true,
-                  responseTimestamp: Date.now(),
-                },
-              };
-            }
-            return null;
-          },
-        },
-      };
-
-      filterManager = new FilterManager(config);
-
-      const requestMessage: JSONRPCMessage = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "test-tool",
-          arguments: { input: "test" },
-        },
-      };
-
-      try {
-        const result = await filterManager.process(requestMessage);
-
-        // Verify transformation occurred
-        expect(result).toBeDefined();
-        if ("params" in result && "transformed" in result.params) {
-          expect(result.params.transformed).toBe(true);
-          expect(result.params.transformTimestamp).toBeDefined();
-        }
-
-        console.log("✅ E2E: Message transformation successful");
-      } catch (error) {
-        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
-      }
+    expect(lastCall).toBeDefined();
+    expect(lastCall![1]).toMatchObject({
+      listeners: expect.any(Array),
     });
   });
 
-  describe("Error Handling and Recovery", () => {
-    it("should handle callback errors gracefully", async () => {
-      const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (message: JSONRPCMessage) => {
-            // Simulate an error in callback
-            if ("method" in message && message.method === "error/test") {
-              throw new Error("Simulated callback error");
-            }
-            return null;
-          },
+  it("throws when processing after destruction", async () => {
+    manager.destroy();
 
-          onError: (error: Error, context: string) => {
-            console.log("🛡️ E2E: Error handled in", context, ":", error.message);
-            expect(error.message).toBe("Simulated callback error");
-            expect(context).toBe("messageReceived");
-          },
-        },
-
-        errorHandling: {
-          stopOnError: false,
-          retryAttempts: 1,
-          fallbackBehavior: "passthrough",
-        },
-      };
-
-      filterManager = new FilterManager(config);
-
-      const errorMessage: JSONRPCMessage = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "error/test",
-        params: { test: true },
-      };
-
-      try {
-        const result = await filterManager.process(errorMessage);
-
-        // Should still process despite callback error
-        expect(result).toBeDefined();
-        console.log("✅ E2E: Error handling successful");
-      } catch (error) {
-        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
-      }
-    });
-
-    it("should handle malformed messages", async () => {
-      const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (message: JSONRPCMessage) => {
-            // Validate message structure
-            if (!message.jsonrpc || message.jsonrpc !== "2.0") {
-              throw new Error("Invalid JSON-RPC version");
-            }
-            return null;
-          },
-        },
-      };
-
-      filterManager = new FilterManager(config);
-
-      const malformedMessage = {
-        jsonrpc: "1.0", // Invalid version
-        id: 1,
-        method: "test/method",
-      } as unknown as JSONRPCMessage;
-
-      try {
-        await filterManager.process(malformedMessage);
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        // Expected to fail validation
-        console.log("✅ E2E: Malformed message rejected:", error);
-      }
-    });
-  });
-
-  describe("Performance and Scalability", () => {
-    it("should handle multiple concurrent messages", async () => {
-      const config: FilterManagerConfig = {
-        customCallbacks: {
-          onMessageReceived: (_message: JSONRPCMessage) => {
-            // Simulate processing time
-            const start = Date.now();
-            while (Date.now() - start < 10) {
-              // Busy wait for 10ms
-            }
-            return null;
-          },
-        },
-      };
-
-      filterManager = new FilterManager(config);
-
-      const messages: JSONRPCMessage[] = Array.from({ length: 10 }, (_, i) => ({
-        jsonrpc: "2.0" as const,
-        id: i + 1,
-        method: "test/concurrent",
-        params: { index: i },
-      }));
-
-      const startTime = Date.now();
-
-      try {
-        // Process all messages concurrently
-        const promises = messages.map(message => filterManager.process(message));
-        const results = await Promise.allSettled(promises);
-
-        const endTime = Date.now();
-        const duration = endTime - startTime;
-
-        console.log(`✅ E2E: Processed ${messages.length} messages in ${duration}ms`);
-
-        // Verify all messages were processed (or failed gracefully)
-        expect(results.length).toBe(messages.length);
-      } catch (error) {
-        console.log("⚠️ E2E: Expected error (no real C++ filter chain):", error);
-      }
-    });
+    await expect(
+      manager.processMessage({ jsonrpc: "2.0", method: "test" })
+    ).rejects.toThrow(/destroyed/);
   });
 });

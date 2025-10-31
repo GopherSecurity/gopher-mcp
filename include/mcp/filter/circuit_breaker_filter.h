@@ -29,18 +29,14 @@
 #include "../network/filter.h"
 #include "../types.h"
 #include "json_rpc_protocol_filter.h"
+#include "circuit_breaker_callbacks.h"
+
+// Temporary debug logging for circuit breaker validation
+#define GOPHER_LOG_COMPONENT "filter.circuit_breaker"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace filter {
-
-/**
- * Circuit breaker states
- */
-enum class CircuitState {
-  CLOSED,    // Normal operation, requests allowed
-  OPEN,      // Circuit tripped, requests blocked
-  HALF_OPEN  // Testing recovery, limited requests allowed
-};
 
 /**
  * Circuit breaker configuration
@@ -81,46 +77,19 @@ struct CircuitBreakerConfig {
  * - HALF_OPEN: Limited requests to test recovery
  */
 class CircuitBreakerFilter : public network::NetworkFilterBase,
-                             public JsonRpcProtocolFilter::MessageHandler {
+                             public JsonRpcProtocolFilter::MessageHandler,
+                             public network::DependencyInjectionAware {
  public:
-  /**
-   * Callbacks for circuit breaker events
-   */
-  class Callbacks {
-   public:
-    virtual ~Callbacks() = default;
-
-    /**
-     * Called when circuit state changes
-     * @param old_state Previous state
-     * @param new_state New state
-     * @param reason Reason for state change
-     */
-    virtual void onStateChange(CircuitState old_state,
-                               CircuitState new_state,
-                               const std::string& reason) = 0;
-
-    /**
-     * Called when a request is blocked by open circuit
-     * @param method Method that was blocked
-     */
-    virtual void onRequestBlocked(const std::string& method) = 0;
-
-    /**
-     * Called when circuit health metrics update
-     * @param success_rate Current success rate (0.0 - 1.0)
-     * @param latency_ms Average latency in milliseconds
-     */
-    virtual void onHealthUpdate(double success_rate, uint64_t latency_ms) = 0;
-  };
+  using Callbacks = CircuitBreakerCallbacks;
+  using network::DependencyInjectionAware::setCallbacks;
 
   /**
    * Constructor
-   * @param callbacks Circuit breaker event callbacks
+   * @param callbacks Circuit breaker event callbacks (shared ownership)
    * @param config Circuit breaker configuration
    */
   CircuitBreakerFilter(
-      Callbacks& callbacks,
+      std::shared_ptr<CircuitBreakerCallbacks> callbacks,
       const CircuitBreakerConfig& config = CircuitBreakerConfig())
       : callbacks_(callbacks),
         config_(config),
@@ -129,6 +98,34 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
         half_open_requests_(0),
         half_open_successes_(0) {
     last_state_change_ = std::chrono::steady_clock::now();
+    std::cout << "[CIRCUIT_BREAKER] 🔧 Filter created with "
+              << (callbacks_ ? "CALLBACKS" : "NO CALLBACKS")
+              << " failure_threshold=" << config_.failure_threshold << std::endl;
+  }
+
+  CircuitBreakerFilter(
+      CircuitBreakerCallbacks& callbacks,
+      const CircuitBreakerConfig& config = CircuitBreakerConfig())
+      : CircuitBreakerFilter(std::shared_ptr<CircuitBreakerCallbacks>(
+            &callbacks, [](CircuitBreakerCallbacks*) {}), config) {}
+
+  /**
+   * Update callbacks at runtime
+   * @param callbacks New callbacks to use (can be nullptr to disable)
+   */
+  void setCallbacks(std::shared_ptr<CircuitBreakerCallbacks> callbacks) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::cout << "[CIRCUIT_BREAKER] 🔄 Updating callbacks: "
+              << (callbacks ? "SET" : "CLEARED") << std::endl;
+    callbacks_ = callbacks;
+  }
+
+  // DependencyInjectionAware implementation
+  void setCircuitBreakerCallbacks(
+      std::shared_ptr<CircuitBreakerCallbacks> callbacks) override {
+    std::cout << "[CIRCUIT_BREAKER] 📥 setCircuitBreakerCallbacks called (DI interface)" << std::endl;
+    // Cast from void* back to the correct type and update callbacks
+    setCallbacks(callbacks);
   }
 
   // Filter interface implementation
@@ -150,10 +147,22 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
   void onRequest(const jsonrpc::Request& request) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
+    // TEMPORARY DEBUG: Verify filter is being called
+    std::cout << "[CIRCUIT_BREAKER] onRequest called: method=" << request.method
+              << " state=" << stateToString(state_) << std::endl;
+
+    GOPHER_LOG(Debug, "onRequest: method=%s id=%s circuit_state=%s",
+               request.method.c_str(), requestIdToString(request.id).c_str(),
+               stateToString(state_));
+
     // Check circuit state
     if (!allowRequest(request.method)) {
       // Circuit is open - fail fast
-      callbacks_.onRequestBlocked(request.method);
+      std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method << std::endl;
+      if (callbacks_) {
+        std::cout << "[CIRCUIT_BREAKER] 📞 Invoking onRequestBlocked callback" << std::endl;
+        callbacks_->onRequestBlocked(request.method);
+      }
 
       // Send error response
       jsonrpc::Response error_response;
@@ -182,6 +191,11 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
   void onResponse(const jsonrpc::Response& response) override {
     std::lock_guard<std::mutex> lock(mutex_);
 
+    // TEMPORARY DEBUG: Verify filter is being called
+    bool has_error = response.error.has_value();
+    std::cout << "[CIRCUIT_BREAKER] onResponse called: has_error=" << has_error
+              << " state=" << stateToString(state_) << std::endl;
+
     // Find corresponding request
     auto it = pending_requests_.find(requestIdToString(response.id));
     if (it != pending_requests_.end()) {
@@ -194,6 +208,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       bool is_error = response.error.has_value();
       bool is_client_error = false;
 
+      GOPHER_LOG(Debug, "onResponse: id=%s has_error=%d latency=%lums",
+                 requestIdToString(response.id).c_str(), is_error, static_cast<unsigned long>(latency));
+
       if (is_error && response.error.has_value()) {
         int code = response.error->code;
         // JSON-RPC error codes: -32700 to -32000 are protocol errors
@@ -203,8 +220,14 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       }
 
       if (is_error && (config_.track_errors && !is_client_error)) {
+        GOPHER_LOG(Info, "onResponse: Recording FAILURE for id=%s method=%s error_code=%d",
+                   requestIdToString(response.id).c_str(), req_info.method.c_str(),
+                   response.error->code);
         recordFailure(req_info.method);
       } else {
+        GOPHER_LOG(Debug, "onResponse: Recording SUCCESS for id=%s method=%s latency=%lums",
+                   requestIdToString(response.id).c_str(), req_info.method.c_str(),
+                   static_cast<unsigned long>(latency));
         recordSuccess(req_info.method, latency);
       }
 
@@ -276,6 +299,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
 
     switch (state_) {
       case CircuitState::CLOSED:
+        GOPHER_LOG(Debug, "allowRequest: CLOSED - allowing request for method=%s", method.c_str());
         return true;
 
       case CircuitState::OPEN:
@@ -283,20 +307,25 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
         if (std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - last_state_change_) >= config_.timeout) {
           // Transition to half-open
+          GOPHER_LOG(Info, "allowRequest: Transitioning OPEN -> HALF_OPEN after timeout");
           transitionState(CircuitState::HALF_OPEN,
                           "Timeout expired, testing recovery");
           half_open_requests_ = 0;
           half_open_successes_ = 0;
           return true;
         }
+        GOPHER_LOG(Warning, "allowRequest: OPEN - blocking request for method=%s", method.c_str());
         return false;
 
       case CircuitState::HALF_OPEN:
         // Allow limited requests for testing
         if (half_open_requests_ < config_.half_open_max_requests) {
           half_open_requests_++;
+          GOPHER_LOG(Debug, "allowRequest: HALF_OPEN - allowing test request %zu/%zu for method=%s",
+                     static_cast<size_t>(half_open_requests_), config_.half_open_max_requests, method.c_str());
           return true;
         }
+        GOPHER_LOG(Warning, "allowRequest: HALF_OPEN - max requests reached, blocking method=%s", method.c_str());
         return false;
     }
 
@@ -313,9 +342,14 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     request_outcomes_.push_back({now, true, latency_ms});
     consecutive_failures_ = 0;
 
+    GOPHER_LOG(Debug, "recordSuccess: method=%s state=%s consecutive_failures reset to 0",
+               method.c_str(), stateToString(state_));
+
     // Handle half-open state
     if (state_ == CircuitState::HALF_OPEN) {
       half_open_successes_++;
+      GOPHER_LOG(Info, "recordSuccess: HALF_OPEN successes=%zu/%zu",
+                 static_cast<size_t>(half_open_successes_), config_.half_open_success_threshold);
       if (half_open_successes_ >= config_.half_open_success_threshold) {
         transitionState(CircuitState::CLOSED, "Recovery successful");
       }
@@ -335,10 +369,16 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     request_outcomes_.push_back({now, false, 0});
     consecutive_failures_++;
 
+    GOPHER_LOG(Warning, "recordFailure: method=%s consecutive_failures=%zu/%zu state=%s",
+               method.c_str(), static_cast<size_t>(consecutive_failures_),
+               config_.failure_threshold, stateToString(state_));
+
     // Check failure conditions
     if (state_ == CircuitState::CLOSED) {
       // Check consecutive failures
       if (consecutive_failures_ >= config_.failure_threshold) {
+        GOPHER_LOG(Error, "recordFailure: CONSECUTIVE threshold exceeded (%zu >= %zu) - OPENING circuit",
+                   static_cast<size_t>(consecutive_failures_), config_.failure_threshold);
         transitionState(CircuitState::OPEN,
                         "Consecutive failures exceeded threshold: " +
                             std::to_string(consecutive_failures_));
@@ -349,6 +389,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       if (request_outcomes_.size() >= config_.min_requests) {
         double error_rate = calculateErrorRate();
         if (error_rate > config_.error_rate_threshold) {
+          GOPHER_LOG(Error, "recordFailure: ERROR RATE threshold exceeded (%.2f%% > %.2f%%) - OPENING circuit",
+                     error_rate * 100, config_.error_rate_threshold * 100);
           transitionState(CircuitState::OPEN,
                           "Error rate exceeded threshold: " +
                               std::to_string(error_rate * 100) + "%");
@@ -356,6 +398,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       }
     } else if (state_ == CircuitState::HALF_OPEN) {
       // Any failure in half-open returns to open
+      GOPHER_LOG(Error, "recordFailure: Failure during HALF_OPEN test - reopening circuit");
       transitionState(CircuitState::OPEN, "Failure during recovery test");
     }
 
@@ -366,7 +409,17 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     CircuitState old_state = state_;
     state_ = new_state;
     last_state_change_ = std::chrono::steady_clock::now();
-    callbacks_.onStateChange(old_state, new_state, reason);
+
+    GOPHER_LOG(Info, "Circuit state transition: %s -> %s (reason: %s)",
+               stateToString(old_state), stateToString(new_state), reason.c_str());
+
+    std::cout << "[CIRCUIT_BREAKER] ⚡ STATE CHANGE: " << stateToString(old_state)
+              << " → " << stateToString(new_state) << " (reason: " << reason << ")" << std::endl;
+
+    if (callbacks_) {
+      std::cout << "[CIRCUIT_BREAKER] 📞 Invoking onStateChange callback" << std::endl;
+      callbacks_->onStateChange(old_state, new_state, reason);
+    }
   }
 
   void cleanOldMetrics(std::chrono::steady_clock::time_point now) {
@@ -402,7 +455,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     uint64_t avg_latency;
     // Use non-locking version since we're already holding the mutex
     getHealthMetricsNoLock(success_rate, avg_latency);
-    callbacks_.onHealthUpdate(success_rate, avg_latency);
+    if (callbacks_) {
+      callbacks_->onHealthUpdate(success_rate, avg_latency);
+    }
   }
 
   // Internal version of getHealthMetrics that doesn't acquire the lock
@@ -433,7 +488,27 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     avg_latency_ms = latency_count > 0 ? total_latency / latency_count : 0;
   }
 
-  Callbacks& callbacks_;
+  // Helper to convert circuit state to string for logging
+  static const char* stateToString(CircuitState state) {
+    switch (state) {
+      case CircuitState::CLOSED:
+        return "CLOSED";
+      case CircuitState::OPEN:
+        return "OPEN";
+      case CircuitState::HALF_OPEN:
+        return "HALF_OPEN";
+      default:
+        return "UNKNOWN";
+    }
+  }
+
+  // Helper to convert request ID to string for logging
+  static std::string requestIdToString(const json::JsonValue& id) {
+    // Just use toString() which works for all types
+    return id.toString();
+  }
+
+  std::shared_ptr<CircuitBreakerCallbacks> callbacks_;
   CircuitBreakerConfig config_;
   JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
 

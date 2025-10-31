@@ -31,23 +31,45 @@ extern "C" {
 
 /* Export/Import macros for shared library support */
 #if defined(_MSC_VER)
+#ifndef MCP_API_EXPORT
 #define MCP_API_EXPORT __declspec(dllexport)
+#endif
+#ifndef MCP_API_IMPORT
 #define MCP_API_IMPORT __declspec(dllimport)
+#endif
 #define MCP_CALLBACK __stdcall
 #define MCP_NOEXCEPT
 #elif defined(__GNUC__) || defined(__clang__)
+// CMake may define MCP_API_EXPORT as 1, undefine it to set proper attribute
+#ifdef MCP_API_EXPORT
+#if MCP_API_EXPORT == 1
+#undef MCP_API_EXPORT
+#endif
+#endif
+#ifndef MCP_API_EXPORT
 #define MCP_API_EXPORT __attribute__((visibility("default")))
+#endif
+#ifndef MCP_API_IMPORT
 #define MCP_API_IMPORT
+#endif
 #define MCP_CALLBACK
 #define MCP_NOEXCEPT  // GCC 7 doesn't allow attributes on function definitions
 #else
+#ifndef MCP_API_EXPORT
 #define MCP_API_EXPORT
+#endif
+#ifndef MCP_API_IMPORT
 #define MCP_API_IMPORT
+#endif
 #define MCP_CALLBACK
 #define MCP_NOEXCEPT
 #endif
 
 /* API decoration based on build configuration */
+#ifdef MCP_API
+#undef MCP_API
+#endif
+
 #ifdef MCP_BUILD_SHARED
 #ifdef MCP_BUILD_LIBRARY
 #define MCP_API MCP_API_EXPORT

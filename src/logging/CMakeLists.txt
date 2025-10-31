@@ -1,6 +1,8 @@
 # Logging library CMake configuration
 cmake_minimum_required(VERSION 3.14)
 
+find_package(fmt REQUIRED CONFIG)
+
 # Collect logging sources
 set(MCP_LOGGING_SOURCES
   logger.cc

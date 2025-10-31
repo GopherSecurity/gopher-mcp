@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <thread>
 
 #include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_bridge.h"
@@ -71,7 +72,7 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
-    if (impl->running) {
+    if (impl->running || impl->background_thread_running.load()) {
       ErrorManager::SetError(MCP_ERROR_INVALID_STATE,
                              "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
@@ -80,8 +81,8 @@ mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
     impl->running = true;
     impl->dispatcher_thread_id = std::this_thread::get_id();
 
-    // Run the event loop (blocks)
-    impl->dispatcher->run(mcp::event::RunType::Block);
+    // Run the event loop (blocks until exit() called)
+    impl->dispatcher->run(mcp::event::RunType::RunUntilExit);
 
     impl->running = false;
     return MCP_OK;
@@ -95,7 +96,7 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
   TRY_WITH_RAII({
     auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
 
-    if (impl->running) {
+    if (impl->running || impl->background_thread_running.load()) {
       ErrorManager::SetError(MCP_ERROR_INVALID_STATE,
                              "Dispatcher already running");
       return MCP_ERROR_INVALID_STATE;
@@ -109,12 +110,55 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
         impl->dispatcher->createTimer([impl]() { impl->dispatcher->exit(); });
     timer->enableTimer(std::chrono::milliseconds(timeout_ms));
 
-    // Run the event loop
-    impl->dispatcher->run(mcp::event::RunType::Block);
+    // Run the event loop until exit() is invoked or the timer fires
+    impl->dispatcher->run(mcp::event::RunType::RunUntilExit);
 
     impl->running = false;
     return MCP_OK;
   });
+}
+
+mcp_result_t mcp_dispatcher_start_background(
+    mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
+  CHECK_HANDLE_VALID(dispatcher);
+
+  TRY_WITH_RAII({
+    auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+
+    if (impl->running || impl->background_thread_running.load()) {
+      ErrorManager::SetError(MCP_ERROR_INVALID_STATE,
+                             "Dispatcher already running");
+      return MCP_ERROR_INVALID_STATE;
+    }
+
+    impl->background_thread_running = true;
+    try {
+      impl->background_thread = std::thread([impl]() {
+        impl->dispatcher_thread_id = std::this_thread::get_id();
+        impl->running = true;
+        impl->dispatcher->run(mcp::event::RunType::RunUntilExit);
+        impl->running = false;
+        impl->background_thread_running = false;
+      });
+    } catch (...) {
+      impl->background_thread_running = false;
+      throw;
+    }
+
+    return MCP_OK;
+  });
+}
+
+void mcp_dispatcher_join(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
+  if (!dispatcher)
+    return;
+
+  auto impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+  if (impl->background_thread.joinable() &&
+      impl->background_thread.get_id() != std::this_thread::get_id()) {
+    impl->background_thread.join();
+  }
+  impl->background_thread_running = false;
 }
 
 void mcp_dispatcher_stop(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
@@ -236,6 +280,13 @@ void mcp_dispatcher_destroy(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   if (impl->running) {
     impl->dispatcher->exit();
   }
+
+  // Join background thread if active
+  if (impl->background_thread.joinable() &&
+      impl->background_thread.get_id() != std::this_thread::get_id()) {
+    impl->background_thread.join();
+  }
+  impl->background_thread_running = false;
 
   // Clear all timers
   impl->timers.clear();

@@ -2,57 +2,61 @@
  * @file basic-usage.ts
  * @brief Basic usage example for MCP Filter SDK
  *
- * This example demonstrates how to use the core filter infrastructure:
- * - Creating filters
- * - Building filter chains
+ * This example demonstrates how to use the canonical filter configuration:
+ * - Creating filter chains with canonical config
  * - Managing buffers
  * - Using the existing C++ RAII system
  */
 
 import {
   BufferOwnership,
-  BuiltinFilterType,
-  FilterPosition,
-  addFilterToChain,
-  buildFilterChain,
   createBufferFromString,
-  // Filter Buffer
   createBufferOwned,
-  // Filter API
-  createBuiltinFilter,
-  createFilterChainBuilder,
-  createParallelChain,
-  // Filter Chain
-  createSimpleChain,
-  destroyFilterChainBuilder,
   readStringFromBuffer,
+  FilterChain,
+  createRealDispatcher,
+  destroyDispatcher,
 } from "../src";
+import type { CanonicalConfig } from "../src";
 
 /**
- * Example: Create a simple HTTP processing pipeline
+ * Example: Create a simple HTTP processing pipeline using canonical configuration
  */
 async function createHttpPipeline() {
   console.log("🔧 Creating HTTP processing pipeline...");
 
   try {
-    // Create filters for different stages
-    const authFilter = createBuiltinFilter(0, BuiltinFilterType.AUTHENTICATION, {});
-    const rateLimitFilter = createBuiltinFilter(0, BuiltinFilterType.RATE_LIMIT, {});
-    const accessLogFilter = createBuiltinFilter(0, BuiltinFilterType.ACCESS_LOG, {});
+    // Create dispatcher
+    const dispatcher = createRealDispatcher();
 
-    console.log(
-      `✅ Created filters: auth=${authFilter}, rateLimit=${rateLimitFilter}, accessLog=${accessLogFilter}`
-    );
+    // Create filter chain using canonical configuration
+    const config: CanonicalConfig = {
+      listeners: [
+        {
+          name: "http_listener",
+          address: {
+            socket_address: {
+              address: "127.0.0.1",
+              port_value: 8080
+            }
+          },
+          filter_chains: [
+            {
+              filters: [
+                { name: "auth", type: "auth" },
+                { name: "rate_limiter", type: "rate_limiter" },
+                { name: "access_log", type: "access_log" }
+              ]
+            }
+          ]
+        }
+      ]
+    };
 
-    // Create a simple sequential chain
-    const chain = createSimpleChain(
-      0,
-      [authFilter, rateLimitFilter, accessLogFilter],
-      "http-pipeline"
-    );
-    console.log(`✅ Created filter chain: ${chain}`);
+    const filterChain = new FilterChain(dispatcher, config);
+    console.log(`✅ Created filter chain with 3 filters`);
 
-    return { authFilter, rateLimitFilter, accessLogFilter, chain };
+    return { filterChain, config, dispatcher };
   } catch (error) {
     console.error("❌ Failed to create HTTP pipeline:", error);
     throw error;
@@ -60,28 +64,42 @@ async function createHttpPipeline() {
 }
 
 /**
- * Example: Create a parallel processing pipeline
+ * Example: Create a multi-filter pipeline with metrics
  */
-async function createParallelPipeline() {
-  console.log("🔧 Creating parallel processing pipeline...");
+async function createMonitoringPipeline() {
+  console.log("🔧 Creating monitoring pipeline...");
 
   try {
-    // Create multiple filters for parallel processing
-    const filters = [
-      createBuiltinFilter(0, BuiltinFilterType.METRICS, {}),
-      createBuiltinFilter(0, BuiltinFilterType.TRACING, {}),
-      createBuiltinFilter(0, BuiltinFilterType.ACCESS_LOG, {}),
-    ];
+    const config: CanonicalConfig = {
+      listeners: [
+        {
+          name: "monitoring_listener",
+          address: {
+            socket_address: {
+              address: "127.0.0.1",
+              port_value: 9090
+            }
+          },
+          filter_chains: [
+            {
+              filters: [
+                { name: "metrics", type: "metrics" },
+                { name: "tracing", type: "tracing" },
+                { name: "access_log", type: "access_log" }
+              ]
+            }
+          ]
+        }
+      ]
+    };
 
-    console.log(`✅ Created ${filters.length} filters for parallel processing`);
+    const dispatcher = createRealDispatcher();
+    const filterChain = new FilterChain(dispatcher, config);
+    console.log(`✅ Created monitoring pipeline`);
 
-    // Create parallel chain with max 2 concurrent filters
-    const chain = createParallelChain(0, filters, 2, "parallel-pipeline");
-    console.log(`✅ Created parallel filter chain: ${chain}`);
-
-    return { filters, chain };
+    return { filterChain, config, dispatcher };
   } catch (error) {
-    console.error("❌ Failed to create parallel pipeline:", error);
+    console.error("❌ Failed to create monitoring pipeline:", error);
     throw error;
   }
 }
@@ -95,7 +113,7 @@ async function demonstrateBufferOperations() {
   try {
     // Create a buffer from string data
     const buffer = createBufferFromString("Hello, MCP Filter SDK!", BufferOwnership.SHARED);
-    console.log(`✅ Created buffer: ${buffer}`);
+    console.log(`✅ Created buffer`);
 
     // Read the string back from the buffer
     const content = readStringFromBuffer(buffer);
@@ -103,7 +121,7 @@ async function demonstrateBufferOperations() {
 
     // Create a buffer with specific capacity
     const largeBuffer = createBufferOwned(1024, BufferOwnership.EXCLUSIVE);
-    console.log(`✅ Created large buffer: ${largeBuffer}`);
+    console.log(`✅ Created large buffer with 1024 bytes capacity`);
 
     return { buffer, largeBuffer, content };
   } catch (error) {
@@ -113,41 +131,43 @@ async function demonstrateBufferOperations() {
 }
 
 /**
- * Example: Advanced chain composition
+ * Example: Advanced chain with protocol stack
  */
-async function demonstrateAdvancedChains() {
-  console.log("🔧 Demonstrating advanced chain composition...");
+async function demonstrateProtocolStack() {
+  console.log("🔧 Demonstrating protocol stack...");
 
   try {
-    // Create different types of filters
-    const tcpFilter = createBuiltinFilter(0, BuiltinFilterType.TCP_PROXY, {});
-    const tlsFilter = createBuiltinFilter(0, BuiltinFilterType.TLS_TERMINATION, {});
-    const httpFilter = createBuiltinFilter(0, BuiltinFilterType.HTTP_CODEC, {});
+    const config: CanonicalConfig = {
+      listeners: [
+        {
+          name: "protocol_listener",
+          address: {
+            socket_address: {
+              address: "127.0.0.1",
+              port_value: 8443
+            }
+          },
+          filter_chains: [
+            {
+              filters: [
+                { name: "tcp_proxy", type: "tcp_proxy" },
+                { name: "tls", type: "tls" },
+                { name: "http_codec", type: "http.codec" },
+                { name: "json_rpc", type: "json_rpc.dispatcher" }
+              ]
+            }
+          ]
+        }
+      ]
+    };
 
-    console.log(
-      `✅ Created protocol filters: tcp=${tcpFilter}, tls=${tlsFilter}, http=${httpFilter}`
-    );
+    const dispatcher = createRealDispatcher();
+    const filterChain = new FilterChain(dispatcher, config);
+    console.log(`✅ Created protocol stack with 4 layers`);
 
-    // Create a chain builder manually for more control
-    const builder = createFilterChainBuilder(0);
-    console.log(`✅ Created chain builder: ${builder}`);
-
-    // Add filters in specific order
-    addFilterToChain(builder, tcpFilter, FilterPosition.FIRST);
-    addFilterToChain(builder, tlsFilter, FilterPosition.AFTER, tcpFilter);
-    addFilterToChain(builder, httpFilter, FilterPosition.LAST);
-
-    // Build the chain
-    const chain = buildFilterChain(builder);
-    console.log(`✅ Built custom filter chain: ${chain}`);
-
-    // Clean up builder
-    destroyFilterChainBuilder(builder);
-    console.log(`🧹 Cleaned up chain builder`);
-
-    return { tcpFilter, tlsFilter, httpFilter, chain };
+    return { filterChain, config, dispatcher };
   } catch (error) {
-    console.error("❌ Failed to demonstrate advanced chains:", error);
+    console.error("❌ Failed to demonstrate protocol stack:", error);
     throw error;
   }
 }
@@ -158,28 +178,48 @@ async function demonstrateAdvancedChains() {
 async function main() {
   console.log("🚀 MCP Filter SDK - Basic Usage Example\n");
 
+  const dispatchers: any[] = [];
+
   try {
     // Demonstrate different pipeline types
     const httpPipeline = await createHttpPipeline();
+    dispatchers.push(httpPipeline.dispatcher);
     console.log("\n---\n");
 
-    const parallelPipeline = await createParallelPipeline();
+    const monitoringPipeline = await createMonitoringPipeline();
+    dispatchers.push(monitoringPipeline.dispatcher);
     console.log("\n---\n");
 
     const bufferOps = await demonstrateBufferOperations();
     console.log("\n---\n");
 
-    const advancedChains = await demonstrateAdvancedChains();
+    const protocolStack = await demonstrateProtocolStack();
+    dispatchers.push(protocolStack.dispatcher);
     console.log("\n---\n");
 
     console.log("🎉 All examples completed successfully!");
     console.log("\n📊 Summary:");
-    console.log(`- HTTP Pipeline: ${httpPipeline.chain} filters`);
-    console.log(`- Parallel Pipeline: ${parallelPipeline.filters.length} filters`);
+    console.log(`- HTTP Pipeline: created with canonical config`);
+    console.log(`- Monitoring Pipeline: created with canonical config`);
     console.log(`- Buffer Operations: ${bufferOps.content}`);
-    console.log(`- Advanced Chains: ${advancedChains.chain} filters`);
+    console.log(`- Protocol Stack: created with canonical config`);
+
+    // Cleanup
+    console.log("\n🧹 Cleaning up...");
+    for (const dispatcher of dispatchers) {
+      destroyDispatcher(dispatcher);
+    }
+    console.log("✅ Cleanup complete");
   } catch (error) {
     console.error("💥 Example failed:", error);
+    // Cleanup on error
+    for (const dispatcher of dispatchers) {
+      try {
+        destroyDispatcher(dispatcher);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
     process.exit(1);
   }
 }
@@ -191,7 +231,7 @@ if (require.main === module) {
 
 export {
   createHttpPipeline,
-  createParallelPipeline,
-  demonstrateAdvancedChains,
+  createMonitoringPipeline,
+  demonstrateProtocolStack,
   demonstrateBufferOperations,
 };

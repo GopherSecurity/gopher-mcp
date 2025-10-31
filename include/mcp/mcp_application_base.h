@@ -590,8 +590,9 @@ class FilterChainBuilder {
   // Add metrics collection filter
   FilterChainBuilder& withMetrics(const filter::MetricsFilter::Config& config) {
     auto callbacks = std::make_shared<ApplicationMetricsCallbacks>(stats_);
-    auto filter = std::make_shared<filter::MetricsFilter>(*callbacks, config);
-    filters_.push_back(filter);
+    auto filter = std::make_shared<filter::MetricsFilter>(callbacks, config);
+    auto adapter = filter->createNetworkAdapter();
+    filters_.push_back(adapter);
     metrics_filter_ = filter;
     return *this;
   }
@@ -603,7 +604,7 @@ class FilterChainBuilder {
     auto callbacks = std::make_shared<CircuitBreakerCallbacks>(
         stats_, connection, write_callbacks_);
     auto filter =
-        std::make_shared<filter::CircuitBreakerFilter>(*callbacks, config);
+        std::make_shared<filter::CircuitBreakerFilter>(callbacks, config);
     filters_.push_back(filter);
     circuit_breaker_callbacks_ = callbacks;
     return *this;

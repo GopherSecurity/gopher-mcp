@@ -28,6 +28,7 @@
 #include "mcp_c_memory.h"
 #include "mcp_c_types.h"
 #include "mcp_c_types_api.h"
+#include "mcp_c_api_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -257,6 +258,20 @@ MCP_API mcp_result_t mcp_dispatcher_run(mcp_dispatcher_t dispatcher)
  */
 MCP_API mcp_result_t mcp_dispatcher_run_timeout(
     mcp_dispatcher_t dispatcher, uint32_t timeout_ms) MCP_NOEXCEPT;
+
+/**
+ * Start dispatcher event loop on background thread
+ * @param dispatcher Dispatcher handle
+ * @return MCP_OK on success
+ */
+MCP_API mcp_result_t mcp_dispatcher_start_background(
+    mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+
+/**
+ * Join background dispatcher thread (blocks until thread exits)
+ * @param dispatcher Dispatcher handle
+ */
+MCP_API void mcp_dispatcher_join(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
 
 /**
  * Stop the dispatcher
@@ -849,21 +864,23 @@ MCP_API void mcp_server_destroy(mcp_server_t server) MCP_NOEXCEPT;
  * ============================================================================
  */
 
-/**
- * Parse JSON from string
- * @param json JSON string
- * @return JSON value handle or NULL on error
- */
-MCP_API mcp_json_value_t mcp_json_parse(mcp_string_t json) MCP_NOEXCEPT;
+/* JSON Compatibility Wrappers - canonical functions are in mcp_c_api_json.h */
 
 /**
- * Serialize JSON to string
- * @param value JSON value
- * @param pretty Whether to pretty-print
- * @return Serialized string (must be freed)
+ * Parse JSON from mcp_string_t (compatibility wrapper)
+ * @param json JSON string as mcp_string_t
+ * @return JSON value handle or NULL on error
  */
-MCP_API mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value,
-                                                mcp_bool_t pretty) MCP_NOEXCEPT;
+MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCEPT;
+
+/**
+ * Serialize JSON to string buffer (compatibility wrapper)
+ * @param value JSON value
+ * @param pretty Whether to pretty-print (TODO: not yet implemented)
+ * @return Serialized string buffer (must be freed with mcp_string_buffer_free)
+ */
+MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
+                                                       mcp_bool_t pretty) MCP_NOEXCEPT;
 
 /**
  * Clone JSON value
@@ -873,8 +890,8 @@ MCP_API mcp_string_buffer_t* mcp_json_stringify(mcp_json_value_t value,
 MCP_API mcp_json_value_t mcp_json_clone(mcp_json_value_t value) MCP_NOEXCEPT;
 
 /**
- * Release JSON value
- * @param value JSON value
+ * Release JSON value (deprecated; use mcp_json_free)
+ * Provided for ABI compatibility.
  */
 MCP_API void mcp_json_release(mcp_json_value_t value) MCP_NOEXCEPT;
 

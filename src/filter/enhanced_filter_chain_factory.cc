@@ -56,7 +56,8 @@ class EnhancedProtocolFilter : public network::Filter,
 
     if (config_.enable_metrics) {
       metrics_collector_ = std::make_shared<MetricsFilter>(
-          *this, dispatcher_, config_.metrics_config);
+          *this, config_.metrics_config);
+      metrics_network_adapter_ = metrics_collector_->createNetworkAdapter();
     }
 
     if (config_.enable_request_validation) {
@@ -107,8 +108,8 @@ class EnhancedProtocolFilter : public network::Filter,
       }
     }
 
-    if (metrics_collector_) {
-      metrics_collector_->onData(data, end_stream);
+    if (metrics_network_adapter_) {
+      metrics_network_adapter_->onData(data, end_stream);
     }
 
     if (request_validator_) {
@@ -152,8 +153,8 @@ class EnhancedProtocolFilter : public network::Filter,
       circuit_breaker_->onNewConnection();
     if (rate_limiter_)
       rate_limiter_->onNewConnection();
-    if (metrics_collector_)
-      metrics_collector_->onNewConnection();
+    if (metrics_network_adapter_)
+      metrics_network_adapter_->onNewConnection();
     if (request_validator_)
       request_validator_->onNewConnection();
     if (backpressure_manager_)
@@ -190,8 +191,8 @@ class EnhancedProtocolFilter : public network::Filter,
       circuit_breaker_->initializeReadFilterCallbacks(callbacks);
     if (rate_limiter_)
       rate_limiter_->initializeReadFilterCallbacks(callbacks);
-    if (metrics_collector_)
-      metrics_collector_->initializeReadFilterCallbacks(callbacks);
+    if (metrics_network_adapter_)
+      metrics_network_adapter_->initializeReadFilterCallbacks(callbacks);
     if (request_validator_)
       request_validator_->initializeReadFilterCallbacks(callbacks);
     if (backpressure_manager_)
@@ -208,8 +209,8 @@ class EnhancedProtocolFilter : public network::Filter,
       circuit_breaker_->initializeWriteFilterCallbacks(callbacks);
     if (rate_limiter_)
       rate_limiter_->initializeWriteFilterCallbacks(callbacks);
-    if (metrics_collector_)
-      metrics_collector_->initializeWriteFilterCallbacks(callbacks);
+    if (metrics_network_adapter_)
+      metrics_network_adapter_->initializeWriteFilterCallbacks(callbacks);
     if (request_validator_)
       request_validator_->initializeWriteFilterCallbacks(callbacks);
     if (backpressure_manager_)
@@ -411,6 +412,7 @@ class EnhancedProtocolFilter : public network::Filter,
   std::shared_ptr<CircuitBreakerFilter> circuit_breaker_;
   std::shared_ptr<RateLimitFilter> rate_limiter_;
   std::shared_ptr<MetricsFilter> metrics_collector_;
+  std::shared_ptr<MetricsFilter::NetworkAdapter> metrics_network_adapter_;
   std::shared_ptr<RequestValidationFilter> request_validator_;
   std::shared_ptr<BackpressureFilter> backpressure_manager_;
 

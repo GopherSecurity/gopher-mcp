@@ -1,0 +1,67 @@
+{
+  "listeners": [
+    {
+      "name": "http_mcp_server_listener",
+      "filter_chains": [
+        {
+          "name": "http_server_filters",
+          "filters": [
+            {
+              "name": "rate_limiter",
+              "type": "rate_limit",
+              "config": {
+                "strategy": "token_bucket",
+                "bucket_capacity": 100,
+                "refill_rate": 50,
+                "allow_burst": true,
+                "burst_size": 25,
+                "debug_token_count": false
+              }
+            },
+            {
+              "name": "metrics",
+              "type": "metrics",
+              "config": {
+                "provider": "internal",
+                "rate_update_interval_seconds": 1,
+                "report_interval_seconds": 10,
+                "max_latency_threshold_ms": 5000,
+                "error_rate_threshold": 10,
+                "track_methods": true,
+                "enable_histograms": false
+              }
+            },
+            {
+              "name": "request_logger",
+              "type": "request_logger",
+              "config": {
+                "log_level": "debug",
+                "log_format": "pretty",
+                "include_timestamps": true,
+                "include_payload": true,
+                "max_payload_length": 1000,
+                "output": "stdout"
+              }
+            },
+            {
+              "name": "circuit_breaker",
+              "type": "circuit_breaker",
+              "config": {
+                "failure_threshold": 5,
+                "error_rate_threshold": 0.5,
+                "min_requests": 10,
+                "timeout_ms": 10000,
+                "window_size_ms": 60000,
+                "half_open_max_requests": 3,
+                "half_open_success_threshold": 2,
+                "track_timeouts": true,
+                "track_errors": true,
+                "track_4xx_as_errors": false
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

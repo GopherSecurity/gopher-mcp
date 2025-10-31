@@ -8,6 +8,7 @@
 
 #include "mcp/buffer.h"
 #include "mcp/core/compat.h"
+#include "mcp/filter/filter_service_types.h"
 #include "mcp/network/transport_socket.h"
 
 namespace mcp {
@@ -15,6 +16,12 @@ namespace mcp {
 // Forward declare event namespace types
 namespace event {
 class Dispatcher;
+}
+
+// Forward declarations for filter-level callback types
+namespace filter {
+class CircuitBreakerFilter;
+class CircuitBreakerCallbacks;
 }
 
 namespace network {
@@ -86,6 +93,12 @@ class ReadFilterCallbacks {
    * Check if we should continue filter iteration on new data
    */
   virtual bool shouldContinueFilterChain() = 0;
+
+  /**
+   * Inject decoded data directly into the downstream read filter chain.
+   * Filters use this to hand off protocol payloads to the next filter.
+   */
+  virtual void injectReadDataToFilterChain(Buffer& data, bool end_stream) = 0;
 };
 
 /**
@@ -182,6 +195,112 @@ class WriteFilter {
 class Filter : public ReadFilter, public WriteFilter {
  public:
   virtual ~Filter() = default;
+};
+
+/**
+ * Optional interface for filters requiring runtime dependency injection
+ *
+ * Filters that need access to dispatcher (for timers), callbacks (for events),
+ * metrics (for observability), or circuit breaker state should implement this.
+ *
+ * DEFAULT IMPLEMENTATIONS:
+ * All methods have default no-op implementations, so filters only override
+ * the methods for services they actually need.
+ *
+ * OWNERSHIP CONTRACTS:
+ * - dispatcher, callbacks: BORROWED - do not delete, do not access after chain destroyed
+ * - metrics, circuit_breaker: SHARED - safe to hold as member variables
+ *
+ * THREAD SAFETY:
+ * - setDispatcher/setCallbacks: Called once during chain initialization
+ * - setMetrics/setCircuitBreaker: Called once during chain initialization
+ * - All set* methods MUST be thread-safe with filter processing methods
+ */
+class DependencyInjectionAware {
+ public:
+  virtual ~DependencyInjectionAware() = default;
+
+  /**
+   * Inject event dispatcher for scheduling timers/posting work
+   *
+   * OWNERSHIP: BORROWED - Filter must not delete
+   * LIFETIME: Valid until chain destruction
+   *
+   * Example usage (RateLimitFilter):
+   *   dispatcher_ptr_ = dispatcher;  // Store pointer
+   *   timer_ = dispatcher->createTimer([this]() { refillTokens(); });
+   *   timer_->enableTimer(std::chrono::seconds(1));
+   */
+  virtual void setDispatcher(filter::DispatcherService dispatcher) {
+    // Default: no-op
+    (void)dispatcher;
+  }
+
+  /**
+   * Inject protocol callbacks for emitting protocol events
+   *
+   * OWNERSHIP: BORROWED - Filter must not delete
+   * LIFETIME: Application must ensure outlives chain
+   *
+   * Example usage (JsonRpcDispatcherFilter):
+   *   callbacks_ptr_ = callbacks;  // Store pointer
+   *   callbacks->onRequest(request);  // Emit event
+   *
+   * NOTE: May be nullptr if NullProtocolCallbacks used
+   */
+  virtual void setCallbacks(filter::CallbacksService callbacks) {
+    // Default: no-op
+    (void)callbacks;
+  }
+
+  /**
+   * Inject metrics sink for recording metrics
+   *
+   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
+   * LIFETIME: Managed by refcount
+   *
+   * Example usage (RateLimitFilter):
+   *   metrics_ = metrics;  // Store shared_ptr
+   *   if (metrics_) {
+   *     metrics_->incrementCounter("rate_limit.rejected");
+   *   }
+   */
+  virtual void setMetrics(filter::MetricsService metrics) {
+    // Default: no-op
+    (void)metrics;
+  }
+
+  /**
+   * Inject circuit breaker state for failure tracking
+   *
+   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
+   * LIFETIME: Managed by refcount
+   *
+   * Example usage (CircuitBreakerFilter):
+   *   circuit_breaker_ = circuit_breaker;  // Store shared_ptr
+   *   if (circuit_breaker_->circuit_open.load()) {
+   *     return FilterStatus::StopIteration;  // Fast-fail
+   *   }
+   */
+  virtual void setCircuitBreaker(filter::CircuitBreakerService circuit_breaker) {
+    // Default: no-op
+    (void)circuit_breaker;
+  }
+
+  /**
+   * Inject circuit breaker callbacks for event notifications
+   *
+   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
+   * LIFETIME: Managed by refcount
+   *
+   * NOTE: This is specifically for CircuitBreakerFilter to update its callbacks
+   * at runtime. Most filters won't implement this.
+   */
+  virtual void setCircuitBreakerCallbacks(
+      std::shared_ptr<filter::CircuitBreakerCallbacks> callbacks) {
+    // Default: no-op - only CircuitBreakerFilter implements this
+    (void)callbacks;
+  }
 };
 
 /**
@@ -359,6 +478,7 @@ class FilterManagerImpl : public FilterManager,
     upstream_host_ = host;
   }
   bool shouldContinueFilterChain() override;
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override;
 
   // WriteFilterCallbacks interface
   void injectWriteDataToFilterChain(Buffer& data, bool end_stream) override;
@@ -382,7 +502,7 @@ class FilterManagerImpl : public FilterManager,
 
   // Current filter being processed
   std::vector<ReadFilterSharedPtr>::iterator current_read_filter_;
-  std::vector<WriteFilterSharedPtr>::iterator current_write_filter_;
+  std::vector<WriteFilterSharedPtr>::reverse_iterator current_write_filter_;
 
   // State machine for managing filter chain lifecycle
   std::unique_ptr<FilterChainStateMachine> state_machine_;
@@ -432,6 +552,10 @@ class NetworkFilterBase : public Filter, protected FilterCallbacks {
 
   bool shouldContinueFilterChain() override {
     return read_callbacks_->shouldContinueFilterChain();
+  }
+
+  void injectReadDataToFilterChain(Buffer& data, bool end_stream) override {
+    read_callbacks_->injectReadDataToFilterChain(data, end_stream);
   }
 
   void injectWriteDataToFilterChain(Buffer& data, bool end_stream) override {

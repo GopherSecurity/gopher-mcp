@@ -120,9 +120,14 @@ class RateLimitFilter : public network::NetworkFilterBase {
         last_refill_(std::chrono::steady_clock::now()) {
     // Initialize based on strategy
     switch (config_.strategy) {
-      case RateLimitStrategy::TokenBucket:
-        tokens_ = config_.bucket_capacity;
+      case RateLimitStrategy::TokenBucket: {
+        size_t initial_tokens = config_.bucket_capacity;
+        if (config_.allow_burst) {
+          initial_tokens += config_.burst_size;
+        }
+        tokens_ = initial_tokens;
         break;
+      }
       case RateLimitStrategy::SlidingWindow:
       case RateLimitStrategy::FixedWindow:
         window_start_ = std::chrono::steady_clock::now();
@@ -193,7 +198,11 @@ class RateLimitFilter : public network::NetworkFilterBase {
 
     if (elapsed.count() > 0) {
       size_t tokens_to_add = config_.refill_rate * elapsed.count();
-      tokens_ = std::min(tokens_ + tokens_to_add, config_.bucket_capacity);
+      size_t max_capacity = config_.bucket_capacity;
+      if (config_.allow_burst) {
+        max_capacity += config_.burst_size;
+      }
+      tokens_ = std::min(tokens_ + tokens_to_add, max_capacity);
       last_refill_ = now;
     }
 

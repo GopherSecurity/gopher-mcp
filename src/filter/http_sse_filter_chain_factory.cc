@@ -687,7 +687,6 @@ bool HttpSseFilterChainFactory::createFilterChain(
   // 3. Metrics Filter (collects statistics)
 
   // Create metrics filter if enabled
-  std::shared_ptr<filter::MetricsFilter> metrics_filter;
   if (enable_metrics_) {
     // Create simple metrics callbacks
     class SimpleMetricsCallbacks
@@ -703,15 +702,17 @@ bool HttpSseFilterChainFactory::createFilterChain(
       }
     };
 
-    static SimpleMetricsCallbacks metrics_callbacks;
+    auto metrics_callbacks = std::make_shared<SimpleMetricsCallbacks>();
     filter::MetricsFilter::Config metrics_config;
     metrics_config.track_methods = true;
 
-    metrics_filter = std::make_shared<filter::MetricsFilter>(metrics_callbacks,
-                                                             metrics_config);
-    filter_manager.addReadFilter(metrics_filter);
-    filter_manager.addWriteFilter(metrics_filter);
-    filters_.push_back(metrics_filter);
+    auto metrics_filter =
+        std::make_shared<filter::MetricsFilter>(metrics_callbacks,
+                                                metrics_config);
+    auto metrics_adapter = metrics_filter->createNetworkAdapter();
+    filter_manager.addReadFilter(metrics_adapter);
+    filter_manager.addWriteFilter(metrics_adapter);
+    filters_.push_back(metrics_adapter);
   }
 
   // Routing is now integrated into the combined filter

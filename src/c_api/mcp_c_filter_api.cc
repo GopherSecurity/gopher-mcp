@@ -13,12 +13,14 @@
 #include <vector>
 
 #include "mcp/buffer.h"
+#include "mcp/c_api/mcp_c_bridge.h"
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/filter.h"
 
 #include "handle_manager.h"
+#include "unified_filter_chain.h"
 
 namespace mcp {
 namespace filter_api {
@@ -30,9 +32,22 @@ using c_api_internal::HandleManager;
 // ============================================================================
 
 // Global handle managers
-static HandleManager<network::Filter> g_filter_manager;
+HandleManager<network::Filter> g_filter_manager;  // Made non-static for external linkage
 HandleManager<Buffer> g_buffer_manager;  // Made non-static for external linkage
 static HandleManager<event::Dispatcher> g_dispatcher_manager;
+
+}  // namespace filter_api
+}  // namespace mcp
+
+// Reference to the global unified chain manager (defined in mcp_c_filter_chain.cc)
+namespace mcp {
+namespace c_api_internal {
+extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
+}
+}
+
+namespace mcp {
+namespace filter_api {
 
 // ============================================================================
 // Filter Chain Management
@@ -79,7 +94,8 @@ class FilterChain {
   std::vector<std::shared_ptr<network::Filter>> filters_;
 };
 
-static HandleManager<FilterChain> g_filter_chain_manager;
+// No longer needed - using unified chain manager instead
+// static HandleManager<FilterChain> g_filter_chain_manager;
 
 // ============================================================================
 // Filter Chain Builder
@@ -467,10 +483,16 @@ mcp_filter_chain_build(mcp_filter_chain_builder_t builder) MCP_NOEXCEPT {
   if (!builder)
     return 0;
 
-  auto chain = std::move(
+  auto chain_unique = std::move(
       reinterpret_cast<mcp::filter_api::mcp_filter_chain_builder*>(builder)
           ->chain);
-  return g_filter_chain_manager.store(std::move(chain));
+  
+  // Convert unique_ptr to shared_ptr
+  auto chain_shared = std::shared_ptr<mcp::filter_api::FilterChain>(std::move(chain_unique));
+  
+  // Wrap in unified chain and store via unified manager
+  auto unified = std::make_shared<mcp::c_api_internal::UnifiedFilterChain>(chain_shared);
+  return mcp::c_api_internal::g_unified_chain_manager.store(unified);
 }
 
 MCP_API void mcp_filter_chain_builder_destroy(
@@ -479,11 +501,11 @@ MCP_API void mcp_filter_chain_builder_destroy(
 }
 
 MCP_API void mcp_filter_chain_retain(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  g_filter_chain_manager.retain(chain);
+  mcp::c_api_internal::g_unified_chain_manager.retain(chain);
 }
 
 MCP_API void mcp_filter_chain_release(mcp_filter_chain_t chain) MCP_NOEXCEPT {
-  g_filter_chain_manager.release(chain);
+  mcp::c_api_internal::g_unified_chain_manager.release(chain);
 }
 
 // Filter Manager
@@ -491,9 +513,28 @@ MCP_API void mcp_filter_chain_release(mcp_filter_chain_t chain) MCP_NOEXCEPT {
 MCP_API mcp_filter_manager_t mcp_filter_manager_create(
     mcp_connection_t connection, mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
   try {
-    // TODO: Get actual connection and dispatcher objects
-    // For now, create with nullptrs
-    auto wrapper = std::make_shared<FilterManagerWrapper>(nullptr, nullptr);
+    // Get actual connection and dispatcher objects from the handles
+    mcp::network::Connection* conn = nullptr;
+    mcp::event::Dispatcher* disp = nullptr;
+
+    if (connection) {
+      // Cast the opaque handle to the actual implementation
+      auto conn_impl = reinterpret_cast<mcp::c_api::mcp_connection_impl*>(connection);
+      if (conn_impl && conn_impl->connection) {
+        conn = conn_impl->connection.get();
+      }
+    }
+
+    if (dispatcher) {
+      // Cast the opaque handle to the actual implementation
+      auto disp_impl = reinterpret_cast<mcp::c_api::mcp_dispatcher_impl*>(dispatcher);
+      if (disp_impl && disp_impl->dispatcher) {
+        disp = disp_impl->dispatcher.get();
+      }
+    }
+
+    // Now create wrapper with actual objects instead of nullptr
+    auto wrapper = std::make_shared<FilterManagerWrapper>(conn, disp);
     return g_filter_manager_manager.store(wrapper);
   } catch (...) {
     return 0;
@@ -520,9 +561,13 @@ MCP_API mcp_result_t mcp_filter_manager_add_chain(
   if (!manager_ptr)
     return MCP_ERROR_NOT_FOUND;
 
-  auto chain_ptr = g_filter_chain_manager.get(chain);
-  if (!chain_ptr)
+  auto unified_chain = mcp::c_api_internal::g_unified_chain_manager.get(chain);
+  if (!unified_chain)
     return MCP_ERROR_NOT_FOUND;
+  
+  auto chain_ptr = unified_chain->getSimpleChain();
+  if (!chain_ptr)
+    return MCP_ERROR_NOT_FOUND;  // Chain is not a simple chain
 
   manager_ptr->addChain(chain_ptr);
   return MCP_OK;

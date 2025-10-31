@@ -7,6 +7,8 @@
  * clients vs servers and in what order.
  */
 
+#include <memory>
+
 #include "mcp/client/mcp_client.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
@@ -29,7 +31,7 @@ namespace examples {
  */
 class ProductionMcpClient : public client::McpClient {
  public:
-  void setupFilterChain(application::FilterChainBuilder& builder) override {
+ void setupFilterChain(application::FilterChainBuilder& builder) override {
     // =========================================================================
     // Layer 1: CIRCUIT BREAKER (CLIENT ESSENTIAL)
     // =========================================================================
@@ -47,7 +49,7 @@ class ProductionMcpClient : public client::McpClient {
       // CLIENT-SPECIFIC: More aggressive circuit breaking
       // Clients should fail fast to prevent blocking user operations
       return std::make_shared<filter::CircuitBreakerFilter>(
-          *circuit_breaker_callbacks_, config);
+          circuit_breaker_callbacks_, config);
     });
 
     // =========================================================================
@@ -101,8 +103,10 @@ class ProductionMcpClient : public client::McpClient {
 
       // CLIENT-SPECIFIC: Focus on integration health
       // Track success rates and latencies per method
-      return std::make_shared<filter::MetricsFilter>(*metrics_callbacks_,
-                                                     config);
+      auto filter =
+          std::make_shared<filter::MetricsFilter>(*metrics_callbacks_, config);
+      metrics_filter_ = filter;
+      return filter->createNetworkAdapter();
     });
 
     // =========================================================================
@@ -129,6 +133,7 @@ class ProductionMcpClient : public client::McpClient {
   }
 
  private:
+  std::shared_ptr<filter::MetricsFilter> metrics_filter_;
   bool is_development_ = false;
 };
 
@@ -149,7 +154,7 @@ class BatchMcpClient : public client::McpClient {
 
       // BATCH-SPECIFIC: Fail entire batch quickly
       return std::make_shared<filter::CircuitBreakerFilter>(
-          *circuit_breaker_callbacks_, config);
+          circuit_breaker_callbacks_, config);
     });
 
     // RATE LIMITING - ESSENTIAL for batch operations
@@ -214,7 +219,7 @@ class ProductionMcpServer : public server::McpServer {
         // SERVER-SPECIFIC: Protect downstream services
         // Only for outbound calls from server
         return std::make_shared<filter::CircuitBreakerFilter>(
-            *circuit_breaker_callbacks_, config);
+            circuit_breaker_callbacks_, config);
       });
     }
 
@@ -251,8 +256,10 @@ class ProductionMcpServer : public server::McpServer {
 
       // SERVER-SPECIFIC: Comprehensive metrics for monitoring
       // Export to Prometheus, track SLAs
-      return std::make_shared<filter::MetricsFilter>(*metrics_callbacks_,
-                                                     config);
+      auto filter =
+          std::make_shared<filter::MetricsFilter>(*metrics_callbacks_, config);
+      metrics_filter_ = filter;
+      return filter->createNetworkAdapter();
     });
 
     // =========================================================================
@@ -288,9 +295,10 @@ class ProductionMcpServer : public server::McpServer {
 
     // Layer 6: JSON-RPC Protocol (always innermost)
     builder.addFilter(createJsonRpcFilter());
-  }
+ }
 
  private:
+  std::shared_ptr<filter::MetricsFilter> metrics_filter_;
   bool has_external_dependencies_ = true;
 };
 
@@ -347,11 +355,22 @@ class DevelopmentMcpSetup {
   void setupMinimalFilters(application::FilterChainBuilder& builder) {
     // Just metrics for observability and JSON-RPC for protocol
     builder.addFilter([]() {
+      struct DebugMetricsCallbacks : filter::MetricsFilter::MetricsCallbacks {
+        void onMetricsUpdate(const filter::ConnectionMetrics&) override {}
+        void onThresholdExceeded(const std::string&, uint64_t, uint64_t)
+            override {}
+      };
+
+      static DebugMetricsCallbacks callbacks;
+
       filter::MetricsFilter::Config config;
       config.report_interval =
           std::chrono::seconds(1);  // Frequent for debugging
       config.track_methods = true;
-      return std::make_shared<filter::MetricsFilter>(callbacks, config);
+
+      auto filter =
+          std::make_shared<filter::MetricsFilter>(callbacks, config);
+      return filter->createNetworkAdapter();
     });
 
     builder.addFilter(createJsonRpcFilter());

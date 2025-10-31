@@ -37,3 +37,32 @@ export {
 
 // Type definitions
 export * from "./types";
+
+// FilterChain FFI wrapper for Hybrid SDK
+export { FilterChain } from "./filter-chain-ffi";
+
+// Metrics callbacks bridge
+export {
+  registerMetricsCallbacks,
+  unregisterMetricsCallbacks,
+} from "./metrics-callbacks";
+export type {
+  MetricsCallbacks,
+  MetricsSnapshot,
+  MetricsThresholdEvent,
+} from "./types/metrics";
+
+// Filter types and enums for Hybrid SDK (avoid re-exporting conflicting types)
+export {
+  FilterResultCode,
+  FilterDecision,
+  FilterMessage,
+  FilterResult,
+  FilterMetrics,
+} from "./filter-types";
+export type { CanonicalConfig } from "./filter-types";
+
+// Hybrid SDK + Gopher Filters
+export { GopherFilteredTransport, FilterDeniedError } from "./gopher-filtered-transport";
+export type { GopherFilteredTransportConfig } from "./gopher-filtered-transport";
+export { MessageQueue } from "./message-queue";
