@@ -35,6 +35,7 @@ using c_api_internal::g_unified_chain_manager;
 
 // Forward declare the AdvancedFilterChain class
 class AdvancedFilterChain;
+class RuntimeServices;
 
 // Forward declare helper functions from mcp_c_filter_chain.cc
 extern void advancedChainSetCircuitBreakerCallbacks(
@@ -44,8 +45,8 @@ extern void advancedChainSetCircuitBreakerCallbacks(
 extern void advancedChainClearCircuitBreakerCallbacks(
     AdvancedFilterChain* chain);
 
-extern std::shared_ptr<filter::RuntimeServices> advancedChainGetRuntimeServices(
-    AdvancedFilterChain* chain);
+extern bool advanced_chain_has_circuit_breaker_callbacks(
+    const AdvancedFilterChain& chain);
 
 }  // namespace filter_chain
 }  // namespace mcp
@@ -148,18 +149,24 @@ int mcp_filter_chain_set_circuit_breaker_callbacks(
   // Only advanced chains support callback registration
   try {
     // Create callback bridge that wraps C callbacks as C++ interface
-    auto callback_bridge = std::make_shared<CircuitBreakerCallbackBridge>(*callbacks);
+    auto callback_bridge =
+        std::make_shared<CircuitBreakerCallbackBridge>(*callbacks);
 
-    if (!unified_chain->setCircuitBreakerCallbacks(callback_bridge)) {
+    auto advanced_chain = unified_chain->getAdvancedChain();
+    if (!advanced_chain) {
       GOPHER_LOG(Warning, "Chain does not support circuit breaker callbacks");
       return -3;
     }
+
+    advancedChainSetCircuitBreakerCallbacks(
+        advanced_chain.get(), callback_bridge);
 
     GOPHER_LOG(Info, "Circuit breaker callbacks registered successfully");
     return 0;
 
   } catch (const std::exception& e) {
-    GOPHER_LOG(Error, "Failed to register circuit breaker callbacks: %s", e.what());
+    GOPHER_LOG(Error, "Failed to register circuit breaker callbacks: %s",
+               e.what());
     return -3;
   }
 }
@@ -179,16 +186,20 @@ int mcp_filter_chain_clear_circuit_breaker_callbacks(
   }
 
   try {
-    if (!unified_chain->clearCircuitBreakerCallbacks()) {
+    auto advanced_chain = unified_chain->getAdvancedChain();
+    if (!advanced_chain) {
       GOPHER_LOG(Warning, "Chain does not support circuit breaker callbacks");
       return -3;
     }
+
+    advancedChainClearCircuitBreakerCallbacks(advanced_chain.get());
 
     GOPHER_LOG(Info, "Circuit breaker callbacks cleared successfully");
     return 0;
 
   } catch (const std::exception& e) {
-    GOPHER_LOG(Error, "Failed to clear circuit breaker callbacks: %s", e.what());
+    GOPHER_LOG(Error, "Failed to clear circuit breaker callbacks: %s",
+               e.what());
     return -3;
   }
 }
@@ -207,7 +218,17 @@ int mcp_filter_chain_has_circuit_breaker_callbacks(
     return -1;
   }
 
-  return unified_chain->hasCircuitBreakerCallbacks() ? 1 : 0;
+  try {
+    auto advanced_chain = unified_chain->getAdvancedChain();
+    if (!advanced_chain) {
+      return -3;
+    }
+    return advanced_chain_has_circuit_breaker_callbacks(*advanced_chain) ? 1 : 0;
+  } catch (const std::exception& e) {
+    GOPHER_LOG(Error, "Failed to check circuit breaker callbacks: %s",
+               e.what());
+    return -3;
+  }
 }
 
 const char* mcp_circuit_state_to_string(mcp_circuit_state_t state) {
