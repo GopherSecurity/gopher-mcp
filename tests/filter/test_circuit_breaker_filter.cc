@@ -10,6 +10,9 @@
 #include <gtest/gtest.h>
 
 #include "../../include/mcp/filter/circuit_breaker_filter.h"
+#include "../../include/mcp/filter/filter_chain_callbacks.h"
+#include "../../include/mcp/filter/filter_chain_event_hub.h"
+#include "../../include/mcp/filter/filter_event_emitter.h"
 #include "../integration/real_io_test_base.h"
 
 using namespace mcp;
@@ -19,21 +22,16 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Mock callbacks for circuit breaker events
-class MockCircuitBreakerCallbacks : public CircuitBreakerFilter::Callbacks {
+// Mock chain-level callbacks for filter events
+class MockFilterChainCallbacks : public FilterChainCallbacks {
  public:
-  MOCK_METHOD(void,
-              onStateChange,
-              (CircuitState old_state,
-               CircuitState new_state,
-               const std::string& reason),
-              (override));
-  MOCK_METHOD(void, onRequestBlocked, (const std::string& method), (override));
-  MOCK_METHOD(void,
-              onHealthUpdate,
-              (double success_rate, uint64_t latency_ms),
-              (override));
+  MOCK_METHOD(void, onFilterEvent, (const FilterEvent& event), (override));
 };
+
+// Custom matcher for FilterEvent by event type
+MATCHER_P(HasEventType, expected_type, "") {
+  return arg.event_type == expected_type;
+}
 
 // Mock JSON-RPC callbacks
 class MockJsonRpcCallbacks : public JsonRpcProtocolFilter::MessageHandler {
@@ -55,8 +53,14 @@ class CircuitBreakerFilterTest : public test::RealIoTestBase {
   void SetUp() override {
     RealIoTestBase::SetUp();
 
-    // Create mock callbacks
-    callbacks_ = std::make_unique<NiceMock<MockCircuitBreakerCallbacks>>();
+    // Create event hub and callbacks
+    event_hub_ = std::make_shared<FilterChainEventHub>();
+    callbacks_ = std::make_shared<NiceMock<MockFilterChainCallbacks>>();
+
+    // Register callbacks with event hub
+    observer_handle_ = event_hub_->registerObserver(callbacks_);
+
+    // Create JSON-RPC mock callbacks
     next_callbacks_ = std::make_unique<NiceMock<MockJsonRpcCallbacks>>();
 
     // Create filter with test configuration
@@ -68,7 +72,14 @@ class CircuitBreakerFilterTest : public test::RealIoTestBase {
     config_.half_open_success_threshold = 2;
 
     executeInDispatcher([this]() {
-      filter_ = std::make_unique<CircuitBreakerFilter>(*callbacks_, config_);
+      // Create emitter that will send events to the hub
+      auto emitter = std::make_shared<FilterEventEmitter>(
+          event_hub_,
+          "circuit_breaker",
+          "",   // no instance ID for tests
+          "");  // no chain ID for tests
+
+      filter_ = std::make_unique<CircuitBreakerFilter>(emitter, config_);
       filter_->setNextCallbacks(next_callbacks_.get());
     });
   }
@@ -107,7 +118,9 @@ class CircuitBreakerFilterTest : public test::RealIoTestBase {
 
  protected:
   std::unique_ptr<CircuitBreakerFilter> filter_;
-  std::unique_ptr<MockCircuitBreakerCallbacks> callbacks_;
+  std::shared_ptr<MockFilterChainCallbacks> callbacks_;
+  std::shared_ptr<FilterChainEventHub> event_hub_;
+  FilterChainEventHub::ObserverHandle observer_handle_;
   std::unique_ptr<MockJsonRpcCallbacks> next_callbacks_;
   CircuitBreakerConfig config_;
 };
@@ -116,7 +129,10 @@ class CircuitBreakerFilterTest : public test::RealIoTestBase {
 TEST_F(CircuitBreakerFilterTest, CircuitRemainsClosedOnSuccess) {
   // Expect all requests to be forwarded
   EXPECT_CALL(*next_callbacks_, onRequest(_)).Times(5);
-  EXPECT_CALL(*callbacks_, onRequestBlocked(_)).Times(0);
+  // No CIRCUIT_REQUEST_BLOCKED events expected
+  EXPECT_CALL(*callbacks_,
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
+      .Times(0);
 
   executeInDispatcher([this]() {
     // Send successful requests
@@ -136,9 +152,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitRemainsClosedOnSuccess) {
 
 // Test circuit opens after consecutive failures
 TEST_F(CircuitBreakerFilterTest, CircuitOpensAfterConsecutiveFailures) {
-  // Expect state change to OPEN
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::CLOSED, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -172,7 +188,9 @@ TEST_F(CircuitBreakerFilterTest, RequestsBlockedWhenCircuitOpen) {
   EXPECT_EQ(filter_->getState(), CircuitState::OPEN);
 
   // Now try to send request - should be blocked
-  EXPECT_CALL(*callbacks_, onRequestBlocked("blocked.method")).Times(1);
+  EXPECT_CALL(*callbacks_,
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
+      .Times(1);
   EXPECT_CALL(*next_callbacks_, onRequest(_)).Times(0);
 
   executeInDispatcher([this]() {
@@ -225,9 +243,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitClosesFromHalfOpenOnSuccess) {
   // Wait for timeout to transition to half-open
   std::this_thread::sleep_for(150ms);
 
-  // Expect state change to CLOSED
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to CLOSED
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::HALF_OPEN, CircuitState::CLOSED, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -267,9 +285,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitReopensFromHalfOpenOnFailure) {
 
   EXPECT_EQ(filter_->getState(), CircuitState::HALF_OPEN);
 
-  // Expect state change back to OPEN
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning back to OPEN
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::HALF_OPEN, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -285,8 +303,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitReopensFromHalfOpenOnFailure) {
 // Test error rate threshold triggers circuit open
 TEST_F(CircuitBreakerFilterTest, ErrorRateThresholdTriggersOpen) {
   // Set up for error rate testing (50% threshold)
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::CLOSED, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -313,7 +332,10 @@ TEST_F(CircuitBreakerFilterTest, ErrorRateThresholdTriggersOpen) {
 
 // Test health metrics updates
 TEST_F(CircuitBreakerFilterTest, HealthMetricsUpdate) {
-  EXPECT_CALL(*callbacks_, onHealthUpdate(_, _)).Times(AtLeast(1));
+  // Expect CIRCUIT_HEALTH_UPDATE events
+  EXPECT_CALL(*callbacks_,
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+      .Times(AtLeast(1));
 
   executeInDispatcher([this]() {
     // Send requests with varying latencies
@@ -358,8 +380,9 @@ TEST_F(CircuitBreakerFilterTest, ClientErrorsDontTriggerCircuit) {
 
 // Test protocol errors are tracked
 TEST_F(CircuitBreakerFilterTest, ProtocolErrorsTracked) {
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::CLOSED, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {

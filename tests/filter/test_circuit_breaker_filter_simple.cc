@@ -10,6 +10,9 @@
 #include <gtest/gtest.h>
 
 #include "../../include/mcp/filter/circuit_breaker_filter.h"
+#include "../../include/mcp/filter/filter_chain_callbacks.h"
+#include "../../include/mcp/filter/filter_chain_event_hub.h"
+#include "../../include/mcp/filter/filter_event_emitter.h"
 
 using namespace mcp;
 using namespace mcp::filter;
@@ -18,26 +21,26 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Mock callbacks for circuit breaker events
-class MockCircuitBreakerCallbacks : public CircuitBreakerFilter::Callbacks {
+// Mock chain-level callbacks for filter events
+class MockFilterChainCallbacks : public FilterChainCallbacks {
  public:
-  MOCK_METHOD(void,
-              onStateChange,
-              (CircuitState old_state,
-               CircuitState new_state,
-               const std::string& reason),
-              (override));
-  MOCK_METHOD(void, onRequestBlocked, (const std::string& method), (override));
-  MOCK_METHOD(void,
-              onHealthUpdate,
-              (double success_rate, uint64_t latency_ms),
-              (override));
+  MOCK_METHOD(void, onFilterEvent, (const FilterEvent& event), (override));
 };
+
+// Custom matcher for FilterEvent by event type
+MATCHER_P(HasEventType, expected_type, "") {
+  return arg.event_type == expected_type;
+}
 
 class CircuitBreakerFilterSimpleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    callbacks_ = std::make_unique<NiceMock<MockCircuitBreakerCallbacks>>();
+    // Create event hub and callbacks
+    event_hub_ = std::make_shared<FilterChainEventHub>();
+    callbacks_ = std::make_shared<NiceMock<MockFilterChainCallbacks>>();
+
+    // Register callbacks with event hub
+    observer_handle_ = event_hub_->registerObserver(callbacks_);
 
     // Create filter with test configuration
     config_.failure_threshold = 3;
@@ -47,7 +50,19 @@ class CircuitBreakerFilterSimpleTest : public ::testing::Test {
     config_.half_open_max_requests = 2;
     config_.half_open_success_threshold = 2;
 
-    filter_ = std::make_unique<CircuitBreakerFilter>(*callbacks_, config_);
+    // Create emitter that will send events to the hub
+    auto emitter = std::make_shared<FilterEventEmitter>(
+        event_hub_,
+        "circuit_breaker",
+        "",   // no instance ID for tests
+        "");  // no chain ID for tests
+
+    filter_ = std::make_unique<CircuitBreakerFilter>(emitter, config_);
+  }
+
+  void TearDown() override {
+    // Clean up - observer handle auto-unregisters on destruction
+    filter_.reset();
   }
 
   // Helper to create test request
@@ -79,7 +94,9 @@ class CircuitBreakerFilterSimpleTest : public ::testing::Test {
 
  protected:
   std::unique_ptr<CircuitBreakerFilter> filter_;
-  std::unique_ptr<MockCircuitBreakerCallbacks> callbacks_;
+  std::shared_ptr<MockFilterChainCallbacks> callbacks_;
+  std::shared_ptr<FilterChainEventHub> event_hub_;
+  FilterChainEventHub::ObserverHandle observer_handle_;
   CircuitBreakerConfig config_;
 };
 
@@ -97,9 +114,14 @@ TEST_F(CircuitBreakerFilterSimpleTest, ConfigurationAccepted) {
 
 // Test state transition callback
 TEST_F(CircuitBreakerFilterSimpleTest, StateTransitionCallback) {
-  // Expect state change to OPEN after 3 failures
+  // Allow health update events (emitted for every request/response)
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::CLOSED, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+      .Times(AnyNumber());
+
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
+  EXPECT_CALL(*callbacks_,
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   // Simulate 3 consecutive failures
@@ -137,8 +159,14 @@ TEST_F(CircuitBreakerFilterSimpleTest, HealthMetrics) {
 
 // Test protocol error tracking
 TEST_F(CircuitBreakerFilterSimpleTest, ProtocolErrorsTracked) {
+  // Allow health update events (emitted for every error)
   EXPECT_CALL(*callbacks_,
-              onStateChange(CircuitState::CLOSED, CircuitState::OPEN, _))
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+      .Times(AnyNumber());
+
+  // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
+  EXPECT_CALL(*callbacks_,
+              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   // Protocol errors should count as failures

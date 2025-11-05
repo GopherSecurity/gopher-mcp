@@ -324,3 +324,31 @@ target_link_libraries(test_filter_chain_assembler
   Threads::Threads
 )
 add_test(NAME FilterChainAssemblerTest COMMAND test_filter_chain_assembler)
+
+# Filter Chain Event Hub Test
+add_executable(test_filter_chain_event_hub
+  test_filter_chain_event_hub.cc
+)
+target_link_libraries(test_filter_chain_event_hub
+  PRIVATE
+  gopher-mcp
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterChainEventHubTest COMMAND test_filter_chain_event_hub)
+
+# Filter Event Emitter Test
+add_executable(test_filter_event_emitter
+  test_filter_event_emitter.cc
+)
+target_link_libraries(test_filter_event_emitter
+  PRIVATE
+  gopher-mcp
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME FilterEventEmitterTest COMMAND test_filter_event_emitter)

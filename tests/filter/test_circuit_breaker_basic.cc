@@ -18,27 +18,9 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Mock callbacks for circuit breaker events
-class MockCircuitBreakerCallbacks : public CircuitBreakerFilter::Callbacks {
- public:
-  MOCK_METHOD(void,
-              onStateChange,
-              (CircuitState old_state,
-               CircuitState new_state,
-               const std::string& reason),
-              (override));
-  MOCK_METHOD(void, onRequestBlocked, (const std::string& method), (override));
-  MOCK_METHOD(void,
-              onHealthUpdate,
-              (double success_rate, uint64_t latency_ms),
-              (override));
-};
-
 class CircuitBreakerBasicTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    callbacks_ = std::make_unique<NiceMock<MockCircuitBreakerCallbacks>>();
-
     // Create filter with test configuration
     config_.failure_threshold = 3;
     config_.error_rate_threshold = 0.5;
@@ -47,12 +29,12 @@ class CircuitBreakerBasicTest : public ::testing::Test {
     config_.half_open_max_requests = 2;
     config_.half_open_success_threshold = 2;
 
-    filter_ = std::make_unique<CircuitBreakerFilter>(*callbacks_, config_);
+    // Create filter with nullptr emitter (no events needed for basic tests)
+    filter_ = std::make_unique<CircuitBreakerFilter>(nullptr, config_);
   }
 
  protected:
   std::unique_ptr<CircuitBreakerFilter> filter_;
-  std::unique_ptr<MockCircuitBreakerCallbacks> callbacks_;
   CircuitBreakerConfig config_;
 };
 
