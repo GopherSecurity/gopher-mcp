@@ -14,7 +14,7 @@
 #include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/c_api/mcp_c_filter_api.h"
 #include "mcp/filter/filter_service_types.h"
-#include "mcp/filter/circuit_breaker_callbacks.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 
 // Forward declarations to avoid circular dependencies
 namespace mcp {
@@ -23,6 +23,10 @@ class AdvancedFilterChain;
 }
 namespace filter_api {
 class FilterChain;
+}
+namespace filter {
+class FilterChainCallbacks;
+class FilterChainEventHub;
 }
 }
 
@@ -88,20 +92,31 @@ public:
    */
   std::string dump(const std::string& format) const;
 
-  /** Apply circuit breaker callbacks (advanced chains only). */
-  bool setCircuitBreakerCallbacks(
-      std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks);
+  /** Set chain-level event callbacks (advanced chains only). */
+  bool setEventCallback(
+      std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
 
-  /** Clear circuit breaker callbacks (advanced chains only). */
-  bool clearCircuitBreakerCallbacks();
+  /** Clear chain-level event callbacks (advanced chains only). */
+  bool clearEventCallback();
 
-  /** Check if circuit breaker callbacks are currently registered. */
-  bool hasCircuitBreakerCallbacks() const;
+  /** Check if chain-level event callbacks are currently registered. */
+  bool hasEventCallback() const;
 
 private:
   ChainType type_;
   std::shared_ptr<mcp::filter_api::FilterChain> simple_chain_;
   std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> advanced_chain_;
+
+  /**
+   * Observer handle for chain-level event callbacks.
+   * OWNERSHIP: RAII - automatically unregisters observer on destruction
+   * LIFETIME: Valid while callbacks should remain registered
+   * THREAD SAFETY: Not thread-safe, caller must synchronize
+   *
+   * This handle MUST be retained to keep the callback registered.
+   * When destroyed (or reset), the observer is automatically unregistered.
+   */
+  mcp::filter::FilterChainEventHub::ObserverHandle observer_handle_;
 };
 
 }  // namespace c_api_internal

@@ -37,6 +37,8 @@
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/circuit_breaker_filter.h"
 #include "mcp/filter/metrics_filter.h"
+#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_event_emitter.h"
 #include "mcp/config/types.h"
 #include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
@@ -63,14 +65,6 @@ namespace mcp {
 namespace filter_chain {
 
 class AdvancedFilterChain;
-
-void advanced_chain_set_circuit_breaker_callbacks(
-    AdvancedFilterChain& chain,
-    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks);
-void advanced_chain_clear_circuit_breaker_callbacks(
-    AdvancedFilterChain& chain);
-bool advanced_chain_has_circuit_breaker_callbacks(
-    const AdvancedFilterChain& chain);
 
 bool advanced_chain_set_metrics_callbacks(
     AdvancedFilterChain& chain,
@@ -444,7 +438,7 @@ namespace filter_chain {
 
 class AdvancedFilterChain {
  public:
-  AdvancedFilterChain(const mcp_chain_config_t& config, 
+  AdvancedFilterChain(const mcp_chain_config_t& config,
                       mcp_dispatcher_t dispatcher = nullptr)
       : name_(config.name ? config.name : ""),
         mode_(config.mode),
@@ -454,7 +448,10 @@ class AdvancedFilterChain {
         timeout_ms_(config.timeout_ms),
         stop_on_error_(config.stop_on_error),
         state_(MCP_CHAIN_STATE_IDLE),
-        dispatcher_(dispatcher) {}
+        dispatcher_(dispatcher) {
+    // Create chain-level event hub for unified filter observability
+    event_hub_ = std::make_shared<filter::FilterChainEventHub>();
+  }
 
   ~AdvancedFilterChain() {
     for (auto handle : filter_handles_) {
@@ -751,15 +748,6 @@ class AdvancedFilterChain {
         if (callbacks) injectable->setCallbacks(callbacks);
         if (metrics_sink_) injectable->setMetrics(metrics_sink_);
         if (circuit_breaker_state_) injectable->setCircuitBreaker(circuit_breaker_state_);
-
-        // NEW: Inject circuit breaker callbacks if available
-        if (runtime_services_) {
-          injectable->setCircuitBreakerCallbacks(
-              runtime_services_->circuit_breaker_callbacks);
-        } else {
-          injectable->setCircuitBreakerCallbacks(
-              std::shared_ptr<filter::CircuitBreakerCallbacks>());
-        }
       } catch (const std::exception& e) {
         try {
           GOPHER_LOG(Error, "Failed to update dependencies in filter: {}", e.what());
@@ -785,7 +773,7 @@ class AdvancedFilterChain {
    * - callbacks: from protocol_callbacks_
    * - metrics: from metrics_sink_
    * - circuit_breaker: from circuit_breaker_state_
-   * - circuit_breaker_callbacks: initially nullptr, set by setCircuitBreakerCallbacks()
+   * - circuit_breaker_callbacks: removed – use chain-level callbacks instead
    *
    * Thread-safe: Can be called from any thread
    */
@@ -799,74 +787,6 @@ class AdvancedFilterChain {
       // circuit_breaker_callbacks initially nullptr
     }
     return runtime_services_;
-  }
-
-  /**
-   * Set circuit breaker callbacks
-   *
-   * Stores callbacks in RuntimeServices and posts dependency update to dispatcher thread.
-   * MUST be thread-safe: Can be called from C API (foreign thread).
-   *
-   * @param callbacks Shared pointer to circuit breaker callbacks (void* to avoid circular dep)
-   */
-  void setCircuitBreakerCallbacks(
-      std::shared_ptr<filter::CircuitBreakerCallbacks> callbacks) {
-    // Get or create RuntimeServices
-    auto services = getRuntimeServices();
-
-    // Store callbacks in shared services
-    services->circuit_breaker_callbacks = std::move(callbacks);
-
-    // Post dependency update to dispatcher thread for thread safety
-    auto dispatcher_ptr = getDispatcherPtr();
-    if (dispatcher_ptr) {
-      dispatcher_ptr->post([this, services]() {
-        this->updateDependencies(
-            services->callbacks,
-            services->metrics,
-            services->circuit_breaker
-        );
-      });
-    } else {
-      this->updateDependencies(
-          services->callbacks,
-          services->metrics,
-          services->circuit_breaker
-      );
-    }
-  }
-
-  /**
-   * Clear circuit breaker callbacks
-   *
-   * Removes callbacks from RuntimeServices and posts dependency update to dispatcher thread.
-   * MUST be thread-safe: Can be called from C API (foreign thread).
-   */
-  void clearCircuitBreakerCallbacks() {
-    if (!runtime_services_) {
-      return;  // No runtime services = no callbacks to clear
-    }
-
-    // Clear callbacks from shared services
-    runtime_services_->circuit_breaker_callbacks.reset();
-
-    // Post dependency update to dispatcher thread
-    auto dispatcher_ptr = getDispatcherPtr();
-    if (dispatcher_ptr) {
-      dispatcher_ptr->post([this]() {
-        this->updateDependencies(
-            this->protocol_callbacks_,
-            this->metrics_sink_,
-            this->circuit_breaker_state_
-        );
-      });
-    } else {
-      this->updateDependencies(
-          this->protocol_callbacks_,
-          this->metrics_sink_,
-          this->circuit_breaker_state_
-      );
-    }
   }
 
   void processNextRequest() {
@@ -1240,13 +1160,15 @@ public:
   std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>
       metrics_callbacks_override_;
 
-  friend void advanced_chain_set_circuit_breaker_callbacks(
-      AdvancedFilterChain&,
-      std::shared_ptr<mcp::filter::CircuitBreakerCallbacks>);
-  friend void advanced_chain_clear_circuit_breaker_callbacks(
-      AdvancedFilterChain&);
-  friend bool advanced_chain_has_circuit_breaker_callbacks(
-      const AdvancedFilterChain&);
+  /**
+   * Chain-level event hub for unified filter observability
+   * OWNERSHIP: SHARED via shared_ptr
+   * LIFETIME: Managed by refcount
+   * THREAD SAFETY: Thread-safe observer registration and event emission
+   * Made public for direct assignment during chain creation
+   */
+  std::shared_ptr<filter::FilterChainEventHub> event_hub_;
+
   friend bool advanced_chain_set_metrics_callbacks(
       AdvancedFilterChain&,
       std::shared_ptr<mcp::filter::MetricsFilter::MetricsCallbacks>);
@@ -1265,22 +1187,27 @@ public:
       const std::shared_ptr<filter::MetricsFilter::MetricsCallbacks>& callbacks);
 };
 
-void advanced_chain_set_circuit_breaker_callbacks(
-    AdvancedFilterChain& chain,
-    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks) {
-  chain.setCircuitBreakerCallbacks(std::move(callbacks));
-}
+// ============================================================================
+// Event Hub Accessor Functions
+// ============================================================================
 
-void advanced_chain_clear_circuit_breaker_callbacks(
+namespace internal {
+
+std::shared_ptr<filter::FilterChainEventHub> getEventHub(
     AdvancedFilterChain& chain) {
-  chain.clearCircuitBreakerCallbacks();
+  return chain.event_hub_;
 }
 
-bool advanced_chain_has_circuit_breaker_callbacks(
+std::shared_ptr<filter::FilterChainEventHub> getEventHub(
     const AdvancedFilterChain& chain) {
-  auto services = const_cast<AdvancedFilterChain&>(chain).getRuntimeServices();
-  return services && services->circuit_breaker_callbacks;
+  return chain.event_hub_;
 }
+
+}  // namespace internal
+
+// ============================================================================
+// AdvancedFilterChain Method Implementations
+// ============================================================================
 
 bool AdvancedFilterChain::setMetricsCallbacks(
     std::shared_ptr<filter::MetricsFilter::MetricsCallbacks> callbacks) {
@@ -1417,6 +1344,9 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
     ::mcp::filter::FilterChainAssembler assembler(
         ::mcp::filter::FilterRegistry::instance());
 
+    // Create chain-level event hub for unified filter observability
+    auto event_hub = std::make_shared<filter::FilterChainEventHub>();
+
     // Create RuntimeServices for shared service management
     auto runtime_services = std::make_shared<filter::RuntimeServices>();
     runtime_services->dispatcher = dispatcher_impl->dispatcher.get();
@@ -1432,10 +1362,13 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
     // Populate shared_services in context for filters to access
     context.shared_services = runtime_services;
 
+    // Populate event_hub in context so filter factories can create emitters
+    context.event_hub = event_hub;
+
     auto assembly =
         assembleChainWithAssembler(chain_config, assembler, context, manager);
 
-    std::unique_ptr<filter_chain::AdvancedFilterChain> chain;
+    std::unique_ptr<AdvancedFilterChain> chain;
     mcp_filter_chain_t handle = 0;
     std::vector<mcp_filter_t> filter_handles;
     bool handles_adopted = false;
@@ -1473,6 +1406,8 @@ mcp_result_t assembleChainInternal(mcp_dispatcher_t dispatcher,
         chain->owned_filters_ = manager.filters();
         // Store RuntimeServices in chain for later callback registration
         chain->runtime_services_ = runtime_services;
+        // Store event_hub in chain for chain-level callback registration
+        chain->event_hub_ = event_hub;
 
         for (size_t i = 0; i < filter_handles.size(); ++i) {
           const auto& filter_cfg = chain_config.filters[i];
@@ -2907,34 +2842,3 @@ MCP_API mcp_status_t mcp_chain_submit_outgoing(
 }
 
 }  // extern "C"
-
-// Helper functions for circuit breaker callbacks (used by mcp_c_filter_callbacks.cc)
-// These are in mcp::filter_chain namespace and accessible via extern declaration
-namespace mcp {
-namespace filter_chain {
-
-void advancedChainSetCircuitBreakerCallbacks(
-    AdvancedFilterChain* chain,
-    std::shared_ptr<void> callbacks) {
-  if (chain) {
-    auto typed_callbacks = std::static_pointer_cast<mcp::filter::CircuitBreakerCallbacks>(callbacks);
-    chain->setCircuitBreakerCallbacks(typed_callbacks);
-  }
-}
-
-void advancedChainClearCircuitBreakerCallbacks(AdvancedFilterChain* chain) {
-  if (chain) {
-    chain->clearCircuitBreakerCallbacks();
-  }
-}
-
-std::shared_ptr<mcp::filter::RuntimeServices> advancedChainGetRuntimeServices(
-    AdvancedFilterChain* chain) {
-  if (chain) {
-    return chain->getRuntimeServices();
-  }
-  return nullptr;
-}
-
-}  // namespace filter_chain
-}  // namespace mcp

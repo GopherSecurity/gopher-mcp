@@ -7,17 +7,20 @@
 
 #include <sstream>
 
+#include "mcp/filter/filter_chain_event_hub.h"
+
 // Forward declare the actual chain classes to avoid including their full headers
 namespace mcp {
 namespace filter_chain {
 class AdvancedFilterChain;
 
-void advanced_chain_set_circuit_breaker_callbacks(
+// Chain-level event callback forward declarations
+mcp::filter::FilterChainEventHub::ObserverHandle advanced_chain_set_event_callback(
     AdvancedFilterChain& chain,
-    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks);
-void advanced_chain_clear_circuit_breaker_callbacks(
+    std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
+void advanced_chain_clear_event_callback(
     AdvancedFilterChain& chain);
-bool advanced_chain_has_circuit_breaker_callbacks(
+bool advanced_chain_has_event_callback(
     const AdvancedFilterChain& chain);
 }
 namespace filter_api {
@@ -86,27 +89,36 @@ std::string UnifiedFilterChain::dump(const std::string& format) const {
   return oss.str();
 }
 
-bool UnifiedFilterChain::setCircuitBreakerCallbacks(
-    std::shared_ptr<mcp::filter::CircuitBreakerCallbacks> callbacks) {
+bool UnifiedFilterChain::setEventCallback(
+    std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks) {
   if (type_ == ChainType::Advanced && advanced_chain_) {
-    advanced_chain_set_circuit_breaker_callbacks(
-        *advanced_chain_, std::move(callbacks));
+    // Store the ObserverHandle to prevent automatic unregistration
+    // The handle's RAII destructor will unregister when this object is destroyed
+    // or when clearEventCallback() is called
+    observer_handle_ = advanced_chain_set_event_callback(*advanced_chain_, std::move(callbacks));
     return true;
   }
   return false;
 }
 
-bool UnifiedFilterChain::clearCircuitBreakerCallbacks() {
+bool UnifiedFilterChain::clearEventCallback() {
   if (type_ == ChainType::Advanced && advanced_chain_) {
-    advanced_chain_clear_circuit_breaker_callbacks(*advanced_chain_);
+    // Reset the ObserverHandle to trigger automatic unregistration
+    // The RAII destructor will call hub_->unregisterObserver()
+    observer_handle_ = mcp::filter::FilterChainEventHub::ObserverHandle();
+
+    // Also clear via the advanced chain (redundant but safe)
+    advanced_chain_clear_event_callback(*advanced_chain_);
     return true;
   }
   return false;
 }
 
-bool UnifiedFilterChain::hasCircuitBreakerCallbacks() const {
+bool UnifiedFilterChain::hasEventCallback() const {
   if (type_ == ChainType::Advanced && advanced_chain_) {
-    return advanced_chain_has_circuit_breaker_callbacks(*advanced_chain_);
+    // Check if our observer handle is valid
+    // This is a direct check that the callback is registered
+    return observer_handle_.isValid();
   }
   return false;
 }

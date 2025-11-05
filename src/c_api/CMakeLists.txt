@@ -26,10 +26,11 @@ set(MCP_C_API_SOURCES
     mcp_c_filter_api.cc          # Filter API implementation
     mcp_c_filter_buffer.cc       # Buffer API implementation
     mcp_c_filter_chain.cc        # Filter chain implementation
-    mcp_c_filter_callbacks.cc    # Circuit breaker callbacks API
     mcp_c_metrics_callbacks.cc   # Metrics callbacks API
+    mcp_c_filter_events.cc       # Chain-level filter event callbacks API
     json_value_converter.cc      # JSON value conversion utilities
     unified_filter_chain.cc      # Unified filter chain wrapper
+    filter_chain_stubs.cc        # Temporary stubs for Phase 1 (replaced in Phase 2)
 
     # Logging API with RAII
     mcp_c_logging_api.cc         # FFI-safe logging API with RAII
