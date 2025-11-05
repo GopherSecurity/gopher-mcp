@@ -395,6 +395,8 @@ set(MCP_CORE_SOURCES
     src/filter/request_logger_factory.cc
     src/filter/core_filter_factories.cc
     src/filter/filter_chain_assembler.cc
+    src/filter/filter_chain_event_hub.cc
+    src/filter/filter_event_emitter.cc
     src/mcp_connection_manager.cc
     src/protocol/mcp_protocol_state_machine.cc
     src/config/config_manager.cc
