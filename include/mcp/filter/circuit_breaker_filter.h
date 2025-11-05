@@ -29,7 +29,7 @@
 #include "../network/filter.h"
 #include "../types.h"
 #include "json_rpc_protocol_filter.h"
-#include "circuit_breaker_callbacks.h"
+#include "filter_event_emitter.h"
 
 // Temporary debug logging for circuit breaker validation
 #define GOPHER_LOG_COMPONENT "filter.circuit_breaker"
@@ -37,6 +37,15 @@
 
 namespace mcp {
 namespace filter {
+
+/**
+ * Circuit breaker states
+ */
+enum class CircuitState {
+  CLOSED = 0,    // Normal operation
+  OPEN = 1,      // Circuit is open, blocking requests
+  HALF_OPEN = 2  // Testing recovery
+};
 
 /**
  * Circuit breaker configuration
@@ -77,21 +86,17 @@ struct CircuitBreakerConfig {
  * - HALF_OPEN: Limited requests to test recovery
  */
 class CircuitBreakerFilter : public network::NetworkFilterBase,
-                             public JsonRpcProtocolFilter::MessageHandler,
-                             public network::DependencyInjectionAware {
+                             public JsonRpcProtocolFilter::MessageHandler {
  public:
-  using Callbacks = CircuitBreakerCallbacks;
-  using network::DependencyInjectionAware::setCallbacks;
-
   /**
    * Constructor
-   * @param callbacks Circuit breaker event callbacks (shared ownership)
+   * @param emitter Event emitter for filter events (can be nullptr to disable events)
    * @param config Circuit breaker configuration
    */
   CircuitBreakerFilter(
-      std::shared_ptr<CircuitBreakerCallbacks> callbacks,
+      std::shared_ptr<FilterEventEmitter> emitter,
       const CircuitBreakerConfig& config = CircuitBreakerConfig())
-      : callbacks_(callbacks),
+      : emitter_(emitter),
         config_(config),
         state_(CircuitState::CLOSED),
         consecutive_failures_(0),
@@ -99,33 +104,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
         half_open_successes_(0) {
     last_state_change_ = std::chrono::steady_clock::now();
     std::cout << "[CIRCUIT_BREAKER] 🔧 Filter created with "
-              << (callbacks_ ? "CALLBACKS" : "NO CALLBACKS")
+              << (emitter_ ? "EVENT EMITTER" : "NO EMITTER")
               << " failure_threshold=" << config_.failure_threshold << std::endl;
-  }
-
-  CircuitBreakerFilter(
-      CircuitBreakerCallbacks& callbacks,
-      const CircuitBreakerConfig& config = CircuitBreakerConfig())
-      : CircuitBreakerFilter(std::shared_ptr<CircuitBreakerCallbacks>(
-            &callbacks, [](CircuitBreakerCallbacks*) {}), config) {}
-
-  /**
-   * Update callbacks at runtime
-   * @param callbacks New callbacks to use (can be nullptr to disable)
-   */
-  void setCallbacks(std::shared_ptr<CircuitBreakerCallbacks> callbacks) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::cout << "[CIRCUIT_BREAKER] 🔄 Updating callbacks: "
-              << (callbacks ? "SET" : "CLEARED") << std::endl;
-    callbacks_ = callbacks;
-  }
-
-  // DependencyInjectionAware implementation
-  void setCircuitBreakerCallbacks(
-      std::shared_ptr<CircuitBreakerCallbacks> callbacks) override {
-    std::cout << "[CIRCUIT_BREAKER] 📥 setCircuitBreakerCallbacks called (DI interface)" << std::endl;
-    // Cast from void* back to the correct type and update callbacks
-    setCallbacks(callbacks);
   }
 
   // Filter interface implementation
@@ -159,9 +139,14 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     if (!allowRequest(request.method)) {
       // Circuit is open - fail fast
       std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method << std::endl;
-      if (callbacks_) {
-        std::cout << "[CIRCUIT_BREAKER] 📞 Invoking onRequestBlocked callback" << std::endl;
-        callbacks_->onRequestBlocked(request.method);
+      if (emitter_) {
+        std::cout << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_REQUEST_BLOCKED event" << std::endl;
+        json::JsonObjectBuilder event_data;
+        event_data.add("method", request.method);
+        event_data.add("state", stateToString(state_));
+        emitter_->emit(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
+                       FilterEventSeverity::WARN,
+                       event_data.build());
       }
 
       // Send error response
@@ -416,9 +401,15 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     std::cout << "[CIRCUIT_BREAKER] ⚡ STATE CHANGE: " << stateToString(old_state)
               << " → " << stateToString(new_state) << " (reason: " << reason << ")" << std::endl;
 
-    if (callbacks_) {
-      std::cout << "[CIRCUIT_BREAKER] 📞 Invoking onStateChange callback" << std::endl;
-      callbacks_->onStateChange(old_state, new_state, reason);
+    if (emitter_) {
+      std::cout << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_STATE_CHANGE event" << std::endl;
+      json::JsonObjectBuilder event_data;
+      event_data.add("old_state", stateToString(old_state));
+      event_data.add("new_state", stateToString(new_state));
+      event_data.add("reason", reason);
+      emitter_->emit(FilterEventType::CIRCUIT_STATE_CHANGE,
+                     FilterEventSeverity::INFO,
+                     event_data.build());
     }
   }
 
@@ -455,8 +446,15 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     uint64_t avg_latency;
     // Use non-locking version since we're already holding the mutex
     getHealthMetricsNoLock(success_rate, avg_latency);
-    if (callbacks_) {
-      callbacks_->onHealthUpdate(success_rate, avg_latency);
+    if (emitter_) {
+      json::JsonObjectBuilder event_data;
+      event_data.add("success_rate", success_rate);
+      event_data.add("avg_latency_ms", static_cast<double>(avg_latency));
+      event_data.add("state", stateToString(state_));
+      event_data.add("total_requests", static_cast<double>(request_outcomes_.size()));
+      emitter_->emit(FilterEventType::CIRCUIT_HEALTH_UPDATE,
+                     FilterEventSeverity::DEBUG,
+                     event_data.build());
     }
   }
 
@@ -508,7 +506,7 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     return id.toString();
   }
 
-  std::shared_ptr<CircuitBreakerCallbacks> callbacks_;
+  std::shared_ptr<FilterEventEmitter> emitter_;
   CircuitBreakerConfig config_;
   JsonRpcProtocolFilter::MessageHandler* next_callbacks_ = nullptr;
 
