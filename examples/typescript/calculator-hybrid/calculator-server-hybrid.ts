@@ -27,7 +27,7 @@ import {
   type MetricsSnapshot,
   type MetricsThresholdEvent
 } from "../../../sdk/typescript/src/index.js";
-import type { CircuitBreakerCallbacks, CircuitRequestBlockedEvent, CircuitBreakerHealth } from "../../../sdk/typescript/src/types/circuit-breaker.js";
+import { FilterEventType, type FilterEvent } from "../../../sdk/typescript/src/filter-events.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -47,30 +47,6 @@ const MCP_ENDPOINT = "/mcp";
 const configPath = path.join(__dirname, "config-hybrid.json");
 const filterConfig: CanonicalConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
-type CircuitBreakerModule = typeof import("../../../sdk/typescript/src/types/circuit-breaker.js");
-
-let circuitBreakerModulePromise: Promise<CircuitBreakerModule> | null = null;
-
-function isModuleNotFound(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND"
-  );
-}
-
-function loadCircuitBreakerModule(): Promise<CircuitBreakerModule> {
-  if (!circuitBreakerModulePromise) {
-    circuitBreakerModulePromise = import("../../../sdk/typescript/dist/src/types/circuit-breaker.js").catch((error) => {
-      if (isModuleNotFound(error)) {
-        return import("../../../sdk/typescript/src/types/circuit-breaker.js");
-      }
-      throw error;
-    });
-  }
-  return circuitBreakerModulePromise;
-}
 
 type ServerMode = "stateless" | "stateful";
 
@@ -242,7 +218,6 @@ async function createCalculatorServer() {
     console.log('━'.repeat(60));
     console.log(`🔧 Server mode: ${SERVER_MODE === "stateful" ? "Stateful (session-managed, SSE enabled)" : "Stateless (JSON responses, SSE disabled)"}`);
 
-    const { circuitStateToString } = await loadCircuitBreakerModule();
 
     // Create MCP server using official SDK
     const server = new Server({
@@ -564,50 +539,55 @@ async function createCalculatorServer() {
         console.error('❌ Failed to register metrics callbacks:', error);
     }
 
-    // Set up circuit breaker callbacks
-    console.log('\n🛡️ Setting up circuit breaker callbacks...');
-    const circuitBreakerCallbacks: CircuitBreakerCallbacks = {
-        onStateChange: (event) => {
-            const oldStateStr = circuitStateToString(event.oldState);
-            const newStateStr = circuitStateToString(event.newState);
-            console.log(`\n⚡ Circuit Breaker State Change:`);
-            console.log(`   From: ${oldStateStr} → To: ${newStateStr}`);
-            console.log(`   Reason: ${event.reason}`);
-        },
-
-        onRequestBlocked: (event: CircuitRequestBlockedEvent) => {
-            console.log(`\n⛔ Request blocked by circuit breaker`);
-            console.log(`   Method: ${event.method}`);
-        },
-
-        onHealthUpdate: (health: CircuitBreakerHealth) => {
-            if (process.env['DEBUG'] === '1') {
-                console.log(`\n📊 Circuit breaker health update:`);
-                console.log(`   Success rate: ${(health.successRate * 100).toFixed(2)}%`);
-                console.log(`   Avg latency: ${health.averageLatencyMs.toFixed(2)} ms`);
-            }
-        },
-
-        onError: (error: Error) => {
-            console.error(`\n❌ Circuit Breaker Error:`, error);
-        }
-    };
-
-    // Register callbacks with the filter chain
+    // Set up unified event callback for all filter events
+    console.log('\n🔔 Setting up unified event callback for filter events...');
     try {
         const filterChain = (filteredTransport as any).filterChain;
-        if (filterChain && typeof filterChain.setCircuitBreakerCallbacks === 'function') {
-            const registered = filterChain.setCircuitBreakerCallbacks(circuitBreakerCallbacks);
-            if (registered) {
-                console.log('✅ Circuit breaker callbacks registered');
-            } else {
-                console.log('⚠️  Circuit breaker callbacks not supported by current runtime');
-            }
+        if (filterChain && typeof filterChain.setEventCallback === 'function') {
+            filterChain.setEventCallback((event: FilterEvent) => {
+                // Handle circuit breaker events
+                if (event.filterName === 'circuit_breaker') {
+                    if (event.eventType === FilterEventType.CIRCUIT_STATE_CHANGE) {
+                        const { oldState, newState, reason } = event.eventData;
+                        console.log(`\n⚡ Circuit Breaker State Change:`);
+                        console.log(`   From: ${oldState} → To: ${newState}`);
+                        console.log(`   Reason: ${reason}`);
+                    } else if (event.eventType === FilterEventType.CIRCUIT_REQUEST_BLOCKED) {
+                        const { method } = event.eventData;
+                        console.log(`\n⛔ Request blocked by circuit breaker`);
+                        console.log(`   Method: ${method}`);
+                    } else if (event.eventType === FilterEventType.CIRCUIT_HEALTH_UPDATE) {
+                        if (process.env['DEBUG'] === '1') {
+                            const { successRate, averageLatencyMs } = event.eventData;
+                            console.log(`\n📊 Circuit breaker health update:`);
+                            console.log(`   Success rate: ${((successRate as number) * 100).toFixed(2)}%`);
+                            console.log(`   Avg latency: ${(averageLatencyMs as number).toFixed(2)} ms`);
+                        }
+                    }
+                }
+
+                // Handle rate limiter events
+                if (event.filterName === 'rate_limiter') {
+                    if (event.eventType === FilterEventType.RATE_LIMIT_EXCEEDED) {
+                        const { clientId, remainingTokens } = event.eventData;
+                        console.log(`\n⚠️ Rate limit exceeded`);
+                        console.log(`   Client: ${clientId}`);
+                        console.log(`   Remaining tokens: ${remainingTokens}`);
+                    }
+                }
+
+                // Log all filter events in debug mode
+                if (process.env['DEBUG'] === '1') {
+                    console.log(`\n[FilterEvent] ${event.filterName}: ${FilterEventType[event.eventType]}`);
+                    console.log(`   Data:`, event.eventData);
+                }
+            });
+            console.log('✅ Unified event callback registered');
         } else {
-            console.log('⚠️  Circuit breaker callbacks not available (filter chain not accessible)');
+            console.log('⚠️  Event callback not available (filter chain not accessible)');
         }
     } catch (error) {
-        console.error('⚠️  Failed to set circuit breaker callbacks:', error);
+        console.error('⚠️  Failed to set event callback:', error);
     }
 
     // Create HTTP server
