@@ -17,8 +17,8 @@ import type {
   FilterDecision,
   FilterResult,
 } from './filter-types';
-import type { CircuitBreakerCallbacks } from './types/circuit-breaker';
-import { CircuitBreakerCallbackHandle, registerCircuitBreakerCallbacks, unregisterCircuitBreakerCallbacks } from './circuit-breaker-callbacks';
+import type { FilterEventHandler } from './filter-events';
+import { FilterEventCallbackHandle, registerFilterEventCallback, unregisterFilterEventCallback } from './filter-event-callbacks';
 
 const MCP_OK = 0;
 
@@ -175,8 +175,8 @@ export class FilterChain {
   // Callback for async chain creation
   private creationCallback: koffi.IKoffiRegisteredCallback | null = null;
 
-  // Circuit breaker callback handle
-  private circuitBreakerCallbackHandle: CircuitBreakerCallbackHandle | null = null;
+  // Chain-level event callback handle
+  private eventCallbackHandle: FilterEventCallbackHandle | null = null;
 
   /**
    * Create a new filter chain from canonical configuration
@@ -922,71 +922,70 @@ export class FilterChain {
   }
 
   /**
-   * Set circuit breaker callbacks for the filter chain
+   * Set unified chain-level event callback
    *
-   * This method registers callbacks to receive notifications about circuit breaker
-   * state changes and events. Only one set of callbacks can be registered at a time.
-   * Calling this method again will replace the previous callbacks.
+   * This method registers a unified callback that receives events from ALL filters
+   * in the chain through a single callback handler. This replaces per-filter callbacks
+   * and provides a unified observability surface.
    *
-   * @param callbacks - Circuit breaker callbacks to register
-   * @returns `true` when callbacks were registered with the native runtime, `false`
-   *          when the current runtime does not yet support circuit breaker callbacks.
+   * @param handler Event handler function that receives filter events
    * @throws Error if the chain is destroyed or registration fails
    *
    * @example
    * ```typescript
-   * chain.setCircuitBreakerCallbacks({
-   *   onStateChange: (event) => {
-   *     console.log(`Circuit state changed from ${event.oldState} to ${event.newState}`);
-   *   },
-   *   onRequestBlocked: (event) => {
-   *     console.warn(`Circuit breaker blocked method ${event.method}`);
+   * chain.setEventCallback((event) => {
+   *   console.log(`[${event.filterName}] ${FilterEventType[event.eventType]}`);
+   *
+   *   if (event.eventType === FilterEventType.CIRCUIT_STATE_CHANGE) {
+   *     const { oldState, newState, reason } = event.eventData;
+   *     console.log(`Circuit breaker: ${oldState} → ${newState} (${reason})`);
+   *   }
+   *
+   *   if (event.eventType === FilterEventType.RATE_LIMIT_EXCEEDED) {
+   *     const { clientId, limit } = event.eventData;
+   *     console.warn(`Rate limit exceeded for ${clientId}: ${limit}`);
    *   }
    * });
    * ```
    */
-  setCircuitBreakerCallbacks(callbacks: CircuitBreakerCallbacks): boolean {
+  setEventCallback(handler: FilterEventHandler): void {
     if (this.destroyed) {
       throw new Error('FilterChain has been destroyed');
     }
 
-    // Unregister previous callbacks if any
-    if (this.circuitBreakerCallbackHandle) {
+    // Unregister previous callback if any
+    if (this.eventCallbackHandle) {
       try {
-        unregisterCircuitBreakerCallbacks(this.handle, this.circuitBreakerCallbackHandle);
+        unregisterFilterEventCallback(this.handle, this.eventCallbackHandle);
       } catch (error) {
-        console.error('Error unregistering previous circuit breaker callbacks:', error);
+        console.error('Error unregistering previous event callback:', error);
       }
-      this.circuitBreakerCallbackHandle = null;
+      this.eventCallbackHandle = null;
     }
 
-    // Register new callbacks
+    // Register new callback
     try {
-      const handle = registerCircuitBreakerCallbacks(this.handle, callbacks);
-      if (!handle) {
-        return false;
-      }
-      this.circuitBreakerCallbackHandle = handle;
-      return true;
+      const handle = registerFilterEventCallback(this.handle, handler);
+      this.eventCallbackHandle = handle;
     } catch (error) {
-      this.circuitBreakerCallbackHandle = null;
+      this.eventCallbackHandle = null;
       throw error;
     }
   }
 
   /**
-   * Remove circuit breaker callbacks from the filter chain
+   * Remove chain-level event callback
    *
-   * This method unregisters any previously set circuit breaker callbacks.
+   * This method unregisters the currently registered event callback.
    */
-  clearCircuitBreakerCallbacks(): void {
-    if (this.circuitBreakerCallbackHandle) {
+  clearEventCallback(): void {
+    if (this.eventCallbackHandle) {
       try {
-        unregisterCircuitBreakerCallbacks(this.handle, this.circuitBreakerCallbackHandle);
+        unregisterFilterEventCallback(this.handle, this.eventCallbackHandle);
       } catch (error) {
-        console.error('Error unregistering circuit breaker callbacks:', error);
+        console.error('Error unregistering event callback:', error);
       }
-      this.circuitBreakerCallbackHandle = null;
+      this.eventCallbackHandle = null;
     }
   }
 
@@ -1014,8 +1013,8 @@ export class FilterChain {
       return; // Already destroyed, idempotent
     }
 
-    // Clean up circuit breaker callbacks
-    this.clearCircuitBreakerCallbacks();
+    // Clean up chain-level event callbacks
+    this.clearEventCallback();
 
     // Shutdown if still initialized (this also cleans up callbacks)
     if (this.initialized) {

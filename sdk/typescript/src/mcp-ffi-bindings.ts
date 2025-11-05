@@ -659,21 +659,26 @@ try {
     { name: "mcp_connection_configure", signature: "int", args: ["void*", "void*", "void*", "void*"] },
     { name: "mcp_connection_destroy", signature: "void", args: ["void*"] },
 
-    // Circuit breaker callback functions (from mcp_c_filter_callbacks.h)
+    // Chain-level filter event callbacks (from mcp_c_filter_events.h)
     {
-      name: "mcp_filter_chain_set_circuit_breaker_callbacks",
+      name: "mcp_filter_chain_set_event_callback",
       signature: "int",
-      args: ["void*", "void*"]  // chain handle (mcp_filter_chain_handle_t*), callbacks struct pointer
+      args: ["void*", "void*", "void*"]  // chain handle, callback function pointer, user_data
     },
     {
-      name: "mcp_filter_chain_clear_circuit_breaker_callbacks",
+      name: "mcp_filter_chain_clear_event_callback",
       signature: "int",
-      args: ["void*"]  // chain handle (mcp_filter_chain_handle_t*)
+      args: ["void*"]  // chain handle
     },
     {
-      name: "mcp_circuit_state_to_string",
+      name: "mcp_filter_event_type_to_string",
       signature: "string",
-      args: ["int"]  // mcp_circuit_state_t
+      args: ["int"]  // mcp_filter_event_type_t
+    },
+    {
+      name: "mcp_filter_event_severity_to_string",
+      signature: "string",
+      args: ["int"]  // mcp_filter_event_severity_t
     },
   ];
 

@@ -52,6 +52,24 @@ export type {
   MetricsThresholdEvent,
 } from "./types/metrics";
 
+// Filter event types and callbacks bridge
+export {
+  FilterEventType,
+  FilterEventSeverity,
+  filterEventTypeToString,
+  filterEventSeverityToString,
+} from "./filter-events";
+export type {
+  FilterEvent,
+  FilterEventContext,
+  FilterEventHandler,
+} from "./filter-events";
+export {
+  registerFilterEventCallback,
+  unregisterFilterEventCallback,
+  FilterEventCallbackHandle,
+} from "./filter-event-callbacks";
+
 // Filter types and enums for Hybrid SDK (avoid re-exporting conflicting types)
 export {
   FilterResultCode,
