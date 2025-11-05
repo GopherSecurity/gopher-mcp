@@ -13,6 +13,7 @@
 
 #include <iostream>
 
+#include "mcp/filter/filter_event_emitter.h"
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
@@ -29,7 +30,6 @@ class EnhancedProtocolFilter : public network::Filter,
                                public HttpCodecFilter::MessageCallbacks,
                                public SseCodecFilter::EventCallbacks,
                                public JsonRpcProtocolFilter::MessageHandler,
-                               public CircuitBreakerFilter::Callbacks,
                                public RateLimitFilter::Callbacks,
                                public MetricsFilter::Callbacks,
                                public RequestValidationFilter::Callbacks,
@@ -45,8 +45,14 @@ class EnhancedProtocolFilter : public network::Filter,
         config_(config) {
     // Create enterprise filters if enabled
     if (config_.enable_circuit_breaker) {
+      // For now we construct the circuit breaker with a null event hub.
+      // Enhanced chains will emit chain-level events once the hub is plumbed through.
+      auto emitter = std::make_shared<FilterEventEmitter>(
+          std::shared_ptr<FilterChainEventHub>(),  // null hub placeholder
+          "circuit_breaker");
+
       circuit_breaker_ = std::make_shared<CircuitBreakerFilter>(
-          *this, config_.circuit_breaker_config);
+          emitter, config_.circuit_breaker_config);
     }
 
     if (config_.enable_rate_limiting) {
@@ -335,24 +341,7 @@ class EnhancedProtocolFilter : public network::Filter,
     mcp_callbacks_.onProtocolError(error);
   }
 
-  // ===== Circuit Breaker Callbacks =====
-
-  void onStateChange(CircuitState old_state,
-                     CircuitState new_state,
-                     const std::string& reason) override {
-    std::cerr << "[Circuit Breaker] State change: "
-              << static_cast<int>(old_state) << " -> "
-              << static_cast<int>(new_state) << " (" << reason << ")"
-              << std::endl;
-  }
-
-  void onRequestBlocked(const std::string& method) override {
-    std::cerr << "[Circuit Breaker] Request blocked: " << method << std::endl;
-  }
-
-  void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
-    // Could forward to metrics collector
-  }
+  // NOTE: Circuit Breaker Callbacks removed - use chain-level FilterEventCallbacks instead
 
   // ===== Rate Limiter Callbacks =====
 

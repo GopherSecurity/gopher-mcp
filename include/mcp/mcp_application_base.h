@@ -598,15 +598,15 @@ class FilterChainBuilder {
   }
 
   // Add circuit breaker filter
+  // NOTE: Circuit breaker now uses chain-level event callbacks instead of per-filter callbacks
+  // Use chain->setEventCallback() to receive circuit breaker events
   FilterChainBuilder& withCircuitBreaker(
       const filter::CircuitBreakerConfig& config,
       network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<CircuitBreakerCallbacks>(
-        stats_, connection, write_callbacks_);
+    // Create filter with null emitter - will be injected via FilterCreationContext
     auto filter =
-        std::make_shared<filter::CircuitBreakerFilter>(callbacks, config);
+        std::make_shared<filter::CircuitBreakerFilter>(nullptr, config);
     filters_.push_back(filter);
-    circuit_breaker_callbacks_ = callbacks;
     return *this;
   }
 
@@ -717,89 +717,8 @@ class FilterChainBuilder {
     RequestId last_request_id_;
   };
 
-  class CircuitBreakerCallbacks
-      : public filter::CircuitBreakerFilter::Callbacks {
-   public:
-    CircuitBreakerCallbacks(
-        ApplicationStats& stats,
-        network::Connection* connection = nullptr,
-        network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats),
-          connection_(connection),
-          write_callbacks_(write_callbacks) {}
-
-    void onStateChange(filter::CircuitState old_state,
-                       filter::CircuitState new_state,
-                       const std::string& reason) override {
-      // Handle state transitions
-      if (new_state == filter::CircuitState::OPEN) {
-        // Circuit is open - stop accepting new requests
-        is_circuit_open_ = true;
-
-        // Could trigger failover to backup service or cache
-        // Could notify load balancer to redirect traffic
-        stats_.errors_total++;
-      } else if (new_state == filter::CircuitState::HALF_OPEN) {
-        // Testing if service recovered - allow limited traffic
-        is_circuit_open_ = false;
-      } else if (new_state == filter::CircuitState::CLOSED) {
-        // Service healthy - resume normal operations
-        is_circuit_open_ = false;
-      }
-    }
-
-    void onRequestBlocked(const std::string& method) override {
-      stats_.requests_failed++;
-
-      // Send service unavailable error to client
-      if (connection_) {
-        // Create error data as map<string, string> for ErrorData
-        std::map<std::string, std::string> errorData;
-        errorData["method"] = method;
-        errorData["error_type"] = "circuit_breaker_open";
-        errorData["retry_after_ms"] = "5000";  // Suggest retry after 5 seconds
-
-        // Use builders to create error response
-        auto error = make<Error>(-32503, "Service temporarily unavailable")
-                         .data(errorData);
-
-        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
-
-        // Send error response through connection
-        if (write_callbacks_) {
-          auto response_obj = response.build();
-          // Note: Actual implementation would serialize and send the response
-          // through the write callbacks. This requires access to the buffer
-          // implementation which is not exposed in the public API.
-          // The connection would handle this through its filter chain.
-        }
-      }
-    }
-
-    void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
-      // Track health metrics for monitoring/alerting
-      if (success_rate < 0.5) {  // Less than 50% success rate
-        // Could trigger alerts or start pre-emptive actions
-        stats_.errors_total++;
-      }
-
-      // Update latency tracking
-      if (latency_ms > stats_.request_duration_ms_max.load()) {
-        stats_.request_duration_ms_max.store(latency_ms);
-      }
-    }
-
-    void setLastRequestId(const RequestId& id) { last_request_id_ = id; }
-
-    bool isCircuitOpen() const { return is_circuit_open_; }
-
-   private:
-    ApplicationStats& stats_;
-    network::Connection* connection_;
-    network::WriteFilterCallbacks* write_callbacks_;
-    RequestId last_request_id_;
-    std::atomic<bool> is_circuit_open_{false};
-  };
+  // NOTE: CircuitBreakerCallbacks removed - use chain-level FilterEventCallbacks instead
+  // See filter::FilterChainCallbacks in filter_chain_callbacks.h
 
   class BackpressureCallbacks : public filter::BackpressureFilter::Callbacks {
    public:
@@ -997,7 +916,7 @@ class FilterChainBuilder {
   // Store specific filter references
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;
   std::shared_ptr<RateLimitCallbacks> rate_limit_callbacks_;
-  std::shared_ptr<CircuitBreakerCallbacks> circuit_breaker_callbacks_;
+  // circuit_breaker_callbacks_ removed - use chain-level callbacks instead
   std::shared_ptr<BackpressureCallbacks> backpressure_callbacks_;
   std::shared_ptr<RequestValidationCallbacks> validation_callbacks_;
 };

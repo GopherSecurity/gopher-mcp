@@ -9,6 +9,8 @@
 
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_event_emitter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
@@ -32,47 +34,15 @@ void McpServer::setupEnhancedFilterChain(
   // Base filters from ApplicationBase
   ApplicationBase::setupFilterChain(builder);
 
+  if (!enhanced_filter_event_hub_) {
+    enhanced_filter_event_hub_ = std::make_shared<filter::FilterChainEventHub>();
+  }
+  auto event_hub = enhanced_filter_event_hub_;
+
   // Layer 1: Circuit Breaker (outermost - fail fast)
   // Prevents cascading failures by blocking requests when error rates are high
   if (config_.enable_circuit_breaker) {
-    builder.addFilter([this]() -> network::FilterSharedPtr {
-      // Create circuit breaker callbacks adapter
-      class CircuitBreakerCallbacksImpl
-          : public filter::CircuitBreakerFilter::Callbacks {
-       public:
-        CircuitBreakerCallbacksImpl(McpServer& server) : server_(server) {}
-
-        void onStateChange(filter::CircuitState old_state,
-                           filter::CircuitState new_state,
-                           const std::string& reason) override {
-          std::cerr << "[CIRCUIT_BREAKER] State change: "
-                    << static_cast<int>(old_state) << " -> "
-                    << static_cast<int>(new_state) << " Reason: " << reason
-                    << std::endl;
-
-          // Update server stats
-          if (new_state == filter::CircuitState::OPEN) {
-            server_.server_stats_.circuit_breaker_trips++;
-          }
-        }
-
-        void onRequestBlocked(const std::string& method) override {
-          server_.server_stats_.requests_blocked++;
-          std::cerr << "[CIRCUIT_BREAKER] Request blocked: " << method
-                    << std::endl;
-        }
-
-        void onHealthUpdate(double success_rate, uint64_t latency_ms) override {
-          // Update server health metrics
-          server_.server_stats_.current_success_rate = success_rate;
-          server_.server_stats_.average_latency_ms = latency_ms;
-        }
-
-       private:
-        McpServer& server_;
-      };
-
-      // Configure circuit breaker
+    builder.addFilter([this, event_hub]() -> network::FilterSharedPtr {
       filter::CircuitBreakerConfig cb_config;
       cb_config.failure_threshold = config_.circuit_breaker_failure_threshold;
       cb_config.error_rate_threshold = config_.circuit_breaker_error_rate;
@@ -80,14 +50,11 @@ void McpServer::setupEnhancedFilterChain(
           std::chrono::seconds(config_.circuit_breaker_timeout_seconds);
       cb_config.half_open_max_requests = 3;
 
-      auto callbacks = std::make_shared<CircuitBreakerCallbacksImpl>(*this);
-    auto filter =
-        std::make_shared<filter::CircuitBreakerFilter>(callbacks, cb_config);
+      auto emitter = std::make_shared<filter::FilterEventEmitter>(
+          event_hub,
+          "circuit_breaker");
 
-      // Store callbacks to keep them alive
-      circuit_breaker_callbacks_ = callbacks;
-
-      return filter;
+      return std::make_shared<filter::CircuitBreakerFilter>(emitter, cb_config);
     });
   }
 
@@ -301,6 +268,30 @@ void McpServer::setupEnhancedFilterChain(
   builder.addFilter([filter_bundle]() -> network::FilterSharedPtr {
     return nullptr;  // Just keeps filter_bundle alive
   });
+
+  if (event_hub) {
+    // Reset any previous observer so we don't leak handles
+    enhanced_filter_event_callbacks_.reset();
+    enhanced_filter_event_handle_ = filter::FilterChainEventHub::ObserverHandle();
+
+    class LoggingCallbacks : public filter::FilterChainCallbacks {
+     public:
+      LoggingCallbacks() = default;
+
+      void onFilterEvent(const filter::FilterEvent& event) override {
+        if (event.filter_name != "circuit_breaker") {
+          return;
+        }
+
+        std::cerr << "[CIRCUIT_BREAKER] Event: "
+                  << filter::toString(event.event_type) << std::endl;
+      }
+    };
+
+    enhanced_filter_event_callbacks_ = std::make_shared<LoggingCallbacks>();
+    enhanced_filter_event_handle_ =
+        event_hub->registerObserver(enhanced_filter_event_callbacks_);
+  }
 
   // The filter chain is now:
   // Network → Circuit Breaker → Rate Limit → Backpressure →
