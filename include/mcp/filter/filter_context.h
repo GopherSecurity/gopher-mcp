@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "mcp/json/json_bridge.h"
-#include "circuit_breaker_callbacks.h"
 
 namespace mcp {
 
@@ -187,9 +186,11 @@ struct FilterCreationContext {
   /// Optional shared services handle for dependency injection
   std::shared_ptr<void> shared_services;
 
-  /// Optional circuit breaker callbacks for enterprise filter support
-  /// Using void* to avoid circular dependency with circuit_breaker_filter.h
-  std::shared_ptr<CircuitBreakerCallbacks> circuit_breaker_callbacks;
+  /// Optional chain-level unified event hub for filter observability
+  std::shared_ptr<void> event_hub;
+
+  /// Optional event emitter for filters to emit events
+  std::shared_ptr<void> event_emitter;
 
   /**
    * @brief Constructor
@@ -235,10 +236,16 @@ struct FilterCreationContext {
       builder.add("has_shared_services", false);
     }
 
-    if (circuit_breaker_callbacks) {
-      builder.add("has_circuit_breaker_callbacks", true);
+    if (event_hub) {
+      builder.add("has_event_hub", true);
     } else {
-      builder.add("has_circuit_breaker_callbacks", false);
+      builder.add("has_event_hub", false);
+    }
+
+    if (event_emitter) {
+      builder.add("has_event_emitter", true);
+    } else {
+      builder.add("has_event_emitter", false);
     }
 
     return builder.build();

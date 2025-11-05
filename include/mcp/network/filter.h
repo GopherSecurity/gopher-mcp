@@ -18,10 +18,9 @@ namespace event {
 class Dispatcher;
 }
 
-// Forward declarations for filter-level callback types
+// Forward declarations for filter-level types
 namespace filter {
 class CircuitBreakerFilter;
-class CircuitBreakerCallbacks;
 }
 
 namespace network {
@@ -287,20 +286,6 @@ class DependencyInjectionAware {
     (void)circuit_breaker;
   }
 
-  /**
-   * Inject circuit breaker callbacks for event notifications
-   *
-   * OWNERSHIP: SHARED - Filter can safely hold shared_ptr
-   * LIFETIME: Managed by refcount
-   *
-   * NOTE: This is specifically for CircuitBreakerFilter to update its callbacks
-   * at runtime. Most filters won't implement this.
-   */
-  virtual void setCircuitBreakerCallbacks(
-      std::shared_ptr<filter::CircuitBreakerCallbacks> callbacks) {
-    // Default: no-op - only CircuitBreakerFilter implements this
-    (void)callbacks;
-  }
 };
 
 /**
