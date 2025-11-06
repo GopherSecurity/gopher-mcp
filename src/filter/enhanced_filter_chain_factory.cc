@@ -30,7 +30,6 @@ class EnhancedProtocolFilter : public network::Filter,
                                public HttpCodecFilter::MessageCallbacks,
                                public SseCodecFilter::EventCallbacks,
                                public JsonRpcProtocolFilter::MessageHandler,
-                               public RateLimitFilter::Callbacks,
                                public MetricsFilter::Callbacks,
                                public RequestValidationFilter::Callbacks,
                                public BackpressureFilter::Callbacks {
@@ -56,8 +55,10 @@ class EnhancedProtocolFilter : public network::Filter,
     }
 
     if (config_.enable_rate_limiting) {
+      // Create rate limiter with nullptr event emitter for standalone usage
+      // For chain-level events, use FilterCreationContext-based creation
       rate_limiter_ = std::make_shared<RateLimitFilter>(
-          *this, dispatcher_, config_.rate_limit_config);
+          nullptr, config_.rate_limit_config);
     }
 
     if (config_.enable_metrics) {
