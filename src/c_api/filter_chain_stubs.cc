@@ -45,11 +45,12 @@ advanced_chain_set_event_callback(
   return mcp::filter::FilterChainEventHub::ObserverHandle();
 }
 
-void advanced_chain_clear_event_callback(AdvancedFilterChain& chain) {
+void advanced_chain_unregister_observer(AdvancedFilterChain& chain,
+                                         size_t observer_id) {
   auto hub = internal::getEventHub(chain);
   if (hub) {
-    // Clear all registered observers
-    hub->clearObservers();
+    // Unregister only the specific observer by ID
+    hub->unregisterObserver(observer_id);
   }
 }
 
