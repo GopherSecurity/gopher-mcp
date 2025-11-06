@@ -26,9 +26,12 @@
 #include <chrono>
 #include <deque>
 #include <map>
+#include <memory>
 #include <mutex>
 
 #include "mcp/buffer.h"
+#include "mcp/filter/filter_event_emitter.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/network/filter.h"
 
 namespace mcp {
@@ -79,42 +82,22 @@ struct RateLimitConfig {
  * - Sliding Window: Smooth rate limiting over time window
  * - Fixed Window: Simple counter reset at window boundaries
  * - Leaky Bucket: Constant rate processing with queue
+ *
+ * Events are emitted via the unified chain-level event system:
+ * - RATE_LIMIT_EXCEEDED: When quota is exhausted
+ * - RATE_LIMIT_SAMPLE: Periodic token consumption metrics
+ * - RATE_LIMIT_WINDOW_RESET: Window boundary events
  */
 class RateLimitFilter : public network::NetworkFilterBase {
  public:
   /**
-   * Callbacks for rate limit events
-   */
-  class Callbacks {
-   public:
-    virtual ~Callbacks() = default;
-
-    /**
-     * Called when a request is allowed
-     */
-    virtual void onRequestAllowed() = 0;
-
-    /**
-     * Called when a request is rate limited
-     * @param retry_after Suggested retry time in milliseconds
-     */
-    virtual void onRequestLimited(std::chrono::milliseconds retry_after) = 0;
-
-    /**
-     * Called when rate limit is about to be exceeded (warning)
-     * @param remaining Remaining capacity percentage (0-100)
-     */
-    virtual void onRateLimitWarning(int remaining) = 0;
-  };
-
-  /**
    * Constructor
-   * @param callbacks Rate limit event callbacks
+   * @param event_emitter Event emitter for chain-level events
    * @param config Rate limit configuration
    */
-  RateLimitFilter(Callbacks& callbacks,
+  RateLimitFilter(std::shared_ptr<FilterEventEmitter> event_emitter,
                   const RateLimitConfig& config = RateLimitConfig())
-      : callbacks_(callbacks),
+      : event_emitter_(std::move(event_emitter)),
         config_(config),
         tokens_(config.bucket_capacity),
         last_refill_(std::chrono::steady_clock::now()) {
@@ -144,19 +127,49 @@ class RateLimitFilter : public network::NetworkFilterBase {
     if (!allowRequest()) {
       // Calculate retry time
       auto retry_after = calculateRetryAfter();
-      callbacks_.onRequestLimited(retry_after);
+
+      // Emit RATE_LIMIT_EXCEEDED event
+      if (event_emitter_ && event_emitter_->isConnected()) {
+        auto event_data = json::JsonObjectBuilder()
+            .add("strategy", getStrategyName())
+            .add("remainingTokens", static_cast<int>(tokens_.load()))
+            .add("retryAfterMs", static_cast<int>(retry_after.count()))
+            .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
+            .build();
+        event_emitter_->emit(FilterEventType::RATE_LIMIT_EXCEEDED,
+                            FilterEventSeverity::WARN,
+                            event_data);
+      }
 
       // Stop processing this data
       return network::FilterStatus::StopIteration;
     }
 
-    // Request allowed
-    callbacks_.onRequestAllowed();
+    // Request allowed - emit sample periodically (every 100 requests)
+    static std::atomic<size_t> request_counter{0};
+    if (event_emitter_ && event_emitter_->isConnected() && (++request_counter % 100 == 0)) {
+      int remaining = getRemainingCapacityPercent();
+      auto event_data = json::JsonObjectBuilder()
+          .add("remainingTokens", static_cast<int>(tokens_.load()))
+          .add("remainingPercent", remaining)
+          .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
+          .add("refillRate", static_cast<int>(config_.refill_rate))
+          .build();
+      event_emitter_->emit(FilterEventType::RATE_LIMIT_SAMPLE,
+                          FilterEventSeverity::DEBUG,
+                          event_data);
+    }
 
     // Check if we're approaching limit (warning at 80% capacity)
     int remaining = getRemainingCapacityPercent();
-    if (remaining < 20) {
-      callbacks_.onRateLimitWarning(remaining);
+    if (remaining < 20 && event_emitter_ && event_emitter_->isConnected()) {
+      auto event_data = json::JsonObjectBuilder()
+          .add("remainingPercent", remaining)
+          .add("threshold", 20)
+          .build();
+      event_emitter_->emit(FilterEventType::RATE_LIMIT_EXCEEDED,
+                          FilterEventSeverity::WARN,
+                          event_data);
     }
 
     return network::FilterStatus::Continue;
@@ -342,7 +355,21 @@ class RateLimitFilter : public network::NetworkFilterBase {
     return 100;
   }
 
-  Callbacks& callbacks_;
+  std::string getStrategyName() const {
+    switch (config_.strategy) {
+      case RateLimitStrategy::TokenBucket:
+        return "token_bucket";
+      case RateLimitStrategy::SlidingWindow:
+        return "sliding_window";
+      case RateLimitStrategy::FixedWindow:
+        return "fixed_window";
+      case RateLimitStrategy::LeakyBucket:
+        return "leaky_bucket";
+    }
+    return "unknown";
+  }
+
+  std::shared_ptr<FilterEventEmitter> event_emitter_;
   RateLimitConfig config_;
 
   // Synchronization

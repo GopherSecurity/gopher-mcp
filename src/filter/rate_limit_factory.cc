@@ -106,40 +106,7 @@ RateLimitConfig parseRateLimitConfig(const json::JsonValue& config) {
   return rl_config;
 }
 
-class LoggingRateLimitCallbacks : public RateLimitFilter::Callbacks {
- public:
-  explicit LoggingRateLimitCallbacks(std::string scope)
-      : scope_(std::move(scope)) {}
-
-  void onRequestAllowed() override {}
-
-  void onRequestLimited(std::chrono::milliseconds retry_after) override {
-    GOPHER_LOG(Warning,
-               "Rate limit triggered (%s), retry after %lldms",
-               scope_.c_str(),
-               static_cast<long long>(retry_after.count()));
-  }
-
-  void onRateLimitWarning(int remaining) override {
-    GOPHER_LOG(Info,
-               "Rate limit warning (%s): %d%% capacity remaining",
-               scope_.c_str(),
-               remaining);
-  }
-
- private:
-  std::string scope_;
-};
-
-class RateLimitFilterWithCallbacks : public RateLimitFilter {
- public:
-  RateLimitFilterWithCallbacks(std::shared_ptr<RateLimitFilter::Callbacks> cb,
-                               const RateLimitConfig& config)
-      : RateLimitFilter(*cb, config), callbacks_holder_(std::move(cb)) {}
-
- private:
-  std::shared_ptr<RateLimitFilter::Callbacks> callbacks_holder_;
-};
+// Legacy callback code removed - using unified chain-level events instead
 
 std::string describeContext(const FilterCreationContext& context) {
   std::string scope = context.getModeString();
@@ -282,9 +249,8 @@ class RateLimitFilterFactory : public FilterFactory {
                final_config["burst_size"].getInt(20),
                final_config["per_client_limiting"].getBool(false) ? "enabled" : "disabled");
 
-    auto callbacks =
-        std::make_shared<LoggingRateLimitCallbacks>("rate_limit.global");
-    return std::make_shared<RateLimitFilterWithCallbacks>(callbacks, rl_config);
+    // Create with nullptr event emitter (for standalone usage without chain)
+    return std::make_shared<RateLimitFilter>(nullptr, rl_config);
   }
 
   const FilterFactoryMetadata& getMetadata() const override {
@@ -430,8 +396,20 @@ network::FilterSharedPtr createRateLimitFilter(
   const std::string scope = describeContext(context);
   GOPHER_LOG(Debug, "Creating rate_limit filter for scope=%s", scope.c_str());
 
-  auto callbacks = std::make_shared<LoggingRateLimitCallbacks>(scope);
-  return std::make_shared<RateLimitFilterWithCallbacks>(callbacks, rl_config);
+  // Get event emitter from context
+  std::shared_ptr<FilterEventEmitter> event_emitter;
+  if (context.event_emitter) {
+    try {
+      event_emitter = std::static_pointer_cast<FilterEventEmitter>(context.event_emitter);
+      GOPHER_LOG(Debug, "RateLimitFilter using chain-level event emitter");
+    } catch (const std::exception& e) {
+      GOPHER_LOG(Warning, "Failed to cast event_emitter: %s", e.what());
+    }
+  } else {
+    GOPHER_LOG(Debug, "RateLimitFilter created without event emitter");
+  }
+
+  return std::make_shared<RateLimitFilter>(event_emitter, rl_config);
 }
 
 BasicFilterMetadata makeMetadata() {
