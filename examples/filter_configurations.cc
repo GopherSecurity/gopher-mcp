@@ -66,8 +66,8 @@ class ProductionMcpClient : public client::McpClient {
 
         // CLIENT-SPECIFIC: Self-imposed limits
         // Be conservative to avoid triggering server rate limits
-        return std::make_shared<filter::RateLimitFilter>(*rate_limit_callbacks_,
-                                                         config);
+        // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
+        return std::make_shared<filter::RateLimitFilter>(nullptr, config);
       });
     }
 
@@ -165,8 +165,8 @@ class BatchMcpClient : public client::McpClient {
       config.refill_rate = 5;        // Steady 5 req/sec
 
       // BATCH-SPECIFIC: Prevent overwhelming server with batch requests
-      return std::make_shared<filter::RateLimitFilter>(*rate_limit_callbacks_,
-                                                       config);
+      // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
+      return std::make_shared<filter::RateLimitFilter>(nullptr, config);
     });
 
     // Other filters similar to production...
@@ -200,8 +200,8 @@ class ProductionMcpServer : public server::McpServer {
 
       // SERVER-SPECIFIC: Enforce fair usage across clients
       // Track and limit each client separately
-      return std::make_shared<filter::RateLimitFilter>(*rate_limit_callbacks_,
-                                                       config);
+      // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
+      return std::make_shared<filter::RateLimitFilter>(nullptr, config);
     });
 
     // =========================================================================
