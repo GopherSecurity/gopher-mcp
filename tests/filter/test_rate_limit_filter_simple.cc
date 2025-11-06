@@ -1,6 +1,10 @@
 /**
  * @file test_rate_limit_filter_simple.cc
  * @brief Simple unit tests for Rate Limiting Filter (no real I/O)
+ *
+ * NOTE: This test uses nullptr for event emitter since we're testing
+ * the rate limiting logic in isolation. For integration tests with
+ * event callbacks, see test_rate_limiter_chain_events.cc
  */
 
 #include <chrono>
@@ -17,30 +21,19 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Mock callbacks
-class MockRateLimitCallbacks : public RateLimitFilter::Callbacks {
- public:
-  MOCK_METHOD(void, onRequestAllowed, (), (override));
-  MOCK_METHOD(void,
-              onRequestLimited,
-              (std::chrono::milliseconds retry_after),
-              (override));
-  MOCK_METHOD(void, onRateLimitWarning, (int remaining), (override));
-};
-
 class RateLimitFilterSimpleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    callbacks_ = std::make_unique<NiceMock<MockRateLimitCallbacks>>();
+    // No setup needed
   }
 
   void createFilter(const RateLimitConfig& config) {
-    filter_ = std::make_unique<RateLimitFilter>(*callbacks_, config);
+    // Create filter without event emitter for isolated testing
+    filter_ = std::make_unique<RateLimitFilter>(nullptr, config);
   }
 
  protected:
   std::unique_ptr<RateLimitFilter> filter_;
-  std::unique_ptr<MockRateLimitCallbacks> callbacks_;
 };
 
 // Test basic configuration
