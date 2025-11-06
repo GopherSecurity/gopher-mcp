@@ -51,34 +51,84 @@ export interface JSONRPCMessage {
 export interface FilterManagerConfig {
   // Network filters
   network?: {
-    tcpProxy?: boolean;
+    tcpProxy?: boolean | {
+      enabled: boolean;
+      upstreamHost?: string;
+      upstreamPort?: number;
+      bindAddress?: string;
+      bindPort?: number;
+    };
     udpProxy?: boolean;
   };
 
   // HTTP filters
   http?: {
-    codec?: boolean;
+    codec?: boolean | {
+      enabled: boolean;
+      compressionLevel?: number;
+      maxRequestSize?: number;
+      maxResponseSize?: number;
+    };
     routing?: boolean;
   };
 
   // Security filters
   security?: {
-    authentication?: boolean;
-    authorization?: boolean;
+    authentication?: boolean | {
+      method?: string;
+      secret?: string;
+      issuer?: string;
+      audience?: string;
+    };
+    authorization?: boolean | {
+      enabled: boolean;
+      policy?: string;
+      rules?: Array<{
+        resource: string;
+        action: string;
+        conditions?: any;
+      }>;
+    };
     rateLimiting?: boolean;
   };
 
   // Observability filters
   observability?: {
-    accessLog?: boolean;
-    metrics?: boolean;
-    tracing?: boolean;
+    accessLog?: boolean | {
+      enabled: boolean;
+      format?: string;
+      fields?: string[];
+      output?: string;
+    };
+    metrics?: boolean | {
+      enabled: boolean;
+      endpoint?: string;
+      interval?: number;
+      labels?: Record<string, string>;
+    };
+    tracing?: boolean | {
+      enabled: boolean;
+      serviceName?: string;
+      endpoint?: string;
+      samplingRate?: number;
+    };
   };
 
   // Traffic management
   trafficManagement?: {
-    circuitBreaker?: boolean;
-    retry?: boolean;
+    circuitBreaker?: boolean | {
+      enabled: boolean;
+      failureThreshold?: number;
+      timeout?: number;
+      resetTimeout?: number;
+    };
+    retry?: boolean | {
+      enabled: boolean;
+      maxAttempts?: number;
+      backoffStrategy?: string;
+      baseDelay?: number;
+      maxDelay?: number;
+    };
     timeout?: boolean;
   };
 
@@ -102,13 +152,35 @@ export interface FilterManagerConfig {
     stopOnError?: boolean;
     retryAttempts?: number;
     retryDelayMs?: number;
+    fallbackBehavior?: 'passthrough' | 'default' | 'error';
   };
 
   // Custom filters
   customFilters?: Array<{
     type: string;
+    enabled?: boolean;
     config?: any;
   }>;
+
+  // Top-level shortcuts for common filters (for backward compatibility)
+  auth?: boolean | {
+    method?: string;
+    secret?: string;
+    issuer?: string;
+    audience?: string;
+  };
+  rateLimit?: boolean | {
+    requestsPerSecond?: number;
+    burstSize?: number;
+  };
+  logging?: boolean | {
+    level?: string;
+    format?: string;
+  };
+  metrics?: boolean | {
+    enabled?: boolean;
+    endpoint?: string;
+  };
 }
 
 /**
@@ -126,7 +198,7 @@ export class FilterManager {
   private filterManager: number;
   private filterChain: number | null = null;
   private bufferPool: number;
-  private isDestroyed: boolean = false;
+  private _isDestroyed: boolean = false;
   private dispatcherHandle: any = 0;
   private connectionHandle: any = 0;
 
@@ -351,10 +423,33 @@ export class FilterManager {
   }
 
   /**
+   * Process both request and response in sequence
+   * @param request - The request message to process
+   * @param response - The response message to process
+   * @returns Tuple of [processed request, processed response]
+   */
+  async processRequestResponse(
+    request: JSONRPCMessage,
+    response: JSONRPCMessage
+  ): Promise<[JSONRPCMessage, JSONRPCMessage]> {
+    const processedRequest = await this.processMessage(request);
+    const processedResponse = await this.processMessage(response);
+    return [processedRequest, processedResponse];
+  }
+
+  /**
+   * Check if the FilterManager has been destroyed
+   * @returns true if destroyed, false otherwise
+   */
+  isDestroyed(): boolean {
+    return this._isDestroyed;
+  }
+
+  /**
    * Destroy the filter manager and release resources
    */
   destroy(): void {
-    if (this.isDestroyed) return;
+    if (this._isDestroyed) return;
 
     // Release filter chain
     if (this.filterChain) {
@@ -368,14 +463,14 @@ export class FilterManager {
     // Destroy buffer pool
     BufferModule.destroyBufferPool(this.bufferPool);
 
-    this.isDestroyed = true;
+    this._isDestroyed = true;
   }
 
   /**
    * Check if manager has been destroyed
    */
   private checkNotDestroyed(): void {
-    if (this.isDestroyed) {
+    if (this._isDestroyed) {
       throw new Error("FilterManager has been destroyed and cannot process messages");
     }
   }

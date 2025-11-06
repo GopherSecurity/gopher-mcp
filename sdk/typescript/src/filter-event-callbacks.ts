@@ -29,6 +29,13 @@ export class FilterEventCallbackHandle {
     // Create unique prototype name to avoid conflicts
     const suffix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 
+    // Define C struct for mcp_filter_event_context_t
+    const EventContextStruct = koffi.struct('mcp_filter_event_context_t', {
+      chain_id: 'const char*',
+      stream_id: 'const char*',
+      correlation_id: 'const char*',
+    });
+
     // Define C callback prototype matching mcp_filter_event_callback_t
     // void (*callback)(const char* filter_name,
     //                  const char* filter_instance_id,
@@ -45,7 +52,7 @@ export class FilterEventCallbackHandle {
         'int32_t, ' +          // event_type
         'int32_t, ' +          // severity
         'const char*, ' +      // event_data_json
-        'void*, ' +            // context (opaque)
+        '_Inout mcp_filter_event_context_t*, ' +  // context pointer
         'int64_t, ' +          // timestamp_ms
         'void*' +              // user_data
       ')'
@@ -59,7 +66,7 @@ export class FilterEventCallbackHandle {
         eventType: number,
         severity: number,
         eventDataJson: string | null,
-        _context: unknown,  // We'll parse JSON for context instead
+        contextPtr: koffi.IKoffiCType | null,  // Pointer to context struct
         timestampMs: bigint,
         _userData: unknown,
       ) => {
@@ -74,15 +81,19 @@ export class FilterEventCallbackHandle {
             }
           }
 
-          // Extract context from event data if present
+          // Extract context from the C struct pointer (not from JSON!)
           let context: FilterEventContext | undefined;
-          if (eventData.context && typeof eventData.context === 'object') {
-            const ctxObj = eventData.context as Record<string, unknown>;
-            context = {
-              chainId: typeof ctxObj.chain_id === 'string' ? ctxObj.chain_id : undefined,
-              streamId: typeof ctxObj.stream_id === 'string' ? ctxObj.stream_id : undefined,
-              correlationId: typeof ctxObj.correlation_id === 'string' ? ctxObj.correlation_id : undefined,
-            };
+          if (contextPtr) {
+            try {
+              const ctx = koffi.decode(contextPtr, EventContextStruct);
+              context = {
+                chainId: ctx.chain_id || undefined,
+                streamId: ctx.stream_id || undefined,
+                correlationId: ctx.correlation_id || undefined,
+              };
+            } catch (err) {
+              console.error('Failed to decode context struct:', err);
+            }
           }
 
           // Convert bigint timestamp to number (safely)
@@ -90,10 +101,11 @@ export class FilterEventCallbackHandle {
           const timestamp = timestampMs > maxSafe ? Number.MAX_SAFE_INTEGER : Number(timestampMs);
 
           // Construct TypeScript event object
+          // Use spread operator to only include optional fields if defined (for exactOptionalPropertyTypes)
           const event: FilterEvent = {
-            context,
+            ...(context && { context }),
             filterName: filterName ?? '<unknown>',
-            filterInstanceId: filterInstanceId ?? undefined,
+            ...(filterInstanceId && { filterInstanceId }),
             eventType: eventType as FilterEventType,
             severity: severity as FilterEventSeverity,
             eventData,
