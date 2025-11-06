@@ -133,6 +133,16 @@ struct McpServerStats : public application::ApplicationStats {
 
   // Prompt metrics
   std::atomic<uint64_t> prompts_retrieved{0};
+
+  // Filter-related metrics
+  std::atomic<uint64_t> circuit_breaker_trips{0};
+  std::atomic<uint64_t> circuit_requests_blocked{0};
+  std::atomic<uint64_t> rate_limited_requests{0};
+  std::atomic<uint64_t> backpressure_events{0};
+  std::atomic<uint64_t> bytes_dropped{0};
+  std::atomic<uint64_t> threshold_violations{0};
+  std::atomic<double> current_success_rate{1.0};
+  std::atomic<uint64_t> average_latency_ms{0};
 };
 
 /**
