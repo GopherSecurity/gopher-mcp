@@ -576,14 +576,15 @@ class FilterChainBuilder {
   event::Dispatcher& getDispatcher() { return dispatcher_; }
 
   // Add rate limiting filter
+  // NOTE: This method is deprecated - use chain-level event callbacks instead
+  // Rate limiting should be configured through FilterCreationContext with event emitter
   FilterChainBuilder& withRateLimiting(
       const filter::RateLimitConfig& config,
       network::Connection* connection = nullptr) {
-    auto callbacks = std::make_shared<RateLimitCallbacks>(stats_, connection,
-                                                          write_callbacks_);
-    auto filter = std::make_shared<filter::RateLimitFilter>(*callbacks, config);
+    // Create filter with nullptr event emitter for standalone usage
+    // For chain-level events, use FilterCreationContext-based creation
+    auto filter = std::make_shared<filter::RateLimitFilter>(nullptr, config);
     filters_.push_back(filter);
-    rate_limit_callbacks_ = callbacks;
     return *this;
   }
 
@@ -659,64 +660,7 @@ class FilterChainBuilder {
   }
 
  private:
-  // Callback implementations
-  class RateLimitCallbacks : public filter::RateLimitFilter::Callbacks {
-   public:
-    RateLimitCallbacks(ApplicationStats& stats,
-                       network::Connection* connection = nullptr,
-                       network::WriteFilterCallbacks* write_callbacks = nullptr)
-        : stats_(stats),
-          connection_(connection),
-          write_callbacks_(write_callbacks) {}
-
-    void onRequestAllowed() override {
-      // Request was allowed through - update stats
-      stats_.requests_total++;
-    }
-
-    void onRequestLimited(std::chrono::milliseconds retry_after) override {
-      stats_.requests_failed++;
-
-      // Send rate limit error response to client
-      if (connection_) {
-        // Create error data as map<string, string> for ErrorData
-        std::map<std::string, std::string> errorData;
-        errorData["retry_after_ms"] = std::to_string(retry_after.count());
-        errorData["error_type"] = "rate_limit";
-
-        // Use builders to create error response
-        auto error = make<Error>(-32429, "Rate limit exceeded").data(errorData);
-
-        auto response = make<jsonrpc::Response>(last_request_id_).error(error);
-
-        // Send error response through connection
-        if (write_callbacks_) {
-          auto response_obj = response.build();
-          // Note: Actual implementation would serialize and send the response
-          // through the write callbacks. This requires access to the buffer
-          // implementation which is not exposed in the public API.
-          // The connection would handle this through its filter chain.
-        }
-      }
-    }
-
-    void onRateLimitWarning(int remaining) override {
-      // Could trigger alerts or adjust behavior when approaching limit
-      if (remaining < 10) {
-        // Critical warning - might want to start queuing or buffering
-        stats_.errors_total++;
-      }
-    }
-
-    void setLastRequestId(const RequestId& id) { last_request_id_ = id; }
-
-   private:
-    ApplicationStats& stats_;
-    network::Connection* connection_;
-    network::WriteFilterCallbacks* write_callbacks_;
-    RequestId last_request_id_;
-  };
-
+  // NOTE: RateLimitCallbacks removed - use chain-level event system instead
   // NOTE: CircuitBreakerCallbacks removed - use chain-level FilterEventCallbacks instead
   // See filter::FilterChainCallbacks in filter_chain_callbacks.h
 
@@ -915,7 +859,7 @@ class FilterChainBuilder {
 
   // Store specific filter references
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;
-  std::shared_ptr<RateLimitCallbacks> rate_limit_callbacks_;
+  // rate_limit_callbacks_ removed - use chain-level event system instead
   // circuit_breaker_callbacks_ removed - use chain-level callbacks instead
   std::shared_ptr<BackpressureCallbacks> backpressure_callbacks_;
   std::shared_ptr<RequestValidationCallbacks> validation_callbacks_;
