@@ -60,32 +60,9 @@ void McpServer::setupEnhancedFilterChain(
 
   // Layer 2: Rate Limiting
   // Controls request rates to prevent abuse
+  // NOTE: Now uses chain-level event system instead of per-filter callbacks
   if (config_.enable_rate_limiting) {
     builder.addFilter([this]() -> network::FilterSharedPtr {
-      // Create rate limit callbacks adapter
-      class RateLimitCallbacksImpl : public filter::RateLimitFilter::Callbacks {
-       public:
-        RateLimitCallbacksImpl(McpServer& server) : server_(server) {}
-
-        void onRequestAllowed() override {
-          // Request allowed - no action needed
-        }
-
-        void onRequestLimited(std::chrono::milliseconds retry_after) override {
-          server_.server_stats_.rate_limited_requests++;
-          std::cerr << "[RATE_LIMIT] Request limited, retry after: "
-                    << retry_after.count() << "ms" << std::endl;
-        }
-
-        void onRateLimitWarning(int remaining) override {
-          std::cerr << "[RATE_LIMIT] Warning: " << remaining
-                    << "% capacity remaining" << std::endl;
-        }
-
-       private:
-        McpServer& server_;
-      };
-
       // Configure rate limiting
       filter::RateLimitConfig rl_config;
       rl_config.strategy = filter::RateLimitStrategy::TokenBucket;
@@ -95,12 +72,9 @@ void McpServer::setupEnhancedFilterChain(
       rl_config.allow_burst = true;
       rl_config.burst_size = config_.rate_limit_burst_size;
 
-      auto callbacks = std::make_shared<RateLimitCallbacksImpl>(*this);
-      auto filter =
-          std::make_shared<filter::RateLimitFilter>(*callbacks, rl_config);
-
-      // Store callbacks
-      rate_limit_callbacks_ = callbacks;
+      // Create filter with nullptr event emitter for standalone usage
+      // For chain-level events, the filter will be created via FilterCreationContext
+      auto filter = std::make_shared<filter::RateLimitFilter>(nullptr, rl_config);
 
       return filter;
     });
@@ -274,21 +248,56 @@ void McpServer::setupEnhancedFilterChain(
     enhanced_filter_event_callbacks_.reset();
     enhanced_filter_event_handle_ = filter::FilterChainEventHub::ObserverHandle();
 
-    class LoggingCallbacks : public filter::FilterChainCallbacks {
+    class StatsTrackingCallbacks : public filter::FilterChainCallbacks {
      public:
-      LoggingCallbacks() = default;
+      StatsTrackingCallbacks(McpServer& server) : server_(server) {}
 
       void onFilterEvent(const filter::FilterEvent& event) override {
-        if (event.filter_name != "circuit_breaker") {
-          return;
+        // Track circuit breaker events
+        if (event.filter_name == "circuit_breaker") {
+          if (event.event_type == filter::FilterEventType::CIRCUIT_STATE_CHANGE) {
+            // Parse new_state from event_data to check if circuit opened
+            if (event.event_data.contains("new_state")) {
+              std::string new_state = event.event_data["new_state"].getString("");
+              if (new_state == "OPEN") {
+                server_.server_stats_.circuit_breaker_trips++;
+              }
+            }
+          } else if (event.event_type == filter::FilterEventType::CIRCUIT_REQUEST_BLOCKED) {
+            server_.server_stats_.circuit_requests_blocked++;
+          } else if (event.event_type == filter::FilterEventType::CIRCUIT_HEALTH_UPDATE) {
+            // Update health metrics
+            if (event.event_data.contains("success_rate")) {
+              double success_rate = event.event_data["success_rate"].getFloat(1.0);
+              server_.server_stats_.current_success_rate.store(success_rate);
+            }
+            if (event.event_data.contains("latency_ms")) {
+              uint64_t latency = static_cast<uint64_t>(event.event_data["latency_ms"].getInt(0));
+              server_.server_stats_.average_latency_ms.store(latency);
+            }
+          }
+
+          // Log for debugging
+          std::cerr << "[CIRCUIT_BREAKER] Event: "
+                    << filter::toString(event.event_type) << std::endl;
         }
 
-        std::cerr << "[CIRCUIT_BREAKER] Event: "
-                  << filter::toString(event.event_type) << std::endl;
+        // Track rate limiter events
+        if (event.filter_name == "rate_limiter") {
+          if (event.event_type == filter::FilterEventType::RATE_LIMIT_EXCEEDED) {
+            server_.server_stats_.rate_limited_requests++;
+          }
+
+          std::cerr << "[RATE_LIMITER] Event: "
+                    << filter::toString(event.event_type) << std::endl;
+        }
       }
+
+     private:
+      McpServer& server_;
     };
 
-    enhanced_filter_event_callbacks_ = std::make_shared<LoggingCallbacks>();
+    enhanced_filter_event_callbacks_ = std::make_shared<StatsTrackingCallbacks>(*this);
     enhanced_filter_event_handle_ =
         event_hub->registerObserver(enhanced_filter_event_callbacks_);
   }
