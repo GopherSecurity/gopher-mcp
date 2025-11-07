@@ -37,27 +37,9 @@ advanced_chain_set_event_callback(
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks) {
   auto hub = internal::getEventHub(chain);
   if (hub && callbacks) {
-    // Register the callback observer and return the handle
-    // The caller MUST store this handle to keep the callback registered
     return hub->registerObserver(callbacks);
   }
-  // Return empty handle if registration failed
   return mcp::filter::FilterChainEventHub::ObserverHandle();
-}
-
-void advanced_chain_unregister_observer(AdvancedFilterChain& chain,
-                                         size_t observer_id) {
-  auto hub = internal::getEventHub(chain);
-  if (hub) {
-    // Unregister only the specific observer by ID
-    hub->unregisterObserver(observer_id);
-  }
-}
-
-bool advanced_chain_has_event_callback(const AdvancedFilterChain& chain) {
-  auto hub = internal::getEventHub(chain);
-  // Check if hub exists and has registered observers
-  return hub && hub->getObserverCount() > 0;
 }
 
 }  // namespace filter_chain

@@ -111,7 +111,6 @@ class AdvancedFilterChain;
 mcp::filter::FilterChainEventHub::ObserverHandle advanced_chain_set_event_callback(
     AdvancedFilterChain& chain,
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
-void advanced_chain_unregister_observer(AdvancedFilterChain& chain, size_t observer_id);
 }  // namespace filter_chain
 }  // namespace mcp
 
@@ -172,29 +171,12 @@ int mcp_filter_chain_clear_event_callback(mcp_filter_chain_t chain) {
     return -1;  // Invalid chain handle
   }
 
-  // Get the observer ID from the handle before erasing
-  size_t observer_id = SIZE_MAX;
   {
     std::lock_guard<std::mutex> lock(g_callback_mutex);
-    auto it = g_callback_registry.find(chain);
-    if (it != g_callback_registry.end()) {
-      observer_id = it->second->observer_handle.getObserverId();
-      g_callback_registry.erase(it);
-    }
+    g_callback_registry.erase(chain);
   }
 
-  // Unregister only this specific observer (not all observers)
-  auto advanced_chain = chain_ptr->getAdvancedChain();
-  if (advanced_chain && observer_id != SIZE_MAX) {
-    try {
-      mcp::filter_chain::advanced_chain_unregister_observer(*advanced_chain, observer_id);
-      return 0;  // Success
-    } catch (...) {
-      return -2;  // Unregister failed
-    }
-  }
-
-  return 0;  // Success (nothing to clear for simple chains or no observer)
+  return 0;  // Success
 }
 
 const char* mcp_filter_event_type_to_string(

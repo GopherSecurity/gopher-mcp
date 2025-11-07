@@ -18,8 +18,6 @@ class AdvancedFilterChain;
 mcp::filter::FilterChainEventHub::ObserverHandle advanced_chain_set_event_callback(
     AdvancedFilterChain& chain,
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
-bool advanced_chain_has_event_callback(
-    const AdvancedFilterChain& chain);
 }
 namespace filter_api {
 class FilterChain;
@@ -94,6 +92,10 @@ bool UnifiedFilterChain::setEventCallback(
     // The handle's RAII destructor will unregister when this object is destroyed
     // or when clearEventCallback() is called
     observer_handle_ = advanced_chain_set_event_callback(*advanced_chain_, std::move(callbacks));
+    if (!observer_handle_.isValid()) {
+      observer_handle_ = mcp::filter::FilterChainEventHub::ObserverHandle();
+      return false;
+    }
     return true;
   }
   return false;
