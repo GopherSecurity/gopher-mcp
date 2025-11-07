@@ -1135,6 +1135,7 @@ void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
 
   switch (event) {
     case network::ConnectionEvent::Connected:
+    case network::ConnectionEvent::ConnectedZeroRtt:
       connected_ = true;
       client_stats_.connections_active++;
 

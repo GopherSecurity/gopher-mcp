@@ -748,6 +748,7 @@ void McpServer::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events
   switch (event) {
     case network::ConnectionEvent::Connected:
+    case network::ConnectionEvent::ConnectedZeroRtt:
       server_stats_.connections_total++;
       server_stats_.connections_active++;
       break;
