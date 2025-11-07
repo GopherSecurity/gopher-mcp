@@ -387,13 +387,13 @@ TEST_F(UnitsTest, UnitConversions) {
   EXPECT_EQ(UnitConversion::toSeconds(std::chrono::milliseconds(3000)), 3);
   
   // Test size conversions
-  EXPECT_EQ(UnitConversion::KILOBYTE, 1000);
-  EXPECT_EQ(UnitConversion::MEGABYTE, 1000000);
-  EXPECT_EQ(UnitConversion::GIGABYTE, 1000000000);
+  EXPECT_EQ(UnitConversion::KILOBYTE, static_cast<size_t>(1024));
+  EXPECT_EQ(UnitConversion::MEGABYTE, static_cast<size_t>(1048576));
+  EXPECT_EQ(UnitConversion::GIGABYTE, static_cast<size_t>(1073741824));
   
-  EXPECT_DOUBLE_EQ(UnitConversion::toKilobytes(2000), 2.0);
-  EXPECT_DOUBLE_EQ(UnitConversion::toMegabytes(2000000), 2.0);
-  EXPECT_DOUBLE_EQ(UnitConversion::toGigabytes(2000000000), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toKilobytes(2 * UnitConversion::KILOBYTE), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toMegabytes(2 * UnitConversion::MEGABYTE), 2.0);
+  EXPECT_DOUBLE_EQ(UnitConversion::toGigabytes(2ull * UnitConversion::GIGABYTE), 2.0);
 }
 
 TEST_F(UnitsTest, YamlQuotingGuidance) {
