@@ -60,14 +60,14 @@ export function ensureMcpInitialized(): void {
     throw new Error('MCP native library is not loaded');
   }
 
-  console.log('🔍 [ensureMcpInitialized] Checking if library is initialized...');
+  // console.log('🔍 [ensureMcpInitialized] Checking if library is initialized...');
   const isInitialized = mcpFilterLib.mcp_is_initialized
     ? mcpFilterLib.mcp_is_initialized() === 1
     : false;
-  console.log(`🔍 [ensureMcpInitialized] Current initialization status: ${isInitialized}`);
+  // console.log(`🔍 [ensureMcpInitialized] Current initialization status: ${isInitialized}`);
 
   if (isInitialized) {
-    console.log('🔍 [ensureMcpInitialized] Library already initialized, returning');
+    // console.log('🔍 [ensureMcpInitialized] Library already initialized, returning');
     return;
   }
 
@@ -75,24 +75,24 @@ export function ensureMcpInitialized(): void {
     throw new Error('mcp_init symbol not available in native library');
   }
 
-  console.log('🔍 [ensureMcpInitialized] Calling mcp_init(null)...');
+  // console.log('🔍 [ensureMcpInitialized] Calling mcp_init(null)...');
   const result = mcpFilterLib.mcp_init(null);
-  console.log(`🔍 [ensureMcpInitialized] mcp_init returned: ${result} (0=success)`);
+  // console.log(`🔍 [ensureMcpInitialized] mcp_init returned: ${result} (0=success)`);
 
   if (result !== 0) {
     const afterInit = mcpFilterLib.mcp_is_initialized
       ? mcpFilterLib.mcp_is_initialized() === 1
       : false;
-    console.log(`🔍 [ensureMcpInitialized] After failed init, mcp_is_initialized: ${afterInit}`);
+    // console.log(`🔍 [ensureMcpInitialized] After failed init, mcp_is_initialized: ${afterInit}`);
     if (!afterInit) {
       throw new Error(`mcp_init failed with error code ${result}`);
     }
   } else {
-    console.log('🔍 [ensureMcpInitialized] mcp_init succeeded');
-    const verifyInit = mcpFilterLib.mcp_is_initialized
-      ? mcpFilterLib.mcp_is_initialized() === 1
-      : false;
-    console.log(`🔍 [ensureMcpInitialized] Verification - mcp_is_initialized: ${verifyInit}`);
+    // console.log('🔍 [ensureMcpInitialized] mcp_init succeeded');
+    // const verifyInit = mcpFilterLib.mcp_is_initialized
+    //   ? mcpFilterLib.mcp_is_initialized() === 1
+    //   : false;
+    // console.log(`🔍 [ensureMcpInitialized] Verification - mcp_is_initialized: ${verifyInit}`);
   }
 }
 
@@ -877,14 +877,14 @@ export type pointer = any;
  * This function ALWAYS creates real handles, never stubs
  */
 export function createRealDispatcher(): pointer {
-  console.log('🔍 [createRealDispatcher] Checking initialization status...');
-  const initBefore = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
-  console.log(`🔍 [createRealDispatcher] mcp_is_initialized BEFORE ensureMcpInitialized: ${initBefore}`);
+  // console.log('🔍 [createRealDispatcher] Checking initialization status...');
+  // const initBefore = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
+  // console.log(`🔍 [createRealDispatcher] mcp_is_initialized BEFORE ensureMcpInitialized: ${initBefore}`);
 
   ensureMcpInitialized();
 
-  const initAfter = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
-  console.log(`🔍 [createRealDispatcher] mcp_is_initialized AFTER ensureMcpInitialized: ${initAfter}`);
+  // const initAfter = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
+  // console.log(`🔍 [createRealDispatcher] mcp_is_initialized AFTER ensureMcpInitialized: ${initAfter}`);
 
   // Check if native library is available
   if (!mcpFilterLib || !mcpFilterLib.mcp_dispatcher_create) {
@@ -897,66 +897,66 @@ export function createRealDispatcher(): pointer {
   }
 
   // Call FFI function to create real dispatcher
-  console.log('🔍 [createRealDispatcher] Calling mcp_dispatcher_create()...');
+  // console.log('🔍 [createRealDispatcher] Calling mcp_dispatcher_create()...');
   const dispatcher = mcpFilterLib.mcp_dispatcher_create();
 
   // Check if dispatcher is valid before trying to convert to string
   if (!dispatcher || dispatcher === 0) {
-    console.log('🔍 [createRealDispatcher] mcp_dispatcher_create returned null or 0');
+    // console.log('🔍 [createRealDispatcher] mcp_dispatcher_create returned null or 0');
 
     // Check initialization status again
-    const initFinal = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
-    console.log(`🔍 [createRealDispatcher] mcp_is_initialized when dispatcher creation failed: ${initFinal}`);
+    // const initFinal = mcpFilterLib.mcp_is_initialized ? mcpFilterLib.mcp_is_initialized() : -1;
+    // console.log(`🔍 [createRealDispatcher] mcp_is_initialized when dispatcher creation failed: ${initFinal}`);
 
     // Try to get last error
-    if (mcpFilterLib.mcp_get_last_error) {
-      const errorPtr = mcpFilterLib.mcp_get_last_error();
-      console.log(`🔍 [createRealDispatcher] Error pointer: ${errorPtr}`);
-    }
+    // if (mcpFilterLib.mcp_get_last_error) {
+    //   const errorPtr = mcpFilterLib.mcp_get_last_error();
+    //   // console.log(`🔍 [createRealDispatcher] Error pointer: ${errorPtr}`);
+    // }
 
     throw new Error('Failed to create dispatcher - native library returned null');
   }
 
   // Dispatcher is valid - now we can log it safely
-  console.log('🔍 [createRealDispatcher] mcp_dispatcher_create succeeded');
+  // console.log('🔍 [createRealDispatcher] mcp_dispatcher_create succeeded');
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING || true) {  // Always log for debugging
     try {
-      console.log(`Created real dispatcher handle (pointer object): ${typeof dispatcher}`);
+      // console.log(`Created real dispatcher handle (pointer object): ${typeof dispatcher}`);
     } catch (e) {
-      console.log(`Created real dispatcher handle (cannot convert to string): ${e}`);
+      // console.log(`Created real dispatcher handle (cannot convert to string): ${e}`);
     }
-    console.log('🔍 [createRealDispatcher] dispatcher class:', Object.prototype.toString.call(dispatcher));
-    console.log('🔍 [createRealDispatcher] Buffer.isBuffer:', Buffer.isBuffer(dispatcher));
-    console.log('🔍 [createRealDispatcher] dispatcher keys:', Object.keys(dispatcher || {}));
+    // console.log('🔍 [createRealDispatcher] dispatcher class:', Object.prototype.toString.call(dispatcher));
+    // console.log('🔍 [createRealDispatcher] Buffer.isBuffer:', Buffer.isBuffer(dispatcher));
+    // console.log('🔍 [createRealDispatcher] dispatcher keys:', Object.keys(dispatcher || {}));
     try {
-      console.log('🔍 [createRealDispatcher] dispatcher valueOf:', dispatcher && typeof dispatcher.valueOf === 'function' ? dispatcher.valueOf() : 'n/a');
+      // console.log('🔍 [createRealDispatcher] dispatcher valueOf:', dispatcher && typeof dispatcher.valueOf === 'function' ? dispatcher.valueOf() : 'n/a');
     } catch (err) {
-      console.log('🔍 [createRealDispatcher] dispatcher valueOf error:', err);
+      // console.log('🔍 [createRealDispatcher] dispatcher valueOf error:', err);
     }
-    try {
-      const proto = Object.getPrototypeOf(dispatcher);
-      console.log('🔍 [createRealDispatcher] dispatcher proto keys:', proto ? Object.getOwnPropertyNames(proto) : []);
-    } catch (err) {
-      console.log('🔍 [createRealDispatcher] dispatcher proto inspection error:', err);
-    }
-    console.log('🔍 [createRealDispatcher] dispatcher buffer property:', dispatcher && (dispatcher as any).buffer ? 'present' : 'missing');
+    // try {
+    //   const proto = Object.getPrototypeOf(dispatcher);
+    //   // console.log('🔍 [createRealDispatcher] dispatcher proto keys:', proto ? Object.getOwnPropertyNames(proto) : []);
+    // } catch (err) {
+    //   // console.log('🔍 [createRealDispatcher] dispatcher proto inspection error:', err);
+    // }
+    // console.log('🔍 [createRealDispatcher] dispatcher buffer property:', dispatcher && (dispatcher as any).buffer ? 'present' : 'missing');
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const koffiModule = require('koffi');
       if (typeof koffiModule.addressOf === 'function') {
-        console.log('🔍 [createRealDispatcher] dispatcher addressOf:', koffiModule.addressOf(dispatcher));
+        // console.log('🔍 [createRealDispatcher] dispatcher addressOf:', koffiModule.addressOf(dispatcher));
       } else {
-        console.log('🔍 [createRealDispatcher] koffi.addressOf not available');
+        // console.log('🔍 [createRealDispatcher] koffi.addressOf not available');
       }
     } catch (err) {
-      console.log('🔍 [createRealDispatcher] dispatcher addressOf error:', err);
+      // console.log('🔍 [createRealDispatcher] dispatcher addressOf error:', err);
     }
   }
 
   startDispatcherPump(dispatcher);
 
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log('✅ Dispatcher pump started');
+    // console.log('✅ Dispatcher pump started');
   }
 
   return dispatcher;
@@ -985,14 +985,14 @@ export function destroyDispatcher(dispatcher: pointer): void {
   mcpFilterLib.mcp_dispatcher_destroy(dispatcher);
 
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log('✅ Destroyed dispatcher');
+    // console.log('✅ Destroyed dispatcher');
   }
 }
 
 /**
  * Create a real connection handle using the native C++ library
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log('✅ Destroyed dispatcher and worker thread');
+    // console.log('✅ Destroyed dispatcher and worker thread');
   }
 }
 
@@ -1023,7 +1023,7 @@ export function createConnection(dispatcher: pointer, transportType: TransportTy
   }
 
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log(`Created real connection: 0x${connection.toString(16)} (transport: ${TransportType[transportType]})`);
+    // console.log(`Created real connection: 0x${connection.toString(16)} (transport: ${TransportType[transportType]})`);
   }
   return connection;
 }
@@ -1044,7 +1044,7 @@ export function destroyConnection(connection: pointer): void {
 
   mcpFilterLib.mcp_connection_destroy(connection);
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log(`Destroyed connection: 0x${connection.toString(16)}`);
+    // console.log(`Destroyed connection: 0x${connection.toString(16)}`);
   }
 }
 
@@ -1107,7 +1107,7 @@ export function stopDispatcher(dispatcher: pointer): void {
 
   mcpFilterLib.mcp_dispatcher_stop(dispatcher);
   if (FEATURE_FLAGS.VERBOSE_HANDLE_LOGGING) {
-    console.log(`Stopped dispatcher: 0x${dispatcher.toString(16)}`);
+    // console.log(`Stopped dispatcher: 0x${dispatcher.toString(16)}`);
   }
 }
 
