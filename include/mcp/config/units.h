@@ -135,9 +135,10 @@ class UnitConversion {
   
   // Size conversions
   static constexpr size_t BYTE = 1;
-  static constexpr size_t KILOBYTE = 1000;
-  static constexpr size_t MEGABYTE = 1000 * 1000;
-  static constexpr size_t GIGABYTE = 1000 * 1000 * 1000;
+  // Use binary multiples (KiB, MiB, GiB) while keeping legacy names for compatibility
+  static constexpr size_t KILOBYTE = 1024;
+  static constexpr size_t MEGABYTE = KILOBYTE * 1024;
+  static constexpr size_t GIGABYTE = MEGABYTE * 1024;
   
   static double toKilobytes(size_t bytes) {
     return static_cast<double>(bytes) / KILOBYTE;

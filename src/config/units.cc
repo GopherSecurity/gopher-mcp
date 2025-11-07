@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <sstream>
 
 #include "mcp/logging/log_macros.h"
@@ -20,14 +21,22 @@ std::pair<bool, std::chrono::milliseconds> Duration::parse(const std::string& st
 std::pair<bool, std::chrono::milliseconds> Duration::parse(const json::JsonValue& value) {
   if (value.isString()) {
     return parse(value.getString());
-  } else if (value.isInteger() || value.isFloat()) {
+  }
+
+  if (value.isInteger() || value.isFloat()) {
     // Assume milliseconds if no unit specified
-    int64_t ms = value.isInteger() ? value.getInt64() : static_cast<int64_t>(value.getFloat());
-    LOG_DEBUG("Parsing numeric value as milliseconds: %ld", static_cast<long>(ms));
+    int64_t ms = value.isInteger() ? value.getInt64()
+                                   : static_cast<int64_t>(value.getFloat());
+    if (ms < 0) {
+      GOPHER_LOG(Error, "Duration values must be non-negative: {}", ms);
+      return {false, std::chrono::milliseconds(0)};
+    }
+
+    GOPHER_LOG(Debug, "Parsing numeric value as milliseconds: {}", ms);
     return {true, std::chrono::milliseconds(ms)};
   }
   
-  LOG_ERROR("Invalid duration value type: expected string or number");
+  GOPHER_LOG(Error, "Invalid duration value type: expected string or number");
   return {false, std::chrono::milliseconds(0)};
 }
 
@@ -53,9 +62,9 @@ std::pair<bool, std::chrono::milliseconds> Duration::parseWithError(
   std::smatch match;
   
   if (!std::regex_match(str, match, pattern)) {
-    error_message = "Invalid duration format '" + str + 
+    error_message = "Invalid duration format '" + str +
                    "'. Expected format: <number><unit> where unit is ms, s, m, or h (e.g., '30s', '5m', '1h')";
-    LOG_ERROR("%s", error_message.c_str());
+    GOPHER_LOG(Error, "{}", error_message);
     return {false, std::chrono::milliseconds(0)};
   }
   
@@ -65,36 +74,50 @@ std::pair<bool, std::chrono::milliseconds> Duration::parseWithError(
     
     if (value < 0) {
       error_message = "Duration value cannot be negative: " + str;
-      LOG_ERROR("%s", error_message.c_str());
+      GOPHER_LOG(Error, "{}", error_message);
       return {false, std::chrono::milliseconds(0)};
     }
+
+    const int64_t ms_per_second = 1000;
+    const int64_t ms_per_minute = 60 * ms_per_second;
+    const int64_t ms_per_hour = 60 * ms_per_minute;
+    const int64_t max_count = std::numeric_limits<int64_t>::max();
+    const int64_t ns_per_ms = 1'000'000;
     
-    std::chrono::milliseconds result;
-    
+    int64_t multiplier = 1;
     if (unit == "ms") {
-      result = std::chrono::milliseconds(value);
+      multiplier = 1;
     } else if (unit == "s") {
-      result = std::chrono::seconds(value);
+      multiplier = ms_per_second;
     } else if (unit == "m") {
-      result = std::chrono::minutes(value);
+      multiplier = ms_per_minute;
     } else if (unit == "h") {
-      result = std::chrono::hours(value);
+      multiplier = ms_per_hour;
     }
-    
-    // Check for overflow
-    if (result.count() < 0) {
+
+    if (value > max_count / multiplier) {
       error_message = "Duration value too large (overflow): " + str;
-      LOG_ERROR("%s", error_message.c_str());
+      GOPHER_LOG(Error, "{}", error_message);
       return {false, std::chrono::milliseconds(0)};
     }
+
+    const int64_t ns_multiplier = multiplier * ns_per_ms;
+    if (value > max_count / ns_multiplier) {
+      error_message = "Duration value too large (overflow): " + str;
+      GOPHER_LOG(Error, "{}", error_message);
+      return {false, std::chrono::milliseconds(0)};
+    }
+
+    auto total_ms = value * multiplier;
+    std::chrono::milliseconds result(total_ms);
     
-    LOG_DEBUG("Successfully parsed duration '%s' to %ld milliseconds",
-              str.c_str(), static_cast<long>(result.count()));
+    GOPHER_LOG(Debug, "Successfully parsed duration '{}' to {} milliseconds",
+               str, result.count());
     return {true, result};
     
   } catch (const std::exception& e) {
     error_message = "Failed to parse duration value: " + std::string(e.what());
-    LOG_ERROR("%s", error_message.c_str());
+    GOPHER_LOG(Error, "{}", error_message);
     return {false, std::chrono::milliseconds(0)};
   }
 }
@@ -108,14 +131,30 @@ std::pair<bool, size_t> Size::parse(const std::string& str) {
 std::pair<bool, size_t> Size::parse(const json::JsonValue& value) {
   if (value.isString()) {
     return parse(value.getString());
-  } else if (value.isInteger() || value.isFloat()) {
+  }
+
+  if (value.isInteger() || value.isFloat()) {
     // Assume bytes if no unit specified
-    size_t bytes = value.isInteger() ? value.getInt64() : static_cast<size_t>(value.getFloat());
-    LOG_DEBUG("Parsing numeric value as bytes: %zu", bytes);
+    long double raw = value.isInteger() ? static_cast<long double>(value.getInt64())
+                                        : static_cast<long double>(value.getFloat());
+    if (raw < 0) {
+      GOPHER_LOG(Error, "Size values must be non-negative: {}", raw);
+      return {false, 0};
+    }
+
+    const long double max_size =
+        static_cast<long double>(std::numeric_limits<size_t>::max());
+    if (raw > max_size) {
+      GOPHER_LOG(Error, "Size value too large (overflow): {}", raw);
+      return {false, 0};
+    }
+
+    size_t bytes = static_cast<size_t>(raw);
+    GOPHER_LOG(Debug, "Parsing numeric value as bytes: {}", bytes);
     return {true, bytes};
   }
   
-  LOG_ERROR("Invalid size value type: expected string or number");
+  GOPHER_LOG(Error, "Invalid size value type: expected string or number");
   return {false, 0};
 }
 
@@ -146,9 +185,9 @@ std::pair<bool, size_t> Size::parseWithError(
   std::smatch match;
   
   if (!std::regex_match(str, match, pattern)) {
-    error_message = "Invalid size format '" + str + 
+    error_message = "Invalid size format '" + str +
                    "'. Expected format: <number><unit> where unit is B, KB, MB, or GB (e.g., '1024B', '10MB', '2GB')";
-    LOG_ERROR("%s", error_message.c_str());
+    GOPHER_LOG(Error, "{}", error_message);
     return {false, 0};
   }
   
@@ -157,42 +196,52 @@ std::pair<bool, size_t> Size::parseWithError(
     std::string unit = match[2].str();
     
     size_t result = 0;
+    const uint64_t max_size =
+        static_cast<uint64_t>(std::numeric_limits<size_t>::max());
     
     if (unit == "B") {
-      result = value;
+      if (value > max_size) {
+        error_message = "Size value too large (overflow): " + str;
+        GOPHER_LOG(Error, "{}", error_message);
+        return {false, 0};
+      }
+      result = static_cast<size_t>(value);
     } else if (unit == "KB") {
-      // Check for overflow before multiplication
-      if (value > SIZE_MAX / UnitConversion::KILOBYTE) {
+      const uint64_t multiplier =
+          static_cast<uint64_t>(UnitConversion::KILOBYTE);
+      if (value > max_size / multiplier) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR("%s", error_message.c_str());
+        GOPHER_LOG(Error, "{}", error_message);
         return {false, 0};
       }
-      result = value * UnitConversion::KILOBYTE;
+      result = static_cast<size_t>(value * multiplier);
     } else if (unit == "MB") {
-      // Check for overflow before multiplication
-      if (value > SIZE_MAX / UnitConversion::MEGABYTE) {
+      const uint64_t multiplier =
+          static_cast<uint64_t>(UnitConversion::MEGABYTE);
+      if (value > max_size / multiplier) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR("%s", error_message.c_str());
+        GOPHER_LOG(Error, "{}", error_message);
         return {false, 0};
       }
-      result = value * UnitConversion::MEGABYTE;
+      result = static_cast<size_t>(value * multiplier);
     } else if (unit == "GB") {
-      // Check for overflow before multiplication
-      if (value > SIZE_MAX / UnitConversion::GIGABYTE) {
+      const uint64_t multiplier =
+          static_cast<uint64_t>(UnitConversion::GIGABYTE);
+      if (value > max_size / multiplier) {
         error_message = "Size value too large (overflow): " + str;
-        LOG_ERROR("%s", error_message.c_str());
+        GOPHER_LOG(Error, "{}", error_message);
         return {false, 0};
       }
-      result = value * UnitConversion::GIGABYTE;
+      result = static_cast<size_t>(value * multiplier);
     }
     
-    LOG_DEBUG("Successfully parsed size '%s' to %zu bytes",
-              str.c_str(), result);
+    GOPHER_LOG(Debug, "Successfully parsed size '{}' to {} bytes",
+               str, result);
     return {true, result};
     
   } catch (const std::exception& e) {
     error_message = "Failed to parse size value: " + std::string(e.what());
-    LOG_ERROR("%s", error_message.c_str());
+    GOPHER_LOG(Error, "{}", error_message);
     return {false, 0};
   }
 }
@@ -225,15 +274,17 @@ bool UnitValidator::isSuspiciousValue(const json::JsonValue& value, const std::s
     
     // Suspicious if it's a duration field with value > 1000 (likely milliseconds)
     if (is_duration_field && num_value > 1000) {
-      LOG_WARNING("Suspicious duration value for field '%s': %ld (large number without unit - assuming milliseconds)",
-                  field_name.c_str(), static_cast<long>(num_value));
+      GOPHER_LOG(Warning,
+                 "Suspicious duration value for field '{}': {} (large number without unit - assuming milliseconds)",
+                 field_name, num_value);
       return true;
     }
     
     // Suspicious if it's a size field with value > 1048576 (1MB in bytes)
     if (is_size_field && num_value > 1048576) {
-      LOG_WARNING("Suspicious size value for field '%s': %ld (large number without unit - assuming bytes)",
-                  field_name.c_str(), static_cast<long>(num_value));
+      GOPHER_LOG(Warning,
+                 "Suspicious size value for field '{}': {} (large number without unit - assuming bytes)",
+                 field_name, num_value);
       return true;
     }
   }
@@ -245,21 +296,24 @@ bool UnitValidator::isSuspiciousValue(const json::JsonValue& value, const std::s
     // Check if it's all digits (missing unit)
     if (!str_value.empty() && std::all_of(str_value.begin(), str_value.end(), ::isdigit)) {
       if (is_duration_field) {
-        LOG_WARNING("Suspicious duration value for field '%s': '%s' (numeric string without unit)",
-                    field_name.c_str(), str_value.c_str());
+        GOPHER_LOG(Warning,
+                   "Suspicious duration value for field '{}': '{}' (numeric string without unit)",
+                   field_name, str_value);
         return true;
       }
       if (is_size_field) {
-        LOG_WARNING("Suspicious size value for field '%s': '%s' (numeric string without unit)",
-                    field_name.c_str(), str_value.c_str());
+        GOPHER_LOG(Warning,
+                   "Suspicious size value for field '{}': '{}' (numeric string without unit)",
+                   field_name, str_value);
         return true;
       }
     }
     
     // Check for common mistakes
     if (str_value.find(" ") != std::string::npos) {
-      LOG_WARNING("Suspicious value for field '%s': '%s' (contains spaces - units should be directly attached to number)",
-                  field_name.c_str(), str_value.c_str());
+      GOPHER_LOG(Warning,
+                 "Suspicious value for field '{}': '{}' (contains spaces - units should be directly attached to number)",
+                 field_name, str_value);
       return true;
     }
   }
@@ -294,15 +348,21 @@ std::string UnitValidator::formatUnitError(const std::string& value,
   // Check for incorrect unit case
   std::string lower = value;
   std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-  if (lower != value && (lower.find("kb") != std::string::npos ||
-                         lower.find("mb") != std::string::npos ||
-                         lower.find("gb") != std::string::npos)) {
+  const bool contains_lower_unit =
+      (lower.find("kb") != std::string::npos ||
+       lower.find("mb") != std::string::npos ||
+       lower.find("gb") != std::string::npos);
+  const bool contains_upper_unit =
+      (value.find("KB") != std::string::npos ||
+       value.find("MB") != std::string::npos ||
+       value.find("GB") != std::string::npos);
+  if (contains_lower_unit && !contains_upper_unit) {
     error << "Note: Size units must be uppercase (KB, MB, GB).\n";
   }
   
   std::string error_msg = error.str();
-  LOG_ERROR("%s", error_msg.c_str());
-  return error.str();
+  GOPHER_LOG(Error, "{}", error_msg);
+  return error_msg;
 }
 
 }  // namespace config
