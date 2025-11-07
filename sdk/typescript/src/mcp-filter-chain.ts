@@ -195,14 +195,62 @@ function normalizeFilterChainConfig(config: FilterChainConfig): Record<string, u
   return {
     name: config.name ?? "default",
     transport_type: config.transportType ?? "tcp",
-    filters: filters.map((filter, index) => ({
-      type: filter.type,
-      name: filter.name ?? `${filter.type || "filter"}:${index}`,
-      config: filter.config ?? {},
-      // Note: enabled and enabled_when fields removed - they're not supported by C API during chain creation
-      // These can be set later via mcp_chain_set_filter_enabled() if needed
-    })),
+    filters: filters.map((filter, index) => normalizeFilterSpec(filter, index)),
   };
+}
+
+function normalizeFilterSpec(filter: FilterConfig, index: number): Record<string, unknown> {
+  return {
+    type: filter.type,
+    name: filter.name ?? `${filter.type || "filter"}:${index}`,
+    config: normalizeFilterConfigPayload(filter.type, filter.config ?? {}),
+    // Note: enabled and enabled_when fields removed - they're not supported by C API during chain creation
+    // These can be set later via mcp_chain_set_filter_enabled() if needed
+  };
+}
+
+function normalizeFilterConfigPayload(type: string, config: any): Record<string, unknown> {
+  if (!config || typeof config !== "object") {
+    return config ?? {};
+  }
+
+  if (isCircuitBreakerFilter(type)) {
+    return normalizeCircuitBreakerConfig(config);
+  }
+
+  return config;
+}
+
+function isCircuitBreakerFilter(type: string): boolean {
+  return type === "circuit_breaker" || type.endsWith(".circuit_breaker");
+}
+
+const CIRCUIT_BREAKER_KEY_MAP: Record<string, string> = {
+  failureThreshold: "failure_threshold",
+  errorRateThreshold: "error_rate_threshold",
+  minRequests: "min_requests",
+  timeoutMs: "timeout_ms",
+  windowSizeMs: "window_size_ms",
+  halfOpenMaxRequests: "half_open_max_requests",
+  halfOpenSuccessThreshold: "half_open_success_threshold",
+  trackTimeouts: "track_timeouts",
+  trackErrors: "track_errors",
+  track4xxAsErrors: "track_4xx_as_errors",
+};
+
+function normalizeCircuitBreakerConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...config };
+
+  for (const [camel, snake] of Object.entries(CIRCUIT_BREAKER_KEY_MAP)) {
+    if (Object.prototype.hasOwnProperty.call(config, camel)) {
+      if (normalized[snake] === undefined) {
+        normalized[snake] = (config as any)[camel];
+      }
+      delete normalized[camel];
+    }
+  }
+
+  return normalized;
 }
 
 /**
