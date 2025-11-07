@@ -4,6 +4,7 @@
  */
 
 #include "mcp/filter/filter_registry.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
@@ -401,12 +402,31 @@ network::FilterSharedPtr createRateLimitFilter(
   if (context.event_emitter) {
     try {
       event_emitter = std::static_pointer_cast<FilterEventEmitter>(context.event_emitter);
-      GOPHER_LOG(Debug, "RateLimitFilter using chain-level event emitter");
+      GOPHER_LOG(Info, "[RATE_LIMIT] 🔧 Filter created with EVENT EMITTER from context");
     } catch (const std::exception& e) {
       GOPHER_LOG(Warning, "Failed to cast event_emitter: %s", e.what());
     }
-  } else {
-    GOPHER_LOG(Debug, "RateLimitFilter created without event emitter");
+  }
+
+  if (!event_emitter && context.event_hub) {
+    try {
+      auto hub = std::static_pointer_cast<FilterChainEventHub>(context.event_hub);
+      if (hub) {
+        GOPHER_LOG(Info, "[RATE_LIMIT] Creating event emitter from event hub");
+        event_emitter = std::make_shared<FilterEventEmitter>(
+            hub,
+            "rate_limit",
+            std::string{},  // instance id
+            scope);
+        GOPHER_LOG(Info, "[RATE_LIMIT] ✅ Event emitter created and connected");
+      }
+    } catch (const std::exception& e) {
+      GOPHER_LOG(Warning, "Failed to create event emitter from hub: %s", e.what());
+    }
+  }
+
+  if (!event_emitter) {
+    GOPHER_LOG(Warning, "[RATE_LIMIT] ⚠️  Filter created WITHOUT event emitter - events will NOT be emitted");
   }
 
   return std::make_shared<RateLimitFilter>(event_emitter, rl_config);

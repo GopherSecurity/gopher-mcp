@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -137,8 +138,8 @@ class RateLimitFilter : public network::NetworkFilterBase {
             .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
             .build();
         event_emitter_->emit(FilterEventType::RATE_LIMIT_EXCEEDED,
-                            FilterEventSeverity::WARN,
-                            event_data);
+                             FilterEventSeverity::ERROR,
+                             event_data);
       }
 
       // Stop processing this data
@@ -147,7 +148,8 @@ class RateLimitFilter : public network::NetworkFilterBase {
 
     // Request allowed - emit sample periodically (every 100 requests)
     static std::atomic<size_t> request_counter{0};
-    if (event_emitter_ && event_emitter_->isConnected() && (++request_counter % 100 == 0)) {
+    if (event_emitter_ && event_emitter_->isConnected() &&
+        (++sample_counter_ % 100 == 0)) {
       int remaining = getRemainingCapacityPercent();
       auto event_data = json::JsonObjectBuilder()
           .add("remainingTokens", static_cast<int>(tokens_.load()))
@@ -156,8 +158,8 @@ class RateLimitFilter : public network::NetworkFilterBase {
           .add("refillRate", static_cast<int>(config_.refill_rate))
           .build();
       event_emitter_->emit(FilterEventType::RATE_LIMIT_SAMPLE,
-                          FilterEventSeverity::DEBUG,
-                          event_data);
+                           FilterEventSeverity::DEBUG,
+                           event_data);
     }
 
     // Check if we're approaching limit (warning at 80% capacity)
@@ -167,9 +169,9 @@ class RateLimitFilter : public network::NetworkFilterBase {
           .add("remainingPercent", remaining)
           .add("threshold", 20)
           .build();
-      event_emitter_->emit(FilterEventType::RATE_LIMIT_EXCEEDED,
-                          FilterEventSeverity::WARN,
-                          event_data);
+      event_emitter_->emit(FilterEventType::RATE_LIMIT_SAMPLE,
+                           FilterEventSeverity::WARN,
+                           event_data);
     }
 
     return network::FilterStatus::Continue;
@@ -210,18 +212,21 @@ class RateLimitFilter : public network::NetworkFilterBase {
         std::chrono::duration_cast<std::chrono::seconds>(now - last_refill_);
 
     if (elapsed.count() > 0) {
-      size_t tokens_to_add = config_.refill_rate * elapsed.count();
+      const size_t tokens_to_add = config_.refill_rate * elapsed.count();
       size_t max_capacity = config_.bucket_capacity;
       if (config_.allow_burst) {
         max_capacity += config_.burst_size;
       }
-      tokens_ = std::min(tokens_ + tokens_to_add, max_capacity);
+      size_t current = tokens_.load();
+      current = std::min(current + tokens_to_add, max_capacity);
+      tokens_.store(current);
       last_refill_ = now;
     }
 
     // Check if we have tokens
-    if (tokens_ > 0) {
-      tokens_--;
+    size_t current = tokens_.load();
+    if (current > 0) {
+      tokens_.store(current - 1);
       return true;
     }
 
@@ -334,21 +339,39 @@ class RateLimitFilter : public network::NetworkFilterBase {
     std::lock_guard<std::mutex> lock(mutex_);
 
     switch (config_.strategy) {
-      case RateLimitStrategy::TokenBucket:
-        return (tokens_ * 100) / config_.bucket_capacity;
+      case RateLimitStrategy::TokenBucket: {
+        size_t capacity = config_.bucket_capacity;
+        if (config_.allow_burst) {
+          capacity += config_.burst_size;
+        }
+        if (capacity == 0) {
+          return 100;
+        }
+        return static_cast<int>((tokens_.load() * 100) / capacity);
+      }
 
       case RateLimitStrategy::SlidingWindow:
       case RateLimitStrategy::FixedWindow: {
         size_t used = (config_.strategy == RateLimitStrategy::SlidingWindow)
                           ? request_times_.size()
                           : window_requests_.load();
-        size_t remaining = config_.max_requests_per_window - used;
-        return (remaining * 100) / config_.max_requests_per_window;
+        if (config_.max_requests_per_window == 0) {
+          return 100;
+        }
+        size_t remaining = config_.max_requests_per_window > used
+                               ? config_.max_requests_per_window - used
+                               : 0;
+        return static_cast<int>((remaining * 100) / config_.max_requests_per_window);
       }
 
       case RateLimitStrategy::LeakyBucket: {
-        size_t remaining = config_.bucket_capacity - bucket_level_;
-        return (remaining * 100) / config_.bucket_capacity;
+        size_t capacity = config_.bucket_capacity;
+        if (capacity == 0) {
+          return 100;
+        }
+        size_t used = bucket_level_.load();
+        size_t remaining = capacity > used ? capacity - used : 0;
+        return static_cast<int>((remaining * 100) / capacity);
       }
     }
 
@@ -370,6 +393,7 @@ class RateLimitFilter : public network::NetworkFilterBase {
   }
 
   std::shared_ptr<FilterEventEmitter> event_emitter_;
+  std::atomic<size_t> sample_counter_{0};
   RateLimitConfig config_;
 
   // Synchronization

@@ -10,6 +10,10 @@
 #include <gtest/gtest.h>
 
 #include "mcp/filter/rate_limit_filter.h"
+#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_chain_callbacks.h"
+#include "mcp/filter/filter_event.h"
+#include "mcp/filter/filter_event_emitter.h"
 
 #include "../integration/real_io_test_base.h"
 
@@ -27,6 +31,7 @@ class RateLimitFilterTest : public test::RealIoTestBase {
  protected:
   void SetUp() override {
     RealIoTestBase::SetUp();
+    event_hub_ = std::make_shared<FilterChainEventHub>();
   }
 
   void TearDown() override {
@@ -36,13 +41,21 @@ class RateLimitFilterTest : public test::RealIoTestBase {
 
   void createFilter(const RateLimitConfig& config) {
     executeInDispatcher([this, config]() {
-      // Create filter with nullptr event emitter for isolated testing
-      filter_ = std::make_unique<RateLimitFilter>(nullptr, config);
+      auto emitter = std::make_shared<FilterEventEmitter>(
+          event_hub_,
+          "rate_limit");
+      filter_ = std::make_unique<RateLimitFilter>(emitter, config);
     });
   }
 
  protected:
   std::unique_ptr<RateLimitFilter> filter_;
+  std::shared_ptr<FilterChainEventHub> event_hub_;
+};
+
+class MockFilterChainCallbacks : public FilterChainCallbacks {
+ public:
+  MOCK_METHOD(void, onFilterEvent, (const FilterEvent& event), (override));
 };
 
 // Test token bucket allows burst traffic
@@ -84,6 +97,37 @@ TEST_F(RateLimitFilterTest, TokenBucketBlocksAfterCapacity) {
     EXPECT_EQ(filter_->onData(*data, false),
               network::FilterStatus::StopIteration);
   });
+}
+
+// Test that rate limiting emits chain events when requests are blocked
+TEST_F(RateLimitFilterTest, EmitsRateLimitEvents) {
+  RateLimitConfig config;
+  config.strategy = RateLimitStrategy::TokenBucket;
+  config.bucket_capacity = 1;
+  config.refill_rate = 0;
+
+  createFilter(config);
+
+  auto callbacks = std::make_shared<StrictMock<MockFilterChainCallbacks>>();
+  auto handle = event_hub_->registerObserver(callbacks);
+
+  executeInDispatcher([this, callbacks]() {
+    auto data = createBuffer();
+    EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
+    EXPECT_CALL(*callbacks,
+                onFilterEvent(AllOf(
+                    Property(&FilterEvent::filter_name, "rate_limit"),
+                    Property(&FilterEvent::event_type,
+                             FilterEventType::RATE_LIMIT_EXCEEDED),
+                    Property(&FilterEvent::severity,
+                             FilterEventSeverity::ERROR))))
+        .Times(1);
+    EXPECT_EQ(filter_->onData(*data, false),
+              network::FilterStatus::StopIteration);
+  });
+
+  // Ensure handle stays alive for the duration of the expectation
+  (void)handle;
 }
 
 // Test token bucket refills over time
