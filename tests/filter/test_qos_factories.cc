@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "mcp/filter/core_filter_factories.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
@@ -28,7 +29,10 @@ class QosFactoriesTest : public ::testing::Test {
   void SetUp() override {
     // Ensure filter registry is initialized
     FilterRegistry::instance();
-    
+
+    // Explicitly register all core filters (don't rely on static initialization)
+    registerAllCoreFilters();
+
     // Set up test logging
     auto& logger_registry = logging::LoggerRegistry::instance();
     // Use setLevel for the default logger instead of setDefaultLevel
@@ -567,32 +571,37 @@ TEST_F(QosFactoriesTest, MetricsEdgeCases) {
 TEST_F(QosFactoriesTest, HotReconfigurationSupport) {
   // Test that factories can be called multiple times with different configs
   // simulating hot reconfiguration scenarios
-  
+
   auto rate_limit_factory = FilterRegistry::instance().getFactory("rate_limit");
   auto circuit_breaker_factory = FilterRegistry::instance().getFactory("circuit_breaker");
   auto metrics_factory = FilterRegistry::instance().getFactory("metrics");
-  
+
+  // Ensure factories are registered before testing
+  ASSERT_NE(rate_limit_factory, nullptr) << "rate_limit factory not registered";
+  ASSERT_NE(circuit_breaker_factory, nullptr) << "circuit_breaker factory not registered";
+  ASSERT_NE(metrics_factory, nullptr) << "metrics factory not registered";
+
   // Create filters with initial configs
   {
     auto config1 = parseConfig(R"({"strategy": "token_bucket", "bucket_capacity": 100})");
     auto config2 = parseConfig(R"({"strategy": "sliding_window", "window_size_seconds": 60})");
-    
+
     EXPECT_NO_THROW(rate_limit_factory->createFilter(config1));
     EXPECT_NO_THROW(rate_limit_factory->createFilter(config2));
   }
-  
+
   {
     auto config1 = parseConfig(R"({"failure_threshold": 5, "timeout_ms": 10000})");
     auto config2 = parseConfig(R"({"failure_threshold": 10, "timeout_ms": 30000})");
-    
+
     EXPECT_NO_THROW(circuit_breaker_factory->createFilter(config1));
     EXPECT_NO_THROW(circuit_breaker_factory->createFilter(config2));
   }
-  
+
   {
     auto config1 = parseConfig(R"({"provider": "internal", "track_methods": true})");
     auto config2 = parseConfig(R"({"provider": "prometheus", "prometheus_port": 9091})");
-    
+
     EXPECT_NO_THROW(metrics_factory->createFilter(config1));
     EXPECT_NO_THROW(metrics_factory->createFilter(config2));
   }

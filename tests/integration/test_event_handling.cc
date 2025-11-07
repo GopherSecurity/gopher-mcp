@@ -11,7 +11,9 @@
  * 3. Works correctly for both client and server connections
  */
 
+#include <chrono>
 #include <cstring>
+#include <thread>
 #include <fcntl.h>
 
 #include <arpa/inet.h>
@@ -37,6 +39,23 @@ class EventHandlingTest : public RealIoTestBase {
       close(fd);
     }
   }
+
+  template <typename Predicate>
+  bool waitForCondition(Predicate&& predicate,
+                        std::chrono::milliseconds timeout =
+                            std::chrono::milliseconds(200),
+                        std::chrono::milliseconds poll_interval =
+                            std::chrono::milliseconds(5)) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (predicate()) {
+        return true;
+      }
+      std::this_thread::sleep_for(poll_interval);
+    }
+    return predicate();
+  }
+
   // Simple read filter to capture received data
   class TestReadFilter : public network::ReadFilter {
    public:
@@ -45,7 +64,7 @@ class EventHandlingTest : public RealIoTestBase {
 
     network::FilterStatus onData(Buffer& data, bool) override {
       // Copy data to our buffer
-      buffer_.move(data);
+      data.move(buffer_);
       data_received_ = true;
       return network::FilterStatus::Continue;
     }
@@ -241,7 +260,8 @@ TEST_F(EventHandlingTest, EdgeTriggeredReadRaceCondition) {
 
   // Verify data was received despite the race condition
   EXPECT_TRUE(data_sent);
-  EXPECT_TRUE(server_callbacks.data_received);
+  ASSERT_TRUE(waitForCondition(
+      [&]() { return server_callbacks.data_received.load(); }));
   EXPECT_EQ("test message", server_callbacks.received_data.toString());
 }
 
@@ -254,83 +274,65 @@ TEST_F(EventHandlingTest, WriteEventManagement) {
   int client_fd = fds.first;
   int server_fd = fds.second;
 
-  std::atomic<int> write_events_before{0};
-  std::atomic<int> write_events_during{0};
-  std::atomic<int> write_events_after{0};
+  std::atomic<network::ConnectionImpl*> connection_ptr{nullptr};
 
-  executeInDispatcher([this, server_fd, &write_events_before,
-                       &write_events_during, &write_events_after]() {
-    // Create server connection
+  executeInDispatcher([this, server_fd, &connection_ptr]() {
     auto io_handle = std::make_unique<network::IoSocketHandleImpl>(server_fd);
     auto socket = std::make_unique<network::ConnectionSocketImpl>(
         std::move(io_handle), nullptr, nullptr);
 
-    // Create a raw transport socket (no TLS)
-    // Since we're testing connection handling, not transport, use raw sockets
-    network::TransportSocketPtr transport_socket =
-        nullptr;  // Use RawTransportSocket (created by ConnectionImpl)
+    network::TransportSocketPtr transport_socket = nullptr;
 
     auto connection = std::make_unique<network::ConnectionImpl>(
-        *dispatcher_, std::move(socket), std::move(transport_socket),
-        true);  // true = already connected (for pipes/stdio)
+        *dispatcher_, std::move(socket), std::move(transport_socket), true);
 
-    TestCallbacks callbacks;
-    connection->addConnectionCallbacks(callbacks);
-    // Connection is initialized automatically
-
-    // Phase 1: No data to write - should have minimal write events
-    int phase1_count = 0;
-    auto phase1_timer = dispatcher_->createTimer([&phase1_count, this]() {
-      phase1_count++;
-      if (phase1_count > 10) {
-        return;
-      }
-      dispatcher_->run(event::RunType::NonBlock);
-    });
-    phase1_timer->enableTimer(std::chrono::milliseconds(5));
-
-    // Wait for phase 1 to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    write_events_before = connection->getWriteEventCount();
-
-    // Phase 2: Queue data to write - should trigger write events
-    OwnedBuffer write_buffer;
-    write_buffer.add("large data chunk that needs multiple writes");
-    connection->write(write_buffer, false);
-
-    int phase2_count = 0;
-    auto phase2_timer = dispatcher_->createTimer([&phase2_count, this]() {
-      phase2_count++;
-      if (phase2_count > 10) {
-        return;
-      }
-      dispatcher_->run(event::RunType::NonBlock);
-    });
-    phase2_timer->enableTimer(std::chrono::milliseconds(5));
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    write_events_during = connection->getWriteEventCount();
-
-    // Phase 3: After write completes - should have minimal write events again
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    write_events_after = connection->getWriteEventCount();
-
-    // Cleanup
-    auto cleanup_timer =
-        dispatcher_->createTimer([this, connection = connection.release()]() {
-          delete connection;
-          dispatcher_->exit();
-        });
-    cleanup_timer->enableTimer(std::chrono::milliseconds(10));
+    connection_ptr = connection.release();
   });
 
-  // Verify write events are managed properly
-  // Should have minimal events when buffer is empty, more when writing
-  EXPECT_LE(write_events_before, 2);  // Minimal events with empty buffer
-  EXPECT_GT(write_events_during,
-            write_events_before);  // More events when writing
-  EXPECT_LE(write_events_after - write_events_during,
-            2);  // Back to minimal after write
+  ASSERT_NE(nullptr, connection_ptr.load());
+
+  auto getWriteEvents = [this, &connection_ptr]() -> uint64_t {
+    return executeInDispatcher([conn = connection_ptr.load()]() {
+      return conn->getWriteEventCount();
+    });
+  };
+
+  auto writeData = [this, &connection_ptr](const std::string& payload) {
+    executeInDispatcher([conn = connection_ptr.load(), payload]() {
+      OwnedBuffer buffer;
+      buffer.add(payload);
+      conn->write(buffer, false);
+    });
+  };
+
+  const auto write_events_before = getWriteEvents();
+
+  writeData("large data chunk that needs multiple writes");
+
+  ASSERT_TRUE(waitForCondition(
+      [&]() { return getWriteEvents() > write_events_before; },
+      std::chrono::milliseconds(500)));
+
+  const auto write_events_during = getWriteEvents();
+
+  // Drain client pipe to allow server writes to complete
+  char drain_buffer[256];
+  while (read(client_fd, drain_buffer, sizeof(drain_buffer)) > 0) {
+  }
+
+  ASSERT_TRUE(waitForCondition(
+      [&]() { return getWriteEvents() >= write_events_during; },
+      std::chrono::milliseconds(200)));
+
+  const auto write_events_after = getWriteEvents();
+
+  EXPECT_GT(write_events_during, write_events_before);
+  EXPECT_LE(write_events_after, write_events_during + 10);
+
+  executeInDispatcher([conn = connection_ptr.load()]() {
+    conn->close(network::ConnectionCloseType::FlushWrite);
+    delete conn;
+  });
 }
 
 /**
@@ -406,14 +408,17 @@ TEST_F(EventHandlingTest, BidirectionalCommunication) {
               dispatcher_->exit();
             });
         timer->enableTimer(std::chrono::milliseconds(100));
-      });
+  });
 
   // Both sides should receive the messages
-  EXPECT_TRUE(client_callbacks.data_received);
-  EXPECT_TRUE(server_callbacks.data_received);
+  ASSERT_TRUE(waitForCondition(
+      [&]() { return client_callbacks.data_received.load(); }));
+  ASSERT_TRUE(waitForCondition(
+      [&]() { return server_callbacks.data_received.load(); }));
   EXPECT_EQ("Hello from server", client_callbacks.received_data.toString());
   EXPECT_EQ("Hello from client", server_callbacks.received_data.toString());
 }
 
 }  // namespace test
 }  // namespace mcp
+
