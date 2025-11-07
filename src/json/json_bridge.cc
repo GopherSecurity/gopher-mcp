@@ -68,7 +68,8 @@ JsonValue::JsonValue(const char* value)
 }
 
 JsonValue::JsonValue(const JsonValue& other)
-    : impl_(std::make_unique<JsonValueImpl>(other.impl_->json_)) {}
+    : impl_(std::make_unique<JsonValueImpl>(
+        other.impl_->json_ref_ ? *other.impl_->json_ref_ : other.impl_->json_)) {}
 
 JsonValue::JsonValue(JsonValue&& other) noexcept = default;
 
