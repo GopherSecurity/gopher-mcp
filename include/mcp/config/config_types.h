@@ -41,7 +41,12 @@ struct ConfigField {
   explicit ConfigField(const T& def) : default_value(def) {}
 
   // Get the effective value (set value or default)
-  const T& get() const { return value.value_or(default_value); }
+  const T& get() const {
+    if (value.has_value()) {
+      return value.value();
+    }
+    return default_value;
+  }
 
   T& get() {
     if (!value.has_value()) {
