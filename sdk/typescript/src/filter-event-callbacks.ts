@@ -12,6 +12,12 @@ import type {
 } from './filter-events';
 import { FilterEventType, FilterEventSeverity } from './filter-events';
 
+const EventContextStruct = koffi.struct('mcp_filter_event_context_t', {
+  chain_id: 'char*',
+  stream_id: 'char*',
+  correlation_id: 'char*',
+});
+
 /**
  * Lightweight holder for registered koffi callbacks
  */
@@ -29,13 +35,6 @@ export class FilterEventCallbackHandle {
     // Create unique prototype name to avoid conflicts
     const suffix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 
-    // Define C struct for mcp_filter_event_context_t
-    const EventContextStruct = koffi.struct('mcp_filter_event_context_t', {
-      chain_id: 'const char*',
-      stream_id: 'const char*',
-      correlation_id: 'const char*',
-    });
-
     // Define C callback prototype matching mcp_filter_event_callback_t
     // void (*callback)(const char* filter_name,
     //                  const char* filter_instance_id,
@@ -52,7 +51,7 @@ export class FilterEventCallbackHandle {
         'int32_t, ' +          // event_type
         'int32_t, ' +          // severity
         'const char*, ' +      // event_data_json
-        '_Inout mcp_filter_event_context_t*, ' +  // context pointer
+        'void*, ' +            // context pointer
         'int64_t, ' +          // timestamp_ms
         'void*' +              // user_data
       ')'
@@ -66,7 +65,7 @@ export class FilterEventCallbackHandle {
         eventType: number,
         severity: number,
         eventDataJson: string | null,
-        contextPtr: koffi.IKoffiCType | null,  // Pointer to context struct
+        contextPtr: any,  // Pointer to context struct
         timestampMs: bigint,
         _userData: unknown,
       ) => {
@@ -83,7 +82,7 @@ export class FilterEventCallbackHandle {
 
           // Extract context from the C struct pointer (not from JSON!)
           let context: FilterEventContext | undefined;
-          if (contextPtr) {
+          if (contextPtr && contextPtr !== 0) {
             try {
               const ctx = koffi.decode(contextPtr, EventContextStruct);
               context = {

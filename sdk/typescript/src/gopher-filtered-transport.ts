@@ -171,56 +171,20 @@ export class GopherFilteredTransport implements Transport {
    */
   private wrapTransportCallbacks(): void {
     // Intercept incoming messages
+    // NOTE: For StreamableHTTPServerTransport, filtering happens in handleRequest() instead
+    // onmessage is NOT called for HTTP POST requests - they go directly to server handlers
+    // This callback is only for WebSocket/SSE streaming messages
     this.sdkTransport.onmessage = async (message, extra) => {
       try {
         if (this.config.debugLogging) {
-          console.log("📥 Incoming message:", this.getMessageInfo(message));
+          console.log("📥 Incoming message via onmessage (SSE/WebSocket):", this.getMessageInfo(message));
         }
 
-        // Process through filter chain - pass message object directly
-        // FilterChain will handle JSON serialization internally
-        const result = await this.filterChain.processIncoming(message);
-
-        if (this.config.debugLogging) {
-          console.log(`🔍 Filter decision: ${FilterDecision[result.decision]}`);
-        }
-
-        switch (result.decision) {
-          case FilterDecision.ALLOW:
-          case FilterDecision.TRANSFORM:
-            // Use transformed message if available, otherwise original
-            const finalMessage = result.transformedMessage
-              ? JSON.parse(result.transformedMessage)
-              : message;
-
-            if (this.onmessage) {
-              this.onmessage(finalMessage, extra);
-            }
-            break;
-
-          case FilterDecision.DENY:
-            if (this.config.debugLogging) {
-              console.warn(`❌ Incoming message denied: ${result.reason}`);
-            }
-            // Don't propagate denied messages
-            break;
-
-          case FilterDecision.DELAY:
-            // Delay and then deliver
-            setTimeout(() => {
-              if (this.onmessage) {
-                this.onmessage(message, extra);
-              }
-            }, result.delayMs || 0);
-            break;
-
-          case FilterDecision.QUEUE:
-            // Queue for later processing
-            this.messageQueue.enqueue(message);
-            if (this.config.debugLogging) {
-              console.log(`📦 Message queued (queue size: ${this.messageQueue.size()})`);
-            }
-            break;
+        // For now, pass through without filtering to avoid double-filtering
+        // HTTP POST requests are filtered in handleRequest() before reaching here
+        // TODO: Implement proper filtering for SSE/WebSocket streaming transports
+        if (this.onmessage) {
+          this.onmessage(message, extra);
         }
       } catch (error) {
         console.error("❌ Filter processing error (fail-open):", error);
@@ -423,7 +387,75 @@ export class GopherFilteredTransport implements Transport {
         console.log("🌐 [GopherFilteredTransport] Proxying handleRequest to wrapped transport");
       }
 
-      // Proxy to underlying transport - filters are already applied via onmessage/send wrappers
+      // For HTTP POST requests, intercept and filter BEFORE passing to SDK
+      if (req.method === 'POST') {
+        // Read and parse the request body
+        const chunks: any[] = [];
+        for await (const chunk of req) {
+          chunks.push(chunk);
+        }
+        const body = Buffer.concat(chunks).toString('utf-8');
+
+        if (body) {
+          try {
+            const message = JSON.parse(body);
+
+            // Filter the incoming message
+            const result = await this.filterChain.processIncoming(message);
+
+            if (result.decision === FilterDecision.DENY) {
+              // Send HTTP error response for denied request
+              if (this.config.debugLogging) {
+                console.warn(`❌ Request denied by filter: ${result.reason}`);
+              }
+
+              res.writeHead(429, {
+                'Content-Type': 'application/json',
+                'Retry-After': Math.ceil((result.delayMs || 1000) / 1000).toString()
+              });
+              res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id || null,
+                error: {
+                  code: -32003,
+                  message: result.reason || 'Rate limit exceeded',
+                  data: { retryAfterMs: result.delayMs || 1000 }
+                }
+              }));
+              return;
+            }
+
+            // Request allowed - recreate the request stream for SDK
+            const { Readable } = await import('stream');
+            const bodyStream = Readable.from([body]);
+
+            // Copy all HTTP request properties (headers, method, url, etc.)
+            (bodyStream as any).headers = req.headers;
+            (bodyStream as any).method = req.method;
+            (bodyStream as any).url = req.url;
+            (bodyStream as any).httpVersion = req.httpVersion;
+            (bodyStream as any).httpVersionMajor = req.httpVersionMajor;
+            (bodyStream as any).httpVersionMinor = req.httpVersionMinor;
+            (bodyStream as any).socket = req.socket;
+            (bodyStream as any).connection = req.connection;
+
+            // Mark that this request has been pre-filtered
+            // This prevents double-filtering if SDK also calls onmessage
+            (bodyStream as any)._preFiltered = true;
+            (bodyStream as any)._filteredMessage = message;
+
+            // Pass the new stream to SDK
+            return await (this.sdkTransport as any).handleRequest(bodyStream, res);
+          } catch (error) {
+            // On parse error, fall through to SDK (it will handle the error)
+            if (this.config.debugLogging) {
+              console.warn('⚠️  Failed to parse/filter request:', error);
+            }
+          }
+        }
+      }
+
+      // Proxy to underlying transport
       return await (this.sdkTransport as any).handleRequest(req, res);
     } else {
       throw new Error('Underlying transport does not support handleRequest method');

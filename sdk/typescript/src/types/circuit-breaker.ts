@@ -26,27 +26,50 @@ export interface CircuitBreakerConfig {
   name?: string;
 
   /** Number of consecutive failures before opening circuit */
-  consecutive_5xx?: number;
+  failureThreshold?: number;
 
   /** Error rate threshold (0.0-1.0) to open circuit */
-  error_rate_threshold?: number;
+  errorRateThreshold?: number;
 
-  /** Time window in milliseconds for error rate calculation */
-  interval_ms?: number;
+  /** Minimum number of requests before error rate is considered */
+  minRequests?: number;
 
   /** How long circuit stays open before trying half-open state (ms) */
-  ejection_time_ms?: number;
+  timeoutMs?: number;
 
-  /** Maximum percentage of hosts that can be ejected */
-  max_ejection_percent?: number;
-
-  /** Minimum number of requests before circuit can open */
-  min_request_count?: number;
-
-  /** Number of successful requests needed to close from half-open */
-  success_threshold?: number;
+  /** Sliding window duration in milliseconds */
+  windowSizeMs?: number;
 
   /** Maximum requests allowed in half-open state */
+  halfOpenMaxRequests?: number;
+
+  /** Successful half-open requests required to close the circuit */
+  halfOpenSuccessThreshold?: number;
+
+  /** Count timeouts as failures */
+  trackTimeouts?: boolean;
+
+  /** Count generic errors as failures */
+  trackErrors?: boolean;
+
+  /** Count 4xx responses as failures */
+  track4xxAsErrors?: boolean;
+
+  /** @deprecated use failureThreshold */
+  consecutive_5xx?: number;
+  /** @deprecated use errorRateThreshold */
+  error_rate_threshold?: number;
+  /** @deprecated use windowSizeMs */
+  interval_ms?: number;
+  /** @deprecated use timeoutMs */
+  ejection_time_ms?: number;
+  /** @deprecated not supported */
+  max_ejection_percent?: number;
+  /** @deprecated use minRequests */
+  min_request_count?: number;
+  /** @deprecated use halfOpenSuccessThreshold */
+  success_threshold?: number;
+  /** @deprecated use halfOpenMaxRequests */
   half_open_max_requests?: number;
 }
 
