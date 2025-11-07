@@ -251,6 +251,9 @@ class McpProtocolStateMachine {
   // Current state
   std::atomic<McpProtocolState> current_state_{McpProtocolState::DISCONNECTED};
 
+  // Event dispatcher for timer management
+  event::Dispatcher& dispatcher_;
+
   // State timing
   std::chrono::steady_clock::time_point state_entry_time_;
 
@@ -260,9 +263,6 @@ class McpProtocolStateMachine {
 
   // Reconnection tracking
   size_t reconnect_attempts_{0};
-
-  // Event dispatcher for timer management
-  event::Dispatcher& dispatcher_;
 
   // State timeout timer
   event::TimerPtr state_timer_;

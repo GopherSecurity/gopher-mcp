@@ -176,9 +176,9 @@ class HttpMessageImpl : public HttpMessage {
         version_(HttpVersion::HTTP_1_1),
         headers_(std::make_unique<HttpHeadersImpl>()),
         body_(createBuffer()),
-        trailers_(std::make_unique<HttpHeadersImpl>()),
         chunked_(false),
-        has_trailers_(false) {}
+        has_trailers_(false),
+        trailers_(std::make_unique<HttpHeadersImpl>()) {}
 
   ~HttpMessageImpl() override = default;
 

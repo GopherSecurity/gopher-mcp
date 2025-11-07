@@ -128,7 +128,7 @@ class EchoServerBase {
 
   EchoServerBase(EchoTransportBasePtr transport,
                  const Config& config = Config())
-      : transport_(std::move(transport)), config_(config), running_(false) {
+      : config_(config), transport_(std::move(transport)), running_(false) {
     setupCallbacks();
   }
 
@@ -394,8 +394,8 @@ class EchoClientBase {
 
   EchoClientBase(EchoTransportBasePtr transport,
                  const Config& config = Config())
-      : transport_(std::move(transport)),
-        config_(config),
+      : config_(config),
+        transport_(std::move(transport)),
         running_(false),
         next_request_id_(1) {
     setupCallbacks();
