@@ -334,7 +334,8 @@ TEST_F(ListenerFilterChainTest, DISABLED_FilterAccessesSocket) {
 
       // Access dispatcher
       auto& dispatcher = cb.dispatcher();
-      dispatcher_accessed_ = (&dispatcher != nullptr);
+      (void)dispatcher;  // Mark as used
+      dispatcher_accessed_ = true;
 
       return ListenerFilterStatus::Continue;
     }
