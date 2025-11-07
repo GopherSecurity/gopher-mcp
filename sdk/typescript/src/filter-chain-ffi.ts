@@ -577,7 +577,7 @@ export class FilterChain {
 
         this.creationCallback = koffi.register(
           (chainHandle: number, errorCode: number, errorMsg: string | null, _userData: any) => {
-            console.log(`[createChainAsync] CALLBACK INVOKED - chainHandle=${chainHandle}, errorCode=${errorCode}, errorMsg="${errorMsg}"`);
+            // console.log(`[createChainAsync] CALLBACK INVOKED - chainHandle=${chainHandle}, errorCode=${errorCode}, errorMsg="${errorMsg}"`);
             try {
               // Always cleanup JSON handle first
               if (jsonHandle) {
@@ -593,7 +593,7 @@ export class FilterChain {
                 return;
               }
 
-              console.log(`[createChainAsync] Chain created successfully - handle=${chainHandle}`);
+              // console.log(`[createChainAsync] Chain created successfully - handle=${chainHandle}`);
 
               // Store handle
               this.handle = chainHandle;
@@ -720,14 +720,14 @@ export class FilterChain {
    */
   private handleAsyncCallback(userData: any, resultPtr: any, errorPtr: any): void {
     // DON'T log External objects directly - console.log tries to inspect them and causes segfaults!
-    console.log("🟢 [TS-handleAsyncCallback] ENTRY");
-    console.log("   userData present:", userData !== null && userData !== undefined);
-    console.log("   resultPtr present:", resultPtr !== null && resultPtr !== undefined);
-    console.log("   errorPtr present:", errorPtr !== null && errorPtr !== undefined);
+    // console.log("🟢 [TS-handleAsyncCallback] ENTRY");
+    // console.log("   userData present:", userData !== null && userData !== undefined);
+    // console.log("   resultPtr present:", resultPtr !== null && resultPtr !== undefined);
+    // console.log("   errorPtr present:", errorPtr !== null && errorPtr !== undefined);
 
     // Check if userData is null/undefined - this might be a spurious callback
     if (userData === null || userData === undefined) {
-      console.log("⚠️  [TS-handleAsyncCallback] userData is null/undefined, ignoring");
+      // console.log("⚠️  [TS-handleAsyncCallback] userData is null/undefined, ignoring");
       // Silently ignore spurious callbacks with no user data during pump
       return;
     }
@@ -735,46 +735,46 @@ export class FilterChain {
     // userData is passed as void* from C, decode it to get the callback ID
     let callbackId: bigint;
     try {
-      console.log("🔹 [TS-handleAsyncCallback] Decoding callback ID from userData...");
-      console.log("   userData type:", typeof userData);
+      // console.log("🔹 [TS-handleAsyncCallback] Decoding callback ID from userData...");
+      // console.log("   userData type:", typeof userData);
 
       const isBuffer = Buffer.isBuffer(userData);
-      console.log("   Is Buffer?", isBuffer);
+      // console.log("   Is Buffer?", isBuffer);
 
       if (isBuffer) {
         callbackId = userData.readBigUInt64LE(0);
-        console.log("   Callback ID from Buffer:", callbackId);
+        // console.log("   Callback ID from Buffer:", callbackId);
       } else {
-        console.log("   Attempting to read callback ID from native pointer view...");
+        // console.log("   Attempting to read callback ID from native pointer view...");
         try {
           const view = koffi.view(userData, 8);
           const bufferFromPtr = Buffer.from(view);
           callbackId = bufferFromPtr.readBigUInt64LE(0);
-          console.log("   ✅ Successfully read callback ID from pointer view:", callbackId);
+          // console.log("   ✅ Successfully read callback ID from pointer view:", callbackId);
         } catch (viewError) {
-          console.log("   ❌ Failed to read callback ID from pointer view:", viewError);
+          // console.log("   ❌ Failed to read callback ID from pointer view:", viewError);
           return;
         }
       }
     } catch (error) {
-      console.log("❌ [TS-handleAsyncCallback] Top-level decode error:", error);
-      console.log("   Error stack:", error instanceof Error ? error.stack : 'N/A');
+      // console.log("❌ [TS-handleAsyncCallback] Top-level decode error:", error);
+      // console.log("   Error stack:", error instanceof Error ? error.stack : 'N/A');
       return;
     }
 
-    console.log("🔹 [TS-handleAsyncCallback] Looking up callback entry for ID:", callbackId);
-    console.log("   Registry size:", this.callbackRegistry.size);
+    // console.log("🔹 [TS-handleAsyncCallback] Looking up callback entry for ID:", callbackId);
+    // console.log("   Registry size:", this.callbackRegistry.size);
 
     // Find the callback entry
     const entry = this.callbackRegistry.get(callbackId);
     if (!entry) {
       // Callback not found - it may have timed out or already been processed
       // This can happen during dispatcher pump - just ignore it
-      console.log("⚠️  [TS-handleAsyncCallback] Callback entry not found in registry");
+      // console.log("⚠️  [TS-handleAsyncCallback] Callback entry not found in registry");
       return;
     }
 
-    console.log("✅ [TS-handleAsyncCallback] Callback entry found, clearing timeout");
+    // console.log("✅ [TS-handleAsyncCallback] Callback entry found, clearing timeout");
 
     if (entry.timeoutId) {
       clearTimeout(entry.timeoutId);
@@ -782,22 +782,22 @@ export class FilterChain {
 
     try {
       if (errorPtr !== null && errorPtr !== undefined) {
-        console.log("❌ [TS-handleAsyncCallback] Error pointer is set, rejecting");
+        // console.log("❌ [TS-handleAsyncCallback] Error pointer is set, rejecting");
         const { code, message } = koffi.decode(errorPtr, ErrorStruct);
         entry.reject(new Error(message ? `Filter error (${code}): ${message}` : `Filter error (${code})`));
         return;
       }
 
       if (resultPtr === null || resultPtr === undefined) {
-        console.log("❌ [TS-handleAsyncCallback] Result pointer is null, rejecting");
+        // console.log("❌ [TS-handleAsyncCallback] Result pointer is null, rejecting");
         entry.reject(new Error('Filter callback returned no result or error'));
         return;
       }
 
-      console.log("🔹 [TS-handleAsyncCallback] Decoding result from C API...");
+      // console.log("🔹 [TS-handleAsyncCallback] Decoding result from C API...");
       const cResult = koffi.decode(resultPtr, FilterResultStruct);
-      console.log("   Result decision:", cResult.decision);
-      console.log("   Transformed message:", cResult.transformed_message);
+      // console.log("   Result decision:", cResult.decision);
+      // console.log("   Transformed message:", cResult.transformed_message);
 
       const result: FilterResult = {
         decision: cResult.decision as FilterDecision,
@@ -807,14 +807,14 @@ export class FilterChain {
         metadata: {},
       };
 
-      console.log("✅ [TS-handleAsyncCallback] Resolving promise with result");
+      // console.log("✅ [TS-handleAsyncCallback] Resolving promise with result");
       entry.resolve(result);
     } catch (err) {
-      console.log("❌ [TS-handleAsyncCallback] Exception:", err);
+      // console.log("❌ [TS-handleAsyncCallback] Exception:", err);
       entry.reject(err instanceof Error ? err : new Error(String(err)));
     } finally {
       this.callbackRegistry.delete(callbackId);
-      console.log("✅ [TS-handleAsyncCallback] EXIT - callback completed");
+      // console.log("✅ [TS-handleAsyncCallback] EXIT - callback completed");
     }
   }
 
@@ -832,11 +832,11 @@ export class FilterChain {
       userDataBuffer.writeBigUInt64LE(callbackId);
       const userDataPtr = koffi.as(userDataBuffer, 'void*');
 
-      console.log("📤 [submitAsyncMessage] ENTRY");
-      console.log("   Direction:", direction);
-      console.log("   Callback ID:", callbackId);
-      console.log("   Callback ID type:", typeof callbackId);
-      console.log("   userData buffer pointer created via koffi.as");
+      // console.log("📤 [submitAsyncMessage] ENTRY");
+      // console.log("   Direction:", direction);
+      // console.log("   Callback ID:", callbackId);
+      // console.log("   Callback ID type:", typeof callbackId);
+      // console.log("   userData buffer pointer created via koffi.as");
 
       this.callbackRegistry.set(callbackId, {
         resolve,
@@ -845,16 +845,16 @@ export class FilterChain {
         userDataPtr,
       });
 
-      console.log("   Registry size after insert:", this.callbackRegistry.size);
-      console.log("   Registry keys:", Array.from(this.callbackRegistry.keys()));
+      // console.log("   Registry size after insert:", this.callbackRegistry.size);
+      // console.log("   Registry keys:", Array.from(this.callbackRegistry.keys()));
 
       // Allocate space for mcp_error_t* (pointer to opaque error handle)
       // This is an OUTPUT parameter where C side can store an error object
       const errorPtrPtr = koffi.alloc('void*', 1);
 
       try {
-        console.log("   Calling C API function:", fnName);
-        console.log("   Passing callback buffer pointer via koffi.as");
+        // console.log("   Calling C API function:", fnName);
+        // console.log("   Passing callback buffer pointer via koffi.as");
 
         const status = mcpFilterLib[fnName](
           this.handle,
@@ -866,7 +866,7 @@ export class FilterChain {
           errorPtrPtr,
         );
 
-        console.log("   C API returned status:", status);
+        // console.log("   C API returned status:", status);
 
         if (status !== MCPStatus.OK) {
           this.callbackRegistry.delete(callbackId);
@@ -934,11 +934,11 @@ export class FilterChain {
    * @example
    * ```typescript
    * chain.setEventCallback((event) => {
-   *   console.log(`[${event.filterName}] ${FilterEventType[event.eventType]}`);
+   *   // console.log(`[${event.filterName}] ${FilterEventType[event.eventType]}`);
    *
    *   if (event.eventType === FilterEventType.CIRCUIT_STATE_CHANGE) {
    *     const { oldState, newState, reason } = event.eventData;
-   *     console.log(`Circuit breaker: ${oldState} → ${newState} (${reason})`);
+   *     // console.log(`Circuit breaker: ${oldState} → ${newState} (${reason})`);
    *   }
    *
    *   if (event.eventType === FilterEventType.RATE_LIMIT_EXCEEDED) {
