@@ -50,7 +50,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk/types.js";
 import { FilterChain } from "./filter-chain-ffi.js";
 import { FilterDecision } from "./filter-types.js";
-import type { CanonicalConfig, FilterMetrics } from "./filter-types.js";
+import type { CanonicalConfig, FilterMetrics, FilterResult } from "./filter-types.js";
 import { MessageQueue } from "./message-queue.js";
 
 /**
@@ -177,14 +177,58 @@ export class GopherFilteredTransport implements Transport {
     this.sdkTransport.onmessage = async (message, extra) => {
       try {
         if (this.config.debugLogging) {
-          console.log("📥 Incoming message via onmessage (SSE/WebSocket):", this.getMessageInfo(message));
+          console.log("📥 Incoming message:", this.getMessageInfo(message));
         }
 
-        // For now, pass through without filtering to avoid double-filtering
-        // HTTP POST requests are filtered in handleRequest() before reaching here
-        // TODO: Implement proper filtering for SSE/WebSocket streaming transports
-        if (this.onmessage) {
-          this.onmessage(message, extra);
+        // Process through filter chain - pass message object directly
+        // FilterChain will handle JSON serialization internally
+        const result = await this.filterChain.processIncoming(message);
+
+        if (this.config.debugLogging) {
+          console.log(`🔍 Filter decision: ${FilterDecision[result.decision]}`);
+        }
+
+        switch (result.decision) {
+          case FilterDecision.ALLOW:
+          case FilterDecision.TRANSFORM: {
+            // Use transformed message if available, otherwise original
+            let finalMessage: JSONRPCMessage = message;
+            if (result.transformedMessage) {
+              try {
+                finalMessage = JSON.parse(result.transformedMessage);
+              } catch (parseErr) {
+                console.warn("⚠️  Failed to parse transformed message, using original:", parseErr);
+              }
+            }
+
+            if (this.onmessage) {
+              this.onmessage(finalMessage, extra);
+            }
+            break;
+          }
+          case FilterDecision.DENY:
+            if (this.config.debugLogging) {
+              console.warn(`❌ Incoming message denied: ${result.reason}`);
+            }
+            // Don't propagate denied messages
+            break;
+
+          case FilterDecision.DELAY:
+            // Delay and then deliver
+            setTimeout(() => {
+              if (this.onmessage) {
+                this.onmessage(message, extra);
+              }
+            }, result.delayMs || 0);
+            break;
+
+          case FilterDecision.QUEUE:
+            // Queue for later processing
+            this.messageQueue.enqueue(message);
+            if (this.config.debugLogging) {
+              console.log(`📦 Message queued (queue size: ${this.messageQueue.size()})`);
+            }
+            break;
         }
       } catch (error) {
         console.error("❌ Filter processing error (fail-open):", error);
@@ -389,70 +433,38 @@ export class GopherFilteredTransport implements Transport {
 
       // For HTTP POST requests, intercept and filter BEFORE passing to SDK
       if (req.method === 'POST') {
-        // Read and parse the request body
-        const chunks: any[] = [];
-        for await (const chunk of req) {
-          chunks.push(chunk);
+        const bodyBuffer = await this.readRequestBody(req);
+        const forwardOriginal = async () => {
+          return await this.forwardHttpRequestWithBody(req, res, bodyBuffer);
+        };
+
+        if (bodyBuffer.length === 0) {
+          return await forwardOriginal();
         }
-        const body = Buffer.concat(chunks).toString('utf-8');
 
-        if (body) {
-          try {
-            const message = JSON.parse(body);
+        try {
+          const bodyString = bodyBuffer.toString('utf-8');
+          const message = JSON.parse(bodyString) as JSONRPCMessage;
 
-            // Filter the incoming message
-            const result = await this.filterChain.processIncoming(message);
+          const result = await this.filterChain.processIncoming(message);
+          const handled = await this.handleHttpFilterDecision(
+            req,
+            res,
+            bodyBuffer,
+            message,
+            result,
+          );
 
-            if (result.decision === FilterDecision.DENY) {
-              // Send HTTP error response for denied request
-              if (this.config.debugLogging) {
-                console.warn(`❌ Request denied by filter: ${result.reason}`);
-              }
-
-              res.writeHead(429, {
-                'Content-Type': 'application/json',
-                'Retry-After': Math.ceil((result.delayMs || 1000) / 1000).toString()
-              });
-              res.end(JSON.stringify({
-                jsonrpc: '2.0',
-                id: message.id || null,
-                error: {
-                  code: -32003,
-                  message: result.reason || 'Rate limit exceeded',
-                  data: { retryAfterMs: result.delayMs || 1000 }
-                }
-              }));
-              return;
-            }
-
-            // Request allowed - recreate the request stream for SDK
-            const { Readable } = await import('stream');
-            const bodyStream = Readable.from([body]);
-
-            // Copy all HTTP request properties (headers, method, url, etc.)
-            (bodyStream as any).headers = req.headers;
-            (bodyStream as any).method = req.method;
-            (bodyStream as any).url = req.url;
-            (bodyStream as any).httpVersion = req.httpVersion;
-            (bodyStream as any).httpVersionMajor = req.httpVersionMajor;
-            (bodyStream as any).httpVersionMinor = req.httpVersionMinor;
-            (bodyStream as any).socket = req.socket;
-            (bodyStream as any).connection = req.connection;
-
-            // Mark that this request has been pre-filtered
-            // This prevents double-filtering if SDK also calls onmessage
-            (bodyStream as any)._preFiltered = true;
-            (bodyStream as any)._filteredMessage = message;
-
-            // Pass the new stream to SDK
-            return await (this.sdkTransport as any).handleRequest(bodyStream, res);
-          } catch (error) {
-            // On parse error, fall through to SDK (it will handle the error)
-            if (this.config.debugLogging) {
-              console.warn('⚠️  Failed to parse/filter request:', error);
-            }
+          if (handled) {
+            return;
+          }
+        } catch (error) {
+          if (this.config.debugLogging) {
+            console.warn('⚠️  Failed to parse/filter request (falling back to SDK):', error);
           }
         }
+
+        return await forwardOriginal();
       }
 
       // Proxy to underlying transport
@@ -460,6 +472,130 @@ export class GopherFilteredTransport implements Transport {
     } else {
       throw new Error('Underlying transport does not support handleRequest method');
     }
+  }
+
+  private async readRequestBody(req: any): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      if (Buffer.isBuffer(chunk)) {
+        chunks.push(chunk);
+      } else if (typeof chunk === 'string') {
+        chunks.push(Buffer.from(chunk));
+      } else {
+        chunks.push(Buffer.from(chunk));
+      }
+    }
+    return Buffer.concat(chunks);
+  }
+
+  private async handleHttpFilterDecision(
+    req: any,
+    res: any,
+    originalBody: Buffer,
+    message: JSONRPCMessage,
+    result: FilterResult,
+  ): Promise<boolean> {
+    switch (result.decision) {
+      case FilterDecision.DENY: {
+        if (this.config.debugLogging) {
+          console.warn(`❌ Request denied by filter: ${result.reason}`);
+        }
+
+        const retryAfterMs = result.delayMs || 1000;
+        res.writeHead(429, {
+          'Content-Type': 'application/json',
+          'Retry-After': Math.ceil(retryAfterMs / 1000).toString(),
+        });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          id: (message as any)?.id ?? null,
+          error: {
+            code: -32003,
+            message: result.reason || 'Rate limit exceeded',
+            data: { retryAfterMs },
+          },
+        }));
+        return true;
+      }
+
+      case FilterDecision.DELAY: {
+        await this.delay(result.delayMs || 0);
+        await this.forwardHttpRequestWithBody(
+          req,
+          res,
+          this.serializeFilteredBody(message, result),
+          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) },
+        );
+        return true;
+      }
+
+      case FilterDecision.QUEUE: {
+        if (this.config.debugLogging) {
+          console.warn('⚠️  Filter requested queueing for HTTP request - forwarding immediately (queue unsupported for HTTP).');
+        }
+        await this.forwardHttpRequestWithBody(req, res, originalBody);
+        return true;
+      }
+
+      case FilterDecision.ALLOW:
+      case FilterDecision.TRANSFORM: {
+        await this.forwardHttpRequestWithBody(
+          req,
+          res,
+          this.serializeFilteredBody(message, result),
+          { preFiltered: true, filteredMessage: this.getForwardedMessage(message, result) },
+        );
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  private serializeFilteredBody(message: JSONRPCMessage, result: FilterResult): Buffer {
+    const payload = result.transformedMessage ?? JSON.stringify(message);
+    return Buffer.from(payload, 'utf-8');
+  }
+
+  private getForwardedMessage(message: JSONRPCMessage, result: FilterResult): JSONRPCMessage {
+    if (result.transformedMessage) {
+      try {
+        return JSON.parse(result.transformedMessage) as JSONRPCMessage;
+      } catch (error) {
+        console.warn('⚠️  Failed to parse transformed message JSON (falling back to original message):', error);
+      }
+    }
+    return message;
+  }
+
+  private async forwardHttpRequestWithBody(
+    req: any,
+    res: any,
+    body: Buffer,
+    options?: { preFiltered?: boolean; filteredMessage?: JSONRPCMessage },
+  ): Promise<void> {
+    const { Readable } = await import('stream');
+    const bodyStream = Readable.from([body]);
+
+    // Copy HTTP request metadata so downstream consumers behave as if using original IncomingMessage
+    (bodyStream as any).headers = req.headers;
+    (bodyStream as any).method = req.method;
+    (bodyStream as any).url = req.url;
+    (bodyStream as any).httpVersion = req.httpVersion;
+    (bodyStream as any).httpVersionMajor = req.httpVersionMajor;
+    (bodyStream as any).httpVersionMinor = req.httpVersionMinor;
+    (bodyStream as any).socket = req.socket;
+    (bodyStream as any).connection = req.connection;
+
+    if (options?.preFiltered) {
+      (bodyStream as any)._preFiltered = true;
+      if (options.filteredMessage) {
+        (bodyStream as any)._filteredMessage = options.filteredMessage;
+      }
+    }
+
+    await (this.sdkTransport as any).handleRequest(bodyStream, res);
   }
 
   /**
