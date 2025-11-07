@@ -62,7 +62,7 @@ void McpServer::setupEnhancedFilterChain(
   // Controls request rates to prevent abuse
   // NOTE: Now uses chain-level event system instead of per-filter callbacks
   if (config_.enable_rate_limiting) {
-    builder.addFilter([this]() -> network::FilterSharedPtr {
+    builder.addFilter([this, event_hub]() -> network::FilterSharedPtr {
       // Configure rate limiting
       filter::RateLimitConfig rl_config;
       rl_config.strategy = filter::RateLimitStrategy::TokenBucket;
@@ -72,11 +72,11 @@ void McpServer::setupEnhancedFilterChain(
       rl_config.allow_burst = true;
       rl_config.burst_size = config_.rate_limit_burst_size;
 
-      // Create filter with nullptr event emitter for standalone usage
-      // For chain-level events, the filter will be created via FilterCreationContext
-      auto filter = std::make_shared<filter::RateLimitFilter>(nullptr, rl_config);
+      auto emitter = std::make_shared<filter::FilterEventEmitter>(
+          event_hub,
+          "rate_limit");
 
-      return filter;
+      return std::make_shared<filter::RateLimitFilter>(emitter, rl_config);
     });
   }
 
@@ -271,8 +271,8 @@ void McpServer::setupEnhancedFilterChain(
               double success_rate = event.event_data["success_rate"].getFloat(1.0);
               server_.server_stats_.current_success_rate.store(success_rate);
             }
-            if (event.event_data.contains("latency_ms")) {
-              uint64_t latency = static_cast<uint64_t>(event.event_data["latency_ms"].getInt(0));
+            if (event.event_data.contains("avg_latency_ms")) {
+              uint64_t latency = static_cast<uint64_t>(event.event_data["avg_latency_ms"].getInt(0));
               server_.server_stats_.average_latency_ms.store(latency);
             }
           }

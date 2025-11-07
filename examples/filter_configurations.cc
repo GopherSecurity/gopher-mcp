@@ -12,6 +12,7 @@
 #include "mcp/client/mcp_client.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/filter_event_emitter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/filter/request_validation_filter.h"
@@ -48,8 +49,10 @@ class ProductionMcpClient : public client::McpClient {
 
       // CLIENT-SPECIFIC: More aggressive circuit breaking
       // Clients should fail fast to prevent blocking user operations
+      // Chain-level callbacks are handled through the unified event hub;
+      // this standalone example uses a null emitter.
       return std::make_shared<filter::CircuitBreakerFilter>(
-          circuit_breaker_callbacks_, config);
+          std::shared_ptr<filter::FilterEventEmitter>(), config);
     });
 
     // =========================================================================
@@ -66,8 +69,8 @@ class ProductionMcpClient : public client::McpClient {
 
         // CLIENT-SPECIFIC: Self-imposed limits
         // Be conservative to avoid triggering server rate limits
-        // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
-        return std::make_shared<filter::RateLimitFilter>(nullptr, config);
+        return std::make_shared<filter::RateLimitFilter>(
+            std::shared_ptr<filter::FilterEventEmitter>(), config);
       });
     }
 
@@ -154,7 +157,7 @@ class BatchMcpClient : public client::McpClient {
 
       // BATCH-SPECIFIC: Fail entire batch quickly
       return std::make_shared<filter::CircuitBreakerFilter>(
-          circuit_breaker_callbacks_, config);
+          std::shared_ptr<filter::FilterEventEmitter>(), config);
     });
 
     // RATE LIMITING - ESSENTIAL for batch operations
@@ -218,8 +221,8 @@ class ProductionMcpServer : public server::McpServer {
 
         // SERVER-SPECIFIC: Protect downstream services
         // Only for outbound calls from server
-        return std::make_shared<filter::CircuitBreakerFilter>(
-            circuit_breaker_callbacks_, config);
+      return std::make_shared<filter::CircuitBreakerFilter>(
+          std::shared_ptr<filter::FilterEventEmitter>(), config);
       });
     }
 
@@ -319,8 +322,8 @@ class PublicApiMcpServer : public server::McpServer {
       config.per_client_limiting = true;
 
       // PUBLIC API: Very strict rate limits
-      return std::make_shared<filter::RateLimitFilter>(*rate_limit_callbacks_,
-                                                       config);
+      return std::make_shared<filter::RateLimitFilter>(
+          std::shared_ptr<filter::FilterEventEmitter>(), config);
     });
 
     // REQUEST VALIDATION - Maximum security for public APIs
