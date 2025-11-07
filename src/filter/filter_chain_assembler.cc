@@ -7,6 +7,9 @@
 
 #include <iostream>
 
+#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_event_emitter.h"
+
 namespace mcp {
 namespace filter {
 
@@ -111,9 +114,32 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
     const config::FilterConfig& filter_config,
     const FilterCreationContext& context) {
 
-  // Simple filter creation using registry
+  FilterCreationContext local_context = context;
+
+  if (context.event_hub && !filter_config.type.empty()) {
+    try {
+      auto hub =
+          std::static_pointer_cast<FilterChainEventHub>(context.event_hub);
+      if (hub) {
+        std::string filter_name = filter_config.type;
+        std::string instance_id = filter_config.name;
+
+        auto emitter = std::make_shared<FilterEventEmitter>(
+            hub,
+            filter_name,
+            instance_id);
+
+        local_context.event_emitter =
+            std::shared_ptr<void>(emitter, emitter.get());
+      }
+    } catch (const std::exception& ex) {
+      std::cerr << "[FilterChainAssembler] Failed to create event emitter: "
+                << ex.what() << std::endl;
+    }
+  }
+
   if (registry_.hasContextFactory(filter_config.type)) {
-    return registry_.createFilterWithContext(filter_config.type, context,
+    return registry_.createFilterWithContext(filter_config.type, local_context,
                                              filter_config.config);
   }
 

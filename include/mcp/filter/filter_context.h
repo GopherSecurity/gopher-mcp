@@ -29,8 +29,6 @@ namespace filter {
 
 // Forward declarations
 class CircuitBreakerFilter;
-class CircuitBreakerCallbacks;
-
 /**
  * @brief Connection mode for filter creation
  *
