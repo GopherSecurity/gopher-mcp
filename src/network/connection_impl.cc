@@ -502,13 +502,12 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
       }
       enableFileEvents(events_to_enable);
 
-      // Check if we need to resume reading (reference pattern)
-      if (read_buffer_.length() > 0 || transport_wants_read_) {
-        // Activate read event to process buffered data or transport requests
-        if (file_event_) {
-          file_event_->activate(
-              static_cast<uint32_t>(event::FileReadyType::Read));
-        }
+      // Always poke a read event after re-enabling to handle edge-trigger races.
+      // Data might have arrived while disabled (kernel buffer non-empty) but no
+      // new edge will occur, so force a read cycle now.
+      if (file_event_) {
+        file_event_->activate(
+            static_cast<uint32_t>(event::FileReadyType::Read));
       }
       return ReadDisableStatus::TransitionedToReadEnabled;
     }
@@ -610,15 +609,16 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
 
-    // If socket is already write-ready, write immediately
-    // Otherwise onWriteReady will be called when socket becomes ready
-    // Following reference pattern: always write immediately when possible
-    if (write_ready_) {
-      // Socket is ready, write now
+    const bool transport_allows_immediate_write =
+        transport_socket_ &&
+        transport_socket_->protocol() == "stdio";
+
+    // If socket is already write-ready, or the transport guarantees that writes
+    // never block (stdio pipes), flush immediately. Otherwise wait for the
+    // dispatcher to signal write readiness.
+    if (write_ready_ || transport_allows_immediate_write) {
       doWrite();
     }
-    // Note: No else clause needed - if not write_ready_, onWriteReady()
-    // will be called by event loop when socket becomes writable
   }
 }
 
@@ -1544,3 +1544,4 @@ void ConnectionImpl::configureStateMachine() {
 
 }  // namespace network
 }  // namespace mcp
+
