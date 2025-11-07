@@ -567,7 +567,8 @@ async function createCalculatorServer() {
                 }
 
                 // Handle rate limiter events
-                if (event.filterName === 'rate_limiter') {
+                // NOTE: C++ registers filter as "rate_limit", not "rate_limiter"
+                if (event.filterName === 'rate_limit') {
                     if (event.eventType === FilterEventType.RATE_LIMIT_EXCEEDED) {
                         const { clientId, remainingTokens } = event.eventData;
                         console.log(`\n⚠️ Rate limit exceeded`);

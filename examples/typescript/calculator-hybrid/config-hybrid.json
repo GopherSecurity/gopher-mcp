@@ -11,11 +11,11 @@
               "type": "rate_limit",
               "config": {
                 "strategy": "token_bucket",
-                "bucket_capacity": 100,
-                "refill_rate": 50,
-                "allow_burst": true,
-                "burst_size": 25,
-                "debug_token_count": false
+                "bucket_capacity": 3,
+                "refill_rate": 1,
+                "allow_burst": false,
+                "burst_size": 0,
+                "debug_token_count": true
               }
             },
             {

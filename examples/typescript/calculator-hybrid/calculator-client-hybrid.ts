@@ -217,21 +217,7 @@ class SimpleCalculatorCLI {
             console.log(`⏱️  Response time: ${latency}ms`);
 
         } catch (error) {
-            if (error instanceof Error) {
-                // Check if it's a rate limit error
-                const errorMsg = error.message.toLowerCase();
-                if (errorMsg.includes('rate limit') ||
-                    errorMsg.includes('too many requests') ||
-                    errorMsg.includes('denied') && errorMsg.includes('rate')) {
-                    console.error(`⏸️  Rate limited: Server is limiting requests`);
-                    console.log('💡 Hint: Server allows 2 requests per second with a burst of 8');
-                    console.log('   Wait a moment before trying again...');
-                } else {
-                    console.error(`❌ Calculation error: ${error.message}`);
-                }
-            } else {
-                console.error(`❌ Calculation error: ${String(error)}`);
-            }
+            this.handleToolError(error, 'Calculation');
         }
     }
 
@@ -268,7 +254,7 @@ class SimpleCalculatorCLI {
             }
 
         } catch (error) {
-            console.error(`❌ Memory error: ${error instanceof Error ? error.message : String(error)}`);
+            this.handleToolError(error, 'Memory operation');
         }
     }
 
@@ -302,7 +288,7 @@ class SimpleCalculatorCLI {
             }
 
         } catch (error) {
-            console.error(`❌ History error: ${error instanceof Error ? error.message : String(error)}`);
+            this.handleToolError(error, 'History');
         }
     }
 
@@ -328,8 +314,51 @@ class SimpleCalculatorCLI {
             }
 
         } catch (error) {
-            console.error(`❌ Stats error: ${error instanceof Error ? error.message : String(error)}`);
+            this.handleToolError(error, 'Stats');
         }
+    }
+
+    /**
+     * Handle tool errors with enhanced rate limit detection
+     */
+    private handleToolError(error: unknown, operationName: string): void {
+        if (!(error instanceof Error)) {
+            console.error(`❌ ${operationName} error: ${String(error)}`);
+            return;
+        }
+
+        const errorMessage = error.message;
+
+        // Check if it's an HTTP 429 rate limit error
+        if (errorMessage.includes('HTTP 429')) {
+            // Try to parse the JSON-RPC error response
+            const match = errorMessage.match(/{"jsonrpc".*}/);
+            if (match) {
+                try {
+                    const errorResponse = JSON.parse(match[0]);
+                    const retryAfterMs = errorResponse.error?.data?.retryAfterMs || 1000;
+                    const retryAfterSec = Math.ceil(retryAfterMs / 1000);
+
+                    console.log(`\n⏸️  Rate Limit Exceeded`);
+                    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                    console.log(`💡 The server is limiting request rate`);
+                    console.log(`⏱️  Retry after: ${retryAfterSec} second${retryAfterSec !== 1 ? 's' : ''} (${retryAfterMs}ms)`);
+                    console.log(`🔄 Token bucket will refill over time`);
+                    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+                    return;
+                } catch (parseError) {
+                    // Fall through to generic error handling
+                }
+            }
+
+            // Generic rate limit message if parsing fails
+            console.log(`\n⏸️  Rate Limit Exceeded`);
+            console.log(`💡 Please wait a moment before trying again\n`);
+            return;
+        }
+
+        // Handle other errors
+        console.error(`❌ ${operationName} error: ${errorMessage}`);
     }
 
     /**

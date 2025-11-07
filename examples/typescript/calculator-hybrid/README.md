@@ -81,26 +81,33 @@ This example demonstrates a **production-ready hybrid architecture** that combin
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Filter Chain Assembly (from config-hybrid.json)          │  │
 │  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │ 1. Request Logger Filter                          │  │  │
+│  │  │ 1. Rate Limiter Filter                            │  │  │
+│  │  │    • Token bucket strategy with burst support     │  │  │
+│  │  │    • Configurable capacity & refill rate          │  │  │
+│  │  │    • Per-connection rate limiting                 │  │  │
+│  │  │    • HTTP-level interception (blocks before SDK)  │  │  │
+│  │  │    • Returns HTTP 429 on rate limit exceeded      │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 2. Metrics Filter                                 │  │  │
+│  │  │    • Real-time metrics collection & reporting     │  │  │
+│  │  │    • Request/response/error tracking              │  │  │
+│  │  │    • Latency statistics (min/max/avg)             │  │  │
+│  │  │    • Throughput rate calculation                  │  │  │
+│  │  │    • Callback-based metrics updates               │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │ 3. Request Logger Filter                          │  │  │
 │  │  │    • Logs all JSON-RPC requests/responses         │  │  │
 │  │  │    • Configurable log levels & formats            │  │  │
 │  │  │    • Payload inspection with size limits          │  │  │
 │  │  └────────────────────────────────────────────────────┘  │  │
 │  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │ 2. [Future] Rate Limiter                          │  │  │
-│  │  │    • Token bucket / sliding window                │  │  │
-│  │  │    • Per-client or global limits                  │  │  │
-│  │  └────────────────────────────────────────────────────┘  │  │
-│  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │ 3. [Future] Circuit Breaker                       │  │  │
+│  │  │ 4. Circuit Breaker Filter                         │  │  │
 │  │  │    • Failure detection & auto-recovery            │  │  │
 │  │  │    • Prevents cascading failures                  │  │  │
-│  │  └────────────────────────────────────────────────────┘  │  │
-│  │  ┌────────────────────────────────────────────────────┐  │  │
-│  │  │ 4. [Future] Metrics Collector                     │  │  │
-│  │  │    • Request/response metrics                     │  │  │
-│  │  │    • Latency tracking                             │  │  │
-│  │  │    • Prometheus-compatible export                 │  │  │
+│  │  │    • Configurable thresholds & timeouts           │  │  │
+│  │  │    • Half-open state for gradual recovery         │  │  │
 │  │  └────────────────────────────────────────────────────┘  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -221,29 +228,33 @@ void destroyFilterChain(chain);
 2. Node HTTP Server → handleRequest()
    ↓
 3. GopherFilteredTransport.handleRequest()
+   ↓ Reads & parses HTTP body
+   ↓ Pre-filters through C++ filter chain (FFI call)
+4. C++ Rate Limiter → Checks token bucket
+   ↓ (If DENIED: HTTP 429 sent immediately, flow stops)
+   ↓ (If ALLOWED: continue to step 5)
+5. C++ Metrics Filter → Tracks request
    ↓
-4. StreamableHTTPServerTransport (SDK)
-   ↓ Parses HTTP request body
-5. GopherFilteredTransport.onMessage()
-   ↓ FFI call
 6. C++ Request Logger Filter → Logs request
    ↓
-7. Returns to TypeScript
-   ↓
-8. SDK Server → Request Handler
-   ↓
-9. CalculatorState → Execute tool logic
-   ↓ Return result
-10. SDK → Prepare response
+7. C++ Circuit Breaker → Checks circuit state
+   ↓ Returns to TypeScript
+8. GopherFilteredTransport → Recreates request stream
+   ↓ Passes to SDK transport
+9. StreamableHTTPServerTransport (SDK)
+   ↓ Handles HTTP protocol
+10. SDK Server → Request Handler
     ↓
-11. GopherFilteredTransport.send()
-    ↓ FFI call
-12. C++ Request Logger Filter → Logs response
+11. CalculatorState → Execute tool logic
+    ↓ Return result
+12. SDK → Prepare response
     ↓
 13. StreamableHTTPServerTransport → HTTP response
     ↓
 14. HTTP Client ← JSON-RPC result
 ```
+
+**Note**: For HTTP POST requests, filtering happens in `handleRequest()` BEFORE the SDK processes the message. This prevents rate-limited requests from consuming server resources. The `onmessage` callback is bypassed for HTTP to avoid double-filtering.
 
 #### Message Interception Points
 ```typescript
@@ -278,6 +289,31 @@ Tool Result
           "name": "http_server_filters",
           "filters": [
             {
+              "name": "rate_limiter",
+              "type": "rate_limit",
+              "config": {
+                "strategy": "token_bucket",
+                "bucket_capacity": 100,
+                "refill_rate": 50,
+                "allow_burst": true,
+                "burst_size": 25,
+                "debug_token_count": false
+              }
+            },
+            {
+              "name": "metrics",
+              "type": "metrics",
+              "config": {
+                "provider": "internal",
+                "rate_update_interval_seconds": 1,
+                "report_interval_seconds": 10,
+                "max_latency_threshold_ms": 5000,
+                "error_rate_threshold": 10,
+                "track_methods": true,
+                "enable_histograms": false
+              }
+            },
+            {
               "name": "request_logger",
               "type": "request_logger",
               "config": {
@@ -287,6 +323,22 @@ Tool Result
                 "include_payload": true,
                 "max_payload_length": 1000,
                 "output": "stdout"
+              }
+            },
+            {
+              "name": "circuit_breaker",
+              "type": "circuit_breaker",
+              "config": {
+                "failure_threshold": 5,
+                "error_rate_threshold": 0.5,
+                "min_requests": 10,
+                "timeout_ms": 10000,
+                "window_size_ms": 60000,
+                "half_open_max_requests": 3,
+                "half_open_success_threshold": 2,
+                "track_timeouts": true,
+                "track_errors": true,
+                "track_4xx_as_errors": false
               }
             }
           ]
@@ -429,8 +481,8 @@ async function createYourServer() {
 4. **Filter Configuration**: Enable/configure filters as needed:
    - Request logging for observability
    - Rate limiting for API protection
-   - Circuit breaker for resilience
-   - Metrics for monitoring
+   - Circuit breaker for resilience (already configured)
+   - Metrics for monitoring with real-time callbacks
 
 ## Key Features
 
@@ -447,7 +499,10 @@ async function createYourServer() {
 3. **history** - Calculation history (list, clear, stats)
 
 ### Active Filters
-1. **Request Logger** - Logs all JSON-RPC traffic with timestamps and payload inspection
+1. **Rate Limiter** - Token bucket strategy with burst support (100 capacity, 50/sec refill, 25 burst)
+2. **Metrics** - Real-time metrics collection with callbacks and configurable reporting intervals
+3. **Request Logger** - Logs all JSON-RPC traffic with timestamps and payload inspection
+4. **Circuit Breaker** - Failure detection with 5 failure threshold, 50% error rate threshold, and 10s timeout
 
 ## Quick Start
 
@@ -468,8 +523,8 @@ npx tsx calculator-server-hybrid.ts --stateful
 
 **Terminal 2 - Start Client** (in a new terminal):
 ```bash
-cd sdk/typescript
-npx tsx ../../examples/typescript/calculator-hybrid/calculator-client-hybrid.ts http://127.0.0.1:8080/mcp
+cd examples/typescript/calculator-hybrid
+npx tsx calculator-client-hybrid.ts http://127.0.0.1:8080/mcp
 ```
 
 Then use the interactive client to perform calculations!
@@ -578,7 +633,10 @@ Expected output:
   • history - Calculation history (list, clear, stats)
 
 🛡️  Active Filters:
+  • Rate Limiter - Token bucket (100 cap, 50/sec refill, 25 burst)
+  • Metrics - Real-time metrics collection & callbacks
   • Request Logger - Prints JSON-RPC traffic
+  • Circuit Breaker - Failure detection (5 failures, 50% error rate, 10s timeout)
 
 🌐 Server Address: http://127.0.0.1:8080/mcp
 
@@ -607,18 +665,13 @@ The calculator client is a **simple MCP client** using only the standard SDK (no
 
 #### Starting the Client
 
-From the TypeScript SDK directory (with server already running):
-```bash
-cd sdk/typescript
-npx tsx ../../examples/typescript/calculator-hybrid/calculator-client-hybrid.ts http://127.0.0.1:8080/mcp
-```
-
-**Alternative** - Run from calculator-hybrid directory:
+From the calculator-hybrid directory (with server already running):
 ```bash
 cd examples/typescript/calculator-hybrid
-../../sdk/typescript/node_modules/.bin/tsx calculator-client-hybrid.ts http://127.0.0.1:8080/mcp
+npx tsx calculator-client-hybrid.ts http://127.0.0.1:8080/mcp
 ```
-This uses the same `tsx` executable bundled with the SDK workspace.
+
+**Note**: The client uses relative imports to resolve the MCP SDK from `sdk/typescript/node_modules`, so no additional setup is needed.
 
 Expected output (transport banner still mentions HTTP+SSE because it is printed by the SDK):
 ```
@@ -729,13 +782,13 @@ calc> quit
 
 ## Testing
 
-You can test the server in two ways:
+You can test the server using:
 1. **Interactive Client** (Recommended) - Use `calculator-client-hybrid.ts` for a better experience
 2. **curl Commands** - Direct HTTP calls for testing individual endpoints
 
 ### Option 1: Interactive Client
 
-See [Run the Client](#run-the-client) section above for the full interactive experience.
+See [Run the Client](#run-the-client) section above for the full interactive experience. The interactive client demonstrates all calculator features including operations, memory management, and history tracking.
 
 ### Option 2: curl Commands
 
@@ -809,6 +862,7 @@ curl -X POST http://127.0.0.1:8080/mcp \
 ```bash
 curl -X POST http://127.0.0.1:8080/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc":"2.0",
     "id":5,
@@ -819,6 +873,39 @@ curl -X POST http://127.0.0.1:8080/mcp \
     }
   }'
 ```
+
+### Test Rate Limiting
+
+The example includes a test script to verify rate limiting behavior:
+
+```bash
+cd examples/typescript/calculator-hybrid
+./test-rate-limit-simple.sh
+```
+
+**What it does:**
+- Sends 6 rapid requests to test the rate limiter
+- First 3 requests should succeed (within bucket capacity)
+- Requests 4-6 should be blocked with HTTP 429 errors
+
+**Expected output:**
+```bash
+📤 Request 1: ✅ Success (tool list returned)
+📤 Request 2: ✅ Success
+📤 Request 3: ✅ Success
+📤 Request 4: ❌ Rate limited (HTTP 429)
+📤 Request 5: ❌ Rate limited (HTTP 429)
+📤 Request 6: ❌ Rate limited (HTTP 429)
+```
+
+**Server logs will show:**
+```
+⚠️ Rate limit exceeded
+   Client: undefined
+   Remaining tokens: 0
+```
+
+**Note:** The test script uses the restrictive rate limit config (3 capacity, 1/sec refill) from `config-hybrid.json`. Adjust these values to test different rate limiting scenarios.
 
 ## Configuration
 
@@ -885,8 +972,9 @@ DEBUG=1 npm run server:hybrid
 | Transport | stdio/HTTP | HTTP (stateless JSON) | HTTP+SSE |
 | Filters | ❌ None | ✅ Gopher C++ | ✅ Gopher C++ |
 | Request Logging | Basic | ✅ Advanced | ✅ Advanced |
-| Rate Limiting | ❌ | ✅ (configurable) | ✅ |
-| Circuit Breaker | ❌ | ✅ (configurable) | ✅ |
+| Rate Limiting | ❌ | ✅ Token bucket + burst | ✅ |
+| Metrics Collection | ❌ | ✅ Real-time callbacks | ✅ |
+| Circuit Breaker | ❌ | ✅ Fully configured | ✅ |
 | Web Accessible | Requires setup | ✅ Built-in | ✅ Built-in |
 | Performance | Baseline | +5-10% overhead | +0-5% overhead |
 | Complexity | Low | Medium | High |
@@ -988,18 +1076,127 @@ httpServer.listen(8080, "127.0.0.1");
 
 ### Request Logging
 
-All JSON-RPC requests are logged by the request logger filter:
+All JSON-RPC requests are logged by the request logger filter with pretty formatting:
 ```
-[2025-10-27 10:30:00] REQUEST tools/list
-  ID: 1
-  Method: tools/list
-  Payload: {"jsonrpc":"2.0","id":1,"method":"tools/list"}
+🟢 [RequestLogger::onData] ENTRY
+   Buffer length: 58
+   End stream: true
 
-[2025-10-27 10:30:01] RESPONSE
-  ID: 1
-  Status: success
-  Latency: 2.3ms
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+→ INCOMING REQUEST:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🟢 [RequestLogger::onWrite] ENTRY
+   Buffer length: 318
+   End stream: false
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+← OUTGOING RESPONSE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"id":1,"jsonrpc":"2.0","result":{"tools":[...]}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+### Metrics Collection & Callbacks
+
+The metrics filter provides real-time metrics via callbacks:
+
+```typescript
+import { registerMetricsCallbacks, type MetricsCallbacks } from "@gopher-mcp/sdk";
+
+const callbacks: MetricsCallbacks = {
+  onMetricsUpdate: (snapshot) => {
+    console.log(`Requests: ${snapshot.requestsReceived}`);
+    console.log(`Latency: ${snapshot.avgLatencyMs}ms`);
+    console.log(`Rate: ${snapshot.currentReceiveRateBps}bps`);
+  },
+  onThresholdExceeded: (event) => {
+    console.log(`Alert: ${event.metric} exceeded threshold`);
+  },
+  onError: (error) => {
+    console.error('Metrics error:', error);
+  }
+};
+
+const handle = registerMetricsCallbacks(filterChain.getHandle(), callbacks);
+// ... later ...
+unregisterMetricsCallbacks(filterChain.getHandle(), handle);
+```
+
+**Available Metrics**:
+- Request/response/message counts (RX/TX)
+- Byte counts (RX/TX)
+- Error counts (RX/TX/protocol)
+- Latency statistics (min/max/avg)
+- Throughput rates (RX/TX in bps)
+- Per-method tracking (when enabled)
+
+### Unified Filter Event Callbacks
+
+All filters emit events through a unified chain-level event system. Register a single callback to receive events from all filters:
+
+```typescript
+import { FilterEventType, type FilterEvent } from "@gopher-mcp/sdk";
+
+// Get access to the filter chain
+const filterChain = filteredTransport.filterChain;
+
+// Register unified event callback for ALL filter events
+filterChain.setEventCallback((event: FilterEvent) => {
+  // Handle circuit breaker events
+  if (event.filterName === 'circuit_breaker') {
+    if (event.eventType === FilterEventType.CIRCUIT_STATE_CHANGE) {
+      const { oldState, newState, reason } = event.eventData;
+      console.log(`Circuit breaker: ${oldState} → ${newState} (${reason})`);
+    } else if (event.eventType === FilterEventType.CIRCUIT_REQUEST_BLOCKED) {
+      const { method } = event.eventData;
+      console.log(`Request blocked by circuit breaker: ${method}`);
+    } else if (event.eventType === FilterEventType.CIRCUIT_HEALTH_UPDATE) {
+      const { successRate, averageLatencyMs } = event.eventData;
+      console.log(`Health: ${(successRate * 100).toFixed(2)}% success, ${averageLatencyMs.toFixed(2)}ms avg latency`);
+    }
+  }
+
+  // Handle rate limiter events
+  // NOTE: C++ registers the filter as 'rate_limit', not 'rate_limiter'
+  if (event.filterName === 'rate_limit') {
+    if (event.eventType === FilterEventType.RATE_LIMIT_EXCEEDED) {
+      const { clientId, remainingTokens } = event.eventData;
+      console.warn(`⚠️ Rate limit exceeded`);
+      console.warn(`   Client: ${clientId}`);
+      console.warn(`   Remaining tokens: ${remainingTokens}`);
+    }
+  }
+
+  // Log all events in debug mode
+  if (process.env.DEBUG === '1') {
+    console.log(`[FilterEvent] ${event.filterName}: ${FilterEventType[event.eventType]}`);
+    console.log('  Data:', event.eventData);
+  }
+});
+```
+
+**Available Filter Events**:
+- **Circuit Breaker**:
+  - `CIRCUIT_STATE_CHANGE`: State transitions (CLOSED → OPEN → HALF_OPEN)
+  - `CIRCUIT_REQUEST_BLOCKED`: Requests blocked when circuit is open
+  - `CIRCUIT_HEALTH_UPDATE`: Periodic health statistics
+- **Rate Limiter**:
+  - `RATE_LIMIT_EXCEEDED`: Quota exhausted
+  - `RATE_LIMIT_SAMPLE`: Token consumption metrics
+  - `RATE_LIMIT_WINDOW_RESET`: Window boundary events
+- **Metrics**:
+  - `METRIC_UPDATE`: Real-time metrics snapshots
+- **Request Logger**:
+  - `REQUEST_LOGGED`: Request logging events
+  - `RESPONSE_LOGGED`: Response logging events
+
+**Circuit Breaker States**:
+- **CLOSED**: Normal operation, all requests pass through
+- **OPEN**: Circuit tripped, requests are blocked
+- **HALF_OPEN**: Testing if service recovered, limited requests allowed
 
 ### Runtime Configuration
 
@@ -1007,14 +1204,8 @@ Filters can be enabled/disabled at runtime:
 ```typescript
 await transport.setFilterEnabled('request_logger', false); // Disable
 await transport.setFilterEnabled('request_logger', true);  // Enable
-```
-
-### Available Metrics API
-
-While automatic metrics reporting has been removed, you can still query metrics programmatically:
-```typescript
-const metrics = await filteredTransport.getMetrics();
-console.log(metrics);
+await transport.setFilterEnabled('rate_limiter', false);   // Disable rate limiting
+await transport.setFilterEnabled('circuit_breaker', false); // Disable circuit breaker
 ```
 
 ## Troubleshooting
@@ -1103,32 +1294,52 @@ The `callTool()` method handles all JSON-RPC protocol details and schema validat
 calculator-hybrid/
 ├── calculator-server-hybrid.ts          # Main server (hybrid with filters)
 ├── calculator-client-hybrid.ts          # Simple client (standard SDK, no filters)
+├── config-hybrid.json                   # Filter configuration
 ├── configs/
-│   └── hybrid-filters.json              # Filter configuration
-├── test-hybrid.sh                       # Integration test script
+│   └── hybrid-filters.json              # Alternative filter configuration
 └── README.md                             # This file
 ```
 
 **Files**:
 - `calculator-server-hybrid.ts`: Hybrid server using SDK + Gopher filters
 - `calculator-client-hybrid.ts`: Simple client using pure standard SDK (no filters)
+- `config-hybrid.json`: Filter chain configuration (rate limiter, metrics, request logger, circuit breaker)
+- `configs/hybrid-filters.json`: Alternative filter configuration format
 
 ### Adding Custom Filters
 
-To add new filters, update `hybrid-filters.json`:
+To add new filters, update `config-hybrid.json`:
 ```json
 {
-  "filters": [
+  "listeners": [
     {
-      "name": "my_custom_filter",
-      "type": "custom_filter_type",
-      "config": {
-        "setting1": "value1"
-      }
+      "name": "http_mcp_server_listener",
+      "filter_chains": [
+        {
+          "name": "http_server_filters",
+          "filters": [
+            {
+              "name": "my_custom_filter",
+              "type": "custom_filter_type",
+              "config": {
+                "setting1": "value1"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
 ```
+
+**Available Filter Types**:
+- `rate_limit` - Token bucket rate limiting with burst support
+- `metrics` - Metrics collection with real-time callbacks and threshold alerts
+- `request_logger` - Request/response logging with configurable formats
+- `circuit_breaker` - Circuit breaker pattern with failure detection and auto-recovery
+
+See the [Filter Configuration](#filter-configuration-config-hybridjson) section for detailed configuration options.
 
 ## Performance Considerations
 
