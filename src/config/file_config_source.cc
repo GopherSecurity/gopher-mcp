@@ -138,12 +138,30 @@ namespace {
     std::string path_;
   };
   
-  std::time_t last_write_time(const std::string& filepath) {
+  std::chrono::system_clock::time_point stat_to_time_point(const struct stat& st) {
+#if defined(_WIN32)
+    auto secs = std::chrono::seconds(st.st_mtime);
+    auto nsecs = std::chrono::nanoseconds(0);
+#elif defined(__APPLE__)
+    auto secs = std::chrono::seconds(st.st_mtimespec.tv_sec);
+    auto nsecs = std::chrono::nanoseconds(st.st_mtimespec.tv_nsec);
+#elif defined(__linux__)
+    auto secs = std::chrono::seconds(st.st_mtim.tv_sec);
+    auto nsecs = std::chrono::nanoseconds(st.st_mtim.tv_nsec);
+#else
+    auto secs = std::chrono::seconds(st.st_mtime);
+    auto nsecs = std::chrono::nanoseconds(0);
+#endif
+    auto duration = std::chrono::duration_cast<std::chrono::system_clock::duration>(secs + nsecs);
+    return std::chrono::system_clock::time_point(duration);
+  }
+  
+  std::chrono::system_clock::time_point last_write_time(const std::string& filepath) {
     struct stat st;
     if (stat(filepath.c_str(), &st) == 0) {
-      return st.st_mtime;
+      return stat_to_time_point(st);
     }
-    return 0;
+    return std::chrono::system_clock::time_point();
   }
   
   // Simple directory iterator for C++14
@@ -186,7 +204,9 @@ namespace {
         std::string name(entry->d_name);
         if (name != "." && name != "..") {
           std::string full_path = dir_path + "/" + name;
-          files.push_back(path(full_path));
+          if (!is_directory(full_path)) {
+            files.push_back(path(full_path));
+          }
         }
       }
       closedir(dir);
@@ -269,7 +289,10 @@ class FileConfigSource : public ConfigSource {
   FileConfigSource(const std::string& name,
                    int priority,
                    const Options& opts = Options{})
-      : name_(name), priority_(priority), options_(opts) {
+      : name_(name),
+        priority_(priority),
+        options_(opts),
+        last_modified_(std::chrono::system_clock::now()) {
     GOPHER_LOG(Info, "FileConfigSource created: name=%s priority=%d",
              name_.c_str(), static_cast<int>(priority_));
   }
@@ -278,6 +301,10 @@ class FileConfigSource : public ConfigSource {
   int getPriority() const override { return priority_; }
 
   bool hasConfiguration() const override {
+    if (!explicit_config_path_.empty()) {
+      return exists(explicit_config_path_);
+    }
+
     // Use discovery to check if configuration is available
     std::string config_path = const_cast<FileConfigSource*>(this)->findConfigFile();
     return !config_path.empty();
@@ -361,10 +388,9 @@ class FileConfigSource : public ConfigSource {
     }
     
     // Check if base config has changed
-    if (exists(base_config_path_)) {
-      auto current_mtime = last_write_time(base_config_path_);
-      auto current_time = std::chrono::system_clock::from_time_t(current_mtime);
-      
+    struct stat st;
+    if (stat(base_config_path_.c_str(), &st) == 0) {
+      auto current_time = stat_to_time_point(st);
       if (current_time > last_modified_) {
         return true;
       }
@@ -375,8 +401,14 @@ class FileConfigSource : public ConfigSource {
 
   std::chrono::system_clock::time_point getLastModified() const override {
     if (base_config_path_.empty()) {
-      return std::chrono::system_clock::from_time_t(0);
+      return last_modified_;
     }
+
+    struct stat st;
+    if (stat(base_config_path_.c_str(), &st) == 0) {
+      return stat_to_time_point(st);
+    }
+
     return last_modified_;
   }
 
@@ -403,6 +435,11 @@ class FileConfigSource : public ConfigSource {
     if (!explicit_config_path_.empty()) {
       // Prefer the explicit path unconditionally; downstream loadFile will
       // report a precise error if it does not exist or cannot be parsed.
+      GOPHER_LOG(Info, "CLI override detected: --config specified");
+      if (exists(explicit_config_path_)) {
+        GOPHER_LOG(Info, "Configuration source won: CLI --config={}",
+                  explicit_config_path_);
+      }
       return explicit_config_path_;
     }
 
@@ -467,16 +504,20 @@ class FileConfigSource : public ConfigSource {
     }
 
     // Get file metadata and track latest modification time
-    auto last_modified = last_write_time(filepath);
-    auto file_mtime = std::chrono::system_clock::from_time_t(last_modified);
+    auto file_mtime = stat_to_time_point(st);
     
     // Update latest modification time
     if (file_mtime > context.latest_mtime) {
       context.latest_mtime = file_mtime;
     }
 
-    GOPHER_LOG(Debug, "Loading configuration file: %s size=%zu last_modified=%ld",
-              filepath.c_str(), file_size, static_cast<long>(last_modified));
+    auto last_modified_seconds =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            file_mtime.time_since_epoch())
+            .count();
+    GOPHER_LOG(Debug, "Loading configuration file: %s size=%zu last_modified=%lld",
+              filepath.c_str(), file_size,
+              static_cast<long long>(last_modified_seconds));
 
     std::ifstream file(filepath);
     if (!file.is_open()) {
@@ -885,7 +926,7 @@ class FileConfigSource : public ConfigSource {
   mcp::json::JsonValue processConfigDOverlays(const mcp::json::JsonValue& base_config,
                                               const path& overlay_dir,
                                               ParseContext& context) {
-    GOPHER_LOG(Info, "Scanning config.d directory: %s", overlay_dir.string().c_str());
+    GOPHER_LOG(Info, "Scanning config.d directory: {}", overlay_dir.string());
 
     mcp::json::JsonValue result = base_config;
     std::vector<path> overlay_files;
@@ -905,14 +946,14 @@ class FileConfigSource : public ConfigSource {
     // Sort lexicographically for deterministic order
     std::sort(overlay_files.begin(), overlay_files.end());
 
-    GOPHER_LOG(Info, "Directory scan results: found %zu configuration overlay files",
+    GOPHER_LOG(Info, "Directory scan results: found {} configuration overlay files",
              overlay_files.size());
-    
+
     // Log overlay list in order
     if (!overlay_files.empty()) {
       GOPHER_LOG(Info, "Overlay files in lexicographic order:");
       for (const auto& file : overlay_files) {
-        GOPHER_LOG(Info, "  - %s", file.filename().string().c_str());
+        GOPHER_LOG(Info, "  - {}", file.filename().string());
       }
     }
 
