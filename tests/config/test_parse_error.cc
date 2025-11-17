@@ -200,7 +200,7 @@ TEST_F(ParseErrorTest, CapabilitiesConfigEnhancedUnitParsing) {
 
   EXPECT_NO_THROW({
     auto config = CapabilitiesConfigEnhanced::fromJson(valid, ctx);
-    EXPECT_EQ(config.max_request_size, 10000000);
+    EXPECT_EQ(config.max_request_size, 10 * 1024 * 1024);
     EXPECT_EQ(config.request_timeout_ms, 30000);
   });
 
@@ -229,7 +229,7 @@ TEST_F(ParseErrorTest, FilterConfigEnhancedWithConfig) {
 
   auto config = FilterConfigEnhanced::fromJson(buffer, ctx);
   EXPECT_EQ(config.type, "buffer");
-  EXPECT_EQ(config.config["max_size"].getInt(), 2000000);
+  EXPECT_EQ(config.config["max_size"].getInt(), 2 * 1024 * 1024);
 
   // Rate limit with duration
   JsonValue rate_limit = makeJsonObject({
