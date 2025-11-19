@@ -83,14 +83,15 @@ echo -e "${BLUE}   Log: $LOG_FILE${NC}"
 cd "$EXAMPLE_DIR"
 
 # Build server command
-SERVER_CMD="PORT=$SERVER_PORT HOST=$SERVER_HOST npx tsx calculator-server-hybrid.ts"
 if [ "$SERVER_MODE" = "stateful" ]; then
-    SERVER_CMD="$SERVER_CMD --stateful"
+    SERVER_ARGS="--stateful"
+else
+    SERVER_ARGS=""
 fi
 
 # Start server in background
 echo -e "\n${YELLOW}Starting server...${NC}"
-$SERVER_CMD > "$LOG_FILE" 2>&1 &
+PORT=$SERVER_PORT HOST=$SERVER_HOST npx tsx calculator-server-hybrid.ts $SERVER_ARGS > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 echo $SERVER_PID > "$PID_FILE"
 
@@ -98,15 +99,25 @@ echo $SERVER_PID > "$PID_FILE"
 echo -e "${YELLOW}Waiting for server to initialize...${NC}"
 RETRY_COUNT=0
 MAX_RETRIES=30
+SERVER_STARTED=false
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if grep -q "Server ready and waiting for connections\|Failed to start" "$LOG_FILE" 2>/dev/null; then
+    # Check for successful start
+    if grep -q "Server ready and waiting for connections\|Server is running\|MCP Calculator Server is running" "$LOG_FILE" 2>/dev/null; then
+        SERVER_STARTED=true
         break
     fi
+    
+    # Check for known failure patterns
+    if grep -q "Failed to start\|mcp_chain_create_from_json_async is not a function\|Failed to start server" "$LOG_FILE" 2>/dev/null; then
+        break
+    fi
+    
+    # Check if process is still alive
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-        echo -e "${RED}❌ Server process died unexpectedly${NC}"
         break
     fi
+    
     sleep 1
     RETRY_COUNT=$((RETRY_COUNT + 1))
     echo -n "."
@@ -114,7 +125,7 @@ done
 echo ""
 
 # Check if server started successfully
-if kill -0 "$SERVER_PID" 2>/dev/null; then
+if [ "$SERVER_STARTED" = "true" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     echo -e "${GREEN}✅ Server started successfully (PID: $SERVER_PID)${NC}"
     
     # Show server info
@@ -208,7 +219,26 @@ if kill -0 "$SERVER_PID" 2>/dev/null; then
     
 else
     echo -e "${RED}❌ Failed to start server${NC}"
-    echo -e "\n${RED}Server logs:${NC}"
-    cat "$LOG_FILE"
-    exit 1
+    echo -e "\n${RED}Server logs (last 30 lines):${NC}"
+    tail -30 "$LOG_FILE"
+    
+    # Check if it's the known C++ library issue
+    if grep -q "mcp_chain_create_from_json_async is not a function" "$LOG_FILE"; then
+        echo -e "\n${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}⚠️  Server failed due to missing C++ library functions${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}This is expected if the C++ library wasn't built with all dependencies.${NC}"
+        echo -e "${YELLOW}To fix this issue:${NC}"
+        echo -e "${YELLOW}  1. Install dependencies: brew install yaml-cpp libevent openssl${NC}"
+        echo -e "${YELLOW}  2. Rebuild: cd $PROJECT_ROOT && make clean && make build${NC}"
+        echo -e "${YELLOW}  3. Try again: ./test-server.sh${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        
+        echo -e "\n${CYAN}Alternative: Use the simple test server${NC}"
+        echo -e "  ${GREEN}./test-server-simple.sh${NC} - Works without C++ library"
+        echo -e "  ${GREEN}./test-demo.sh${NC} - Demo of test capabilities"
+    fi
+    
+    # Exit with status 2 to indicate known issue
+    exit 2
 fi
