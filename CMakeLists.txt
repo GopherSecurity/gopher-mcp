@@ -349,6 +349,7 @@ message(STATUS "")
 set(MCP_CORE_SOURCES
     src/auth/http_client.cc
     src/auth/jwks_client.cc
+    src/auth/auth_c_api.cc
     src/buffer/buffer_impl.cc
     src/json/json_bridge.cc
     src/json/json_serialization.cc
