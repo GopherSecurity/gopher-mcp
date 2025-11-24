@@ -6,6 +6,7 @@ add_subdirectory(filter)
 
 # Auth tests
 add_executable(test_auth_types auth/test_auth_types.cc)
+add_executable(test_memory_cache auth/test_memory_cache.cc)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
@@ -141,8 +142,14 @@ add_executable(test_event_handling integration/test_event_handling.cc)
 
 # Link libraries
 
-# Link auth test executable
+# Link auth test executables
 target_link_libraries(test_auth_types
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_memory_cache
     gtest 
     gtest_main
     Threads::Threads
@@ -1047,6 +1054,7 @@ target_link_libraries(test_event_handling
 
 # Auth tests
 add_test(NAME AuthTypesTest COMMAND test_auth_types)
+add_test(NAME MemoryCacheTest COMMAND test_memory_cache)
 
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
