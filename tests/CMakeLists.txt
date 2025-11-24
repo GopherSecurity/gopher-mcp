@@ -3,6 +3,9 @@
 
 # Include filter tests subdirectory
 add_subdirectory(filter)
+
+# Auth tests
+add_executable(test_auth_types auth/test_auth_types.cc)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
@@ -137,6 +140,14 @@ add_executable(test_connection_manager_real_io network/test_connection_manager_r
 add_executable(test_event_handling integration/test_event_handling.cc)
 
 # Link libraries
+
+# Link auth test executable
+target_link_libraries(test_auth_types
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_variant 
     gtest 
     gtest_main
@@ -1033,6 +1044,10 @@ target_link_libraries(test_event_handling
 )
 
 # Add tests
+
+# Auth tests
+add_test(NAME AuthTypesTest COMMAND test_auth_types)
+
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
 add_test(NAME VariantAdvancedTest COMMAND test_variant_advanced)
