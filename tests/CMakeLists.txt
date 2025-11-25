@@ -6,6 +6,7 @@ add_subdirectory(filter)
 
 # Auth tests
 add_executable(test_auth_types auth/test_auth_types.cc)
+add_executable(benchmark_jwt_validation auth/benchmark_jwt_validation.cc)
 add_executable(test_memory_cache auth/test_memory_cache.cc)
 add_executable(test_http_client auth/test_http_client.cc)
 add_executable(test_jwks_client auth/test_jwks_client.cc)
@@ -149,6 +150,13 @@ target_link_libraries(test_auth_types
     gtest 
     gtest_main
     Threads::Threads
+)
+
+target_link_libraries(benchmark_jwt_validation
+    gtest 
+    gtest_main
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
 )
 
 target_link_libraries(test_memory_cache
@@ -1070,6 +1078,7 @@ target_link_libraries(test_event_handling
 
 # Auth tests
 add_test(NAME AuthTypesTest COMMAND test_auth_types)
+add_test(NAME JwtValidationBenchmark COMMAND benchmark_jwt_validation)
 add_test(NAME MemoryCacheTest COMMAND test_memory_cache)
 add_test(NAME HttpClientTest COMMAND test_http_client)
 add_test(NAME JwksClientTest COMMAND test_jwks_client)
