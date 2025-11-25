@@ -35,6 +35,9 @@ set(MCP_C_API_SOURCES
     # Logging API with RAII
     mcp_c_logging_api.cc         # FFI-safe logging API with RAII
     
+    # Authentication API
+    mcp_c_auth_api.cc            # JWT validation and OAuth support
+    
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
     # mcp_c_api_client.cc

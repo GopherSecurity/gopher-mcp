@@ -18,6 +18,13 @@ export {
   isAuthAvailable
 } from './mcp-auth-api';
 
+// Export MCP server with authentication
+export {
+  AuthenticatedMcpServer,
+  type Tool,
+  type AuthenticatedMcpServerConfig
+} from './authenticated-mcp-server';
+
 // Export FFI bindings for advanced users
 export {
   getAuthFFI,

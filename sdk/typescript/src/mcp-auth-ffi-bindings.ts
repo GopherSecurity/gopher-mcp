@@ -6,12 +6,8 @@
  * to the authentication C API functions using koffi.
  */
 
-import { existsSync } from "fs";
 import * as koffi from "koffi";
 import { arch, platform } from "os";
-import { join } from "path";
-
-// Import shared library loading utilities
 import { getLibraryPath } from "./mcp-ffi-bindings";
 
 /**
@@ -41,7 +37,7 @@ export const AuthErrorCodes = {
 export interface ValidationResultStruct {
   valid: boolean;
   error_code: number;
-  error_message: koffi.IKoffiCString;
+  error_message: any;  // koffi C string pointer
 }
 
 // Type definitions for FFI
@@ -72,12 +68,17 @@ export class AuthFFILibrary {
   private libraryPath: string;
   
   constructor() {
+    this.libraryPath = '';  // Initialize first
     try {
       // Try to load the library using the same pattern as main FFI bindings
       this.libraryPath = getLibraryPath();
+      console.error(`Loading auth FFI library from: ${this.libraryPath}`);
       this.lib = koffi.load(this.libraryPath);
+      console.error(`Auth FFI library loaded successfully`);
       this.bindFunctions();
+      console.error(`Auth FFI functions bound successfully`);
     } catch (error) {
+      console.error(`Failed to load authentication library from ${this.libraryPath}:`, error);
       throw new Error(`Failed to load authentication library: ${error}`);
     }
   }
@@ -88,134 +89,136 @@ export class AuthFFILibrary {
   private bindFunctions(): void {
     try {
       // Library initialization
-      this.functions.mcp_auth_init = this.lib.func('mcp_auth_init', authTypes.mcp_auth_error_t, []);
-      this.functions.mcp_auth_shutdown = this.lib.func('mcp_auth_shutdown', authTypes.mcp_auth_error_t, []);
-      this.functions.mcp_auth_version = this.lib.func('mcp_auth_version', 'const char*', []);
+      this.functions['mcp_auth_init'] = this.lib.func('mcp_auth_init', authTypes.mcp_auth_error_t, []);
+      this.functions['mcp_auth_shutdown'] = this.lib.func('mcp_auth_shutdown', authTypes.mcp_auth_error_t, []);
+      this.functions['mcp_auth_version'] = this.lib.func('mcp_auth_version', 'const char*', []);
       
       // Client lifecycle
-      this.functions.mcp_auth_client_create = this.lib.func(
+      this.functions['mcp_auth_client_create'] = this.lib.func(
         'mcp_auth_client_create',
         authTypes.mcp_auth_error_t,
         [koffi.out(koffi.pointer(authTypes.mcp_auth_client_t)), 'const char*', 'const char*']
       );
-      this.functions.mcp_auth_client_destroy = this.lib.func(
+      this.functions['mcp_auth_client_destroy'] = this.lib.func(
         'mcp_auth_client_destroy',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_client_t]
       );
-      this.functions.mcp_auth_client_set_option = this.lib.func(
+      this.functions['mcp_auth_client_set_option'] = this.lib.func(
         'mcp_auth_client_set_option',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_client_t, 'const char*', 'const char*']
       );
       
       // Validation options
-      this.functions.mcp_auth_validation_options_create = this.lib.func(
+      this.functions['mcp_auth_validation_options_create'] = this.lib.func(
         'mcp_auth_validation_options_create',
         authTypes.mcp_auth_error_t,
         [koffi.out(koffi.pointer(authTypes.mcp_auth_validation_options_t))]
       );
-      this.functions.mcp_auth_validation_options_destroy = this.lib.func(
+      this.functions['mcp_auth_validation_options_destroy'] = this.lib.func(
         'mcp_auth_validation_options_destroy',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_validation_options_t]
       );
-      this.functions.mcp_auth_validation_options_set_scopes = this.lib.func(
+      this.functions['mcp_auth_validation_options_set_scopes'] = this.lib.func(
         'mcp_auth_validation_options_set_scopes',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_validation_options_t, 'const char*']
       );
-      this.functions.mcp_auth_validation_options_set_audience = this.lib.func(
+      this.functions['mcp_auth_validation_options_set_audience'] = this.lib.func(
         'mcp_auth_validation_options_set_audience',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_validation_options_t, 'const char*']
       );
-      this.functions.mcp_auth_validation_options_set_clock_skew = this.lib.func(
+      this.functions['mcp_auth_validation_options_set_clock_skew'] = this.lib.func(
         'mcp_auth_validation_options_set_clock_skew',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_validation_options_t, 'int64']
       );
       
-      // Token validation
-      this.functions.mcp_auth_validate_token = this.lib.func(
+      // Token validation  
+      // The C function expects a pointer to the struct to fill it in
+      // Use koffi.out() with pointer to struct
+      this.functions['mcp_auth_validate_token'] = this.lib.func(
         'mcp_auth_validate_token',
         authTypes.mcp_auth_error_t,
-        [authTypes.mcp_auth_client_t, 'const char*', authTypes.mcp_auth_validation_options_t, koffi.out(authTypes.mcp_auth_validation_result_t)]
+        [authTypes.mcp_auth_client_t, 'const char*', authTypes.mcp_auth_validation_options_t, koffi.out(koffi.pointer(authTypes.mcp_auth_validation_result_t))]
       );
-      this.functions.mcp_auth_extract_payload = this.lib.func(
+      this.functions['mcp_auth_extract_payload'] = this.lib.func(
         'mcp_auth_extract_payload',
         authTypes.mcp_auth_error_t,
         ['const char*', koffi.out(koffi.pointer(authTypes.mcp_auth_token_payload_t))]
       );
       
       // Token payload access
-      this.functions.mcp_auth_payload_get_subject = this.lib.func(
+      this.functions['mcp_auth_payload_get_subject'] = this.lib.func(
         'mcp_auth_payload_get_subject',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, koffi.out(koffi.pointer('char*'))]
       );
-      this.functions.mcp_auth_payload_get_issuer = this.lib.func(
+      this.functions['mcp_auth_payload_get_issuer'] = this.lib.func(
         'mcp_auth_payload_get_issuer',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, koffi.out(koffi.pointer('char*'))]
       );
-      this.functions.mcp_auth_payload_get_audience = this.lib.func(
+      this.functions['mcp_auth_payload_get_audience'] = this.lib.func(
         'mcp_auth_payload_get_audience',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, koffi.out(koffi.pointer('char*'))]
       );
-      this.functions.mcp_auth_payload_get_scopes = this.lib.func(
+      this.functions['mcp_auth_payload_get_scopes'] = this.lib.func(
         'mcp_auth_payload_get_scopes',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, koffi.out(koffi.pointer('char*'))]
       );
-      this.functions.mcp_auth_payload_get_expiration = this.lib.func(
+      this.functions['mcp_auth_payload_get_expiration'] = this.lib.func(
         'mcp_auth_payload_get_expiration',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, koffi.out(koffi.pointer('int64'))]
       );
-      this.functions.mcp_auth_payload_get_claim = this.lib.func(
+      this.functions['mcp_auth_payload_get_claim'] = this.lib.func(
         'mcp_auth_payload_get_claim',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t, 'const char*', koffi.out(koffi.pointer('char*'))]
       );
-      this.functions.mcp_auth_payload_destroy = this.lib.func(
+      this.functions['mcp_auth_payload_destroy'] = this.lib.func(
         'mcp_auth_payload_destroy',
         authTypes.mcp_auth_error_t,
         [authTypes.mcp_auth_token_payload_t]
       );
       
       // WWW-Authenticate header generation
-      this.functions.mcp_auth_generate_www_authenticate = this.lib.func(
+      this.functions['mcp_auth_generate_www_authenticate'] = this.lib.func(
         'mcp_auth_generate_www_authenticate',
         authTypes.mcp_auth_error_t,
         ['const char*', 'const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
       );
       
       // Memory management
-      this.functions.mcp_auth_free_string = this.lib.func(
+      this.functions['mcp_auth_free_string'] = this.lib.func(
         'mcp_auth_free_string',
         'void',
         ['char*']
       );
-      this.functions.mcp_auth_get_last_error = this.lib.func(
+      this.functions['mcp_auth_get_last_error'] = this.lib.func(
         'mcp_auth_get_last_error',
         'const char*',
         []
       );
-      this.functions.mcp_auth_clear_error = this.lib.func(
+      this.functions['mcp_auth_clear_error'] = this.lib.func(
         'mcp_auth_clear_error',
         'void',
         []
       );
       
       // Utility functions
-      this.functions.mcp_auth_validate_scopes = this.lib.func(
+      this.functions['mcp_auth_validate_scopes'] = this.lib.func(
         'mcp_auth_validate_scopes',
         'bool',
         ['const char*', 'const char*']
       );
-      this.functions.mcp_auth_error_to_string = this.lib.func(
+      this.functions['mcp_auth_error_to_string'] = this.lib.func(
         'mcp_auth_error_to_string',
         'const char*',
         [authTypes.mcp_auth_error_t]
@@ -255,42 +258,53 @@ export class AuthFFILibrary {
    * Initialize authentication library
    */
   init(): number {
-    return this.functions.mcp_auth_init();
+    const fn = this.functions['mcp_auth_init'];
+    if (!fn) return AuthErrorCodes.INVALID_PARAMETER;
+    return fn();
   }
   
   /**
    * Shutdown authentication library
    */
   shutdown(): number {
-    return this.functions.mcp_auth_shutdown();
+    const fn = this.functions['mcp_auth_shutdown'];
+    if (!fn) return AuthErrorCodes.INVALID_PARAMETER;
+    return fn();
   }
   
   /**
    * Get version string
    */
   version(): string {
-    return this.functions.mcp_auth_version();
+    const fn = this.functions['mcp_auth_version'];
+    if (!fn) return 'unknown';
+    return fn();
   }
   
   /**
    * Get last error message
    */
   getLastError(): string {
-    return this.functions.mcp_auth_get_last_error();
+    const fn = this.functions['mcp_auth_get_last_error'];
+    if (!fn) return 'Unknown error';
+    return fn();
   }
   
   /**
    * Clear last error
    */
   clearError(): void {
-    this.functions.mcp_auth_clear_error();
+    const fn = this.functions['mcp_auth_clear_error'];
+    if (fn) fn();
   }
   
   /**
    * Convert error code to string
    */
   errorToString(code: number): string {
-    return this.functions.mcp_auth_error_to_string(code);
+    const fn = this.functions['mcp_auth_error_to_string'];
+    if (!fn) return `Error code: ${code}`;
+    return fn(code);
   }
   
   /**
@@ -298,8 +312,16 @@ export class AuthFFILibrary {
    */
   freeString(str: any): void {
     if (str) {
-      this.functions.mcp_auth_free_string(str);
+      const fn = this.functions['mcp_auth_free_string'];
+      if (fn) fn(str);
     }
+  }
+  
+  /**
+   * Get the validation result struct type for allocation
+   */
+  getValidationResultStruct() {
+    return authTypes.mcp_auth_validation_result_t;
   }
 }
 
@@ -323,7 +345,8 @@ export function hasAuthSupport(): boolean {
   try {
     const ffi = getAuthFFI();
     return ffi.isLoaded();
-  } catch {
+  } catch (error) {
+    console.error('Failed to load auth FFI:', error);
     return false;
   }
 }

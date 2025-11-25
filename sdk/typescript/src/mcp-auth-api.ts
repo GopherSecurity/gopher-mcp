@@ -19,7 +19,6 @@ import {
   hasAuthSupport,
   AuthErrorCodes,
   AuthClient,
-  TokenPayload as FFITokenPayload,
   ValidationOptions as FFIValidationOptions
 } from './mcp-auth-ffi-bindings';
 
@@ -179,19 +178,38 @@ export class McpAuthClient {
       }
     }
     
-    // Validate token
-    const result = {
+    // Validate token - the C function expects a pointer to the result struct
+    // We need to pass an array with the initial struct values for koffi.out()
+    const resultPtr = [{
       valid: false,
       error_code: 0,
-      error_message: null as any
-    };
+      error_message: null
+    }];
     
     const validateResult = this.ffi.getFunction('mcp_auth_validate_token')(
       this.client,
       token,
       this.options,
-      result
+      resultPtr  // Pass the array - koffi.out() will handle the pointer
     );
+    
+    // Now read the result from the array
+    const result = resultPtr[0];
+    
+    if (!result) {
+      throw new AuthError(
+        'Failed to get validation result',
+        AuthErrorCode.INTERNAL_ERROR
+      );
+    }
+    
+    console.error('Token validation result:', {
+      functionReturn: validateResult,
+      resultStruct: result,
+      valid: result.valid,
+      errorCode: result.error_code,
+      errorMessage: result.error_message
+    });
     
     if (validateResult !== AuthErrorCodes.SUCCESS) {
       throw new AuthError(
