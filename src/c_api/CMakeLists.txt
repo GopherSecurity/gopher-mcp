@@ -143,6 +143,9 @@ target_include_directories(gopher_mcp_c
         ${CMAKE_BINARY_DIR}/_deps/fmt-src/include
 )
 
+# Find OpenSSL for JWT signature verification
+find_package(OpenSSL REQUIRED)
+
 # Link with shared libraries 
 # The shared library already contains all needed dependencies
 # When gopher-mcp is built as static only, link to static version
@@ -153,6 +156,8 @@ if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
             gopher-mcp-static
             gopher-mcp-event-static
             gopher-mcp-logging-static
+            OpenSSL::SSL
+            OpenSSL::Crypto
     )
 else()
     # Normal case - shared libraries exist
@@ -161,6 +166,8 @@ else()
             gopher-mcp
             gopher-mcp-event
             gopher-mcp-logging
+            OpenSSL::SSL
+            OpenSSL::Crypto
     )
 endif()
 
@@ -205,6 +212,8 @@ if(BUILD_C_API_STATIC)
             gopher-mcp-static
             gopher-mcp-event-static
             gopher-mcp-logging-static
+            OpenSSL::SSL
+            OpenSSL::Crypto
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)

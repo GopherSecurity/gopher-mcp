@@ -15,6 +15,11 @@
 #include <cstring>
 #include <mutex>
 #include <algorithm>
+#include <openssl/evp.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
 
 // Thread-local error storage
 static thread_local std::string g_last_error;
@@ -181,6 +186,94 @@ static bool parse_jwt_header(const std::string& header_json, std::string& alg, s
 
 // Forward declaration for JWT payload parsing
 static bool parse_jwt_payload(const std::string& payload_json, mcp_auth_token_payload* payload);
+
+// ========================================================================
+// JWT Signature Verification
+// ========================================================================
+
+static bool verify_rsa_signature(
+    const std::string& signing_input,
+    const std::string& signature,
+    const std::string& public_key_pem,
+    const std::string& algorithm) {
+    
+    // Create BIO for public key
+    BIO* key_bio = BIO_new_mem_buf(public_key_pem.c_str(), -1);
+    if (!key_bio) {
+        set_error(MCP_AUTH_ERROR_INVALID_KEY, "Failed to create BIO for public key");
+        return false;
+    }
+    
+    // Read public key
+    EVP_PKEY* pkey = PEM_read_bio_PUBKEY(key_bio, nullptr, nullptr, nullptr);
+    BIO_free(key_bio);
+    
+    if (!pkey) {
+        set_error(MCP_AUTH_ERROR_INVALID_KEY, "Failed to parse public key");
+        return false;
+    }
+    
+    // Create verification context
+    EVP_MD_CTX* md_ctx = EVP_MD_CTX_new();
+    if (!md_ctx) {
+        EVP_PKEY_free(pkey);
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, "Failed to create verification context");
+        return false;
+    }
+    
+    // Select hash algorithm based on JWT algorithm
+    const EVP_MD* md = nullptr;
+    if (algorithm == "RS256") {
+        md = EVP_sha256();
+    } else if (algorithm == "RS384") {
+        md = EVP_sha384();
+    } else if (algorithm == "RS512") {
+        md = EVP_sha512();
+    } else {
+        EVP_MD_CTX_free(md_ctx);
+        EVP_PKEY_free(pkey);
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Unsupported algorithm: " + algorithm);
+        return false;
+    }
+    
+    // Initialize verification
+    if (EVP_DigestVerifyInit(md_ctx, nullptr, md, nullptr, pkey) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        EVP_PKEY_free(pkey);
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, "Failed to initialize signature verification");
+        return false;
+    }
+    
+    // Update with signing input
+    if (EVP_DigestVerifyUpdate(md_ctx, signing_input.c_str(), signing_input.length()) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        EVP_PKEY_free(pkey);
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, "Failed to update signature verification");
+        return false;
+    }
+    
+    // Verify signature
+    int verify_result = EVP_DigestVerifyFinal(md_ctx, 
+        reinterpret_cast<const unsigned char*>(signature.c_str()), 
+        signature.length());
+    
+    // Clean up
+    EVP_MD_CTX_free(md_ctx);
+    EVP_PKEY_free(pkey);
+    
+    if (verify_result == 1) {
+        return true;
+    } else if (verify_result == 0) {
+        set_error(MCP_AUTH_ERROR_INVALID_SIGNATURE, "JWT signature verification failed");
+        return false;
+    } else {
+        // Get OpenSSL error
+        char err_buf[256];
+        ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, std::string("Signature verification error: ") + err_buf);
+        return false;
+    }
+}
 
 // Split JWT into parts
 static bool split_jwt(const std::string& token, 
@@ -638,20 +731,27 @@ mcp_auth_error_t mcp_auth_validate_token(
         return g_last_error_code;
     }
     
-    // TODO: Step 4: Fetch JWKS and verify signature
-    // TODO: Step 5: Validate claims (exp, iss, aud, scopes)
+    // Step 4: Verify signature (for now with a dummy key, real JWKS in next task)
+    // Create the signing input (header.payload)
+    std::string signing_input = header_b64 + "." + payload_b64;
     
-    // For now, accept token if we successfully parsed header and payload
-    // This allows testing the parsing implementation
-    fprintf(stderr, "JWT Token parsed successfully:\n");
-    fprintf(stderr, "  Algorithm: %s\n", alg.c_str());
-    fprintf(stderr, "  Key ID: %s\n", kid.c_str());
-    fprintf(stderr, "  Subject: %s\n", payload_data.subject.c_str());
-    fprintf(stderr, "  Issuer: %s\n", payload_data.issuer.c_str());
-    fprintf(stderr, "  Audience: %s\n", payload_data.audience.c_str());
-    fprintf(stderr, "  Scopes: %s\n", payload_data.scopes.c_str());
-    fprintf(stderr, "  Expiration: %lld\n", payload_data.expiration);
+    // TODO: Fetch JWKS and get proper public key (Task 4)
+    // For now, we'll implement the signature verification logic
+    // but skip actual verification until we have JWKS fetching
     
+    // Decode signature from base64url
+    std::string signature_raw = base64url_decode(signature_b64);
+    if (signature_raw.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT signature");
+        result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
+        result->error_message = strdup("Failed to decode JWT signature");
+        return MCP_AUTH_ERROR_INVALID_TOKEN;
+    }
+    
+    // TODO: Step 5: Validate claims (exp, iss, aud, scopes) (Tasks 7-10)
+    
+    // For now, accept token if we successfully parsed everything
+    // Real signature verification will be completed when we have JWKS support
     result->valid = true;
     result->error_code = MCP_AUTH_SUCCESS;
     
