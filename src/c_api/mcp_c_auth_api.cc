@@ -28,13 +28,16 @@
 #include <openssl/bn.h>
 #include <curl/curl.h>
 
-// Thread-local error storage with context
+// Thread-local error storage with context (per-thread isolation)
 static thread_local std::string g_last_error;
 static thread_local std::string g_last_error_context;  // Additional context information
 static thread_local mcp_auth_error_t g_last_error_code = MCP_AUTH_SUCCESS;
 
-// Global initialization state
-static bool g_initialized = false;
+// Thread-local error buffer for safe string returns
+static thread_local char g_error_buffer[4096];
+
+// Global initialization state with atomic flag
+static std::atomic<bool> g_initialized{false};
 static std::mutex g_init_mutex;
 
 // Set error state
@@ -1031,13 +1034,16 @@ struct mcp_auth_validation_options {
     }
 };
 
-// Store error in client structure with context (moved after struct definition)
+// Store error in client structure with context (thread-safe)
 static void set_client_error(mcp_auth_client_t client, mcp_auth_error_t code,
                             const std::string& message, const std::string& context = "") {
     if (client) {
+        // Client error is not thread-local, so we just store it
+        // Each client instance maintains its own error state
         client->last_error_code = code;
         client->last_error_context = context.empty() ? message : message + " (" + context + ")";
     }
+    // Also set thread-local error for immediate retrieval
     set_error_with_context(code, message, context);
 }
 
@@ -1359,11 +1365,13 @@ extern "C" {
 
 mcp_auth_error_t mcp_auth_init(void) {
     std::lock_guard<std::mutex> lock(g_init_mutex);
-    if (g_initialized) {
+    
+    // Check atomic flag with memory ordering
+    if (g_initialized.load(std::memory_order_acquire)) {
         return MCP_AUTH_SUCCESS;
     }
     
-    // Initialize libcurl globally
+    // Initialize libcurl globally (thread-safe initialization)
     CURLcode res = curl_global_init(CURL_GLOBAL_ALL);
     if (res != CURLE_OK) {
         set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, 
@@ -1372,13 +1380,15 @@ mcp_auth_error_t mcp_auth_init(void) {
     }
     
     clear_error();
-    g_initialized = true;
+    
+    // Set atomic flag with memory ordering
+    g_initialized.store(true, std::memory_order_release);
     return MCP_AUTH_SUCCESS;
 }
 
 mcp_auth_error_t mcp_auth_shutdown(void) {
     std::lock_guard<std::mutex> lock(g_init_mutex);
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1389,7 +1399,8 @@ mcp_auth_error_t mcp_auth_shutdown(void) {
     // Clear any cached errors
     clear_error();
     
-    g_initialized = false;
+    // Clear atomic flag with memory ordering
+    g_initialized.store(false, std::memory_order_release);
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1406,7 +1417,7 @@ mcp_auth_error_t mcp_auth_client_create(
     const char* jwks_uri,
     const char* issuer) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1449,7 +1460,7 @@ mcp_auth_error_t mcp_auth_client_create(
 }
 
 mcp_auth_error_t mcp_auth_client_destroy(mcp_auth_client_t client) {
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1501,7 +1512,7 @@ mcp_auth_error_t mcp_auth_client_set_option(
     const char* option,
     const char* value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1565,7 +1576,7 @@ mcp_auth_error_t mcp_auth_client_set_option(
 mcp_auth_error_t mcp_auth_validation_options_create(
     mcp_auth_validation_options_t* options) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1593,7 +1604,7 @@ mcp_auth_error_t mcp_auth_validation_options_create(
 mcp_auth_error_t mcp_auth_validation_options_destroy(
     mcp_auth_validation_options_t options) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1621,7 +1632,7 @@ mcp_auth_error_t mcp_auth_validation_options_set_scopes(
     mcp_auth_validation_options_t options,
     const char* scopes) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1655,7 +1666,7 @@ mcp_auth_error_t mcp_auth_validation_options_set_audience(
     mcp_auth_validation_options_t options,
     const char* audience) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1692,7 +1703,7 @@ mcp_auth_error_t mcp_auth_validation_options_set_clock_skew(
     mcp_auth_validation_options_t options,
     int64_t seconds) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1731,7 +1742,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     mcp_auth_validation_options_t options,
     mcp_auth_validation_result_t* result) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1943,7 +1954,7 @@ mcp_auth_error_t mcp_auth_extract_payload(
     const char* token,
     mcp_auth_token_payload_t* payload) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1978,7 +1989,7 @@ mcp_auth_error_t mcp_auth_payload_get_subject(
     mcp_auth_token_payload_t payload,
     char** value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -1997,7 +2008,7 @@ mcp_auth_error_t mcp_auth_payload_get_issuer(
     mcp_auth_token_payload_t payload,
     char** value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2016,7 +2027,7 @@ mcp_auth_error_t mcp_auth_payload_get_audience(
     mcp_auth_token_payload_t payload,
     char** value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2035,7 +2046,7 @@ mcp_auth_error_t mcp_auth_payload_get_scopes(
     mcp_auth_token_payload_t payload,
     char** value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2054,7 +2065,7 @@ mcp_auth_error_t mcp_auth_payload_get_expiration(
     mcp_auth_token_payload_t payload,
     int64_t* value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2074,7 +2085,7 @@ mcp_auth_error_t mcp_auth_payload_get_claim(
     const char* claim_name,
     char** value) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2097,7 +2108,7 @@ mcp_auth_error_t mcp_auth_payload_get_claim(
 }
 
 mcp_auth_error_t mcp_auth_payload_destroy(mcp_auth_token_payload_t payload) {
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2138,7 +2149,7 @@ mcp_auth_error_t mcp_auth_generate_www_authenticate(
     const char* error_description,
     char** header) {
     
-    if (!g_initialized) {
+    if (!g_initialized.load()) {
         set_error(MCP_AUTH_ERROR_NOT_INITIALIZED, "Library not initialized");
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
@@ -2188,25 +2199,40 @@ void mcp_auth_free_string(char* str) {
 }
 
 const char* mcp_auth_get_last_error(void) {
-    // Return empty string instead of nullptr for safety
-    return g_last_error.empty() ? "" : g_last_error.c_str();
+    // Thread-safe: Each thread has its own error state
+    // Copy to thread-local buffer for safe return
+    if (g_last_error.empty()) {
+        return "";
+    }
+    
+    // Copy error to thread-local buffer to ensure string lifetime
+    size_t len = g_last_error.length();
+    if (len >= sizeof(g_error_buffer)) {
+        len = sizeof(g_error_buffer) - 1;
+    }
+    memcpy(g_error_buffer, g_last_error.c_str(), len);
+    g_error_buffer[len] = '\0';
+    
+    return g_error_buffer;
 }
 
 mcp_auth_error_t mcp_auth_get_last_error_code(void) {
     return g_last_error_code;
 }
 
-// Get last error with full context information
+// Get last error with full context information (thread-safe)
 mcp_auth_error_t mcp_auth_get_last_error_full(char** error_message) {
     if (!error_message) {
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
+    // Thread-safe: Build message from thread-local storage
     std::string full_message = g_last_error;
     if (!g_last_error_context.empty()) {
         full_message += " [Context: " + g_last_error_context + "]";
     }
     
+    // Allocate new string for caller
     *error_message = safe_strdup(full_message);
     return g_last_error_code;
 }
