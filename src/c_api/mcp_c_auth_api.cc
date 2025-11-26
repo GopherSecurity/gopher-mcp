@@ -20,6 +20,8 @@
 #include <openssl/pem.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
+#include <openssl/bn.h>
+#include <curl/curl.h>
 
 // Thread-local error storage
 static thread_local std::string g_last_error;
@@ -184,8 +186,226 @@ static bool parse_jwt_header(const std::string& header_json, std::string& alg, s
     return true;
 }
 
-// Forward declaration for JWT payload parsing
+// Forward declarations
 static bool parse_jwt_payload(const std::string& payload_json, mcp_auth_token_payload* payload);
+static bool extract_json_string(const std::string& json, const std::string& key, std::string& value);
+static bool extract_json_number(const std::string& json, const std::string& key, int64_t& value);
+
+// JWKS key structure
+struct jwks_key {
+    std::string kid;
+    std::string kty;  // Key type (RSA)
+    std::string use;  // Key use (sig)
+    std::string alg;  // Algorithm (RS256, RS384, RS512)
+    std::string n;    // RSA modulus
+    std::string e;    // RSA exponent
+    std::string pem;  // Converted PEM format public key
+};
+
+// ========================================================================
+// HTTP Client for JWKS Fetching  
+// ========================================================================
+
+// Callback for libcurl to write response data
+static size_t jwks_curl_write_callback(void* ptr, size_t size, size_t nmemb, std::string* data) {
+    data->append(static_cast<char*>(ptr), size * nmemb);
+    return size * nmemb;
+}
+
+// Fetch JWKS from the specified URI
+static bool fetch_jwks_json(const std::string& uri, std::string& response) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, "Failed to initialize CURL");
+        return false;
+    }
+    
+    // Set up CURL options
+    curl_easy_setopt(curl, CURLOPT_URL, uri.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, jwks_curl_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);  // 10 second timeout
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);  // Follow redirects
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);  // Max 3 redirects
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);  // Verify SSL certificate
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);  // Verify hostname
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "MCP-Auth-Client/1.0");
+    
+    // Add headers
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Accept: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    // Perform the request
+    CURLcode res = curl_easy_perform(curl);
+    
+    // Check for errors
+    bool success = false;
+    if (res != CURLE_OK) {
+        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, 
+                 std::string("JWKS fetch failed: ") + curl_easy_strerror(res));
+    } else {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code == 200) {
+            success = true;
+        } else {
+            set_error(MCP_AUTH_ERROR_JWKS_FETCH_FAILED, 
+                     "JWKS fetch returned HTTP " + std::to_string(http_code));
+        }
+    }
+    
+    // Clean up
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    
+    return success;
+}
+
+// Convert RSA components (n, e) to PEM format public key
+static std::string jwk_to_pem(const std::string& n_b64, const std::string& e_b64) {
+    // Decode modulus and exponent from base64url
+    std::string n_raw = base64url_decode(n_b64);
+    std::string e_raw = base64url_decode(e_b64);
+    
+    if (n_raw.empty() || e_raw.empty()) {
+        return "";
+    }
+    
+    // Create BIGNUM for modulus and exponent
+    BIGNUM* bn_n = BN_bin2bn(reinterpret_cast<const unsigned char*>(n_raw.c_str()), 
+                             n_raw.length(), nullptr);
+    BIGNUM* bn_e = BN_bin2bn(reinterpret_cast<const unsigned char*>(e_raw.c_str()), 
+                             e_raw.length(), nullptr);
+    
+    if (!bn_n || !bn_e) {
+        if (bn_n) BN_free(bn_n);
+        if (bn_e) BN_free(bn_e);
+        return "";
+    }
+    
+    // Create RSA key
+    RSA* rsa = RSA_new();
+    if (!rsa) {
+        BN_free(bn_n);
+        BN_free(bn_e);
+        return "";
+    }
+    
+    // Set public key components (RSA takes ownership of BIGNUMs)
+    if (RSA_set0_key(rsa, bn_n, bn_e, nullptr) != 1) {
+        RSA_free(rsa);
+        BN_free(bn_n);
+        BN_free(bn_e);
+        return "";
+    }
+    
+    // Create EVP_PKEY
+    EVP_PKEY* pkey = EVP_PKEY_new();
+    if (!pkey) {
+        RSA_free(rsa);
+        return "";
+    }
+    
+    if (EVP_PKEY_assign_RSA(pkey, rsa) != 1) {
+        EVP_PKEY_free(pkey);
+        RSA_free(rsa);
+        return "";
+    }
+    
+    // Convert to PEM format
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) {
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+    
+    if (PEM_write_bio_PUBKEY(bio, pkey) != 1) {
+        BIO_free(bio);
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+    
+    // Get PEM string
+    char* pem_data = nullptr;
+    long pem_len = BIO_get_mem_data(bio, &pem_data);
+    std::string pem(pem_data, pem_len);
+    
+    // Clean up
+    BIO_free(bio);
+    EVP_PKEY_free(pkey);
+    
+    return pem;
+}
+
+// Parse JWKS JSON and extract keys
+static bool parse_jwks(const std::string& jwks_json, std::vector<jwks_key>& keys) {
+    // Find "keys" array in JSON
+    size_t keys_pos = jwks_json.find("\"keys\"");
+    if (keys_pos == std::string::npos) {
+        set_error(MCP_AUTH_ERROR_INVALID_KEY, "JWKS missing 'keys' array");
+        return false;
+    }
+    
+    // Find array start
+    size_t array_start = jwks_json.find('[', keys_pos);
+    if (array_start == std::string::npos) {
+        set_error(MCP_AUTH_ERROR_INVALID_KEY, "JWKS 'keys' is not an array");
+        return false;
+    }
+    
+    // Parse each key in the array
+    size_t pos = array_start + 1;
+    while (pos < jwks_json.length()) {
+        // Find start of key object
+        size_t obj_start = jwks_json.find('{', pos);
+        if (obj_start == std::string::npos) break;
+        
+        // Find end of key object (simple brace matching)
+        int brace_count = 1;
+        size_t obj_end = obj_start + 1;
+        while (obj_end < jwks_json.length() && brace_count > 0) {
+            if (jwks_json[obj_end] == '{') brace_count++;
+            else if (jwks_json[obj_end] == '}') brace_count--;
+            obj_end++;
+        }
+        
+        if (brace_count != 0) break;
+        
+        // Extract key object JSON
+        std::string key_json = jwks_json.substr(obj_start, obj_end - obj_start);
+        
+        // Parse key fields
+        jwks_key key;
+        extract_json_string(key_json, "kid", key.kid);
+        extract_json_string(key_json, "kty", key.kty);
+        extract_json_string(key_json, "use", key.use);
+        extract_json_string(key_json, "alg", key.alg);
+        extract_json_string(key_json, "n", key.n);
+        extract_json_string(key_json, "e", key.e);
+        
+        // Only add RSA keys used for signing
+        if (key.kty == "RSA" && (key.use == "sig" || key.use.empty())) {
+            // Convert to PEM format
+            key.pem = jwk_to_pem(key.n, key.e);
+            if (!key.pem.empty()) {
+                keys.push_back(key);
+            }
+        }
+        
+        pos = obj_end;
+    }
+    
+    if (keys.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_KEY, "No valid RSA signing keys found in JWKS");
+        return false;
+    }
+    
+    return true;
+}
+
+// Forward declaration - function defined after structs
+static bool fetch_and_cache_jwks(mcp_auth_client_t client);
 
 // ========================================================================
 // JWT Signature Verification
@@ -318,6 +538,11 @@ struct mcp_auth_client {
     std::string last_alg;
     std::string last_kid;
     
+    // JWKS cache
+    std::vector<jwks_key> cached_keys;
+    std::chrono::steady_clock::time_point cache_timestamp;
+    std::mutex cache_mutex;
+    
     mcp_auth_client(const char* uri, const char* iss) 
         : jwks_uri(uri ? uri : "")
         , issuer(iss ? iss : "") {}
@@ -446,6 +671,30 @@ struct mcp_auth_metadata {
     std::vector<std::string> authorization_servers;
     std::vector<std::string> scopes_supported;
 };
+
+// ========================================================================
+// JWKS Fetching Implementation (requires struct definitions)
+// ========================================================================
+
+// Fetch and cache JWKS keys
+static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
+    std::string jwks_json;
+    if (!fetch_jwks_json(client->jwks_uri, jwks_json)) {
+        return false;
+    }
+    
+    std::vector<jwks_key> keys;
+    if (!parse_jwks(jwks_json, keys)) {
+        return false;
+    }
+    
+    // Update cache
+    std::lock_guard<std::mutex> lock(client->cache_mutex);
+    client->cached_keys = std::move(keys);
+    client->cache_timestamp = std::chrono::steady_clock::now();
+    
+    return true;
+}
 
 // ========================================================================
 // Library Initialization

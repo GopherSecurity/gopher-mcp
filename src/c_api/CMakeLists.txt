@@ -146,6 +146,9 @@ target_include_directories(gopher_mcp_c
 # Find OpenSSL for JWT signature verification
 find_package(OpenSSL REQUIRED)
 
+# Find CURL for JWKS fetching
+find_package(CURL REQUIRED)
+
 # Link with shared libraries 
 # The shared library already contains all needed dependencies
 # When gopher-mcp is built as static only, link to static version
@@ -158,6 +161,7 @@ if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
             gopher-mcp-logging-static
             OpenSSL::SSL
             OpenSSL::Crypto
+            CURL::libcurl
     )
 else()
     # Normal case - shared libraries exist
@@ -168,6 +172,7 @@ else()
             gopher-mcp-logging
             OpenSSL::SSL
             OpenSSL::Crypto
+            CURL::libcurl
     )
 endif()
 
@@ -214,6 +219,7 @@ if(BUILD_C_API_STATIC)
             gopher-mcp-logging-static
             OpenSSL::SSL
             OpenSSL::Crypto
+            CURL::libcurl
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)
