@@ -1213,6 +1213,22 @@ static bool try_all_keys(mcp_auth_client_t client,
 }
 
 // ========================================================================
+// Validation Result Cleanup
+// ========================================================================
+
+// Forward declaration for cleanup
+void mcp_auth_free_string(char* str);
+
+// Clean up validation result error message
+static void cleanup_validation_result(mcp_auth_validation_result_t* result) {
+    if (result && result->error_message) {
+        // The error_message was allocated with safe_strdup
+        mcp_auth_free_string(const_cast<char*>(result->error_message));
+        result->error_message = nullptr;
+    }
+}
+
+// ========================================================================
 // Library Initialization
 // ========================================================================
 
@@ -1222,6 +1238,14 @@ mcp_auth_error_t mcp_auth_init(void) {
     std::lock_guard<std::mutex> lock(g_init_mutex);
     if (g_initialized) {
         return MCP_AUTH_SUCCESS;
+    }
+    
+    // Initialize libcurl globally
+    CURLcode res = curl_global_init(CURL_GLOBAL_ALL);
+    if (res != CURLE_OK) {
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, 
+                 "Failed to initialize HTTP client library: " + std::string(curl_easy_strerror(res)));
+        return MCP_AUTH_ERROR_INTERNAL_ERROR;
     }
     
     clear_error();
@@ -1236,7 +1260,12 @@ mcp_auth_error_t mcp_auth_shutdown(void) {
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
     
+    // Clean up any global libcurl state
+    curl_global_cleanup();
+    
+    // Clear any cached errors
     clear_error();
+    
     g_initialized = false;
     return MCP_AUTH_SUCCESS;
 }
@@ -1287,6 +1316,38 @@ mcp_auth_error_t mcp_auth_client_destroy(mcp_auth_client_t client) {
     }
     
     clear_error();
+    
+    // Clean up cached JWKS keys
+    {
+        std::lock_guard<std::mutex> lock(client->cache_mutex);
+        
+        // Clear PEM strings in cached keys
+        for (auto& key : client->cached_keys) {
+            // PEM strings are automatically cleaned up by std::string destructor
+            // But we can explicitly clear sensitive data
+            if (!key.pem.empty()) {
+                // Overwrite PEM key data
+                std::fill(key.pem.begin(), key.pem.end(), '\0');
+            }
+            if (!key.n.empty()) {
+                std::fill(key.n.begin(), key.n.end(), '\0');
+            }
+            if (!key.e.empty()) {
+                std::fill(key.e.begin(), key.e.end(), '\0');
+            }
+        }
+        client->cached_keys.clear();
+    }
+    
+    // Clear any cached credentials
+    if (!client->last_alg.empty()) {
+        std::fill(client->last_alg.begin(), client->last_alg.end(), '\0');
+    }
+    if (!client->last_kid.empty()) {
+        std::fill(client->last_kid.begin(), client->last_kid.end(), '\0');
+    }
+    
+    // Delete the client object
     delete client;
     return MCP_AUTH_SUCCESS;
 }
@@ -1363,6 +1424,15 @@ mcp_auth_error_t mcp_auth_validation_options_destroy(
     }
     
     clear_error();
+    
+    // Clear sensitive data before deletion
+    if (!options->scopes.empty()) {
+        std::fill(options->scopes.begin(), options->scopes.end(), '\0');
+    }
+    if (!options->audience.empty()) {
+        std::fill(options->audience.begin(), options->audience.end(), '\0');
+    }
+    
     delete options;
     return MCP_AUTH_SUCCESS;
 }
@@ -1796,6 +1866,22 @@ mcp_auth_error_t mcp_auth_payload_destroy(mcp_auth_token_payload_t payload) {
     }
     
     clear_error();
+    
+    // Clear sensitive token data before deletion
+    if (!payload->subject.empty()) {
+        std::fill(payload->subject.begin(), payload->subject.end(), '\0');
+    }
+    if (!payload->scopes.empty()) {
+        std::fill(payload->scopes.begin(), payload->scopes.end(), '\0');
+    }
+    
+    // Clear all claims
+    for (auto& [key, value] : payload->claims) {
+        if (!value.empty()) {
+            std::fill(value.begin(), value.end(), '\0');
+        }
+    }
+    
     delete payload;
     return MCP_AUTH_SUCCESS;
 }
@@ -1847,6 +1933,14 @@ mcp_auth_error_t mcp_auth_generate_www_authenticate(
 
 void mcp_auth_free_string(char* str) {
     if (str) {
+        // Clear the string contents first for security
+        size_t len = strlen(str);
+        if (len > 0) {
+            volatile char* p = str;
+            while (len--) {
+                *p++ = '\0';
+            }
+        }
         free(str);
     }
 }
