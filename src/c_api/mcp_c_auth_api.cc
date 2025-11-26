@@ -1188,7 +1188,27 @@ mcp_auth_error_t mcp_auth_validate_token(
         }
     }
     
-    // TODO: Validate audience and scopes (Tasks 9-10)
+    // Validate audience if specified
+    if (options && !options->audience.empty()) {
+        if (payload_data.audience.empty()) {
+            set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, "JWT has no audience claim");
+            result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
+            result->error_message = strdup("JWT has no audience claim");
+            return MCP_AUTH_ERROR_INVALID_AUDIENCE;
+        }
+        
+        // Check if the required audience matches the token audience
+        // Token audience can be a single string or array (we handle single string from parsing)
+        if (payload_data.audience != options->audience) {
+            set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, 
+                     "Invalid audience. Expected: " + options->audience + ", Got: " + payload_data.audience);
+            result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
+            result->error_message = strdup(g_last_error.c_str());
+            return MCP_AUTH_ERROR_INVALID_AUDIENCE;
+        }
+    }
+    
+    // TODO: Validate scopes (Task 10)
     
     // Token is valid
     result->valid = true;
