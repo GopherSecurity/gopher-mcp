@@ -26,8 +26,9 @@
 #include <openssl/bn.h>
 #include <curl/curl.h>
 
-// Thread-local error storage
+// Thread-local error storage with context
 static thread_local std::string g_last_error;
+static thread_local std::string g_last_error_context;  // Additional context information
 static thread_local mcp_auth_error_t g_last_error_code = MCP_AUTH_SUCCESS;
 
 // Global initialization state
@@ -38,12 +39,22 @@ static std::mutex g_init_mutex;
 static void set_error(mcp_auth_error_t code, const std::string& message) {
     g_last_error_code = code;
     g_last_error = message;
+    g_last_error_context.clear();
+}
+
+// Set error with additional context
+static void set_error_with_context(mcp_auth_error_t code, const std::string& message, 
+                                   const std::string& context) {
+    g_last_error_code = code;
+    g_last_error = message;
+    g_last_error_context = context;
 }
 
 // Clear error state
 static void clear_error() {
     g_last_error_code = MCP_AUTH_SUCCESS;
     g_last_error.clear();
+    g_last_error_context.clear();
 }
 
 // ========================================================================
@@ -931,6 +942,10 @@ struct mcp_auth_client {
     std::string last_alg;
     std::string last_kid;
     
+    // Error context for debugging
+    std::string last_error_context;
+    mcp_auth_error_t last_error_code = MCP_AUTH_SUCCESS;
+    
     // JWKS cache
     std::vector<jwks_key> cached_keys;
     std::chrono::steady_clock::time_point cache_timestamp;
@@ -946,6 +961,16 @@ struct mcp_auth_validation_options {
     std::string audience;
     int64_t clock_skew = 60;
 };
+
+// Store error in client structure with context (moved after struct definition)
+static void set_client_error(mcp_auth_client_t client, mcp_auth_error_t code,
+                            const std::string& message, const std::string& context = "") {
+    if (client) {
+        client->last_error_code = code;
+        client->last_error_context = context.empty() ? message : message + " (" + context + ")";
+    }
+    set_error_with_context(code, message, context);
+}
 
 struct mcp_auth_token_payload {
     std::string subject;
@@ -1109,11 +1134,17 @@ static void invalidate_cache(mcp_auth_client_t client) {
 static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     std::string jwks_json;
     if (!fetch_jwks_json(client->jwks_uri, jwks_json)) {
+        set_client_error(client, MCP_AUTH_ERROR_JWKS_FETCH_FAILED,
+                        "Failed to fetch JWKS",
+                        "URI: " + client->jwks_uri + ", Error: " + g_last_error);
         return false;
     }
     
     std::vector<jwks_key> keys;
     if (!parse_jwks(jwks_json, keys)) {
+        set_client_error(client, MCP_AUTH_ERROR_JWKS_FETCH_FAILED,
+                        "Failed to parse JWKS response",
+                        "URI: " + client->jwks_uri);
         return false;
     }
     
@@ -1289,7 +1320,12 @@ mcp_auth_error_t mcp_auth_client_create(
     }
     
     if (!client || !jwks_uri || !issuer) {
-        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameter");
+        std::string context = "Missing: ";
+        if (!client) context += "client ptr, ";
+        if (!jwks_uri) context += "jwks_uri, ";
+        if (!issuer) context += "issuer";
+        set_error_with_context(MCP_AUTH_ERROR_INVALID_PARAMETER, 
+                              "Invalid parameters", context);
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
@@ -1510,7 +1546,18 @@ mcp_auth_error_t mcp_auth_validate_token(
     }
     
     if (!client || !token || !result) {
-        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameter");
+        std::string context = "Missing: ";
+        if (!client) context += "client, ";
+        if (!token) context += "token, ";
+        if (!result) context += "result";
+        
+        if (result) {
+            result->valid = false;
+            result->error_code = MCP_AUTH_ERROR_INVALID_PARAMETER;
+            result->error_message = "Invalid parameters";
+        }
+        set_client_error(client, MCP_AUTH_ERROR_INVALID_PARAMETER,
+                        "Invalid parameters for token validation", context);
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
@@ -1606,9 +1653,13 @@ mcp_auth_error_t mcp_auth_validate_token(
     
     if (payload_data.expiration > 0) {
         if (now > payload_data.expiration + clock_skew) {
-            set_error(MCP_AUTH_ERROR_EXPIRED_TOKEN, "JWT has expired");
+            std::string context = "Token expired at " + std::to_string(payload_data.expiration) + 
+                                ", current time: " + std::to_string(now) +
+                                ", clock skew: " + std::to_string(clock_skew) + "s";
+            set_client_error(client, MCP_AUTH_ERROR_EXPIRED_TOKEN, 
+                           "JWT has expired", context);
             result->error_code = MCP_AUTH_ERROR_EXPIRED_TOKEN;
-            result->error_message = safe_strdup("JWT has expired");
+            result->error_message = safe_strdup(("JWT has expired [" + context + "]").c_str());
             return MCP_AUTH_ERROR_EXPIRED_TOKEN;
         }
     }
@@ -1954,8 +2005,44 @@ mcp_auth_error_t mcp_auth_get_last_error_code(void) {
     return g_last_error_code;
 }
 
+// Get last error with full context information
+mcp_auth_error_t mcp_auth_get_last_error_full(char** error_message) {
+    if (!error_message) {
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    std::string full_message = g_last_error;
+    if (!g_last_error_context.empty()) {
+        full_message += " [Context: " + g_last_error_context + "]";
+    }
+    
+    *error_message = safe_strdup(full_message);
+    return g_last_error_code;
+}
+
+// Get error details from client
+mcp_auth_error_t mcp_auth_client_get_last_error(mcp_auth_client_t client, char** error_message) {
+    if (!client || !error_message) {
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    *error_message = safe_strdup(client->last_error_context);
+    return client->last_error_code;
+}
+
 void mcp_auth_clear_error(void) {
     clear_error();
+}
+
+// Clear error for a specific client
+mcp_auth_error_t mcp_auth_client_clear_error(mcp_auth_client_t client) {
+    if (!client) {
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    client->last_error_code = MCP_AUTH_SUCCESS;
+    client->last_error_context.clear();
+    return MCP_AUTH_SUCCESS;
 }
 
 bool mcp_auth_has_error(void) {
@@ -2018,53 +2105,40 @@ bool mcp_auth_validate_scopes(
 }
 
 const char* mcp_auth_error_to_string(mcp_auth_error_t error_code) {
-    // Thread-safe static strings for error descriptions
-    static const char* const error_strings[] = {
-        [MCP_AUTH_SUCCESS] = "Success",
-        [MCP_AUTH_ERROR_INVALID_TOKEN] = "Invalid or malformed JWT token",
-        [MCP_AUTH_ERROR_EXPIRED_TOKEN] = "JWT token has expired",
-        [MCP_AUTH_ERROR_INVALID_SIGNATURE] = "JWT signature verification failed",
-        [MCP_AUTH_ERROR_INVALID_ISSUER] = "Token issuer does not match expected value",
-        [MCP_AUTH_ERROR_INVALID_AUDIENCE] = "Token audience does not match expected value",
-        [MCP_AUTH_ERROR_INSUFFICIENT_SCOPE] = "Token lacks required scopes for operation",
-        [MCP_AUTH_ERROR_JWKS_FETCH_FAILED] = "Failed to fetch JWKS from authorization server",
-        [MCP_AUTH_ERROR_INVALID_KEY] = "No valid signing key found in JWKS",
-        [MCP_AUTH_ERROR_NETWORK_ERROR] = "Network communication error",
-        [MCP_AUTH_ERROR_INVALID_CONFIG] = "Invalid authentication configuration",
-        [MCP_AUTH_ERROR_OUT_OF_MEMORY] = "Memory allocation failed",
-        [MCP_AUTH_ERROR_INVALID_PARAMETER] = "Invalid parameter passed to function",
-        [MCP_AUTH_ERROR_NOT_INITIALIZED] = "Authentication library not initialized",
-        [MCP_AUTH_ERROR_INTERNAL_ERROR] = "Internal library error"
-    };
-    
-    // Bounds checking
-    if (error_code >= 0) {
-        return error_strings[MCP_AUTH_SUCCESS];
+    switch (error_code) {
+        case MCP_AUTH_SUCCESS:
+            return "Success";
+        case MCP_AUTH_ERROR_INVALID_TOKEN:
+            return "Invalid or malformed JWT token";
+        case MCP_AUTH_ERROR_EXPIRED_TOKEN:
+            return "JWT token has expired";
+        case MCP_AUTH_ERROR_INVALID_SIGNATURE:
+            return "JWT signature verification failed";
+        case MCP_AUTH_ERROR_INVALID_ISSUER:
+            return "Token issuer does not match expected value";
+        case MCP_AUTH_ERROR_INVALID_AUDIENCE:
+            return "Token audience does not match expected value";
+        case MCP_AUTH_ERROR_INSUFFICIENT_SCOPE:
+            return "Token lacks required scopes for operation";
+        case MCP_AUTH_ERROR_JWKS_FETCH_FAILED:
+            return "Failed to fetch JWKS from authorization server";
+        case MCP_AUTH_ERROR_INVALID_KEY:
+            return "No valid signing key found in JWKS";
+        case MCP_AUTH_ERROR_NETWORK_ERROR:
+            return "Network communication error";
+        case MCP_AUTH_ERROR_INVALID_CONFIG:
+            return "Invalid authentication configuration";
+        case MCP_AUTH_ERROR_OUT_OF_MEMORY:
+            return "Memory allocation failed";
+        case MCP_AUTH_ERROR_INVALID_PARAMETER:
+            return "Invalid parameter passed to function";
+        case MCP_AUTH_ERROR_NOT_INITIALIZED:
+            return "Authentication library not initialized";
+        case MCP_AUTH_ERROR_INTERNAL_ERROR:
+            return "Internal library error";
+        default:
+            return "Unknown error code";
     }
-    
-    int index = -error_code;
-    if (index >= 1000 && index <= 1014) {
-        // Map negative error codes to array indices
-        switch (error_code) {
-            case MCP_AUTH_ERROR_INVALID_TOKEN: return error_strings[MCP_AUTH_ERROR_INVALID_TOKEN];
-            case MCP_AUTH_ERROR_EXPIRED_TOKEN: return error_strings[MCP_AUTH_ERROR_EXPIRED_TOKEN];
-            case MCP_AUTH_ERROR_INVALID_SIGNATURE: return error_strings[MCP_AUTH_ERROR_INVALID_SIGNATURE];
-            case MCP_AUTH_ERROR_INVALID_ISSUER: return error_strings[MCP_AUTH_ERROR_INVALID_ISSUER];
-            case MCP_AUTH_ERROR_INVALID_AUDIENCE: return error_strings[MCP_AUTH_ERROR_INVALID_AUDIENCE];
-            case MCP_AUTH_ERROR_INSUFFICIENT_SCOPE: return error_strings[MCP_AUTH_ERROR_INSUFFICIENT_SCOPE];
-            case MCP_AUTH_ERROR_JWKS_FETCH_FAILED: return error_strings[MCP_AUTH_ERROR_JWKS_FETCH_FAILED];
-            case MCP_AUTH_ERROR_INVALID_KEY: return error_strings[MCP_AUTH_ERROR_INVALID_KEY];
-            case MCP_AUTH_ERROR_NETWORK_ERROR: return error_strings[MCP_AUTH_ERROR_NETWORK_ERROR];
-            case MCP_AUTH_ERROR_INVALID_CONFIG: return error_strings[MCP_AUTH_ERROR_INVALID_CONFIG];
-            case MCP_AUTH_ERROR_OUT_OF_MEMORY: return error_strings[MCP_AUTH_ERROR_OUT_OF_MEMORY];
-            case MCP_AUTH_ERROR_INVALID_PARAMETER: return error_strings[MCP_AUTH_ERROR_INVALID_PARAMETER];
-            case MCP_AUTH_ERROR_NOT_INITIALIZED: return error_strings[MCP_AUTH_ERROR_NOT_INITIALIZED];
-            case MCP_AUTH_ERROR_INTERNAL_ERROR: return error_strings[MCP_AUTH_ERROR_INTERNAL_ERROR];
-            default: break;
-        }
-    }
-    
-    return "Unknown error code";
 }
 
 int mcp_auth_error_to_http_status(mcp_auth_error_t error_code) {
