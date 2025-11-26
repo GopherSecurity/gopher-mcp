@@ -1009,7 +1009,21 @@ struct mcp_auth_client {
 struct mcp_auth_validation_options {
     std::string scopes;
     std::string audience;
-    int64_t clock_skew = 60;
+    int64_t clock_skew = 60;  // Default: 60 seconds
+    
+    // Constructor with defaults
+    mcp_auth_validation_options() 
+        : clock_skew(60) {}  // Ensure default is set
+    
+    // Helper to check if options require scope validation
+    bool requires_scope_validation() const {
+        return !scopes.empty();
+    }
+    
+    // Helper to check if options require audience validation
+    bool requires_audience_validation() const {
+        return !audience.empty();
+    }
 };
 
 // Store error in client structure with context (moved after struct definition)
@@ -1537,9 +1551,13 @@ mcp_auth_error_t mcp_auth_validation_options_create(
     
     try {
         *options = new mcp_auth_validation_options();
+        // Options are already initialized with defaults via constructor
+        // clock_skew = 60, scopes = "", audience = ""
         return MCP_AUTH_SUCCESS;
     } catch (const std::exception& e) {
-        set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, e.what());
+        set_error_with_context(MCP_AUTH_ERROR_OUT_OF_MEMORY, 
+                              "Failed to create validation options",
+                              std::string("Exception: ") + e.what());
         return MCP_AUTH_ERROR_OUT_OF_MEMORY;
     }
 }
@@ -1586,7 +1604,22 @@ mcp_auth_error_t mcp_auth_validation_options_set_scopes(
     }
     
     clear_error();
-    options->scopes = scopes ? scopes : "";
+    
+    // Validate and normalize scope string
+    if (scopes) {
+        // Trim whitespace from scopes
+        std::string scope_str(scopes);
+        size_t first = scope_str.find_first_not_of(' ');
+        if (first != std::string::npos) {
+            size_t last = scope_str.find_last_not_of(' ');
+            options->scopes = scope_str.substr(first, (last - first + 1));
+        } else {
+            options->scopes = "";  // All whitespace
+        }
+    } else {
+        options->scopes = "";  // Clear scopes if NULL
+    }
+    
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1605,7 +1638,25 @@ mcp_auth_error_t mcp_auth_validation_options_set_audience(
     }
     
     clear_error();
-    options->audience = audience ? audience : "";
+    
+    // Validate and store audience
+    if (audience) {
+        // Trim whitespace from audience
+        std::string aud_str(audience);
+        size_t first = aud_str.find_first_not_of(' ');
+        if (first != std::string::npos) {
+            size_t last = aud_str.find_last_not_of(' ');
+            options->audience = aud_str.substr(first, (last - first + 1));
+        } else {
+            options->audience = "";  // All whitespace
+        }
+        
+        // Optionally validate audience format (e.g., URL or identifier)
+        // For now, accept any non-empty string
+    } else {
+        options->audience = "";  // Clear audience if NULL
+    }
+    
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1624,6 +1675,20 @@ mcp_auth_error_t mcp_auth_validation_options_set_clock_skew(
     }
     
     clear_error();
+    
+    // Validate clock skew range
+    if (seconds < 0) {
+        set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                              "Invalid clock skew",
+                              "Clock skew must be non-negative: " + std::to_string(seconds));
+        return MCP_AUTH_ERROR_INVALID_CONFIG;
+    }
+    
+    // Warn if clock skew is unusually large (> 5 minutes)
+    if (seconds > 300) {
+        fprintf(stderr, "Warning: Large clock skew configured: %lld seconds\n", (long long)seconds);
+    }
+    
     options->clock_skew = seconds;
     return MCP_AUTH_SUCCESS;
 }
@@ -1800,8 +1865,8 @@ mcp_auth_error_t mcp_auth_validate_token(
         }
     }
     
-    // Validate audience if specified
-    if (options && !options->audience.empty()) {
+    // Validate audience if specified (using helper method for clarity)
+    if (options && options->requires_audience_validation()) {
         if (payload_data.audience.empty()) {
             set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, "JWT has no audience claim");
             result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
@@ -1820,8 +1885,8 @@ mcp_auth_error_t mcp_auth_validate_token(
         }
     }
     
-    // Validate scopes if required
-    if (options && !options->scopes.empty()) {
+    // Validate scopes if required (using helper method for clarity)
+    if (options && options->requires_scope_validation()) {
         if (payload_data.scopes.empty()) {
             set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, "JWT has no scope claim");
             result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
