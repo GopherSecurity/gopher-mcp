@@ -1135,9 +1135,40 @@ mcp_auth_error_t mcp_auth_validate_token(
         return g_last_error_code;
     }
     
-    // TODO: Step 5: Validate claims (exp, iss, aud, scopes) (Tasks 7-10)
+    // Step 5: Validate claims
     
-    // Token is valid if signature verified
+    // Check expiration with clock skew
+    int64_t now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000; // Convert to seconds
+    int64_t clock_skew = options ? options->clock_skew : 60; // Default 60 seconds
+    
+    if (payload_data.expiration > 0) {
+        if (now > payload_data.expiration + clock_skew) {
+            set_error(MCP_AUTH_ERROR_EXPIRED_TOKEN, "JWT has expired");
+            result->error_code = MCP_AUTH_ERROR_EXPIRED_TOKEN;
+            result->error_message = strdup("JWT has expired");
+            return MCP_AUTH_ERROR_EXPIRED_TOKEN;
+        }
+    }
+    
+    // Check not-before time if present
+    auto nbf_it = payload_data.claims.find("nbf");
+    if (nbf_it != payload_data.claims.end()) {
+        try {
+            int64_t nbf = std::stoll(nbf_it->second);
+            if (now < nbf - clock_skew) {
+                set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT not yet valid (nbf)");
+                result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
+                result->error_message = strdup("JWT not yet valid (nbf)");
+                return MCP_AUTH_ERROR_INVALID_TOKEN;
+            }
+        } catch (...) {
+            // Invalid nbf value, ignore
+        }
+    }
+    
+    // TODO: Validate issuer, audience, and scopes (Tasks 8-10)
+    
+    // Token is valid
     result->valid = true;
     result->error_code = MCP_AUTH_SUCCESS;
     
