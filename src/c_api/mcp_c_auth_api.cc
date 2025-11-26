@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <algorithm>
 
 // Thread-local error storage
 static thread_local std::string g_last_error;
@@ -36,6 +37,127 @@ static void clear_error() {
 }
 
 // ========================================================================
+// Base64URL Decoding
+// ========================================================================
+
+static const std::string base64url_chars = 
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static std::string base64url_decode(const std::string& encoded) {
+    std::string padded = encoded;
+    
+    // Add padding if needed
+    while (padded.length() % 4 != 0) {
+        padded += '=';
+    }
+    
+    // Replace URL-safe characters with standard base64
+    std::replace(padded.begin(), padded.end(), '-', '+');
+    std::replace(padded.begin(), padded.end(), '_', '/');
+    
+    // Decode
+    std::string decoded;
+    decoded.reserve(padded.length() * 3 / 4);
+    
+    int val = 0, valb = -8;
+    for (unsigned char c : padded) {
+        if (c == '=') break;
+        
+        const char* pos = strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", c);
+        if (!pos) return "";
+        
+        val = (val << 6) + (pos - "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+        valb += 6;
+        if (valb >= 0) {
+            decoded.push_back(char((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    
+    return decoded;
+}
+
+// ========================================================================
+// Simple JSON Parser for JWT Header
+// ========================================================================
+
+static bool parse_jwt_header(const std::string& header_json, std::string& alg, std::string& kid) {
+    // Simple JSON parsing for header fields
+    // Looking for "alg":"RS256" and "kid":"key-id" patterns
+    
+    size_t alg_pos = header_json.find("\"alg\"");
+    if (alg_pos != std::string::npos) {
+        size_t colon = header_json.find(':', alg_pos);
+        if (colon != std::string::npos) {
+            size_t quote1 = header_json.find('"', colon);
+            if (quote1 != std::string::npos) {
+                size_t quote2 = header_json.find('"', quote1 + 1);
+                if (quote2 != std::string::npos) {
+                    alg = header_json.substr(quote1 + 1, quote2 - quote1 - 1);
+                }
+            }
+        }
+    }
+    
+    size_t kid_pos = header_json.find("\"kid\"");
+    if (kid_pos != std::string::npos) {
+        size_t colon = header_json.find(':', kid_pos);
+        if (colon != std::string::npos) {
+            size_t quote1 = header_json.find('"', colon);
+            if (quote1 != std::string::npos) {
+                size_t quote2 = header_json.find('"', quote1 + 1);
+                if (quote2 != std::string::npos) {
+                    kid = header_json.substr(quote1 + 1, quote2 - quote1 - 1);
+                }
+            }
+        }
+    }
+    
+    // Validate algorithm
+    if (alg.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT header missing 'alg' field");
+        return false;
+    }
+    
+    // Check supported algorithms
+    if (alg != "RS256" && alg != "RS384" && alg != "RS512") {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Unsupported algorithm: " + alg);
+        return false;
+    }
+    
+    return true;
+}
+
+// Split JWT into parts
+static bool split_jwt(const std::string& token, 
+                     std::string& header, 
+                     std::string& payload, 
+                     std::string& signature) {
+    size_t first_dot = token.find('.');
+    if (first_dot == std::string::npos) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Invalid JWT format: missing first separator");
+        return false;
+    }
+    
+    size_t second_dot = token.find('.', first_dot + 1);
+    if (second_dot == std::string::npos) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Invalid JWT format: missing second separator");
+        return false;
+    }
+    
+    header = token.substr(0, first_dot);
+    payload = token.substr(first_dot + 1, second_dot - first_dot - 1);
+    signature = token.substr(second_dot + 1);
+    
+    if (header.empty() || payload.empty() || signature.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Invalid JWT format: empty component");
+        return false;
+    }
+    
+    return true;
+}
+
+// ========================================================================
 // Internal structures
 // ========================================================================
 
@@ -44,6 +166,10 @@ struct mcp_auth_client {
     std::string issuer;
     int64_t cache_duration = 3600;
     bool auto_refresh = true;
+    
+    // Cached JWT header info for last validated token
+    std::string last_alg;
+    std::string last_kid;
     
     mcp_auth_client(const char* uri, const char* iss) 
         : jwks_uri(uri ? uri : "")
@@ -64,17 +190,20 @@ struct mcp_auth_token_payload {
     int64_t expiration = 0;
     std::unordered_map<std::string, std::string> claims;
     
-    // Simple JWT decode (base64url decode without validation)
+    // Parse JWT payload from base64url encoded string
     bool decode_from_token(const std::string& token) {
-        // Find the payload part (between first and second dot)
-        size_t first_dot = token.find('.');
-        if (first_dot == std::string::npos) return false;
+        std::string header_b64, payload_b64, signature_b64;
+        if (!split_jwt(token, header_b64, payload_b64, signature_b64)) {
+            return false;
+        }
         
-        size_t second_dot = token.find('.', first_dot + 1);
-        if (second_dot == std::string::npos) return false;
+        std::string payload_json = base64url_decode(payload_b64);
+        if (payload_json.empty()) {
+            return false;
+        }
         
-        // For now, just populate with dummy data for testing
-        // In production, this would decode the actual JWT payload
+        // TODO: Parse payload JSON in Prompt 2
+        // For now, populate with test data
         subject = "test-subject";
         issuer = "http://localhost:8080/realms/gopher-auth";
         audience = "mcp-server";
@@ -318,37 +447,63 @@ mcp_auth_error_t mcp_auth_validate_token(
         return MCP_AUTH_ERROR_NOT_INITIALIZED;
     }
     
-    fprintf(stderr, "mcp_auth_validate_token parameters: client=%p, token=%p, result=%p\n", client, token, result);
     if (!client || !token || !result) {
-        fprintf(stderr, "mcp_auth_validate_token: Invalid parameter - client=%p, token=%p, result=%p\n", 
-                client, token, result);
         set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameter");
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
     clear_error();
     
-    // For testing/development: simulate successful validation
-    // In production, this would perform actual JWT validation
-    fprintf(stderr, "mcp_auth_validate_token: result pointer = %p\n", result);
-    if (result) {
-        fprintf(stderr, "mcp_auth_validate_token: Setting result->valid = true\n");
-        result->valid = true;
-        result->error_code = MCP_AUTH_SUCCESS;
-        result->error_message = nullptr;
-        fprintf(stderr, "mcp_auth_validate_token: Result set - valid=%d, error_code=%d\n", 
-                result->valid, result->error_code);
-    } else {
-        fprintf(stderr, "mcp_auth_validate_token: ERROR - result pointer is NULL!\n");
-    }
-    fflush(stderr);
+    // Initialize result
+    result->valid = false;
+    result->error_code = MCP_AUTH_SUCCESS;
+    result->error_message = nullptr;
     
-    // TODO: Implement actual JWT validation using a JWT library
-    // This would involve:
-    // 1. Fetching JWKS from client->jwks_uri
-    // 2. Verifying the JWT signature
-    // 3. Checking issuer, audience, expiration
-    // 4. Validating scopes if provided
+    // Step 1: Parse JWT components
+    std::string header_b64, payload_b64, signature_b64;
+    if (!split_jwt(token, header_b64, payload_b64, signature_b64)) {
+        result->error_code = g_last_error_code;
+        result->error_message = strdup(g_last_error.c_str());
+        return g_last_error_code;
+    }
+    
+    // Step 2: Decode and parse header
+    std::string header_json = base64url_decode(header_b64);
+    if (header_json.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT header");
+        result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
+        result->error_message = strdup("Failed to decode JWT header");
+        return MCP_AUTH_ERROR_INVALID_TOKEN;
+    }
+    
+    std::string alg, kid;
+    if (!parse_jwt_header(header_json, alg, kid)) {
+        result->error_code = g_last_error_code;
+        result->error_message = strdup(g_last_error.c_str());
+        return g_last_error_code;
+    }
+    
+    // Cache the parsed header info in the client
+    client->last_alg = alg;
+    client->last_kid = kid;
+    
+    // Step 3: Decode payload (will be parsed in next prompt)
+    std::string payload_json = base64url_decode(payload_b64);
+    if (payload_json.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT payload");
+        result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
+        result->error_message = strdup("Failed to decode JWT payload");
+        return MCP_AUTH_ERROR_INVALID_TOKEN;
+    }
+    
+    // TODO: Step 4: Parse payload claims (Prompt 2)
+    // TODO: Step 5: Fetch JWKS and verify signature (Prompt 3-6)
+    // TODO: Step 6: Validate claims (exp, iss, aud, scopes) (Prompt 7-10)
+    
+    // For now, accept token if we successfully parsed the header
+    // This allows testing the header parsing implementation
+    result->valid = true;
+    result->error_code = MCP_AUTH_SUCCESS;
     
     return MCP_AUTH_SUCCESS;
 }

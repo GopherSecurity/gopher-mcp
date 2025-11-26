@@ -46,6 +46,7 @@ export interface AuthenticatedMcpServerConfig {
   cacheDuration?: number;
   autoRefresh?: boolean;
   requireAuth?: boolean;
+  requireAuthOnConnect?: boolean;  // Require auth for initialize/connect
   clockSkew?: number;
   toolScopes?: Record<string, string>;
   
@@ -101,6 +102,7 @@ export class AuthenticatedMcpServer {
       cacheDuration: config?.cacheDuration || parseInt(env['CACHE_DURATION'] || "3600"),
       autoRefresh: config?.autoRefresh ?? (env['AUTO_REFRESH'] !== "false"),
       requireAuth: config?.requireAuth ?? (env['REQUIRE_AUTH'] === "true"),
+      requireAuthOnConnect: config?.requireAuthOnConnect ?? (env['REQUIRE_AUTH_ON_CONNECT'] === "true"),
       clockSkew: config?.clockSkew || parseInt(env['CLOCK_SKEW'] || "60"),
       toolScopes: config?.toolScopes || this.parseToolScopes(),
       
@@ -110,7 +112,13 @@ export class AuthenticatedMcpServer {
       corsOrigin: config?.corsOrigin ?? (env['CORS_ORIGIN'] || "*"),
       
       // MCP settings
-      publicMethods: config?.publicMethods || ['initialize']
+      // If requireAuthOnConnect is true, don't include 'initialize' in publicMethods
+      // This ensures users must authenticate when clicking "Connect" in MCP Inspector
+      publicMethods: config?.publicMethods || (
+        config?.requireAuthOnConnect || env['REQUIRE_AUTH_ON_CONNECT'] === "true" 
+          ? []  // No public methods - auth required for everything
+          : ['initialize']  // Allow initialize without auth
+      )
     };
     
     this.server = new Server(
@@ -392,8 +400,66 @@ export class AuthenticatedMcpServer {
         transport = this.transports.get(sessionId)!;
         console.error(`♻️  Reusing transport for session: ${sessionId}`);
       } else if (!sessionId && this.isInitializeRequest(req.body)) {
-        // New initialization request - create new transport
+        // New initialization request - check authentication FIRST
         console.error('🆕 Creating new transport for initialization');
+        
+        // Check if authentication is required for initialize
+        const isPublicMethod = this.config.publicMethods?.includes('initialize') || false;
+        
+        if (!isPublicMethod && this.authClient) {
+          // Authentication is required for initialize
+          const authHeader = req.headers.authorization as string;
+          
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.error('❌ Authentication required but no token provided');
+            res.status(401).json({
+              jsonrpc: '2.0',
+              error: {
+                code: ErrorCode.InvalidRequest,
+                message: 'Authentication required. Please provide a Bearer token in the Authorization header.'
+              },
+              id: req.body?.id || null
+            });
+            return;
+          }
+          
+          // Extract and validate token
+          const token = authHeader.slice(7);
+          const validationOptions: ValidationOptions = {
+            audience: this.config.tokenAudience,
+            clockSkew: this.config.clockSkew || 60
+          };
+          
+          try {
+            const validation = await this.authClient.validateToken(token, validationOptions);
+            
+            if (!validation.valid) {
+              console.error(`❌ Token validation failed: ${validation.errorMessage}`);
+              res.status(401).json({
+                jsonrpc: '2.0',
+                error: {
+                  code: ErrorCode.InvalidRequest,
+                  message: `Authentication failed: ${validation.errorMessage || 'Invalid token'}`
+                },
+                id: req.body?.id || null
+              });
+              return;
+            }
+            
+            console.error('✅ Authentication successful for initialize request');
+          } catch (error: any) {
+            console.error(`❌ Token validation error: ${error.message}`);
+            res.status(401).json({
+              jsonrpc: '2.0',
+              error: {
+                code: ErrorCode.InvalidRequest,
+                message: `Authentication error: ${error.message}`
+              },
+              id: req.body?.id || null
+            });
+            return;
+          }
+        }
 
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
@@ -485,6 +551,11 @@ export class AuthenticatedMcpServer {
           ? "CONFIGURED (C library not available)"
           : "DISABLED";
       console.error(`🔒 Authentication: ${authStatus}`);
+      if (this.authClient && this.config.requireAuthOnConnect) {
+        console.error(`🔐 Auth on Connect: REQUIRED (must authenticate to initialize)`);
+      } else if (this.authClient) {
+        console.error(`🔓 Auth on Connect: NOT REQUIRED (only for protected tools)`);
+      }
       console.error(`🛠️  Tools registered: ${this.tools.length}`);
       
       this.tools.forEach(tool => {
