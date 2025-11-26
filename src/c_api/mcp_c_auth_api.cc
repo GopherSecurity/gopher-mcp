@@ -213,54 +213,160 @@ static size_t jwks_curl_write_callback(void* ptr, size_t size, size_t nmemb, std
     return size * nmemb;
 }
 
-// Fetch JWKS from the specified URI
-static bool fetch_jwks_json(const std::string& uri, std::string& response) {
+// HTTP client configuration
+struct http_client_config {
+    long timeout = 10L;           // Request timeout in seconds
+    long connect_timeout = 5L;    // Connection timeout in seconds
+    bool follow_redirects = true;
+    long max_redirects = 3L;
+    bool verify_ssl = true;
+    std::string user_agent = "MCP-Auth-Client/1.0.0";
+};
+
+// Perform HTTP GET request with robust error handling
+static bool http_get(const std::string& url, 
+                     std::string& response, 
+                     const http_client_config& config = http_client_config()) {
+    // Initialize CURL
     CURL* curl = curl_easy_init();
     if (!curl) {
-        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, "Failed to initialize CURL");
+        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, "Failed to initialize HTTP client");
         return false;
     }
     
-    // Set up CURL options
-    curl_easy_setopt(curl, CURLOPT_URL, uri.c_str());
+    // Use RAII for cleanup
+    struct curl_cleanup {
+        CURL* handle;
+        curl_slist* headers;
+        ~curl_cleanup() {
+            if (headers) curl_slist_free_all(headers);
+            if (handle) curl_easy_cleanup(handle);
+        }
+    } cleanup{curl, nullptr};
+    
+    // Set basic options
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, jwks_curl_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);  // 10 second timeout
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);  // Follow redirects
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);  // Max 3 redirects
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);  // Verify SSL certificate
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);  // Verify hostname
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "MCP-Auth-Client/1.0");
     
-    // Add headers
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Accept: application/json");
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    // Set timeouts
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, config.timeout);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, config.connect_timeout);
+    
+    // Set redirect handling
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, config.follow_redirects ? 1L : 0L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, config.max_redirects);
+    
+    // Set SSL/TLS options
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, config.verify_ssl ? 1L : 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, config.verify_ssl ? 2L : 0L);
+    
+    // Set protocol to HTTPS only for security
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+    
+    // Set user agent
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, config.user_agent.c_str());
+    
+    // Enable TCP keep-alive
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+    
+    // Set headers
+    cleanup.headers = curl_slist_append(cleanup.headers, "Accept: application/json");
+    cleanup.headers = curl_slist_append(cleanup.headers, "Cache-Control: no-cache");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, cleanup.headers);
+    
+    // Enable verbose output for debugging (only in debug builds)
+#ifdef DEBUG
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+#endif
     
     // Perform the request
     CURLcode res = curl_easy_perform(curl);
     
-    // Check for errors
-    bool success = false;
+    // Handle the result
     if (res != CURLE_OK) {
-        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, 
-                 std::string("JWKS fetch failed: ") + curl_easy_strerror(res));
-    } else {
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        if (http_code == 200) {
-            success = true;
-        } else {
-            set_error(MCP_AUTH_ERROR_JWKS_FETCH_FAILED, 
-                     "JWKS fetch returned HTTP " + std::to_string(http_code));
+        // Detailed error message based on error code
+        std::string error_msg = "HTTP request failed: ";
+        error_msg += curl_easy_strerror(res);
+        
+        // Add more context for common errors
+        switch (res) {
+            case CURLE_OPERATION_TIMEDOUT:
+                error_msg += " (timeout after " + std::to_string(config.timeout) + " seconds)";
+                break;
+            case CURLE_SSL_CONNECT_ERROR:
+            case CURLE_SSL_CERTPROBLEM:
+            case CURLE_SSL_CIPHER:
+            case CURLE_SSL_CACERT:
+                error_msg += " (SSL/TLS error - check certificates)";
+                break;
+            case CURLE_COULDNT_RESOLVE_HOST:
+                error_msg += " (DNS resolution failed)";
+                break;
+            case CURLE_COULDNT_CONNECT:
+                error_msg += " (connection refused or network unreachable)";
+                break;
         }
+        
+        set_error(MCP_AUTH_ERROR_NETWORK_ERROR, error_msg);
+        return false;
     }
     
-    // Clean up
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+    // Check HTTP response code
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     
-    return success;
+    // Get the final URL after redirects
+    char* final_url = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &final_url);
+    
+    if (http_code >= 200 && http_code < 300) {
+        // Success
+        fprintf(stderr, "HTTP GET successful: %ld from %s\n", http_code, final_url ? final_url : url.c_str());
+        return true;
+    } else {
+        // HTTP error
+        std::string error_msg = "HTTP request returned status " + std::to_string(http_code);
+        
+        // Add specific messages for common HTTP errors
+        switch (http_code) {
+            case 401:
+                error_msg += " (Unauthorized - check authentication)";
+                break;
+            case 403:
+                error_msg += " (Forbidden - access denied)";
+                break;
+            case 404:
+                error_msg += " (Not Found - check URL)";
+                break;
+            case 500:
+            case 502:
+            case 503:
+            case 504:
+                error_msg += " (Server error - may be temporary)";
+                break;
+        }
+        
+        if (final_url && std::string(final_url) != url) {
+            error_msg += " after redirect to " + std::string(final_url);
+        }
+        
+        set_error(http_code >= 500 ? MCP_AUTH_ERROR_NETWORK_ERROR : MCP_AUTH_ERROR_JWKS_FETCH_FAILED, error_msg);
+        return false;
+    }
+}
+
+// Fetch JWKS from the specified URI
+static bool fetch_jwks_json(const std::string& uri, std::string& response) {
+    http_client_config config;
+    config.timeout = 10L;
+    config.connect_timeout = 5L;
+    config.verify_ssl = true;
+    
+    return http_get(uri, response, config);
 }
 
 // Convert RSA components (n, e) to PEM format public key
