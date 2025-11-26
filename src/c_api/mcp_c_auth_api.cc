@@ -1166,7 +1166,29 @@ mcp_auth_error_t mcp_auth_validate_token(
         }
     }
     
-    // TODO: Validate issuer, audience, and scopes (Tasks 8-10)
+    // Validate issuer
+    if (!client->issuer.empty()) {
+        // Check exact match first
+        if (payload_data.issuer != client->issuer) {
+            // Try with/without trailing slash for compatibility
+            std::string iss1 = payload_data.issuer;
+            std::string iss2 = client->issuer;
+            
+            // Remove trailing slash from both for comparison
+            if (!iss1.empty() && iss1.back() == '/') iss1.pop_back();
+            if (!iss2.empty() && iss2.back() == '/') iss2.pop_back();
+            
+            if (iss1 != iss2) {
+                set_error(MCP_AUTH_ERROR_INVALID_ISSUER, 
+                         "Invalid issuer. Expected: " + client->issuer + ", Got: " + payload_data.issuer);
+                result->error_code = MCP_AUTH_ERROR_INVALID_ISSUER;
+                result->error_message = strdup(g_last_error.c_str());
+                return MCP_AUTH_ERROR_INVALID_ISSUER;
+            }
+        }
+    }
+    
+    // TODO: Validate audience and scopes (Tasks 9-10)
     
     // Token is valid
     result->valid = true;
