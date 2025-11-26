@@ -10,6 +10,7 @@ add_executable(benchmark_jwt_validation auth/benchmark_jwt_validation.cc)
 add_executable(test_memory_cache auth/test_memory_cache.cc)
 add_executable(test_http_client auth/test_http_client.cc)
 add_executable(test_jwks_client auth/test_jwks_client.cc)
+add_executable(test_keycloak_integration auth/test_keycloak_integration.cc)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
@@ -177,6 +178,14 @@ target_link_libraries(test_jwks_client
     gtest 
     gtest_main
     Threads::Threads
+)
+
+target_link_libraries(test_keycloak_integration
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    CURL::libcurl
 )
 
 target_link_libraries(test_variant 
