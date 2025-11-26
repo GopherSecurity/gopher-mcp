@@ -12,6 +12,7 @@ add_executable(test_http_client auth/test_http_client.cc)
 add_executable(test_jwks_client auth/test_jwks_client.cc)
 add_executable(test_keycloak_integration auth/test_keycloak_integration.cc)
 add_executable(test_mcp_inspector_flow auth/test_mcp_inspector_flow.cc)
+add_executable(benchmark_crypto_optimization auth/benchmark_crypto_optimization.cc)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
@@ -155,6 +156,7 @@ target_link_libraries(test_auth_types
 )
 
 target_link_libraries(benchmark_jwt_validation
+    gopher_mcp_c
     gtest 
     gtest_main
     Threads::Threads
@@ -195,6 +197,15 @@ target_link_libraries(test_mcp_inspector_flow
     gtest_main
     Threads::Threads
     CURL::libcurl
+)
+
+target_link_libraries(benchmark_crypto_optimization
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 target_link_libraries(test_variant 

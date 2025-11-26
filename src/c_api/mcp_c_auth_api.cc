@@ -40,6 +40,10 @@ static thread_local char g_error_buffer[4096];
 static std::atomic<bool> g_initialized{false};
 static std::mutex g_init_mutex;
 
+// Performance optimization flags
+static bool g_use_crypto_cache = true;  // Use optimized crypto caching
+static std::atomic<size_t> g_verification_count{0};  // Track verification count
+
 // Set error state
 static void set_error(mcp_auth_error_t code, const std::string& message) {
     g_last_error_code = code;
