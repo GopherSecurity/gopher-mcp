@@ -676,6 +676,42 @@ struct mcp_auth_metadata {
 // JWKS Fetching Implementation (requires struct definitions)
 // ========================================================================
 
+// Check if JWKS cache is still valid
+static bool is_cache_valid(mcp_auth_client_t client) {
+    std::lock_guard<std::mutex> lock(client->cache_mutex);
+    
+    // Check if we have cached keys
+    if (client->cached_keys.empty()) {
+        return false;
+    }
+    
+    // Check if cache has expired
+    auto now = std::chrono::steady_clock::now();
+    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - client->cache_timestamp).count();
+    
+    return age < client->cache_duration;
+}
+
+// Get cached JWKS keys with automatic refresh
+static bool get_jwks_keys(mcp_auth_client_t client, std::vector<jwks_key>& keys) {
+    // Check if cache is valid
+    if (is_cache_valid(client)) {
+        std::lock_guard<std::mutex> lock(client->cache_mutex);
+        keys = client->cached_keys;
+        return true;
+    }
+    
+    // Cache is invalid or expired, fetch new keys
+    return fetch_and_cache_jwks(client) && get_jwks_keys(client, keys);
+}
+
+// Invalidate cache (for when validation fails with unknown kid)
+static void invalidate_cache(mcp_auth_client_t client) {
+    std::lock_guard<std::mutex> lock(client->cache_mutex);
+    client->cached_keys.clear();
+    client->cache_timestamp = std::chrono::steady_clock::time_point();
+}
+
 // Fetch and cache JWKS keys
 static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     std::string jwks_json;
@@ -692,6 +728,11 @@ static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     std::lock_guard<std::mutex> lock(client->cache_mutex);
     client->cached_keys = std::move(keys);
     client->cache_timestamp = std::chrono::steady_clock::now();
+    
+    fprintf(stderr, "JWKS cache updated with %zu keys\n", client->cached_keys.size());
+    for (const auto& key : client->cached_keys) {
+        fprintf(stderr, "  Key: kid=%s, alg=%s\n", key.kid.c_str(), key.alg.c_str());
+    }
     
     return true;
 }
