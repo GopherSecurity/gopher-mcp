@@ -9,6 +9,7 @@
 #include <string>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <sstream>
 #include <chrono>
@@ -1208,7 +1209,24 @@ mcp_auth_error_t mcp_auth_validate_token(
         }
     }
     
-    // TODO: Validate scopes (Task 10)
+    // Validate scopes if required
+    if (options && !options->scopes.empty()) {
+        if (payload_data.scopes.empty()) {
+            set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, "JWT has no scope claim");
+            result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
+            result->error_message = strdup("JWT has no scope claim");
+            return MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
+        }
+        
+        // Check if all required scopes are present
+        if (!mcp_auth_validate_scopes(options->scopes.c_str(), payload_data.scopes.c_str())) {
+            set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, 
+                     "Insufficient scope. Required: " + options->scopes + ", Available: " + payload_data.scopes);
+            result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
+            result->error_message = strdup(g_last_error.c_str());
+            return MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
+        }
+    }
     
     // Token is valid
     result->valid = true;
@@ -1461,12 +1479,42 @@ bool mcp_auth_validate_scopes(
         return false;
     }
     
-    // Simple implementation: check if all required scopes are in available scopes
-    std::istringstream required(required_scopes);
+    // Parse available scopes into a set for efficient lookup
+    std::unordered_set<std::string> available_set;
+    std::istringstream available(available_scopes);
     std::string scope;
+    while (available >> scope) {
+        available_set.insert(scope);
+        
+        // Also add hierarchical scopes (e.g., "mcp:weather" includes "mcp:weather:read")
+        size_t colon = scope.find(':');
+        if (colon != std::string::npos) {
+            // Add base scope (e.g., "mcp" from "mcp:weather")
+            available_set.insert(scope.substr(0, colon));
+        }
+    }
     
+    // Check if all required scopes are present
+    std::istringstream required(required_scopes);
     while (required >> scope) {
-        if (std::string(available_scopes).find(scope) == std::string::npos) {
+        // Check exact match
+        if (available_set.find(scope) != available_set.end()) {
+            continue;
+        }
+        
+        // Check hierarchical match (e.g., "mcp:weather:read" satisfied by "mcp:weather")
+        bool found = false;
+        size_t pos = scope.rfind(':');
+        while (pos != std::string::npos && !found) {
+            std::string parent = scope.substr(0, pos);
+            if (available_set.find(parent) != available_set.end()) {
+                found = true;
+                break;
+            }
+            pos = parent.rfind(':');
+        }
+        
+        if (!found) {
             return false;
         }
     }
