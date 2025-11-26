@@ -533,7 +533,7 @@ static bool http_get(const std::string& url,
     
     if (http_code >= 200 && http_code < 300) {
         // Success
-        fprintf(stderr, "HTTP GET successful: %ld from %s\n", http_code, final_url ? final_url : url.c_str());
+        // HTTP GET successful
         return true;
     } else {
         // HTTP error
@@ -686,8 +686,7 @@ static bool http_get_with_retry(const std::string& url,
         // Calculate delay with exponential backoff and jitter
         int actual_delay = add_jitter(delay_ms, retry.jitter_ms);
         
-        fprintf(stderr, "HTTP request failed (attempt %d/%d), retrying in %dms: %s\n",
-                attempt + 1, retry.max_retries + 1, actual_delay, last_error.c_str());
+        // HTTP request failed, retrying...
         
         // Sleep before retry
         std::this_thread::sleep_for(std::chrono::milliseconds(actual_delay));
