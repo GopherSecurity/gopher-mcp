@@ -305,7 +305,7 @@ TEST_F(JwtValidationBenchmark, CachePerformance) {
 TEST_F(JwtValidationBenchmark, MemoryUsage) {
   const size_t num_tokens = 1000;
   std::vector<std::string> tokens;
-  std::vector<void*> payloads;  // Use void* instead of specific type
+  std::vector<mcp_auth_token_payload_t> payloads;
   
   // Generate tokens
   for (size_t i = 0; i < num_tokens; ++i) {
@@ -317,8 +317,8 @@ TEST_F(JwtValidationBenchmark, MemoryUsage) {
   
   // Extract payloads and measure memory growth
   for (const auto& token : tokens) {
-    void* payload = nullptr;
-    mcp_auth_error_t error = mcp_auth_extract_payload(token.c_str(), (mcp_auth_payload_t*)&payload);
+    mcp_auth_token_payload_t payload = nullptr;
+    mcp_auth_error_t error = mcp_auth_extract_payload(token.c_str(), &payload);
     
     if (error == MCP_AUTH_SUCCESS && payload) {
       payloads.push_back(payload);
@@ -329,7 +329,7 @@ TEST_F(JwtValidationBenchmark, MemoryUsage) {
   
   // Cleanup payloads
   for (auto payload : payloads) {
-    mcp_auth_payload_destroy((mcp_auth_payload_t)payload);
+    mcp_auth_payload_destroy(payload);
   }
   
   size_t final_memory = PerformanceMetrics::getCurrentMemoryUsage();

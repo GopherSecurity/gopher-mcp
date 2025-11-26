@@ -1946,11 +1946,20 @@ void mcp_auth_free_string(char* str) {
 }
 
 const char* mcp_auth_get_last_error(void) {
-    return g_last_error.c_str();
+    // Return empty string instead of nullptr for safety
+    return g_last_error.empty() ? "" : g_last_error.c_str();
+}
+
+mcp_auth_error_t mcp_auth_get_last_error_code(void) {
+    return g_last_error_code;
 }
 
 void mcp_auth_clear_error(void) {
     clear_error();
+}
+
+bool mcp_auth_has_error(void) {
+    return g_last_error_code != MCP_AUTH_SUCCESS;
 }
 
 // ========================================================================
@@ -2009,23 +2018,80 @@ bool mcp_auth_validate_scopes(
 }
 
 const char* mcp_auth_error_to_string(mcp_auth_error_t error_code) {
+    // Thread-safe static strings for error descriptions
+    static const char* const error_strings[] = {
+        [MCP_AUTH_SUCCESS] = "Success",
+        [MCP_AUTH_ERROR_INVALID_TOKEN] = "Invalid or malformed JWT token",
+        [MCP_AUTH_ERROR_EXPIRED_TOKEN] = "JWT token has expired",
+        [MCP_AUTH_ERROR_INVALID_SIGNATURE] = "JWT signature verification failed",
+        [MCP_AUTH_ERROR_INVALID_ISSUER] = "Token issuer does not match expected value",
+        [MCP_AUTH_ERROR_INVALID_AUDIENCE] = "Token audience does not match expected value",
+        [MCP_AUTH_ERROR_INSUFFICIENT_SCOPE] = "Token lacks required scopes for operation",
+        [MCP_AUTH_ERROR_JWKS_FETCH_FAILED] = "Failed to fetch JWKS from authorization server",
+        [MCP_AUTH_ERROR_INVALID_KEY] = "No valid signing key found in JWKS",
+        [MCP_AUTH_ERROR_NETWORK_ERROR] = "Network communication error",
+        [MCP_AUTH_ERROR_INVALID_CONFIG] = "Invalid authentication configuration",
+        [MCP_AUTH_ERROR_OUT_OF_MEMORY] = "Memory allocation failed",
+        [MCP_AUTH_ERROR_INVALID_PARAMETER] = "Invalid parameter passed to function",
+        [MCP_AUTH_ERROR_NOT_INITIALIZED] = "Authentication library not initialized",
+        [MCP_AUTH_ERROR_INTERNAL_ERROR] = "Internal library error"
+    };
+    
+    // Bounds checking
+    if (error_code >= 0) {
+        return error_strings[MCP_AUTH_SUCCESS];
+    }
+    
+    int index = -error_code;
+    if (index >= 1000 && index <= 1014) {
+        // Map negative error codes to array indices
+        switch (error_code) {
+            case MCP_AUTH_ERROR_INVALID_TOKEN: return error_strings[MCP_AUTH_ERROR_INVALID_TOKEN];
+            case MCP_AUTH_ERROR_EXPIRED_TOKEN: return error_strings[MCP_AUTH_ERROR_EXPIRED_TOKEN];
+            case MCP_AUTH_ERROR_INVALID_SIGNATURE: return error_strings[MCP_AUTH_ERROR_INVALID_SIGNATURE];
+            case MCP_AUTH_ERROR_INVALID_ISSUER: return error_strings[MCP_AUTH_ERROR_INVALID_ISSUER];
+            case MCP_AUTH_ERROR_INVALID_AUDIENCE: return error_strings[MCP_AUTH_ERROR_INVALID_AUDIENCE];
+            case MCP_AUTH_ERROR_INSUFFICIENT_SCOPE: return error_strings[MCP_AUTH_ERROR_INSUFFICIENT_SCOPE];
+            case MCP_AUTH_ERROR_JWKS_FETCH_FAILED: return error_strings[MCP_AUTH_ERROR_JWKS_FETCH_FAILED];
+            case MCP_AUTH_ERROR_INVALID_KEY: return error_strings[MCP_AUTH_ERROR_INVALID_KEY];
+            case MCP_AUTH_ERROR_NETWORK_ERROR: return error_strings[MCP_AUTH_ERROR_NETWORK_ERROR];
+            case MCP_AUTH_ERROR_INVALID_CONFIG: return error_strings[MCP_AUTH_ERROR_INVALID_CONFIG];
+            case MCP_AUTH_ERROR_OUT_OF_MEMORY: return error_strings[MCP_AUTH_ERROR_OUT_OF_MEMORY];
+            case MCP_AUTH_ERROR_INVALID_PARAMETER: return error_strings[MCP_AUTH_ERROR_INVALID_PARAMETER];
+            case MCP_AUTH_ERROR_NOT_INITIALIZED: return error_strings[MCP_AUTH_ERROR_NOT_INITIALIZED];
+            case MCP_AUTH_ERROR_INTERNAL_ERROR: return error_strings[MCP_AUTH_ERROR_INTERNAL_ERROR];
+            default: break;
+        }
+    }
+    
+    return "Unknown error code";
+}
+
+int mcp_auth_error_to_http_status(mcp_auth_error_t error_code) {
+    // Map error codes to appropriate HTTP status codes
     switch (error_code) {
-        case MCP_AUTH_SUCCESS: return "Success";
-        case MCP_AUTH_ERROR_INVALID_TOKEN: return "Invalid token";
-        case MCP_AUTH_ERROR_EXPIRED_TOKEN: return "Token expired";
-        case MCP_AUTH_ERROR_INVALID_SIGNATURE: return "Invalid signature";
-        case MCP_AUTH_ERROR_INVALID_ISSUER: return "Invalid issuer";
-        case MCP_AUTH_ERROR_INVALID_AUDIENCE: return "Invalid audience";
-        case MCP_AUTH_ERROR_INSUFFICIENT_SCOPE: return "Insufficient scope";
-        case MCP_AUTH_ERROR_JWKS_FETCH_FAILED: return "JWKS fetch failed";
-        case MCP_AUTH_ERROR_INVALID_KEY: return "Invalid key";
-        case MCP_AUTH_ERROR_NETWORK_ERROR: return "Network error";
-        case MCP_AUTH_ERROR_INVALID_CONFIG: return "Invalid configuration";
-        case MCP_AUTH_ERROR_OUT_OF_MEMORY: return "Out of memory";
-        case MCP_AUTH_ERROR_INVALID_PARAMETER: return "Invalid parameter";
-        case MCP_AUTH_ERROR_NOT_INITIALIZED: return "Not initialized";
-        case MCP_AUTH_ERROR_INTERNAL_ERROR: return "Internal error";
-        default: return "Unknown error";
+        case MCP_AUTH_SUCCESS: 
+            return 200;  // OK
+        case MCP_AUTH_ERROR_INVALID_TOKEN:
+        case MCP_AUTH_ERROR_EXPIRED_TOKEN:
+        case MCP_AUTH_ERROR_INVALID_SIGNATURE:
+        case MCP_AUTH_ERROR_INVALID_ISSUER:
+        case MCP_AUTH_ERROR_INVALID_AUDIENCE:
+            return 401;  // Unauthorized
+        case MCP_AUTH_ERROR_INSUFFICIENT_SCOPE:
+            return 403;  // Forbidden
+        case MCP_AUTH_ERROR_INVALID_PARAMETER:
+        case MCP_AUTH_ERROR_INVALID_CONFIG:
+            return 400;  // Bad Request
+        case MCP_AUTH_ERROR_JWKS_FETCH_FAILED:
+        case MCP_AUTH_ERROR_NETWORK_ERROR:
+            return 502;  // Bad Gateway
+        case MCP_AUTH_ERROR_OUT_OF_MEMORY:
+        case MCP_AUTH_ERROR_NOT_INITIALIZED:
+        case MCP_AUTH_ERROR_INTERNAL_ERROR:
+        case MCP_AUTH_ERROR_INVALID_KEY:
+        default:
+            return 500;  // Internal Server Error
     }
 }
 
