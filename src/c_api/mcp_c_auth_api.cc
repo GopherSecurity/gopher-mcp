@@ -15,9 +15,11 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <shared_mutex>
 #include <algorithm>
 #include <random>
 #include <thread>
+#include <atomic>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
@@ -991,10 +993,13 @@ struct mcp_auth_client {
     std::string last_error_context;
     mcp_auth_error_t last_error_code = MCP_AUTH_SUCCESS;
     
-    // JWKS cache
+    // JWKS cache with read-write lock for better concurrency
     std::vector<jwks_key> cached_keys;
     std::chrono::steady_clock::time_point cache_timestamp;
-    std::mutex cache_mutex;
+    mutable std::shared_mutex cache_mutex;  // mutable for const methods
+    
+    // Auto-refresh state
+    std::atomic<bool> refresh_in_progress{false};
     
     mcp_auth_client(const char* uri, const char* iss) 
         : jwks_uri(uri ? normalize_url(uri) : "")
@@ -1159,8 +1164,9 @@ struct mcp_auth_metadata {
 // ========================================================================
 
 // Check if JWKS cache is still valid
-static bool is_cache_valid(mcp_auth_client_t client) {
-    std::lock_guard<std::mutex> lock(client->cache_mutex);
+static bool is_cache_valid(const mcp_auth_client_t client) {
+    // Use shared lock for read-only access
+    std::shared_lock<std::shared_mutex> lock(client->cache_mutex);
     
     // Check if we have cached keys
     if (client->cached_keys.empty()) {
@@ -1178,23 +1184,42 @@ static bool is_cache_valid(mcp_auth_client_t client) {
 static bool get_jwks_keys(mcp_auth_client_t client, std::vector<jwks_key>& keys) {
     // Check if cache is valid
     if (is_cache_valid(client)) {
-        std::lock_guard<std::mutex> lock(client->cache_mutex);
+        // Use shared lock for reading cached data
+        std::shared_lock<std::shared_mutex> lock(client->cache_mutex);
         keys = client->cached_keys;
         return true;
     }
     
-    // Cache is invalid or expired, fetch new keys
-    return fetch_and_cache_jwks(client) && get_jwks_keys(client, keys);
+    // Prevent multiple simultaneous refreshes using atomic flag
+    bool expected = false;
+    if (client->refresh_in_progress.compare_exchange_strong(expected, true)) {
+        // This thread won the race to refresh
+        bool success = fetch_and_cache_jwks(client);
+        client->refresh_in_progress = false;
+        
+        if (success) {
+            // Read the newly cached keys
+            std::shared_lock<std::shared_mutex> lock(client->cache_mutex);
+            keys = client->cached_keys;
+            return true;
+        }
+        return false;
+    } else {
+        // Another thread is refreshing, wait a bit and retry
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        return get_jwks_keys(client, keys);
+    }
 }
 
 // Invalidate cache (for when validation fails with unknown kid)
 static void invalidate_cache(mcp_auth_client_t client) {
-    std::lock_guard<std::mutex> lock(client->cache_mutex);
+    // Use unique lock for write access
+    std::unique_lock<std::shared_mutex> lock(client->cache_mutex);
     client->cached_keys.clear();
     client->cache_timestamp = std::chrono::steady_clock::time_point();
 }
 
-// Fetch and cache JWKS keys
+// Fetch and cache JWKS keys (thread-safe)
 static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     std::string jwks_json;
     if (!fetch_jwks_json(client->jwks_uri, jwks_json, client->request_timeout)) {
@@ -1212,10 +1237,13 @@ static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
         return false;
     }
     
-    // Update cache
-    std::lock_guard<std::mutex> lock(client->cache_mutex);
-    client->cached_keys = std::move(keys);
-    client->cache_timestamp = std::chrono::steady_clock::now();
+    // Update cache atomically with exclusive lock
+    {
+        std::unique_lock<std::shared_mutex> lock(client->cache_mutex);
+        // Use swap for atomic update
+        client->cached_keys.swap(keys);
+        client->cache_timestamp = std::chrono::steady_clock::now();
+    }
     
     fprintf(stderr, "JWKS cache updated with %zu keys\n", client->cached_keys.size());
     for (const auto& key : client->cached_keys) {
@@ -1435,7 +1463,7 @@ mcp_auth_error_t mcp_auth_client_destroy(mcp_auth_client_t client) {
     
     // Clean up cached JWKS keys
     {
-        std::lock_guard<std::mutex> lock(client->cache_mutex);
+        std::unique_lock<std::shared_mutex> lock(client->cache_mutex);
         
         // Clear PEM strings in cached keys
         for (auto& key : client->cached_keys) {
