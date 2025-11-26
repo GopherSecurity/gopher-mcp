@@ -58,6 +58,50 @@ static void clear_error() {
 }
 
 // ========================================================================
+// Configuration Validation Utilities
+// ========================================================================
+
+// Validate URL format
+static bool is_valid_url(const std::string& url) {
+    if (url.empty()) {
+        return false;
+    }
+    
+    // Check for protocol
+    if (url.find("http://") != 0 && url.find("https://") != 0) {
+        return false;
+    }
+    
+    // Check for minimum URL structure (protocol://host)
+    size_t protocol_end = url.find("://");
+    if (protocol_end == std::string::npos) {
+        return false;
+    }
+    
+    // Check there's something after protocol
+    if (url.length() <= protocol_end + 3) {
+        return false;
+    }
+    
+    // Check for valid host part
+    std::string host_part = url.substr(protocol_end + 3);
+    if (host_part.empty() || host_part[0] == '/' || host_part[0] == ':') {
+        return false;
+    }
+    
+    return true;
+}
+
+// Normalize URL (remove trailing slash)
+static std::string normalize_url(const std::string& url) {
+    std::string normalized = url;
+    while (!normalized.empty() && normalized.back() == '/') {
+        normalized.pop_back();
+    }
+    return normalized;
+}
+
+// ========================================================================
 // Memory Management Utilities
 // ========================================================================
 
@@ -652,10 +696,10 @@ static bool http_get_with_retry(const std::string& url,
 }
 
 // Fetch JWKS from the specified URI with retry
-static bool fetch_jwks_json(const std::string& uri, std::string& response) {
+static bool fetch_jwks_json(const std::string& uri, std::string& response, int64_t timeout_seconds = 10) {
     http_client_config config;
-    config.timeout = 10L;
-    config.connect_timeout = 5L;
+    config.timeout = timeout_seconds;
+    config.connect_timeout = (timeout_seconds / 2 < 5) ? timeout_seconds / 2 : 5;
     config.verify_ssl = true;
     
     http_retry_config retry;
@@ -935,8 +979,9 @@ static bool split_jwt(const std::string& token,
 struct mcp_auth_client {
     std::string jwks_uri;
     std::string issuer;
-    int64_t cache_duration = 3600;
-    bool auto_refresh = true;
+    int64_t cache_duration = 3600;   // Default: 1 hour
+    bool auto_refresh = true;        // Default: enabled
+    int64_t request_timeout = 10;    // Default: 10 seconds
     
     // Cached JWT header info for last validated token
     std::string last_alg;
@@ -952,8 +997,13 @@ struct mcp_auth_client {
     std::mutex cache_mutex;
     
     mcp_auth_client(const char* uri, const char* iss) 
-        : jwks_uri(uri ? uri : "")
-        , issuer(iss ? iss : "") {}
+        : jwks_uri(uri ? normalize_url(uri) : "")
+        , issuer(iss ? normalize_url(iss) : "") {
+        // Apply configuration defaults
+        cache_duration = 3600;    // 1 hour default
+        auto_refresh = true;      // Auto-refresh enabled by default
+        request_timeout = 10;     // 10 seconds default
+    }
 };
 
 struct mcp_auth_validation_options {
@@ -1133,7 +1183,7 @@ static void invalidate_cache(mcp_auth_client_t client) {
 // Fetch and cache JWKS keys
 static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     std::string jwks_json;
-    if (!fetch_jwks_json(client->jwks_uri, jwks_json)) {
+    if (!fetch_jwks_json(client->jwks_uri, jwks_json, client->request_timeout)) {
         set_client_error(client, MCP_AUTH_ERROR_JWKS_FETCH_FAILED,
                         "Failed to fetch JWKS",
                         "URI: " + client->jwks_uri + ", Error: " + g_last_error);
@@ -1329,6 +1379,22 @@ mcp_auth_error_t mcp_auth_client_create(
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
+    // Validate JWKS URI format
+    if (!is_valid_url(jwks_uri)) {
+        set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                              "Invalid JWKS URI format",
+                              std::string("URI: ") + jwks_uri);
+        return MCP_AUTH_ERROR_INVALID_CONFIG;
+    }
+    
+    // Validate issuer URL format
+    if (!is_valid_url(issuer)) {
+        set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                              "Invalid issuer URL format",
+                              std::string("Issuer: ") + issuer);
+        return MCP_AUTH_ERROR_INVALID_CONFIG;
+    }
+    
     clear_error();
     
     try {
@@ -1406,13 +1472,45 @@ mcp_auth_error_t mcp_auth_client_set_option(
     clear_error();
     
     std::string opt(option);
-    if (opt == "cache_duration") {
-        client->cache_duration = std::stoll(value);
-    } else if (opt == "auto_refresh") {
-        client->auto_refresh = (std::string(value) == "true");
-    } else {
-        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Unknown option: " + opt);
-        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    std::string val(value);
+    
+    try {
+        if (opt == "cache_duration") {
+            int64_t duration = std::stoll(val);
+            if (duration < 0) {
+                set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                                      "Invalid cache duration",
+                                      "Duration must be non-negative: " + val);
+                return MCP_AUTH_ERROR_INVALID_CONFIG;
+            }
+            client->cache_duration = duration;
+            
+        } else if (opt == "auto_refresh") {
+            // Accept various boolean representations
+            std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+            client->auto_refresh = (val == "true" || val == "1" || val == "yes" || val == "on");
+            
+        } else if (opt == "request_timeout") {
+            int64_t timeout = std::stoll(val);
+            if (timeout <= 0 || timeout > 300) {  // Max 5 minutes
+                set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                                      "Invalid request timeout",
+                                      "Timeout must be between 1-300 seconds: " + val);
+                return MCP_AUTH_ERROR_INVALID_CONFIG;
+            }
+            client->request_timeout = timeout;
+            
+        } else {
+            set_error_with_context(MCP_AUTH_ERROR_INVALID_PARAMETER,
+                                  "Unknown configuration option",
+                                  "Option: " + opt);
+            return MCP_AUTH_ERROR_INVALID_PARAMETER;
+        }
+    } catch (const std::exception& e) {
+        set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG,
+                              "Failed to parse option value",
+                              "Option: " + opt + ", Value: " + val + ", Error: " + e.what());
+        return MCP_AUTH_ERROR_INVALID_CONFIG;
     }
     
     return MCP_AUTH_SUCCESS;
