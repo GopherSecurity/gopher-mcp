@@ -16,6 +16,8 @@
 #include <cstring>
 #include <mutex>
 #include <algorithm>
+#include <random>
+#include <thread>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
@@ -359,14 +361,156 @@ static bool http_get(const std::string& url,
     }
 }
 
-// Fetch JWKS from the specified URI
+// HTTP retry configuration
+struct http_retry_config {
+    int max_retries = 3;
+    int initial_delay_ms = 1000;  // 1 second
+    int max_delay_ms = 16000;      // 16 seconds
+    double backoff_multiplier = 2.0;
+    int jitter_ms = 500;           // Random jitter up to 500ms
+};
+
+// Check if HTTP status code is retryable
+static bool is_retryable_status(long http_code) {
+    // Retry on 5xx server errors and specific 4xx errors
+    return (http_code >= 500 && http_code < 600) || 
+           http_code == 408 ||  // Request Timeout
+           http_code == 429 ||  // Too Many Requests
+           http_code == 0;      // Network error (no HTTP response)
+}
+
+// Check if CURL error is retryable
+static bool is_retryable_curl_error(CURLcode code) {
+    switch (code) {
+        case CURLE_OPERATION_TIMEDOUT:
+        case CURLE_COULDNT_CONNECT:
+        case CURLE_COULDNT_RESOLVE_HOST:
+        case CURLE_COULDNT_RESOLVE_PROXY:
+        case CURLE_GOT_NOTHING:
+        case CURLE_SEND_ERROR:
+        case CURLE_RECV_ERROR:
+        case CURLE_HTTP2:
+        case CURLE_HTTP2_STREAM:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Add random jitter to delay
+static int add_jitter(int delay_ms, int max_jitter_ms) {
+    if (max_jitter_ms <= 0) {
+        return delay_ms;
+    }
+    
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, max_jitter_ms);
+    
+    return delay_ms + dis(gen);
+}
+
+// Perform HTTP GET request with retry logic
+static bool http_get_with_retry(const std::string& url,
+                                std::string& response,
+                                const http_client_config& config = http_client_config(),
+                                const http_retry_config& retry = http_retry_config()) {
+    
+    int delay_ms = retry.initial_delay_ms;
+    std::string last_error;
+    
+    for (int attempt = 0; attempt <= retry.max_retries; attempt++) {
+        // Clear response for each attempt
+        response.clear();
+        
+        // Store original error handler state
+        std::string saved_error = g_last_error;
+        mcp_auth_error_t saved_code = g_last_error_code;
+        
+        // Try the request
+        bool success = http_get(url, response, config);
+        
+        if (success) {
+            if (attempt > 0) {
+                fprintf(stderr, "HTTP request succeeded after %d retries\n", attempt);
+            }
+            return true;
+        }
+        
+        // Check if error is retryable
+        bool should_retry = false;
+        
+        // Get HTTP status code if available
+        long http_code = 0;
+        if (!response.empty()) {
+            // Response might contain error details
+            // For now, check the error code
+            if (saved_code == MCP_AUTH_ERROR_NETWORK_ERROR) {
+                should_retry = true;
+            } else if (saved_code == MCP_AUTH_ERROR_JWKS_FETCH_FAILED) {
+                // Parse HTTP code from error message if possible
+                size_t pos = saved_error.find("status ");
+                if (pos != std::string::npos) {
+                    try {
+                        http_code = std::stol(saved_error.substr(pos + 7, 3));
+                        should_retry = is_retryable_status(http_code);
+                    } catch (...) {
+                        // Couldn't parse status, don't retry
+                    }
+                }
+            }
+        } else {
+            // Network error, likely retryable
+            should_retry = (saved_code == MCP_AUTH_ERROR_NETWORK_ERROR);
+        }
+        
+        // Save the last error
+        last_error = saved_error;
+        
+        // Check if we should retry
+        if (!should_retry || attempt >= retry.max_retries) {
+            // Restore error state and fail
+            set_error(saved_code, last_error);
+            if (attempt > 0) {
+                g_last_error += " (failed after " + std::to_string(attempt + 1) + " attempts)";
+            }
+            return false;
+        }
+        
+        // Calculate delay with exponential backoff and jitter
+        int actual_delay = add_jitter(delay_ms, retry.jitter_ms);
+        
+        fprintf(stderr, "HTTP request failed (attempt %d/%d), retrying in %dms: %s\n",
+                attempt + 1, retry.max_retries + 1, actual_delay, last_error.c_str());
+        
+        // Sleep before retry
+        std::this_thread::sleep_for(std::chrono::milliseconds(actual_delay));
+        
+        // Increase delay for next attempt (exponential backoff)
+        delay_ms = static_cast<int>(delay_ms * retry.backoff_multiplier);
+        if (delay_ms > retry.max_delay_ms) {
+            delay_ms = retry.max_delay_ms;
+        }
+    }
+    
+    // Should never reach here, but just in case
+    set_error(MCP_AUTH_ERROR_NETWORK_ERROR, last_error + " (retry logic error)");
+    return false;
+}
+
+// Fetch JWKS from the specified URI with retry
 static bool fetch_jwks_json(const std::string& uri, std::string& response) {
     http_client_config config;
     config.timeout = 10L;
     config.connect_timeout = 5L;
     config.verify_ssl = true;
     
-    return http_get(uri, response, config);
+    http_retry_config retry;
+    retry.max_retries = 3;
+    retry.initial_delay_ms = 1000;
+    retry.jitter_ms = 500;
+    
+    return http_get_with_retry(uri, response, config, retry);
 }
 
 // Convert RSA components (n, e) to PEM format public key
