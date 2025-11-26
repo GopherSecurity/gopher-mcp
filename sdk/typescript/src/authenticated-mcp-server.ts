@@ -84,6 +84,10 @@ export class AuthenticatedMcpServer {
   constructor(config?: AuthenticatedMcpServerConfig) {
     // Merge provided config with environment variables
     const env = process.env;
+    
+    // Get the OAuth server URL from environment or config
+    const oauthServerUrl = config?.authServerUrl || env['OAUTH_SERVER_URL'] || env['GOPHER_AUTH_SERVER_URL'];
+    
     this.config = {
       // Server identification
       serverName: config?.serverName || env['SERVER_NAME'] || "mcp-server",
@@ -91,11 +95,11 @@ export class AuthenticatedMcpServer {
       serverUrl: config?.serverUrl || env['SERVER_URL'] || `http://localhost:${env['SERVER_PORT'] || '3001'}`,
       serverPort: config?.serverPort || parseInt(env['SERVER_PORT'] || env['HTTP_PORT'] || "3001"),
       
-      // Authentication - support both new and legacy env vars
+      // Authentication - these will be discovered if not provided
       jwksUri: config?.jwksUri || env['JWKS_URI'],
       tokenIssuer: config?.tokenIssuer || env['TOKEN_ISSUER'],
       tokenAudience: config?.tokenAudience || env['TOKEN_AUDIENCE'],
-      authServerUrl: config?.authServerUrl || env['GOPHER_AUTH_SERVER_URL'],
+      authServerUrl: oauthServerUrl,
       clientId: config?.clientId || env['GOPHER_CLIENT_ID'],
       clientSecret: config?.clientSecret || env['GOPHER_CLIENT_SECRET'],
       
@@ -195,6 +199,37 @@ export class AuthenticatedMcpServer {
    * Initialize authentication if configured
    */
   private async initializeAuth(): Promise<void> {
+    // Check if we have an OAuth server URL to discover from
+    if (this.config.authServerUrl && !this.config.jwksUri && !this.config.tokenIssuer) {
+      // Discover OAuth metadata
+      try {
+        const discoveryUrl = this.config.authServerUrl.includes('/realms/') 
+          ? `${this.config.authServerUrl}/.well-known/openid-configuration`
+          : `${this.config.authServerUrl}/.well-known/oauth-authorization-server`;
+        
+        console.error(`🔍 Discovering OAuth metadata from: ${discoveryUrl}`);
+        
+        const response = await fetch(discoveryUrl);
+        if (response.ok) {
+          const metadata = await response.json() as any;
+          
+          // Update config with discovered values
+          if (!this.config.jwksUri && metadata.jwks_uri) {
+            this.config.jwksUri = metadata.jwks_uri;
+            console.error(`   ✅ Discovered JWKS URI: ${metadata.jwks_uri}`);
+          }
+          if (!this.config.tokenIssuer && metadata.issuer) {
+            this.config.tokenIssuer = metadata.issuer;
+            console.error(`   ✅ Discovered Issuer: ${metadata.issuer}`);
+          }
+        } else {
+          console.error(`   ⚠️  OAuth discovery failed: ${response.status}`);
+        }
+      } catch (error) {
+        console.error(`   ⚠️  OAuth discovery error: ${error}`);
+      }
+    }
+    
     // Enable auth if JWKS URI or auth server URL is configured, regardless of REQUIRE_AUTH setting
     const jwksUri = this.config.jwksUri || 
                    (this.config.authServerUrl ? `${this.config.authServerUrl}/protocol/openid-connect/certs` : null);
@@ -202,11 +237,11 @@ export class AuthenticatedMcpServer {
     // Only skip auth if no JWKS URI is configured
     if (!jwksUri) {
       console.error("⚠️  Authentication disabled");
-      console.error("   Reason: No JWKS_URI or GOPHER_AUTH_SERVER_URL configured");
+      console.error("   Reason: No JWKS_URI or OAUTH_SERVER_URL configured");
       return;
     }
     
-    // Show that authentication WOULD be enabled if the C library was available
+    // Show that authentication is being enabled
     console.error("🔐 Authentication configuration detected");
     console.error(`   JWKS URI: ${jwksUri}`);
     console.error(`   Issuer: ${this.config.tokenIssuer || this.config.authServerUrl || "https://auth.example.com"}`);
@@ -790,10 +825,38 @@ export class AuthenticatedMcpServer {
           console.error(`   Request body:`, JSON.stringify(registrationRequest, null, 2));
           console.error(`   Headers:`, req.headers);
           
-          // Don't filter scopes - let Keycloak handle what scopes are allowed
-          // Just log what was requested
+          // Extract allowed scopes for filtering
+          const mcpScopes = this.extractScopesFromTools();
+          const allowedScopes = [
+            "openid",
+            "offline_access", 
+            "profile",
+            "email",
+            "address",
+            "phone",
+            "roles",
+            ...mcpScopes,
+            ...(this.config.additionalAllowedScopes || []),
+          ];
+          const uniqueAllowedScopes = [...new Set(allowedScopes)];
+          
+          // Filter scopes to only allow what's in our allowed list
           if (registrationRequest.scope) {
-            console.error(`   Requested scope: ${registrationRequest.scope}`);
+            console.error(`   Original scope: ${registrationRequest.scope}`);
+            const requestedScopes = registrationRequest.scope.split(' ');
+            const filteredScopes = requestedScopes.filter((scope: string) => 
+              uniqueAllowedScopes.includes(scope)
+            );
+            const removedScopes = requestedScopes.filter((scope: string) => 
+              !uniqueAllowedScopes.includes(scope)
+            );
+            
+            if (removedScopes.length > 0) {
+              console.error(`   🗑️  Filtered out invalid scopes: ${removedScopes.join(', ')}`);
+            }
+            
+            registrationRequest.scope = filteredScopes.join(' ');
+            console.error(`   ✅ Filtered scope: ${registrationRequest.scope}`);
           }
           
           // Forward to Keycloak

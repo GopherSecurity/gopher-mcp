@@ -14,9 +14,8 @@
 #include <atomic>
 #include <vector>
 #include <queue>
-#include <rapidjson/document.h>
-#include <rapidjson/writer.h>
-#include <rapidjson/stringbuffer.h>
+// RapidJSON would be used here for optimized parsing
+// For now, using simple JSON parsing
 #include <thread>
 
 namespace network_optimized {
@@ -297,62 +296,99 @@ public:
         return instance;
     }
     
-    // Parse JWKS response efficiently
+    // Parse JWKS response efficiently (simplified JSON parsing)
     bool parseJWKS(const std::string& json, 
                   std::vector<std::pair<std::string, std::string>>& keys) {
-        rapidjson::Document doc;
+        // Simple JSON parsing without external library
+        // In production, would use RapidJSON for better performance
         
-        // Use in-situ parsing for better performance (modifies input)
-        if (doc.ParseInsitu(const_cast<char*>(json.c_str())).HasParseError()) {
-            return false;
-        }
+        // Find "keys" array
+        size_t keys_pos = json.find("\"keys\"");
+        if (keys_pos == std::string::npos) return false;
         
-        if (!doc.HasMember("keys") || !doc["keys"].IsArray()) {
-            return false;
-        }
+        size_t array_start = json.find('[', keys_pos);
+        if (array_start == std::string::npos) return false;
         
-        const rapidjson::Value& keys_array = doc["keys"];
-        keys.reserve(keys_array.Size());
+        size_t array_end = json.find(']', array_start);
+        if (array_end == std::string::npos) return false;
         
-        for (rapidjson::SizeType i = 0; i < keys_array.Size(); i++) {
-            const rapidjson::Value& key = keys_array[i];
+        // Extract each key object
+        size_t pos = array_start + 1;
+        while (pos < array_end) {
+            size_t obj_start = json.find('{', pos);
+            if (obj_start == std::string::npos || obj_start >= array_end) break;
             
-            if (key.HasMember("kid") && key["kid"].IsString() &&
-                key.HasMember("x5c") && key["x5c"].IsArray() && 
-                key["x5c"].Size() > 0) {
-                
-                std::string kid = key["kid"].GetString();
-                std::string cert = key["x5c"][0].GetString();
-                
-                // Convert to PEM format
+            size_t obj_end = json.find('}', obj_start);
+            if (obj_end == std::string::npos || obj_end >= array_end) break;
+            
+            std::string obj = json.substr(obj_start, obj_end - obj_start + 1);
+            
+            // Extract kid
+            std::string kid;
+            size_t kid_pos = obj.find("\"kid\"");
+            if (kid_pos != std::string::npos) {
+                size_t value_start = obj.find('\"', kid_pos + 5);
+                if (value_start != std::string::npos) {
+                    size_t value_end = obj.find('\"', value_start + 1);
+                    if (value_end != std::string::npos) {
+                        kid = obj.substr(value_start + 1, value_end - value_start - 1);
+                    }
+                }
+            }
+            
+            // Extract x5c certificate
+            std::string cert;
+            size_t x5c_pos = obj.find("\"x5c\"");
+            if (x5c_pos != std::string::npos) {
+                size_t cert_start = obj.find('\"', obj.find('[', x5c_pos));
+                if (cert_start != std::string::npos) {
+                    size_t cert_end = obj.find('\"', cert_start + 1);
+                    if (cert_end != std::string::npos) {
+                        cert = obj.substr(cert_start + 1, cert_end - cert_start - 1);
+                    }
+                }
+            }
+            
+            if (!kid.empty() && !cert.empty()) {
                 std::string pem = "-----BEGIN CERTIFICATE-----\n" + cert + 
                                  "\n-----END CERTIFICATE-----";
-                
                 keys.emplace_back(std::move(kid), std::move(pem));
+            }
+            
+            pos = obj_end + 1;
+        }
+        
+        return !keys.empty();
+    }
+    
+    // Parse JWT header efficiently  
+    bool parseJWTHeader(const std::string& json,
+                       std::string& alg, std::string& kid) {
+        // Extract alg
+        size_t alg_pos = json.find("\"alg\"");
+        if (alg_pos != std::string::npos) {
+            size_t value_start = json.find('\"', alg_pos + 5);
+            if (value_start != std::string::npos) {
+                size_t value_end = json.find('\"', value_start + 1);
+                if (value_end != std::string::npos) {
+                    alg = json.substr(value_start + 1, value_end - value_start - 1);
+                }
             }
         }
         
-        return true;
-    }
-    
-    // Parse JWT header efficiently
-    bool parseJWTHeader(const std::string& json,
-                       std::string& alg, std::string& kid) {
-        rapidjson::Document doc;
-        
-        if (doc.Parse(json.c_str()).HasParseError()) {
-            return false;
+        // Extract kid
+        size_t kid_pos = json.find("\"kid\"");
+        if (kid_pos != std::string::npos) {
+            size_t value_start = json.find('\"', kid_pos + 5);
+            if (value_start != std::string::npos) {
+                size_t value_end = json.find('\"', value_start + 1);
+                if (value_end != std::string::npos) {
+                    kid = json.substr(value_start + 1, value_end - value_start - 1);
+                }
+            }
         }
         
-        if (doc.HasMember("alg") && doc["alg"].IsString()) {
-            alg = doc["alg"].GetString();
-        }
-        
-        if (doc.HasMember("kid") && doc["kid"].IsString()) {
-            kid = doc["kid"].GetString();
-        }
-        
-        return true;
+        return !alg.empty();
     }
 };
 
