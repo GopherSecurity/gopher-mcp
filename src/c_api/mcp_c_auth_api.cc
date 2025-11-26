@@ -47,6 +47,148 @@ static void clear_error() {
 }
 
 // ========================================================================
+// Memory Management Utilities
+// ========================================================================
+
+// Safe string duplication with error handling
+static char* safe_strdup(const std::string& str) {
+    if (str.empty()) {
+        return nullptr;
+    }
+    
+    size_t len = str.length() + 1;
+    char* result = static_cast<char*>(malloc(len));
+    if (!result) {
+        set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for string");
+        return nullptr;
+    }
+    
+    memcpy(result, str.c_str(), len);
+    return result;
+}
+
+// Safe memory allocation with error handling
+static void* safe_malloc(size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+    
+    void* result = malloc(size);
+    if (!result) {
+        set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, 
+                 "Failed to allocate " + std::to_string(size) + " bytes");
+        return nullptr;
+    }
+    
+    // Zero-initialize for safety
+    memset(result, 0, size);
+    return result;
+}
+
+// Safe memory reallocation
+static void* safe_realloc(void* ptr, size_t new_size) {
+    if (new_size == 0) {
+        free(ptr);
+        return nullptr;
+    }
+    
+    void* result = realloc(ptr, new_size);
+    if (!result && new_size > 0) {
+        set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, 
+                 "Failed to reallocate to " + std::to_string(new_size) + " bytes");
+        // Original pointer is still valid on realloc failure
+        return nullptr;
+    }
+    
+    return result;
+}
+
+// Secure memory cleanup for sensitive data
+static void secure_free(void* ptr, size_t size) {
+    if (ptr) {
+        // Overwrite memory before freeing (for sensitive data)
+        if (size > 0) {
+            volatile unsigned char* p = static_cast<volatile unsigned char*>(ptr);
+            while (size--) {
+                *p++ = 0;
+            }
+        }
+        free(ptr);
+    }
+}
+
+// RAII wrapper for C memory
+template<typename T>
+class c_memory_guard {
+private:
+    T* ptr;
+    size_t size;
+    bool secure;
+    
+public:
+    c_memory_guard(T* p = nullptr, size_t s = 0, bool sec = false) 
+        : ptr(p), size(s), secure(sec) {}
+    
+    ~c_memory_guard() {
+        if (ptr) {
+            if (secure && size > 0) {
+                secure_free(ptr, size);
+            } else {
+                free(ptr);
+            }
+        }
+    }
+    
+    // Disable copy
+    c_memory_guard(const c_memory_guard&) = delete;
+    c_memory_guard& operator=(const c_memory_guard&) = delete;
+    
+    // Enable move
+    c_memory_guard(c_memory_guard&& other) noexcept 
+        : ptr(other.ptr), size(other.size), secure(other.secure) {
+        other.ptr = nullptr;
+        other.size = 0;
+    }
+    
+    c_memory_guard& operator=(c_memory_guard&& other) noexcept {
+        if (this != &other) {
+            if (ptr) {
+                if (secure && size > 0) {
+                    secure_free(ptr, size);
+                } else {
+                    free(ptr);
+                }
+            }
+            ptr = other.ptr;
+            size = other.size;
+            secure = other.secure;
+            other.ptr = nullptr;
+            other.size = 0;
+        }
+        return *this;
+    }
+    
+    T* get() { return ptr; }
+    T* release() { 
+        T* p = ptr; 
+        ptr = nullptr; 
+        size = 0;
+        return p; 
+    }
+    void reset(T* p = nullptr, size_t s = 0) {
+        if (ptr) {
+            if (secure && size > 0) {
+                secure_free(ptr, size);
+            } else {
+                free(ptr);
+            }
+        }
+        ptr = p;
+        size = s;
+    }
+};
+
+// ========================================================================
 // Base64URL Decoding
 // ========================================================================
 
@@ -1313,7 +1455,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     std::string header_b64, payload_b64, signature_b64;
     if (!split_jwt(token, header_b64, payload_b64, signature_b64)) {
         result->error_code = g_last_error_code;
-        result->error_message = strdup(g_last_error.c_str());
+        result->error_message = safe_strdup(g_last_error);
         return g_last_error_code;
     }
     
@@ -1322,14 +1464,14 @@ mcp_auth_error_t mcp_auth_validate_token(
     if (header_json.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT header");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = strdup("Failed to decode JWT header");
+        result->error_message = safe_strdup("Failed to decode JWT header");
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
     std::string alg, kid;
     if (!parse_jwt_header(header_json, alg, kid)) {
         result->error_code = g_last_error_code;
-        result->error_message = strdup(g_last_error.c_str());
+        result->error_message = safe_strdup(g_last_error);
         return g_last_error_code;
     }
     
@@ -1342,7 +1484,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     if (payload_json.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT payload");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = strdup("Failed to decode JWT payload");
+        result->error_message = safe_strdup("Failed to decode JWT payload");
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
@@ -1350,7 +1492,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     mcp_auth_token_payload payload_data;
     if (!parse_jwt_payload(payload_json, &payload_data)) {
         result->error_code = g_last_error_code;
-        result->error_message = strdup(g_last_error.c_str());
+        result->error_message = safe_strdup(g_last_error);
         return g_last_error_code;
     }
     
@@ -1363,7 +1505,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     if (signature_raw.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT signature");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = strdup("Failed to decode JWT signature");
+        result->error_message = safe_strdup("Failed to decode JWT signature");
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
@@ -1382,7 +1524,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     
     if (!signature_valid) {
         result->error_code = g_last_error_code;
-        result->error_message = strdup(g_last_error.c_str());
+        result->error_message = safe_strdup(g_last_error);
         return g_last_error_code;
     }
     
@@ -1396,7 +1538,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (now > payload_data.expiration + clock_skew) {
             set_error(MCP_AUTH_ERROR_EXPIRED_TOKEN, "JWT has expired");
             result->error_code = MCP_AUTH_ERROR_EXPIRED_TOKEN;
-            result->error_message = strdup("JWT has expired");
+            result->error_message = safe_strdup("JWT has expired");
             return MCP_AUTH_ERROR_EXPIRED_TOKEN;
         }
     }
@@ -1409,7 +1551,7 @@ mcp_auth_error_t mcp_auth_validate_token(
             if (now < nbf - clock_skew) {
                 set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT not yet valid (nbf)");
                 result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-                result->error_message = strdup("JWT not yet valid (nbf)");
+                result->error_message = safe_strdup("JWT not yet valid (nbf)");
                 return MCP_AUTH_ERROR_INVALID_TOKEN;
             }
         } catch (...) {
@@ -1433,7 +1575,7 @@ mcp_auth_error_t mcp_auth_validate_token(
                 set_error(MCP_AUTH_ERROR_INVALID_ISSUER, 
                          "Invalid issuer. Expected: " + client->issuer + ", Got: " + payload_data.issuer);
                 result->error_code = MCP_AUTH_ERROR_INVALID_ISSUER;
-                result->error_message = strdup(g_last_error.c_str());
+                result->error_message = safe_strdup(g_last_error);
                 return MCP_AUTH_ERROR_INVALID_ISSUER;
             }
         }
@@ -1444,7 +1586,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (payload_data.audience.empty()) {
             set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, "JWT has no audience claim");
             result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
-            result->error_message = strdup("JWT has no audience claim");
+            result->error_message = safe_strdup("JWT has no audience claim");
             return MCP_AUTH_ERROR_INVALID_AUDIENCE;
         }
         
@@ -1454,7 +1596,7 @@ mcp_auth_error_t mcp_auth_validate_token(
             set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, 
                      "Invalid audience. Expected: " + options->audience + ", Got: " + payload_data.audience);
             result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
-            result->error_message = strdup(g_last_error.c_str());
+            result->error_message = safe_strdup(g_last_error);
             return MCP_AUTH_ERROR_INVALID_AUDIENCE;
         }
     }
@@ -1464,7 +1606,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (payload_data.scopes.empty()) {
             set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, "JWT has no scope claim");
             result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
-            result->error_message = strdup("JWT has no scope claim");
+            result->error_message = safe_strdup("JWT has no scope claim");
             return MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
         }
         
@@ -1473,7 +1615,7 @@ mcp_auth_error_t mcp_auth_validate_token(
             set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, 
                      "Insufficient scope. Required: " + options->scopes + ", Available: " + payload_data.scopes);
             result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
-            result->error_message = strdup(g_last_error.c_str());
+            result->error_message = safe_strdup(g_last_error);
             return MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
         }
     }
@@ -1535,7 +1677,7 @@ mcp_auth_error_t mcp_auth_payload_get_subject(
     }
     
     clear_error();
-    *value = strdup(payload->subject.c_str());
+    *value = safe_strdup(payload->subject);
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1554,7 +1696,7 @@ mcp_auth_error_t mcp_auth_payload_get_issuer(
     }
     
     clear_error();
-    *value = strdup(payload->issuer.c_str());
+    *value = safe_strdup(payload->issuer);
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1573,7 +1715,7 @@ mcp_auth_error_t mcp_auth_payload_get_audience(
     }
     
     clear_error();
-    *value = strdup(payload->audience.c_str());
+    *value = safe_strdup(payload->audience);
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1592,7 +1734,7 @@ mcp_auth_error_t mcp_auth_payload_get_scopes(
     }
     
     clear_error();
-    *value = strdup(payload->scopes.c_str());
+    *value = safe_strdup(payload->scopes);
     return MCP_AUTH_SUCCESS;
 }
 
@@ -1634,7 +1776,7 @@ mcp_auth_error_t mcp_auth_payload_get_claim(
     
     auto it = payload->claims.find(claim_name);
     if (it != payload->claims.end()) {
-        *value = strdup(it->second.c_str());
+        *value = safe_strdup(it->second);
     } else {
         *value = nullptr;
     }
@@ -1695,7 +1837,7 @@ mcp_auth_error_t mcp_auth_generate_www_authenticate(
         oss << " error_description=\"" << error_description << "\"";
     }
     
-    *header = strdup(oss.str().c_str());
+    *header = safe_strdup(oss.str());
     return MCP_AUTH_SUCCESS;
 }
 
