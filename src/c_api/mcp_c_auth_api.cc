@@ -78,40 +78,91 @@ static std::string base64url_decode(const std::string& encoded) {
 }
 
 // ========================================================================
-// Simple JSON Parser for JWT Header
+// Simple JSON Parser Utilities
 // ========================================================================
 
+// Extract a string value from JSON by key
+static bool extract_json_string(const std::string& json, const std::string& key, std::string& value) {
+    std::string search_key = "\"" + key + "\"";
+    size_t key_pos = json.find(search_key);
+    if (key_pos == std::string::npos) {
+        return false;
+    }
+    
+    size_t colon = json.find(':', key_pos);
+    if (colon == std::string::npos) {
+        return false;
+    }
+    
+    // Skip whitespace after colon
+    size_t val_start = colon + 1;
+    while (val_start < json.length() && std::isspace(json[val_start])) {
+        val_start++;
+    }
+    
+    if (val_start >= json.length()) {
+        return false;
+    }
+    
+    // Check if value is a string
+    if (json[val_start] == '"') {
+        size_t quote_end = json.find('"', val_start + 1);
+        if (quote_end != std::string::npos) {
+            value = json.substr(val_start + 1, quote_end - val_start - 1);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Extract a number value from JSON by key
+static bool extract_json_number(const std::string& json, const std::string& key, int64_t& value) {
+    std::string search_key = "\"" + key + "\"";
+    size_t key_pos = json.find(search_key);
+    if (key_pos == std::string::npos) {
+        return false;
+    }
+    
+    size_t colon = json.find(':', key_pos);
+    if (colon == std::string::npos) {
+        return false;
+    }
+    
+    // Skip whitespace after colon
+    size_t val_start = colon + 1;
+    while (val_start < json.length() && std::isspace(json[val_start])) {
+        val_start++;
+    }
+    
+    if (val_start >= json.length()) {
+        return false;
+    }
+    
+    // Find end of number (comma, space, or })
+    size_t val_end = val_start;
+    while (val_end < json.length() && 
+           (std::isdigit(json[val_end]) || json[val_end] == '-' || json[val_end] == '.')) {
+        val_end++;
+    }
+    
+    if (val_end > val_start) {
+        std::string num_str = json.substr(val_start, val_end - val_start);
+        try {
+            value = std::stoll(num_str);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+    
+    return false;
+}
+
 static bool parse_jwt_header(const std::string& header_json, std::string& alg, std::string& kid) {
-    // Simple JSON parsing for header fields
-    // Looking for "alg":"RS256" and "kid":"key-id" patterns
-    
-    size_t alg_pos = header_json.find("\"alg\"");
-    if (alg_pos != std::string::npos) {
-        size_t colon = header_json.find(':', alg_pos);
-        if (colon != std::string::npos) {
-            size_t quote1 = header_json.find('"', colon);
-            if (quote1 != std::string::npos) {
-                size_t quote2 = header_json.find('"', quote1 + 1);
-                if (quote2 != std::string::npos) {
-                    alg = header_json.substr(quote1 + 1, quote2 - quote1 - 1);
-                }
-            }
-        }
-    }
-    
-    size_t kid_pos = header_json.find("\"kid\"");
-    if (kid_pos != std::string::npos) {
-        size_t colon = header_json.find(':', kid_pos);
-        if (colon != std::string::npos) {
-            size_t quote1 = header_json.find('"', colon);
-            if (quote1 != std::string::npos) {
-                size_t quote2 = header_json.find('"', quote1 + 1);
-                if (quote2 != std::string::npos) {
-                    kid = header_json.substr(quote1 + 1, quote2 - quote1 - 1);
-                }
-            }
-        }
-    }
+    // Use helper functions to extract header fields
+    extract_json_string(header_json, "alg", alg);
+    extract_json_string(header_json, "kid", kid);  // kid is optional
     
     // Validate algorithm
     if (alg.empty()) {
@@ -127,6 +178,9 @@ static bool parse_jwt_header(const std::string& header_json, std::string& alg, s
     
     return true;
 }
+
+// Forward declaration for JWT payload parsing
+static bool parse_jwt_payload(const std::string& payload_json, mcp_auth_token_payload* payload);
 
 // Split JWT into parts
 static bool split_jwt(const std::string& token, 
@@ -202,17 +256,97 @@ struct mcp_auth_token_payload {
             return false;
         }
         
-        // TODO: Parse payload JSON in Prompt 2
-        // For now, populate with test data
-        subject = "test-subject";
-        issuer = "http://localhost:8080/realms/gopher-auth";
-        audience = "mcp-server";
-        scopes = "openid mcp:weather";
-        expiration = std::chrono::system_clock::now().time_since_epoch().count() + 3600;
-        
-        return true;
+        // Parse the payload JSON
+        return parse_jwt_payload(payload_json, this);
     }
 };
+
+// ========================================================================
+// JWT Payload Parsing Implementation
+// ========================================================================
+
+static bool parse_jwt_payload(const std::string& payload_json, mcp_auth_token_payload* payload) {
+    // Extract standard JWT claims
+    extract_json_string(payload_json, "sub", payload->subject);
+    extract_json_string(payload_json, "iss", payload->issuer);
+    
+    // Handle audience - can be string or array
+    if (!extract_json_string(payload_json, "aud", payload->audience)) {
+        // Try to extract first element if it's an array
+        size_t aud_pos = payload_json.find("\"aud\"");
+        if (aud_pos != std::string::npos) {
+            size_t colon = payload_json.find(':', aud_pos);
+            if (colon != std::string::npos) {
+                size_t bracket = payload_json.find('[', colon);
+                if (bracket != std::string::npos && bracket - colon < 5) {
+                    // It's an array, try to get first element
+                    size_t quote1 = payload_json.find('"', bracket);
+                    if (quote1 != std::string::npos) {
+                        size_t quote2 = payload_json.find('"', quote1 + 1);
+                        if (quote2 != std::string::npos) {
+                            payload->audience = payload_json.substr(quote1 + 1, quote2 - quote1 - 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Extract expiration and issued at times
+    extract_json_number(payload_json, "exp", payload->expiration);
+    int64_t iat = 0;
+    if (extract_json_number(payload_json, "iat", iat)) {
+        // Store iat in claims for reference
+        payload->claims["iat"] = std::to_string(iat);
+    }
+    
+    // Extract not before time if present
+    int64_t nbf = 0;
+    if (extract_json_number(payload_json, "nbf", nbf)) {
+        payload->claims["nbf"] = std::to_string(nbf);
+    }
+    
+    // Extract scope claim (OAuth 2.0 standard)
+    extract_json_string(payload_json, "scope", payload->scopes);
+    
+    // Also try scopes (some implementations use this)
+    if (payload->scopes.empty()) {
+        extract_json_string(payload_json, "scopes", payload->scopes);
+    }
+    
+    // Extract additional custom claims that might be useful
+    std::string email, name, org_id, server_id;
+    if (extract_json_string(payload_json, "email", email)) {
+        payload->claims["email"] = email;
+    }
+    if (extract_json_string(payload_json, "name", name)) {
+        payload->claims["name"] = name;
+    }
+    if (extract_json_string(payload_json, "organization_id", org_id)) {
+        payload->claims["organization_id"] = org_id;
+    }
+    if (extract_json_string(payload_json, "server_id", server_id)) {
+        payload->claims["server_id"] = server_id;
+    }
+    
+    // Validate required fields
+    if (payload->subject.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT payload missing 'sub' claim");
+        return false;
+    }
+    
+    if (payload->issuer.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT payload missing 'iss' claim");
+        return false;
+    }
+    
+    if (payload->expiration == 0) {
+        set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT payload missing 'exp' claim");
+        return false;
+    }
+    
+    return true;
+}
 
 struct mcp_auth_metadata {
     std::string resource;
@@ -487,7 +621,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     client->last_alg = alg;
     client->last_kid = kid;
     
-    // Step 3: Decode payload (will be parsed in next prompt)
+    // Step 3: Decode and parse payload
     std::string payload_json = base64url_decode(payload_b64);
     if (payload_json.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT payload");
@@ -496,12 +630,28 @@ mcp_auth_error_t mcp_auth_validate_token(
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
-    // TODO: Step 4: Parse payload claims (Prompt 2)
-    // TODO: Step 5: Fetch JWKS and verify signature (Prompt 3-6)
-    // TODO: Step 6: Validate claims (exp, iss, aud, scopes) (Prompt 7-10)
+    // Parse payload claims
+    mcp_auth_token_payload payload_data;
+    if (!parse_jwt_payload(payload_json, &payload_data)) {
+        result->error_code = g_last_error_code;
+        result->error_message = strdup(g_last_error.c_str());
+        return g_last_error_code;
+    }
     
-    // For now, accept token if we successfully parsed the header
-    // This allows testing the header parsing implementation
+    // TODO: Step 4: Fetch JWKS and verify signature
+    // TODO: Step 5: Validate claims (exp, iss, aud, scopes)
+    
+    // For now, accept token if we successfully parsed header and payload
+    // This allows testing the parsing implementation
+    fprintf(stderr, "JWT Token parsed successfully:\n");
+    fprintf(stderr, "  Algorithm: %s\n", alg.c_str());
+    fprintf(stderr, "  Key ID: %s\n", kid.c_str());
+    fprintf(stderr, "  Subject: %s\n", payload_data.subject.c_str());
+    fprintf(stderr, "  Issuer: %s\n", payload_data.issuer.c_str());
+    fprintf(stderr, "  Audience: %s\n", payload_data.audience.c_str());
+    fprintf(stderr, "  Scopes: %s\n", payload_data.scopes.c_str());
+    fprintf(stderr, "  Expiration: %lld\n", payload_data.expiration);
+    
     result->valid = true;
     result->error_code = MCP_AUTH_SUCCESS;
     
