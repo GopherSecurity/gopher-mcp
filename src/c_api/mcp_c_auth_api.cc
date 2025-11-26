@@ -737,6 +737,88 @@ static bool fetch_and_cache_jwks(mcp_auth_client_t client) {
     return true;
 }
 
+// Find key by kid from cached JWKS
+static bool find_key_by_kid(mcp_auth_client_t client, const std::string& kid, jwks_key& key) {
+    std::vector<jwks_key> keys;
+    if (!get_jwks_keys(client, keys)) {
+        return false;
+    }
+    
+    // Look for exact kid match
+    for (const auto& k : keys) {
+        if (k.kid == kid) {
+            key = k;
+            return true;
+        }
+    }
+    
+    // If no match found and auto-refresh is enabled, try fetching fresh keys
+    if (client->auto_refresh) {
+        fprintf(stderr, "Key with kid '%s' not found, refreshing JWKS cache\n", kid.c_str());
+        invalidate_cache(client);
+        
+        if (get_jwks_keys(client, keys)) {
+            // Try again with fresh keys
+            for (const auto& k : keys) {
+                if (k.kid == kid) {
+                    key = k;
+                    return true;
+                }
+            }
+        }
+    }
+    
+    set_error(MCP_AUTH_ERROR_INVALID_KEY, "No key found with kid: " + kid);
+    return false;
+}
+
+// Try all available keys when no kid is specified
+static bool try_all_keys(mcp_auth_client_t client, 
+                         const std::string& signing_input,
+                         const std::string& signature,
+                         const std::string& algorithm) {
+    std::vector<jwks_key> keys;
+    if (!get_jwks_keys(client, keys)) {
+        return false;
+    }
+    
+    // Try each key that matches the algorithm
+    for (const auto& key : keys) {
+        // Skip if algorithm doesn't match (if specified in JWK)
+        if (!key.alg.empty() && key.alg != algorithm) {
+            continue;
+        }
+        
+        // Try to verify with this key
+        if (verify_rsa_signature(signing_input, signature, key.pem, algorithm)) {
+            fprintf(stderr, "Successfully verified with key kid=%s\n", key.kid.c_str());
+            return true;
+        }
+    }
+    
+    // If auto-refresh enabled and no key worked, try refreshing once
+    if (client->auto_refresh) {
+        fprintf(stderr, "No key could verify signature, refreshing JWKS cache\n");
+        invalidate_cache(client);
+        
+        if (get_jwks_keys(client, keys)) {
+            for (const auto& key : keys) {
+                if (!key.alg.empty() && key.alg != algorithm) {
+                    continue;
+                }
+                
+                if (verify_rsa_signature(signing_input, signature, key.pem, algorithm)) {
+                    fprintf(stderr, "Successfully verified with key kid=%s after refresh\n", key.kid.c_str());
+                    return true;
+                }
+            }
+        }
+    }
+    
+    set_error(MCP_AUTH_ERROR_INVALID_SIGNATURE, "No key could verify the JWT signature");
+    return false;
+}
+
 // ========================================================================
 // Library Initialization
 // ========================================================================
@@ -1021,13 +1103,9 @@ mcp_auth_error_t mcp_auth_validate_token(
         return g_last_error_code;
     }
     
-    // Step 4: Verify signature (for now with a dummy key, real JWKS in next task)
+    // Step 4: Verify signature
     // Create the signing input (header.payload)
     std::string signing_input = header_b64 + "." + payload_b64;
-    
-    // TODO: Fetch JWKS and get proper public key (Task 4)
-    // For now, we'll implement the signature verification logic
-    // but skip actual verification until we have JWKS fetching
     
     // Decode signature from base64url
     std::string signature_raw = base64url_decode(signature_b64);
@@ -1038,10 +1116,28 @@ mcp_auth_error_t mcp_auth_validate_token(
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
+    // Verify signature using JWKS
+    bool signature_valid = false;
+    if (!kid.empty()) {
+        // Use specific key by kid
+        jwks_key key;
+        if (find_key_by_kid(client, kid, key)) {
+            signature_valid = verify_rsa_signature(signing_input, signature_raw, key.pem, alg);
+        }
+    } else {
+        // No kid specified, try all keys
+        signature_valid = try_all_keys(client, signing_input, signature_raw, alg);
+    }
+    
+    if (!signature_valid) {
+        result->error_code = g_last_error_code;
+        result->error_message = strdup(g_last_error.c_str());
+        return g_last_error_code;
+    }
+    
     // TODO: Step 5: Validate claims (exp, iss, aud, scopes) (Tasks 7-10)
     
-    // For now, accept token if we successfully parsed everything
-    // Real signature verification will be completed when we have JWKS support
+    // Token is valid if signature verified
     result->valid = true;
     result->error_code = MCP_AUTH_SUCCESS;
     
