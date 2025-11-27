@@ -8,8 +8,9 @@ add_subdirectory(filter)
 add_executable(test_auth_types auth/test_auth_types.cc)
 add_executable(benchmark_jwt_validation auth/benchmark_jwt_validation.cc)
 add_executable(test_memory_cache auth/test_memory_cache.cc)
-add_executable(test_http_client auth/test_http_client.cc)
-add_executable(test_jwks_client auth/test_jwks_client.cc)
+# Tests for old stub implementations - disabled after moving to complete implementation
+# add_executable(test_http_client auth/test_http_client.cc)
+# add_executable(test_jwks_client auth/test_jwks_client.cc)
 add_executable(test_keycloak_integration auth/test_keycloak_integration.cc)
 add_executable(test_mcp_inspector_flow auth/test_mcp_inspector_flow.cc)
 add_executable(benchmark_crypto_optimization auth/benchmark_crypto_optimization.cc)
@@ -171,19 +172,19 @@ target_link_libraries(test_memory_cache
     Threads::Threads
 )
 
-target_link_libraries(test_http_client
-    gopher-mcp
-    gtest 
-    gtest_main
-    Threads::Threads
-)
+# target_link_libraries(test_http_client
+#     gopher-mcp
+#     gtest 
+#     gtest_main
+#     Threads::Threads
+# )
 
-target_link_libraries(test_jwks_client
-    gopher-mcp
-    gtest 
-    gtest_main
-    Threads::Threads
-)
+# target_link_libraries(test_jwks_client
+#     gopher-mcp
+#     gtest 
+#     gtest_main
+#     Threads::Threads
+# )
 
 target_link_libraries(test_keycloak_integration
     gopher_mcp_c
@@ -1127,8 +1128,8 @@ target_link_libraries(test_event_handling
 add_test(NAME AuthTypesTest COMMAND test_auth_types)
 add_test(NAME JwtValidationBenchmark COMMAND benchmark_jwt_validation)
 add_test(NAME MemoryCacheTest COMMAND test_memory_cache)
-add_test(NAME HttpClientTest COMMAND test_http_client)
-add_test(NAME JwksClientTest COMMAND test_jwks_client)
+# add_test(NAME HttpClientTest COMMAND test_http_client)
+# add_test(NAME JwksClientTest COMMAND test_jwks_client)
 
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)

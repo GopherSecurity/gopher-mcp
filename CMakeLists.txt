@@ -347,9 +347,8 @@ message(STATUS "")
 
 # Source files - split core from client/server to avoid circular deps
 set(MCP_CORE_SOURCES
-    src/auth/http_client.cc
-    src/auth/jwks_client.cc
-    src/auth/auth_c_api.cc
+    # Auth implementation is now in src/auth/mcp_auth_implementation.cc
+    # and is included via src/c_api/CMakeLists.txt in the gopher_mcp_c library
     src/buffer/buffer_impl.cc
     src/json/json_bridge.cc
     src/json/json_serialization.cc

@@ -35,8 +35,8 @@ set(MCP_C_API_SOURCES
     # Logging API with RAII
     mcp_c_logging_api.cc         # FFI-safe logging API with RAII
     
-    # Authentication API
-    mcp_c_auth_api.cc            # JWT validation and OAuth support
+    # Authentication API (moved to src/auth for better organization)
+    ../auth/mcp_auth_implementation.cc  # JWT validation and OAuth support
     mcp_c_auth_api_crypto_optimized.cc  # Optimized cryptographic operations
     mcp_c_auth_api_network_optimized.cc # Optimized network operations
     
