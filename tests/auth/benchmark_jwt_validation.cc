@@ -22,7 +22,6 @@
 #include "gtest/gtest.h"
 #include "mcp/auth/auth_c_api.h"
 #include "mcp/auth/memory_cache.h"
-#include "mcp/auth/jwt_validator.h"
 
 namespace mcp::auth::test {
 
