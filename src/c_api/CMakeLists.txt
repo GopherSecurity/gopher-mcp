@@ -37,8 +37,8 @@ set(MCP_C_API_SOURCES
     
     # Authentication API (moved to src/auth for better organization)
     ../auth/mcp_auth_implementation.cc  # JWT validation and OAuth support
-    mcp_c_auth_api_crypto_optimized.cc  # Optimized cryptographic operations
-    mcp_c_auth_api_network_optimized.cc # Optimized network operations
+    ../auth/mcp_auth_crypto_optimized.cc  # Optimized cryptographic operations
+    ../auth/mcp_auth_network_optimized.cc # Optimized network operations
     
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
