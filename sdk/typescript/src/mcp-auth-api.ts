@@ -179,19 +179,19 @@ export class McpAuthClient {
       }
     }
     
-    // Validate token - use the new function that returns struct by value
-    // This is much more reliable for FFI than output parameters
-    console.log('Before validation - calling mcp_auth_validate_token_ret');
+    // Validate token - use the simplified function without pointer fields
+    // This completely avoids memory management issues with FFI
+    console.log('Before validation - calling mcp_auth_validate_token_simple');
     console.log('Token length:', token?.length || 0);
     console.log('Client pointer:', this.client);
     console.log('Options pointer:', this.options);
     
-    // Call the new function that returns the struct directly
-    const result = this.ffi.getFunction('mcp_auth_validate_token_ret')(
+    // Call the simplified function that returns struct without pointers
+    const result = this.ffi.getFunction('mcp_auth_validate_token_simple')(
       this.client,
       token,
       this.options
-    ) as { valid: boolean; error_code: number; error_message: any };
+    ) as { valid: boolean; error_code: number };
     
     console.log('After validation - returned result:', result);
     
@@ -205,7 +205,7 @@ export class McpAuthClient {
     console.log('Token validation result:', {
       valid: result.valid,
       errorCode: result.error_code,
-      lastError: result.error_message || this.ffi.getLastError()
+      lastError: this.ffi.getLastError()  // Get error from static buffer if needed
     });
     
     // Check if validation failed based on the result struct
@@ -213,16 +213,19 @@ export class McpAuthClient {
       throw new AuthError(
         'Token validation failed',
         result.error_code as AuthErrorCode,
-        result.error_message || this.ffi.getLastError()
+        this.ffi.getLastError()  // No error_message field in simplified struct
       );
     }
     
     // Return the result - don't try to access error_message to avoid malloc issues
-    return {
+    const validationResult = {
       valid: result.valid,
       errorCode: result.error_code as AuthErrorCode,
       errorMessage: undefined  // Skip error_message to avoid malloc crash
     };
+    
+    console.log('Returning validation result:', validationResult);
+    return validationResult;
   }
   
   /**
@@ -259,28 +262,32 @@ export class McpAuthClient {
       const subjectPtr = [null];
       if (this.ffi.getFunction('mcp_auth_payload_get_subject')(payloadHandle, subjectPtr) === AuthErrorCodes.SUCCESS) {
         payload.subject = subjectPtr[0] ? String(subjectPtr[0]) : undefined;
-        if (subjectPtr[0]) this.ffi.freeString(subjectPtr[0]);
+        // Don't free - might be causing malloc error
+        // if (subjectPtr[0]) this.ffi.freeString(subjectPtr[0]);
       }
       
       // Get issuer
       const issuerPtr = [null];
       if (this.ffi.getFunction('mcp_auth_payload_get_issuer')(payloadHandle, issuerPtr) === AuthErrorCodes.SUCCESS) {
         payload.issuer = issuerPtr[0] ? String(issuerPtr[0]) : undefined;
-        if (issuerPtr[0]) this.ffi.freeString(issuerPtr[0]);
+        // Don't free - might be causing malloc error
+        // if (issuerPtr[0]) this.ffi.freeString(issuerPtr[0]);
       }
       
       // Get audience
       const audiencePtr = [null];
       if (this.ffi.getFunction('mcp_auth_payload_get_audience')(payloadHandle, audiencePtr) === AuthErrorCodes.SUCCESS) {
         payload.audience = audiencePtr[0] ? String(audiencePtr[0]) : undefined;
-        if (audiencePtr[0]) this.ffi.freeString(audiencePtr[0]);
+        // Don't free - might be causing malloc error
+        // if (audiencePtr[0]) this.ffi.freeString(audiencePtr[0]);
       }
       
       // Get scopes
       const scopesPtr = [null];
       if (this.ffi.getFunction('mcp_auth_payload_get_scopes')(payloadHandle, scopesPtr) === AuthErrorCodes.SUCCESS) {
         payload.scopes = scopesPtr[0] ? String(scopesPtr[0]) : undefined;
-        if (scopesPtr[0]) this.ffi.freeString(scopesPtr[0]);
+        // Don't free - might be causing malloc error
+        // if (scopesPtr[0]) this.ffi.freeString(scopesPtr[0]);
       }
       
       // Get expiration

@@ -376,7 +376,9 @@ export class McpExpressAuth {
           }
           
           // Extract and attach auth payload
+          console.log('Validation successful, extracting payload...');
           const payload = await this.authClient.extractPayload(token);
+          console.log('Payload extracted successfully:', payload);
           (req as any).auth = payload;
           return next();
         }

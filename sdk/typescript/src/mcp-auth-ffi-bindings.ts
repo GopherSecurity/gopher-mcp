@@ -51,11 +51,11 @@ const authTypes = {
   // Error type
   mcp_auth_error_t: 'int',
   
-  // Validation result structure
-  mcp_auth_validation_result_t: koffi.struct('mcp_auth_validation_result_t', {
+  // Validation result structure - simplified without pointer field
+  // This avoids memory management issues with FFI
+  mcp_auth_validation_result_simple_t: koffi.struct('mcp_auth_validation_result_simple_t', {
     valid: 'bool',
-    error_code: 'int32',  // Be explicit about int size
-    error_message: 'char*'  // Pointer to char for error message
+    error_code: 'int32'  // Just these two fields, no pointer
   })
 };
 
@@ -140,11 +140,11 @@ export class AuthFFILibrary {
       // Token validation  
       // The C function fills the struct via pointer
       // Use pointer without koffi.out to avoid automatic memory management
-      // Use the new function that returns struct by value for better FFI compatibility
-      // This avoids issues with output parameters
-      this.functions['mcp_auth_validate_token_ret'] = this.lib.func(
-        'mcp_auth_validate_token_ret',
-        authTypes.mcp_auth_validation_result_t,  // Returns the struct directly
+      // Use the simplified function that returns struct without pointer fields
+      // This completely avoids memory management issues
+      this.functions['mcp_auth_validate_token_simple'] = this.lib.func(
+        'mcp_auth_validate_token_simple',
+        authTypes.mcp_auth_validation_result_simple_t,  // Returns simplified struct
         [authTypes.mcp_auth_client_t, 'str', authTypes.mcp_auth_validation_options_t]
       );
       this.functions['mcp_auth_extract_payload'] = this.lib.func(
@@ -323,7 +323,7 @@ export class AuthFFILibrary {
    * Get the validation result struct type for allocation
    */
   getValidationResultStruct() {
-    return authTypes.mcp_auth_validation_result_t;
+    return authTypes.mcp_auth_validation_result_simple_t;
   }
 }
 

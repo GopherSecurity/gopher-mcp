@@ -1962,7 +1962,40 @@ mcp_auth_error_t mcp_auth_validate_token(
     return MCP_AUTH_SUCCESS;
 }
 
-// New function that returns validation result by value for better FFI compatibility
+// Simplified struct for FFI - no pointer fields
+typedef struct {
+    bool valid;
+    int32_t error_code;
+} mcp_auth_validation_result_simple_t;
+
+// New function that returns simplified result by value for FFI
+extern "C" mcp_auth_validation_result_simple_t mcp_auth_validate_token_simple(
+    mcp_auth_client_t client,
+    const char* token,
+    mcp_auth_validation_options_t options) {
+    
+    fprintf(stderr, "C++: mcp_auth_validate_token_simple called\n");
+    
+    // Create full result struct
+    mcp_auth_validation_result_t full_result;
+    full_result.valid = false;
+    full_result.error_code = MCP_AUTH_SUCCESS;
+    full_result.error_message = nullptr;
+    
+    // Call the original function
+    mcp_auth_error_t err = mcp_auth_validate_token(client, token, options, &full_result);
+    
+    // Create simplified result to return (no pointers)
+    mcp_auth_validation_result_simple_t simple_result;
+    simple_result.valid = full_result.valid;
+    simple_result.error_code = (err != MCP_AUTH_SUCCESS) ? err : full_result.error_code;
+    
+    fprintf(stderr, "C++: Returning simple result - valid=%d, error_code=%d\n", 
+            simple_result.valid, simple_result.error_code);
+    return simple_result;
+}
+
+// Keep the original function for compatibility
 mcp_auth_validation_result_t mcp_auth_validate_token_ret(
     mcp_auth_client_t client,
     const char* token,
