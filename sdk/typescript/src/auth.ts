@@ -25,6 +25,13 @@ export {
   type AuthenticatedMcpServerConfig
 } from './authenticated-mcp-server';
 
+// Export Express-style authentication APIs
+export {
+  McpExpressAuth,
+  type ExpressMiddlewareOptions,
+  type OAuthProxyOptions
+} from './express-auth';
+
 // Export FFI bindings for advanced users
 export {
   getAuthFFI,

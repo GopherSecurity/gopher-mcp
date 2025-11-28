@@ -35,10 +35,8 @@ set(MCP_C_API_SOURCES
     # Logging API with RAII
     mcp_c_logging_api.cc         # FFI-safe logging API with RAII
     
-    # Authentication API (moved to src/auth for better organization)
-    ../auth/mcp_auth_implementation.cc  # JWT validation and OAuth support
-    ../auth/mcp_auth_crypto_optimized.cc  # Optimized cryptographic operations
-    ../auth/mcp_auth_network_optimized.cc # Optimized network operations
+    # Authentication API - using C API implementation
+    mcp_c_auth_api.cc  # Complete C API for authentication functions (includes all auth functionality)
     
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions

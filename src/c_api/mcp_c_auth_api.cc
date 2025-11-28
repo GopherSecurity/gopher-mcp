@@ -1352,13 +1352,11 @@ static bool try_all_keys(mcp_auth_client_t client,
 void mcp_auth_free_string(char* str);
 
 // Clean up validation result error message
-static void cleanup_validation_result(mcp_auth_validation_result_t* result) {
-    if (result && result->error_message) {
-        // The error_message was allocated with safe_strdup
-        mcp_auth_free_string(const_cast<char*>(result->error_message));
-        result->error_message = nullptr;
-    }
-}
+// NOTE: No longer needed since we use static buffers and string literals
+// The error_message field now points to either:
+// 1. Static thread-local buffer from mcp_auth_get_last_error()
+// 2. String literals for common errors
+// Both have automatic lifetime management and don't need explicit cleanup
 
 // ========================================================================
 // Library Initialization
@@ -1759,7 +1757,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (result) {
             result->valid = false;
             result->error_code = MCP_AUTH_ERROR_INVALID_PARAMETER;
-            result->error_message = "Invalid parameters";
+            result->error_message = mcp_auth_get_last_error();  // Use static buffer
         }
         set_client_error(client, MCP_AUTH_ERROR_INVALID_PARAMETER,
                         "Invalid parameters for token validation", context);
@@ -1769,31 +1767,36 @@ mcp_auth_error_t mcp_auth_validate_token(
     clear_error();
     
     // Initialize result
+    fprintf(stderr, "C++: Initializing result struct at %p\n", (void*)result);
     result->valid = false;
     result->error_code = MCP_AUTH_SUCCESS;
     result->error_message = nullptr;
+    fprintf(stderr, "C++: Initial values - valid=%d, error_code=%d\n", result->valid, result->error_code);
     
     // Step 1: Parse JWT components
+    fprintf(stderr, "C++: Step 1 - Parsing JWT components\n");
     std::string header_b64, payload_b64, signature_b64;
     if (!split_jwt(token, header_b64, payload_b64, signature_b64)) {
+        fprintf(stderr, "C++: Failed to split JWT\n");
         result->error_code = g_last_error_code;
-        result->error_message = safe_strdup(g_last_error);
+        result->error_message = mcp_auth_get_last_error();  // Use static buffer
         return g_last_error_code;
     }
+    fprintf(stderr, "C++: Successfully split JWT into components\n");
     
     // Step 2: Decode and parse header
     std::string header_json = base64url_decode(header_b64);
     if (header_json.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT header");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = safe_strdup("Failed to decode JWT header");
+        result->error_message = "Failed to decode JWT header";  // Use string literal
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
     std::string alg, kid;
     if (!parse_jwt_header(header_json, alg, kid)) {
         result->error_code = g_last_error_code;
-        result->error_message = safe_strdup(g_last_error);
+        result->error_message = mcp_auth_get_last_error();  // Use static buffer
         return g_last_error_code;
     }
     
@@ -1802,23 +1805,27 @@ mcp_auth_error_t mcp_auth_validate_token(
     client->last_kid = kid;
     
     // Step 3: Decode and parse payload
+    fprintf(stderr, "C++: Step 3 - Decoding payload\n");
     std::string payload_json = base64url_decode(payload_b64);
     if (payload_json.empty()) {
+        fprintf(stderr, "C++: Failed to decode payload\n");
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT payload");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = safe_strdup("Failed to decode JWT payload");
+        result->error_message = "Failed to decode JWT payload";  // Use string literal
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
+    fprintf(stderr, "C++: Successfully decoded payload\n");
     
     // Parse payload claims
     mcp_auth_token_payload payload_data;
     if (!parse_jwt_payload(payload_json, &payload_data)) {
         result->error_code = g_last_error_code;
-        result->error_message = safe_strdup(g_last_error);
+        result->error_message = mcp_auth_get_last_error();  // Use static buffer
         return g_last_error_code;
     }
     
     // Step 4: Verify signature
+    fprintf(stderr, "C++: Step 4 - Verifying signature\n");
     // Create the signing input (header.payload)
     std::string signing_input = header_b64 + "." + payload_b64;
     
@@ -1827,7 +1834,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     if (signature_raw.empty()) {
         set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "Failed to decode JWT signature");
         result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-        result->error_message = safe_strdup("Failed to decode JWT signature");
+        result->error_message = "Failed to decode JWT signature";  // Use string literal
         return MCP_AUTH_ERROR_INVALID_TOKEN;
     }
     
@@ -1846,7 +1853,7 @@ mcp_auth_error_t mcp_auth_validate_token(
     
     if (!signature_valid) {
         result->error_code = g_last_error_code;
-        result->error_message = safe_strdup(g_last_error);
+        result->error_message = mcp_auth_get_last_error();  // Use static buffer
         return g_last_error_code;
     }
     
@@ -1864,7 +1871,7 @@ mcp_auth_error_t mcp_auth_validate_token(
             set_client_error(client, MCP_AUTH_ERROR_EXPIRED_TOKEN, 
                            "JWT has expired", context);
             result->error_code = MCP_AUTH_ERROR_EXPIRED_TOKEN;
-            result->error_message = safe_strdup(("JWT has expired [" + context + "]").c_str());
+            result->error_message = mcp_auth_get_last_error();  // Use static buffer
             return MCP_AUTH_ERROR_EXPIRED_TOKEN;
         }
     }
@@ -1877,7 +1884,7 @@ mcp_auth_error_t mcp_auth_validate_token(
             if (now < nbf - clock_skew) {
                 set_error(MCP_AUTH_ERROR_INVALID_TOKEN, "JWT not yet valid (nbf)");
                 result->error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
-                result->error_message = safe_strdup("JWT not yet valid (nbf)");
+                result->error_message = "JWT not yet valid (nbf)";  // Use string literal
                 return MCP_AUTH_ERROR_INVALID_TOKEN;
             }
         } catch (...) {
@@ -1901,7 +1908,7 @@ mcp_auth_error_t mcp_auth_validate_token(
                 set_error(MCP_AUTH_ERROR_INVALID_ISSUER, 
                          "Invalid issuer. Expected: " + client->issuer + ", Got: " + payload_data.issuer);
                 result->error_code = MCP_AUTH_ERROR_INVALID_ISSUER;
-                result->error_message = safe_strdup(g_last_error);
+                result->error_message = mcp_auth_get_last_error();  // Use static buffer
                 return MCP_AUTH_ERROR_INVALID_ISSUER;
             }
         }
@@ -1912,7 +1919,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (payload_data.audience.empty()) {
             set_error(MCP_AUTH_ERROR_INVALID_AUDIENCE, "JWT has no audience claim");
             result->error_code = MCP_AUTH_ERROR_INVALID_AUDIENCE;
-            result->error_message = safe_strdup("JWT has no audience claim");
+            result->error_message = "JWT has no audience claim";  // Use string literal
             return MCP_AUTH_ERROR_INVALID_AUDIENCE;
         }
         
@@ -1932,7 +1939,7 @@ mcp_auth_error_t mcp_auth_validate_token(
         if (payload_data.scopes.empty()) {
             set_error(MCP_AUTH_ERROR_INSUFFICIENT_SCOPE, "JWT has no scope claim");
             result->error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
-            result->error_message = safe_strdup("JWT has no scope claim");
+            result->error_message = "JWT has no scope claim";  // Use string literal
             return MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
         }
         
@@ -1947,10 +1954,41 @@ mcp_auth_error_t mcp_auth_validate_token(
     }
     
     // Token is valid
+    fprintf(stderr, "C++: Setting result->valid = true\n");
     result->valid = true;
     result->error_code = MCP_AUTH_SUCCESS;
+    fprintf(stderr, "C++: After setting - valid=%d, error_code=%d\n", result->valid, result->error_code);
     
     return MCP_AUTH_SUCCESS;
+}
+
+// New function that returns validation result by value for better FFI compatibility
+mcp_auth_validation_result_t mcp_auth_validate_token_ret(
+    mcp_auth_client_t client,
+    const char* token,
+    mcp_auth_validation_options_t options) {
+    
+    fprintf(stderr, "C++: mcp_auth_validate_token_ret called\n");
+    
+    // Create result struct to return
+    mcp_auth_validation_result_t result;
+    result.valid = false;
+    result.error_code = MCP_AUTH_SUCCESS;
+    result.error_message = nullptr;
+    
+    // Call the original function
+    mcp_auth_error_t err = mcp_auth_validate_token(client, token, options, &result);
+    
+    // If the function failed, update error code
+    if (err != MCP_AUTH_SUCCESS) {
+        result.error_code = err;
+        if (!result.error_message) {
+            result.error_message = mcp_auth_get_last_error();
+        }
+    }
+    
+    fprintf(stderr, "C++: Returning result - valid=%d, error_code=%d\n", result.valid, result.error_code);
+    return result;
 }
 
 mcp_auth_error_t mcp_auth_extract_payload(

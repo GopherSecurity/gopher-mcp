@@ -198,6 +198,18 @@ mcp_auth_error_t mcp_auth_validate_token(
     mcp_auth_validation_result_t* result);
 
 /**
+ * @brief Validate a JWT token (returns result by value for FFI compatibility)
+ * @param client Client handle
+ * @param token JWT token string
+ * @param options Validation options (can be NULL for defaults)
+ * @return Validation result struct
+ */
+mcp_auth_validation_result_t mcp_auth_validate_token_ret(
+    mcp_auth_client_t client,
+    const char* token,
+    mcp_auth_validation_options_t options);
+
+/**
  * @brief Extract token payload without validation
  * @param token JWT token string
  * @param payload Output handle for payload

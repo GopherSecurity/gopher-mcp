@@ -54,8 +54,8 @@ const authTypes = {
   // Validation result structure
   mcp_auth_validation_result_t: koffi.struct('mcp_auth_validation_result_t', {
     valid: 'bool',
-    error_code: 'int',
-    error_message: 'const char*'
+    error_code: 'int32',  // Be explicit about int size
+    error_message: 'char*'  // Pointer to char for error message
   })
 };
 
@@ -72,11 +72,11 @@ export class AuthFFILibrary {
     try {
       // Try to load the library using the same pattern as main FFI bindings
       this.libraryPath = getLibraryPath();
-      console.error(`Loading auth FFI library from: ${this.libraryPath}`);
+      console.log(`Loading auth FFI library from: ${this.libraryPath}`);
       this.lib = koffi.load(this.libraryPath);
-      console.error(`Auth FFI library loaded successfully`);
+      console.log(`Auth FFI library loaded successfully`);
       this.bindFunctions();
-      console.error(`Auth FFI functions bound successfully`);
+      console.log(`Auth FFI functions bound successfully`);
     } catch (error) {
       console.error(`Failed to load authentication library from ${this.libraryPath}:`, error);
       throw new Error(`Failed to load authentication library: ${error}`);
@@ -138,12 +138,14 @@ export class AuthFFILibrary {
       );
       
       // Token validation  
-      // The C function expects a pointer to the struct to fill it in
-      // Use koffi.out() with pointer to struct
-      this.functions['mcp_auth_validate_token'] = this.lib.func(
-        'mcp_auth_validate_token',
-        authTypes.mcp_auth_error_t,
-        [authTypes.mcp_auth_client_t, 'const char*', authTypes.mcp_auth_validation_options_t, koffi.out(koffi.pointer(authTypes.mcp_auth_validation_result_t))]
+      // The C function fills the struct via pointer
+      // Use pointer without koffi.out to avoid automatic memory management
+      // Use the new function that returns struct by value for better FFI compatibility
+      // This avoids issues with output parameters
+      this.functions['mcp_auth_validate_token_ret'] = this.lib.func(
+        'mcp_auth_validate_token_ret',
+        authTypes.mcp_auth_validation_result_t,  // Returns the struct directly
+        [authTypes.mcp_auth_client_t, 'str', authTypes.mcp_auth_validation_options_t]
       );
       this.functions['mcp_auth_extract_payload'] = this.lib.func(
         'mcp_auth_extract_payload',

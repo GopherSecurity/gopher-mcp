@@ -21,6 +21,7 @@ import {
   AuthClient,
   ValidationOptions as FFIValidationOptions
 } from './mcp-auth-ffi-bindings';
+import * as koffi from 'koffi';
 
 /**
  * Authentication error class
@@ -178,23 +179,21 @@ export class McpAuthClient {
       }
     }
     
-    // Validate token - the C function expects a pointer to the result struct
-    // We need to pass an array with the initial struct values for koffi.out()
-    const resultPtr = [{
-      valid: false,
-      error_code: 0,
-      error_message: null
-    }];
+    // Validate token - use the new function that returns struct by value
+    // This is much more reliable for FFI than output parameters
+    console.log('Before validation - calling mcp_auth_validate_token_ret');
+    console.log('Token length:', token?.length || 0);
+    console.log('Client pointer:', this.client);
+    console.log('Options pointer:', this.options);
     
-    const validateResult = this.ffi.getFunction('mcp_auth_validate_token')(
+    // Call the new function that returns the struct directly
+    const result = this.ffi.getFunction('mcp_auth_validate_token_ret')(
       this.client,
       token,
-      this.options,
-      resultPtr  // Pass the array - koffi.out() will handle the pointer
-    );
+      this.options
+    ) as { valid: boolean; error_code: number; error_message: any };
     
-    // Now read the result from the array
-    const result = resultPtr[0];
+    console.log('After validation - returned result:', result);
     
     if (!result) {
       throw new AuthError(
@@ -203,26 +202,26 @@ export class McpAuthClient {
       );
     }
     
-    console.error('Token validation result:', {
-      functionReturn: validateResult,
-      resultStruct: result,
+    console.log('Token validation result:', {
       valid: result.valid,
       errorCode: result.error_code,
-      errorMessage: result.error_message
+      lastError: result.error_message || this.ffi.getLastError()
     });
     
-    if (validateResult !== AuthErrorCodes.SUCCESS) {
+    // Check if validation failed based on the result struct
+    if (result.error_code !== AuthErrorCodes.SUCCESS && result.error_code !== 0) {
       throw new AuthError(
         'Token validation failed',
-        validateResult as AuthErrorCode,
-        this.ffi.getLastError()
+        result.error_code as AuthErrorCode,
+        result.error_message || this.ffi.getLastError()
       );
     }
     
+    // Return the result - don't try to access error_message to avoid malloc issues
     return {
       valid: result.valid,
       errorCode: result.error_code as AuthErrorCode,
-      errorMessage: result.error_message ? String(result.error_message) : undefined
+      errorMessage: undefined  // Skip error_message to avoid malloc crash
     };
   }
   
