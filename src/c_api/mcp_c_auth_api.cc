@@ -2460,4 +2460,325 @@ int mcp_auth_error_to_http_status(mcp_auth_error_t error_code) {
     }
 }
 
+// ========================================================================
+// OAuth Metadata Generation Functions
+// ========================================================================
+
+extern "C" mcp_auth_error_t mcp_auth_generate_protected_resource_metadata(
+    const char* server_url,
+    const char* scopes,  // Comma-separated list
+    char** json_output) {
+    
+    if (!server_url || !json_output) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameters");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    try {
+        // Build JSON response
+        std::stringstream json;
+        json << "{\n";
+        json << "  \"resource\": \"" << server_url << "\",\n";
+        json << "  \"authorization_servers\": [\"" << server_url << "/oauth\"],\n";
+        
+        // Parse scopes
+        json << "  \"scopes_supported\": [";
+        if (scopes && strlen(scopes) > 0) {
+            std::string scope_str(scopes);
+            std::istringstream ss(scope_str);
+            std::string scope;
+            bool first = true;
+            while (std::getline(ss, scope, ',')) {
+                // Trim whitespace
+                scope.erase(0, scope.find_first_not_of(" \t"));
+                scope.erase(scope.find_last_not_of(" \t") + 1);
+                if (!scope.empty()) {
+                    if (!first) json << ", ";
+                    json << "\"" << scope << "\"";
+                    first = false;
+                }
+            }
+        }
+        json << "],\n";
+        
+        json << "  \"bearer_methods_supported\": [\"header\", \"query\"],\n";
+        json << "  \"resource_documentation\": \"" << server_url << "/docs\"\n";
+        json << "}";
+        
+        // Allocate and copy result
+        std::string result = json.str();
+        *json_output = static_cast<char*>(malloc(result.length() + 1));
+        if (!*json_output) {
+            set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for JSON output");
+            return MCP_AUTH_ERROR_OUT_OF_MEMORY;
+        }
+        strcpy(*json_output, result.c_str());
+        
+        clear_error();
+        return MCP_AUTH_SUCCESS;
+    } catch (const std::exception& e) {
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, e.what());
+        return MCP_AUTH_ERROR_INTERNAL_ERROR;
+    }
+}
+
+extern "C" mcp_auth_error_t mcp_auth_proxy_discovery_metadata(
+    mcp_auth_client_t client,
+    const char* server_url,
+    const char* auth_server_url,
+    const char* scopes,  // Comma-separated list  
+    char** json_output) {
+    
+    if (!client || !server_url || !auth_server_url || !json_output) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameters");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    AuthClient* auth_client = reinterpret_cast<AuthClient*>(client);
+    
+    try {
+        // Fetch discovery metadata from auth server
+        std::string discovery_url = std::string(auth_server_url) + "/.well-known/openid-configuration";
+        std::string metadata_json;
+        
+        // Use CURL to fetch metadata
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            set_error(MCP_AUTH_ERROR_NETWORK_ERROR, "Failed to initialize CURL");
+            return MCP_AUTH_ERROR_NETWORK_ERROR;
+        }
+        
+        curl_easy_setopt(curl, CURLOPT_URL, discovery_url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &metadata_json);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        
+        CURLcode res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+        
+        if (res != CURLE_OK) {
+            set_error(MCP_AUTH_ERROR_NETWORK_ERROR, 
+                     "Failed to fetch discovery metadata: " + std::string(curl_easy_strerror(res)));
+            return MCP_AUTH_ERROR_NETWORK_ERROR;
+        }
+        
+        // Parse and modify the JSON to use proxy endpoints
+        // This is a simplified approach - in production, use a proper JSON library
+        std::string modified_json = metadata_json;
+        
+        // Replace issuer
+        size_t issuer_pos = modified_json.find("\"issuer\"");
+        if (issuer_pos != std::string::npos) {
+            size_t value_start = modified_json.find("\"", issuer_pos + 8) + 1;
+            size_t value_end = modified_json.find("\"", value_start);
+            modified_json.replace(value_start, value_end - value_start, 
+                                 std::string(server_url) + "/oauth");
+        }
+        
+        // Replace endpoints to use proxy
+        std::string proxy_base = std::string(server_url) + "/oauth";
+        
+        // Update authorization_endpoint
+        size_t auth_endpoint_pos = modified_json.find("\"authorization_endpoint\"");
+        if (auth_endpoint_pos != std::string::npos) {
+            size_t value_start = modified_json.find("\"", auth_endpoint_pos + 25) + 1;
+            size_t value_end = modified_json.find("\"", value_start);
+            modified_json.replace(value_start, value_end - value_start, 
+                                 proxy_base + "/authorize");
+        }
+        
+        // Update token_endpoint
+        size_t token_endpoint_pos = modified_json.find("\"token_endpoint\"");
+        if (token_endpoint_pos != std::string::npos) {
+            size_t value_start = modified_json.find("\"", token_endpoint_pos + 16) + 1;
+            size_t value_end = modified_json.find("\"", value_start);
+            modified_json.replace(value_start, value_end - value_start, 
+                                 proxy_base + "/token");
+        }
+        
+        // Update registration_endpoint
+        size_t reg_endpoint_pos = modified_json.find("\"registration_endpoint\"");
+        if (reg_endpoint_pos != std::string::npos) {
+            size_t value_start = modified_json.find("\"", reg_endpoint_pos + 23) + 1;
+            size_t value_end = modified_json.find("\"", value_start);
+            modified_json.replace(value_start, value_end - value_start, 
+                                 std::string(server_url) + "/realms/gopher-auth/clients-registrations/openid-connect");
+        }
+        
+        // Filter scopes if provided
+        if (scopes && strlen(scopes) > 0) {
+            // Parse allowed scopes
+            std::unordered_set<std::string> allowed_scopes;
+            std::string scope_str(scopes);
+            std::istringstream ss(scope_str);
+            std::string scope;
+            while (std::getline(ss, scope, ',')) {
+                scope.erase(0, scope.find_first_not_of(" \t"));
+                scope.erase(scope.find_last_not_of(" \t") + 1);
+                if (!scope.empty()) {
+                    allowed_scopes.insert(scope);
+                }
+            }
+            
+            // Find and filter scopes_supported
+            size_t scopes_pos = modified_json.find("\"scopes_supported\"");
+            if (scopes_pos != std::string::npos) {
+                size_t array_start = modified_json.find("[", scopes_pos);
+                size_t array_end = modified_json.find("]", array_start);
+                
+                // Build filtered scope array
+                std::stringstream filtered_scopes;
+                filtered_scopes << "[";
+                bool first = true;
+                for (const auto& scope : allowed_scopes) {
+                    if (!first) filtered_scopes << ", ";
+                    filtered_scopes << "\"" << scope << "\"";
+                    first = false;
+                }
+                filtered_scopes << "]";
+                
+                modified_json.replace(array_start, array_end - array_start + 1, 
+                                     filtered_scopes.str());
+            }
+        }
+        
+        // Allocate and copy result
+        *json_output = static_cast<char*>(malloc(modified_json.length() + 1));
+        if (!*json_output) {
+            set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for JSON output");
+            return MCP_AUTH_ERROR_OUT_OF_MEMORY;
+        }
+        strcpy(*json_output, modified_json.c_str());
+        
+        clear_error();
+        return MCP_AUTH_SUCCESS;
+    } catch (const std::exception& e) {
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, e.what());
+        return MCP_AUTH_ERROR_INTERNAL_ERROR;
+    }
+}
+
+extern "C" mcp_auth_error_t mcp_auth_proxy_client_registration(
+    mcp_auth_client_t client,
+    const char* auth_server_url,
+    const char* registration_request,  // JSON string
+    const char* initial_access_token,  // Optional
+    const char* allowed_scopes,        // Comma-separated list
+    char** response_json) {
+    
+    if (!client || !auth_server_url || !registration_request || !response_json) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Invalid parameters");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    AuthClient* auth_client = reinterpret_cast<AuthClient*>(client);
+    
+    try {
+        // Parse and filter registration request if needed
+        std::string filtered_request = registration_request;
+        
+        // Filter scopes if allowed_scopes is provided
+        if (allowed_scopes && strlen(allowed_scopes) > 0) {
+            // This is a simplified approach - in production, use proper JSON parsing
+            size_t scope_pos = filtered_request.find("\"scope\"");
+            if (scope_pos != std::string::npos) {
+                size_t value_start = filtered_request.find("\"", scope_pos + 7) + 1;
+                size_t value_end = filtered_request.find("\"", value_start);
+                std::string requested_scopes = filtered_request.substr(value_start, value_end - value_start);
+                
+                // Parse allowed scopes
+                std::unordered_set<std::string> allowed_set;
+                std::string scope_str(allowed_scopes);
+                std::istringstream ss(scope_str);
+                std::string scope;
+                while (std::getline(ss, scope, ',')) {
+                    scope.erase(0, scope.find_first_not_of(" \t"));
+                    scope.erase(scope.find_last_not_of(" \t") + 1);
+                    if (!scope.empty()) {
+                        allowed_set.insert(scope);
+                    }
+                }
+                
+                // Filter requested scopes
+                std::stringstream filtered_scopes;
+                std::istringstream req_ss(requested_scopes);
+                bool first = true;
+                while (std::getline(req_ss, scope, ' ')) {
+                    if (allowed_set.count(scope) > 0) {
+                        if (!first) filtered_scopes << " ";
+                        filtered_scopes << scope;
+                        first = false;
+                    }
+                }
+                
+                filtered_request.replace(value_start, value_end - value_start, 
+                                        filtered_scopes.str());
+            }
+        }
+        
+        // Forward to auth server
+        std::string registration_url = std::string(auth_server_url) + "/clients-registrations/openid-connect";
+        std::string response_data;
+        
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            set_error(MCP_AUTH_ERROR_NETWORK_ERROR, "Failed to initialize CURL");
+            return MCP_AUTH_ERROR_NETWORK_ERROR;
+        }
+        
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        
+        if (initial_access_token && strlen(initial_access_token) > 0) {
+            std::string auth_header = "Authorization: Bearer " + std::string(initial_access_token);
+            headers = curl_slist_append(headers, auth_header.c_str());
+        }
+        
+        curl_easy_setopt(curl, CURLOPT_URL, registration_url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, filtered_request.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        
+        CURLcode res = curl_easy_perform(curl);
+        curl_slist_free_all(headers);
+        
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        curl_easy_cleanup(curl);
+        
+        if (res != CURLE_OK) {
+            set_error(MCP_AUTH_ERROR_NETWORK_ERROR, 
+                     "Failed to register client: " + std::string(curl_easy_strerror(res)));
+            return MCP_AUTH_ERROR_NETWORK_ERROR;
+        }
+        
+        if (http_code != 200 && http_code != 201) {
+            set_error(MCP_AUTH_ERROR_NETWORK_ERROR, 
+                     "Client registration failed with HTTP " + std::to_string(http_code));
+            return MCP_AUTH_ERROR_NETWORK_ERROR;
+        }
+        
+        // Allocate and copy result
+        *response_json = static_cast<char*>(malloc(response_data.length() + 1));
+        if (!*response_json) {
+            set_error(MCP_AUTH_ERROR_OUT_OF_MEMORY, "Failed to allocate memory for response");
+            return MCP_AUTH_ERROR_OUT_OF_MEMORY;
+        }
+        strcpy(*response_json, response_data.c_str());
+        
+        clear_error();
+        return MCP_AUTH_SUCCESS;
+    } catch (const std::exception& e) {
+        set_error(MCP_AUTH_ERROR_INTERNAL_ERROR, e.what());
+        return MCP_AUTH_ERROR_INTERNAL_ERROR;
+    }
+}
+
 } // extern "C"

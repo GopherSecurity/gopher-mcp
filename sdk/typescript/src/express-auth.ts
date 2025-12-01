@@ -78,43 +78,25 @@ export class McpExpressAuth {
     const { serverUrl, allowedScopes = ['openid'] } = options;
     
     // Protected Resource Metadata (RFC 9728)
-    app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
-      res.json({
-        resource: serverUrl,
-        authorization_servers: [`${serverUrl}/oauth`],
-        scopes_supported: allowedScopes,
-        bearer_methods_supported: ['header', 'query'],
-        resource_documentation: `${serverUrl}/docs`,
-      });
+    app.get('/.well-known/oauth-protected-resource', async (_req: Request, res: Response) => {
+      try {
+        const metadata = await this.authClient.generateProtectedResourceMetadata(serverUrl, allowedScopes);
+        res.json(metadata);
+      } catch (error: any) {
+        console.error('Failed to generate protected resource metadata:', error);
+        res.status(500).json({ error: 'Failed to generate metadata', details: error.message });
+      }
     });
     
     // OAuth Authorization Server Metadata proxy (RFC 8414)
     app.get('/.well-known/oauth-authorization-server', async (_req: Request, res: Response) => {
       try {
         const authServerUrl = this.tokenIssuer || process.env['GOPHER_AUTH_SERVER_URL'];
-        const discoveryUrl = `${authServerUrl}/.well-known/openid-configuration`;
-        
-        // Fetch from auth server
-        const response = await fetch(discoveryUrl);
-        const data = await response.json() as any;
-        
-        // Override endpoints to use our proxy
-        data.issuer = `${serverUrl}/oauth`;
-        data.authorization_endpoint = `${serverUrl}/oauth/authorize`;
-        data.token_endpoint = `${serverUrl}/oauth/token`;
-        data.registration_endpoint = `${serverUrl}/realms/gopher-auth/clients-registrations/openid-connect`;
-        
-        // Keep other endpoints from Keycloak
-        data.jwks_uri = data.jwks_uri || `${authServerUrl}/protocol/openid-connect/certs`;
-        data.userinfo_endpoint = data.userinfo_endpoint || `${authServerUrl}/protocol/openid-connect/userinfo`;
-        data.end_session_endpoint = data.end_session_endpoint || `${authServerUrl}/protocol/openid-connect/logout`;
-        
-        // Filter scopes if needed
-        if (data.scopes_supported) {
-          data.scopes_supported = data.scopes_supported.filter(
-            (scope: string) => allowedScopes.includes(scope)
-          );
-        }
+        const data = await this.authClient.proxyDiscoveryMetadata(
+          serverUrl,
+          authServerUrl!,
+          allowedScopes
+        );
         
         // Set CORS headers
         res.header('Access-Control-Allow-Origin', '*');
@@ -123,6 +105,7 @@ export class McpExpressAuth {
         
         res.json(data);
       } catch (error: any) {
+        console.error('Failed to proxy discovery metadata:', error);
         res.status(500).json({ error: error.message });
       }
     });
@@ -131,29 +114,11 @@ export class McpExpressAuth {
     app.get('/oauth/.well-known/oauth-authorization-server', async (_req: Request, res: Response) => {
       try {
         const authServerUrl = this.tokenIssuer || process.env['GOPHER_AUTH_SERVER_URL'];
-        const discoveryUrl = `${authServerUrl}/.well-known/openid-configuration`;
-        
-        // Fetch from auth server
-        const response = await fetch(discoveryUrl);
-        const data = await response.json() as any;
-        
-        // Override endpoints to use our proxy
-        data.issuer = `${serverUrl}/oauth`;
-        data.authorization_endpoint = `${serverUrl}/oauth/authorize`;
-        data.token_endpoint = `${serverUrl}/oauth/token`;
-        data.registration_endpoint = `${serverUrl}/realms/gopher-auth/clients-registrations/openid-connect`;
-        
-        // Keep other endpoints from Keycloak
-        data.jwks_uri = data.jwks_uri || `${authServerUrl}/protocol/openid-connect/certs`;
-        data.userinfo_endpoint = data.userinfo_endpoint || `${authServerUrl}/protocol/openid-connect/userinfo`;
-        data.end_session_endpoint = data.end_session_endpoint || `${authServerUrl}/protocol/openid-connect/logout`;
-        
-        // Filter scopes if needed
-        if (data.scopes_supported) {
-          data.scopes_supported = data.scopes_supported.filter(
-            (scope: string) => allowedScopes.includes(scope)
-          );
-        }
+        const data = await this.authClient.proxyDiscoveryMetadata(
+          serverUrl,
+          authServerUrl!,
+          allowedScopes
+        );
         
         // Set CORS headers
         res.header('Access-Control-Allow-Origin', '*');
@@ -162,6 +127,7 @@ export class McpExpressAuth {
         
         res.json(data);
       } catch (error: any) {
+        console.error('Failed to proxy discovery metadata:', error);
         res.status(500).json({ error: error.message });
       }
     });
@@ -170,38 +136,24 @@ export class McpExpressAuth {
     app.post('/realms/:realm/clients-registrations/openid-connect', async (req: Request, res: Response) => {
       try {
         const authServerUrl = this.tokenIssuer || process.env['GOPHER_AUTH_SERVER_URL'];
-        const registrationUrl = `${authServerUrl}/clients-registrations/openid-connect`;
+        const authHeader = req.headers['authorization'] as string | undefined;
+        const initialAccessToken = authHeader?.replace('Bearer ', '') || undefined;
         
-        const registrationRequest = { ...req.body };
-        
-        // Filter requested scopes
-        if (registrationRequest.scope) {
-          const requestedScopes = registrationRequest.scope.split(' ');
-          const filteredScopes = requestedScopes.filter(
-            (scope: string) => allowedScopes.includes(scope)
-          );
-          registrationRequest.scope = filteredScopes.join(' ');
-        }
-        
-        // Forward to auth server
-        const response = await fetch(registrationUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(req.headers['authorization'] ? { 'Authorization': req.headers['authorization'] as string } : {}),
-          },
-          body: JSON.stringify(registrationRequest),
-        });
-        
-        const data = await response.json() as any;
+        const data = await this.authClient.proxyClientRegistration(
+          authServerUrl!,
+          req.body,
+          initialAccessToken,
+          allowedScopes
+        );
         
         // Set CORS headers
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
         res.header('Access-Control-Allow-Headers', '*');
         
-        res.status(response.status).json(data);
+        res.status(201).json(data);
       } catch (error: any) {
+        console.error('Failed to proxy client registration:', error);
         res.status(500).json({ error: error.message });
       }
     });

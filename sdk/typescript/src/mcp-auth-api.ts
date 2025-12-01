@@ -342,6 +342,133 @@ export class McpAuthClient {
   }
   
   /**
+   * Generate OAuth protected resource metadata
+   */
+  async generateProtectedResourceMetadata(serverUrl: string, scopes: string[]): Promise<any> {
+    const jsonPtr: [string | null] = [null];
+    const scopesStr = scopes.join(',');
+    
+    const result = this.ffi.getFunction('mcp_auth_generate_protected_resource_metadata')(
+      serverUrl,
+      scopesStr,
+      jsonPtr
+    );
+    
+    if (result !== AuthErrorCodes.SUCCESS) {
+      throw new AuthError(
+        'Failed to generate protected resource metadata',
+        result as AuthErrorCode,
+        this.ffi.getLastError()
+      );
+    }
+    
+    const jsonStr = jsonPtr[0];
+    if (!jsonStr) {
+      throw new AuthError('No metadata returned', AuthErrorCode.INTERNAL_ERROR);
+    }
+    
+    try {
+      const metadata = JSON.parse(jsonStr);
+      this.ffi.freeString(jsonPtr[0]!);
+      return metadata;
+    } catch (e: any) {
+      this.ffi.freeString(jsonPtr[0]!);
+      throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
+    }
+  }
+
+  /**
+   * Proxy OAuth discovery metadata
+   */
+  async proxyDiscoveryMetadata(serverUrl: string, authServerUrl: string, scopes: string[]): Promise<any> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    const jsonPtr: [string | null] = [null];
+    const scopesStr = scopes.join(',');
+    
+    const result = this.ffi.getFunction('mcp_auth_proxy_discovery_metadata')(
+      this.client,
+      serverUrl,
+      authServerUrl,
+      scopesStr,
+      jsonPtr
+    );
+    
+    if (result !== AuthErrorCodes.SUCCESS) {
+      throw new AuthError(
+        'Failed to proxy discovery metadata',
+        result as AuthErrorCode,
+        this.ffi.getLastError()
+      );
+    }
+    
+    const jsonStr = jsonPtr[0];
+    if (!jsonStr) {
+      throw new AuthError('No metadata returned', AuthErrorCode.INTERNAL_ERROR);
+    }
+    
+    try {
+      const metadata = JSON.parse(jsonStr);
+      this.ffi.freeString(jsonPtr[0]!);
+      return metadata;
+    } catch (e: any) {
+      this.ffi.freeString(jsonPtr[0]!);
+      throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
+    }
+  }
+
+  /**
+   * Proxy client registration
+   */
+  async proxyClientRegistration(
+    authServerUrl: string,
+    registrationRequest: any,
+    initialAccessToken?: string,
+    allowedScopes?: string[]
+  ): Promise<any> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    const jsonPtr: [string | null] = [null];
+    const requestJson = JSON.stringify(registrationRequest);
+    const scopesStr = allowedScopes ? allowedScopes.join(',') : null;
+    
+    const result = this.ffi.getFunction('mcp_auth_proxy_client_registration')(
+      this.client,
+      authServerUrl,
+      requestJson,
+      initialAccessToken || null,
+      scopesStr,
+      jsonPtr
+    );
+    
+    if (result !== AuthErrorCodes.SUCCESS) {
+      throw new AuthError(
+        'Failed to proxy client registration',
+        result as AuthErrorCode,
+        this.ffi.getLastError()
+      );
+    }
+    
+    const jsonStr = jsonPtr[0];
+    if (!jsonStr) {
+      throw new AuthError('No response returned', AuthErrorCode.INTERNAL_ERROR);
+    }
+    
+    try {
+      const response = JSON.parse(jsonStr);
+      this.ffi.freeString(jsonPtr[0]!);
+      return response;
+    } catch (e: any) {
+      this.ffi.freeString(jsonPtr[0]!);
+      throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
+    }
+  }
+
+  /**
    * Get library version
    */
   getVersion(): string {
