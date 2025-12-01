@@ -18,12 +18,7 @@ export {
   isAuthAvailable
 } from './mcp-auth-api';
 
-// Export MCP server with authentication
-export {
-  AuthenticatedMcpServer,
-  type Tool,
-  type AuthenticatedMcpServerConfig
-} from './authenticated-mcp-server';
+// AuthenticatedMcpServer removed - use McpExpressAuth pattern instead
 
 // Export Express-style authentication APIs
 export {
