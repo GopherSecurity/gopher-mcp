@@ -24,6 +24,8 @@ const LIBRARY_CONFIG = {
     x64: {
       name: "libgopher_mcp_c.dylib",
       searchPaths: [
+        // SDK bundled library (highest priority)
+        join(__dirname, "../../lib/libgopher_mcp_c.0.1.0.dylib"),
         // Development build path (relative to this file)
         join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
         join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
@@ -36,6 +38,8 @@ const LIBRARY_CONFIG = {
     arm64: {
       name: "libgopher_mcp_c.dylib",
       searchPaths: [
+        // SDK bundled library (highest priority)
+        join(__dirname, "../../lib/libgopher_mcp_c.0.1.0.dylib"),
         // Development build path (relative to this file)
         join(__dirname, "../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),
         join(__dirname, "../../../../build/src/c_api/libgopher_mcp_c.0.1.0.dylib"),

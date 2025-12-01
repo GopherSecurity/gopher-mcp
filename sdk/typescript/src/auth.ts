@@ -18,14 +18,14 @@ export {
   isAuthAvailable
 } from './mcp-auth-api';
 
-// AuthenticatedMcpServer removed - use McpExpressAuth pattern instead
-
-// Export Express-style authentication APIs
+// Export OAuth helper (framework-agnostic)
 export {
-  McpExpressAuth,
-  type ExpressMiddlewareOptions,
-  type OAuthProxyOptions
-} from './express-auth';
+  OAuthHelper,
+  type OAuthConfig,
+  type TokenValidationOptions,
+  type AuthResult
+} from './oauth-helper';
+
 
 // Export FFI bindings for advanced users
 export {

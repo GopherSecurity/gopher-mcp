@@ -226,24 +226,8 @@ export class AuthFFILibrary {
         [authTypes.mcp_auth_error_t]
       );
 
-      // OAuth metadata generation functions
-      this.functions['mcp_auth_generate_protected_resource_metadata'] = this.lib.func(
-        'mcp_auth_generate_protected_resource_metadata',
-        authTypes.mcp_auth_error_t,
-        ['const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
-      );
-
-      this.functions['mcp_auth_proxy_discovery_metadata'] = this.lib.func(
-        'mcp_auth_proxy_discovery_metadata',
-        authTypes.mcp_auth_error_t,
-        [authTypes.mcp_auth_client_t, 'const char*', 'const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
-      );
-
-      this.functions['mcp_auth_proxy_client_registration'] = this.lib.func(
-        'mcp_auth_proxy_client_registration',
-        authTypes.mcp_auth_error_t,
-        [authTypes.mcp_auth_client_t, 'const char*', 'const char*', 'const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
-      );
+      // OAuth metadata generation functions - not yet available in C++ library
+      // Will be added when C++ implementation is complete
       
     } catch (error) {
       throw new Error(`Failed to bind authentication functions: ${error}`);
