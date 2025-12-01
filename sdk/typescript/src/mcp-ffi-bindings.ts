@@ -102,7 +102,7 @@ const LIBRARY_CONFIG = {
   },
 } as const;
 
-function getLibraryPath(): string {
+export function getLibraryPath(): string {
   // Check for environment variable override first
   const envPath = process.env["MCP_LIBRARY_PATH"];
   if (envPath && existsSync(envPath)) {
