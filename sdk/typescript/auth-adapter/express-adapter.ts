@@ -93,11 +93,15 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
   router.post('/register', async (req, res) => {
     // MCP Inspector expects dynamic registration, but we return pre-configured
     if (req.body.client_name === 'MCP Inspector' || req.body.client_name === 'Test Client') {
+      // Check if client wants public authentication (no secret)
+      const wantsPublic = req.body.token_endpoint_auth_method === 'none';
+      
       const client = {
         client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        redirect_uris: REDIRECT_URIS,
-        token_endpoint_auth_method: 'client_secret_basic',
+        // Only include secret if not requesting public client
+        ...(wantsPublic ? {} : { client_secret: CLIENT_SECRET }),
+        redirect_uris: req.body.redirect_uris || REDIRECT_URIS,
+        token_endpoint_auth_method: wantsPublic ? 'none' : 'client_secret_basic',
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
@@ -121,17 +125,25 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     
     // MCP Inspector expects dynamic registration, but we return pre-configured
     if (req.body.client_name === 'MCP Inspector' || req.body.client_name === 'Test Client') {
+      // Check if client wants public authentication (no secret)
+      const wantsPublic = req.body.token_endpoint_auth_method === 'none';
+      
       const client = {
         client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
+        // Only include secret if not requesting public client
+        ...(wantsPublic ? {} : { client_secret: CLIENT_SECRET }),
         redirect_uris: req.body.redirect_uris || REDIRECT_URIS,
-        token_endpoint_auth_method: 'client_secret_basic',
+        token_endpoint_auth_method: wantsPublic ? 'none' : 'client_secret_basic',
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
         scope: req.body.scope || 'openid profile email mcp:weather',
       };
-      console.log('Returning pre-configured client:', client);
+      console.log('Returning client config:', {
+        client_id: client.client_id,
+        auth_method: client.token_endpoint_auth_method,
+        has_secret: !!client.client_secret
+      });
       return res.status(201).json(client);
     }
     
@@ -147,6 +159,24 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       queryParams.client_id = CLIENT_ID;
     }
     
+    // Handle redirect_uri - MCP Inspector may use dynamic ports
+    if (!queryParams.redirect_uri) {
+      queryParams.redirect_uri = `${oauth.getServerUrl()}/oauth/callback`;
+      console.log('No redirect_uri provided, using default:', queryParams.redirect_uri);
+    } else {
+      console.log('MCP Inspector redirect_uri:', queryParams.redirect_uri);
+      // Store original redirect_uri if it's from MCP Inspector
+      if (queryParams.redirect_uri.includes('127.0.0.1') || 
+          queryParams.redirect_uri.includes('localhost') && !queryParams.redirect_uri.includes('3001')) {
+        res.cookie('mcp_inspector_redirect', queryParams.redirect_uri, {
+          httpOnly: true,
+          maxAge: 10 * 60 * 1000,
+          sameSite: 'lax'
+        });
+        console.log('Stored MCP Inspector redirect URI in cookie');
+      }
+    }
+    
     // Ensure mcp:weather scope is included
     if (!queryParams.scope) {
       queryParams.scope = 'openid profile email mcp:weather';
@@ -157,11 +187,16 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     // Force consent screen to appear
     queryParams.prompt = 'consent';
     
-    // Log the redirect_uri being requested
-    console.log('Authorization request redirect_uri:', queryParams.redirect_uri);
-    console.log('Configured client_id:', queryParams.client_id || CLIENT_ID);
-    console.log('Requested scopes:', queryParams.scope);
-    console.log('Forcing consent with prompt=consent');
+    // Log the authorization request details
+    console.log('Authorization request:');
+    console.log('  Client ID:', queryParams.client_id);
+    console.log('  Redirect URI:', queryParams.redirect_uri);
+    console.log('  Scopes:', queryParams.scope);
+    console.log('  State:', queryParams.state);
+    if (queryParams.code_challenge) {
+      console.log('  PKCE Challenge:', queryParams.code_challenge);
+      console.log('  PKCE Method:', queryParams.code_challenge_method || 'plain');
+    }
     
     // Store PKCE verifier if provided
     const codeVerifier = queryParams.code_verifier || 'default-verifier';
@@ -324,6 +359,32 @@ export function setupMCPOAuth(
 
   // MCP endpoint with authentication
   app.all('/mcp', createAuthMiddleware(oauth), mcpHandler);
+  
+  // Test endpoints for authentication failure scenarios (development only)
+  if (process.env.NODE_ENV !== 'production') {
+    app.get('/test/clear-session', (_req: Request, res: Response) => {
+      res.clearCookie('mcp_session');
+      res.json({ 
+        status: 'Session cleared',
+        message: 'Next MCP request will fail with 401 Unauthorized',
+        instruction: 'Try calling a tool in MCP Inspector now'
+      });
+    });
+    
+    app.get('/test/invalid-session', (_req: Request, res: Response) => {
+      res.cookie('mcp_session', 'invalid_session_id_12345', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 1000
+      });
+      res.json({ 
+        status: 'Invalid session set',
+        message: 'Next MCP request will fail with invalid token error',
+        instruction: 'Try calling a tool in MCP Inspector now'
+      });
+    });
+  }
 
   // CORS options for all OAuth endpoints
   app.options([
