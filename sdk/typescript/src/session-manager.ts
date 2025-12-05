@@ -1,149 +1,143 @@
 /**
  * @file session-manager.ts
- * @brief Session management for OAuth tokens
+ * @brief Session management for OAuth tokens to support MCP Inspector
  * 
- * This is a workaround for MCP Inspector which doesn't properly handle OAuth tokens.
- * It connects successfully but doesn't send the token back in subsequent requests.
+ * MCP Inspector doesn't complete OAuth flow or send Authorization headers,
+ * so we store tokens in sessions and use cookies for authentication.
  */
 
-import * as crypto from 'crypto';
+import type { Request, Response } from 'express';
+import crypto from 'crypto';
 
-interface SessionData {
+// In-memory token storage (use Redis in production)
+const tokenStore = new Map<string, {
   token: string;
   expiresAt: number;
-  payload?: any;
-}
+  subject?: string;
+  scopes?: string;
+}>();
 
-// In-memory session storage (for development/testing)
-// In production, use Redis or another persistent store
-const sessions = new Map<string, SessionData>();
+// Session cookie name
+const SESSION_COOKIE_NAME = 'mcp_session';
 
 /**
- * Generate a cryptographically secure session ID
+ * Generate a secure session ID
  */
 export function generateSessionId(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
 /**
- * Store token in session
+ * Store token in session after OAuth callback
+ * Using very short expiry (60 seconds) to force re-authentication on reconnect
  */
 export function storeTokenInSession(sessionId: string, token: string, expiresIn: number = 3600, payload?: any): void {
   // Override with very short expiry for MCP Inspector
   const shortExpiresIn = 60; // 60 seconds only
   const expiresAt = Date.now() + (shortExpiresIn * 1000);
-  
-  sessions.set(sessionId, {
+  tokenStore.set(sessionId, {
     token,
     expiresAt,
-    payload
+    subject: payload?.subject || payload?.sub,
+    scopes: payload?.scopes || payload?.scope
   });
   
-  console.log(`🍪 Session ${sessionId.substring(0, 8)}... created, expires in ${shortExpiresIn}s (MCP Inspector workaround)`);
-  
-  // Clean up expired sessions periodically
-  cleanupExpiredSessions();
+  console.log(`📝 Stored token in session ${sessionId}, expires at ${new Date(expiresAt).toISOString()} (60s expiry)`);
 }
 
 /**
  * Get token from session
  */
-export function getTokenFromSession(sessionId: string): string | undefined {
-  const session = sessions.get(sessionId);
+export function getTokenFromSession(sessionId: string): string | null {
+  const session = tokenStore.get(sessionId);
   
   if (!session) {
-    return undefined;
+    return null;
   }
   
-  // Check if session has expired
+  // Check if expired
   if (Date.now() > session.expiresAt) {
-    sessions.delete(sessionId);
-    console.log(`🍪 Session ${sessionId.substring(0, 8)}... expired`);
-    return undefined;
+    console.log(`⏰ Session ${sessionId} expired`);
+    tokenStore.delete(sessionId);
+    return null;
   }
   
+  console.log(`✅ Retrieved token from session ${sessionId}`);
   return session.token;
+}
+
+/**
+ * Extract session ID from request cookies
+ */
+export function extractSessionId(req: Request): string | null {
+  const cookies = req.headers.cookie;
+  if (!cookies) return null;
+  
+  const sessionCookie = cookies.split(';')
+    .map(c => c.trim())
+    .find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`));
+  
+  if (!sessionCookie) return null;
+  
+  return sessionCookie.split('=')[1] ?? null;
+}
+
+/**
+ * Set session cookie in response
+ * Using very short expiry (60 seconds) to force re-authentication on reconnect
+ */
+export function setSessionCookie(res: Response, sessionId: string, maxAge: number = 3600): void {
+  // Override with very short expiry for MCP Inspector
+  const shortMaxAge = 60; // 60 seconds only
+  res.cookie(SESSION_COOKIE_NAME, sessionId, {
+    httpOnly: true,
+    secure: false, // Set to true in production with HTTPS
+    sameSite: 'lax',
+    maxAge: shortMaxAge * 1000, // Convert to milliseconds (60 seconds)
+    path: '/'
+  });
+  
+  console.log(`🍪 Set session cookie: ${sessionId} (expires in ${shortMaxAge}s)`);
+}
+
+/**
+ * Clear session cookie
+ */
+export function clearSessionCookie(res: Response): void {
+  res.clearCookie(SESSION_COOKIE_NAME);
+  console.log('🗑️ Cleared session cookie');
 }
 
 /**
  * Clean up expired sessions
  */
-function cleanupExpiredSessions(): void {
+export function cleanupExpiredSessions(): void {
   const now = Date.now();
-  for (const [sessionId, data] of sessions.entries()) {
-    if (now > data.expiresAt) {
-      sessions.delete(sessionId);
-    }
-  }
-}
-
-/**
- * Extract session ID from request
- * @param req Express-like request object or headers object
- */
-export function extractSessionId(req: any): string | undefined {
-  // Try cookie header first
-  const cookieHeader = req.headers?.cookie || req.cookie;
-  if (cookieHeader) {
-    const cookies = parseCookies(cookieHeader);
-    if (cookies.mcp_session) {
-      return cookies.mcp_session;
+  let cleaned = 0;
+  
+  for (const [sessionId, session] of tokenStore.entries()) {
+    if (now > session.expiresAt) {
+      tokenStore.delete(sessionId);
+      cleaned++;
     }
   }
   
-  // Try x-session-id header
-  if (req.headers?.['x-session-id']) {
-    return req.headers['x-session-id'];
-  }
-  
-  return undefined;
-}
-
-/**
- * Parse cookie string
- */
-function parseCookies(cookieStr: string): Record<string, string> {
-  const cookies: Record<string, string> = {};
-  cookieStr.split(';').forEach(cookie => {
-    const [key, value] = cookie.trim().split('=');
-    if (key && value) {
-      cookies[key] = value;
-    }
-  });
-  return cookies;
-}
-
-/**
- * Set session cookie on response
- * @param res Express-like response object
- */
-export function setSessionCookie(res: any, sessionId: string, maxAge: number = 3600): void {
-  if (res && typeof res.setHeader === 'function') {
-    // Use short expiry for MCP Inspector workaround
-    const shortMaxAge = 60; // 60 seconds
-    res.setHeader('Set-Cookie', `mcp_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${shortMaxAge}`);
-  } else if (res && typeof res.cookie === 'function') {
-    // Express-style response
-    res.cookie('mcp_session', sessionId, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 1000 // 60 seconds in milliseconds
-    });
+  if (cleaned > 0) {
+    console.log(`🧹 Cleaned up ${cleaned} expired sessions`);
   }
 }
 
-/**
- * Clear session
- */
-export function clearSession(sessionId: string): void {
-  sessions.delete(sessionId);
-}
+// Run cleanup every 5 minutes
+setInterval(cleanupExpiredSessions, 5 * 60 * 1000);
 
 /**
  * Get all active sessions (for debugging)
  */
-export function getActiveSessions(): number {
-  cleanupExpiredSessions();
-  return sessions.size;
+export function getActiveSessions(): any[] {
+  return Array.from(tokenStore.entries()).map(([id, session]) => ({
+    id: id.substring(0, 8) + '...',
+    subject: session.subject,
+    scopes: session.scopes,
+    expiresAt: new Date(session.expiresAt).toISOString()
+  }));
 }
