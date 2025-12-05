@@ -7,12 +7,12 @@
 
 import { McpAuthClient } from './mcp-auth-api';
 import type { AuthClientConfig, ValidationOptions, TokenPayload } from './auth-types';
-import {
-  extractSessionId,
-  getTokenFromSession,
-  storeTokenInSession,
+import { 
+  extractSessionId, 
+  getTokenFromSession, 
+  storeTokenInSession, 
   setSessionCookie,
-  generateSessionId
+  generateSessionId 
 } from './session-manager';
 
 /**
@@ -385,7 +385,7 @@ export class OAuthHelper {
   /**
    * Generate WWW-Authenticate header for 401 responses
    */
-  getWWWAuthenticateHeader(options?: {
+  private getWWWAuthenticateHeader(options?: {
     error?: string;
     errorDescription?: string;
   }): string {
@@ -417,16 +417,16 @@ export class OAuthHelper {
    * Handle OAuth callback and store token in session
    * This is for MCP Inspector support - it doesn't complete OAuth flow
    */
-  async handleOAuthCallback(
-    code: string,
-    state: string,
-    codeVerifier?: string,
-    res?: any
-  ): Promise<any> {
+  async handleOAuthCallback(code: string, state: string, codeVerifier: string, res: any): Promise<{
+    success: boolean;
+    sessionId?: string;
+    token?: string;
+    error?: string;
+  }> {
     try {
       // Use the configured client from environment
-      const clientId = process.env.GOPHER_CLIENT_ID;
-      const clientSecret = process.env.GOPHER_CLIENT_SECRET;
+      const clientId = process.env.GOPHER_CLIENT_ID!;
+      const clientSecret = process.env.GOPHER_CLIENT_SECRET!;
       
       // Exchange code for token
       const tokenResponse = await this.exchangeToken({
@@ -448,8 +448,8 @@ export class OAuthHelper {
       // Generate session and store token
       const sessionId = generateSessionId();
       storeTokenInSession(
-        sessionId, 
-        tokenResponse.access_token, 
+        sessionId,
+        tokenResponse.access_token,
         tokenResponse.expires_in || 3600,
         validationResult.payload
       );
@@ -480,13 +480,18 @@ export class OAuthHelper {
    * Use this when you have a confidential client with a secret
    */
   async handleOAuthCallbackWithClient(
-    code: string,
-    state: string,
-    codeVerifier: string | undefined,
+    code: string, 
+    state: string, 
+    codeVerifier: string,
     clientId: string,
     clientSecret: string,
-    res?: any
-  ): Promise<any> {
+    res: any
+  ): Promise<{
+    success: boolean;
+    sessionId?: string;
+    token?: string;
+    error?: string;
+  }> {
     try {
       // Exchange code for token with specific client
       const tokenResponse = await this.exchangeToken({
@@ -508,8 +513,8 @@ export class OAuthHelper {
       // Generate session and store token
       const sessionId = generateSessionId();
       storeTokenInSession(
-        sessionId, 
-        tokenResponse.access_token, 
+        sessionId,
+        tokenResponse.access_token,
         tokenResponse.expires_in || 3600,
         validationResult.payload
       );
@@ -540,6 +545,13 @@ export class OAuthHelper {
    */
   getAuthClient(): McpAuthClient {
     return this.authClient;
+  }
+  
+  /**
+   * Get the server URL
+   */
+  getServerUrl(): string {
+    return this.serverUrl;
   }
   
   /**

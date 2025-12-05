@@ -8,7 +8,34 @@
 
 import * as koffi from "koffi";
 import { arch, platform } from "os";
-import { getLibraryPath } from "./mcp-ffi-bindings";
+// Library path helper (extracted from mcp-ffi-bindings)
+function getLibraryPath(): string {
+  const env = process.env;
+  // Check for environment variable override first
+  if (env.MCP_LIBRARY_PATH) {
+    return env.MCP_LIBRARY_PATH;
+  }
+  
+  // Default paths for the auth library
+  const possiblePaths = [
+    // SDK bundled library
+    __dirname + "/../lib/libgopher_mcp_c.0.1.0.dylib",
+    __dirname + "/../../lib/libgopher_mcp_c.0.1.0.dylib",
+    // System paths
+    "/usr/local/lib/libgopher_mcp_c.dylib",
+    "/opt/homebrew/lib/libgopher_mcp_c.dylib",
+  ];
+  
+  // Try to find the library
+  const fs = require('fs');
+  for (const path of possiblePaths) {
+    if (fs.existsSync(path)) {
+      return path;
+    }
+  }
+  
+  throw new Error("MCP C API library not found. Set MCP_LIBRARY_PATH environment variable.");
+}
 
 /**
  * Authentication error codes matching C API
@@ -226,8 +253,25 @@ export class AuthFFILibrary {
         [authTypes.mcp_auth_error_t]
       );
 
-      // OAuth metadata generation functions - not yet available in C++ library
-      // Will be added when C++ implementation is complete
+      // OAuth metadata generation functions - commented out until available in C++
+      // These functions are not yet exported from the C++ library
+      // this.functions['mcp_auth_generate_protected_resource_metadata'] = this.lib.func(
+      //   'mcp_auth_generate_protected_resource_metadata',
+      //   authTypes.mcp_auth_error_t,
+      //   ['const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
+      // );
+
+      // this.functions['mcp_auth_proxy_discovery_metadata'] = this.lib.func(
+      //   'mcp_auth_proxy_discovery_metadata',
+      //   authTypes.mcp_auth_error_t,
+      //   [authTypes.mcp_auth_client_t, 'const char*', 'const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
+      // );
+
+      // this.functions['mcp_auth_proxy_client_registration'] = this.lib.func(
+      //   'mcp_auth_proxy_client_registration',
+      //   authTypes.mcp_auth_error_t,
+      //   [authTypes.mcp_auth_client_t, 'const char*', 'const char*', 'const char*', 'const char*', koffi.out(koffi.pointer('char*'))]
+      // );
       
     } catch (error) {
       throw new Error(`Failed to bind authentication functions: ${error}`);
@@ -243,6 +287,13 @@ export class AuthFFILibrary {
       throw new Error(`Function ${name} not found in authentication library`);
     }
     return fn;
+  }
+
+  /**
+   * Check if a function exists
+   */
+  hasFunction(name: string): boolean {
+    return !!this.functions[name];
   }
   
   /**

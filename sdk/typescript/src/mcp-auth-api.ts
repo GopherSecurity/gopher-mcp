@@ -345,6 +345,14 @@ export class McpAuthClient {
    * Generate OAuth protected resource metadata
    */
   async generateProtectedResourceMetadata(serverUrl: string, scopes: string[]): Promise<any> {
+    // Force fallback implementation
+    throw new AuthError(
+      'Using fallback implementation',
+      AuthErrorCode.NOT_INITIALIZED
+    );
+    
+    // This code will be enabled once the C++ functions are available
+    /*
     const jsonPtr: [string | null] = [null];
     const scopesStr = scopes.join(',');
     
@@ -375,12 +383,20 @@ export class McpAuthClient {
       this.ffi.freeString(jsonPtr[0]!);
       throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
     }
+    */
   }
 
   /**
    * Proxy OAuth discovery metadata
    */
   async proxyDiscoveryMetadata(serverUrl: string, authServerUrl: string, scopes: string[]): Promise<any> {
+    // The OAuth discovery functions are not yet exported from the C++ library
+    throw new AuthError(
+      'OAuth discovery proxy not yet available',
+      AuthErrorCode.NOT_INITIALIZED
+    );
+    
+    /* This code will be enabled once the C++ functions are available
     if (!this.initialized) {
       await this.initialize();
     }
@@ -417,6 +433,7 @@ export class McpAuthClient {
       this.ffi.freeString(jsonPtr[0]!);
       throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
     }
+    */
   }
 
   /**
@@ -428,6 +445,13 @@ export class McpAuthClient {
     initialAccessToken?: string,
     allowedScopes?: string[]
   ): Promise<any> {
+    // The OAuth registration functions are not yet exported from the C++ library
+    throw new AuthError(
+      'OAuth client registration proxy not yet available',
+      AuthErrorCode.NOT_INITIALIZED
+    );
+    
+    /* This code will be enabled once the C++ functions are available
     if (!this.initialized) {
       await this.initialize();
     }
@@ -466,6 +490,7 @@ export class McpAuthClient {
       this.ffi.freeString(jsonPtr[0]!);
       throw new AuthError('Invalid JSON response', AuthErrorCode.INTERNAL_ERROR, e.message);
     }
+    */
   }
 
   /**
