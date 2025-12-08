@@ -2534,7 +2534,7 @@ extern "C" mcp_auth_error_t mcp_auth_proxy_discovery_metadata(
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
-    AuthClient* auth_client = reinterpret_cast<AuthClient*>(client);
+    mcp_auth_client_t auth_client = client;
     
     try {
         // Fetch discovery metadata from auth server
@@ -2549,7 +2549,7 @@ extern "C" mcp_auth_error_t mcp_auth_proxy_discovery_metadata(
         }
         
         curl_easy_setopt(curl, CURLOPT_URL, discovery_url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, jwks_curl_write_callback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &metadata_json);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -2673,7 +2673,7 @@ extern "C" mcp_auth_error_t mcp_auth_proxy_client_registration(
         return MCP_AUTH_ERROR_INVALID_PARAMETER;
     }
     
-    AuthClient* auth_client = reinterpret_cast<AuthClient*>(client);
+    mcp_auth_client_t auth_client = client;
     
     try {
         // Parse and filter registration request if needed
@@ -2740,7 +2740,7 @@ extern "C" mcp_auth_error_t mcp_auth_proxy_client_registration(
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, filtered_request.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, jwks_curl_write_callback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
