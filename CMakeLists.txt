@@ -126,6 +126,7 @@ endif()
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(CURL REQUIRED)
 
 #Find libevent
 find_package(PkgConfig)
@@ -346,6 +347,8 @@ message(STATUS "")
 
 # Source files - split core from client/server to avoid circular deps
 set(MCP_CORE_SOURCES
+    # Auth implementation is now in src/auth/mcp_auth_implementation.cc
+    # and is included via src/c_api/CMakeLists.txt in the gopher_mcp_c library
     src/buffer/buffer_impl.cc
     src/json/json_bridge.cc
     src/json/json_serialization.cc
@@ -510,12 +513,14 @@ foreach(lib_target ${REAL_TARGETS})
             PRIVATE
                 $<BUILD_INTERFACE:$<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>>
                 ${LIBEVENT_INCLUDE_DIRS}
+                ${CURL_INCLUDE_DIRS}
         )
         target_link_libraries(${lib_target} 
             PUBLIC 
                 Threads::Threads 
                 OpenSSL::SSL 
                 OpenSSL::Crypto
+                ${CURL_LIBRARIES}
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
