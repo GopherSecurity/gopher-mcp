@@ -18,11 +18,16 @@ function getLibraryPath(): string {
   
   // Default paths for the auth library
   const possiblePaths = [
-    // SDK bundled library
+    // SDK bundled library - try auth library first
+    __dirname + "/../lib/libgopher_mcp_auth.0.1.0.dylib",
+    __dirname + "/../../lib/libgopher_mcp_auth.0.1.0.dylib",
+    // Fallback to original library name
     __dirname + "/../lib/libgopher_mcp_c.0.1.0.dylib",
     __dirname + "/../../lib/libgopher_mcp_c.0.1.0.dylib",
     // System paths
+    "/usr/local/lib/libgopher_mcp_auth.dylib",
     "/usr/local/lib/libgopher_mcp_c.dylib",
+    "/opt/homebrew/lib/libgopher_mcp_auth.dylib",
     "/opt/homebrew/lib/libgopher_mcp_c.dylib",
   ];
   
@@ -30,11 +35,18 @@ function getLibraryPath(): string {
   const fs = require('fs');
   for (const path of possiblePaths) {
     if (fs.existsSync(path)) {
+      // Log which library is being used
+      if (process.env.MCP_DEBUG) {
+        console.log(`[MCP Auth] Loading library from: ${path}`);
+        const stats = fs.statSync(path);
+        const sizeKB = Math.round(stats.size / 1024);
+        console.log(`[MCP Auth] Library size: ${sizeKB} KB`);
+      }
       return path;
     }
   }
   
-  throw new Error("MCP C API library not found. Set MCP_LIBRARY_PATH environment variable.");
+  throw new Error("MCP Auth library not found (libgopher_mcp_auth or libgopher_mcp_c). Set MCP_LIBRARY_PATH environment variable.");
 }
 
 /**
@@ -78,11 +90,11 @@ const authTypes = {
   // Error type
   mcp_auth_error_t: 'int',
   
-  // Validation result structure - simplified without pointer field
-  // This avoids memory management issues with FFI
-  mcp_auth_validation_result_simple_t: koffi.struct('mcp_auth_validation_result_simple_t', {
+  // Validation result structure matching C API
+  mcp_auth_validation_result_t: koffi.struct('mcp_auth_validation_result_t', {
     valid: 'bool',
-    error_code: 'int32'  // Just these two fields, no pointer
+    error_code: 'int32',
+    error_message: 'char*'  // Pointer to error message
   })
 };
 
@@ -99,11 +111,11 @@ export class AuthFFILibrary {
     try {
       // Try to load the library using the same pattern as main FFI bindings
       this.libraryPath = getLibraryPath();
-      console.log(`Loading auth FFI library from: ${this.libraryPath}`);
+      if (process.env.MCP_DEBUG) {
+        console.log(`Loading auth FFI library from: ${this.libraryPath}`);
+      }
       this.lib = koffi.load(this.libraryPath);
-      console.log(`Auth FFI library loaded successfully`);
       this.bindFunctions();
-      console.log(`Auth FFI functions bound successfully`);
     } catch (error) {
       console.error(`Failed to load authentication library from ${this.libraryPath}:`, error);
       throw new Error(`Failed to load authentication library: ${error}`);
@@ -165,14 +177,12 @@ export class AuthFFILibrary {
       );
       
       // Token validation  
-      // The C function fills the struct via pointer
-      // Use pointer without koffi.out to avoid automatic memory management
-      // Use the simplified function that returns struct without pointer fields
-      // This completely avoids memory management issues
-      this.functions['mcp_auth_validate_token_simple'] = this.lib.func(
-        'mcp_auth_validate_token_simple',
-        authTypes.mcp_auth_validation_result_simple_t,  // Returns simplified struct
-        [authTypes.mcp_auth_client_t, 'str', authTypes.mcp_auth_validation_options_t]
+      // Use the regular validate_token function with result pointer
+      this.functions['mcp_auth_validate_token'] = this.lib.func(
+        'mcp_auth_validate_token',
+        authTypes.mcp_auth_error_t,
+        [authTypes.mcp_auth_client_t, 'str', authTypes.mcp_auth_validation_options_t, 
+         koffi.out(koffi.pointer(authTypes.mcp_auth_validation_result_t))]  // Result pointer
       );
       this.functions['mcp_auth_extract_payload'] = this.lib.func(
         'mcp_auth_extract_payload',
@@ -377,7 +387,7 @@ export class AuthFFILibrary {
    * Get the validation result struct type for allocation
    */
   getValidationResultStruct() {
-    return authTypes.mcp_auth_validation_result_simple_t;
+    return authTypes.mcp_auth_validation_result_t;
   }
 }
 

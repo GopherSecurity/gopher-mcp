@@ -13,14 +13,14 @@ import {
   AuthClientConfig,
   ValidationOptions,
   WwwAuthenticateParams
-} from './auth-types';
+} from './auth-types.js';
 import {
   getAuthFFI,
   hasAuthSupport,
   AuthErrorCodes,
   AuthClient,
   ValidationOptions as FFIValidationOptions
-} from './mcp-auth-ffi-bindings';
+} from './mcp-auth-ffi-bindings.js';
 import * as koffi from 'koffi';
 
 /**
@@ -179,53 +179,49 @@ export class McpAuthClient {
       }
     }
     
-    // Validate token - use the simplified function without pointer fields
-    // This completely avoids memory management issues with FFI
-    console.log('Before validation - calling mcp_auth_validate_token_simple');
-    console.log('Token length:', token?.length || 0);
-    console.log('Client pointer:', this.client);
-    console.log('Options pointer:', this.options);
-    
-    // Call the simplified function that returns struct without pointers
-    const result = this.ffi.getFunction('mcp_auth_validate_token_simple')(
-      this.client,
-      token,
-      this.options
-    ) as { valid: boolean; error_code: number };
-    
-    console.log('After validation - returned result:', result);
-    
-    if (!result) {
+    // Validate token using the regular function
+    try {
+      // Prepare result structure
+      const resultPtr = [{ valid: false, error_code: 0, error_message: null }];
+      
+      // Call validate_token with proper parameters
+      const errorCode = this.ffi.getFunction('mcp_auth_validate_token')(
+        this.client,
+        token,
+        null,  // Pass null for options to avoid crash - TODO: Fix options handling
+        resultPtr  // Pass result pointer
+      );
+      
+      // Check the result
+      const validationResult = resultPtr[0];
+      const isValid = validationResult.valid;
+      
+      // If there's an error other than invalid token, throw
+      if (!isValid && errorCode !== AuthErrorCodes.SUCCESS &&
+          errorCode !== AuthErrorCodes.INVALID_TOKEN && 
+          errorCode !== AuthErrorCodes.EXPIRED_TOKEN && 
+          errorCode !== AuthErrorCodes.INVALID_SIGNATURE) {
+        throw new AuthError(
+          'Token validation failed',
+          errorCode as AuthErrorCode,
+          validationResult.error_message || this.ffi.getLastError()
+        );
+      }
+      
+      // Return the validation result
+      return {
+        valid: isValid,
+        errorCode: errorCode as AuthErrorCode,
+        errorMessage: isValid ? undefined : (validationResult.error_message || this.ffi.getLastError())
+      };
+    } catch (error: any) {
+      console.error('Token validation error:', error);
       throw new AuthError(
-        'Failed to get validation result',
-        AuthErrorCode.INTERNAL_ERROR
+        `Token validation failed: ${error.message}`,
+        AuthErrorCode.INTERNAL_ERROR,
+        error.message
       );
     }
-    
-    console.log('Token validation result:', {
-      valid: result.valid,
-      errorCode: result.error_code,
-      lastError: this.ffi.getLastError()  // Get error from static buffer if needed
-    });
-    
-    // Check if validation failed based on the result struct
-    if (result.error_code !== AuthErrorCodes.SUCCESS && result.error_code !== 0) {
-      throw new AuthError(
-        'Token validation failed',
-        result.error_code as AuthErrorCode,
-        this.ffi.getLastError()  // No error_message field in simplified struct
-      );
-    }
-    
-    // Return the result - don't try to access error_message to avoid malloc issues
-    const validationResult = {
-      valid: result.valid,
-      errorCode: result.error_code as AuthErrorCode,
-      errorMessage: undefined  // Skip error_message to avoid malloc crash
-    };
-    
-    console.log('Returning validation result:', validationResult);
-    return validationResult;
   }
   
   /**

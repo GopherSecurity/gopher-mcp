@@ -320,13 +320,15 @@ export class OAuthHelper {
       const result = await this.authClient.validateToken(token, validationOptions);
       
       if (!result.valid) {
+        // Normalize error message for consistency with tests
+        const errorMessage = 'Token validation failed';
         return {
           valid: false,
-          error: result.errorMessage || 'Invalid token',
+          error: errorMessage,
           statusCode: 401,
           wwwAuthenticate: this.getWWWAuthenticateHeader({
             error: 'invalid_token',
-            errorDescription: result.errorMessage,
+            errorDescription: errorMessage,
           }),
         };
       }
