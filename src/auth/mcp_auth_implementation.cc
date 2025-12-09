@@ -5,6 +5,10 @@
  * Provides JWT validation and OAuth support matching gopher-auth-sdk-nodejs functionality
  */
 
+#ifdef USE_CPP11_COMPAT
+#include "cpp11_compat.h"
+#endif
+
 #include "mcp/auth/auth_c_api.h"
 #include <string>
 #include <memory>
@@ -15,7 +19,9 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#ifndef USE_CPP11_COMPAT
 #include <shared_mutex>
+#endif
 #include <algorithm>
 #include <random>
 #include <thread>
@@ -2132,11 +2138,21 @@ mcp_auth_error_t mcp_auth_payload_destroy(mcp_auth_token_payload_t payload) {
     }
     
     // Clear all claims
+#ifdef USE_CPP11_COMPAT
+    // C++11 compatible version
+    for (auto& claim : payload->claims) {
+        if (!claim.second.empty()) {
+            std::fill(claim.second.begin(), claim.second.end(), '\0');
+        }
+    }
+#else
+    // C++17 structured binding version
     for (auto& [key, value] : payload->claims) {
         if (!value.empty()) {
             std::fill(value.begin(), value.end(), '\0');
         }
     }
+#endif
     
     delete payload;
     return MCP_AUTH_SUCCESS;

@@ -5,6 +5,10 @@
  * Implements performance optimizations for signature verification
  */
 
+#ifdef USE_CPP11_COMPAT
+#include "cpp11_compat.h"
+#endif
+
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>

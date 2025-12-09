@@ -5,6 +5,10 @@
  * Implements connection pooling, DNS caching, and efficient parsing
  */
 
+#ifdef USE_CPP11_COMPAT
+#include "cpp11_compat.h"
+#endif
+
 #include <curl/curl.h>
 #include <string>
 #include <unordered_map>
