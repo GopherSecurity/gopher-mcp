@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <chrono>
 #include <atomic>
 

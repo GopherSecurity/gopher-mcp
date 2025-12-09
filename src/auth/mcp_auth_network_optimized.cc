@@ -16,6 +16,7 @@
 #include <mutex>
 #include <chrono>
 #include <atomic>
+#include <cstring>
 #include <vector>
 #include <queue>
 // RapidJSON would be used here for optimized parsing

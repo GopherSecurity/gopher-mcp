@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Ubuntu 20.04 x86_64 builder
+  ubuntu20-x64:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ubuntu20-x64
+    image: mcp-auth-builder:ubuntu20-x64
+    container_name: mcp-auth-ubuntu20-x64
+    volumes:
+      - ../build-output/linux-x64:/output
+    command: |
+      bash -c "
+        echo '=== Building libgopher_mcp_auth for Linux x86_64 ==='
+        ls -la /output/
+        echo ''
+        echo 'Library details:'
+        file /output/libgopher_mcp_auth.so* || echo 'Library not found'
+        ldd /output/libgopher_mcp_auth.so* 2>/dev/null || echo 'Cannot check dependencies'
+      "
+
+  # Test container to verify the library works
+  test-ubuntu20:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ubuntu20-x64
+    depends_on:
+      - ubuntu20-x64
+    volumes:
+      - ../build-output/linux-x64:/test-lib:ro
+    command: |
+      bash -c "
+        echo '=== Testing library in Ubuntu 20.04 container ==='
+        cp /test-lib/libgopher_mcp_auth.so* /usr/local/lib/ 2>/dev/null || true
+        ldconfig
+        cd /build
+        if [ -x ./run_tests_with_standalone_auth.sh ]; then
+          USE_MOCK_MODE=1 ./run_tests_with_standalone_auth.sh
+        else
+          echo 'Test script not found'
+        fi
+      "
