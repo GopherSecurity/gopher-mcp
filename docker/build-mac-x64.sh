@@ -65,17 +65,28 @@ cp "${BUILD_DIR}/install/lib/libgopher_mcp_auth.0.1.0.dylib" "${OUTPUT_DIR}/"
 # Create symlink for compatibility
 ln -sf libgopher_mcp_auth.0.1.0.dylib "${OUTPUT_DIR}/libgopher_mcp_auth.dylib"
 
-# Copy the CMake-built verification app
-if [ -f "${BUILD_DIR}/install/bin/verify_auth" ]; then
-    cp "${BUILD_DIR}/install/bin/verify_auth" "${OUTPUT_DIR}/"
-    echo "  Copied CMake-built verify_auth (built with same toolchain as library)"
+# Build verification app from the original working source
+echo -e "${YELLOW}Building verification app...${NC}"
+cd "${OUTPUT_DIR}"
+
+# Use the original verify_auth.cc that was confirmed working
+if [ -f "${PROJECT_ROOT}/verify_auth.cc" ]; then
+    clang++ -std=c++11 \
+        -stdlib=libc++ \
+        -mmacosx-version-min=10.14 \
+        -o verify_auth \
+        "${PROJECT_ROOT}/verify_auth.cc"
+    echo "  Built verify_auth from original source (macOS 10.14+ compatible)"
 else
-    # The verify_auth might be in the build directory if not installed
-    if [ -f "${BUILD_DIR}/verify_auth" ]; then
+    # Fallback to CMake-built version if available
+    if [ -f "${BUILD_DIR}/install/bin/verify_auth" ]; then
+        cp "${BUILD_DIR}/install/bin/verify_auth" "${OUTPUT_DIR}/"
+        echo "  Using CMake-built verify_auth"
+    elif [ -f "${BUILD_DIR}/verify_auth" ]; then
         cp "${BUILD_DIR}/verify_auth" "${OUTPUT_DIR}/"
-        echo "  Copied verify_auth from build directory"
+        echo "  Using verify_auth from build directory"
     else
-        echo -e "${RED}Warning: verify_auth not found in CMake build${NC}"
+        echo -e "${RED}Warning: verify_auth not found${NC}"
     fi
 fi
 
