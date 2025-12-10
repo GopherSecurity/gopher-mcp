@@ -68,11 +68,26 @@ ln -sf libgopher_mcp_auth.0.1.0.dylib "${OUTPUT_DIR}/libgopher_mcp_auth.dylib"
 # Build verification app with macOS 10.14 compatibility
 echo -e "${YELLOW}Building verification app...${NC}"
 cd "$OUTPUT_DIR"
-clang++ -std=c++11 \
-    -mmacosx-version-min=10.14 \
-    -stdlib=libc++ \
-    -o verify_auth \
-    "${PROJECT_ROOT}/verify_auth.cc"
+
+# Build C version as the main verification tool for maximum compatibility
+if [ -f "${PROJECT_ROOT}/verify_auth_simple.c" ]; then
+    clang -std=c99 \
+        -mmacosx-version-min=10.14 \
+        -o verify_auth \
+        "${PROJECT_ROOT}/verify_auth_simple.c"
+    echo "  Built C version for macOS 10.14.6+ compatibility"
+else
+    # Fallback: try to build from local copy if exists
+    if [ -f "${SUPPORT_DIR}/verify_auth_simple.c" ]; then
+        clang -std=c99 \
+            -mmacosx-version-min=10.14 \
+            -o verify_auth \
+            "${SUPPORT_DIR}/verify_auth_simple.c"
+        echo "  Built C version from support directory"
+    else
+        echo -e "${RED}Warning: verify_auth_simple.c not found${NC}"
+    fi
+fi
 
 # Move support files to docker/mac-x64
 echo -e "${YELLOW}Moving support files to ${SUPPORT_DIR}...${NC}"
@@ -130,6 +145,7 @@ This directory contains support files for the macOS x64 build.
 
 - `info.sh` - Display library information
 - `build_verify.sh` - Build and run verification
+- `verify_auth_c` - C version for macOS 10.14.6 compatibility
 - `include/` - Header files (for reference)
 
 ## Usage
@@ -144,11 +160,23 @@ To verify the library:
 ./build_verify.sh
 ```
 
+For macOS 10.14.6 compatibility issues, use the C version:
+```bash
+cd ../../build-output/mac-x64
+../../docker/mac-x64/verify_auth_c
+```
+
 ## Output Directory
 
 The main output files are in `../../build-output/mac-x64/`:
 - `libgopher_mcp_auth.0.1.0.dylib` - The authentication library
-- `verify_auth` - Verification tool
+- `libgopher_mcp_auth.dylib` - Symlink for compatibility
+- `verify_auth` - Verification tool (C++ version)
+
+## macOS 10.14.6 Compatibility
+
+If `verify_auth` fails with "dyld: cannot load" error on macOS 10.14.6,
+use the C version (`verify_auth_c`) from this support directory instead.
 EOF
 
 # Clean up build directory
