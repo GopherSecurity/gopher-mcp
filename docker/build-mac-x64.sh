@@ -69,34 +69,25 @@ ln -sf libgopher_mcp_auth.0.1.0.dylib "${OUTPUT_DIR}/libgopher_mcp_auth.dylib"
 echo -e "${YELLOW}Building verification app...${NC}"
 cd "$OUTPUT_DIR"
 
-# Build minimal C version for maximum macOS 10.14.6 compatibility
-# Use very conservative flags to avoid any modern features
-if [ -f "${PROJECT_ROOT}/verify_auth_minimal.c" ]; then
-    # Compile with absolute minimum requirements
-    clang \
-        -o verify_auth \
-        -std=c89 \
-        -mmacosx-version-min=10.14 \
-        -fno-stack-protector \
-        -fno-strict-aliasing \
-        -Wl,-no_adhoc_codesign \
-        "${PROJECT_ROOT}/verify_auth_minimal.c"
-    echo "  Built minimal C version for macOS 10.14.6 compatibility"
-    
-    # Strip the binary to remove any extra metadata
-    strip verify_auth
-    
-    # Remove any extended attributes that might cause issues
-    xattr -c verify_auth 2>/dev/null || true
-elif [ -f "${PROJECT_ROOT}/verify_auth_simple.c" ]; then
-    # Fallback to simple version
-    clang -std=c99 \
-        -mmacosx-version-min=10.14 \
-        -o verify_auth \
-        "${PROJECT_ROOT}/verify_auth_simple.c"
-    echo "  Built C version for macOS 10.14.6+ compatibility"
+# Use the pre-built verify_auth_c that is known to work on macOS 10.14.6
+# This binary was previously tested and confirmed working
+if [ -f "${SUPPORT_DIR}/verify_auth_c" ]; then
+    cp "${SUPPORT_DIR}/verify_auth_c" verify_auth
+    echo "  Using pre-built verify_auth_c for macOS 10.14.6 compatibility"
 else
-    echo -e "${RED}Warning: verify_auth source not found${NC}"
+    # Build from source as fallback
+    if [ -f "${PROJECT_ROOT}/verify_auth_simple.c" ]; then
+        clang -std=c99 \
+            -mmacosx-version-min=10.14 \
+            -o verify_auth \
+            "${PROJECT_ROOT}/verify_auth_simple.c"
+        echo "  Built C version for macOS 10.14.6+ compatibility"
+        
+        # Save a copy for future use
+        cp verify_auth "${SUPPORT_DIR}/verify_auth_c"
+    else
+        echo -e "${RED}Warning: verify_auth not available${NC}"
+    fi
 fi
 
 # Move support files to docker/mac-x64
