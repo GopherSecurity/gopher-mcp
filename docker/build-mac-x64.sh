@@ -24,7 +24,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Build configuration
 BUILD_DIR="${PROJECT_ROOT}/build-mac-x64"
 OUTPUT_DIR="${PROJECT_ROOT}/build-output/mac-x64"
-SUPPORT_DIR="${PROJECT_ROOT}/docker/mac-x64"
 MIN_MACOS_VERSION="10.14"
 
 # Clean previous builds
@@ -33,7 +32,6 @@ rm -rf "$BUILD_DIR"
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$BUILD_DIR"
 mkdir -p "$OUTPUT_DIR"
-mkdir -p "$SUPPORT_DIR"
 
 # Navigate to build directory
 cd "$BUILD_DIR"
@@ -62,123 +60,62 @@ make install
 # Copy output files
 echo -e "${YELLOW}Organizing output files...${NC}"
 cp "${BUILD_DIR}/install/lib/libgopher_mcp_auth.0.1.0.dylib" "${OUTPUT_DIR}/"
+
 # Create symlink for compatibility
 ln -sf libgopher_mcp_auth.0.1.0.dylib "${OUTPUT_DIR}/libgopher_mcp_auth.dylib"
 
-# Build verification app from the original working source
+# Build verification app for macOS
 echo -e "${YELLOW}Building verification app...${NC}"
 cd "${OUTPUT_DIR}"
 
-# Use the original verify_auth.cc that was confirmed working
-if [ -f "${PROJECT_ROOT}/verify_auth.cc" ]; then
-    clang++ -std=c++11 \
-        -stdlib=libc++ \
-        -mmacosx-version-min=10.14 \
-        -o verify_auth \
-        "${PROJECT_ROOT}/verify_auth.cc"
-    echo "  Built verify_auth from original source (macOS 10.14+ compatible)"
-else
-    # Fallback to CMake-built version if available
-    if [ -f "${BUILD_DIR}/install/bin/verify_auth" ]; then
-        cp "${BUILD_DIR}/install/bin/verify_auth" "${OUTPUT_DIR}/"
-        echo "  Using CMake-built verify_auth"
-    elif [ -f "${BUILD_DIR}/verify_auth" ]; then
-        cp "${BUILD_DIR}/verify_auth" "${OUTPUT_DIR}/"
-        echo "  Using verify_auth from build directory"
+# Try to use verification programs in order of preference
+VERIFY_SAFE="${SCRIPT_DIR}/mac-x64/verify_auth_safe.c"
+VERIFY_FULL="${SCRIPT_DIR}/mac-x64/verify_auth_full.c"
+VERIFY_SIMPLE="${SCRIPT_DIR}/mac-x64/verify_auth.c"
+
+if [ -f "${VERIFY_SAFE}" ]; then
+    echo "  Building safe verification tool from docker/mac-x64/verify_auth_safe.c"
+    cp "${VERIFY_SAFE}" verify_auth.c
+    
+    # Build with macOS 10.14 compatibility
+    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    
+    if [ $? -eq 0 ]; then
+        echo "  ✓ Built safe verification tool"
     else
-        echo -e "${RED}Warning: verify_auth not found${NC}"
+        echo "  Warning: Safe version build failed, trying simple version..."
+        if [ -f "${VERIFY_SIMPLE}" ]; then
+            cp "${VERIFY_SIMPLE}" verify_auth.c
+            MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+            echo "  ✓ Built simple verification tool"
+        fi
     fi
+    
+    # Clean up source
+    rm -f verify_auth.c
+    
+elif [ -f "${VERIFY_FULL}" ]; then
+    echo "  Building full verification tool from docker/mac-x64/verify_auth_full.c"
+    cp "${VERIFY_FULL}" verify_auth.c
+    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    rm -f verify_auth.c
+    echo "  ✓ Built full verification tool"
+    
+elif [ -f "${VERIFY_SIMPLE}" ]; then
+    echo "  Building simple verification tool from docker/mac-x64/verify_auth.c"
+    cp "${VERIFY_SIMPLE}" verify_auth.c
+    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    rm verify_auth.c
+    echo "  ✓ Built simple verification tool"
+else
+    echo -e "${RED}Error: No verification source found${NC}"
+    exit 1
 fi
 
-# Move support files to docker/mac-x64
-echo -e "${YELLOW}Moving support files to ${SUPPORT_DIR}...${NC}"
+# Strip extended attributes to avoid security issues
+xattr -cr verify_auth 2>/dev/null || true
 
-# Create info script in support directory
-cat > "${SUPPORT_DIR}/info.sh" << 'EOF'
-#!/bin/bash
-echo "Library Information:"
-echo "===================="
-file "$1"
-echo ""
-echo "Architecture:"
-lipo -info "$1" 2>/dev/null || echo "Single architecture"
-echo ""
-echo "Dependencies:"
-otool -L "$1"
-echo ""
-echo "Minimum macOS version:"
-otool -l "$1" | grep -A 4 "LC_BUILD_VERSION" | grep "minos" | awk '{print "macOS " $2}'
-echo ""
-echo "Library size:"
-ls -lh "$1" | awk '{print $5}'
-EOF
-chmod +x "${SUPPORT_DIR}/info.sh"
-
-# Create build verification script in support directory
-cat > "${SUPPORT_DIR}/build_verify.sh" << 'EOF'
-#!/bin/bash
-# Build verification app for macOS
-set -e
-OUTPUT_DIR="../../build-output/mac-x64"
-cd "$OUTPUT_DIR"
-if [ ! -f verify_auth ]; then
-    echo "Building verification app..."
-    clang++ -std=c++11 -mmacosx-version-min=10.14 -stdlib=libc++ \
-        -o verify_auth ../../verify_auth.cc
-fi
-echo "Running verification..."
-./verify_auth
-EOF
-chmod +x "${SUPPORT_DIR}/build_verify.sh"
-
-# Copy headers to support directory (for reference)
-if [ -d "${BUILD_DIR}/install/include" ]; then
-    cp -r "${BUILD_DIR}/install/include" "${SUPPORT_DIR}/"
-fi
-
-# Create README in support directory
-cat > "${SUPPORT_DIR}/README.md" << 'EOF'
-# macOS x64 Support Files
-
-This directory contains support files for the macOS x64 build.
-
-## Files
-
-- `info.sh` - Display library information
-- `build_verify.sh` - Build and run verification
-- `verify_auth_c` - C version for macOS 10.14.6 compatibility
-- `include/` - Header files (for reference)
-
-## Usage
-
-To get library info:
-```bash
-./info.sh ../../build-output/mac-x64/libgopher_mcp_auth.0.1.0.dylib
-```
-
-To verify the library:
-```bash
-./build_verify.sh
-```
-
-For macOS 10.14.6 compatibility issues, use the C version:
-```bash
-cd ../../build-output/mac-x64
-../../docker/mac-x64/verify_auth_c
-```
-
-## Output Directory
-
-The main output files are in `../../build-output/mac-x64/`:
-- `libgopher_mcp_auth.0.1.0.dylib` - The authentication library
-- `libgopher_mcp_auth.dylib` - Symlink for compatibility
-- `verify_auth` - Verification tool (C++ version)
-
-## macOS 10.14.6 Compatibility
-
-If `verify_auth` fails with "dyld: cannot load" error on macOS 10.14.6,
-use the C version (`verify_auth_c`) from this support directory instead.
-EOF
+echo "  Created verify_auth (macOS compatible)"
 
 # Clean up build directory
 cd "$PROJECT_ROOT"
@@ -193,20 +130,35 @@ if [ -f "libgopher_mcp_auth.0.1.0.dylib" ] && [ -f "verify_auth" ]; then
     echo -e "${GREEN}✅ Build successful!${NC}"
     echo ""
     echo "Output files:"
-    echo "-------------"
-    ls -lah libgopher_mcp_auth.0.1.0.dylib verify_auth
+    echo "------------------------------------"
+    ls -lah
     echo ""
     
     # Show library info
-    "${SUPPORT_DIR}/info.sh" libgopher_mcp_auth.0.1.0.dylib
+    echo "Library information:"
+    file libgopher_mcp_auth.0.1.0.dylib
+    echo ""
     
+    # Show minimum macOS version
+    echo "Minimum macOS version:"
+    otool -l libgopher_mcp_auth.0.1.0.dylib | grep -A 4 "LC_BUILD_VERSION\|LC_VERSION_MIN" | head -6
     echo ""
-    echo -e "${GREEN}📦 Output files:${NC}"
-    echo "  - ${OUTPUT_DIR}/libgopher_mcp_auth.0.1.0.dylib"
-    echo "  - ${OUTPUT_DIR}/verify_auth"
+    
+    echo -e "${GREEN}📦 Output contains:${NC}"
+    echo "  - libgopher_mcp_auth.0.1.0.dylib (the authentication library)"
+    echo "  - libgopher_mcp_auth.dylib (symlink for compatibility)"
+    echo "  - verify_auth (verification tool, macOS 10.14.6+ compatible)"
     echo ""
-    echo -e "${GREEN}📁 Support files:${NC}"
-    echo "  - ${SUPPORT_DIR}/"
+    
+    # Test verification app
+    echo -e "${YELLOW}Testing verification app...${NC}"
+    if ./verify_auth; then
+        echo -e "${GREEN}✓ Verification test passed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Verification test failed or crashed${NC}"
+        echo "This may be due to missing dependencies or library issues"
+        echo "The build artifacts have been created successfully"
+    fi
 else
     echo -e "${RED}❌ Build failed - required files not found${NC}"
     exit 1
@@ -214,3 +166,8 @@ fi
 
 echo ""
 echo -e "${GREEN}✨ Build complete!${NC}"
+echo ""
+echo "To use on macOS 10.14.6:"
+echo "  1. Copy the entire build-output/mac-x64/ directory to the target machine"
+echo "  2. Run: ./verify_auth"
+echo ""

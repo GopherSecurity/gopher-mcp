@@ -50,5 +50,28 @@ RUN mkdir -p /output && \
     cp /usr/local/lib/libgopher_mcp_auth.so* /output/ && \
     cp /usr/local/include/mcp_auth*.h /output/ 2>/dev/null || true
 
+# Copy verification tool source
+COPY docker/linux-x64/verify_auth.c /tmp/verify_auth.c
+
+# Build verification tool
+WORKDIR /output
+RUN gcc -o verify_auth /tmp/verify_auth.c \
+    -std=gnu11 \
+    -D_GNU_SOURCE \
+    -ldl \
+    -O2 \
+    -fno-stack-protector \
+    -Wl,-z,norelro \
+    -Wl,-z,lazy && \
+    strip --strip-unneeded verify_auth
+
+# Clean up library names (ensure we have the versioned .so files)
+RUN cd /output && \
+    if [ -f libgopher_mcp_auth.so ]; then \
+        mv libgopher_mcp_auth.so libgopher_mcp_auth.so.0.1.0 2>/dev/null || true; \
+        ln -sf libgopher_mcp_auth.so.0.1.0 libgopher_mcp_auth.so.0; \
+        ln -sf libgopher_mcp_auth.so.0 libgopher_mcp_auth.so; \
+    fi
+
 # Default command to show library info
 CMD ["bash", "-c", "ls -la /output/ && ldd /output/libgopher_mcp_auth.so* && file /output/libgopher_mcp_auth.so*"]

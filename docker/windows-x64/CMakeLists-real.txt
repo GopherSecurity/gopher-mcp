@@ -1,0 +1,72 @@
+cmake_minimum_required(VERSION 3.16)
+project(gopher-mcp-auth VERSION 0.1.0 LANGUAGES CXX)
+
+# Set C++ standard to C++11 for maximum compatibility
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Use the statically built OpenSSL and CURL libraries
+set(OPENSSL_ROOT_DIR /usr/x86_64-w64-mingw32)
+set(OPENSSL_INCLUDE_DIR ${OPENSSL_ROOT_DIR}/include)
+set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_ROOT_DIR}/lib/libcrypto.a)
+set(OPENSSL_SSL_LIBRARY ${OPENSSL_ROOT_DIR}/lib/libssl.a)
+
+set(CURL_ROOT_DIR /usr/x86_64-w64-mingw32)
+set(CURL_INCLUDE_DIR ${CURL_ROOT_DIR}/include)
+set(CURL_LIBRARY ${CURL_ROOT_DIR}/lib/libcurl.a)
+
+# Include the directories
+include_directories(${OPENSSL_INCLUDE_DIR})
+include_directories(${CURL_INCLUDE_DIR})
+
+# Auth library source files - use the real implementation
+set(AUTH_SOURCES
+    /src/auth/mcp_auth_implementation.cc
+    /src/auth/mcp_auth_crypto_optimized.cc
+    /src/auth/mcp_auth_network_optimized.cc
+    /docker/windows-x64/windows_compat.cc
+)
+
+# Create the shared library
+add_library(gopher_mcp_auth SHARED ${AUTH_SOURCES})
+
+# Set library properties
+set_target_properties(gopher_mcp_auth PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    PREFIX ""  # Remove lib prefix for Windows DLL
+)
+
+# Include directories
+target_include_directories(gopher_mcp_auth
+    PUBLIC
+        $<BUILD_INTERFACE:/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link Windows libraries and the statically built OpenSSL/CURL
+target_link_libraries(gopher_mcp_auth
+    PRIVATE
+        ${CURL_LIBRARY}          # CURL must come before OpenSSL
+        ${OPENSSL_SSL_LIBRARY}   # SSL before crypto
+        ${OPENSSL_CRYPTO_LIBRARY}
+        ws2_32    # Windows sockets
+        crypt32   # Windows crypto
+        wldap32   # LDAP for CURL
+        winmm     # Windows multimedia
+        gdi32     # Windows GDI
+        user32    # Windows user
+)
+
+# Install rules
+install(TARGETS gopher_mcp_auth
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+
+# No external DLLs needed - everything is statically linked
