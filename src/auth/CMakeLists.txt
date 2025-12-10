@@ -112,6 +112,24 @@ install(FILES
     DESTINATION lib/cmake/gopher-mcp-auth
 )
 
+# Build verification executable
+add_executable(verify_auth verify_auth.cc)
+
+# Set properties for macOS 10.14 compatibility
+set_target_properties(verify_auth PROPERTIES
+    CXX_STANDARD 11
+    CXX_STANDARD_REQUIRED ON
+    OUTPUT_NAME "verify_auth"
+)
+
+# Link only with system libraries (no dependency on our auth library)
+target_link_libraries(verify_auth PRIVATE ${CMAKE_DL_LIBS})
+
+# Install verification app
+install(TARGETS verify_auth
+    RUNTIME DESTINATION bin
+)
+
 # Export compile commands for development
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
