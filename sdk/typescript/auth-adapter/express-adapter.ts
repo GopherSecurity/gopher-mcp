@@ -4,13 +4,14 @@
  */
 
 import { Request, Response, NextFunction, Router } from 'express';
-import { OAuthHelper } from '@mcp/filter-sdk/auth';
+import { OAuthHelper } from '../src/oauth-helper.js';
 
 export interface ExpressOAuthConfig {
   oauth: OAuthHelper;
   clientId?: string;
   clientSecret?: string;
   redirectUris?: string[];
+  scopes?: string[];
 }
 
 /**
@@ -59,13 +60,15 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
  */
 export function createOAuthRouter(config: ExpressOAuthConfig): Router {
   const router = Router();
-  const { oauth, clientId, clientSecret, redirectUris } = config;
+  const { oauth, clientId, clientSecret, redirectUris, scopes } = config;
   
   const CLIENT_ID = clientId || process.env.GOPHER_CLIENT_ID!;
   const CLIENT_SECRET = clientSecret || process.env.GOPHER_CLIENT_SECRET!;
+  // Build redirect URIs based on the actual server URL
+  const serverUrl = oauth.getServerUrl();
   const REDIRECT_URIS = redirectUris || [
-    'http://localhost:3000/oauth/callback',
-    'http://localhost:3001/oauth/callback',
+    `${serverUrl}/oauth/callback`,
+    // Common MCP Inspector ports
     'http://localhost:6274/oauth/callback',
     'http://localhost:6275/oauth/callback',
     'http://localhost:6276/oauth/callback',
@@ -105,7 +108,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
-        scope: req.body.scope || 'openid profile email mcp:weather',
+        scope: req.body.scope || ['openid', 'profile', 'email', ...(scopes || [])].join(' '),
       };
       return res.status(201).json(client);
     }
@@ -137,7 +140,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
-        scope: req.body.scope || 'openid profile email mcp:weather',
+        scope: req.body.scope || ['openid', 'profile', 'email', ...(scopes || [])].join(' '),
       };
       console.log('Returning client config:', {
         client_id: client.client_id,
@@ -165,24 +168,39 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       console.log('No redirect_uri provided, using default:', queryParams.redirect_uri);
     } else {
       console.log('MCP Inspector redirect_uri:', queryParams.redirect_uri);
-      // Store original redirect_uri if it's from MCP Inspector
-      if (queryParams.redirect_uri.includes('127.0.0.1') || 
-          queryParams.redirect_uri.includes('localhost') && !queryParams.redirect_uri.includes('3001')) {
+      // Store original redirect_uri if it's from MCP Inspector (dynamic port)
+      const serverUrl = oauth.getServerUrl();
+      const serverPort = new URL(serverUrl).port || '3001';
+      
+      // Check if this is MCP Inspector using a dynamic port (not our server port)
+      if (!queryParams.redirect_uri.includes(`:${serverPort}/`) &&
+          (queryParams.redirect_uri.includes('127.0.0.1') || 
+           queryParams.redirect_uri.includes('localhost'))) {
         res.cookie('mcp_inspector_redirect', queryParams.redirect_uri, {
           httpOnly: true,
           maxAge: 10 * 60 * 1000,
           sameSite: 'lax'
         });
         console.log('Stored MCP Inspector redirect URI in cookie');
+        
+        // Store the PKCE code_verifier from MCP Inspector
+        if (queryParams.code_verifier) {
+          res.cookie('mcp_inspector_verifier', queryParams.code_verifier, {
+            httpOnly: true,
+            maxAge: 10 * 60 * 1000,
+            sameSite: 'lax'
+          });
+          console.log('Stored MCP Inspector code verifier');
+        }
+        
+        // Replace with our registered callback URL (using actual server URL)
+        queryParams.redirect_uri = `${serverUrl}/oauth/callback`;
+        console.log('Replaced redirect_uri with:', queryParams.redirect_uri);
       }
     }
     
-    // Ensure mcp:weather scope is included
-    if (!queryParams.scope) {
-      queryParams.scope = 'openid profile email mcp:weather';
-    } else if (!queryParams.scope.includes('mcp:weather')) {
-      queryParams.scope = queryParams.scope + ' mcp:weather';
-    }
+    // Don't modify scopes - let the client decide what scopes to request
+    // The scopes should be passed in by the client application
     
     // Force consent screen to appear
     queryParams.prompt = 'consent';
@@ -233,6 +251,21 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         client_secret: req.body.client_secret || clientSecretFromAuth || CLIENT_SECRET,
       };
       
+      // Fix redirect_uri mismatch - MCP Inspector sends its dynamic port
+      // but we used our server's registered redirect URI for authorization
+      const serverUrl = oauth.getServerUrl();
+      const serverPort = new URL(serverUrl).port || '3001';
+      
+      if (tokenRequest.redirect_uri && 
+          !tokenRequest.redirect_uri.includes(`:${serverPort}/`) &&
+          (tokenRequest.redirect_uri.includes('localhost') ||
+           tokenRequest.redirect_uri.includes('127.0.0.1'))) {
+        console.log('Replacing MCP Inspector redirect_uri in token exchange');
+        console.log('  Original:', tokenRequest.redirect_uri);
+        tokenRequest.redirect_uri = `${serverUrl}/oauth/callback`;
+        console.log('  Replaced:', tokenRequest.redirect_uri);
+      }
+      
       // Exchange token
       const tokenResponse = await oauth.exchangeToken(tokenRequest);
       res.json(tokenResponse);
@@ -256,6 +289,22 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       return res.status(400).send('No authorization code received');
     }
     
+    // Check if we need to redirect back to MCP Inspector
+    const mcpInspectorRedirect = req.cookies?.mcp_inspector_redirect;
+    if (mcpInspectorRedirect) {
+      console.log('Redirecting back to MCP Inspector:', mcpInspectorRedirect);
+      res.clearCookie('mcp_inspector_redirect');
+      res.clearCookie('mcp_inspector_verifier');
+      
+      // Redirect to MCP Inspector's callback with the authorization code
+      const redirectUrl = new URL(mcpInspectorRedirect);
+      redirectUrl.searchParams.set('code', code as string);
+      redirectUrl.searchParams.set('state', state as string);
+      
+      return res.redirect(redirectUrl.toString());
+    }
+    
+    // Otherwise handle our own callback
     const codeVerifier = req.cookies?.code_verifier || 'default-verifier';
     
     try {
@@ -268,6 +317,8 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       
       if (result.success) {
         res.clearCookie('code_verifier');
+        
+        // Show success page
         res.send(`
           <!DOCTYPE html>
           <html>
@@ -307,7 +358,8 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
 export function setupMCPOAuth(
   app: any,
   oauth: OAuthHelper,
-  mcpHandler: (req: Request, res: Response) => Promise<void>
+  mcpHandler: (req: Request, res: Response) => Promise<void>,
+  scopes?: string[]
 ) {
   // OAuth protected resource metadata (required by MCP spec)
   app.get('/.well-known/oauth-protected-resource', async (_req: Request, res: Response) => {
@@ -355,7 +407,7 @@ export function setupMCPOAuth(
   });
 
   // OAuth proxy endpoints (required for MCP Inspector)
-  app.use('/oauth', createOAuthRouter({ oauth }));
+  app.use('/oauth', createOAuthRouter({ oauth, scopes }));
 
   // MCP endpoint with authentication
   app.all('/mcp', createAuthMiddleware(oauth), mcpHandler);
