@@ -84,3 +84,6 @@ export type { CanonicalConfig } from "./filter-types";
 export { GopherFilteredTransport, FilterDeniedError } from "./gopher-filtered-transport";
 export type { GopherFilteredTransportConfig } from "./gopher-filtered-transport";
 export { MessageQueue } from "./message-queue";
+
+// Authentication API
+export * as auth from "./auth";

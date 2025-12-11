@@ -1,0 +1,50 @@
+cmake_minimum_required(VERSION 3.16)
+project(gopher-mcp-auth VERSION 0.1.0 LANGUAGES CXX)
+
+# Set C++ standard to C++11 for maximum compatibility
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Windows native implementation using WinCrypt and WinHTTP
+# This provides real cryptography and networking without OpenSSL/CURL dependencies
+set(AUTH_SOURCES
+    /docker/windows-x64/mcp_auth_windows.cc
+)
+
+# Create the shared library
+add_library(gopher_mcp_auth SHARED ${AUTH_SOURCES})
+
+# Set library properties
+set_target_properties(gopher_mcp_auth PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0
+    WINDOWS_EXPORT_ALL_SYMBOLS OFF  # We use explicit __declspec(dllexport)
+    PREFIX ""  # Remove lib prefix for Windows
+)
+
+# Include directories
+target_include_directories(gopher_mcp_auth
+    PUBLIC
+        $<BUILD_INTERFACE:/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link Windows system libraries
+target_link_libraries(gopher_mcp_auth
+    PRIVATE
+        crypt32   # Windows Crypto API
+        winhttp   # Windows HTTP API (CURL replacement)
+        ws2_32    # Windows sockets
+        user32    # Windows user
+)
+
+# Install rules
+install(TARGETS gopher_mcp_auth
+    EXPORT gopher_mcp_auth-targets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+)

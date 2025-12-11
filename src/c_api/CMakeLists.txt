@@ -35,6 +35,9 @@ set(MCP_C_API_SOURCES
     # Logging API with RAII
     mcp_c_logging_api.cc         # FFI-safe logging API with RAII
     
+    # Authentication API - using C API implementation
+    mcp_c_auth_api.cc  # Complete C API for authentication functions (includes all auth functionality)
+    
     # TODO: Update these to use new opaque handle API
     mcp_c_api_json.cc  # JSON conversion functions
     # mcp_c_api_client.cc
@@ -140,6 +143,12 @@ target_include_directories(gopher_mcp_c
         ${CMAKE_BINARY_DIR}/_deps/fmt-src/include
 )
 
+# Find OpenSSL for JWT signature verification
+find_package(OpenSSL REQUIRED)
+
+# Find CURL for JWKS fetching
+find_package(CURL REQUIRED)
+
 # Link with shared libraries 
 # The shared library already contains all needed dependencies
 # When gopher-mcp is built as static only, link to static version
@@ -150,6 +159,9 @@ if(TARGET gopher-mcp AND NOT TARGET gopher-mcp-shared)
             gopher-mcp-static
             gopher-mcp-event-static
             gopher-mcp-logging-static
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            CURL::libcurl
     )
 else()
     # Normal case - shared libraries exist
@@ -158,6 +170,9 @@ else()
             gopher-mcp
             gopher-mcp-event
             gopher-mcp-logging
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            CURL::libcurl
     )
 endif()
 
@@ -202,6 +217,9 @@ if(BUILD_C_API_STATIC)
             gopher-mcp-static
             gopher-mcp-event-static
             gopher-mcp-logging-static
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            CURL::libcurl
     )
     
     target_compile_features(gopher_mcp_c_static PRIVATE cxx_std_17)

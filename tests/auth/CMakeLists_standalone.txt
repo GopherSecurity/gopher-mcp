@@ -1,0 +1,116 @@
+cmake_minimum_required(VERSION 3.16)
+project(auth-tests-standalone)
+
+# Use C++11 to match the auth library
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find packages
+find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
+
+# Find or download GoogleTest
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG release-1.12.1
+)
+FetchContent_MakeAvailable(googletest)
+
+# Include directories
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${OPENSSL_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIRS}
+)
+
+# Auth library path
+set(AUTH_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../build-auth-only/libgopher_mcp_auth.dylib")
+
+# Test: test_auth_types
+add_executable(test_auth_types test_auth_types.cc)
+target_compile_definitions(test_auth_types PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(test_auth_types
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: test_keycloak_integration  
+add_executable(test_keycloak_integration test_keycloak_integration.cc)
+target_compile_definitions(test_keycloak_integration PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(test_keycloak_integration
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: test_mcp_inspector_flow
+add_executable(test_mcp_inspector_flow test_mcp_inspector_flow.cc)
+target_compile_definitions(test_mcp_inspector_flow PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(test_mcp_inspector_flow
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: test_complete_integration
+add_executable(test_complete_integration test_complete_integration.cc)
+target_compile_definitions(test_complete_integration PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(test_complete_integration
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: benchmark_jwt_validation
+add_executable(benchmark_jwt_validation benchmark_jwt_validation.cc)
+target_compile_definitions(benchmark_jwt_validation PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(benchmark_jwt_validation
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: benchmark_crypto_optimization
+add_executable(benchmark_crypto_optimization benchmark_crypto_optimization.cc)
+target_compile_definitions(benchmark_crypto_optimization PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(benchmark_crypto_optimization
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Test: benchmark_network_optimization
+add_executable(benchmark_network_optimization benchmark_network_optimization.cc)
+target_compile_definitions(benchmark_network_optimization PRIVATE USE_CPP11_COMPAT=1)
+target_link_libraries(benchmark_network_optimization
+    ${AUTH_LIB_PATH}
+    gtest gtest_main
+    ${OPENSSL_LIBRARIES}
+    ${CURL_LIBRARIES}
+    pthread
+)
+
+# Enable testing
+enable_testing()
+add_test(NAME test_auth_types COMMAND test_auth_types)
+add_test(NAME test_keycloak_integration COMMAND test_keycloak_integration)
+add_test(NAME test_mcp_inspector_flow COMMAND test_mcp_inspector_flow)
+add_test(NAME test_complete_integration COMMAND test_complete_integration)
+add_test(NAME benchmark_jwt_validation COMMAND benchmark_jwt_validation)
+add_test(NAME benchmark_crypto_optimization COMMAND benchmark_crypto_optimization)
+add_test(NAME benchmark_network_optimization COMMAND benchmark_network_optimization)

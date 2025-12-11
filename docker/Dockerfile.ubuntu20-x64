@@ -1,0 +1,77 @@
+# Dockerfile for building libgopher_mcp_auth on Ubuntu 20.04 x86_64
+FROM ubuntu:20.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Copy auth source files and headers
+COPY src/auth /build/src/auth
+COPY include/mcp/auth /build/include/mcp/auth
+COPY tests/auth /build/tests/auth
+COPY build_auth_tests_minimal.sh /build/
+COPY run_tests_with_standalone_auth.sh /build/
+
+# Create build directory
+RUN mkdir -p build-auth-only
+
+# Build the standalone auth library
+WORKDIR /build/build-auth-only
+RUN cmake -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_STANDARD=11 \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DBUILD_SHARED_LIBS=ON \
+    ../src/auth
+
+# Compile the library
+RUN make -j$(nproc)
+
+# Install the library
+RUN make install
+
+# Skip tests for now - focus on library build only
+# Tests would require Google Test download which we're avoiding for the minimal build
+
+# Set up the output directory
+RUN mkdir -p /output && \
+    cp /usr/local/lib/libgopher_mcp_auth.so* /output/ && \
+    cp /usr/local/include/mcp_auth*.h /output/ 2>/dev/null || true
+
+# Copy verification tool source
+COPY docker/linux-x64/verify_auth.c /tmp/verify_auth.c
+
+# Build verification tool
+WORKDIR /output
+RUN gcc -o verify_auth /tmp/verify_auth.c \
+    -std=gnu11 \
+    -D_GNU_SOURCE \
+    -ldl \
+    -O2 \
+    -fno-stack-protector \
+    -Wl,-z,norelro \
+    -Wl,-z,lazy && \
+    strip --strip-unneeded verify_auth
+
+# Clean up library names (ensure we have the versioned .so files)
+RUN cd /output && \
+    if [ -f libgopher_mcp_auth.so ]; then \
+        mv libgopher_mcp_auth.so libgopher_mcp_auth.so.0.1.0 2>/dev/null || true; \
+        ln -sf libgopher_mcp_auth.so.0.1.0 libgopher_mcp_auth.so.0; \
+        ln -sf libgopher_mcp_auth.so.0 libgopher_mcp_auth.so; \
+    fi
+
+# Default command to show library info
+CMD ["bash", "-c", "ls -la /output/ && ldd /output/libgopher_mcp_auth.so* && file /output/libgopher_mcp_auth.so*"]

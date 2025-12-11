@@ -3,6 +3,17 @@
 
 # Include filter tests subdirectory
 add_subdirectory(filter)
+
+# Auth tests
+add_executable(test_auth_types auth/test_auth_types.cc)
+add_executable(benchmark_jwt_validation auth/benchmark_jwt_validation.cc)
+add_executable(test_memory_cache auth/test_memory_cache.cc)
+# Test files removed - headers had no implementation
+add_executable(test_keycloak_integration auth/test_keycloak_integration.cc)
+add_executable(test_mcp_inspector_flow auth/test_mcp_inspector_flow.cc)
+add_executable(benchmark_crypto_optimization auth/benchmark_crypto_optimization.cc)
+add_executable(benchmark_network_optimization auth/benchmark_network_optimization.cc)
+add_executable(test_complete_integration auth/test_complete_integration.cc)
 add_executable(test_variant core/test_variant.cc)
 add_executable(test_variant_extensive core/test_variant_extensive.cc)
 add_executable(test_variant_advanced core/test_variant_advanced.cc)
@@ -137,6 +148,71 @@ add_executable(test_connection_manager_real_io network/test_connection_manager_r
 add_executable(test_event_handling integration/test_event_handling.cc)
 
 # Link libraries
+
+# Link auth test executables
+target_link_libraries(test_auth_types
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(benchmark_jwt_validation
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+)
+
+target_link_libraries(test_memory_cache
+    gtest 
+    gtest_main
+    Threads::Threads
+)
+
+# Removed - headers had no implementation
+
+target_link_libraries(test_keycloak_integration
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    CURL::libcurl
+)
+
+target_link_libraries(test_mcp_inspector_flow
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    CURL::libcurl
+)
+
+target_link_libraries(benchmark_crypto_optimization
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_link_libraries(benchmark_network_optimization
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    CURL::libcurl
+)
+
+target_link_libraries(test_complete_integration
+    gopher_mcp_c
+    gtest 
+    gtest_main
+    Threads::Threads
+    CURL::libcurl
+)
+
 target_link_libraries(test_variant 
     gtest 
     gtest_main
@@ -836,7 +912,7 @@ if(BUILD_C_API)
     )
     
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_chain_from_json nghttp2)
+        target_link_libraries(test_chain_from_json nghttp2_static)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_chain_from_json llhttp)
@@ -853,7 +929,7 @@ if(BUILD_C_API)
     )
     
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_unified_chain_handles nghttp2)
+        target_link_libraries(test_unified_chain_handles nghttp2_static)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_unified_chain_handles llhttp)
@@ -870,7 +946,7 @@ if(BUILD_C_API)
     )
 
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_filter_only_api nghttp2)
+        target_link_libraries(test_filter_only_api nghttp2_static)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_filter_only_api llhttp)
@@ -888,7 +964,7 @@ if(BUILD_C_API)
     )
 
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_filter_only_api_simple nghttp2)
+        target_link_libraries(test_filter_only_api_simple nghttp2_static)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_filter_only_api_simple llhttp)
@@ -906,7 +982,7 @@ if(BUILD_C_API)
     )
 
     if(NGHTTP2_FOUND)
-        target_link_libraries(test_filter_registration_simple nghttp2)
+        target_link_libraries(test_filter_registration_simple nghttp2_static)
     endif()
     if(LLHTTP_FOUND)
         target_link_libraries(test_filter_registration_simple llhttp)
@@ -1033,6 +1109,12 @@ target_link_libraries(test_event_handling
 )
 
 # Add tests
+
+# Auth tests
+add_test(NAME AuthTypesTest COMMAND test_auth_types)
+add_test(NAME JwtValidationBenchmark COMMAND benchmark_jwt_validation)
+add_test(NAME MemoryCacheTest COMMAND test_memory_cache)
+
 add_test(NAME VariantTest COMMAND test_variant)
 add_test(NAME VariantExtensiveTest COMMAND test_variant_extensive)
 add_test(NAME VariantAdvancedTest COMMAND test_variant_advanced)
