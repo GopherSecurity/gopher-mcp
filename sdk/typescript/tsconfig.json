@@ -39,7 +39,7 @@
       "@/utils/*": ["utils/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "auth-adapter/**/*"],
   "exclude": ["node_modules", "dist", "examples"],
   "ts-node": {
     "transpileOnly": true,
