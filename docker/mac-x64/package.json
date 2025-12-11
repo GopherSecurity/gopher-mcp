@@ -1,0 +1,19 @@
+{
+  "name": "mcp-auth-typescript-test",
+  "version": "1.0.0",
+  "description": "TypeScript tests for libgopher_mcp_auth",
+  "main": "typescript-test.js",
+  "scripts": {
+    "test": "tsx typescript-test.ts",
+    "build": "tsc",
+    "test:compiled": "node typescript-test.js"
+  },
+  "dependencies": {
+    "koffi": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

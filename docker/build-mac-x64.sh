@@ -164,10 +164,120 @@ else
     exit 1
 fi
 
+# Build TypeScript SDK and tests
+echo ""
+echo -e "${YELLOW}Building TypeScript SDK and tests...${NC}"
+
+# Create TypeScript output directories
+TS_SDK_DIR="${OUTPUT_DIR}/typescript/sdk"
+TS_TEST_DIR="${OUTPUT_DIR}/typescript/tests"
+mkdir -p "$TS_SDK_DIR"
+mkdir -p "$TS_TEST_DIR"
+
+# Copy TypeScript SDK files
+echo "  Copying SDK files..."
+cp -r "${PROJECT_ROOT}/sdk/typescript/src/"*.ts "$TS_SDK_DIR/" 2>/dev/null || true
+cp -r "${PROJECT_ROOT}/sdk/typescript/auth-adapter/"*.ts "$TS_SDK_DIR/" 2>/dev/null || true
+
+# Copy package.json for SDK
+cat > "$TS_SDK_DIR/package.json" << 'EOF'
+{
+  "name": "@mcp/auth-sdk",
+  "version": "1.0.0",
+  "description": "MCP Authentication SDK",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "dependencies": {
+    "koffi": "^2.4.2"
+  }
+}
+EOF
+
+# Copy TypeScript test files
+echo "  Setting up TypeScript tests..."
+cp "${SCRIPT_DIR}/mac-x64/typescript-test.ts" "$TS_TEST_DIR/" 2>/dev/null || {
+    echo "    Creating default TypeScript test..."
+    # If typescript-test.ts doesn't exist, create a minimal one
+    cat > "$TS_TEST_DIR/typescript-test.ts" << 'EOF'
+import * as koffi from 'koffi';
+console.log('TypeScript test for libgopher_mcp_auth');
+try {
+    const lib = koffi.load('../../libgopher_mcp_auth.dylib');
+    console.log('✓ Library loaded successfully');
+    const getVersion = lib.func('char* gopher_mcp_auth_get_version()');
+    const version = getVersion();
+    console.log(`✓ Library version: ${version}`);
+} catch (e: any) {
+    console.error('✗ Test failed:', e.message);
+    process.exit(1);
+}
+EOF
+}
+
+# Copy test configuration files
+cp "${SCRIPT_DIR}/mac-x64/package.json" "$TS_TEST_DIR/" 2>/dev/null || {
+    cat > "$TS_TEST_DIR/package.json" << 'EOF'
+{
+  "name": "mcp-auth-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "tsx typescript-test.ts"
+  },
+  "dependencies": {
+    "koffi": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
+EOF
+}
+
+cp "${SCRIPT_DIR}/mac-x64/tsconfig.json" "$TS_TEST_DIR/" 2>/dev/null || {
+    cat > "$TS_TEST_DIR/tsconfig.json" << 'EOF'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node"
+  },
+  "files": ["typescript-test.ts"]
+}
+EOF
+}
+
+# Create a test runner script
+cat > "$TS_TEST_DIR/run-test.sh" << 'EOF'
+#!/bin/bash
+echo "Installing dependencies..."
+npm install --silent
+echo "Running TypeScript tests..."
+export MCP_LIBRARY_PATH="../../libgopher_mcp_auth.dylib"
+npm test
+EOF
+chmod +x "$TS_TEST_DIR/run-test.sh"
+
+echo -e "${GREEN}✓ TypeScript SDK and tests prepared${NC}"
+
 echo ""
 echo -e "${GREEN}✨ Build complete!${NC}"
 echo ""
-echo "To use on macOS 10.14.6:"
+echo "Output structure:"
+echo "  build-output/mac-x64/"
+echo "    ├── libgopher_mcp_auth.0.1.0.dylib"
+echo "    ├── libgopher_mcp_auth.dylib (symlink)"
+echo "    ├── verify_auth (C verification)"
+echo "    └── typescript/"
+echo "        ├── sdk/          (TypeScript SDK files)"
+echo "        └── tests/        (TypeScript test suite)"
+echo ""
+echo "To use on macOS:"
 echo "  1. Copy the entire build-output/mac-x64/ directory to the target machine"
-echo "  2. Run: ./verify_auth"
+echo "  2. For C verification: ./verify_auth"
+echo "  3. For TypeScript tests: cd typescript/tests && ./run-test.sh"
 echo ""
