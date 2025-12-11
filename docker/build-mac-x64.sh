@@ -221,6 +221,7 @@ try {
 EOF
 }
 
+
 # Copy test configuration files
 cp "${SCRIPT_DIR}/mac-x64/package.json" "$TS_TEST_DIR/" 2>/dev/null || {
     cat > "$TS_TEST_DIR/package.json" << 'EOF'

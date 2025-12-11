@@ -24,6 +24,16 @@ COPY tests/auth /build/tests/auth
 COPY build_auth_tests_minimal.sh /build/
 COPY run_tests_with_standalone_auth.sh /build/
 
+# Copy TypeScript SDK files (auth-related only)
+COPY sdk/typescript/src/auth-types.ts /build/sdk/typescript/src/
+COPY sdk/typescript/src/mcp-auth-api.ts /build/sdk/typescript/src/
+COPY sdk/typescript/auth-adapter/express-adapter.ts /build/sdk/typescript/auth-adapter/
+COPY sdk/typescript/tsconfig.json /build/sdk/typescript/
+
+# Copy test files
+COPY docker/linux-x64/simple-test.js /build/typescript/
+COPY docker/linux-x64/run_test.sh /build/typescript/
+
 # Create build directory
 RUN mkdir -p build-auth-only
 
@@ -72,6 +82,16 @@ RUN cd /output && \
         ln -sf libgopher_mcp_auth.so.0.1.0 libgopher_mcp_auth.so.0; \
         ln -sf libgopher_mcp_auth.so.0 libgopher_mcp_auth.so; \
     fi
+
+# Copy TypeScript SDK to output (auth files only)
+RUN mkdir -p /output/typescript && \
+    cp /build/sdk/typescript/src/auth-types.ts /output/typescript/ && \
+    cp /build/sdk/typescript/src/mcp-auth-api.ts /output/typescript/ && \
+    cp /build/sdk/typescript/auth-adapter/express-adapter.ts /output/typescript/ && \
+    cp /build/sdk/typescript/tsconfig.json /output/typescript/ && \
+    cp /build/typescript/simple-test.js /output/typescript/ && \
+    cp /build/typescript/run_test.sh /output/typescript/ && \
+    chmod +x /output/typescript/run_test.sh
 
 # Default command to show library info
 CMD ["bash", "-c", "ls -la /output/ && ldd /output/libgopher_mcp_auth.so* && file /output/libgopher_mcp_auth.so*"]

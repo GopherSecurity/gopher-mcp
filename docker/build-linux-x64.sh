@@ -47,6 +47,13 @@ if [ -f "$OUTPUT_DIR/libgopher_mcp_auth.so.0.1.0" ]; then
     du -h "$OUTPUT_DIR/libgopher_mcp_auth.so"*
 fi
 
+# Check TypeScript SDK
+if [ -d "$OUTPUT_DIR/typescript" ]; then
+    echo ""
+    echo "TypeScript SDK files:"
+    ls -la "$OUTPUT_DIR/typescript/"
+fi
+
 echo ""
 echo "📦 Linux x86_64 build artifacts are in: $OUTPUT_DIR"
 echo ""
