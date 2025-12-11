@@ -174,10 +174,17 @@ TS_TEST_DIR="${OUTPUT_DIR}/typescript/tests"
 mkdir -p "$TS_SDK_DIR"
 mkdir -p "$TS_TEST_DIR"
 
-# Copy TypeScript SDK files
-echo "  Copying SDK files..."
-cp -r "${PROJECT_ROOT}/sdk/typescript/src/"*.ts "$TS_SDK_DIR/" 2>/dev/null || true
-cp -r "${PROJECT_ROOT}/sdk/typescript/auth-adapter/"*.ts "$TS_SDK_DIR/" 2>/dev/null || true
+# Copy TypeScript SDK files (auth-related only)
+echo "  Copying auth SDK files..."
+# Copy only auth-related files
+cp "${PROJECT_ROOT}/sdk/typescript/src/auth-types.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/auth.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-api.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-ffi-bindings.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/oauth-helper.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/session-manager.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/src/sdk-index.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/sdk/typescript/auth-adapter/express-adapter.ts" "$TS_SDK_DIR/" 2>/dev/null || true
 
 # Copy package.json for SDK
 cat > "$TS_SDK_DIR/package.json" << 'EOF'
