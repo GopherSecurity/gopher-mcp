@@ -211,7 +211,7 @@ console.log('TypeScript test for libgopher_mcp_auth');
 try {
     const lib = koffi.load('../../libgopher_mcp_auth.dylib');
     console.log('✓ Library loaded successfully');
-    const getVersion = lib.func('char* gopher_mcp_auth_get_version()');
+    const getVersion = lib.func('char* mcp_auth_version()');
     const version = getVersion();
     console.log(`✓ Library version: ${version}`);
 } catch (e: any) {
