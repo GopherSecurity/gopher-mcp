@@ -91,6 +91,11 @@ RUN x86_64-w64-mingw32-gcc -o verify_auth.exe /docker/windows-x64/verify_auth.c 
 RUN x86_64-w64-mingw32-strip --strip-unneeded verify_auth.exe 2>/dev/null || true && \
     x86_64-w64-mingw32-strip --strip-unneeded gopher_mcp_auth.dll 2>/dev/null || true
 
+# Copy test files
+RUN mkdir -p /output/typescript && \
+    cp /docker/windows-x64/simple-test.js /output/typescript/ 2>/dev/null || true && \
+    cp /docker/windows-x64/run_test.bat /output/typescript/ 2>/dev/null || true
+
 # List final output
 RUN ls -la /output/
 

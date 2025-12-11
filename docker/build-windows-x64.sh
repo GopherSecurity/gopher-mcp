@@ -80,6 +80,13 @@ if [ -f "$OUTPUT_DIR/verify_auth.exe" ]; then
     echo "  Size: $(du -h "$OUTPUT_DIR/verify_auth.exe" | cut -f1)"
 fi
 
+# Check TypeScript tests
+if [ -d "$OUTPUT_DIR/typescript" ]; then
+    echo ""
+    echo -e "${YELLOW}TypeScript test files:${NC}"
+    ls -la "$OUTPUT_DIR/typescript/"
+fi
+
 # Total size
 echo ""
 echo -e "${YELLOW}Total size:${NC} $(du -sh "$OUTPUT_DIR" | cut -f1)"
@@ -91,6 +98,7 @@ echo ""
 echo -e "${BLUE}To test on Windows:${NC}"
 echo "  1. Copy the entire build-output/windows-x64/ directory to a Windows machine"
 echo "  2. Run: verify_auth.exe"
+echo "  3. For Node.js test: cd typescript && run_test.bat"
 echo ""
 echo -e "${YELLOW}Note:${NC} The DLL uses Windows native APIs for cryptography and networking."
 echo "No external OpenSSL or CURL dependencies required."
