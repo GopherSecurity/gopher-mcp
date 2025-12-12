@@ -12,13 +12,15 @@ export interface ExpressOAuthConfig {
   clientSecret?: string;
   redirectUris?: string[];
   scopes?: string[];
+  allowedScopes?: string[];  // Scopes allowed for dynamic registration
+  filterInvalidScopes?: boolean;  // Whether to filter invalid scopes
 }
 
 /**
  * Creates Express middleware for OAuth authentication
  */
 export function createAuthMiddleware(oauth: OAuthHelper) {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       // Extract token from multiple sources
       const token = oauth.extractToken(
@@ -31,12 +33,13 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
       const result = await oauth.validateToken(token);
       
       if (!result.valid) {
-        return res.status(result.statusCode || 401)
+        res.status(result.statusCode || 401)
           .set('WWW-Authenticate', result.wwwAuthenticate)
           .json({
             error: 'Unauthorized',
             message: result.error || 'Authentication required'
           });
+        return;
       }
 
       // Attach auth payload to request
@@ -44,12 +47,13 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
       next();
     } catch (error: any) {
       const result = await oauth.validateToken(undefined);
-      return res.status(401)
+      res.status(401)
         .set('WWW-Authenticate', result.wwwAuthenticate)
         .json({
           error: 'Unauthorized',
           message: error.message
         });
+      return;
     }
   };
 }
@@ -77,7 +81,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     'http://127.0.0.1:6276/oauth/callback',
   ];
 
-  // OAuth Discovery endpoint
+  // OAuth Discovery endpoint with scope filtering
   router.get('/.well-known/oauth-authorization-server', async (_req, res) => {
     // Add CORS headers
     res.header('Access-Control-Allow-Origin', '*');
@@ -86,13 +90,93 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     
     try {
       const metadata = await oauth.getDiscoveryMetadata();
+      
+      // Filter scopes_supported to allowed scopes only
+      const ALLOWED_SCOPES = config.allowedScopes || scopes || ['openid', 'profile', 'email'];
+      if (metadata.scopes_supported) {
+        const filteredScopes = [...new Set(
+          metadata.scopes_supported.filter((scope: string) => 
+            typeof scope === 'string' && ALLOWED_SCOPES.includes(scope)
+          )
+        )];
+        metadata.scopes_supported = filteredScopes;
+      }
+      
       res.json(metadata);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Client Registration endpoint (returns pre-configured client)
+  // Dynamic Client Registration endpoint (Keycloak path format)
+  router.post('/realms/:realm/clients-registrations/openid-connect', async (req, res) => {
+    try {
+      const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL;
+      const keycloakUrl = `${authServerUrl}/clients-registrations/openid-connect`;
+      const registrationRequest = { ...req.body };
+      
+      console.log(`🔄 Proxying dynamic client registration to Keycloak`);
+      console.log(`📝 Original scope: ${registrationRequest.scope}`);
+      
+      // Default allowed scopes if not configured
+      const ALLOWED_SCOPES = config.allowedScopes || scopes || ['openid', 'profile', 'email'];
+      
+      // Filter requested scopes
+      if (registrationRequest.scope) {
+        const requestedScopes = registrationRequest.scope.split(' ');
+        const filteredScopes = [...new Set(
+          requestedScopes.filter((scope: string) => ALLOWED_SCOPES.includes(scope))
+        )];
+        
+        const removedScopes = requestedScopes.filter((scope: string) => !ALLOWED_SCOPES.includes(scope));
+        if (removedScopes.length > 0) {
+          console.log(`🗑️  Filtered out invalid scopes: ${removedScopes.join(', ')}`);
+        }
+        
+        registrationRequest.scope = filteredScopes.join(' ');
+        console.log(`✅ Filtered scope: ${registrationRequest.scope}`);
+      } else {
+        // Default to all allowed scopes when no scope provided
+        registrationRequest.scope = ALLOWED_SCOPES.join(' ');
+        console.log(`✅ Defaulted scope to: ${registrationRequest.scope}`);
+      }
+      
+      // Forward to Keycloak
+      const response = await fetch(keycloakUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(req.headers['authorization'] ? { 'Authorization': req.headers['authorization'] as string } : {}),
+        },
+        body: JSON.stringify(registrationRequest),
+      });
+      
+      const data = await response.json() as any;
+      
+      // Deduplicate response scopes
+      if (response.ok && data.scope) {
+        const responseScopes = data.scope.split(' ');
+        const filteredResponseScopes = [...new Set(responseScopes)];
+        if (responseScopes.length !== filteredResponseScopes.length) {
+          data.scope = filteredResponseScopes.join(' ');
+          console.log(`🔧 Deduplicated response scopes`);
+        }
+      }
+      
+      // Set CORS headers
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', '*');
+      
+      console.log(`✅ Registered client: ${data.client_id}`);
+      res.status(response.status).json(data);
+    } catch (error: any) {
+      console.error(`❌ Error registering client: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Legacy registration endpoint (returns pre-configured client for backward compatibility)
   router.post('/register', async (req, res) => {
     // MCP Inspector expects dynamic registration, but we return pre-configured
     if (req.body.client_name === 'MCP Inspector' || req.body.client_name === 'Test Client') {
@@ -114,7 +198,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     }
     
     // For other clients, could implement actual registration
-    res.status(400).json({ error: 'Registration not supported' });
+    return res.status(400).json({ error: 'Registration not supported' });
   });
   
   // Also add /oauth/register endpoint (MCP Inspector may use this)
@@ -151,7 +235,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     }
     
     // For other clients, could implement actual registration
-    res.status(400).json({ error: 'Registration not supported' });
+    return res.status(400).json({ error: 'Registration not supported' });
   });
 
   // Authorization endpoint (redirect to Keycloak)
@@ -385,6 +469,18 @@ export function setupMCPOAuth(
     
     try {
       const metadata = await oauth.getDiscoveryMetadata();
+      
+      // Filter scopes_supported to allowed scopes only
+      const ALLOWED_SCOPES = scopes || ['openid', 'profile', 'email'];
+      if (metadata.scopes_supported) {
+        const filteredScopes = [...new Set(
+          metadata.scopes_supported.filter((scope: string) => 
+            typeof scope === 'string' && ALLOWED_SCOPES.includes(scope)
+          )
+        )];
+        metadata.scopes_supported = filteredScopes;
+      }
+      
       res.json(metadata);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -400,6 +496,18 @@ export function setupMCPOAuth(
     
     try {
       const metadata = await oauth.getDiscoveryMetadata();
+      
+      // Filter scopes_supported to allowed scopes only
+      const ALLOWED_SCOPES = scopes || ['openid', 'profile', 'email'];
+      if (metadata.scopes_supported) {
+        const filteredScopes = [...new Set(
+          metadata.scopes_supported.filter((scope: string) => 
+            typeof scope === 'string' && ALLOWED_SCOPES.includes(scope)
+          )
+        )];
+        metadata.scopes_supported = filteredScopes;
+      }
+      
       res.json(metadata);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -408,6 +516,74 @@ export function setupMCPOAuth(
 
   // OAuth proxy endpoints (required for MCP Inspector)
   app.use('/oauth', createOAuthRouter({ oauth, scopes }));
+  
+  // Dynamic Client Registration endpoint at root level (Keycloak path format)
+  app.post('/realms/:realm/clients-registrations/openid-connect', async (req: Request, res: Response) => {
+    try {
+      const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL;
+      const keycloakUrl = `${authServerUrl}/clients-registrations/openid-connect`;
+      const registrationRequest = { ...req.body };
+      
+      console.log(`🔄 Proxying dynamic client registration to Keycloak`);
+      console.log(`📝 Original scope: ${registrationRequest.scope}`);
+      
+      // Default allowed scopes if not configured
+      const ALLOWED_SCOPES = scopes || ['openid', 'profile', 'email'];
+      
+      // Filter requested scopes
+      if (registrationRequest.scope) {
+        const requestedScopes = registrationRequest.scope.split(' ');
+        const filteredScopes = [...new Set(
+          requestedScopes.filter((scope: string) => ALLOWED_SCOPES.includes(scope))
+        )];
+        
+        const removedScopes = requestedScopes.filter((scope: string) => !ALLOWED_SCOPES.includes(scope));
+        if (removedScopes.length > 0) {
+          console.log(`🗑️  Filtered out invalid scopes: ${removedScopes.join(', ')}`);
+        }
+        
+        registrationRequest.scope = filteredScopes.join(' ');
+        console.log(`✅ Filtered scope: ${registrationRequest.scope}`);
+      } else {
+        // Default to all allowed scopes when no scope provided
+        registrationRequest.scope = ALLOWED_SCOPES.join(' ');
+        console.log(`✅ Defaulted scope to: ${registrationRequest.scope}`);
+      }
+      
+      // Forward to Keycloak
+      const response = await fetch(keycloakUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(req.headers['authorization'] ? { 'Authorization': req.headers['authorization'] as string } : {}),
+        },
+        body: JSON.stringify(registrationRequest),
+      });
+      
+      const data = await response.json() as any;
+      
+      // Deduplicate response scopes
+      if (response.ok && data.scope) {
+        const responseScopes = data.scope.split(' ');
+        const filteredResponseScopes = [...new Set(responseScopes)];
+        if (responseScopes.length !== filteredResponseScopes.length) {
+          data.scope = filteredResponseScopes.join(' ');
+          console.log(`🔧 Deduplicated response scopes`);
+        }
+      }
+      
+      // Set CORS headers
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', '*');
+      
+      console.log(`✅ Registered client: ${data.client_id}`);
+      res.status(response.status).json(data);
+    } catch (error: any) {
+      console.error(`❌ Error registering client: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // MCP endpoint with authentication
   app.all('/mcp', createAuthMiddleware(oauth), mcpHandler);
@@ -447,7 +623,8 @@ export function setupMCPOAuth(
     '/oauth/authorize',
     '/oauth/token',
     '/oauth/register',
-    '/oauth/callback'
+    '/oauth/callback',
+    '/realms/*/clients-registrations/openid-connect'
   ], (_req: Request, res: Response) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

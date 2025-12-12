@@ -137,6 +137,10 @@ export class OAuthHelper {
         const response = await fetch(`${authServerUrl}/.well-known/openid-configuration`);
         const metadata = await response.json() as any;
         
+        // Extract realm from authServerUrl
+        const realmMatch = authServerUrl ? authServerUrl.match(/\/realms\/([^/]+)/) : null;
+        const realm = realmMatch ? realmMatch[1] : 'gopher-mcp-auth';
+        
         // Update ALL endpoints to use our proxy to ensure MCP Inspector doesn't bypass us
         return {
           ...metadata,
@@ -145,7 +149,8 @@ export class OAuthHelper {
           token_endpoint: `${this.serverUrl}/oauth/token`,
           userinfo_endpoint: `${this.serverUrl}/oauth/userinfo`,
           jwks_uri: `${this.serverUrl}/oauth/jwks`,
-          registration_endpoint: `${this.serverUrl}/oauth/register`,
+          // Point to dynamic registration endpoint in Keycloak path format
+          registration_endpoint: `${this.serverUrl}/realms/${realm}/clients-registrations/openid-connect`,
           introspection_endpoint: `${this.serverUrl}/oauth/introspect`,
           revocation_endpoint: `${this.serverUrl}/oauth/revoke`,
           scopes_supported: this.allowedScopes,
