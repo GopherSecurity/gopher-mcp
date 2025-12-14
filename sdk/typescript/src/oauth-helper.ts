@@ -431,9 +431,13 @@ export class OAuthHelper {
     error?: string;
   }> {
     try {
-      // Use the configured client from environment
-      const clientId = process.env.GOPHER_CLIENT_ID!;
-      const clientSecret = process.env.GOPHER_CLIENT_SECRET!;
+      // Use the configured client from environment (if available)
+      const clientId = process.env.GOPHER_CLIENT_ID;
+      const clientSecret = process.env.GOPHER_CLIENT_SECRET;
+      
+      if (!clientId || !clientSecret) {
+        throw new Error('OAuth callback requires GOPHER_CLIENT_ID and GOPHER_CLIENT_SECRET in environment');
+      }
       
       // Exchange code for token
       const tokenResponse = await this.exchangeToken({

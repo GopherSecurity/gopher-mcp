@@ -66,8 +66,8 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
   const router = Router();
   const { oauth, clientId, clientSecret, redirectUris, scopes } = config;
   
-  const CLIENT_ID = clientId || process.env.GOPHER_CLIENT_ID!;
-  const CLIENT_SECRET = clientSecret || process.env.GOPHER_CLIENT_SECRET!;
+  const CLIENT_ID = clientId || process.env.GOPHER_CLIENT_ID || '';
+  const CLIENT_SECRET = clientSecret || process.env.GOPHER_CLIENT_SECRET || '';
   // Build redirect URIs based on the actual server URL
   const serverUrl = oauth.getServerUrl();
   const REDIRECT_URIS = redirectUris || [
@@ -246,41 +246,18 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       queryParams.client_id = CLIENT_ID;
     }
     
-    // Handle redirect_uri - MCP Inspector may use dynamic ports
+    // For dynamic clients, preserve their redirect_uri exactly as registered
+    // Only use default for our pre-configured client
     if (!queryParams.redirect_uri) {
-      queryParams.redirect_uri = `${oauth.getServerUrl()}/oauth/callback`;
-      console.log('No redirect_uri provided, using default:', queryParams.redirect_uri);
-    } else {
-      console.log('MCP Inspector redirect_uri:', queryParams.redirect_uri);
-      // Store original redirect_uri if it's from MCP Inspector (dynamic port)
-      const serverUrl = oauth.getServerUrl();
-      const serverPort = new URL(serverUrl).port || '3001';
-      
-      // Check if this is MCP Inspector using a dynamic port (not our server port)
-      if (!queryParams.redirect_uri.includes(`:${serverPort}/`) &&
-          (queryParams.redirect_uri.includes('127.0.0.1') || 
-           queryParams.redirect_uri.includes('localhost'))) {
-        res.cookie('mcp_inspector_redirect', queryParams.redirect_uri, {
-          httpOnly: true,
-          maxAge: 10 * 60 * 1000,
-          sameSite: 'lax'
-        });
-        console.log('Stored MCP Inspector redirect URI in cookie');
-        
-        // Store the PKCE code_verifier from MCP Inspector
-        if (queryParams.code_verifier) {
-          res.cookie('mcp_inspector_verifier', queryParams.code_verifier, {
-            httpOnly: true,
-            maxAge: 10 * 60 * 1000,
-            sameSite: 'lax'
-          });
-          console.log('Stored MCP Inspector code verifier');
-        }
-        
-        // Replace with our registered callback URL (using actual server URL)
-        queryParams.redirect_uri = `${serverUrl}/oauth/callback`;
-        console.log('Replaced redirect_uri with:', queryParams.redirect_uri);
+      // Only set default if using our pre-configured client
+      if (queryParams.client_id === CLIENT_ID) {
+        queryParams.redirect_uri = `${oauth.getServerUrl()}/oauth/callback`;
+        console.log('No redirect_uri provided for pre-configured client, using default:', queryParams.redirect_uri);
       }
+    } else {
+      console.log('Client redirect_uri:', queryParams.redirect_uri);
+      // For dynamic clients, DO NOT replace redirect_uri
+      // They have registered their own redirect_uri with Keycloak
     }
     
     // Don't modify scopes - let the client decide what scopes to request
@@ -335,20 +312,20 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         client_secret: req.body.client_secret || clientSecretFromAuth || CLIENT_SECRET,
       };
       
-      // Fix redirect_uri mismatch - MCP Inspector sends its dynamic port
-      // but we used our server's registered redirect URI for authorization
-      const serverUrl = oauth.getServerUrl();
-      const serverPort = new URL(serverUrl).port || '3001';
-      
-      if (tokenRequest.redirect_uri && 
-          !tokenRequest.redirect_uri.includes(`:${serverPort}/`) &&
-          (tokenRequest.redirect_uri.includes('localhost') ||
-           tokenRequest.redirect_uri.includes('127.0.0.1'))) {
-        console.log('Replacing MCP Inspector redirect_uri in token exchange');
-        console.log('  Original:', tokenRequest.redirect_uri);
+      // For dynamic clients, preserve redirect_uri exactly as sent
+      // Dynamic clients have registered their own redirect_uris with Keycloak
+      // Only replace for our pre-configured client if needed
+      if (tokenRequest.client_id === CLIENT_ID && !tokenRequest.redirect_uri) {
+        const serverUrl = oauth.getServerUrl();
         tokenRequest.redirect_uri = `${serverUrl}/oauth/callback`;
-        console.log('  Replaced:', tokenRequest.redirect_uri);
+        console.log('Added default redirect_uri for pre-configured client');
       }
+      
+      console.log('Token exchange:', {
+        client_id: tokenRequest.client_id,
+        redirect_uri: tokenRequest.redirect_uri,
+        grant_type: tokenRequest.grant_type
+      });
       
       // Exchange token
       const tokenResponse = await oauth.exchangeToken(tokenRequest);
@@ -624,7 +601,7 @@ export function setupMCPOAuth(
     '/oauth/token',
     '/oauth/register',
     '/oauth/callback',
-    '/realms/*/clients-registrations/openid-connect'
+    '/realms/:realm/clients-registrations/openid-connect'
   ], (_req: Request, res: Response) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

@@ -194,6 +194,12 @@ export class McpAuthClient {
       
       // Check the result
       const validationResult = resultPtr[0];
+      if (!validationResult) {
+        throw new AuthError(
+          'No validation result returned',
+          AuthErrorCode.INTERNAL_ERROR
+        );
+      }
       const isValid = validationResult.valid;
       
       // If there's an error other than invalid token, throw
@@ -212,7 +218,7 @@ export class McpAuthClient {
       return {
         valid: isValid,
         errorCode: errorCode as AuthErrorCode,
-        errorMessage: isValid ? undefined : (validationResult.error_message || this.ffi.getLastError())
+        errorMessage: isValid ? undefined : (validationResult?.error_message || this.ffi.getLastError())
       };
     } catch (error: any) {
       console.error('Token validation error:', error);
