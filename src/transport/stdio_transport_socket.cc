@@ -1,8 +1,14 @@
 #include "mcp/transport/stdio_transport_socket.h"
 
 #include <errno.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <io.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include "mcp/buffer.h"
 
@@ -107,6 +113,12 @@ void StdioTransportSocket::onConnected() {
 }
 
 void StdioTransportSocket::setNonBlocking(int fd) {
+#ifdef _WIN32
+  u_long mode = 1;
+  if (ioctlsocket(fd, FIONBIO, &mode) != 0) {
+    failure_reason_ = "Failed to set non-blocking mode";
+  }
+#else
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1) {
     failure_reason_ = "Failed to get file descriptor flags";
@@ -116,6 +128,7 @@ void StdioTransportSocket::setNonBlocking(int fd) {
   if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
     failure_reason_ = "Failed to set non-blocking mode";
   }
+#endif
 }
 
 TransportIoResult StdioTransportSocket::performRead(Buffer& buffer) {
