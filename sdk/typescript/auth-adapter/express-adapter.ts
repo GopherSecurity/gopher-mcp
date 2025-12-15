@@ -192,7 +192,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
-        scope: req.body.scope || ['openid', 'profile', 'email', ...(scopes || [])].join(' '),
+        scope: req.body.scope || ['openid', 'profile', 'email', ...((scopes || []).filter((s: string) => !['openid', 'profile', 'email'].includes(s)))].join(' '),
       };
       return res.status(201).json(client);
     }
@@ -224,7 +224,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         client_name: req.body.client_name,
-        scope: req.body.scope || ['openid', 'profile', 'email', ...(scopes || [])].join(' '),
+        scope: req.body.scope || ['openid', 'profile', 'email', ...((scopes || []).filter((s: string) => !['openid', 'profile', 'email'].includes(s)))].join(' '),
       };
       console.log('Returning client config:', {
         client_id: client.client_id,
