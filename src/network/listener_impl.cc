@@ -1,9 +1,14 @@
 #include <errno.h>
 #include <iostream>
-#include <unistd.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#endif
 
 #include "mcp/core/result.h"
 #include "mcp/network/connection_impl.h"
@@ -144,11 +149,13 @@ VoidResult ActiveListener::listen() {
     int val = 1;
     socket_->setSocketOption(SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
-    // Set SO_REUSEPORT if requested
+    // Set SO_REUSEPORT if requested (not available on Windows)
+#ifndef _WIN32
     if (config_.enable_reuse_port) {
       int val = 1;
       socket_->setSocketOption(SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
     }
+#endif
 
     // createListenSocket already binds and listens if bind_to_port is true,
     // so we don't need to do it again
