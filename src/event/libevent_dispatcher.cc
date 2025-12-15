@@ -4,7 +4,13 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+
+// Platform-specific includes
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <event2/event.h>
 #include <event2/thread.h>
@@ -103,10 +109,18 @@ LibeventDispatcher::~LibeventDispatcher() {
   }
 
   if (wakeup_fd_[0] >= 0) {
+#ifdef _WIN32
+    evutil_closesocket(wakeup_fd_[0]);
+#else
     close(wakeup_fd_[0]);
+#endif
   }
   if (wakeup_fd_[1] >= 0) {
+#ifdef _WIN32
+    evutil_closesocket(wakeup_fd_[1]);
+#else
     close(wakeup_fd_[1]);
+#endif
   }
 
   if (base_) {
@@ -135,7 +149,12 @@ void LibeventDispatcher::initializeLibevent() {
   }
 
   // Create pipe for waking up the event loop
+#ifdef _WIN32
+  // On Windows, use evutil_socketpair which emulates Unix socketpair
+  if (evutil_socketpair(AF_INET, SOCK_STREAM, 0, wakeup_fd_) != 0) {
+#else
   if (pipe(wakeup_fd_) != 0) {
+#endif
     throw std::runtime_error("Failed to create wakeup pipe");
   }
 
@@ -171,7 +190,11 @@ void LibeventDispatcher::post(PostCb callback) {
   if (need_wakeup && !isThreadSafe()) {
     // Wake up the event loop
     char byte = 1;
+#ifdef _WIN32
+    int rc = send(wakeup_fd_[1], &byte, 1, 0);
+#else
     ssize_t rc = write(wakeup_fd_[1], &byte, 1);
+#endif
     (void)rc;  // Ignore EAGAIN
   }
 }
@@ -359,7 +382,11 @@ void LibeventDispatcher::postWakeupCallback(int fd,
 
   // Drain the pipe
   char buffer[256];
+#ifdef _WIN32
+  while (recv(fd, buffer, sizeof(buffer), 0) > 0) {
+#else
   while (read(fd, buffer, sizeof(buffer)) > 0) {
+#endif
     // Continue draining
   }
 
