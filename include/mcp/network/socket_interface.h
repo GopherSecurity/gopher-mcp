@@ -243,9 +243,9 @@ SocketInterface& socketInterface();
 
 /**
  * Set a custom socket interface (for testing).
- * @param interface Custom interface
+ * @param iface Custom interface
  */
-void setSocketInterface(SocketInterfacePtr interface);
+void setSocketInterface(SocketInterfacePtr iface);
 
 /**
  * Reset to default socket interface.
