@@ -47,6 +47,10 @@ enum class HttpStatusCode : uint16_t {
 };
 
 // HTTP methods
+// Note: Windows defines DELETE as a macro in winnt.h, so we need to undefine it
+#ifdef DELETE
+#undef DELETE
+#endif
 enum class HttpMethod {
   GET,
   POST,
