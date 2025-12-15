@@ -962,20 +962,20 @@ int main(int argc, char* argv[]) {
   if (!options.config_file.empty()) {
     std::cerr << "[INFO] Loading configuration from: " << options.config_file
               << std::endl;
-    
+
     std::ifstream config_file(options.config_file);
     if (!config_file) {
       std::cerr << "[ERROR] Cannot open config file: " << options.config_file
                 << std::endl;
       return 1;
     }
-    
+
     std::string json_str((std::istreambuf_iterator<char>(config_file)),
                          std::istreambuf_iterator<char>());
-    
+
     try {
       auto json_config = mcp::json::JsonValue::parse(json_str);
-      
+
       // Look for filter chains configuration
       if (json_config.contains("filter_chains")) {
         auto& chains = json_config["filter_chains"];
@@ -983,30 +983,32 @@ int main(int argc, char* argv[]) {
           for (size_t i = 0; i < chains.size(); ++i) {
             auto& chain = chains[i];
             // Look for the server chain
-            if (chain.contains("name") && 
+            if (chain.contains("name") &&
                 chain["name"].getString() == "server") {
               // Store the entire chain configuration
               config.filter_chain_config = make_optional(chain);
               std::cerr << "[CONFIG] Found server filter chain configuration"
                         << std::endl;
-              
+
               // Log the filters that will be created
               if (chain.contains("filters") && chain["filters"].isArray()) {
                 auto& filters = chain["filters"];
-                std::cerr << "[CONFIG] Filter chain will include " 
+                std::cerr << "[CONFIG] Filter chain will include "
                           << filters.size() << " filters:" << std::endl;
                 for (size_t j = 0; j < filters.size(); ++j) {
                   if (filters[j].contains("type")) {
                     std::string filter_type = filters[j]["type"].getString();
                     std::cerr << "[CONFIG]   - " << filter_type;
-                    
+
                     // Special handling for json_rpc to show framing config
-                    if (filter_type == "json_rpc" && 
+                    if (filter_type == "json_rpc" &&
                         filters[j].contains("config") &&
                         filters[j]["config"].contains("use_framing")) {
-                      bool use_framing = filters[j]["config"]["use_framing"].getBool();
-                      std::cerr << " (framing: " 
-                                << (use_framing ? "enabled" : "disabled") << ")";
+                      bool use_framing =
+                          filters[j]["config"]["use_framing"].getBool();
+                      std::cerr << " (framing: "
+                                << (use_framing ? "enabled" : "disabled")
+                                << ")";
                     }
                     std::cerr << std::endl;
                   }
@@ -1017,13 +1019,12 @@ int main(int argc, char* argv[]) {
           }
         }
       }
-      
+
       if (!config.filter_chain_config.has_value()) {
         std::cerr << "[WARNING] No server filter chain found in config file"
                   << std::endl;
       }
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
       std::cerr << "[ERROR] Failed to parse config file: " << e.what()
                 << std::endl;
       return 1;

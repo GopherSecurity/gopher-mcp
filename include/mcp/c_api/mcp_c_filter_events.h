@@ -79,9 +79,9 @@ typedef enum {
  * @brief Event context metadata
  */
 typedef struct mcp_filter_event_context {
-  const char* chain_id;          ///< Chain identifier (may be NULL)
-  const char* stream_id;         ///< Stream/session identifier (may be NULL)
-  const char* correlation_id;    ///< Correlation identifier (may be NULL)
+  const char* chain_id;        ///< Chain identifier (may be NULL)
+  const char* stream_id;       ///< Stream/session identifier (may be NULL)
+  const char* correlation_id;  ///< Correlation identifier (may be NULL)
 } mcp_filter_event_context_t;
 
 /* ============================================================================
@@ -94,7 +94,8 @@ typedef struct mcp_filter_event_context {
  *
  * This callback receives all events from all filters in the chain.
  *
- * @param filter_name Name of the filter that emitted the event (null-terminated)
+ * @param filter_name Name of the filter that emitted the event
+ * (null-terminated)
  * @param filter_instance_id Instance ID of the filter (may be NULL)
  * @param event_type Type of the event
  * @param severity Severity level of the event
@@ -148,8 +149,8 @@ MCP_API int mcp_filter_chain_set_event_callback(
  * @return 0 on success, negative error code on failure
  *         -1: Invalid chain handle
  */
-MCP_API int mcp_filter_chain_clear_event_callback(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT;
+MCP_API int mcp_filter_chain_clear_event_callback(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT;
 
 /* ============================================================================
  * Utility Functions

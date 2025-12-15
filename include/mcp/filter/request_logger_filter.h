@@ -19,6 +19,7 @@
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
+
 #include "json_rpc_protocol_filter.h"
 
 namespace mcp {
@@ -30,11 +31,7 @@ namespace filter {
 class RequestLoggerFilter : public network::NetworkFilterBase,
                             public JsonRpcProtocolFilter::MessageHandler {
  public:
-  enum class LogLevel {
-    INFO,
-    DEBUG,
-    VERBOSE
-  };
+  enum class LogLevel { INFO, DEBUG, VERBOSE };
 
   enum class LogFormat {
     COMPACT,  ///< Single-line output without indentation
@@ -42,17 +39,9 @@ class RequestLoggerFilter : public network::NetworkFilterBase,
     JSON      ///< Emit structured JSON log record
   };
 
-  enum class Output {
-    STDOUT,
-    STDERR,
-    FILE
-  };
+  enum class Output { STDOUT, STDERR, FILE };
 
-  enum class MessageDirection {
-    Incoming,
-    Outgoing,
-    Internal
-  };
+  enum class MessageDirection { Incoming, Outgoing, Internal };
 
   struct Config {
     LogLevel log_level = LogLevel::DEBUG;

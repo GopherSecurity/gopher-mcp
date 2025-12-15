@@ -131,15 +131,16 @@ class RateLimitFilter : public network::NetworkFilterBase {
 
       // Emit RATE_LIMIT_EXCEEDED event
       if (event_emitter_ && event_emitter_->isConnected()) {
-        auto event_data = json::JsonObjectBuilder()
-            .add("strategy", getStrategyName())
-            .add("remainingTokens", static_cast<int>(tokens_.load()))
-            .add("retryAfterMs", static_cast<int>(retry_after.count()))
-            .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
-            .build();
+        auto event_data =
+            json::JsonObjectBuilder()
+                .add("strategy", getStrategyName())
+                .add("remainingTokens", static_cast<int>(tokens_.load()))
+                .add("retryAfterMs", static_cast<int>(retry_after.count()))
+                .add("bucketCapacity",
+                     static_cast<int>(config_.bucket_capacity))
+                .build();
         event_emitter_->emit(FilterEventType::RATE_LIMIT_EXCEEDED,
-                             FilterEventSeverity::ERROR,
-                             event_data);
+                             FilterEventSeverity::ERROR, event_data);
       }
 
       // Stop processing this data
@@ -151,27 +152,26 @@ class RateLimitFilter : public network::NetworkFilterBase {
     if (event_emitter_ && event_emitter_->isConnected() &&
         (++sample_counter_ % 100 == 0)) {
       int remaining = getRemainingCapacityPercent();
-      auto event_data = json::JsonObjectBuilder()
-          .add("remainingTokens", static_cast<int>(tokens_.load()))
-          .add("remainingPercent", remaining)
-          .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
-          .add("refillRate", static_cast<int>(config_.refill_rate))
-          .build();
+      auto event_data =
+          json::JsonObjectBuilder()
+              .add("remainingTokens", static_cast<int>(tokens_.load()))
+              .add("remainingPercent", remaining)
+              .add("bucketCapacity", static_cast<int>(config_.bucket_capacity))
+              .add("refillRate", static_cast<int>(config_.refill_rate))
+              .build();
       event_emitter_->emit(FilterEventType::RATE_LIMIT_SAMPLE,
-                           FilterEventSeverity::DEBUG,
-                           event_data);
+                           FilterEventSeverity::DEBUG, event_data);
     }
 
     // Check if we're approaching limit (warning at 80% capacity)
     int remaining = getRemainingCapacityPercent();
     if (remaining < 20 && event_emitter_ && event_emitter_->isConnected()) {
       auto event_data = json::JsonObjectBuilder()
-          .add("remainingPercent", remaining)
-          .add("threshold", 20)
-          .build();
+                            .add("remainingPercent", remaining)
+                            .add("threshold", 20)
+                            .build();
       event_emitter_->emit(FilterEventType::RATE_LIMIT_SAMPLE,
-                           FilterEventSeverity::WARN,
-                           event_data);
+                           FilterEventSeverity::WARN, event_data);
     }
 
     return network::FilterStatus::Continue;
@@ -361,7 +361,8 @@ class RateLimitFilter : public network::NetworkFilterBase {
         size_t remaining = config_.max_requests_per_window > used
                                ? config_.max_requests_per_window - used
                                : 0;
-        return static_cast<int>((remaining * 100) / config_.max_requests_per_window);
+        return static_cast<int>((remaining * 100) /
+                                config_.max_requests_per_window);
       }
 
       case RateLimitStrategy::LeakyBucket: {

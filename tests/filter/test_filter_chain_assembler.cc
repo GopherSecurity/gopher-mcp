@@ -3,13 +3,13 @@
  * @brief Tests for FilterChainAssembler
  */
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-#include "mcp/filter/filter_chain_assembler.h"
-#include "mcp/filter/filter_registry.h"
 #include "mcp/config/types.h"
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/filter_chain_assembler.h"
+#include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/mcp_connection_manager.h"
 
@@ -20,7 +20,7 @@ namespace filter {
 namespace test {
 
 class MockProtocolCallbacks : public McpProtocolCallbacks {
-public:
+ public:
   void onRequest(const jsonrpc::Request& request) override {}
   void onResponse(const jsonrpc::Response& response) override {}
   void onNotification(const jsonrpc::Notification& notification) override {}
@@ -29,14 +29,20 @@ public:
 };
 
 class MockFilter : public network::NetworkFilterBase {
-public:
-  MOCK_METHOD(network::FilterStatus, onData, (Buffer& data, bool end_stream), (override));
-  MOCK_METHOD(network::FilterStatus, onWrite, (Buffer& data, bool end_stream), (override));
+ public:
+  MOCK_METHOD(network::FilterStatus,
+              onData,
+              (Buffer & data, bool end_stream),
+              (override));
+  MOCK_METHOD(network::FilterStatus,
+              onWrite,
+              (Buffer & data, bool end_stream),
+              (override));
   MOCK_METHOD(network::FilterStatus, onNewConnection, (), (override));
 };
 
 class MockFilterFactory : public FilterFactory {
-public:
+ public:
   explicit MockFilterFactory(const std::string& name, bool return_null = false)
       : name_(name), return_null_(return_null) {
     metadata_.name = name;
@@ -44,7 +50,8 @@ public:
     metadata_.description = "Mock filter for testing";
   }
 
-  network::FilterSharedPtr createFilter(const json::JsonValue& config) const override {
+  network::FilterSharedPtr createFilter(
+      const json::JsonValue& config) const override {
     create_count_++;
     last_config_ = config;
 
@@ -70,14 +77,14 @@ public:
   mutable int create_count_ = 0;
   mutable json::JsonValue last_config_;
 
-private:
+ private:
   std::string name_;
   bool return_null_;
   FilterFactoryMetadata metadata_;
 };
 
 class MockFilterManager : public network::FilterManager {
-public:
+ public:
   void addReadFilter(network::ReadFilterSharedPtr filter) override {
     read_filters_.push_back(filter);
   }
@@ -94,7 +101,9 @@ public:
   void removeReadFilter(network::ReadFilterSharedPtr filter) override {}
   bool initializeReadFilters() override { return true; }
   void onRead() override {}
-  network::FilterStatus onWrite() override { return network::FilterStatus::Continue; }
+  network::FilterStatus onWrite() override {
+    return network::FilterStatus::Continue;
+  }
   void onConnectionEvent(network::ConnectionEvent event) override {}
 
   int filter_count_ = 0;
@@ -104,7 +113,7 @@ public:
 };
 
 class FilterChainAssemblerTest : public ::testing::Test {
-protected:
+ protected:
   void SetUp() override {
     auto factory = event::createLibeventDispatcherFactory();
     dispatcher_ = factory->createDispatcher("test");
@@ -123,9 +132,7 @@ protected:
     registerMockFilter("null_filter", true);  // Returns nullptr
   }
 
-  void TearDown() override {
-    FilterRegistry::instance().clearFactories();
-  }
+  void TearDown() override { FilterRegistry::instance().clearFactories(); }
 
   void registerMockFilter(const std::string& name, bool return_null = false) {
     auto factory = std::make_shared<MockFilterFactory>(name, return_null);
@@ -141,7 +148,8 @@ protected:
 
     FilterRegistry::instance().registerContextFactory(
         name,
-        [factory](const FilterCreationContext& ctx, const json::JsonValue& config) {
+        [factory](const FilterCreationContext& ctx,
+                  const json::JsonValue& config) {
           return factory->createFilter(config);
         },
         metadata);
@@ -160,7 +168,8 @@ protected:
     return fc;
   }
 
-  config::FilterConfig createFilterConfig(const std::string& name, const json::JsonValue& config) {
+  config::FilterConfig createFilterConfig(const std::string& name,
+                                          const json::JsonValue& config) {
     config::FilterConfig fc;
     fc.type = name;
     fc.name = name;
@@ -176,11 +185,9 @@ protected:
 
 TEST_F(FilterChainAssemblerTest, BasicFilterChainAssembly) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+  config.filters = {createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec"),
+                    createFilterConfig("json_rpc.dispatcher")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;
@@ -198,9 +205,7 @@ TEST_F(FilterChainAssemblerTest, BasicFilterChainAssembly) {
 
 TEST_F(FilterChainAssemblerTest, SingleFilterAssembly) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec")
-  };
+  config.filters = {createFilterConfig("http.codec")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;
@@ -232,9 +237,7 @@ TEST_F(FilterChainAssemblerTest, EmptyFilterChain) {
 
 TEST_F(FilterChainAssemblerTest, MissingFilterFactory) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("unknown_filter")
-  };
+  config.filters = {createFilterConfig("unknown_filter")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
 
@@ -242,7 +245,8 @@ TEST_F(FilterChainAssemblerTest, MissingFilterFactory) {
 
   EXPECT_FALSE(result.valid);
   EXPECT_FALSE(result.errors.empty());
-  EXPECT_THAT(result.errors[0], testing::HasSubstr("Unknown filter type: unknown_filter"));
+  EXPECT_THAT(result.errors[0],
+              testing::HasSubstr("Unknown filter type: unknown_filter"));
 }
 
 TEST_F(FilterChainAssemblerTest, EmptyFilterChainValidation) {
@@ -259,11 +263,9 @@ TEST_F(FilterChainAssemblerTest, EmptyFilterChainValidation) {
 
 TEST_F(FilterChainAssemblerTest, ValidFilterChainValidation) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+  config.filters = {createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec"),
+                    createFilterConfig("json_rpc.dispatcher")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
 
@@ -277,46 +279,40 @@ TEST_F(FilterChainAssemblerTest, ValidFilterChainValidation) {
 
 TEST_F(FilterChainAssemblerTest, FilterOrderingValidation) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("json_rpc.dispatcher"), // Wrong order
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec")
-  };
+  config.filters = {createFilterConfig("json_rpc.dispatcher"),  // Wrong order
+                    createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
 
   auto result = assembler.validateFilterChain(config);
 
-  EXPECT_TRUE(result.valid); // Still valid, just warnings
+  EXPECT_TRUE(result.valid);  // Still valid, just warnings
   EXPECT_FALSE(result.warnings.empty());
-  EXPECT_THAT(result.warnings[0], testing::HasSubstr("Filter ordering may be incorrect"));
+  EXPECT_THAT(result.warnings[0],
+              testing::HasSubstr("Filter ordering may be incorrect"));
 }
 
 TEST_F(FilterChainAssemblerTest, CorrectFilterOrdering) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+  config.filters = {createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec"),
+                    createFilterConfig("json_rpc.dispatcher")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
 
   auto result = assembler.validateFilterChain(config);
 
   EXPECT_TRUE(result.valid);
-  EXPECT_TRUE(result.warnings.empty()); // No ordering warnings
+  EXPECT_TRUE(result.warnings.empty());  // No ordering warnings
 }
 
 TEST_F(FilterChainAssemblerTest, QoSFilterOrdering) {
   config::FilterChainConfig config;
   config.filters = {
-    createFilterConfig("rate_limit"),
-    createFilterConfig("circuit_breaker"),
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+      createFilterConfig("rate_limit"), createFilterConfig("circuit_breaker"),
+      createFilterConfig("http.codec"), createFilterConfig("sse.codec"),
+      createFilterConfig("json_rpc.dispatcher")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;
@@ -326,18 +322,16 @@ TEST_F(FilterChainAssemblerTest, QoSFilterOrdering) {
 
   EXPECT_TRUE(result.success);
   EXPECT_EQ(manager.filter_count_, 5);
-  EXPECT_TRUE(result.warnings.empty()); // Should be correct ordering
+  EXPECT_TRUE(result.warnings.empty());  // Should be correct ordering
 }
 
 // Error Handling Tests
 
 TEST_F(FilterChainAssemblerTest, FilterCreationFailure) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("null_filter"), // Returns nullptr
-    createFilterConfig("sse.codec")
-  };
+  config.filters = {createFilterConfig("http.codec"),
+                    createFilterConfig("null_filter"),  // Returns nullptr
+                    createFilterConfig("sse.codec")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;
@@ -346,15 +340,16 @@ TEST_F(FilterChainAssemblerTest, FilterCreationFailure) {
   auto result = assembler.assembleFilterChain(config, context, manager);
 
   EXPECT_FALSE(result.success);
-  EXPECT_EQ(manager.filter_count_, 0); // No filters added on failure
-  EXPECT_THAT(result.error_message, testing::HasSubstr("Failed to create filter 'null_filter'"));
+  EXPECT_EQ(manager.filter_count_, 0);  // No filters added on failure
+  EXPECT_THAT(result.error_message,
+              testing::HasSubstr("Failed to create filter 'null_filter'"));
 }
 
 TEST_F(FilterChainAssemblerTest, PartialFilterCreation) {
   config::FilterChainConfig config;
   config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("unknown_filter") // Will fail validation
+      createFilterConfig("http.codec"),
+      createFilterConfig("unknown_filter")  // Will fail validation
   };
 
   FilterChainAssembler assembler(FilterRegistry::instance());
@@ -364,7 +359,8 @@ TEST_F(FilterChainAssemblerTest, PartialFilterCreation) {
   auto result = assembler.assembleFilterChain(config, context, manager);
 
   EXPECT_FALSE(result.success);
-  EXPECT_EQ(manager.filter_count_, 0); // No filters added due to validation failure
+  EXPECT_EQ(manager.filter_count_,
+            0);  // No filters added due to validation failure
   EXPECT_EQ(result.error_message, "Filter chain validation failed");
 }
 
@@ -372,11 +368,9 @@ TEST_F(FilterChainAssemblerTest, PartialFilterCreation) {
 
 TEST_F(FilterChainAssemblerTest, ConfigurableFactoryBasic) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+  config.filters = {createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec"),
+                    createFilterConfig("json_rpc.dispatcher")};
 
   ConfigurableFilterChainFactory factory(config);
   MockFilterManager manager;
@@ -388,14 +382,10 @@ TEST_F(FilterChainAssemblerTest, ConfigurableFactoryBasic) {
 
 TEST_F(FilterChainAssemblerTest, ConfigurableFactoryValidation) {
   config::FilterChainConfig valid_config;
-  valid_config.filters = {
-    createFilterConfig("http.codec")
-  };
+  valid_config.filters = {createFilterConfig("http.codec")};
 
   config::FilterChainConfig invalid_config;
-  invalid_config.filters = {
-    createFilterConfig("unknown_filter")
-  };
+  invalid_config.filters = {createFilterConfig("unknown_filter")};
 
   ConfigurableFilterChainFactory valid_factory(valid_config);
   ConfigurableFilterChainFactory invalid_factory(invalid_config);
@@ -411,7 +401,7 @@ TEST_F(FilterChainAssemblerTest, ConfigurableFactoryValidation) {
 TEST_F(FilterChainAssemblerTest, ConfigurableFactoryFailure) {
   config::FilterChainConfig config;
   config.filters = {
-    createFilterConfig("null_filter") // Will fail to create
+      createFilterConfig("null_filter")  // Will fail to create
   };
 
   ConfigurableFilterChainFactory factory(config);
@@ -431,9 +421,7 @@ TEST_F(FilterChainAssemblerTest, FilterConfigurationPassing) {
   json::JsonValue custom_config = json::JsonValue::object();
   custom_config["test_param"] = json::JsonValue("test_value");
 
-  config.filters = {
-    createFilterConfig("http.codec", custom_config)
-  };
+  config.filters = {createFilterConfig("http.codec", custom_config)};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;
@@ -444,19 +432,18 @@ TEST_F(FilterChainAssemblerTest, FilterConfigurationPassing) {
   EXPECT_TRUE(result.success);
   EXPECT_EQ(manager.filter_count_, 1);
 
-  // Verify configuration was passed (would need access to mock factory to check)
+  // Verify configuration was passed (would need access to mock factory to
+  // check)
 }
 
 TEST_F(FilterChainAssemblerTest, ComplexFilterChain) {
   config::FilterChainConfig config;
-  config.filters = {
-    createFilterConfig("rate_limit"),
-    createFilterConfig("circuit_breaker"),
-    createFilterConfig("metrics"),
-    createFilterConfig("http.codec"),
-    createFilterConfig("sse.codec"),
-    createFilterConfig("json_rpc.dispatcher")
-  };
+  config.filters = {createFilterConfig("rate_limit"),
+                    createFilterConfig("circuit_breaker"),
+                    createFilterConfig("metrics"),
+                    createFilterConfig("http.codec"),
+                    createFilterConfig("sse.codec"),
+                    createFilterConfig("json_rpc.dispatcher")};
 
   FilterChainAssembler assembler(FilterRegistry::instance());
   MockFilterManager manager;

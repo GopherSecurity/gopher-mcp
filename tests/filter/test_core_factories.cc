@@ -19,7 +19,8 @@ namespace {
 class CoreFactoriesTest : public Test {
  protected:
   void SetUp() override {
-    // Registry should already have factories registered via static initialization
+    // Registry should already have factories registered via static
+    // initialization
   }
 
   void TearDown() override {
@@ -31,10 +32,10 @@ class CoreFactoriesTest : public Test {
 TEST_F(CoreFactoriesTest, HttpCodecFactoryRegistration) {
   // Check factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("http_codec"));
-  
+
   auto factory = FilterRegistry::instance().getFactory("http_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   // Check metadata
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ("http_codec", metadata.name);
@@ -46,7 +47,7 @@ TEST_F(CoreFactoriesTest, HttpCodecFactoryRegistration) {
 TEST_F(CoreFactoriesTest, HttpCodecDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("http_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ("server", defaults["mode"].getString());
@@ -60,31 +61,27 @@ TEST_F(CoreFactoriesTest, HttpCodecDefaultConfig) {
 TEST_F(CoreFactoriesTest, HttpCodecValidation) {
   auto factory = FilterRegistry::instance().getFactory("http_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   // Valid config
   auto valid_config = json::JsonObjectBuilder()
-      .add("mode", "client")
-      .add("max_header_size", 16384)
-      .add("keep_alive", false)
-      .build();
+                          .add("mode", "client")
+                          .add("max_header_size", 16384)
+                          .add("keep_alive", false)
+                          .build();
   EXPECT_TRUE(factory->validateConfig(valid_config));
-  
+
   // Invalid mode
-  auto invalid_mode = json::JsonObjectBuilder()
-      .add("mode", "invalid")
-      .build();
+  auto invalid_mode = json::JsonObjectBuilder().add("mode", "invalid").build();
   EXPECT_FALSE(factory->validateConfig(invalid_mode));
-  
+
   // Out of range header size
-  auto invalid_header_size = json::JsonObjectBuilder()
-      .add("max_header_size", 100000)
-      .build();
+  auto invalid_header_size =
+      json::JsonObjectBuilder().add("max_header_size", 100000).build();
   EXPECT_FALSE(factory->validateConfig(invalid_header_size));
-  
+
   // Wrong type for boolean
-  auto invalid_type = json::JsonObjectBuilder()
-      .add("keep_alive", "yes")
-      .build();
+  auto invalid_type =
+      json::JsonObjectBuilder().add("keep_alive", "yes").build();
   EXPECT_FALSE(factory->validateConfig(invalid_type));
 }
 
@@ -92,10 +89,10 @@ TEST_F(CoreFactoriesTest, HttpCodecValidation) {
 TEST_F(CoreFactoriesTest, SseCodecFactoryRegistration) {
   // Check factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("sse_codec"));
-  
+
   auto factory = FilterRegistry::instance().getFactory("sse_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   // Check metadata
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ("sse_codec", metadata.name);
@@ -110,7 +107,7 @@ TEST_F(CoreFactoriesTest, SseCodecFactoryRegistration) {
 TEST_F(CoreFactoriesTest, SseCodecDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("sse_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ("server", defaults["mode"].getString());
@@ -124,32 +121,31 @@ TEST_F(CoreFactoriesTest, SseCodecDefaultConfig) {
 TEST_F(CoreFactoriesTest, SseCodecValidation) {
   auto factory = FilterRegistry::instance().getFactory("sse_codec");
   ASSERT_NE(nullptr, factory);
-  
+
   // Valid config
   auto valid_config = json::JsonObjectBuilder()
-      .add("mode", "client")
-      .add("max_event_size", 32768)
-      .add("retry_ms", 5000)
-      .add("enable_compression", true)
-      .build();
+                          .add("mode", "client")
+                          .add("max_event_size", 32768)
+                          .add("retry_ms", 5000)
+                          .add("enable_compression", true)
+                          .build();
   EXPECT_TRUE(factory->validateConfig(valid_config));
-  
+
   // Invalid mode
-  auto invalid_mode = json::JsonObjectBuilder()
-      .add("mode", "proxy")
-      .build();
+  auto invalid_mode = json::JsonObjectBuilder().add("mode", "proxy").build();
   EXPECT_FALSE(factory->validateConfig(invalid_mode));
-  
+
   // Out of range event size
-  auto invalid_event_size = json::JsonObjectBuilder()
-      .add("max_event_size", 2097152)  // 2MB, exceeds max
-      .build();
+  auto invalid_event_size =
+      json::JsonObjectBuilder()
+          .add("max_event_size", 2097152)  // 2MB, exceeds max
+          .build();
   EXPECT_FALSE(factory->validateConfig(invalid_event_size));
-  
+
   // Out of range retry
   auto invalid_retry = json::JsonObjectBuilder()
-      .add("retry_ms", 50)  // Too small
-      .build();
+                           .add("retry_ms", 50)  // Too small
+                           .build();
   EXPECT_FALSE(factory->validateConfig(invalid_retry));
 }
 
@@ -157,10 +153,10 @@ TEST_F(CoreFactoriesTest, SseCodecValidation) {
 TEST_F(CoreFactoriesTest, JsonRpcFactoryRegistration) {
   // Check factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("json_rpc"));
-  
+
   auto factory = FilterRegistry::instance().getFactory("json_rpc");
   ASSERT_NE(nullptr, factory);
-  
+
   // Check metadata
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ("json_rpc", metadata.name);
@@ -172,7 +168,7 @@ TEST_F(CoreFactoriesTest, JsonRpcFactoryRegistration) {
 TEST_F(CoreFactoriesTest, JsonRpcDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("json_rpc");
   ASSERT_NE(nullptr, factory);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ("server", defaults["mode"].getString());
@@ -188,82 +184,84 @@ TEST_F(CoreFactoriesTest, JsonRpcDefaultConfig) {
 TEST_F(CoreFactoriesTest, JsonRpcValidation) {
   auto factory = FilterRegistry::instance().getFactory("json_rpc");
   ASSERT_NE(nullptr, factory);
-  
+
   // Valid config
   auto valid_config = json::JsonObjectBuilder()
-      .add("mode", "client")
-      .add("use_framing", false)
-      .add("batch_limit", 50)
-      .add("strict_mode", false)
-      .build();
+                          .add("mode", "client")
+                          .add("use_framing", false)
+                          .add("batch_limit", 50)
+                          .add("strict_mode", false)
+                          .build();
   EXPECT_TRUE(factory->validateConfig(valid_config));
-  
+
   // Invalid mode
-  auto invalid_mode = json::JsonObjectBuilder()
-      .add("mode", "bidirectional")
-      .build();
+  auto invalid_mode =
+      json::JsonObjectBuilder().add("mode", "bidirectional").build();
   EXPECT_FALSE(factory->validateConfig(invalid_mode));
-  
+
   // Out of range message size
-  auto invalid_msg_size = json::JsonObjectBuilder()
-      .add("max_message_size", 20971520)  // 20MB, exceeds max
-      .build();
+  auto invalid_msg_size =
+      json::JsonObjectBuilder()
+          .add("max_message_size", 20971520)  // 20MB, exceeds max
+          .build();
   EXPECT_FALSE(factory->validateConfig(invalid_msg_size));
-  
+
   // Out of range batch limit
   auto invalid_batch = json::JsonObjectBuilder()
-      .add("batch_limit", 2000)  // Exceeds max
-      .build();
+                           .add("batch_limit", 2000)  // Exceeds max
+                           .build();
   EXPECT_FALSE(factory->validateConfig(invalid_batch));
-  
+
   // Wrong type for boolean
   auto invalid_type = json::JsonObjectBuilder()
-      .add("use_framing", 1)  // Should be boolean, not int
-      .build();
+                          .add("use_framing", 1)  // Should be boolean, not int
+                          .build();
   EXPECT_FALSE(factory->validateConfig(invalid_type));
 }
 
-// Test that all factories validate configurations correctly through the registry
+// Test that all factories validate configurations correctly through the
+// registry
 TEST_F(CoreFactoriesTest, ValidateConfigThroughRegistry) {
-  // Note: We can't actually create filters since they need runtime dependencies,
-  // but we can test that the factories validate configurations correctly
-  
+  // Note: We can't actually create filters since they need runtime
+  // dependencies, but we can test that the factories validate configurations
+  // correctly
+
   // HTTP Codec - valid config should validate successfully
   {
     auto factory = FilterRegistry::instance().getFactory("http_codec");
     ASSERT_NE(nullptr, factory);
-    
+
     auto config = json::JsonObjectBuilder()
-        .add("mode", "server")
-        .add("max_header_size", 16384)
-        .build();
-    
+                      .add("mode", "server")
+                      .add("max_header_size", 16384)
+                      .build();
+
     EXPECT_TRUE(factory->validateConfig(config));
   }
-  
+
   // SSE Codec - valid config should validate successfully
   {
     auto factory = FilterRegistry::instance().getFactory("sse_codec");
     ASSERT_NE(nullptr, factory);
-    
+
     auto config = json::JsonObjectBuilder()
-        .add("mode", "server")
-        .add("max_event_size", 32768)
-        .build();
-    
+                      .add("mode", "server")
+                      .add("max_event_size", 32768)
+                      .build();
+
     EXPECT_TRUE(factory->validateConfig(config));
   }
-  
+
   // JSON-RPC - valid config should validate successfully
   {
     auto factory = FilterRegistry::instance().getFactory("json_rpc");
     ASSERT_NE(nullptr, factory);
-    
+
     auto config = json::JsonObjectBuilder()
-        .add("mode", "server")
-        .add("use_framing", true)
-        .build();
-    
+                      .add("mode", "server")
+                      .add("use_framing", true)
+                      .build();
+
     EXPECT_TRUE(factory->validateConfig(config));
   }
 }
@@ -274,35 +272,33 @@ TEST_F(CoreFactoriesTest, InvalidConfigRejection) {
   {
     auto factory = FilterRegistry::instance().getFactory("http_codec");
     ASSERT_NE(nullptr, factory);
-    
-    auto config = json::JsonObjectBuilder()
-        .add("mode", "invalid_mode")
-        .build();
-    
+
+    auto config = json::JsonObjectBuilder().add("mode", "invalid_mode").build();
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // SSE Codec with out-of-range value
   {
     auto factory = FilterRegistry::instance().getFactory("sse_codec");
     ASSERT_NE(nullptr, factory);
-    
+
     auto config = json::JsonObjectBuilder()
-        .add("retry_ms", 100000)  // Exceeds max
-        .build();
-    
+                      .add("retry_ms", 100000)  // Exceeds max
+                      .build();
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // JSON-RPC with wrong type
   {
     auto factory = FilterRegistry::instance().getFactory("json_rpc");
     ASSERT_NE(nullptr, factory);
-    
+
     auto config = json::JsonObjectBuilder()
-        .add("batch_enabled", "yes")  // Should be boolean
-        .build();
-    
+                      .add("batch_enabled", "yes")  // Should be boolean
+                      .build();
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
 }
@@ -313,10 +309,10 @@ TEST_F(CoreFactoriesTest, ConfigurationSchema) {
   {
     auto factory = FilterRegistry::instance().getFactory("http_codec");
     ASSERT_NE(nullptr, factory);
-    
+
     const auto& metadata = factory->getMetadata();
     const auto& schema = metadata.config_schema;
-    
+
     EXPECT_TRUE(schema.isObject());
     EXPECT_EQ("object", schema["type"].getString());
     EXPECT_TRUE(schema.contains("properties"));
@@ -324,30 +320,30 @@ TEST_F(CoreFactoriesTest, ConfigurationSchema) {
     EXPECT_TRUE(schema["properties"].contains("mode"));
     EXPECT_TRUE(schema["properties"].contains("max_header_size"));
   }
-  
+
   // Check SSE codec schema
   {
     auto factory = FilterRegistry::instance().getFactory("sse_codec");
     ASSERT_NE(nullptr, factory);
-    
+
     const auto& metadata = factory->getMetadata();
     const auto& schema = metadata.config_schema;
-    
+
     EXPECT_TRUE(schema.isObject());
     EXPECT_EQ("object", schema["type"].getString());
     EXPECT_TRUE(schema.contains("properties"));
     EXPECT_TRUE(schema["properties"].contains("max_event_size"));
     EXPECT_TRUE(schema["properties"].contains("retry_ms"));
   }
-  
+
   // Check JSON-RPC schema
   {
     auto factory = FilterRegistry::instance().getFactory("json_rpc");
     ASSERT_NE(nullptr, factory);
-    
+
     const auto& metadata = factory->getMetadata();
     const auto& schema = metadata.config_schema;
-    
+
     EXPECT_TRUE(schema.isObject());
     EXPECT_EQ("object", schema["type"].getString());
     EXPECT_TRUE(schema.contains("properties"));

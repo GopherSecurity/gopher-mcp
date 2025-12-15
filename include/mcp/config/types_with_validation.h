@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <set>
 #include <fstream>
+#include <set>
 
 #include "mcp/config/types.h"
 #include "mcp/config/validation_policy.h"
@@ -182,7 +182,8 @@ struct ServerConfigWithValidation : public ServerConfig {
     }
 
     if (j.contains("worker_threads")) {
-      config.worker_threads = static_cast<uint32_t>(j["worker_threads"].getInt());
+      config.worker_threads =
+          static_cast<uint32_t>(j["worker_threads"].getInt());
     }
 
     if (j.contains("event_threads")) {

@@ -27,35 +27,35 @@ namespace filter {
  */
 enum class FilterEventType {
   // Circuit breaker events
-  CIRCUIT_STATE_CHANGE = 0,        ///< Circuit breaker state transition
-  CIRCUIT_REQUEST_BLOCKED = 1,     ///< Request blocked by open circuit
-  CIRCUIT_HEALTH_UPDATE = 2,       ///< Health metrics update
+  CIRCUIT_STATE_CHANGE = 0,     ///< Circuit breaker state transition
+  CIRCUIT_REQUEST_BLOCKED = 1,  ///< Request blocked by open circuit
+  CIRCUIT_HEALTH_UPDATE = 2,    ///< Health metrics update
 
   // Rate limiter events
-  RATE_LIMIT_EXCEEDED = 3,         ///< Rate limit quota exceeded
-  RATE_LIMIT_RESET = 4,            ///< Rate limit window reset (legacy)
-  RATE_LIMIT_SAMPLE = 5,           ///< Rate limit token sample
-  RATE_LIMIT_WINDOW_RESET = 6,     ///< Rate limit window reset event
+  RATE_LIMIT_EXCEEDED = 3,              ///< Rate limit quota exceeded
+  RATE_LIMIT_RESET = 4,                 ///< Rate limit window reset (legacy)
+  RATE_LIMIT_SAMPLE = 5,                ///< Rate limit token sample
+  RATE_LIMIT_WINDOW_RESET = 6,          ///< Rate limit window reset event
   RATE_LIMIT_CONFIGURATION_SYNCED = 7,  ///< Rate limit config updated
 
   // Metrics events
-  METRIC_UPDATE = 50,              ///< Metric value update
-  METRIC_FLUSH = 51,               ///< Metrics flushed to backend
+  METRIC_UPDATE = 50,  ///< Metric value update
+  METRIC_FLUSH = 51,   ///< Metrics flushed to backend
 
   // Request logger events
-  REQUEST_LOGGED = 60,             ///< Request logged
-  RESPONSE_LOGGED = 61,            ///< Response logged
+  REQUEST_LOGGED = 60,   ///< Request logged
+  RESPONSE_LOGGED = 61,  ///< Response logged
 
   // Protocol events
-  PROTOCOL_ERROR = 70,             ///< Protocol-level error
-  PROTOCOL_UPGRADE = 71,           ///< Protocol upgrade (e.g., HTTP/2)
+  PROTOCOL_ERROR = 70,    ///< Protocol-level error
+  PROTOCOL_UPGRADE = 71,  ///< Protocol upgrade (e.g., HTTP/2)
 
   // Generic filter events
-  FILTER_INITIALIZED = 80,         ///< Filter initialized
-  FILTER_DESTROYED = 81,           ///< Filter destroyed
-  FILTER_ERROR = 100,              ///< Generic filter error
-  FILTER_WARNING = 101,            ///< Generic filter warning
-  FILTER_INFO = 102                ///< Generic filter info
+  FILTER_INITIALIZED = 80,  ///< Filter initialized
+  FILTER_DESTROYED = 81,    ///< Filter destroyed
+  FILTER_ERROR = 100,       ///< Generic filter error
+  FILTER_WARNING = 101,     ///< Generic filter warning
+  FILTER_INFO = 102         ///< Generic filter info
 };
 
 /**
@@ -64,12 +64,12 @@ enum class FilterEventType {
  * Severity classification for filtering and prioritization of events.
  */
 enum class FilterEventSeverity {
-  TRACE = 0,      ///< Trace-level diagnostic information
-  DEBUG = 1,      ///< Debug-level information
-  INFO = 2,       ///< Informational messages
-  WARN = 3,       ///< Warning conditions
-  ERROR = 4,      ///< Error conditions
-  CRITICAL = 5    ///< Critical conditions requiring immediate attention
+  TRACE = 0,    ///< Trace-level diagnostic information
+  DEBUG = 1,    ///< Debug-level information
+  INFO = 2,     ///< Informational messages
+  WARN = 3,     ///< Warning conditions
+  ERROR = 4,    ///< Error conditions
+  CRITICAL = 5  ///< Critical conditions requiring immediate attention
 };
 
 /**
@@ -99,9 +99,7 @@ struct FilterEventContext {
   FilterEventContext(const std::string& chain,
                      const std::string& stream = "",
                      const std::string& correlation = "")
-      : chain_id(chain),
-        stream_id(stream),
-        correlation_id(correlation) {}
+      : chain_id(chain), stream_id(stream), correlation_id(correlation) {}
 
   /**
    * @brief Convert to JSON for serialization

@@ -7,18 +7,19 @@
  * provide enterprise-grade filtering capabilities.
  */
 
-#include "mcp/c_api/mcp_c_filter_only_api.h"
-#include "mcp/c_api/mcp_c_api_json.h"
-#include "mcp/c_api/mcp_c_api.h"
-#include "mcp/filter/filter_registry.h"
-
-#include <gtest/gtest.h>
-#include <string>
-#include <fstream>
-#include <thread>
 #include <chrono>
+#include <fstream>
 #include <future>
 #include <memory>
+#include <string>
+#include <thread>
+
+#include <gtest/gtest.h>
+
+#include "mcp/c_api/mcp_c_api.h"
+#include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_filter_only_api.h"
+#include "mcp/filter/filter_registry.h"
 
 // No need for extern declarations - they're in mcp_c_api.h
 
@@ -33,7 +34,8 @@ class FilterOnlyAPITest : public ::testing::Test {
     std::cerr << "[SetUp] About to call mcp_init\n" << std::flush;
     std::cout << "[SetUp] Calling mcp_init...\n" << std::flush;
     mcp_result_t result = mcp_init(nullptr);
-    std::cerr << "[SetUp] mcp_init returned, result=" << result << "\n" << std::flush;
+    std::cerr << "[SetUp] mcp_init returned, result=" << result << "\n"
+              << std::flush;
     std::cerr << "[SetUp] About to ASSERT_EQ\n" << std::flush;
     ASSERT_EQ(result, MCP_OK);
     std::cerr << "[SetUp] ASSERT_EQ passed\n" << std::flush;
@@ -44,17 +46,23 @@ class FilterOnlyAPITest : public ::testing::Test {
     std::cout << "[SetUp] Calling mcp_dispatcher_create...\n" << std::flush;
     dispatcher_ = mcp_dispatcher_create();
     std::cerr << "[SetUp] Dispatcher created\n" << std::flush;
-    std::cerr << "[SetUp] About to ASSERT dispatcher != nullptr\n" << std::flush;
+    std::cerr << "[SetUp] About to ASSERT dispatcher != nullptr\n"
+              << std::flush;
     ASSERT_NE(dispatcher_, nullptr) << "Failed to create dispatcher";
     std::cerr << "[SetUp] ASSERT passed\n" << std::flush;
-    std::cout << "[SetUp] Dispatcher created: " << dispatcher_ << "\n" << std::flush;
+    std::cout << "[SetUp] Dispatcher created: " << dispatcher_ << "\n"
+              << std::flush;
 
     // Check thread status before starting
     std::cerr << "[SetUp] Calling mcp_dispatcher_is_thread\n" << std::flush;
     mcp_bool_t is_disp_thread = mcp_dispatcher_is_thread(dispatcher_);
-    std::cerr << "[SetUp] mcp_dispatcher_is_thread returned: " << (int)is_disp_thread << "\n" << std::flush;
+    std::cerr << "[SetUp] mcp_dispatcher_is_thread returned: "
+              << (int)is_disp_thread << "\n"
+              << std::flush;
     std::cerr << "[SetUp] About to print result\n" << std::flush;
-    std::cout << "[SetUp] Before thread start - is dispatcher thread: " << (is_disp_thread ? "YES" : "NO") << "\n" << std::flush;
+    std::cout << "[SetUp] Before thread start - is dispatcher thread: "
+              << (is_disp_thread ? "YES" : "NO") << "\n"
+              << std::flush;
     std::cerr << "[SetUp] Printed result\n" << std::flush;
 
     // Run dispatcher in background thread
@@ -63,30 +71,44 @@ class FilterOnlyAPITest : public ::testing::Test {
     std::cerr << "[SetUp] Creating std::thread object\n" << std::flush;
     dispatcher_thread_ = std::thread([this]() {
       std::cerr << "[Dispatcher Thread] Lambda entry\n" << std::flush;
-      std::cout << "[Dispatcher Thread] Entry - about to call mcp_dispatcher_run\n" << std::flush;
-      std::cout << "[Dispatcher Thread] Checking if this is dispatcher thread...\n" << std::flush;
+      std::cout
+          << "[Dispatcher Thread] Entry - about to call mcp_dispatcher_run\n"
+          << std::flush;
+      std::cout
+          << "[Dispatcher Thread] Checking if this is dispatcher thread...\n"
+          << std::flush;
       mcp_bool_t is_disp = mcp_dispatcher_is_thread(dispatcher_);
-      std::cout << "[Dispatcher Thread] Is dispatcher thread BEFORE run: " << (is_disp ? "YES" : "NO") << "\n" << std::flush;
+      std::cout << "[Dispatcher Thread] Is dispatcher thread BEFORE run: "
+                << (is_disp ? "YES" : "NO") << "\n"
+                << std::flush;
 
-      std::cerr << "[Dispatcher Thread] About to call mcp_dispatcher_run\n" << std::flush;
+      std::cerr << "[Dispatcher Thread] About to call mcp_dispatcher_run\n"
+                << std::flush;
       mcp_dispatcher_run(dispatcher_);
-      std::cerr << "[Dispatcher Thread] mcp_dispatcher_run returned\n" << std::flush;
+      std::cerr << "[Dispatcher Thread] mcp_dispatcher_run returned\n"
+                << std::flush;
 
-      std::cout << "[Dispatcher Thread] Exit - mcp_dispatcher_run returned\n" << std::flush;
+      std::cout << "[Dispatcher Thread] Exit - mcp_dispatcher_run returned\n"
+                << std::flush;
     });
     std::cerr << "[SetUp] std::thread created\n" << std::flush;
     std::cout << "[SetUp] Dispatcher thread launched\n" << std::flush;
 
     // Give dispatcher time to start
     std::cerr << "[SetUp] About to sleep\n" << std::flush;
-    std::cout << "[SetUp] Sleeping 50ms to let dispatcher start...\n" << std::flush;
+    std::cout << "[SetUp] Sleeping 50ms to let dispatcher start...\n"
+              << std::flush;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     std::cerr << "[SetUp] Sleep complete\n" << std::flush;
 
     // Check thread status after starting
-    std::cerr << "[SetUp] Calling mcp_dispatcher_is_thread again\n" << std::flush;
+    std::cerr << "[SetUp] Calling mcp_dispatcher_is_thread again\n"
+              << std::flush;
     is_disp_thread = mcp_dispatcher_is_thread(dispatcher_);
-    std::cout << "[SetUp] After thread start - main thread is dispatcher thread: " << (is_disp_thread ? "YES" : "NO") << "\n" << std::flush;
+    std::cout
+        << "[SetUp] After thread start - main thread is dispatcher thread: "
+        << (is_disp_thread ? "YES" : "NO") << "\n"
+        << std::flush;
 
     std::cout << "[SetUp] Setup complete!\n" << std::flush;
   }
@@ -124,7 +146,8 @@ class FilterOnlyAPITest : public ::testing::Test {
   /**
    * Helper: Create chain-centric filter chain JSON configuration
    *
-   * This creates a single filter chain object that matches the assembler contract:
+   * This creates a single filter chain object that matches the assembler
+   * contract:
    * {
    *   "name": "default",
    *   "transport_type": "tcp",
@@ -137,22 +160,27 @@ class FilterOnlyAPITest : public ::testing::Test {
 
     // Set chain properties
     mcp_json_object_set(config, "name", mcp_json_create_string("default"));
-    mcp_json_object_set(config, "transport_type", mcp_json_create_string("tcp"));
+    mcp_json_object_set(config, "transport_type",
+                        mcp_json_create_string("tcp"));
 
     // Create filters array with some basic filters
     auto filters = mcp_json_create_array();
 
     // Add http.codec filter (context factory registered)
     auto http_filter = mcp_json_create_object();
-    mcp_json_object_set(http_filter, "name", mcp_json_create_string("http_codec"));
-    mcp_json_object_set(http_filter, "type", mcp_json_create_string("http.codec"));
+    mcp_json_object_set(http_filter, "name",
+                        mcp_json_create_string("http_codec"));
+    mcp_json_object_set(http_filter, "type",
+                        mcp_json_create_string("http.codec"));
     mcp_json_object_set(http_filter, "config", mcp_json_create_object());
     mcp_json_array_append(filters, http_filter);
 
     // Add sse.codec filter (context factory registered)
     auto sse_filter = mcp_json_create_object();
-    mcp_json_object_set(sse_filter, "name", mcp_json_create_string("sse_codec"));
-    mcp_json_object_set(sse_filter, "type", mcp_json_create_string("sse.codec"));
+    mcp_json_object_set(sse_filter, "name",
+                        mcp_json_create_string("sse_codec"));
+    mcp_json_object_set(sse_filter, "type",
+                        mcp_json_create_string("sse.codec"));
     mcp_json_object_set(sse_filter, "config", mcp_json_create_object());
     mcp_json_array_append(filters, sse_filter);
 
@@ -173,7 +201,8 @@ class FilterOnlyAPITest : public ::testing::Test {
     auto config = mcp_json_create_object();
 
     // Create chain with missing required fields
-    mcp_json_object_set(config, "name", mcp_json_create_string("invalid_chain"));
+    mcp_json_object_set(config, "name",
+                        mcp_json_create_string("invalid_chain"));
     // Missing "filters" array - this makes it invalid
 
     return config;
@@ -185,11 +214,12 @@ class FilterOnlyAPITest : public ::testing::Test {
    * This ensures dispatcher-affine APIs are called from the correct thread.
    * Exceptions are captured and re-thrown on the calling thread.
    */
-  template<typename Result>
+  template <typename Result>
   Result executeOnDispatcher(std::function<Result()> func) {
     // Check if dispatcher is still running
     if (dispatcher_shutdown_requested_) {
-      throw std::runtime_error("Cannot post to dispatcher after shutdown requested");
+      throw std::runtime_error(
+          "Cannot post to dispatcher after shutdown requested");
     }
 
     std::promise<Result> promise;
@@ -202,20 +232,20 @@ class FilterOnlyAPITest : public ::testing::Test {
 
     auto* data = new CallbackData{std::move(func), &promise};
 
-    mcp_result_t post_result = mcp_dispatcher_post(dispatcher_,
-      [](void* user_data) {
-        auto* cb_data = static_cast<CallbackData*>(user_data);
-        try {
-          // Execute function and set result
-          cb_data->promise->set_value(cb_data->func());
-        } catch (...) {
-          // Capture exception to re-throw on calling thread
-          cb_data->promise->set_exception(std::current_exception());
-        }
-        delete cb_data;
-      },
-      data
-    );
+    mcp_result_t post_result = mcp_dispatcher_post(
+        dispatcher_,
+        [](void* user_data) {
+          auto* cb_data = static_cast<CallbackData*>(user_data);
+          try {
+            // Execute function and set result
+            cb_data->promise->set_value(cb_data->func());
+          } catch (...) {
+            // Capture exception to re-throw on calling thread
+            cb_data->promise->set_exception(std::current_exception());
+          }
+          delete cb_data;
+        },
+        data);
 
     if (post_result != MCP_OK) {
       delete data;
@@ -247,7 +277,8 @@ TEST_F(FilterOnlyAPITest, CoreFiltersAreRegistered) {
 
   // Check http.codec
   bool has_http = registry.hasContextFactory("http.codec");
-  std::cout << "  http.codec: " << (has_http ? "REGISTERED" : "MISSING") << "\n";
+  std::cout << "  http.codec: " << (has_http ? "REGISTERED" : "MISSING")
+            << "\n";
   EXPECT_TRUE(has_http) << "http.codec filter not registered";
 
   // Check sse.codec
@@ -257,22 +288,27 @@ TEST_F(FilterOnlyAPITest, CoreFiltersAreRegistered) {
 
   // Check json_rpc.dispatcher
   bool has_json_rpc = registry.hasContextFactory("json_rpc.dispatcher");
-  std::cout << "  json_rpc.dispatcher: " << (has_json_rpc ? "REGISTERED" : "MISSING") << "\n";
+  std::cout << "  json_rpc.dispatcher: "
+            << (has_json_rpc ? "REGISTERED" : "MISSING") << "\n";
   EXPECT_TRUE(has_json_rpc) << "json_rpc.dispatcher filter not registered";
 
   // Check rate_limit
   bool has_rate = registry.hasFactory("rate_limit");  // Traditional factory
-  std::cout << "  rate_limit: " << (has_rate ? "REGISTERED" : "MISSING") << "\n";
+  std::cout << "  rate_limit: " << (has_rate ? "REGISTERED" : "MISSING")
+            << "\n";
   EXPECT_TRUE(has_rate) << "rate_limit filter not registered";
 
   // Check circuit_breaker
-  bool has_breaker = registry.hasFactory("circuit_breaker");  // Traditional factory
-  std::cout << "  circuit_breaker: " << (has_breaker ? "REGISTERED" : "MISSING") << "\n";
+  bool has_breaker =
+      registry.hasFactory("circuit_breaker");  // Traditional factory
+  std::cout << "  circuit_breaker: " << (has_breaker ? "REGISTERED" : "MISSING")
+            << "\n";
   EXPECT_TRUE(has_breaker) << "circuit_breaker filter not registered";
 
   // Check metrics
   bool has_metrics = registry.hasFactory("metrics");  // Traditional factory
-  std::cout << "  metrics: " << (has_metrics ? "REGISTERED" : "MISSING") << "\n";
+  std::cout << "  metrics: " << (has_metrics ? "REGISTERED" : "MISSING")
+            << "\n";
   EXPECT_TRUE(has_metrics) << "metrics filter not registered";
 
   // Print all registered factories for debugging
@@ -289,8 +325,10 @@ TEST_F(FilterOnlyAPITest, CoreFiltersAreRegistered) {
   }
 
   // We should have at least 3 context factories and 3 traditional factories
-  EXPECT_GE(context_factories.size(), 3u) << "Expected at least 3 context factories";
-  EXPECT_GE(trad_factories.size(), 3u) << "Expected at least 3 traditional factories";
+  EXPECT_GE(context_factories.size(), 3u)
+      << "Expected at least 3 context factories";
+  EXPECT_GE(trad_factories.size(), 3u)
+      << "Expected at least 3 traditional factories";
 }
 
 TEST_F(FilterOnlyAPITest, ValidateFilterConfiguration) {
@@ -303,8 +341,10 @@ TEST_F(FilterOnlyAPITest, ValidateFilterConfiguration) {
 
   // Add http.codec filter
   auto http_filter = mcp_json_create_object();
-  mcp_json_object_set(http_filter, "name", mcp_json_create_string("http_codec"));
-  mcp_json_object_set(http_filter, "type", mcp_json_create_string("http.codec"));
+  mcp_json_object_set(http_filter, "name",
+                      mcp_json_create_string("http_codec"));
+  mcp_json_object_set(http_filter, "type",
+                      mcp_json_create_string("http.codec"));
   mcp_json_object_set(http_filter, "config", mcp_json_create_object());
   mcp_json_array_append(filters, http_filter);
 
@@ -317,8 +357,10 @@ TEST_F(FilterOnlyAPITest, ValidateFilterConfiguration) {
 
   // Add json_rpc.dispatcher filter with configuration
   auto dispatcher_filter = mcp_json_create_object();
-  mcp_json_object_set(dispatcher_filter, "name", mcp_json_create_string("dispatcher"));
-  mcp_json_object_set(dispatcher_filter, "type", mcp_json_create_string("json_rpc.dispatcher"));
+  mcp_json_object_set(dispatcher_filter, "name",
+                      mcp_json_create_string("dispatcher"));
+  mcp_json_object_set(dispatcher_filter, "type",
+                      mcp_json_create_string("json_rpc.dispatcher"));
   mcp_json_object_set(dispatcher_filter, "config", mcp_json_create_object());
   mcp_json_array_append(filters, dispatcher_filter);
 
@@ -339,7 +381,8 @@ TEST_F(FilterOnlyAPITest, ValidateFilterConfiguration) {
   }
 
   // With proper filter registration, this should be valid
-  EXPECT_TRUE(result.valid) << "Configuration with registered filters should be valid";
+  EXPECT_TRUE(result.valid)
+      << "Configuration with registered filters should be valid";
 
   mcp_filter_only_validation_result_free(&result);
   mcp_json_free(config);
@@ -357,7 +400,9 @@ TEST_F(FilterOnlyAPITest, ValidateValidConfiguration) {
   // Check what thread we're on
   std::cerr << "[TEST] Calling mcp_dispatcher_is_thread\n" << std::flush;
   mcp_bool_t is_disp_thread = mcp_dispatcher_is_thread(dispatcher_);
-  std::cout << "[TEST] Test thread is dispatcher thread: " << (is_disp_thread ? "YES" : "NO") << "\n" << std::flush;
+  std::cout << "[TEST] Test thread is dispatcher thread: "
+            << (is_disp_thread ? "YES" : "NO") << "\n"
+            << std::flush;
 
   std::cout << "[TEST] Creating config...\n";
   mcp_json_value_t config = createCanonicalConfig();
@@ -451,13 +496,14 @@ TEST_F(FilterOnlyAPITest, AssembleChainFromValidConfig) {
   ASSERT_NE(config, nullptr);
 
   // Execute assembly on dispatcher thread
-  auto result = executeOnDispatcher<std::pair<mcp_result_t, mcp_filter_only_assembly_result_t>>(
-    [this, config]() {
-      mcp_filter_only_assembly_result_t result;
-      mcp_result_t status = mcp_filter_only_assemble_from_json(dispatcher_, config, &result);
-      return std::make_pair(status, result);
-    }
-  );
+  auto result = executeOnDispatcher<
+      std::pair<mcp_result_t, mcp_filter_only_assembly_result_t>>(
+      [this, config]() {
+        mcp_filter_only_assembly_result_t result;
+        mcp_result_t status =
+            mcp_filter_only_assemble_from_json(dispatcher_, config, &result);
+        return std::make_pair(status, result);
+      });
 
   mcp_result_t status = result.first;
   mcp_filter_only_assembly_result_t assembly_result = result.second;
@@ -468,7 +514,8 @@ TEST_F(FilterOnlyAPITest, AssembleChainFromValidConfig) {
   EXPECT_GE(assembly_result.created_filter_count, 2u);  // At least 2 filters
 
   if (assembly_result.success) {
-    std::cout << "Created chain with " << assembly_result.created_filter_count << " filters:\n";
+    std::cout << "Created chain with " << assembly_result.created_filter_count
+              << " filters:\n";
     for (size_t i = 0; i < assembly_result.created_filter_count; i++) {
       std::cout << "  - " << assembly_result.created_filters[i] << "\n";
     }
@@ -492,13 +539,14 @@ TEST_F(FilterOnlyAPITest, AssembleChainFromInvalidConfig) {
   ASSERT_NE(config, nullptr);
 
   // Execute assembly on dispatcher thread
-  auto result = executeOnDispatcher<std::pair<mcp_result_t, mcp_filter_only_assembly_result_t>>(
-    [this, config]() {
-      mcp_filter_only_assembly_result_t result;
-      mcp_result_t status = mcp_filter_only_assemble_from_json(dispatcher_, config, &result);
-      return std::make_pair(status, result);
-    }
-  );
+  auto result = executeOnDispatcher<
+      std::pair<mcp_result_t, mcp_filter_only_assembly_result_t>>(
+      [this, config]() {
+        mcp_filter_only_assembly_result_t result;
+        mcp_result_t status =
+            mcp_filter_only_assemble_from_json(dispatcher_, config, &result);
+        return std::make_pair(status, result);
+      });
 
   mcp_result_t status = result.first;
   mcp_filter_only_assembly_result_t assembly_result = result.second;
@@ -510,7 +558,8 @@ TEST_F(FilterOnlyAPITest, AssembleChainFromInvalidConfig) {
   EXPECT_NE(assembly_result.error_message, nullptr);
 
   if (assembly_result.error_message) {
-    std::cout << "Expected assembly error: " << assembly_result.error_message << "\n";
+    std::cout << "Expected assembly error: " << assembly_result.error_message
+              << "\n";
   }
 
   mcp_filter_only_assembly_result_free(&assembly_result);
@@ -522,11 +571,10 @@ TEST_F(FilterOnlyAPITest, CreateChainSimpleAPI) {
   ASSERT_NE(config, nullptr);
 
   // Create chain on dispatcher thread
-  mcp_filter_only_chain_t chain = executeOnDispatcher<mcp_filter_only_chain_t>(
-    [this, config]() {
-      return mcp_filter_only_chain_create_from_json(dispatcher_, config);
-    }
-  );
+  mcp_filter_only_chain_t chain =
+      executeOnDispatcher<mcp_filter_only_chain_t>([this, config]() {
+        return mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      });
 
   EXPECT_NE(chain, 0u);
 
@@ -544,7 +592,8 @@ TEST_F(FilterOnlyAPITest, CreateChainRequiresDispatcher) {
   mcp_json_value_t config = createCanonicalConfig();
 
   // Try to create without dispatcher - should fail
-  mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(nullptr, config);
+  mcp_filter_only_chain_t chain =
+      mcp_filter_only_chain_create_from_json(nullptr, config);
   EXPECT_EQ(chain, 0u);
 
   mcp_json_free(config);
@@ -565,11 +614,10 @@ TEST_F(FilterOnlyAPITest, ChainReleaseIsIdempotent) {
   // Create and release chain on dispatcher thread
   mcp_json_value_t config = createCanonicalConfig();
 
-  mcp_filter_only_chain_t chain = executeOnDispatcher<mcp_filter_only_chain_t>(
-    [this, config]() {
-      return mcp_filter_only_chain_create_from_json(dispatcher_, config);
-    }
-  );
+  mcp_filter_only_chain_t chain =
+      executeOnDispatcher<mcp_filter_only_chain_t>([this, config]() {
+        return mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      });
 
   ASSERT_NE(chain, 0u);
 
@@ -584,11 +632,10 @@ TEST_F(FilterOnlyAPITest, ChainReleaseIsIdempotent) {
 TEST_F(FilterOnlyAPITest, ChainRetainReleaseCycle) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  mcp_filter_only_chain_t chain = executeOnDispatcher<mcp_filter_only_chain_t>(
-    [this, config]() {
-      return mcp_filter_only_chain_create_from_json(dispatcher_, config);
-    }
-  );
+  mcp_filter_only_chain_t chain =
+      executeOnDispatcher<mcp_filter_only_chain_t>([this, config]() {
+        return mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      });
 
   ASSERT_NE(chain, 0u);
 
@@ -611,19 +658,20 @@ TEST_F(FilterOnlyAPITest, ChainRetainReleaseCycle) {
 TEST_F(FilterOnlyAPITest, CloneChain) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto chains = executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_filter_only_chain_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_filter_only_chain_t cloned = 0;
+  auto chains = executeOnDispatcher<
+      std::pair<mcp_filter_only_chain_t, mcp_filter_only_chain_t>>(
+      [this, config]() {
+        mcp_filter_only_chain_t chain =
+            mcp_filter_only_chain_create_from_json(dispatcher_, config);
+        mcp_filter_only_chain_t cloned = 0;
 
-      if (chain) {
-        // Clone the chain
-        cloned = mcp_filter_only_chain_clone(chain);
-      }
+        if (chain) {
+          // Clone the chain
+          cloned = mcp_filter_only_chain_clone(chain);
+        }
 
-      return std::make_pair(chain, cloned);
-    }
-  );
+        return std::make_pair(chain, cloned);
+      });
 
   mcp_filter_only_chain_t chain = chains.first;
   mcp_filter_only_chain_t cloned = chains.second;
@@ -652,22 +700,26 @@ TEST_F(FilterOnlyAPITest, CloneChain) {
 TEST_F(FilterOnlyAPITest, EnableDisableFilter) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_result_t, mcp_result_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      if (!chain) {
-        return std::make_tuple((mcp_filter_only_chain_t)0, MCP_ERROR_UNKNOWN, MCP_ERROR_UNKNOWN);
-      }
+  auto result = executeOnDispatcher<
+      std::tuple<mcp_filter_only_chain_t, mcp_result_t, mcp_result_t>>(
+      [this, config]() {
+        mcp_filter_only_chain_t chain =
+            mcp_filter_only_chain_create_from_json(dispatcher_, config);
+        if (!chain) {
+          return std::make_tuple((mcp_filter_only_chain_t)0, MCP_ERROR_UNKNOWN,
+                                 MCP_ERROR_UNKNOWN);
+        }
 
-      // Disable a filter
-      mcp_result_t status1 = mcp_filter_only_set_filter_enabled(chain, "http_codec", MCP_FALSE);
+        // Disable a filter
+        mcp_result_t status1 =
+            mcp_filter_only_set_filter_enabled(chain, "http_codec", MCP_FALSE);
 
-      // Re-enable the filter
-      mcp_result_t status2 = mcp_filter_only_set_filter_enabled(chain, "http_codec", MCP_TRUE);
+        // Re-enable the filter
+        mcp_result_t status2 =
+            mcp_filter_only_set_filter_enabled(chain, "http_codec", MCP_TRUE);
 
-      return std::make_tuple(chain, status1, status2);
-    }
-  );
+        return std::make_tuple(chain, status1, status2);
+      });
 
   mcp_filter_only_chain_t chain = std::get<0>(result);
   mcp_result_t status1 = std::get<1>(result);
@@ -688,20 +740,23 @@ TEST_F(FilterOnlyAPITest, EnableDisableFilter) {
 TEST_F(FilterOnlyAPITest, SetFilterEnabledNonExistentFilter) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_result_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      if (!chain) {
-        return std::make_pair((mcp_filter_only_chain_t)0, MCP_ERROR_UNKNOWN);
-      }
+  auto result =
+      executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_result_t>>(
+          [this, config]() {
+            mcp_filter_only_chain_t chain =
+                mcp_filter_only_chain_create_from_json(dispatcher_, config);
+            if (!chain) {
+              return std::make_pair((mcp_filter_only_chain_t)0,
+                                    MCP_ERROR_UNKNOWN);
+            }
 
-      // Try to disable a filter that doesn't exist - should succeed (no-op)
-      mcp_result_t status = mcp_filter_only_set_filter_enabled(
-          chain, "nonexistent_filter", MCP_FALSE);
+            // Try to disable a filter that doesn't exist - should succeed
+            // (no-op)
+            mcp_result_t status = mcp_filter_only_set_filter_enabled(
+                chain, "nonexistent_filter", MCP_FALSE);
 
-      return std::make_pair(chain, status);
-    }
-  );
+            return std::make_pair(chain, status);
+          });
 
   mcp_filter_only_chain_t chain = result.first;
   mcp_result_t status = result.second;
@@ -725,19 +780,20 @@ TEST_F(FilterOnlyAPITest, SetFilterEnabledNonExistentFilter) {
 TEST_F(FilterOnlyAPITest, ExportChainConfiguration) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_json_value_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_json_value_t exported = nullptr;
+  auto result =
+      executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_json_value_t>>(
+          [this, config]() {
+            mcp_filter_only_chain_t chain =
+                mcp_filter_only_chain_create_from_json(dispatcher_, config);
+            mcp_json_value_t exported = nullptr;
 
-      if (chain) {
-        // Export chain configuration
-        exported = mcp_filter_only_chain_export_to_json(chain);
-      }
+            if (chain) {
+              // Export chain configuration
+              exported = mcp_filter_only_chain_export_to_json(chain);
+            }
 
-      return std::make_pair(chain, exported);
-    }
-  );
+            return std::make_pair(chain, exported);
+          });
 
   mcp_filter_only_chain_t chain = result.first;
   mcp_json_value_t exported = result.second;
@@ -770,25 +826,27 @@ TEST_F(FilterOnlyAPITest, ExportImportRoundTrip) {
   // Create original chain
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_filter_only_chain_t, mcp_json_value_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain1 = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_json_value_t exported = nullptr;
-      mcp_filter_only_chain_t chain2 = 0;
+  auto result = executeOnDispatcher<std::tuple<
+      mcp_filter_only_chain_t, mcp_filter_only_chain_t, mcp_json_value_t>>(
+      [this, config]() {
+        mcp_filter_only_chain_t chain1 =
+            mcp_filter_only_chain_create_from_json(dispatcher_, config);
+        mcp_json_value_t exported = nullptr;
+        mcp_filter_only_chain_t chain2 = 0;
 
-      if (chain1) {
-        // Export configuration
-        exported = mcp_filter_only_chain_export_to_json(chain1);
+        if (chain1) {
+          // Export configuration
+          exported = mcp_filter_only_chain_export_to_json(chain1);
 
-        if (exported) {
-          // Create new chain from exported config
-          chain2 = mcp_filter_only_chain_create_from_json(dispatcher_, exported);
+          if (exported) {
+            // Create new chain from exported config
+            chain2 =
+                mcp_filter_only_chain_create_from_json(dispatcher_, exported);
+          }
         }
-      }
 
-      return std::make_tuple(chain1, chain2, exported);
-    }
-  );
+        return std::make_tuple(chain1, chain2, exported);
+      });
 
   mcp_filter_only_chain_t chain1 = std::get<0>(result);
   mcp_filter_only_chain_t chain2 = std::get<1>(result);
@@ -819,19 +877,21 @@ TEST_F(FilterOnlyAPITest, ExportImportRoundTrip) {
 TEST_F(FilterOnlyAPITest, GetChainStatistics) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_result_t, mcp_filter_only_stats_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_filter_only_stats_t stats{};
-      mcp_result_t status = MCP_ERROR_UNKNOWN;
+  auto result =
+      executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_result_t,
+                                     mcp_filter_only_stats_t>>(
+          [this, config]() {
+            mcp_filter_only_chain_t chain =
+                mcp_filter_only_chain_create_from_json(dispatcher_, config);
+            mcp_filter_only_stats_t stats{};
+            mcp_result_t status = MCP_ERROR_UNKNOWN;
 
-      if (chain) {
-        status = mcp_filter_only_get_stats(chain, &stats);
-      }
+            if (chain) {
+              status = mcp_filter_only_get_stats(chain, &stats);
+            }
 
-      return std::make_tuple(chain, status, stats);
-    }
-  );
+            return std::make_tuple(chain, status, stats);
+          });
 
   mcp_filter_only_chain_t chain = std::get<0>(result);
   mcp_result_t status = std::get<1>(result);
@@ -876,27 +936,29 @@ TEST_F(FilterOnlyAPITest, GetStatsRequiresValidHandle) {
 TEST_F(FilterOnlyAPITest, PauseResumeChain) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_chain_state_t, mcp_result_t, mcp_result_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_chain_state_t state = MCP_CHAIN_STATE_IDLE;
-      mcp_result_t pause_status = MCP_ERROR_UNKNOWN;
-      mcp_result_t resume_status = MCP_ERROR_UNKNOWN;
+  auto result =
+      executeOnDispatcher<std::tuple<mcp_filter_only_chain_t, mcp_chain_state_t,
+                                     mcp_result_t, mcp_result_t>>(
+          [this, config]() {
+            mcp_filter_only_chain_t chain =
+                mcp_filter_only_chain_create_from_json(dispatcher_, config);
+            mcp_chain_state_t state = MCP_CHAIN_STATE_IDLE;
+            mcp_result_t pause_status = MCP_ERROR_UNKNOWN;
+            mcp_result_t resume_status = MCP_ERROR_UNKNOWN;
 
-      if (chain) {
-        // Get initial state
-        state = mcp_filter_only_chain_get_state(chain);
+            if (chain) {
+              // Get initial state
+              state = mcp_filter_only_chain_get_state(chain);
 
-        // Pause chain
-        pause_status = mcp_filter_only_chain_pause(chain);
+              // Pause chain
+              pause_status = mcp_filter_only_chain_pause(chain);
 
-        // Resume chain
-        resume_status = mcp_filter_only_chain_resume(chain);
-      }
+              // Resume chain
+              resume_status = mcp_filter_only_chain_resume(chain);
+            }
 
-      return std::make_tuple(chain, state, pause_status, resume_status);
-    }
-  );
+            return std::make_tuple(chain, state, pause_status, resume_status);
+          });
 
   mcp_filter_only_chain_t chain = std::get<0>(result);
   mcp_chain_state_t state = std::get<1>(result);
@@ -904,7 +966,8 @@ TEST_F(FilterOnlyAPITest, PauseResumeChain) {
   mcp_result_t resume_status = std::get<3>(result);
 
   ASSERT_NE(chain, 0u);
-  EXPECT_TRUE(state == MCP_CHAIN_STATE_IDLE || state == MCP_CHAIN_STATE_COMPLETED);
+  EXPECT_TRUE(state == MCP_CHAIN_STATE_IDLE ||
+              state == MCP_CHAIN_STATE_COMPLETED);
   EXPECT_EQ(pause_status, MCP_OK);
   EXPECT_EQ(resume_status, MCP_OK);
 
@@ -919,24 +982,26 @@ TEST_F(FilterOnlyAPITest, PauseResumeChain) {
 TEST_F(FilterOnlyAPITest, ResetChain) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  auto result = executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_result_t>>(
-    [this, config]() {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
-      mcp_result_t status = MCP_ERROR_UNKNOWN;
+  auto result =
+      executeOnDispatcher<std::pair<mcp_filter_only_chain_t, mcp_result_t>>(
+          [this, config]() {
+            mcp_filter_only_chain_t chain =
+                mcp_filter_only_chain_create_from_json(dispatcher_, config);
+            mcp_result_t status = MCP_ERROR_UNKNOWN;
 
-      if (chain) {
-        // Reset chain - should return to initial state
-        status = mcp_filter_only_chain_reset(chain);
+            if (chain) {
+              // Reset chain - should return to initial state
+              status = mcp_filter_only_chain_reset(chain);
 
-        // After reset, stats should be cleared
-        mcp_filter_only_stats_t stats;
-        mcp_filter_only_get_stats(chain, &stats);
-        // Stats might not be zero depending on implementation, but test should not crash
-      }
+              // After reset, stats should be cleared
+              mcp_filter_only_stats_t stats;
+              mcp_filter_only_get_stats(chain, &stats);
+              // Stats might not be zero depending on implementation, but test
+              // should not crash
+            }
 
-      return std::make_pair(chain, status);
-    }
-  );
+            return std::make_pair(chain, status);
+          });
 
   mcp_filter_only_chain_t chain = result.first;
   mcp_result_t status = result.second;
@@ -966,7 +1031,8 @@ TEST_F(FilterOnlyAPITest, NoLeaksMultipleChainCreation) {
   // Create and destroy 100 chains on dispatcher thread
   executeOnDispatcher<int>([this, config]() {
     for (int i = 0; i < 100; i++) {
-      mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      mcp_filter_only_chain_t chain =
+          mcp_filter_only_chain_create_from_json(dispatcher_, config);
       if (chain) {
         mcp_filter_only_chain_release(chain);
       }
@@ -1016,11 +1082,10 @@ TEST_F(FilterOnlyAPITest, NoLeaksAssemblyCycles) {
 TEST_F(FilterOnlyAPITest, NoLeaksExportImportCycles) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  mcp_filter_only_chain_t chain = executeOnDispatcher<mcp_filter_only_chain_t>(
-    [this, config]() {
-      return mcp_filter_only_chain_create_from_json(dispatcher_, config);
-    }
-  );
+  mcp_filter_only_chain_t chain =
+      executeOnDispatcher<mcp_filter_only_chain_t>([this, config]() {
+        return mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      });
 
   ASSERT_NE(chain, 0u);
 
@@ -1046,11 +1111,10 @@ TEST_F(FilterOnlyAPITest, NoLeaksExportImportCycles) {
 TEST_F(FilterOnlyAPITest, NoLeaksCloneCycles) {
   mcp_json_value_t config = createCanonicalConfig();
 
-  mcp_filter_only_chain_t chain = executeOnDispatcher<mcp_filter_only_chain_t>(
-    [this, config]() {
-      return mcp_filter_only_chain_create_from_json(dispatcher_, config);
-    }
-  );
+  mcp_filter_only_chain_t chain =
+      executeOnDispatcher<mcp_filter_only_chain_t>([this, config]() {
+        return mcp_filter_only_chain_create_from_json(dispatcher_, config);
+      });
 
   ASSERT_NE(chain, 0u);
 

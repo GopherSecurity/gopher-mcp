@@ -1,9 +1,9 @@
 #include "mcp/json/json_bridge.h"
 
+#include <memory>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 #include <nlohmann/json.hpp>
 
@@ -17,15 +17,17 @@ class JsonValue;
 class JsonValueImpl {
  public:
   nlohmann::json json_;
-  // If non-null, this JsonValue views an external json node; otherwise uses json_
+  // If non-null, this JsonValue views an external json node; otherwise uses
+  // json_
   nlohmann::json* json_ref_ = nullptr;
   nlohmann::json* parent_ptr_ = nullptr;
   std::string parent_key_;
   size_t parent_index_ = SIZE_MAX;  // For array indices
-  bool is_array_child_ = false;     // Flag to distinguish array vs object children
-  
+  bool is_array_child_ = false;  // Flag to distinguish array vs object children
+
   // Child storage to avoid static temporary variables
-  mutable std::unordered_map<std::string, std::unique_ptr<JsonValue>> child_objects_;
+  mutable std::unordered_map<std::string, std::unique_ptr<JsonValue>>
+      child_objects_;
   mutable std::vector<std::unique_ptr<JsonValue>> child_arrays_;
 
   JsonValueImpl() : json_(nullptr) {}
@@ -68,8 +70,9 @@ JsonValue::JsonValue(const char* value)
 }
 
 JsonValue::JsonValue(const JsonValue& other)
-    : impl_(std::make_unique<JsonValueImpl>(
-        other.impl_->json_ref_ ? *other.impl_->json_ref_ : other.impl_->json_)) {}
+    : impl_(std::make_unique<JsonValueImpl>(other.impl_->json_ref_
+                                                ? *other.impl_->json_ref_
+                                                : other.impl_->json_)) {}
 
 JsonValue::JsonValue(JsonValue&& other) noexcept = default;
 
@@ -77,7 +80,8 @@ JsonValue& JsonValue::operator=(const JsonValue& other) {
   if (this != &other) {
     if (impl_ && impl_->json_ref_) {
       // Direct view assignment writes through to referenced node
-      *impl_->json_ref_ = other.impl_->json_ref_ ? *other.impl_->json_ref_ : other.impl_->json_;
+      *impl_->json_ref_ =
+          other.impl_->json_ref_ ? *other.impl_->json_ref_ : other.impl_->json_;
     } else if (impl_ && impl_->parent_ptr_) {
       if (impl_->is_array_child_) {
         (*impl_->parent_ptr_)[impl_->parent_index_] = other.impl_->json_;
@@ -87,7 +91,9 @@ JsonValue& JsonValue::operator=(const JsonValue& other) {
         impl_->json_ = (*impl_->parent_ptr_)[impl_->parent_key_];
       }
     } else {
-      impl_ = std::make_unique<JsonValueImpl>(other.impl_->json_ref_ ? *other.impl_->json_ref_ : other.impl_->json_);
+      impl_ = std::make_unique<JsonValueImpl>(other.impl_->json_ref_
+                                                  ? *other.impl_->json_ref_
+                                                  : other.impl_->json_);
     }
   }
   return *this;
@@ -96,13 +102,17 @@ JsonValue& JsonValue::operator=(const JsonValue& other) {
 JsonValue& JsonValue::operator=(JsonValue&& other) noexcept {
   if (this != &other) {
     if (impl_ && impl_->json_ref_) {
-      *impl_->json_ref_ = other.impl_->json_ref_ ? std::move(*other.impl_->json_ref_) : std::move(other.impl_->json_);
+      *impl_->json_ref_ = other.impl_->json_ref_
+                              ? std::move(*other.impl_->json_ref_)
+                              : std::move(other.impl_->json_);
     } else if (impl_ && impl_->parent_ptr_) {
       if (impl_->is_array_child_) {
-        (*impl_->parent_ptr_)[impl_->parent_index_] = std::move(other.impl_->json_);
+        (*impl_->parent_ptr_)[impl_->parent_index_] =
+            std::move(other.impl_->json_);
         impl_->json_ = (*impl_->parent_ptr_)[impl_->parent_index_];
       } else {
-        (*impl_->parent_ptr_)[impl_->parent_key_] = std::move(other.impl_->json_);
+        (*impl_->parent_ptr_)[impl_->parent_key_] =
+            std::move(other.impl_->json_);
         impl_->json_ = (*impl_->parent_ptr_)[impl_->parent_key_];
       }
     } else {
@@ -116,15 +126,20 @@ JsonValue::~JsonValue() = default;
 
 // Type checking
 // Helper to access underlying json node (owned or view)
-static inline const nlohmann::json& access_json_const(const std::unique_ptr<JsonValueImpl>& impl) {
+static inline const nlohmann::json& access_json_const(
+    const std::unique_ptr<JsonValueImpl>& impl) {
   return impl->json_ref_ ? *impl->json_ref_ : impl->json_;
 }
-static inline nlohmann::json& access_json(std::unique_ptr<JsonValueImpl>& impl) {
+static inline nlohmann::json& access_json(
+    std::unique_ptr<JsonValueImpl>& impl) {
   return impl->json_ref_ ? *impl->json_ref_ : impl->json_;
 }
-// Allow access from const methods when we need a mutable reference (for caching/indexing semantics
-static inline nlohmann::json& access_json(const std::unique_ptr<JsonValueImpl>& impl) {
-  return impl->json_ref_ ? *impl->json_ref_ : const_cast<nlohmann::json&>(impl->json_);
+// Allow access from const methods when we need a mutable reference (for
+// caching/indexing semantics
+static inline nlohmann::json& access_json(
+    const std::unique_ptr<JsonValueImpl>& impl) {
+  return impl->json_ref_ ? *impl->json_ref_
+                         : const_cast<nlohmann::json&>(impl->json_);
 }
 
 JsonType JsonValue::type() const {
@@ -146,19 +161,34 @@ JsonType JsonValue::type() const {
 }
 
 bool JsonValue::isNull() const { return access_json_const(impl_).is_null(); }
-bool JsonValue::isBoolean() const { return access_json_const(impl_).is_boolean(); }
-bool JsonValue::isInteger() const { return access_json_const(impl_).is_number_integer(); }
-bool JsonValue::isFloat() const { return access_json_const(impl_).is_number_float(); }
-bool JsonValue::isNumber() const { return access_json_const(impl_).is_number(); }
-bool JsonValue::isString() const { return access_json_const(impl_).is_string(); }
+bool JsonValue::isBoolean() const {
+  return access_json_const(impl_).is_boolean();
+}
+bool JsonValue::isInteger() const {
+  return access_json_const(impl_).is_number_integer();
+}
+bool JsonValue::isFloat() const {
+  return access_json_const(impl_).is_number_float();
+}
+bool JsonValue::isNumber() const {
+  return access_json_const(impl_).is_number();
+}
+bool JsonValue::isString() const {
+  return access_json_const(impl_).is_string();
+}
 bool JsonValue::isArray() const { return access_json_const(impl_).is_array(); }
-bool JsonValue::isObject() const { return access_json_const(impl_).is_object(); }
+bool JsonValue::isObject() const {
+  return access_json_const(impl_).is_object();
+}
 
 bool JsonValue::empty() const {
   const auto& j = access_json_const(impl_);
-  if (j.is_null()) return true;
-  if (j.is_string()) return j.get<std::string>().empty();
-  if (j.is_array() || j.is_object()) return j.empty();
+  if (j.is_null())
+    return true;
+  if (j.is_string())
+    return j.get<std::string>().empty();
+  if (j.is_array() || j.is_object())
+    return j.empty();
   // Numbers and booleans are not considered empty
   return false;
 }
@@ -205,7 +235,8 @@ bool JsonValue::getBool(bool defaultValue) const {
 }
 
 int JsonValue::getInt(int defaultValue) const {
-  return (isInteger() || isFloat()) ? access_json_const(impl_).get<int>() : defaultValue;
+  return (isInteger() || isFloat()) ? access_json_const(impl_).get<int>()
+                                    : defaultValue;
 }
 
 int64_t JsonValue::getInt64(int64_t defaultValue) const {
@@ -218,7 +249,8 @@ double JsonValue::getFloat(double defaultValue) const {
 }
 
 std::string JsonValue::getString(const std::string& defaultValue) const {
-  return isString() ? access_json_const(impl_).get<std::string>() : defaultValue;
+  return isString() ? access_json_const(impl_).get<std::string>()
+                    : defaultValue;
 }
 
 // Array operations
@@ -238,7 +270,7 @@ JsonValue& JsonValue::operator[](size_t index) {
   if (impl_->child_arrays_.size() <= index) {
     impl_->child_arrays_.resize(index + 1);
   }
-  
+
   // Get or create child
   auto& child_ptr = impl_->child_arrays_[index];
   if (!child_ptr) {
@@ -253,7 +285,7 @@ JsonValue& JsonValue::operator[](size_t index) {
   // Clear child's own children cache since node changed
   child_ptr->impl_->child_objects_.clear();
   child_ptr->impl_->child_arrays_.clear();
-  
+
   return *child_ptr;
 }
 
@@ -266,12 +298,12 @@ const JsonValue& JsonValue::operator[](size_t index) const {
   if (impl_->child_arrays_.size() <= index) {
     impl_->child_arrays_.resize(index + 1);
   }
-  
+
   // Get or create child
   auto& child_ptr = impl_->child_arrays_[index];
   if (!child_ptr) {
     child_ptr = std::make_unique<JsonValue>();
-    // Set up parent-child relationship for const version  
+    // Set up parent-child relationship for const version
     child_ptr->impl_->parent_ptr_ = const_cast<nlohmann::json*>(&self_json);
     child_ptr->impl_->parent_index_ = index;
     child_ptr->impl_->is_array_child_ = true;
@@ -281,7 +313,7 @@ const JsonValue& JsonValue::operator[](size_t index) const {
   // Clear child's own children cache since node changed
   child_ptr->impl_->child_objects_.clear();
   child_ptr->impl_->child_arrays_.clear();
-  
+
   return *child_ptr;
 }
 
@@ -289,14 +321,17 @@ void JsonValue::push_back(const JsonValue& value) {
   if (!isArray()) {
     throw JsonException("Value is not an array");
   }
-  access_json(impl_).push_back(value.impl_->json_ref_ ? *value.impl_->json_ref_ : value.impl_->json_);
+  access_json(impl_).push_back(value.impl_->json_ref_ ? *value.impl_->json_ref_
+                                                      : value.impl_->json_);
 }
 
 void JsonValue::push_back(JsonValue&& value) {
   if (!isArray()) {
     throw JsonException("Value is not an array");
   }
-  access_json(impl_).push_back(value.impl_->json_ref_ ? std::move(*value.impl_->json_ref_) : std::move(value.impl_->json_));
+  access_json(impl_).push_back(value.impl_->json_ref_
+                                   ? std::move(*value.impl_->json_ref_)
+                                   : std::move(value.impl_->json_));
 }
 
 // Object operations
@@ -331,7 +366,7 @@ JsonValue& JsonValue::operator[](const std::string& key) {
   // Clear child's own children cache since node changed
   child_ptr->impl_->child_objects_.clear();
   child_ptr->impl_->child_arrays_.clear();
-  
+
   return *child_ptr;
 }
 
@@ -340,21 +375,23 @@ const JsonValue& JsonValue::operator[](const std::string& key) const {
     throw JsonException("Value is not an object");
   }
   auto& self_json = access_json(impl_);
-  // Get or create child object in our instance storage (mutable for const correctness)
+  // Get or create child object in our instance storage (mutable for const
+  // correctness)
   auto& child_ptr = impl_->child_objects_[key];
   if (!child_ptr) {
     child_ptr = std::make_unique<JsonValue>();
-    // Set up parent-child relationship (const version doesn't need assignment support)
+    // Set up parent-child relationship (const version doesn't need assignment
+    // support)
     child_ptr->impl_->parent_ptr_ = const_cast<nlohmann::json*>(&self_json);
     child_ptr->impl_->parent_key_ = key;
     child_ptr->impl_->is_array_child_ = false;
   }
   // Point child directly to underlying json node
   child_ptr->impl_->json_ref_ = &self_json[key];
-  // Clear child's own children cache since node changed  
+  // Clear child's own children cache since node changed
   child_ptr->impl_->child_objects_.clear();
   child_ptr->impl_->child_arrays_.clear();
-  
+
   return *child_ptr;
 }
 
@@ -451,7 +488,8 @@ JsonValue::ObjectIterator JsonValue::begin() const {
     throw JsonException("Value is not an object");
   }
   auto* impl_ptr = const_cast<JsonValueImpl*>(impl_.get());
-  nlohmann::json& j = impl_ptr->json_ref_ ? *impl_ptr->json_ref_ : impl_ptr->json_;
+  nlohmann::json& j =
+      impl_ptr->json_ref_ ? *impl_ptr->json_ref_ : impl_ptr->json_;
   return ObjectIterator(new ObjectIteratorImpl(j, false), false);
 }
 
@@ -460,7 +498,8 @@ JsonValue::ObjectIterator JsonValue::end() const {
     throw JsonException("Value is not an object");
   }
   auto* impl_ptr = const_cast<JsonValueImpl*>(impl_.get());
-  nlohmann::json& j = impl_ptr->json_ref_ ? *impl_ptr->json_ref_ : impl_ptr->json_;
+  nlohmann::json& j =
+      impl_ptr->json_ref_ ? *impl_ptr->json_ref_ : impl_ptr->json_;
   return ObjectIterator(new ObjectIteratorImpl(j, true), true);
 }
 

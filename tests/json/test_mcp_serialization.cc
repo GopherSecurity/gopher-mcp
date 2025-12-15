@@ -806,8 +806,10 @@ TEST_F(MCPSerializationTest, SpecialCharacters) {
 TEST_F(MCPSerializationTest, LargeNumbers) {
   // Large integers in metadata
   Metadata meta = make_metadata();
-  add_metadata(meta, "large_int", static_cast<int64_t>(9223372036854775807LL));  // Max int64
-  add_metadata(meta, "negative_int", static_cast<int64_t>(-9223372036854775807LL));
+  add_metadata(meta, "large_int",
+               static_cast<int64_t>(9223372036854775807LL));  // Max int64
+  add_metadata(meta, "negative_int",
+               static_cast<int64_t>(-9223372036854775807LL));
   testRoundTrip(meta);
 
   // Large doubles

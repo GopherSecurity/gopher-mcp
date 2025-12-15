@@ -18,10 +18,9 @@
 #include <shared_mutex>  // C++14: std::shared_timed_mutex
 #include <vector>
 
-
 #include "mcp/config/types.h"
-#include "mcp/json/json_bridge.h"
 #include "mcp/config/validation_policy.h"
+#include "mcp/json/json_bridge.h"
 
 namespace mcp {
 namespace config {

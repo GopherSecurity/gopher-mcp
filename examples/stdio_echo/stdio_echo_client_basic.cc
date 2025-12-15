@@ -222,7 +222,8 @@ class BasicEchoClient : public echo::EchoClientBase {
     for (int i = 0; i < 3; ++i) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
 
-      auto ping_params = make<Metadata>().add("count", static_cast<int64_t>(i + 1)).build();
+      auto ping_params =
+          make<Metadata>().add("count", static_cast<int64_t>(i + 1)).build();
 
       sendNotification("ping", ping_params);
     }

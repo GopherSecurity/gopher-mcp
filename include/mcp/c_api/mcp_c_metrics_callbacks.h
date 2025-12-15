@@ -93,8 +93,7 @@ typedef struct mcp_metrics_callbacks {
  *         -3: Internal error
  */
 int mcp_filter_chain_set_metrics_callbacks(
-    mcp_filter_chain_t chain,
-    const mcp_metrics_callbacks_t* callbacks);
+    mcp_filter_chain_t chain, const mcp_metrics_callbacks_t* callbacks);
 
 /**
  * @brief Clear previously registered metrics callbacks.

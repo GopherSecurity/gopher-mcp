@@ -43,9 +43,12 @@
  *     "filter_chains": [{
  *       "name": "default",
  *       "filters": [
- *         {"name": "rate", "type": "rate_limiter", "config": {"requests_per_second": 100}},
- *         {"name": "breaker", "type": "circuit_breaker", "config": {"failure_threshold": 5}},
- *         {"name": "metrics", "type": "metrics", "config": {"export_port": 9090}}
+ *         {"name": "rate", "type": "rate_limiter", "config":
+ * {"requests_per_second": 100}},
+ *         {"name": "breaker", "type": "circuit_breaker", "config":
+ * {"failure_threshold": 5}},
+ *         {"name": "metrics", "type": "metrics", "config": {"export_port":
+ * 9090}}
  *       ]
  *     }]
  *   }]
@@ -69,8 +72,8 @@
 #ifndef MCP_C_FILTER_ONLY_API_H
 #define MCP_C_FILTER_ONLY_API_H
 
-#include "mcp_c_filter_chain.h"
 #include "mcp_c_filter_api.h"
+#include "mcp_c_filter_chain.h"
 #include "mcp_c_types.h"
 
 #ifdef __cplusplus
@@ -218,11 +221,11 @@ static inline void mcp_filter_only_validation_result_free(
  * mcp_filter_only_assembly_result_t result;
  * mcp_json_value_t config = load_config();
  *
- * if (mcp_filter_only_assemble_from_json(dispatcher, config, &result) == MCP_OK) {
- *     if (result.success) {
- *         printf("Created chain with %zu filters:\n", result.created_filter_count);
- *         for (size_t i = 0; i < result.created_filter_count; i++) {
- *             printf("  - %s\n", result.created_filters[i]);
+ * if (mcp_filter_only_assemble_from_json(dispatcher, config, &result) ==
+ * MCP_OK) { if (result.success) { printf("Created chain with %zu filters:\n",
+ * result.created_filter_count); for (size_t i = 0; i <
+ * result.created_filter_count; i++) { printf("  - %s\n",
+ * result.created_filters[i]);
  *         }
  *
  *         // Use the chain
@@ -283,7 +286,8 @@ static inline mcp_result_t mcp_filter_only_assemble_from_config(
  * Example:
  * ```c
  * mcp_json_value_t config = load_config();
- * mcp_filter_only_chain_t chain = mcp_filter_only_chain_create_from_json(dispatcher, config);
+ * mcp_filter_only_chain_t chain =
+ * mcp_filter_only_chain_create_from_json(dispatcher, config);
  *
  * if (chain) {
  *     // Use chain
@@ -296,8 +300,7 @@ static inline mcp_result_t mcp_filter_only_assemble_from_config(
  * ```
  */
 static inline mcp_filter_only_chain_t mcp_filter_only_chain_create_from_json(
-    mcp_dispatcher_t dispatcher,
-    mcp_json_value_t json_config) MCP_NOEXCEPT {
+    mcp_dispatcher_t dispatcher, mcp_json_value_t json_config) MCP_NOEXCEPT {
   return mcp_chain_create_from_json(dispatcher, json_config);
 }
 
@@ -305,7 +308,8 @@ static inline mcp_filter_only_chain_t mcp_filter_only_chain_create_from_json(
  * Free assembly result structure
  *
  * Releases all memory associated with an assembly result. The chain handle
- * ownership is NOT transferred - caller must still release the chain separately.
+ * ownership is NOT transferred - caller must still release the chain
+ * separately.
  *
  * @param result  Assembly result to free (can be NULL)
  *
@@ -322,7 +326,8 @@ static inline void mcp_filter_only_assembly_result_free(
  * ============================================================================
  *
  * Manage filter chain lifetime. Chains use reference counting internally,
- * so release decrements the reference count and destroys when count reaches zero.
+ * so release decrements the reference count and destroys when count reaches
+ * zero.
  */
 
 /**
@@ -335,8 +340,8 @@ static inline void mcp_filter_only_assembly_result_free(
  *
  * @note Safe to call with 0 handle (no-op)
  */
-static inline void mcp_filter_only_chain_retain(
-    mcp_filter_only_chain_t chain) MCP_NOEXCEPT {
+static inline void mcp_filter_only_chain_retain(mcp_filter_only_chain_t chain)
+    MCP_NOEXCEPT {
   mcp_filter_chain_retain(chain);
 }
 
@@ -351,16 +356,16 @@ static inline void mcp_filter_only_chain_retain(
  * @note Safe to call with 0 handle (no-op)
  * @note After the last release, the handle is invalid
  */
-static inline void mcp_filter_only_chain_release(
-    mcp_filter_only_chain_t chain) MCP_NOEXCEPT {
+static inline void mcp_filter_only_chain_release(mcp_filter_only_chain_t chain)
+    MCP_NOEXCEPT {
   mcp_filter_chain_release(chain);
 }
 
 /**
  * Clone filter chain
  *
- * Creates a deep copy of a filter chain, including all filters and configuration.
- * Useful for creating per-connection chains from a template.
+ * Creates a deep copy of a filter chain, including all filters and
+ * configuration. Useful for creating per-connection chains from a template.
  *
  * @param chain  Filter chain handle to clone
  *
@@ -376,8 +381,8 @@ static inline void mcp_filter_only_chain_release(
  *
  * // Clone for each connection
  * for (int i = 0; i < num_connections; i++) {
- *     mcp_filter_only_chain_t conn_chain = mcp_filter_only_chain_clone(template_chain);
- *     if (conn_chain) {
+ *     mcp_filter_only_chain_t conn_chain =
+ * mcp_filter_only_chain_clone(template_chain); if (conn_chain) {
  *         // Use connection-specific chain
  *         attach_to_connection(conn_chain);
  *     }
@@ -455,7 +460,8 @@ static inline mcp_result_t mcp_filter_only_set_filter_enabled(
  * @return JSON configuration value on success, NULL on error
  *
  * @note Caller must free returned JSON with mcp_json_free()
- * @note Exported JSON uses canonical format (listeners → filter_chains → filters)
+ * @note Exported JSON uses canonical format (listeners → filter_chains →
+ * filters)
  *
  * Example:
  * ```c
@@ -532,7 +538,8 @@ static inline mcp_result_t mcp_filter_only_get_stats(
 /**
  * Pause chain execution
  *
- * Pauses all message processing in the chain. Messages are queued until resumed.
+ * Pauses all message processing in the chain. Messages are queued until
+ * resumed.
  *
  * @param chain  Filter chain handle
  * @return MCP_OK on success

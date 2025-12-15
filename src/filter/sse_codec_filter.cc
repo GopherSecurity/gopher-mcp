@@ -20,13 +20,16 @@ namespace filter {
 
 // SseFilterChainBridge implementation
 
-SseCodecFilter::SseFilterChainBridge::SseFilterChainBridge(SseCodecFilter& parent_filter)
+SseCodecFilter::SseFilterChainBridge::SseFilterChainBridge(
+    SseCodecFilter& parent_filter)
     : parent_filter_(parent_filter) {
   std::cerr << "[DEBUG] SseFilterChainBridge created" << std::endl;
 }
 
 void SseCodecFilter::SseFilterChainBridge::onEvent(
-    const std::string& event, const std::string& data, const optional<std::string>& id) {
+    const std::string& event,
+    const std::string& data,
+    const optional<std::string>& id) {
   std::cerr << "[DEBUG] SseFilterChainBridge::onEvent - event='" << event
             << "', data length=" << data.length();
   if (id.has_value()) {
@@ -39,8 +42,10 @@ void SseCodecFilter::SseFilterChainBridge::onEvent(
   }
 }
 
-void SseCodecFilter::SseFilterChainBridge::onComment(const std::string& comment) {
-  std::cerr << "[DEBUG] SseFilterChainBridge::onComment - '" << comment << "'" << std::endl;
+void SseCodecFilter::SseFilterChainBridge::onComment(
+    const std::string& comment) {
+  std::cerr << "[DEBUG] SseFilterChainBridge::onComment - '" << comment << "'"
+            << std::endl;
   // SSE comments are typically used for keep-alive, no JSON-RPC data to forward
 }
 
@@ -60,12 +65,13 @@ void SseCodecFilter::SseFilterChainBridge::forwardJsonRpcToNextFilter(
     forwarded.push_back('\n');
   }
 
-  std::cerr << "[SUCCESS] SseFilterChainBridge forwarding " << forwarded.length()
-            << " bytes of JSON-RPC data" << std::endl;
+  std::cerr << "[SUCCESS] SseFilterChainBridge forwarding "
+            << forwarded.length() << " bytes of JSON-RPC data" << std::endl;
 
   OwnedBuffer buffer;
   buffer.add(forwarded);
-  parent_filter_.read_callbacks_->injectReadDataToFilterChain(buffer, end_stream);
+  parent_filter_.read_callbacks_->injectReadDataToFilterChain(buffer,
+                                                              end_stream);
 }
 
 // Constructor
@@ -112,8 +118,8 @@ SseCodecFilter::SseCodecFilter(const filter::FilterCreationContext& context,
     : event_callbacks_(nullptr),
       dispatcher_(context.dispatcher),
       is_server_(context.isServer()) {
-
-  // Create filter bridge to connect SSE event callbacks to filter chain data flow
+  // Create filter bridge to connect SSE event callbacks to filter chain data
+  // flow
   filter_bridge_ = std::make_unique<SseFilterChainBridge>(*this);
   event_callbacks_ = filter_bridge_.get();
 
@@ -129,8 +135,10 @@ SseCodecFilter::SseCodecFilter(const filter::FilterCreationContext& context,
   // Initialize SSE codec state machine with same defaults for now
   // TODO: Extract timeout values from config parameter
   SseCodecStateMachineConfig sm_config;
-  sm_config.keep_alive_interval = std::chrono::milliseconds(30000);  // 30s keep-alive
-  sm_config.event_timeout = std::chrono::milliseconds(5000);         // 5s event timeout
+  sm_config.keep_alive_interval =
+      std::chrono::milliseconds(30000);  // 30s keep-alive
+  sm_config.event_timeout =
+      std::chrono::milliseconds(5000);  // 5s event timeout
   sm_config.enable_keep_alive = true;
   sm_config.state_change_callback =
       [this](const SseCodecStateTransitionContext& ctx) {
@@ -145,7 +153,8 @@ SseCodecFilter::SseCodecFilter(const filter::FilterCreationContext& context,
     sm_config.keep_alive_callback = [this]() { sendKeepAliveComment(); };
   }
 
-  state_machine_ = std::make_unique<SseCodecStateMachine>(dispatcher_, sm_config);
+  state_machine_ =
+      std::make_unique<SseCodecStateMachine>(dispatcher_, sm_config);
 }
 
 SseCodecFilter::~SseCodecFilter() = default;
@@ -191,8 +200,8 @@ network::FilterStatus SseCodecFilter::onWrite(Buffer& data, bool end_stream) {
     std::string sse_event = "event: message\n";
     sse_event += "data: " + json_data + "\n\n";
 
-    std::cerr << "[TRACE] SseCodecFilter formatting SSE response: "
-              << sse_event << std::endl;
+    std::cerr << "[TRACE] SseCodecFilter formatting SSE response: " << sse_event
+              << std::endl;
 
     // Add formatted SSE event back to buffer
     data.add(sse_event.c_str(), sse_event.length());
@@ -262,7 +271,6 @@ void SseCodecFilter::ParserCallbacks::onSseEvent(const http::SseEvent& event) {
   if (parent_.event_callbacks_) {
     parent_.event_callbacks_->onEvent(event_type, event.data, event.id);
   }
-
 }
 
 void SseCodecFilter::ParserCallbacks::onSseComment(const std::string& comment) {

@@ -5,12 +5,12 @@
 
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
-#include <limits>
 
 #include "mcp/json/json_bridge.h"
 
@@ -32,9 +32,11 @@ struct ValidationResult {
   std::set<std::string> unknown_fields;
 
   // Helpers used by validator implementations
-  void addError(const std::string& path, const std::string& message,
+  void addError(const std::string& path,
+                const std::string& message,
                 const std::string& category = "");
-  void addWarning(const std::string& path, const std::string& message,
+  void addWarning(const std::string& path,
+                  const std::string& message,
                   const std::string& category = "");
 
   size_t getErrorCount() const;
@@ -45,8 +47,9 @@ class Validator {
  public:
   enum class ValidationMode { STRICT, WARN, PERMISSIVE };
   virtual ~Validator() = default;
-  virtual ValidationResult validate(const mcp::json::JsonValue& config,
-                                    ValidationMode mode = ValidationMode::WARN) = 0;
+  virtual ValidationResult validate(
+      const mcp::json::JsonValue& config,
+      ValidationMode mode = ValidationMode::WARN) = 0;
   virtual std::string getName() const = 0;
 };
 
@@ -85,10 +88,11 @@ class CompositeValidator : public Validator {
 };
 
 // Factory functions
-std::unique_ptr<Validator> createSchemaValidator(const std::string& name,
-                                                 const mcp::json::JsonValue& schema);
+std::unique_ptr<Validator> createSchemaValidator(
+    const std::string& name, const mcp::json::JsonValue& schema);
 std::unique_ptr<RangeValidator> createRangeValidator(const std::string& name);
-std::unique_ptr<CompositeValidator> createCompositeValidator(const std::string& name);
+std::unique_ptr<CompositeValidator> createCompositeValidator(
+    const std::string& name);
 
 }  // namespace config
 }  // namespace mcp

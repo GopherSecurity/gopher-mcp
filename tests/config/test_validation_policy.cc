@@ -10,15 +10,16 @@
 #include "mcp/config/types_with_validation.h"
 #include "mcp/config/validation_policy.h"
 #include "mcp/json/json_bridge.h"
+
 #include "test_json_helpers.h"
 
 using namespace mcp::config;
 using mcp::json::JsonValue;
-using test::makeJsonObject;
-using test::makeJsonArray;
-using test::str;
-using test::num;
 using test::boolean;
+using test::makeJsonArray;
+using test::makeJsonObject;
+using test::num;
+using test::str;
 
 class ValidationPolicyTest : public ::testing::Test {
  protected:
@@ -94,13 +95,12 @@ TEST_F(ValidationPolicyTest, ReportUnknownFieldPermissive) {
 
 // NodeConfig validation tests
 TEST_F(ValidationPolicyTest, NodeConfigValidFields) {
-  JsonValue j = makeJsonObject({
-    {"id", str("test-node")},
-    {"cluster", str("production")},
-    {"region", str("us-west")},
-    {"zone", str("us-west-2a")},
-    {"metadata", makeJsonObject({{"key", str("value")}})}
-  });
+  JsonValue j =
+      makeJsonObject({{"id", str("test-node")},
+                      {"cluster", str("production")},
+                      {"region", str("us-west")},
+                      {"zone", str("us-west-2a")},
+                      {"metadata", makeJsonObject({{"key", str("value")}})}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_NO_THROW(NodeConfigWithValidation::fromJson(j, ctx));
@@ -108,22 +108,18 @@ TEST_F(ValidationPolicyTest, NodeConfigValidFields) {
 }
 
 TEST_F(ValidationPolicyTest, NodeConfigUnknownFieldStrict) {
-  JsonValue j = makeJsonObject({
-    {"id", str("test-node")},
-    {"cluster", str("production")},
-    {"unknown_field", str("value")}
-  });
+  JsonValue j = makeJsonObject({{"id", str("test-node")},
+                                {"cluster", str("production")},
+                                {"unknown_field", str("value")}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_THROW(NodeConfigWithValidation::fromJson(j, ctx), std::runtime_error);
 }
 
 TEST_F(ValidationPolicyTest, NodeConfigUnknownFieldWarn) {
-  JsonValue j = makeJsonObject({
-    {"id", str("test-node")},
-    {"cluster", str("production")},
-    {"extra_field", str("value")}
-  });
+  JsonValue j = makeJsonObject({{"id", str("test-node")},
+                                {"cluster", str("production")},
+                                {"extra_field", str("value")}});
 
   ValidationContext ctx(UnknownFieldPolicy::WARN);
   std::stringstream ss;
@@ -141,12 +137,10 @@ TEST_F(ValidationPolicyTest, NodeConfigUnknownFieldWarn) {
 }
 
 TEST_F(ValidationPolicyTest, NodeConfigUnknownFieldPermissive) {
-  JsonValue j = makeJsonObject({
-    {"id", str("test-node")},
-    {"cluster", str("production")},
-    {"random_field", str("ignored")},
-    {"another_unknown", num(123)}
-  });
+  JsonValue j = makeJsonObject({{"id", str("test-node")},
+                                {"cluster", str("production")},
+                                {"random_field", str("ignored")},
+                                {"another_unknown", num(123)}});
 
   ValidationContext ctx(UnknownFieldPolicy::PERMISSIVE);
 
@@ -163,15 +157,14 @@ TEST_F(ValidationPolicyTest, NodeConfigUnknownFieldPermissive) {
 
 // AdminConfig validation tests
 TEST_F(ValidationPolicyTest, AdminConfigValidFields) {
-  JsonValue j = makeJsonObject({
-    {"address", str("0.0.0.0")},
-    {"port", num(9901)},
-    {"allowed_ips", makeJsonArray({str("192.168.1.0/24")})},
-    {"enabled", boolean(true)},
-    {"path_prefix", str("/admin")},
-    {"enable_cors", boolean(true)},
-    {"cors_origins", makeJsonArray({str("*")})}
-  });
+  JsonValue j =
+      makeJsonObject({{"address", str("0.0.0.0")},
+                      {"port", num(9901)},
+                      {"allowed_ips", makeJsonArray({str("192.168.1.0/24")})},
+                      {"enabled", boolean(true)},
+                      {"path_prefix", str("/admin")},
+                      {"enable_cors", boolean(true)},
+                      {"cors_origins", makeJsonArray({str("*")})}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_NO_THROW(AdminConfigWithValidation::fromJson(j, ctx));
@@ -180,10 +173,10 @@ TEST_F(ValidationPolicyTest, AdminConfigValidFields) {
 
 TEST_F(ValidationPolicyTest, AdminConfigUnknownFields) {
   JsonValue j = makeJsonObject({
-    {"address", str("127.0.0.1")},
-    {"port", num(9901)},
-    {"auth_enabled", boolean(true)},        // Unknown field
-    {"ssl_cert", str("/path/to/cert")}  // Unknown field
+      {"address", str("127.0.0.1")},
+      {"port", num(9901)},
+      {"auth_enabled", boolean(true)},    // Unknown field
+      {"ssl_cert", str("/path/to/cert")}  // Unknown field
   });
 
   ValidationContext ctx(UnknownFieldPolicy::WARN);
@@ -197,12 +190,11 @@ TEST_F(ValidationPolicyTest, AdminConfigUnknownFields) {
 
 // FilterConfig validation tests
 TEST_F(ValidationPolicyTest, FilterConfigValidFields) {
-  JsonValue j = makeJsonObject({
-    {"type", str("buffer")},
-    {"name", str("request_buffer")},
-    {"config", makeJsonObject({{"max_size", num(1048576)}})},
-    {"enabled", boolean(true)}
-  });
+  JsonValue j =
+      makeJsonObject({{"type", str("buffer")},
+                      {"name", str("request_buffer")},
+                      {"config", makeJsonObject({{"max_size", num(1048576)}})},
+                      {"enabled", boolean(true)}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_NO_THROW(FilterConfigWithValidation::fromJson(j, ctx));
@@ -211,16 +203,16 @@ TEST_F(ValidationPolicyTest, FilterConfigValidFields) {
 
 TEST_F(ValidationPolicyTest, FilterConfigCustomConfigFields) {
   // Filter-specific config fields should be allowed
-  JsonValue j = makeJsonObject({
-    {"type", str("rate_limit")},
-    {"name", str("api_limiter")},
-    {"config", makeJsonObject({
-      {"requests_per_second", num(100)},
-      {"burst_size", num(200)},
-      {"custom_field", str("allowed")}  // Should be allowed in config
-    })},
-    {"enabled", boolean(true)}
-  });
+  JsonValue j = makeJsonObject(
+      {{"type", str("rate_limit")},
+       {"name", str("api_limiter")},
+       {"config",
+        makeJsonObject({
+            {"requests_per_second", num(100)},
+            {"burst_size", num(200)},
+            {"custom_field", str("allowed")}  // Should be allowed in config
+        })},
+       {"enabled", boolean(true)}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_NO_THROW(FilterConfigWithValidation::fromJson(j, ctx));
@@ -229,9 +221,9 @@ TEST_F(ValidationPolicyTest, FilterConfigCustomConfigFields) {
 
 TEST_F(ValidationPolicyTest, FilterConfigUnknownTopLevel) {
   JsonValue j = makeJsonObject({
-    {"type", str("buffer")},
-    {"name", str("test")},
-    {"priority", num(10)}  // Unknown top-level field
+      {"type", str("buffer")},
+      {"name", str("test")},
+      {"priority", num(10)}  // Unknown top-level field
   });
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
@@ -241,23 +233,18 @@ TEST_F(ValidationPolicyTest, FilterConfigUnknownTopLevel) {
 
 // ServerConfig validation tests
 TEST_F(ValidationPolicyTest, ServerConfigComplexValidation) {
-  JsonValue j = makeJsonObject({
-    {"name", str("test-server")},
-    {"version", str("1.0.0")},
-    {"max_sessions", num(100)},
-    {"capabilities", makeJsonObject({
-      {"features", makeJsonArray({str("tools")})},
-      {"max_request_size", str("10MB")}
-    })},
-    {"transports", makeJsonArray({makeJsonObject({
-      {"type", str("tcp")},
-      {"port", num(3333)}
-    })})},
-    {"filter_chains", makeJsonArray({makeJsonObject({
-      {"name", str("default")},
-      {"filters", makeJsonArray({})}
-    })})}
-  });
+  JsonValue j = makeJsonObject(
+      {{"name", str("test-server")},
+       {"version", str("1.0.0")},
+       {"max_sessions", num(100)},
+       {"capabilities",
+        makeJsonObject({{"features", makeJsonArray({str("tools")})},
+                        {"max_request_size", str("10MB")}})},
+       {"transports", makeJsonArray({makeJsonObject(
+                          {{"type", str("tcp")}, {"port", num(3333)}})})},
+       {"filter_chains",
+        makeJsonArray({makeJsonObject(
+            {{"name", str("default")}, {"filters", makeJsonArray({})}})})}});
 
   ValidationContext ctx(UnknownFieldPolicy::STRICT);
   EXPECT_NO_THROW(ServerConfigWithValidation::fromJson(j, ctx));
@@ -265,20 +252,21 @@ TEST_F(ValidationPolicyTest, ServerConfigComplexValidation) {
 }
 
 TEST_F(ValidationPolicyTest, ServerConfigNestedUnknownFields) {
-  JsonValue j = makeJsonObject({
-    {"name", str("test-server")},
-    {"version", str("1.0.0")},
-    {"custom_field", str("unknown")},  // Unknown at server level
-    {"capabilities", makeJsonObject({
-      {"features", makeJsonArray({str("tools")})},
-      {"unknown_cap", boolean(true)}  // Unknown in capabilities
-    })},
-    {"transports", makeJsonArray({makeJsonObject({
-      {"type", str("tcp")},
-      {"port", num(3333)},
-      {"unknown_transport", str("field")}  // Unknown in transport
-    })})}
-  });
+  JsonValue j = makeJsonObject(
+      {{"name", str("test-server")},
+       {"version", str("1.0.0")},
+       {"custom_field", str("unknown")},  // Unknown at server level
+       {"capabilities",
+        makeJsonObject({
+            {"features", makeJsonArray({str("tools")})},
+            {"unknown_cap", boolean(true)}  // Unknown in capabilities
+        })},
+       {"transports",
+        makeJsonArray({makeJsonObject({
+            {"type", str("tcp")},
+            {"port", num(3333)},
+            {"unknown_transport", str("field")}  // Unknown in transport
+        })})}});
 
   ValidationContext ctx(UnknownFieldPolicy::WARN);
   auto config = ServerConfigWithValidation::fromJson(j, ctx);
@@ -310,11 +298,9 @@ TEST_F(ValidationPolicyTest, ServerConfigNestedUnknownFields) {
 
 // Integration tests
 TEST_F(ValidationPolicyTest, LoadConfigWithValidation) {
-  JsonValue j = makeJsonObject({
-    {"name", str("test")},
-    {"version", str("1.0.0")},
-    {"unknown_field", str("test")}
-  });
+  JsonValue j = makeJsonObject({{"name", str("test")},
+                                {"version", str("1.0.0")},
+                                {"unknown_field", str("test")}});
 
   // Test with different policies
   EXPECT_THROW(loadConfigWithValidation<ServerConfigWithValidation>(
@@ -331,11 +317,9 @@ TEST_F(ValidationPolicyTest, LoadConfigWithValidation) {
 TEST_F(ValidationPolicyTest, GlobalPolicyChange) {
   setGlobalUnknownFieldPolicy(UnknownFieldPolicy::STRICT);
 
-  JsonValue j = makeJsonObject({
-    {"id", str("test")},
-    {"cluster", str("default")},
-    {"unknown", str("field")}
-  });
+  JsonValue j = makeJsonObject({{"id", str("test")},
+                                {"cluster", str("default")},
+                                {"unknown", str("field")}});
 
   // Should use global strict policy
   EXPECT_THROW(NodeConfigWithValidation::fromJson(j), std::runtime_error);
@@ -350,13 +334,11 @@ TEST_F(ValidationPolicyTest, GlobalPolicyChange) {
 TEST_F(ValidationPolicyTest, TrackMultipleUnknownFields) {
   ValidationContext ctx(UnknownFieldPolicy::PERMISSIVE);
 
-  JsonValue j = makeJsonObject({
-    {"id", str("test")},
-    {"cluster", str("default")},
-    {"field1", str("unknown")},
-    {"field2", str("unknown")},
-    {"field3", str("unknown")}
-  });
+  JsonValue j = makeJsonObject({{"id", str("test")},
+                                {"cluster", str("default")},
+                                {"field1", str("unknown")},
+                                {"field2", str("unknown")},
+                                {"field3", str("unknown")}});
 
   NodeConfigWithValidation::fromJson(j, ctx);
 

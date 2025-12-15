@@ -127,9 +127,7 @@ class FilterEventEmitter {
   /**
    * @brief Get the filter instance ID
    */
-  const std::string& getFilterInstanceId() const {
-    return filter_instance_id_;
-  }
+  const std::string& getFilterInstanceId() const { return filter_instance_id_; }
 
   /**
    * @brief Get the chain ID

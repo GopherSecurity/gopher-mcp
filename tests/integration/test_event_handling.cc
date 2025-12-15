@@ -13,8 +13,8 @@
 
 #include <chrono>
 #include <cstring>
-#include <thread>
 #include <fcntl.h>
+#include <thread>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -41,11 +41,10 @@ class EventHandlingTest : public RealIoTestBase {
   }
 
   template <typename Predicate>
-  bool waitForCondition(Predicate&& predicate,
-                        std::chrono::milliseconds timeout =
-                            std::chrono::milliseconds(200),
-                        std::chrono::milliseconds poll_interval =
-                            std::chrono::milliseconds(5)) {
+  bool waitForCondition(
+      Predicate&& predicate,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds(200),
+      std::chrono::milliseconds poll_interval = std::chrono::milliseconds(5)) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline) {
       if (predicate()) {
@@ -309,9 +308,9 @@ TEST_F(EventHandlingTest, WriteEventManagement) {
 
   writeData("large data chunk that needs multiple writes");
 
-  ASSERT_TRUE(waitForCondition(
-      [&]() { return getWriteEvents() > write_events_before; },
-      std::chrono::milliseconds(500)));
+  ASSERT_TRUE(
+      waitForCondition([&]() { return getWriteEvents() > write_events_before; },
+                       std::chrono::milliseconds(500)));
 
   const auto write_events_during = getWriteEvents();
 
@@ -408,7 +407,7 @@ TEST_F(EventHandlingTest, BidirectionalCommunication) {
               dispatcher_->exit();
             });
         timer->enableTimer(std::chrono::milliseconds(100));
-  });
+      });
 
   // Both sides should receive the messages
   ASSERT_TRUE(waitForCondition(
@@ -421,4 +420,3 @@ TEST_F(EventHandlingTest, BidirectionalCommunication) {
 
 }  // namespace test
 }  // namespace mcp
-

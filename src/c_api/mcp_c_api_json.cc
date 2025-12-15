@@ -9,19 +9,20 @@
  */
 
 #include "mcp/c_api/mcp_c_api_json.h"
-#include "mcp/c_api/mcp_c_api.h"
 
 #include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "mcp/c_api/mcp_c_api.h"
 #include "mcp/c_api/mcp_c_collections.h"
 #include "mcp/c_api/mcp_c_memory.h"
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/c_api/mcp_c_types.h"
 #include "mcp/c_api/mcp_c_types_api.h"
 #include "mcp/json/json_bridge.h"
+
 #include "json_value_converter.h"
 
 namespace {
@@ -51,23 +52,30 @@ extern "C" {
 // ============================================================================
 
 MCP_API mcp_json_value_t mcp_json_parse(const char* json_string) MCP_NOEXCEPT {
-  fprintf(stderr, "[mcp_json_parse] ENTRY with string: %s\n", json_string ? json_string : "(null)"); fflush(stderr);
+  fprintf(stderr, "[mcp_json_parse] ENTRY with string: %s\n",
+          json_string ? json_string : "(null)");
+  fflush(stderr);
   if (!json_string)
     return nullptr;
 
   try {
-    fprintf(stderr, "[mcp_json_parse] About to call JsonValue::parse\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_json_parse] About to call JsonValue::parse\n");
+    fflush(stderr);
     // Use JsonValue's parse method
     auto json_value = mcp::json::JsonValue::parse(json_string);
-    fprintf(stderr, "[mcp_json_parse] JsonValue::parse completed\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_json_parse] JsonValue::parse completed\n");
+    fflush(stderr);
 
-    fprintf(stderr, "[mcp_json_parse] About to call convertToCApi\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_json_parse] About to call convertToCApi\n");
+    fflush(stderr);
     // Convert JsonValue to mcp_json_value_t using the converter
     auto result = mcp::c_api::internal::convertToCApi(json_value);
-    fprintf(stderr, "[mcp_json_parse] EXIT - returning %p\n", result); fflush(stderr);
+    fprintf(stderr, "[mcp_json_parse] EXIT - returning %p\n", result);
+    fflush(stderr);
     return result;
   } catch (...) {
-    fprintf(stderr, "[mcp_json_parse] EXCEPTION CAUGHT\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_json_parse] EXCEPTION CAUGHT\n");
+    fflush(stderr);
     // Parse error - return null
     return nullptr;
   }
@@ -76,10 +84,14 @@ MCP_API mcp_json_value_t mcp_json_parse(const char* json_string) MCP_NOEXCEPT {
 MCP_API char* mcp_json_stringify(mcp_json_value_t json) MCP_NOEXCEPT {
   static thread_local int recursion_depth = 0;
   recursion_depth++;
-  fprintf(stderr, "[mcp_json_stringify] ENTRY #%d with json=%p\n", recursion_depth, json); fflush(stderr);
+  fprintf(stderr, "[mcp_json_stringify] ENTRY #%d with json=%p\n",
+          recursion_depth, json);
+  fflush(stderr);
 
   if (recursion_depth > 5) {
-    fprintf(stderr, "[mcp_json_stringify] RECURSION LIMIT EXCEEDED! Depth=%d\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] RECURSION LIMIT EXCEEDED! Depth=%d\n",
+            recursion_depth);
+    fflush(stderr);
     recursion_depth--;
     return nullptr;
   }
@@ -90,24 +102,39 @@ MCP_API char* mcp_json_stringify(mcp_json_value_t json) MCP_NOEXCEPT {
   }
 
   try {
-    fprintf(stderr, "[mcp_json_stringify] #%d About to call convertFromCApi\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d About to call convertFromCApi\n",
+            recursion_depth);
+    fflush(stderr);
     // Convert mcp_json_value_t to JsonValue using the converter
     auto json_value = mcp::c_api::internal::convertFromCApi(json);
-    fprintf(stderr, "[mcp_json_stringify] #%d convertFromCApi completed\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d convertFromCApi completed\n",
+            recursion_depth);
+    fflush(stderr);
 
-    fprintf(stderr, "[mcp_json_stringify] #%d About to call toString\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d About to call toString\n",
+            recursion_depth);
+    fflush(stderr);
     // Use JsonValue's toString method
     std::string str = json_value.toString(false);  // false = not pretty
-    fprintf(stderr, "[mcp_json_stringify] #%d toString completed, str.length=%zu\n", recursion_depth, str.length()); fflush(stderr);
+    fprintf(stderr,
+            "[mcp_json_stringify] #%d toString completed, str.length=%zu\n",
+            recursion_depth, str.length());
+    fflush(stderr);
 
-    fprintf(stderr, "[mcp_json_stringify] #%d About to call alloc_string\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d About to call alloc_string\n",
+            recursion_depth);
+    fflush(stderr);
     // Allocate and return C string
     auto result = alloc_string(str);
-    fprintf(stderr, "[mcp_json_stringify] #%d EXIT - returning %p\n", recursion_depth, result); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d EXIT - returning %p\n",
+            recursion_depth, result);
+    fflush(stderr);
     recursion_depth--;
     return result;
   } catch (...) {
-    fprintf(stderr, "[mcp_json_stringify] #%d EXCEPTION CAUGHT\n", recursion_depth); fflush(stderr);
+    fprintf(stderr, "[mcp_json_stringify] #%d EXCEPTION CAUGHT\n",
+            recursion_depth);
+    fflush(stderr);
     recursion_depth--;
     // Stringify error - return null
     return nullptr;
@@ -118,25 +145,27 @@ MCP_API char* mcp_json_stringify(mcp_json_value_t json) MCP_NOEXCEPT {
 
 // Compatibility wrapper implementations for mcp_c_api.h
 
-MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCEPT {
+MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json)
+    MCP_NOEXCEPT {
   if (!json.data || json.length == 0) {
     return nullptr;
   }
-  
+
   // Ensure null-terminated string for canonical parse
   char* temp = static_cast<char*>(mcp_malloc(json.length + 1));
-  if (!temp) return nullptr;
-  
+  if (!temp)
+    return nullptr;
+
   std::memcpy(temp, json.data, json.length);
   temp[json.length] = '\0';
-  
+
   mcp_json_value_t result = mcp_json_parse(temp);
   mcp_string_free(temp);
   return result;
 }
 
-MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
-                                                       mcp_bool_t pretty) MCP_NOEXCEPT {
+MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(
+    mcp_json_value_t value, mcp_bool_t pretty) MCP_NOEXCEPT {
   // Use canonical stringify to get a C string, then wrap into a string buffer
   (void)pretty;  // pretty-print not yet implemented
   char* cstr = mcp_json_stringify(value);

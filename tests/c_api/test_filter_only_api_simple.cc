@@ -5,12 +5,13 @@
  * Tests basic API functionality without complex dispatcher threading.
  */
 
-#include "mcp/c_api/mcp_c_filter_only_api.h"
-#include "mcp/c_api/mcp_c_api_json.h"
-#include "mcp/c_api/mcp_c_api.h"
+#include <string>
 
 #include <gtest/gtest.h>
-#include <string>
+
+#include "mcp/c_api/mcp_c_api.h"
+#include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_filter_only_api.h"
 
 // Simple test that doesn't require dispatcher
 TEST(FilterOnlyAPISimple, CreateJSONConfig) {
@@ -84,7 +85,7 @@ TEST(FilterOnlyAPISimple, HandleOperations) {
   // Test assembly result free with null
   mcp_filter_only_assembly_result_free(nullptr);
 
-  SUCCEED(); // These operations should not crash
+  SUCCEED();  // These operations should not crash
 }
 
 // Test JSON array operations

@@ -30,7 +30,8 @@ class QosFactoriesTest : public ::testing::Test {
     // Ensure filter registry is initialized
     FilterRegistry::instance();
 
-    // Explicitly register all core filters (don't rely on static initialization)
+    // Explicitly register all core filters (don't rely on static
+    // initialization)
     registerAllCoreFilters();
 
     // Set up test logging
@@ -56,11 +57,11 @@ class QosFactoriesTest : public ::testing::Test {
 TEST_F(QosFactoriesTest, RateLimitFactoryRegistration) {
   // Verify factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("rate_limit"));
-  
+
   // Get factory and verify metadata
   auto factory = FilterRegistry::instance().getFactory("rate_limit");
   ASSERT_NE(factory, nullptr);
-  
+
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ(metadata.name, "rate_limit");
   EXPECT_EQ(metadata.version, "1.0.0");
@@ -70,7 +71,7 @@ TEST_F(QosFactoriesTest, RateLimitFactoryRegistration) {
 TEST_F(QosFactoriesTest, RateLimitDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("rate_limit");
   ASSERT_NE(factory, nullptr);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ(defaults["strategy"].getString(), "token_bucket");
@@ -87,7 +88,7 @@ TEST_F(QosFactoriesTest, RateLimitDefaultConfig) {
 TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("rate_limit");
   ASSERT_NE(factory, nullptr);
-  
+
   // Test token bucket configuration
   {
     auto config = parseConfig(R"({
@@ -97,12 +98,12 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
       "allow_burst": true,
       "burst_size": 100
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     // Note: createFilter returns nullptr due to runtime dependencies
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Test sliding window configuration
   {
     auto config = parseConfig(R"({
@@ -110,11 +111,11 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
       "window_size_seconds": 30,
       "max_requests_per_window": 200
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Test fixed window configuration
   {
     auto config = parseConfig(R"({
@@ -122,11 +123,11 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
       "window_size_seconds": 120,
       "max_requests_per_window": 1000
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Test leaky bucket configuration
   {
     auto config = parseConfig(R"({
@@ -134,11 +135,11 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
       "bucket_capacity": 200,
       "leak_rate": 20
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Test per-client limiting
   {
     auto config = parseConfig(R"({
@@ -149,7 +150,7 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
         "premium_client": 500
       }
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -158,35 +159,35 @@ TEST_F(QosFactoriesTest, RateLimitValidConfiguration) {
 TEST_F(QosFactoriesTest, RateLimitInvalidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("rate_limit");
   ASSERT_NE(factory, nullptr);
-  
+
   // Invalid strategy
   {
     auto config = parseConfig(R"({
       "strategy": "invalid_strategy"
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
     EXPECT_THROW(factory->createFilter(config), std::runtime_error);
   }
-  
+
   // Out of range bucket_capacity
   {
     auto config = parseConfig(R"({
       "bucket_capacity": 1000000
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Negative refill_rate
   {
     auto config = parseConfig(R"({
       "refill_rate": -5
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Invalid client limits
   {
     auto config = parseConfig(R"({
@@ -194,10 +195,10 @@ TEST_F(QosFactoriesTest, RateLimitInvalidConfiguration) {
         "client1": -10
       }
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Non-object configuration
   {
     auto config = json::JsonValue("not an object");
@@ -208,7 +209,7 @@ TEST_F(QosFactoriesTest, RateLimitInvalidConfiguration) {
 TEST_F(QosFactoriesTest, RateLimitEdgeCases) {
   auto factory = FilterRegistry::instance().getFactory("rate_limit");
   ASSERT_NE(factory, nullptr);
-  
+
   // Minimum values
   {
     auto config = parseConfig(R"({
@@ -219,11 +220,11 @@ TEST_F(QosFactoriesTest, RateLimitEdgeCases) {
       "leak_rate": 1,
       "burst_size": 0
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Maximum values
   {
     auto config = parseConfig(R"({
@@ -234,7 +235,7 @@ TEST_F(QosFactoriesTest, RateLimitEdgeCases) {
       "leak_rate": 10000,
       "burst_size": 1000
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -247,11 +248,11 @@ TEST_F(QosFactoriesTest, RateLimitEdgeCases) {
 TEST_F(QosFactoriesTest, CircuitBreakerFactoryRegistration) {
   // Verify factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("circuit_breaker"));
-  
+
   // Get factory and verify metadata
   auto factory = FilterRegistry::instance().getFactory("circuit_breaker");
   ASSERT_NE(factory, nullptr);
-  
+
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ(metadata.name, "circuit_breaker");
   EXPECT_EQ(metadata.version, "1.0.0");
@@ -261,7 +262,7 @@ TEST_F(QosFactoriesTest, CircuitBreakerFactoryRegistration) {
 TEST_F(QosFactoriesTest, CircuitBreakerDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("circuit_breaker");
   ASSERT_NE(factory, nullptr);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ(defaults["failure_threshold"].getInt(), 5);
@@ -279,7 +280,7 @@ TEST_F(QosFactoriesTest, CircuitBreakerDefaultConfig) {
 TEST_F(QosFactoriesTest, CircuitBreakerValidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("circuit_breaker");
   ASSERT_NE(factory, nullptr);
-  
+
   // Basic configuration
   {
     auto config = parseConfig(R"({
@@ -288,11 +289,11 @@ TEST_F(QosFactoriesTest, CircuitBreakerValidConfiguration) {
       "min_requests": 20,
       "timeout_ms": 15000
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Half-open state configuration
   {
     auto config = parseConfig(R"({
@@ -300,11 +301,11 @@ TEST_F(QosFactoriesTest, CircuitBreakerValidConfiguration) {
       "half_open_success_threshold": 3,
       "window_size_ms": 120000
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Tracking configuration
   {
     auto config = parseConfig(R"({
@@ -312,7 +313,7 @@ TEST_F(QosFactoriesTest, CircuitBreakerValidConfiguration) {
       "track_errors": true,
       "track_4xx_as_errors": true
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -321,41 +322,41 @@ TEST_F(QosFactoriesTest, CircuitBreakerValidConfiguration) {
 TEST_F(QosFactoriesTest, CircuitBreakerInvalidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("circuit_breaker");
   ASSERT_NE(factory, nullptr);
-  
+
   // Out of range error_rate_threshold
   {
     auto config = parseConfig(R"({
       "error_rate_threshold": 1.5
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Invalid timeout_ms
   {
     auto config = parseConfig(R"({
       "timeout_ms": 500
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Inconsistent half-open configuration
   {
     auto config = parseConfig(R"({
       "half_open_max_requests": 2,
       "half_open_success_threshold": 5
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Invalid window_size_ms
   {
     auto config = parseConfig(R"({
       "window_size_ms": 700000
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
 }
@@ -363,7 +364,7 @@ TEST_F(QosFactoriesTest, CircuitBreakerInvalidConfiguration) {
 TEST_F(QosFactoriesTest, CircuitBreakerEdgeCases) {
   auto factory = FilterRegistry::instance().getFactory("circuit_breaker");
   ASSERT_NE(factory, nullptr);
-  
+
   // Minimum values
   {
     auto config = parseConfig(R"({
@@ -375,11 +376,11 @@ TEST_F(QosFactoriesTest, CircuitBreakerEdgeCases) {
       "half_open_max_requests": 1,
       "half_open_success_threshold": 1
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Maximum values
   {
     auto config = parseConfig(R"({
@@ -391,7 +392,7 @@ TEST_F(QosFactoriesTest, CircuitBreakerEdgeCases) {
       "half_open_max_requests": 100,
       "half_open_success_threshold": 100
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -404,11 +405,11 @@ TEST_F(QosFactoriesTest, CircuitBreakerEdgeCases) {
 TEST_F(QosFactoriesTest, MetricsFactoryRegistration) {
   // Verify factory is registered
   EXPECT_TRUE(FilterRegistry::instance().hasFactory("metrics"));
-  
+
   // Get factory and verify metadata
   auto factory = FilterRegistry::instance().getFactory("metrics");
   ASSERT_NE(factory, nullptr);
-  
+
   const auto& metadata = factory->getMetadata();
   EXPECT_EQ(metadata.name, "metrics");
   EXPECT_EQ(metadata.version, "1.0.0");
@@ -418,7 +419,7 @@ TEST_F(QosFactoriesTest, MetricsFactoryRegistration) {
 TEST_F(QosFactoriesTest, MetricsDefaultConfig) {
   auto factory = FilterRegistry::instance().getFactory("metrics");
   ASSERT_NE(factory, nullptr);
-  
+
   auto defaults = factory->getDefaultConfig();
   EXPECT_TRUE(defaults.isObject());
   EXPECT_EQ(defaults["provider"].getString(), "internal");
@@ -436,7 +437,7 @@ TEST_F(QosFactoriesTest, MetricsDefaultConfig) {
 TEST_F(QosFactoriesTest, MetricsValidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("metrics");
   ASSERT_NE(factory, nullptr);
-  
+
   // Internal provider configuration
   {
     auto config = parseConfig(R"({
@@ -446,11 +447,11 @@ TEST_F(QosFactoriesTest, MetricsValidConfiguration) {
       "track_methods": true,
       "enable_histograms": true
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Prometheus provider configuration
   {
     auto config = parseConfig(R"({
@@ -459,11 +460,11 @@ TEST_F(QosFactoriesTest, MetricsValidConfiguration) {
       "prometheus_path": "/api/metrics",
       "max_latency_threshold_ms": 10000
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Custom provider configuration
   {
     auto config = parseConfig(R"({
@@ -472,7 +473,7 @@ TEST_F(QosFactoriesTest, MetricsValidConfiguration) {
       "error_rate_threshold": 50,
       "bytes_threshold": 1073741824
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -481,50 +482,50 @@ TEST_F(QosFactoriesTest, MetricsValidConfiguration) {
 TEST_F(QosFactoriesTest, MetricsInvalidConfiguration) {
   auto factory = FilterRegistry::instance().getFactory("metrics");
   ASSERT_NE(factory, nullptr);
-  
+
   // Invalid provider
   {
     auto config = parseConfig(R"({
       "provider": "invalid_provider"
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Out of range port
   {
     auto config = parseConfig(R"({
       "prometheus_port": 100
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Invalid prometheus_path
   {
     auto config = parseConfig(R"({
       "prometheus_path": "no_leading_slash"
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Empty custom_endpoint
   {
     auto config = parseConfig(R"({
       "provider": "custom",
       "custom_endpoint": ""
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
-  
+
   // Out of range intervals
   {
     auto config = parseConfig(R"({
       "rate_update_interval_seconds": 100
     })");
-    
+
     EXPECT_FALSE(factory->validateConfig(config));
   }
 }
@@ -532,7 +533,7 @@ TEST_F(QosFactoriesTest, MetricsInvalidConfiguration) {
 TEST_F(QosFactoriesTest, MetricsEdgeCases) {
   auto factory = FilterRegistry::instance().getFactory("metrics");
   ASSERT_NE(factory, nullptr);
-  
+
   // Minimum values
   {
     auto config = parseConfig(R"({
@@ -543,11 +544,11 @@ TEST_F(QosFactoriesTest, MetricsEdgeCases) {
       "bytes_threshold": 1024,
       "prometheus_port": 1024
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
-  
+
   // Maximum values
   {
     auto config = parseConfig(R"({
@@ -558,7 +559,7 @@ TEST_F(QosFactoriesTest, MetricsEdgeCases) {
       "bytes_threshold": 10737418240,
       "prometheus_port": 65535
     })");
-    
+
     EXPECT_TRUE(factory->validateConfig(config));
     EXPECT_NO_THROW(factory->createFilter(config));
   }
@@ -573,34 +574,42 @@ TEST_F(QosFactoriesTest, HotReconfigurationSupport) {
   // simulating hot reconfiguration scenarios
 
   auto rate_limit_factory = FilterRegistry::instance().getFactory("rate_limit");
-  auto circuit_breaker_factory = FilterRegistry::instance().getFactory("circuit_breaker");
+  auto circuit_breaker_factory =
+      FilterRegistry::instance().getFactory("circuit_breaker");
   auto metrics_factory = FilterRegistry::instance().getFactory("metrics");
 
   // Ensure factories are registered before testing
   ASSERT_NE(rate_limit_factory, nullptr) << "rate_limit factory not registered";
-  ASSERT_NE(circuit_breaker_factory, nullptr) << "circuit_breaker factory not registered";
+  ASSERT_NE(circuit_breaker_factory, nullptr)
+      << "circuit_breaker factory not registered";
   ASSERT_NE(metrics_factory, nullptr) << "metrics factory not registered";
 
   // Create filters with initial configs
   {
-    auto config1 = parseConfig(R"({"strategy": "token_bucket", "bucket_capacity": 100})");
-    auto config2 = parseConfig(R"({"strategy": "sliding_window", "window_size_seconds": 60})");
+    auto config1 =
+        parseConfig(R"({"strategy": "token_bucket", "bucket_capacity": 100})");
+    auto config2 = parseConfig(
+        R"({"strategy": "sliding_window", "window_size_seconds": 60})");
 
     EXPECT_NO_THROW(rate_limit_factory->createFilter(config1));
     EXPECT_NO_THROW(rate_limit_factory->createFilter(config2));
   }
 
   {
-    auto config1 = parseConfig(R"({"failure_threshold": 5, "timeout_ms": 10000})");
-    auto config2 = parseConfig(R"({"failure_threshold": 10, "timeout_ms": 30000})");
+    auto config1 =
+        parseConfig(R"({"failure_threshold": 5, "timeout_ms": 10000})");
+    auto config2 =
+        parseConfig(R"({"failure_threshold": 10, "timeout_ms": 30000})");
 
     EXPECT_NO_THROW(circuit_breaker_factory->createFilter(config1));
     EXPECT_NO_THROW(circuit_breaker_factory->createFilter(config2));
   }
 
   {
-    auto config1 = parseConfig(R"({"provider": "internal", "track_methods": true})");
-    auto config2 = parseConfig(R"({"provider": "prometheus", "prometheus_port": 9091})");
+    auto config1 =
+        parseConfig(R"({"provider": "internal", "track_methods": true})");
+    auto config2 =
+        parseConfig(R"({"provider": "prometheus", "prometheus_port": 9091})");
 
     EXPECT_NO_THROW(metrics_factory->createFilter(config1));
     EXPECT_NO_THROW(metrics_factory->createFilter(config2));
@@ -614,22 +623,25 @@ TEST_F(QosFactoriesTest, HotReconfigurationSupport) {
 TEST_F(QosFactoriesTest, AllFactoriesRegistered) {
   // Verify all QoS factories are properly registered
   auto& registry = FilterRegistry::instance();
-  
+
   EXPECT_TRUE(registry.hasFactory("rate_limit"));
   EXPECT_TRUE(registry.hasFactory("circuit_breaker"));
   EXPECT_TRUE(registry.hasFactory("metrics"));
-  
+
   // Verify we can list all factories
   auto factories = registry.listFactories();
-  EXPECT_NE(std::find(factories.begin(), factories.end(), "rate_limit"), factories.end());
-  EXPECT_NE(std::find(factories.begin(), factories.end(), "circuit_breaker"), factories.end());
-  EXPECT_NE(std::find(factories.begin(), factories.end(), "metrics"), factories.end());
+  EXPECT_NE(std::find(factories.begin(), factories.end(), "rate_limit"),
+            factories.end());
+  EXPECT_NE(std::find(factories.begin(), factories.end(), "circuit_breaker"),
+            factories.end());
+  EXPECT_NE(std::find(factories.begin(), factories.end(), "metrics"),
+            factories.end());
 }
 
 TEST_F(QosFactoriesTest, ComplexConfiguration) {
   // Test creating all three filters with a complex configuration
   auto& registry = FilterRegistry::instance();
-  
+
   // Complex rate limit config with per-client limits
   {
     auto config = parseConfig(R"({
@@ -645,12 +657,12 @@ TEST_F(QosFactoriesTest, ComplexConfiguration) {
         "enterprise": 1000
       }
     })");
-    
+
     auto filter = registry.createFilter("rate_limit", config);
     // Note: Returns nullptr due to runtime dependencies, but validates config
     EXPECT_EQ(filter, nullptr);
   }
-  
+
   // Complex circuit breaker config
   {
     auto config = parseConfig(R"({
@@ -665,11 +677,11 @@ TEST_F(QosFactoriesTest, ComplexConfiguration) {
       "track_errors": true,
       "track_4xx_as_errors": false
     })");
-    
+
     auto filter = registry.createFilter("circuit_breaker", config);
     EXPECT_EQ(filter, nullptr);
   }
-  
+
   // Complex metrics config with Prometheus
   {
     auto config = parseConfig(R"({
@@ -684,7 +696,7 @@ TEST_F(QosFactoriesTest, ComplexConfiguration) {
       "prometheus_port": 9092,
       "prometheus_path": "/api/v1/metrics"
     })");
-    
+
     auto filter = registry.createFilter("metrics", config);
     EXPECT_EQ(filter, nullptr);
   }

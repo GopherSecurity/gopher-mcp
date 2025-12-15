@@ -12,8 +12,8 @@
 #include <nlohmann/json-schema.hpp>
 #endif
 
-#include "mcp/config/json_conversion.h"
 #include "mcp/config/config_validator.h"
+#include "mcp/config/json_conversion.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
@@ -23,8 +23,8 @@ namespace config {
 
 // Use shared conversion utilities from json_conversion.h
 namespace {
-using mcp::config::toNlohmann;
 using mcp::config::fromNlohmann;
+using mcp::config::toNlohmann;
 
 // Helpers shared by validators
 inline std::string modeToString(Validator::ValidationMode mode) {
@@ -74,14 +74,15 @@ void ValidationResult::addError(const std::string& path,
 void ValidationResult::addWarning(const std::string& path,
                                   const std::string& message,
                                   const std::string& category) {
-  errors.push_back({ValidationError::Severity::WARNING, path, message, category});
+  errors.push_back(
+      {ValidationError::Severity::WARNING, path, message, category});
 }
 
 size_t ValidationResult::getErrorCount() const {
-  return std::count_if(
-      errors.begin(), errors.end(), [](const ValidationError& e) {
-        return e.severity == ValidationError::Severity::ERROR;
-      });
+  return std::count_if(errors.begin(), errors.end(),
+                       [](const ValidationError& e) {
+                         return e.severity == ValidationError::Severity::ERROR;
+                       });
 }
 
 size_t ValidationResult::getWarningCount() const {
@@ -99,7 +100,7 @@ class SchemaValidator : public Validator {
       : name_(name) {
     // Convert schema to nlohmann for validation
     schema_json_ = toNlohmann(schema);
-    
+
     try {
       validator_ = std::make_unique<nlohmann::json_schema::json_validator>();
       validator_->set_root_schema(schema_json_);
@@ -108,32 +109,33 @@ class SchemaValidator : public Validator {
       throw std::runtime_error("Invalid JSON schema: " + std::string(e.what()));
     }
   }
-  
+
   ValidationResult validate(const mcp::json::JsonValue& config,
-                          ValidationMode mode) override {
+                            ValidationMode mode) override {
     ValidationResult result;
-    
-    LOG_DEBUG("Starting schema validation: %s mode=%s",
-              name_.c_str(), modeToString(mode).c_str());
-    
+
+    LOG_DEBUG("Starting schema validation: %s mode=%s", name_.c_str(),
+              modeToString(mode).c_str());
+
     // Convert config to nlohmann for validation
     nlohmann::json config_json = toNlohmann(config);
-    
+
     // Perform schema validation
     try {
-      class ValidationErrorHandler : public nlohmann::json_schema::error_handler {
+      class ValidationErrorHandler
+          : public nlohmann::json_schema::error_handler {
        public:
-        void error(const nlohmann::json::json_pointer& ptr, 
-                   const nlohmann::json& instance, 
+        void error(const nlohmann::json::json_pointer& ptr,
+                   const nlohmann::json& instance,
                    const std::string& message) override {
           errors_.push_back(ptr.to_string() + ": " + message);
         }
         std::vector<std::string> errors_;
       };
-      
+
       ValidationErrorHandler err_handler;
       validator_->validate(config_json, err_handler);
-      
+
       for (const auto& error : err_handler.errors_) {
         result.addError("", "Schema validation error: " + error);
       }
@@ -141,15 +143,15 @@ class SchemaValidator : public Validator {
       // Schema validation failed
       result.addError("", "Schema validation failed: " + std::string(e.what()));
     }
-    
+
     // Check for unknown fields based on mode
     if (mode != ValidationMode::PERMISSIVE) {
       checkUnknownFields(config, result, mode);
     }
-    
+
     return result;
   }
-  
+
   std::string getName() const override { return name_; }
 
  private:
@@ -157,8 +159,9 @@ class SchemaValidator : public Validator {
                           ValidationResult& result,
                           ValidationMode mode,
                           const std::string& path = "") {
-    if (!config.isObject()) return;
-    
+    if (!config.isObject())
+      return;
+
     // Get allowed fields from schema
     std::set<std::string> allowed_fields;
     if (schema_json_.contains("properties")) {
@@ -166,18 +169,20 @@ class SchemaValidator : public Validator {
         allowed_fields.insert(key);
       }
     }
-    
+
     // Check each field in config
     for (const auto& key : config.keys()) {
       std::string current_path = path.empty() ? key : path + "." + key;
-      
+
       if (allowed_fields.find(key) == allowed_fields.end()) {
         result.unknown_fields.insert(current_path);
-        
+
         if (mode == ValidationMode::STRICT) {
-          result.addError(current_path, "Unknown field", extractCategory(current_path));
+          result.addError(current_path, "Unknown field",
+                          extractCategory(current_path));
         } else if (mode == ValidationMode::WARN) {
-          result.addWarning(current_path, "Unknown field", extractCategory(current_path));
+          result.addWarning(current_path, "Unknown field",
+                            extractCategory(current_path));
         }
       } else if (config[key].isObject()) {
         // Recursively check nested objects
@@ -185,21 +190,24 @@ class SchemaValidator : public Validator {
       }
     }
   }
-  
+
   std::string modeToString(ValidationMode mode) {
     switch (mode) {
-      case ValidationMode::STRICT: return "strict";
-      case ValidationMode::WARN: return "warn";
-      case ValidationMode::PERMISSIVE: return "permissive";
+      case ValidationMode::STRICT:
+        return "strict";
+      case ValidationMode::WARN:
+        return "warn";
+      case ValidationMode::PERMISSIVE:
+        return "permissive";
     }
     return "unknown";
   }
-  
+
   std::string extractCategory(const std::string& path) {
     size_t dot_pos = path.find('.');
     return (dot_pos != std::string::npos) ? path.substr(0, dot_pos) : path;
   }
-  
+
   std::string name_;
   nlohmann::json schema_json_;
   std::unique_ptr<nlohmann::json_schema::json_validator> validator_;
@@ -218,7 +226,8 @@ class SchemaValidator : public Validator {
     (void)mode;
     ValidationResult res;
     res.is_valid = false;
-    res.addError("", "Schema validation unavailable: json-schema-validator not linked");
+    res.addError(
+        "", "Schema validation unavailable: json-schema-validator not linked");
     return res;
   }
   std::string getName() const override { return name_; }
@@ -255,7 +264,8 @@ void validateRangePath(const mcp::json::JsonValue& config,
   }
 
   if (!value.isFloat() && !value.isInteger()) {
-    result.addError(rule.path, "Expected numeric value", extractCategory(rule.path));
+    result.addError(rule.path, "Expected numeric value",
+                    extractCategory(rule.path));
     return;
   }
 
@@ -304,7 +314,8 @@ void RangeValidator::addRule(const RangeRule& rule) { rules_.push_back(rule); }
 ValidationResult RangeValidator::validate(const mcp::json::JsonValue& config,
                                           ValidationMode /*mode*/) {
   ValidationResult result;
-  LOG_DEBUG("Starting range validation: %s rules=%zu", name_.c_str(), rules_.size());
+  LOG_DEBUG("Starting range validation: %s rules=%zu", name_.c_str(),
+            rules_.size());
 
   for (const auto& rule : rules_) {
     validateRangePath(config, rule, result);
@@ -326,8 +337,9 @@ ValidationResult CompositeValidator::validate(
     const mcp::json::JsonValue& config, ValidationMode mode) {
   ValidationResult result;
 
-  LOG_INFO("Starting configuration validation: validator=%s mode=%s validators=%zu",
-           name_.c_str(), modeToString(mode).c_str(), validators_.size());
+  LOG_INFO(
+      "Starting configuration validation: validator=%s mode=%s validators=%zu",
+      name_.c_str(), modeToString(mode).c_str(), validators_.size());
 
   for (const auto& validator : validators_) {
     auto sub_result = validator->validate(config, mode);
@@ -336,18 +348,20 @@ ValidationResult CompositeValidator::validate(
     result.errors.insert(result.errors.end(), sub_result.errors.begin(),
                          sub_result.errors.end());
     result.failing_categories.insert(sub_result.failing_categories.begin(),
-                                    sub_result.failing_categories.end());
+                                     sub_result.failing_categories.end());
     result.unknown_fields.insert(sub_result.unknown_fields.begin(),
-                                sub_result.unknown_fields.end());
+                                 sub_result.unknown_fields.end());
   }
 
-  LOG_INFO("Configuration validation completed: valid=%s errors=%zu warnings=%zu",
-           result.is_valid ? "true" : "false", result.getErrorCount(),
-           result.getWarningCount());
+  LOG_INFO(
+      "Configuration validation completed: valid=%s errors=%zu warnings=%zu",
+      result.is_valid ? "true" : "false", result.getErrorCount(),
+      result.getWarningCount());
 
   if (!result.failing_categories.empty()) {
     std::string categories = joinStrings(result.failing_categories, ", ");
-    LOG_WARNING("Categories with validation failures: [%s]", categories.c_str());
+    LOG_WARNING("Categories with validation failures: [%s]",
+                categories.c_str());
   }
 
   if (result.getErrorCount() > 0 && result.getErrorCount() <= 5) {
@@ -376,8 +390,7 @@ std::string CompositeValidator::getName() const { return name_; }
 
 // Factory functions
 std::unique_ptr<Validator> createSchemaValidator(
-    const std::string& name,
-    const mcp::json::JsonValue& schema) {
+    const std::string& name, const mcp::json::JsonValue& schema) {
   return std::make_unique<SchemaValidator>(name, schema);
 }
 

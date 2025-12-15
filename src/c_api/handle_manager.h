@@ -49,7 +49,7 @@ class HandleManager {
   uint64_t store(std::unique_ptr<T> obj) {
     if (!obj)
       return 0;
-    
+
     // Convert unique_ptr to shared_ptr, transferring ownership
     return store(SharedPtr(std::move(obj)));
   }

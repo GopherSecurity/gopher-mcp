@@ -32,10 +32,11 @@ namespace mcp {
 namespace filter_chain {
 class AdvancedFilterChain;
 namespace internal {
-std::shared_ptr<filter::FilterChainEventHub> getEventHub(AdvancedFilterChain& chain);
+std::shared_ptr<filter::FilterChainEventHub> getEventHub(
+    AdvancedFilterChain& chain);
 }
-}
-}
+}  // namespace filter_chain
+}  // namespace mcp
 
 namespace {
 
@@ -184,11 +185,12 @@ struct EventCallbackState {
   std::vector<ContextData> contexts;
 
   // Helper to wait for a specific number of events with timeout
-  bool waitForEventCount(int expected_count, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) {
+  bool waitForEventCount(
+      int expected_count,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) {
     std::unique_lock<std::mutex> lock(mutex);
-    return cv.wait_for(lock, timeout, [&]() {
-      return event_count.load() >= expected_count;
-    });
+    return cv.wait_for(lock, timeout,
+                       [&]() { return event_count.load() >= expected_count; });
   }
 
   // Helper to reset state
@@ -215,7 +217,8 @@ void eventCallback(const char* filter_name,
                    int64_t timestamp_ms,
                    void* user_data) {
   auto* state = static_cast<EventCallbackState*>(user_data);
-  if (!state) return;
+  if (!state)
+    return;
 
   std::lock_guard<std::mutex> lock(state->mutex);
   state->event_count++;
@@ -245,9 +248,12 @@ void eventCallback(const char* filter_name,
   // Capture context
   EventCallbackState::ContextData ctx;
   if (context) {
-    if (context->chain_id) ctx.chain_id = context->chain_id;
-    if (context->stream_id) ctx.stream_id = context->stream_id;
-    if (context->correlation_id) ctx.correlation_id = context->correlation_id;
+    if (context->chain_id)
+      ctx.chain_id = context->chain_id;
+    if (context->stream_id)
+      ctx.stream_id = context->stream_id;
+    if (context->correlation_id)
+      ctx.correlation_id = context->correlation_id;
   }
   state->contexts.push_back(ctx);
 
@@ -269,7 +275,8 @@ void emitTestEvent(std::shared_ptr<mcp::filter::FilterChainEventHub> hub,
                    const std::string& chain_id = "",
                    const std::string& stream_id = "",
                    const std::string& correlation_id = "") {
-  if (!hub) return;
+  if (!hub)
+    return;
 
   mcp::filter::FilterEvent event;
   event.filter_name = filter_name;
@@ -295,8 +302,8 @@ TEST_F(FilterEventsTest, SetAndClearEventCallback) {
   EventCallbackState state;
 
   // Set callback
-  int result = mcp_filter_chain_set_event_callback(
-      chain, eventCallback, &state);
+  int result =
+      mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
   EXPECT_EQ(result, 0);  // Success
 
   // Clear callback
@@ -308,8 +315,7 @@ TEST_F(FilterEventsTest, NullChainHandling) {
   EventCallbackState state;
 
   // Set callback on null chain - should fail
-  int result = mcp_filter_chain_set_event_callback(
-      0, eventCallback, &state);
+  int result = mcp_filter_chain_set_event_callback(0, eventCallback, &state);
   EXPECT_EQ(result, -1);  // Invalid arguments
 
   // Clear callback on null chain - should fail
@@ -328,34 +334,43 @@ TEST_F(FilterEventsTest, NullCallbackHandling) {
 
 TEST_F(FilterEventsTest, EventTypeToString) {
   // Test all event types
-  EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_STATE_CHANGE),
-               "CIRCUIT_STATE_CHANGE");
-  EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_REQUEST_BLOCKED),
-               "CIRCUIT_REQUEST_BLOCKED");
-  EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_HEALTH_UPDATE),
-               "CIRCUIT_HEALTH_UPDATE");
-  EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_RATE_LIMIT_EXCEEDED),
-               "RATE_LIMIT_EXCEEDED");
+  EXPECT_STREQ(
+      mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_STATE_CHANGE),
+      "CIRCUIT_STATE_CHANGE");
+  EXPECT_STREQ(
+      mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_REQUEST_BLOCKED),
+      "CIRCUIT_REQUEST_BLOCKED");
+  EXPECT_STREQ(
+      mcp_filter_event_type_to_string(MCP_FILTER_EVENT_CIRCUIT_HEALTH_UPDATE),
+      "CIRCUIT_HEALTH_UPDATE");
+  EXPECT_STREQ(
+      mcp_filter_event_type_to_string(MCP_FILTER_EVENT_RATE_LIMIT_EXCEEDED),
+      "RATE_LIMIT_EXCEEDED");
   EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_METRIC_UPDATE),
                "METRIC_UPDATE");
   EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_METRIC_FLUSH),
                "METRIC_FLUSH");
   EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_REQUEST_LOGGED),
                "REQUEST_LOGGED");
-  EXPECT_STREQ(mcp_filter_event_type_to_string(MCP_FILTER_EVENT_RESPONSE_LOGGED),
-               "RESPONSE_LOGGED");
+  EXPECT_STREQ(
+      mcp_filter_event_type_to_string(MCP_FILTER_EVENT_RESPONSE_LOGGED),
+      "RESPONSE_LOGGED");
 }
 
 TEST_F(FilterEventsTest, SeverityToString) {
   // Test all severities
-  EXPECT_STREQ(mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_DEBUG),
-               "DEBUG");
-  EXPECT_STREQ(mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_INFO),
-               "INFO");
-  EXPECT_STREQ(mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_WARN),
-               "WARN");
-  EXPECT_STREQ(mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_ERROR),
-               "ERROR");
+  EXPECT_STREQ(
+      mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_DEBUG),
+      "DEBUG");
+  EXPECT_STREQ(
+      mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_INFO),
+      "INFO");
+  EXPECT_STREQ(
+      mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_WARN),
+      "WARN");
+  EXPECT_STREQ(
+      mcp_filter_event_severity_to_string(MCP_FILTER_EVENT_SEVERITY_ERROR),
+      "ERROR");
 }
 
 TEST_F(FilterEventsTest, CallbackRegistryStorage) {
@@ -365,8 +380,8 @@ TEST_F(FilterEventsTest, CallbackRegistryStorage) {
   EventCallbackState state;
 
   // Register callback
-  int result = mcp_filter_chain_set_event_callback(
-      chain, eventCallback, &state);
+  int result =
+      mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
   EXPECT_EQ(result, 0);
 
   // The callback should remain registered until we clear it
@@ -388,10 +403,10 @@ TEST_F(FilterEventsTest, MultipleChainCallbacks) {
   EventCallbackState state2;
 
   // Register callbacks on both chains
-  int result1 = mcp_filter_chain_set_event_callback(
-      chain1, eventCallback, &state1);
-  int result2 = mcp_filter_chain_set_event_callback(
-      chain2, eventCallback, &state2);
+  int result1 =
+      mcp_filter_chain_set_event_callback(chain1, eventCallback, &state1);
+  int result2 =
+      mcp_filter_chain_set_event_callback(chain2, eventCallback, &state2);
 
   EXPECT_EQ(result1, 0);
   EXPECT_EQ(result2, 0);
@@ -416,13 +431,12 @@ TEST_F(FilterEventsTest, CallbackReplacement) {
   EventCallbackState state2;
 
   // Register first callback
-  int result = mcp_filter_chain_set_event_callback(
-      chain, eventCallback, &state1);
+  int result =
+      mcp_filter_chain_set_event_callback(chain, eventCallback, &state1);
   EXPECT_EQ(result, 0);
 
   // Replace with second callback
-  result = mcp_filter_chain_set_event_callback(
-      chain, eventCallback, &state2);
+  result = mcp_filter_chain_set_event_callback(chain, eventCallback, &state2);
   EXPECT_EQ(result, 0);
 
   // Only second callback should be registered now
@@ -454,8 +468,8 @@ TEST_F(FilterEventsTest, ThreadSafety) {
 
   for (int i = 0; i < kNumThreads; ++i) {
     threads.emplace_back([&]() {
-      int result = mcp_filter_chain_set_event_callback(
-          chain, eventCallback, &state);
+      int result =
+          mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
       // Should succeed even with concurrent access
       EXPECT_GE(result, -2);  // Either success (0) or failure (-2)
     });
@@ -478,8 +492,8 @@ TEST_F(FilterEventsTest, CallbackLifetimeAfterChainDestruction) {
     ASSERT_NE(chain, static_cast<mcp_filter_chain_t>(0));
 
     // Register callback
-    int result = mcp_filter_chain_set_event_callback(
-        chain, eventCallback, &state);
+    int result =
+        mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
     EXPECT_EQ(result, 0);
 
     // Chain will be destroyed here
@@ -500,28 +514,28 @@ TEST_F(FilterEventsTest, BasicEventEmission) {
   EventCallbackState state;
 
   // Register callback
-  int result = mcp_filter_chain_set_event_callback(
-      chain, eventCallback, &state);
+  int result =
+      mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
   EXPECT_EQ(result, 0);
 
   // Access the internal event hub (test-only)
   // Note: This requires accessing C++ internals for testing
   // In production, events are emitted by filters
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
   // Emit a test event
   auto event_data = mcp::json::JsonObjectBuilder()
-      .add("metric_name", "test_metric")
-      .add("value", 42.0)
-      .build();
+                        .add("metric_name", "test_metric")
+                        .add("value", 42.0)
+                        .build();
 
   emitTestEvent(hub, "test_filter", "instance_1",
                 mcp::filter::FilterEventType::METRIC_UPDATE,
-                mcp::filter::FilterEventSeverity::INFO,
-                event_data,
-                "chain_1", "stream_1", "corr_1");
+                mcp::filter::FilterEventSeverity::INFO, event_data, "chain_1",
+                "stream_1", "corr_1");
 
   // Wait for callback
   ASSERT_TRUE(state.waitForEventCount(1));
@@ -541,27 +555,27 @@ TEST_F(FilterEventsTest, EventDataJsonParsing) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
   // Create complex event data with nested objects
   auto nested_obj = mcp::json::JsonObjectBuilder()
-      .add("inner_key", "inner_value")
-      .add("inner_num", 999.0)
-      .build();
+                        .add("inner_key", "inner_value")
+                        .add("inner_num", 999.0)
+                        .build();
 
   auto event_data = mcp::json::JsonObjectBuilder()
-      .add("string_val", "test_string")
-      .add("number_val", 123.45)
-      .add("bool_val", true)
-      .add("nested", nested_obj)
-      .build();
+                        .add("string_val", "test_string")
+                        .add("number_val", 123.45)
+                        .add("bool_val", true)
+                        .add("nested", nested_obj)
+                        .build();
 
   emitTestEvent(hub, "metrics_filter", "",
                 mcp::filter::FilterEventType::METRIC_FLUSH,
-                mcp::filter::FilterEventSeverity::DEBUG,
-                event_data);
+                mcp::filter::FilterEventSeverity::DEBUG, event_data);
 
   ASSERT_TRUE(state.waitForEventCount(1));
 
@@ -582,7 +596,8 @@ TEST_F(FilterEventsTest, ContextPropagationInEvents) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
@@ -591,8 +606,7 @@ TEST_F(FilterEventsTest, ContextPropagationInEvents) {
 
   emitTestEvent(hub, "test_filter", "",
                 mcp::filter::FilterEventType::REQUEST_LOGGED,
-                mcp::filter::FilterEventSeverity::INFO,
-                event_data,
+                mcp::filter::FilterEventSeverity::INFO, event_data,
                 "test_chain_id", "test_stream_id", "test_correlation_id");
 
   ASSERT_TRUE(state.waitForEventCount(1));
@@ -610,7 +624,8 @@ TEST_F(FilterEventsTest, MultipleSequentialEvents) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
@@ -619,18 +634,14 @@ TEST_F(FilterEventsTest, MultipleSequentialEvents) {
   // Emit multiple events of different types
   emitTestEvent(hub, "filter1", "",
                 mcp::filter::FilterEventType::CIRCUIT_STATE_CHANGE,
-                mcp::filter::FilterEventSeverity::WARN,
-                event_data);
+                mcp::filter::FilterEventSeverity::WARN, event_data);
 
   emitTestEvent(hub, "filter2", "",
                 mcp::filter::FilterEventType::RATE_LIMIT_EXCEEDED,
-                mcp::filter::FilterEventSeverity::WARN,
-                event_data);
+                mcp::filter::FilterEventSeverity::WARN, event_data);
 
-  emitTestEvent(hub, "filter3", "",
-                mcp::filter::FilterEventType::METRIC_UPDATE,
-                mcp::filter::FilterEventSeverity::INFO,
-                event_data);
+  emitTestEvent(hub, "filter3", "", mcp::filter::FilterEventType::METRIC_UPDATE,
+                mcp::filter::FilterEventSeverity::INFO, event_data);
 
   // Wait for all 3 events
   ASSERT_TRUE(state.waitForEventCount(3));
@@ -656,7 +667,8 @@ TEST_F(FilterEventsTest, CallbackNotInvokedAfterClear) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
@@ -665,8 +677,7 @@ TEST_F(FilterEventsTest, CallbackNotInvokedAfterClear) {
   // Emit first event - should be received
   emitTestEvent(hub, "test_filter", "",
                 mcp::filter::FilterEventType::METRIC_UPDATE,
-                mcp::filter::FilterEventSeverity::INFO,
-                event_data);
+                mcp::filter::FilterEventSeverity::INFO, event_data);
 
   ASSERT_TRUE(state.waitForEventCount(1));
   EXPECT_EQ(state.event_count.load(), 1);
@@ -678,10 +689,10 @@ TEST_F(FilterEventsTest, CallbackNotInvokedAfterClear) {
   // Emit second event - should NOT be received
   emitTestEvent(hub, "test_filter", "",
                 mcp::filter::FilterEventType::METRIC_UPDATE,
-                mcp::filter::FilterEventSeverity::INFO,
-                event_data);
+                mcp::filter::FilterEventSeverity::INFO, event_data);
 
-  // Wait a bit to ensure event would have been delivered if callback was still registered
+  // Wait a bit to ensure event would have been delivered if callback was still
+  // registered
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   // Event count should still be 1 (second event not received)
@@ -695,22 +706,22 @@ TEST_F(FilterEventsTest, CircuitBreakerStateChangeEvent) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
   // Simulate circuit breaker state change event
   auto event_data = mcp::json::JsonObjectBuilder()
-      .add("old_state", "CLOSED")
-      .add("new_state", "OPEN")
-      .add("failure_count", 3.0)
-      .add("error_rate", 0.75)
-      .build();
+                        .add("old_state", "CLOSED")
+                        .add("new_state", "OPEN")
+                        .add("failure_count", 3.0)
+                        .add("error_rate", 0.75)
+                        .build();
 
   emitTestEvent(hub, "circuit_breaker", "cb_instance_1",
                 mcp::filter::FilterEventType::CIRCUIT_STATE_CHANGE,
-                mcp::filter::FilterEventSeverity::WARN,
-                event_data);
+                mcp::filter::FilterEventSeverity::WARN, event_data);
 
   ASSERT_TRUE(state.waitForEventCount(1));
 
@@ -734,28 +745,29 @@ TEST_F(FilterEventsTest, TimestampAndMetadataValidation) {
   EventCallbackState state;
   mcp_filter_chain_set_event_callback(chain, eventCallback, &state);
 
-  auto advanced_chain = reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
+  auto advanced_chain =
+      reinterpret_cast<mcp::filter_chain::AdvancedFilterChain*>(chain);
   auto hub = mcp::filter_chain::internal::getEventHub(*advanced_chain);
   ASSERT_NE(hub, nullptr);
 
-  auto event_data = mcp::json::JsonObjectBuilder()
-      .add("test_key", "test_value")
-      .build();
+  auto event_data =
+      mcp::json::JsonObjectBuilder().add("test_key", "test_value").build();
 
   // Record time before emission
   auto before_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
 
   emitTestEvent(hub, "metrics_filter", "metrics_1",
                 mcp::filter::FilterEventType::METRIC_UPDATE,
-                mcp::filter::FilterEventSeverity::DEBUG,
-                event_data);
+                mcp::filter::FilterEventSeverity::DEBUG, event_data);
 
   ASSERT_TRUE(state.waitForEventCount(1));
 
   // Record time after callback
   auto after_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
 
   // Verify timestamp is reasonable
   EXPECT_GT(state.timestamps[0], 0);

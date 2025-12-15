@@ -1,7 +1,8 @@
 /**
  * @file json_value_converter.h
- * @brief Internal helper for converting between C API JSON and internal JsonValue
- * 
+ * @brief Internal helper for converting between C API JSON and internal
+ * JsonValue
+ *
  * This is an internal header not exposed in public API. It provides conversion
  * between mcp_json_value_t (opaque handle) and mcp::json::JsonValue.
  */
@@ -32,12 +33,12 @@ mcp_json_value_t convertToCApi(const json::JsonValue& json);
 
 /**
  * Normalize typed_config to config format
- * 
+ *
  * If a filter entry has typed_config with @type, this function:
  * - Removes the @type field
  * - Moves remaining fields to config
  * - Removes typed_config field
- * 
+ *
  * @param filter Filter configuration object to normalize (modified in place)
  * @return true if normalization was performed, false if no typed_config found
  */
@@ -45,12 +46,12 @@ bool normalizeTypedConfig(json::JsonValue& filter);
 
 /**
  * Normalize an entire filter chain configuration
- * 
+ *
  * Processes all filters in the chain:
  * - Normalizes typed_config to config
  * - Ensures 'type' field exists (uses 'name' if needed)
  * - Validates required fields
- * 
+ *
  * @param config Chain configuration with 'filters' array
  * @return Number of filters normalized
  * @throws std::runtime_error if configuration is invalid

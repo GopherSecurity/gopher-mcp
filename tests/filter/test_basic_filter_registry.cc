@@ -6,16 +6,17 @@
  * with basic metadata and can be created using FilterCreationContext.
  */
 
-#include <gtest/gtest.h>
 #include <memory>
 
+#include <gtest/gtest.h>
+
+#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/core_filter_factories.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/filter/core_filter_factories.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/mcp_connection_manager.h"
 
@@ -49,9 +50,7 @@ class BasicFilterRegistryTest : public ::testing::Test {
     registerJsonRpcDispatcherFilterFactory();
   }
 
-  void TearDown() override {
-    FilterRegistry::instance().clearFactories();
-  }
+  void TearDown() override { FilterRegistry::instance().clearFactories(); }
 
   std::unique_ptr<event::Dispatcher> dispatcher_;
   std::unique_ptr<MockProtocolCallbacks> callbacks_;
@@ -68,9 +67,12 @@ TEST_F(BasicFilterRegistryTest, CoreFiltersRegistered) {
   // Test that all three are listed in registered factories
   auto factories = registry.listContextFactories();
 
-  bool has_http = std::find(factories.begin(), factories.end(), "http.codec") != factories.end();
-  bool has_sse = std::find(factories.begin(), factories.end(), "sse.codec") != factories.end();
-  bool has_json_rpc = std::find(factories.begin(), factories.end(), "json_rpc.dispatcher") != factories.end();
+  bool has_http = std::find(factories.begin(), factories.end(), "http.codec") !=
+                  factories.end();
+  bool has_sse = std::find(factories.begin(), factories.end(), "sse.codec") !=
+                 factories.end();
+  bool has_json_rpc = std::find(factories.begin(), factories.end(),
+                                "json_rpc.dispatcher") != factories.end();
 
   EXPECT_TRUE(has_http);
   EXPECT_TRUE(has_sse);
@@ -106,7 +108,8 @@ TEST_F(BasicFilterRegistryTest, BasicMetadataRetrieval) {
   EXPECT_NO_THROW(sse_metadata->validate());
 
   // Test JSON-RPC dispatcher metadata
-  const auto* json_rpc_metadata = registry.getBasicMetadata("json_rpc.dispatcher");
+  const auto* json_rpc_metadata =
+      registry.getBasicMetadata("json_rpc.dispatcher");
   ASSERT_NE(json_rpc_metadata, nullptr);
   EXPECT_EQ(json_rpc_metadata->name, "json_rpc.dispatcher");
   EXPECT_EQ(json_rpc_metadata->version, "1.0.0");
@@ -151,32 +154,21 @@ TEST_F(BasicFilterRegistryTest, BasicFilterChainValidation) {
   auto& registry = FilterRegistry::instance();
 
   // Test valid filter chain
-  std::vector<std::string> valid_chain = {
-    "http.codec",
-    "sse.codec",
-    "json_rpc.dispatcher"
-  };
+  std::vector<std::string> valid_chain = {"http.codec", "sse.codec",
+                                          "json_rpc.dispatcher"};
   EXPECT_TRUE(registry.validateBasicFilterChain(valid_chain));
 
   // Test valid partial chain
-  std::vector<std::string> valid_partial_chain = {
-    "http.codec",
-    "sse.codec"
-  };
+  std::vector<std::string> valid_partial_chain = {"http.codec", "sse.codec"};
   EXPECT_TRUE(registry.validateBasicFilterChain(valid_partial_chain));
 
   // Test single filter chain
-  std::vector<std::string> single_filter_chain = {
-    "http.codec"
-  };
+  std::vector<std::string> single_filter_chain = {"http.codec"};
   EXPECT_TRUE(registry.validateBasicFilterChain(single_filter_chain));
 
   // Test invalid filter chain with unknown filter
-  std::vector<std::string> invalid_chain = {
-    "http.codec",
-    "unknown.filter",
-    "json_rpc.dispatcher"
-  };
+  std::vector<std::string> invalid_chain = {"http.codec", "unknown.filter",
+                                            "json_rpc.dispatcher"};
   EXPECT_FALSE(registry.validateBasicFilterChain(invalid_chain));
 
   // Test empty filter chain
@@ -184,11 +176,8 @@ TEST_F(BasicFilterRegistryTest, BasicFilterChainValidation) {
   EXPECT_FALSE(registry.validateBasicFilterChain(empty_chain));
 
   // Test chain with duplicate filters (should still be valid)
-  std::vector<std::string> duplicate_chain = {
-    "http.codec",
-    "http.codec",
-    "sse.codec"
-  };
+  std::vector<std::string> duplicate_chain = {"http.codec", "http.codec",
+                                              "sse.codec"};
   EXPECT_TRUE(registry.validateBasicFilterChain(duplicate_chain));
 }
 
@@ -196,7 +185,8 @@ TEST_F(BasicFilterRegistryTest, ClientModeFilters) {
   auto& registry = FilterRegistry::instance();
 
   // Test that filters can be registered for both server and client modes
-  // The actual creation is tested in integration tests to avoid dispatcher complexity
+  // The actual creation is tested in integration tests to avoid dispatcher
+  // complexity
 
   // Test context creation for client mode
   TransportMetadata transport("127.0.0.1", 8080);
@@ -237,7 +227,8 @@ TEST_F(BasicFilterRegistryTest, DefaultConfigurationValues) {
   EXPECT_TRUE(sse_config.contains("enable_keep_alive"));
 
   // Test JSON-RPC dispatcher default config
-  const auto* json_rpc_metadata = registry.getBasicMetadata("json_rpc.dispatcher");
+  const auto* json_rpc_metadata =
+      registry.getBasicMetadata("json_rpc.dispatcher");
   ASSERT_NE(json_rpc_metadata, nullptr);
 
   const auto& json_rpc_config = json_rpc_metadata->default_config;
@@ -287,7 +278,8 @@ TEST_F(BasicFilterRegistryTest, MetadataEquality) {
   EXPECT_EQ(metadata1, metadata2);
 
   // Test metadata inequality with different filter
-  BasicFilterMetadata different_metadata("different.filter", "Different filter");
+  BasicFilterMetadata different_metadata("different.filter",
+                                         "Different filter");
   EXPECT_NE(different_metadata, *metadata1);
 
   // Test that metadata contains expected fields (instead of exact equality)

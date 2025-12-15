@@ -2,13 +2,15 @@
  * @file test_filter_only_api_minimal.cc
  * @brief Minimal tests for Filter-Only C API
  *
- * Tests absolute minimal functionality without any JSON or dispatcher dependencies.
+ * Tests absolute minimal functionality without any JSON or dispatcher
+ * dependencies.
  */
 
-#include "mcp/c_api/mcp_c_filter_only_api.h"
+#include <iostream>
 
 #include <gtest/gtest.h>
-#include <iostream>
+
+#include "mcp/c_api/mcp_c_filter_only_api.h"
 
 // Test that we can include the header and use basic null-safe functions
 TEST(FilterOnlyAPIMinimal, NullSafety) {

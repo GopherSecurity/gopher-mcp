@@ -45,7 +45,8 @@ class EnhancedProtocolFilter : public network::Filter,
     // Create enterprise filters if enabled
     if (config_.enable_circuit_breaker) {
       // For now we construct the circuit breaker with a null event hub.
-      // Enhanced chains will emit chain-level events once the hub is plumbed through.
+      // Enhanced chains will emit chain-level events once the hub is plumbed
+      // through.
       auto emitter = std::make_shared<FilterEventEmitter>(
           std::shared_ptr<FilterChainEventHub>(),  // null hub placeholder
           "circuit_breaker");
@@ -57,13 +58,13 @@ class EnhancedProtocolFilter : public network::Filter,
     if (config_.enable_rate_limiting) {
       // Create rate limiter with nullptr event emitter for standalone usage
       // For chain-level events, use FilterCreationContext-based creation
-      rate_limiter_ = std::make_shared<RateLimitFilter>(
-          nullptr, config_.rate_limit_config);
+      rate_limiter_ =
+          std::make_shared<RateLimitFilter>(nullptr, config_.rate_limit_config);
     }
 
     if (config_.enable_metrics) {
-      metrics_collector_ = std::make_shared<MetricsFilter>(
-          *this, config_.metrics_config);
+      metrics_collector_ =
+          std::make_shared<MetricsFilter>(*this, config_.metrics_config);
       metrics_network_adapter_ = metrics_collector_->createNetworkAdapter();
     }
 
@@ -342,7 +343,8 @@ class EnhancedProtocolFilter : public network::Filter,
     mcp_callbacks_.onProtocolError(error);
   }
 
-  // NOTE: Circuit Breaker Callbacks removed - use chain-level FilterEventCallbacks instead
+  // NOTE: Circuit Breaker Callbacks removed - use chain-level
+  // FilterEventCallbacks instead
 
   // ===== Rate Limiter Callbacks =====
 

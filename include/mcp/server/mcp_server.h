@@ -35,12 +35,12 @@
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/filter/filter_chain_callbacks.h"
+#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/metrics_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
-#include "mcp/filter/filter_chain_event_hub.h"
-#include "mcp/filter/filter_chain_callbacks.h"
-#include "mcp/filter/metrics_filter.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
 
@@ -102,9 +102,10 @@ struct McpServerConfig : public application::ApplicationBase::Config {
 
   // Capabilities
   ServerCapabilities capabilities;
-  
+
   // Filter chain configuration (optional)
-  // If provided, uses ConfigurableFilterChainFactory instead of hardcoded factories
+  // If provided, uses ConfigurableFilterChainFactory instead of hardcoded
+  // factories
   optional<json::JsonValue> filter_chain_config;
 };
 
@@ -650,7 +651,8 @@ class McpServer : public application::ApplicationBase,
   bool isRunning() const { return server_running_; }
 
   // Listener configuration-based startup
-  VoidResult createListenersFromConfig(const std::vector<mcp::config::ListenerConfig>& listeners);
+  VoidResult createListenersFromConfig(
+      const std::vector<mcp::config::ListenerConfig>& listeners);
   void startListener(const mcp::config::ListenerConfig& listener_config);
 
   // Handler registration
@@ -808,7 +810,8 @@ class McpServer : public application::ApplicationBase,
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;
   std::shared_ptr<filter::MetricsFilter::MetricsCallbacks> metrics_callbacks_;
   std::shared_ptr<filter::FilterChainEventHub> enhanced_filter_event_hub_;
-  std::shared_ptr<filter::FilterChainCallbacks> enhanced_filter_event_callbacks_;
+  std::shared_ptr<filter::FilterChainCallbacks>
+      enhanced_filter_event_callbacks_;
   filter::FilterChainEventHub::ObserverHandle enhanced_filter_event_handle_;
 
   // Connection management (production pattern)

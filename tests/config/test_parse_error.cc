@@ -10,15 +10,16 @@
 #include "mcp/config/enhanced_types.h"
 #include "mcp/config/parse_error.h"
 #include "mcp/json/json_bridge.h"
+
 #include "test_json_helpers.h"
 
 using namespace mcp::config;
 using mcp::json::JsonValue;
-using test::makeJsonObject;
-using test::makeJsonArray;
-using test::str;
-using test::num;
 using test::boolean;
+using test::makeJsonArray;
+using test::makeJsonObject;
+using test::num;
+using test::str;
 
 class ParseErrorTest : public ::testing::Test {
  protected:
@@ -171,14 +172,17 @@ TEST_F(ParseErrorTest, NodeConfigEnhancedMissingRequired) {
 
 TEST_F(ParseErrorTest, NodeConfigEnhancedInvalidType) {
   ParseContext ctx;
-  JsonValue j = makeJsonObject({{"id", num(123)}, {"cluster", str("prod")}});  // Should be string
+  JsonValue j = makeJsonObject(
+      {{"id", num(123)}, {"cluster", str("prod")}});  // Should be string
 
   EXPECT_THROW({ NodeConfigEnhanced::fromJson(j, ctx); }, ConfigParseError);
 }
 
 TEST_F(ParseErrorTest, NodeConfigEnhancedValidationError) {
   ParseContext ctx;
-  JsonValue j = makeJsonObject({{"id", str("")}, {"cluster", str("prod")}});  // Empty ID will fail validation
+  JsonValue j = makeJsonObject(
+      {{"id", str("")},
+       {"cluster", str("prod")}});  // Empty ID will fail validation
 
   try {
     NodeConfigEnhanced::fromJson(j, ctx);
@@ -192,11 +196,9 @@ TEST_F(ParseErrorTest, CapabilitiesConfigEnhancedUnitParsing) {
   ParseContext ctx;
 
   // Valid units
-  JsonValue valid = makeJsonObject({
-    {"max_request_size", str("10MB")},
-    {"max_response_size", str("5MB")},
-    {"request_timeout", str("30s")}
-  });
+  JsonValue valid = makeJsonObject({{"max_request_size", str("10MB")},
+                                    {"max_response_size", str("5MB")},
+                                    {"request_timeout", str("30s")}});
 
   EXPECT_NO_THROW({
     auto config = CapabilitiesConfigEnhanced::fromJson(valid, ctx);
@@ -206,7 +208,7 @@ TEST_F(ParseErrorTest, CapabilitiesConfigEnhancedUnitParsing) {
 
   // Invalid unit
   JsonValue invalid = makeJsonObject({
-    {"max_request_size", str("10 MEGABYTES")}  // Invalid unit format
+      {"max_request_size", str("10 MEGABYTES")}  // Invalid unit format
   });
 
   try {
@@ -221,22 +223,20 @@ TEST_F(ParseErrorTest, FilterConfigEnhancedWithConfig) {
   ParseContext ctx;
 
   // Buffer filter with size unit
-  JsonValue buffer = makeJsonObject({
-    {"type", str("buffer")},
-    {"name", str("request_buffer")},
-    {"config", makeJsonObject({{"max_size", str("2MB")}})}
-  });
+  JsonValue buffer =
+      makeJsonObject({{"type", str("buffer")},
+                      {"name", str("request_buffer")},
+                      {"config", makeJsonObject({{"max_size", str("2MB")}})}});
 
   auto config = FilterConfigEnhanced::fromJson(buffer, ctx);
   EXPECT_EQ(config.type, "buffer");
   EXPECT_EQ(config.config["max_size"].getInt(), 2000000);
 
   // Rate limit with duration
-  JsonValue rate_limit = makeJsonObject({
-    {"type", str("rate_limit")},
-    {"name", str("api_limiter")},
-    {"config", makeJsonObject({{"window_duration", str("1m")}})}
-  });
+  JsonValue rate_limit = makeJsonObject(
+      {{"type", str("rate_limit")},
+       {"name", str("api_limiter")},
+       {"config", makeJsonObject({{"window_duration", str("1m")}})}});
 
   config = FilterConfigEnhanced::fromJson(rate_limit, ctx);
   EXPECT_EQ(config.config["window_duration"].getInt(), 60000);
@@ -244,13 +244,13 @@ TEST_F(ParseErrorTest, FilterConfigEnhancedWithConfig) {
 
 TEST_F(ParseErrorTest, ServerConfigEnhancedNestedErrors) {
   ParseContext ctx;
-  JsonValue j = makeJsonObject({
-    {"name", str("test-server")},
-    {"version", str("invalid-version")},  // Will fail version parsing
-    {"capabilities", makeJsonObject({
-      {"max_request_size", str("invalid")}  // Will fail unit parsing
-    })}
-  });
+  JsonValue j = makeJsonObject(
+      {{"name", str("test-server")},
+       {"version", str("invalid-version")},  // Will fail version parsing
+       {"capabilities",
+        makeJsonObject({
+            {"max_request_size", str("invalid")}  // Will fail unit parsing
+        })}});
 
   try {
     ServerConfigEnhanced::fromJson(j, ctx);
@@ -264,20 +264,14 @@ TEST_F(ParseErrorTest, ServerConfigEnhancedNestedErrors) {
 
 TEST_F(ParseErrorTest, ServerConfigEnhancedArrayErrors) {
   ParseContext ctx;
-  JsonValue j = makeJsonObject({
-    {"name", str("test-server")},
-    {"filter_chains", makeJsonArray({
-      makeJsonObject({
-        {"name", str("chain1")},
-        {"filters", makeJsonArray({
-          makeJsonObject({
-            {"type", str("buffer")}
-            // Missing required 'name' field
-          })
-        })}
-      })
-    })}
-  });
+  JsonValue j = makeJsonObject(
+      {{"name", str("test-server")},
+       {"filter_chains", makeJsonArray({makeJsonObject(
+                             {{"name", str("chain1")},
+                              {"filters", makeJsonArray({makeJsonObject({
+                                              {"type", str("buffer")}
+                                              // Missing required 'name' field
+                                          })})}})})}});
 
   try {
     ServerConfigEnhanced::fromJson(j, ctx);
@@ -302,7 +296,8 @@ TEST_F(ParseErrorTest, JsonPathConstruction) {
 
 // Error excerpt tests
 TEST_F(ParseErrorTest, GetJsonExcerpt) {
-  JsonValue j = makeJsonObject({{"key1", str("value1")}, {"key2", num(123)}, {"key3", boolean(true)}});
+  JsonValue j = makeJsonObject(
+      {{"key1", str("value1")}, {"key2", num(123)}, {"key3", boolean(true)}});
 
   std::string excerpt = getJsonExcerpt(j, 50);
   EXPECT_LE(excerpt.length(), 50);
@@ -329,7 +324,8 @@ TEST_F(ParseErrorTest, ValidateJsonType) {
 
 // TryParseConfig tests
 TEST_F(ParseErrorTest, TryParseConfigSuccess) {
-  JsonValue j = makeJsonObject({{"name", str("test-server")}, {"version", str("1.0.0")}});
+  JsonValue j =
+      makeJsonObject({{"name", str("test-server")}, {"version", str("1.0.0")}});
 
   ServerConfigEnhanced config;
   std::string error;
@@ -341,10 +337,8 @@ TEST_F(ParseErrorTest, TryParseConfigSuccess) {
 }
 
 TEST_F(ParseErrorTest, TryParseConfigFailure) {
-  JsonValue j = makeJsonObject({
-    {"name", num(123)},  // Wrong type
-    {"version", str("1.0.0")}
-  });
+  JsonValue j = makeJsonObject({{"name", num(123)},  // Wrong type
+                                {"version", str("1.0.0")}});
 
   ServerConfigEnhanced config;
   std::string error;

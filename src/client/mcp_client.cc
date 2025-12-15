@@ -359,8 +359,9 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
           auto resources_it = metadata.find("capabilities.resources");
           if (resources_it != metadata.end() &&
               holds_alternative<bool>(resources_it->second)) {
-            caps.resources = mcp::make_optional(variant<bool, ResourcesCapability>(
-                get<bool>(resources_it->second)));
+            caps.resources =
+                mcp::make_optional(variant<bool, ResourcesCapability>(
+                    get<bool>(resources_it->second)));
           }
 
           auto logging_it = metadata.find("capabilities.logging");
@@ -732,7 +733,8 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
   auto params = make_metadata();
   params["uri"] = uri;
 
-  auto future = sendRequest("resources/unsubscribe", mcp::make_optional(params));
+  auto future =
+      sendRequest("resources/unsubscribe", mcp::make_optional(params));
 
   // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
