@@ -5,8 +5,13 @@
 
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/buffer.h"
 
