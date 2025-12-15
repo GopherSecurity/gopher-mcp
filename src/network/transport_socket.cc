@@ -1,9 +1,13 @@
 #include "mcp/network/transport_socket.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <errno.h>
 #include <unistd.h>
-
 #include <sys/socket.h>
+#endif
 
 #include "mcp/network/socket_interface_impl.h"
 

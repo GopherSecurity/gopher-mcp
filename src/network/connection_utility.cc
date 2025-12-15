@@ -1,10 +1,14 @@
 #include "mcp/network/connection_utility.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <fcntl.h>
-
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/network/socket_option_impl.h"
 
@@ -17,11 +21,13 @@ void SocketConfigUtility::setSocketOptions(int fd) {
 
   // Set TCP_NODELAY to disable Nagle's algorithm
   int flag = 1;
-  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+             reinterpret_cast<const char*>(&flag), sizeof(flag));
 
   // Enable keep-alive
   int keepalive = 1;
-  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+             reinterpret_cast<const char*>(&keepalive), sizeof(keepalive));
 
   // Set keep-alive parameters
 #ifdef __linux__
@@ -58,8 +64,10 @@ void SocketConfigUtility::setSocketOptions(int fd) {
   // Set socket buffer sizes
   int sndbuf = 256 * 1024;
   int rcvbuf = 256 * 1024;
-  setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-  setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+  setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
+             reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
+  setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
+             reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
 }
 
 void SocketConfigUtility::configureSocket(Socket& socket,
@@ -78,7 +86,8 @@ void SocketConfigUtility::configureKeepAlive(Socket& socket,
 
   // Enable/disable keep-alive
   int keep_alive = enable ? 1 : 0;
-  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
+  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+             reinterpret_cast<const char*>(&keep_alive), sizeof(keep_alive));
 
   if (!enable)
     return;
@@ -108,12 +117,14 @@ void SocketConfigUtility::configureBufferSizes(Socket& socket,
 
   if (receive_buffer_size > 0) {
     int size = receive_buffer_size;
-    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
+               reinterpret_cast<const char*>(&size), sizeof(size));
   }
 
   if (send_buffer_size > 0) {
     int size = send_buffer_size;
-    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
+               reinterpret_cast<const char*>(&size), sizeof(size));
   }
 }
 
@@ -122,7 +133,8 @@ void SocketConfigUtility::configureForLowLatency(Socket& socket) {
 
   // Disable Nagle's algorithm
   int nodelay = 1;
-  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+             reinterpret_cast<const char*>(&nodelay), sizeof(nodelay));
 
 #ifdef __linux__
   // Enable TCP_QUICKACK for lower latency on Linux
@@ -139,7 +151,8 @@ void SocketConfigUtility::configureForHighThroughput(Socket& socket) {
 
   // Enable Nagle's algorithm for better throughput
   int nodelay = 0;
-  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+             reinterpret_cast<const char*>(&nodelay), sizeof(nodelay));
 
   // Use larger buffers for higher throughput
   configureBufferSizes(socket, 512 * 1024, 512 * 1024);

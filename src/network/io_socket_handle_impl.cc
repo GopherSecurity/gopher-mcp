@@ -361,7 +361,7 @@ IoCallResult IoSocketHandleImpl::recvmsg(
 
     // Set peer address
     msg.peer_address =
-        addressFromSockAddr(peer_addr, peer_addr_len, socket_v6only_);
+        Address::addressFromSockAddr(peer_addr, peer_addr_len, socket_v6only_);
 
     // Windows doesn't provide local address in recvfrom
     msg.truncated = (flags & MSG_PARTIAL) != 0;
