@@ -94,10 +94,16 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
-#include <signal.h>
 #include <sstream>
 #include <thread>
+
+// Platform-specific includes for signal/shutdown handling
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <signal.h>
 #include <unistd.h>  // for _exit
+#endif
 
 #include "mcp/json/json_bridge.h"
 #include "mcp/server/mcp_server.h"
@@ -134,6 +140,39 @@ struct ServerOptions {
   std::string http_health_path = "/health";
 };
 
+// Platform-specific shutdown handler
+#ifdef _WIN32
+// Windows Console Control Handler
+BOOL WINAPI ConsoleCtrlHandler(DWORD ctrlType) {
+  switch (ctrlType) {
+    case CTRL_C_EVENT:
+    case CTRL_BREAK_EVENT:
+    case CTRL_CLOSE_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+      std::cerr << "\n[INFO] Received console control event " << ctrlType
+                << ", initiating graceful shutdown..." << std::endl;
+
+      // Set the shutdown flag
+      g_shutdown = true;
+
+      // Notify the shutdown monitor thread
+      g_shutdown_cv.notify_all();
+
+      // For safety, if we receive multiple signals, force exit
+      static std::atomic<int> signal_count(0);
+      signal_count++;
+      if (signal_count > 1) {
+        std::cerr << "\n[INFO] Force shutdown after multiple signals..."
+                  << std::endl;
+        ExitProcess(0);
+      }
+      return TRUE;
+    default:
+      return FALSE;
+  }
+}
+#else
+// Unix signal handler
 void signal_handler(int signal) {
   // Signal handlers should do minimal work
   // Just set the flag and notify - actual shutdown happens in main thread
@@ -158,6 +197,7 @@ void signal_handler(int signal) {
     _exit(0);
   }
 }
+#endif
 
 void printUsage(const char* program) {
   std::cerr << "USAGE: " << program << " [options]\n\n";
@@ -847,9 +887,13 @@ void printStatistics(const McpServer& server) {
 }
 
 int main(int argc, char* argv[]) {
-  // Install signal handlers
+  // Install platform-specific signal/shutdown handlers
+#ifdef _WIN32
+  SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
+#else
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
+#endif
 
   // Parse command-line options
   ServerOptions options = parseArguments(argc, argv);
