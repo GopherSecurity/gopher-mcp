@@ -1,6 +1,10 @@
 #include <algorithm>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <sys/socket.h>
+#endif
 
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/connection_manager.h"

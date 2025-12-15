@@ -4,9 +4,14 @@
 #include <iostream>
 #include <sstream>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/buffer.h"
 #include "mcp/event/event_loop.h"
