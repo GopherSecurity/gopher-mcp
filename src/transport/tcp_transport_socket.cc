@@ -247,8 +247,10 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
     const uint8_t* data = static_cast<const uint8_t*>(slice.mem_);
 
     while (remaining > 0) {
+      // Note: Windows send() expects const char* buffer, POSIX expects const void*
       ssize_t bytes_written =
-          ::send(io_handle.fd(), data, remaining, MSG_NOSIGNAL);
+          ::send(io_handle.fd(), reinterpret_cast<const char*>(data),
+                 static_cast<int>(remaining), MSG_NOSIGNAL);
 
       if (bytes_written > 0) {
         total_written += bytes_written;

@@ -8,6 +8,25 @@
 #include <cctype>
 #include <cstring>
 
+#ifdef _WIN32
+// memmem is a GNU extension, provide implementation for Windows
+static void* memmem(const void* haystack, size_t haystacklen,
+                    const void* needle, size_t needlelen) {
+  if (needlelen == 0) return const_cast<void*>(haystack);
+  if (haystacklen < needlelen) return nullptr;
+
+  const char* h = static_cast<const char*>(haystack);
+  const char* n = static_cast<const char*>(needle);
+
+  for (size_t i = 0; i <= haystacklen - needlelen; ++i) {
+    if (memcmp(h + i, n, needlelen) == 0) {
+      return const_cast<void*>(static_cast<const void*>(h + i));
+    }
+  }
+  return nullptr;
+}
+#endif
+
 #include "mcp/buffer.h"
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
