@@ -35,6 +35,10 @@ namespace protocol {
  * These states track MCP-specific protocol phases like initialization and
  * capability negotiation.
  */
+// Windows defines ERROR as a macro in wingdi.h, undef it to avoid conflict
+#ifdef ERROR
+#undef ERROR
+#endif
 enum class McpProtocolState {
   // Initial state - no connection
   DISCONNECTED,
