@@ -706,9 +706,8 @@ bool HttpSseFilterChainFactory::createFilterChain(
     filter::MetricsFilter::Config metrics_config;
     metrics_config.track_methods = true;
 
-    auto metrics_filter =
-        std::make_shared<filter::MetricsFilter>(metrics_callbacks,
-                                                metrics_config);
+    auto metrics_filter = std::make_shared<filter::MetricsFilter>(
+        metrics_callbacks, metrics_config);
     auto metrics_adapter = metrics_filter->createNetworkAdapter();
     filter_manager.addReadFilter(metrics_adapter);
     filter_manager.addWriteFilter(metrics_adapter);

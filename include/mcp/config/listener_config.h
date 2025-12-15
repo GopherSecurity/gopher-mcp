@@ -11,12 +11,12 @@
 
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
-#include <map>
 
-#include "mcp/json/json_bridge.h"
 #include "mcp/config/types.h"  // For ConfigValidationError
+#include "mcp/json/json_bridge.h"
 
 namespace mcp {
 namespace config {
@@ -43,8 +43,8 @@ struct SocketAddress {
     }
 
     // Basic IP address format validation
-    if (address != "0.0.0.0" && address != "127.0.0.1" &&
-        address != "::1" && address != "::") {
+    if (address != "0.0.0.0" && address != "127.0.0.1" && address != "::1" &&
+        address != "::") {
       // Check for valid characters in IP address
       bool valid_chars = true;
       for (char c : address) {
@@ -199,8 +199,9 @@ struct ListenerConfig {
     // Validate name format
     for (char c : name) {
       if (!std::isalnum(c) && c != '_' && c != '-') {
-        throw ConfigValidationError("listener.name",
-                                    "Listener name contains invalid characters: " + name);
+        throw ConfigValidationError(
+            "listener.name",
+            "Listener name contains invalid characters: " + name);
       }
     }
 
@@ -213,8 +214,9 @@ struct ListenerConfig {
 
     // Must have at least one filter chain
     if (filter_chains.empty()) {
-      throw ConfigValidationError("listener.filter_chains",
-                                  "Listener must have at least one filter chain");
+      throw ConfigValidationError(
+          "listener.filter_chains",
+          "Listener must have at least one filter chain");
     }
 
     // Validate each filter chain
@@ -331,9 +333,11 @@ struct ListenerServerConfig {
       auto json_value = json::JsonValue::parse(content);
 
       ListenerServerConfig config;
-      if (json_value.contains("listeners") && json_value["listeners"].isArray()) {
+      if (json_value.contains("listeners") &&
+          json_value["listeners"].isArray()) {
         for (size_t i = 0; i < json_value["listeners"].size(); ++i) {
-          config.listeners.push_back(ListenerConfig::fromJson(json_value["listeners"][i]));
+          config.listeners.push_back(
+              ListenerConfig::fromJson(json_value["listeners"][i]));
         }
       }
 

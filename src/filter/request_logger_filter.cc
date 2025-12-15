@@ -19,8 +19,7 @@ namespace filter {
 
 namespace {
 
-std::string directionToString(
-    RequestLoggerFilter::MessageDirection direction) {
+std::string directionToString(RequestLoggerFilter::MessageDirection direction) {
   switch (direction) {
     case RequestLoggerFilter::MessageDirection::Incoming:
       return "in";
@@ -58,18 +57,24 @@ RequestLoggerFilter::RequestLoggerFilter(const Config& config)
     : config_(config) {
   // DEBUG TRACE
   std::cout << "\n🏗️  [RequestLogger] CONSTRUCTOR" << std::endl;
-  std::cout << "   Log level: " << static_cast<int>(config_.log_level) << std::endl;
-  std::cout << "   Log format: " << static_cast<int>(config_.log_format) << std::endl;
+  std::cout << "   Log level: " << static_cast<int>(config_.log_level)
+            << std::endl;
+  std::cout << "   Log format: " << static_cast<int>(config_.log_format)
+            << std::endl;
   std::cout << "   Output: " << static_cast<int>(config_.output) << std::endl;
-  std::cout << "   Include timestamps: " << (config_.include_timestamps ? "true" : "false") << std::endl;
-  std::cout << "   Include payload: " << (config_.include_payload ? "true" : "false") << std::endl;
+  std::cout << "   Include timestamps: "
+            << (config_.include_timestamps ? "true" : "false") << std::endl;
+  std::cout << "   Include payload: "
+            << (config_.include_payload ? "true" : "false") << std::endl;
 
   if (config_.output == Output::FILE) {
     std::cout << "   Opening log file: " << config_.output_path << std::endl;
     file_stream_.emplace(config_.output_path,
                          std::ios::out | std::ios::app | std::ios::binary);
     if (!file_stream_->is_open()) {
-      std::cout << "❌ [RequestLogger] Failed to open log file, falling back to stderr" << std::endl;
+      std::cout << "❌ [RequestLogger] Failed to open log file, falling back "
+                   "to stderr"
+                << std::endl;
       GOPHER_LOG(Error,
                  "RequestLoggerFilter failed to open log file '{}', "
                  "falling back to stderr",
@@ -77,7 +82,8 @@ RequestLoggerFilter::RequestLoggerFilter(const Config& config)
       file_stream_.reset();
       config_.output = Output::STDERR;
     } else {
-      std::cout << "✅ [RequestLogger] Log file opened successfully" << std::endl;
+      std::cout << "✅ [RequestLogger] Log file opened successfully"
+                << std::endl;
     }
   }
 
@@ -112,7 +118,8 @@ void RequestLoggerFilter::onRequest(const jsonrpc::Request& request) {
   logJsonRpcMessage("request", MessageDirection::Incoming, summary.str(),
                     payload);
 
-  std::cout << "✅ [RequestLogger] Request logged, propagating to next handler" << std::endl;
+  std::cout << "✅ [RequestLogger] Request logged, propagating to next handler"
+            << std::endl;
 
   if (next_callbacks_) {
     next_callbacks_->onRequest(request);
@@ -143,7 +150,8 @@ void RequestLoggerFilter::onResponse(const jsonrpc::Response& response) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger] onResponse() ENTRY" << std::endl;
   std::cout << "   ID: " << requestIdToString(response.id) << std::endl;
-  std::cout << "   Status: " << (response.error.has_value() ? "ERROR" : "OK") << std::endl;
+  std::cout << "   Status: " << (response.error.has_value() ? "ERROR" : "OK")
+            << std::endl;
 
   std::ostringstream summary;
   summary << "id=" << requestIdToString(response.id);
@@ -153,7 +161,8 @@ void RequestLoggerFilter::onResponse(const jsonrpc::Response& response) {
   logJsonRpcMessage("response", MessageDirection::Outgoing, summary.str(),
                     payload);
 
-  std::cout << "✅ [RequestLogger] Response logged, propagating to next handler" << std::endl;
+  std::cout << "✅ [RequestLogger] Response logged, propagating to next handler"
+            << std::endl;
 
   if (next_callbacks_) {
     next_callbacks_->onResponse(response);
@@ -172,10 +181,12 @@ void RequestLoggerFilter::onProtocolError(const Error& error) {
   summary << "code=" << error.code << " message=" << error.message;
 
   json::JsonValue payload = json::to_json(error);
-  logJsonRpcMessage("protocol_error", MessageDirection::Internal,
-                    summary.str(), payload);
+  logJsonRpcMessage("protocol_error", MessageDirection::Internal, summary.str(),
+                    payload);
 
-  std::cout << "✅ [RequestLogger] Protocol error logged, propagating to next handler" << std::endl;
+  std::cout
+      << "✅ [RequestLogger] Protocol error logged, propagating to next handler"
+      << std::endl;
 
   if (next_callbacks_) {
     next_callbacks_->onProtocolError(error);
@@ -184,58 +195,74 @@ void RequestLoggerFilter::onProtocolError(const Error& error) {
   }
 }
 
-network::FilterStatus RequestLoggerFilter::onData(Buffer& buffer, bool end_stream) {
+network::FilterStatus RequestLoggerFilter::onData(Buffer& buffer,
+                                                  bool end_stream) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger::onData] ENTRY" << std::endl;
   std::cout << "   Buffer length: " << buffer.length() << std::endl;
-  std::cout << "   End stream: " << (end_stream ? "true" : "false") << std::endl;
+  std::cout << "   End stream: " << (end_stream ? "true" : "false")
+            << std::endl;
 
   if (buffer.length() > 0) {
     std::string content = buffer.toString();
 
     // Print the actual incoming request with clear formatting
-    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
+    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              << std::endl;
     std::cout << "→ INCOMING REQUEST:" << std::endl;
-    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
-    if (config_.max_payload_length > 0 && content.size() > config_.max_payload_length) {
-      std::cout << content.substr(0, config_.max_payload_length) << "...(truncated)" << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              << std::endl;
+    if (config_.max_payload_length > 0 &&
+        content.size() > config_.max_payload_length) {
+      std::cout << content.substr(0, config_.max_payload_length)
+                << "...(truncated)" << std::endl;
     } else {
       std::cout << content << std::endl;
     }
-    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+              << std::endl;
 
     // Also keep the debug trace for compatibility
     std::cout << "   Buffer content (first 200 chars): "
-              << content.substr(0, std::min(size_t(200), content.size())) << std::endl;
+              << content.substr(0, std::min(size_t(200), content.size()))
+              << std::endl;
   }
 
   std::cout << "✅ [RequestLogger::onData] Returning Continue" << std::endl;
   return network::FilterStatus::Continue;
 }
 
-network::FilterStatus RequestLoggerFilter::onWrite(Buffer& buffer, bool end_stream) {
+network::FilterStatus RequestLoggerFilter::onWrite(Buffer& buffer,
+                                                   bool end_stream) {
   // DEBUG TRACE
   std::cout << "\n🟢 [RequestLogger::onWrite] ENTRY" << std::endl;
   std::cout << "   Buffer length: " << buffer.length() << std::endl;
-  std::cout << "   End stream: " << (end_stream ? "true" : "false") << std::endl;
+  std::cout << "   End stream: " << (end_stream ? "true" : "false")
+            << std::endl;
 
   if (buffer.length() > 0) {
     std::string content = buffer.toString();
 
     // Print the actual outgoing response with clear formatting
-    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
+    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              << std::endl;
     std::cout << "← OUTGOING RESPONSE:" << std::endl;
-    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
-    if (config_.max_payload_length > 0 && content.size() > config_.max_payload_length) {
-      std::cout << content.substr(0, config_.max_payload_length) << "...(truncated)" << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              << std::endl;
+    if (config_.max_payload_length > 0 &&
+        content.size() > config_.max_payload_length) {
+      std::cout << content.substr(0, config_.max_payload_length)
+                << "...(truncated)" << std::endl;
     } else {
       std::cout << content << std::endl;
     }
-    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+              << std::endl;
 
     // Also keep the debug trace for compatibility
     std::cout << "   Buffer content (first 200 chars): "
-              << content.substr(0, std::min(size_t(200), content.size())) << std::endl;
+              << content.substr(0, std::min(size_t(200), content.size()))
+              << std::endl;
   }
 
   std::cout << "✅ [RequestLogger::onWrite] Returning Continue" << std::endl;
@@ -249,7 +276,9 @@ network::FilterStatus RequestLoggerFilter::onNewConnection() {
   logTextLine(formatPrefix("connection", MessageDirection::Internal) +
               " opened");
 
-  std::cout << "✅ [RequestLogger::onNewConnection] Connection logged, returning Continue" << std::endl;
+  std::cout << "✅ [RequestLogger::onNewConnection] Connection logged, "
+               "returning Continue"
+            << std::endl;
   return network::FilterStatus::Continue;
 }
 
@@ -261,14 +290,14 @@ void RequestLoggerFilter::setNextCallbacks(
 
   next_callbacks_ = callbacks;
 
-  std::cout << "✅ [RequestLogger::setNextCallbacks] Next callbacks set" << std::endl;
+  std::cout << "✅ [RequestLogger::setNextCallbacks] Next callbacks set"
+            << std::endl;
 }
 
-void RequestLoggerFilter::logJsonRpcMessage(
-    const std::string& message_type,
-    MessageDirection direction,
-    const std::string& summary,
-    const json::JsonValue& payload) {
+void RequestLoggerFilter::logJsonRpcMessage(const std::string& message_type,
+                                            MessageDirection direction,
+                                            const std::string& summary,
+                                            const json::JsonValue& payload) {
   // DEBUG TRACE
   std::cout << "\n🔹 [RequestLogger::logJsonRpcMessage] ENTRY" << std::endl;
   std::cout << "   Message type: " << message_type << std::endl;
@@ -279,7 +308,8 @@ void RequestLoggerFilter::logJsonRpcMessage(
   bool include_payload =
       config_.include_payload && config_.log_level != LogLevel::INFO;
 
-  std::cout << "   Include payload: " << (include_payload ? "true" : "false") << std::endl;
+  std::cout << "   Include payload: " << (include_payload ? "true" : "false")
+            << std::endl;
 
   std::string prefix = formatPrefix(message_type, direction);
   std::ostringstream line_builder;
@@ -287,8 +317,8 @@ void RequestLoggerFilter::logJsonRpcMessage(
 
   if (include_payload) {
     const bool pretty = config_.log_format == LogFormat::PRETTY;
-    std::string rendered =
-        truncatePayload(payload.toString(pretty && config_.log_format != LogFormat::JSON));
+    std::string rendered = truncatePayload(
+        payload.toString(pretty && config_.log_format != LogFormat::JSON));
 
     const bool payload_truncated =
         config_.max_payload_length != 0 &&
@@ -316,16 +346,20 @@ void RequestLoggerFilter::logJsonRpcMessage(
     }
   }
 
-  std::cout << "🔹 [RequestLogger::logJsonRpcMessage] Calling logTextLine with formatted message..." << std::endl;
+  std::cout << "🔹 [RequestLogger::logJsonRpcMessage] Calling logTextLine with "
+               "formatted message..."
+            << std::endl;
   logTextLine(line_builder.str());
-  std::cout << "✅ [RequestLogger::logJsonRpcMessage] Message logged" << std::endl;
+  std::cout << "✅ [RequestLogger::logJsonRpcMessage] Message logged"
+            << std::endl;
 }
 
 void RequestLoggerFilter::logTextLine(const std::string& line) {
   // DEBUG TRACE (minimal to avoid spam)
   std::cout << "\n🔹 [RequestLogger::logTextLine] ENTRY" << std::endl;
   std::cout << "   Line length: " << line.length() << std::endl;
-  std::cout << "   Output type: " << static_cast<int>(config_.output) << std::endl;
+  std::cout << "   Output type: " << static_cast<int>(config_.output)
+            << std::endl;
 
   std::lock_guard<std::mutex> guard(write_mutex_);
 
@@ -344,7 +378,8 @@ void RequestLoggerFilter::logTextLine(const std::string& line) {
       if (file_stream_) {
         stream = &(*file_stream_);
       } else {
-        std::cout << "   File stream not available, falling back to STDERR" << std::endl;
+        std::cout << "   File stream not available, falling back to STDERR"
+                  << std::endl;
         stream = &std::cerr;
       }
       break;
@@ -355,13 +390,13 @@ void RequestLoggerFilter::logTextLine(const std::string& line) {
     (*stream) << line << std::endl;
     std::cout << "✅ [RequestLogger::logTextLine] Line written" << std::endl;
   } else {
-    std::cout << "❌ [RequestLogger::logTextLine] No output stream available!" << std::endl;
+    std::cout << "❌ [RequestLogger::logTextLine] No output stream available!"
+              << std::endl;
   }
 }
 
 std::string RequestLoggerFilter::formatPrefix(
-    const std::string& message_type,
-    MessageDirection direction) const {
+    const std::string& message_type, MessageDirection direction) const {
   std::ostringstream oss;
   if (config_.include_timestamps) {
     oss << '[' << makeTimestamp() << "] ";
@@ -402,8 +437,8 @@ std::string RequestLoggerFilter::makeTimestamp() const {
             1000;
 
   char result[40];
-  std::snprintf(result, sizeof(result), "%s.%03lld",
-                buffer, static_cast<long long>(ms.count()));
+  std::snprintf(result, sizeof(result), "%s.%03lld", buffer,
+                static_cast<long long>(ms.count()));
   return std::string(result);
 }
 

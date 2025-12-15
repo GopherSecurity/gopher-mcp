@@ -5,13 +5,14 @@
  * These conversion functions are isolated here to be used ONLY at system
  * boundaries where we need to interface with external libraries that require
  * nlohmann::json (like yaml-cpp parsing or json-schema-validator).
- * 
+ *
  * The rest of the codebase should use JsonValue exclusively.
  */
 
 #pragma once
 
 #include <nlohmann/json.hpp>
+
 #include "mcp/json/json_bridge.h"
 
 namespace mcp {
@@ -19,7 +20,7 @@ namespace config {
 
 /**
  * @brief Convert nlohmann::json to JsonValue
- * 
+ *
  * Used at system boundaries where we receive nlohmann::json from external
  * libraries (e.g., YAML parsing).
  */
@@ -52,7 +53,7 @@ inline mcp::json::JsonValue fromNlohmann(const nlohmann::json& nj) {
 
 /**
  * @brief Convert JsonValue to nlohmann::json
- * 
+ *
  * Used at system boundaries where we need to pass nlohmann::json to external
  * libraries (e.g., json-schema-validator).
  */

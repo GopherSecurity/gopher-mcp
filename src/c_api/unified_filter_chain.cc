@@ -9,20 +9,22 @@
 
 #include "mcp/filter/filter_chain_event_hub.h"
 
-// Forward declare the actual chain classes to avoid including their full headers
+// Forward declare the actual chain classes to avoid including their full
+// headers
 namespace mcp {
 namespace filter_chain {
 class AdvancedFilterChain;
 
 // Chain-level event callback forward declarations
-mcp::filter::FilterChainEventHub::ObserverHandle advanced_chain_set_event_callback(
+mcp::filter::FilterChainEventHub::ObserverHandle
+advanced_chain_set_event_callback(
     AdvancedFilterChain& chain,
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
-}
+}  // namespace filter_chain
 namespace filter_api {
 class FilterChain;
 }
-}
+}  // namespace mcp
 
 namespace mcp {
 namespace c_api_internal {
@@ -58,7 +60,7 @@ mcp_chain_state_t UnifiedFilterChain::getState() const {
 
 std::string UnifiedFilterChain::dump(const std::string& format) const {
   std::ostringstream oss;
-  
+
   if (type_ == ChainType::Advanced && advanced_chain_) {
     // Advanced chains have their own dump implementation
     // For now, return a placeholder
@@ -81,7 +83,7 @@ std::string UnifiedFilterChain::dump(const std::string& format) const {
   } else {
     oss << "Invalid chain";
   }
-  
+
   return oss.str();
 }
 
@@ -89,9 +91,10 @@ bool UnifiedFilterChain::setEventCallback(
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks) {
   if (type_ == ChainType::Advanced && advanced_chain_) {
     // Store the ObserverHandle to prevent automatic unregistration
-    // The handle's RAII destructor will unregister when this object is destroyed
-    // or when clearEventCallback() is called
-    observer_handle_ = advanced_chain_set_event_callback(*advanced_chain_, std::move(callbacks));
+    // The handle's RAII destructor will unregister when this object is
+    // destroyed or when clearEventCallback() is called
+    observer_handle_ = advanced_chain_set_event_callback(*advanced_chain_,
+                                                         std::move(callbacks));
     if (!observer_handle_.isValid()) {
       observer_handle_ = mcp::filter::FilterChainEventHub::ObserverHandle();
       return false;

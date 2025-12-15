@@ -50,21 +50,17 @@ inline mcp::json::JsonValue str(const std::string& s) {
 /**
  * @brief Helper to create int JsonValue
  */
-inline mcp::json::JsonValue num(int n) {
-  return mcp::json::JsonValue(n);
-}
+inline mcp::json::JsonValue num(int n) { return mcp::json::JsonValue(n); }
 
 /**
  * @brief Helper to create bool JsonValue
  */
-inline mcp::json::JsonValue boolean(bool b) {
-  return mcp::json::JsonValue(b);
-}
+inline mcp::json::JsonValue boolean(bool b) { return mcp::json::JsonValue(b); }
 
 /**
  * @brief Helper to create nested object
  */
-inline mcp::json::JsonValue nested(const std::string& key, 
+inline mcp::json::JsonValue nested(const std::string& key,
                                    const mcp::json::JsonValue& value) {
   auto obj = mcp::json::JsonValue::object();
   obj.set(key, value);
@@ -72,5 +68,5 @@ inline mcp::json::JsonValue nested(const std::string& key,
 }
 
 }  // namespace test
-}  // namespace config  
+}  // namespace config
 }  // namespace mcp

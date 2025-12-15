@@ -110,7 +110,8 @@ class HttpCodecFilter : public network::Filter {
 
   /**
    * Constructor with FilterCreationContext for config-driven filter chains
-   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param context Filter creation context containing dispatcher, callbacks,
+   * and transport metadata
    * @param config Filter-specific configuration
    */
   HttpCodecFilter(const filter::FilterCreationContext& context,
@@ -243,7 +244,7 @@ class HttpCodecFilter : public network::Filter {
 
   // Filter chain bridge for context-based construction
   class HttpFilterChainBridge : public MessageCallbacks {
-  public:
+   public:
     explicit HttpFilterChainBridge(HttpCodecFilter& parent_filter);
 
     // MessageCallbacks implementation
@@ -253,7 +254,7 @@ class HttpCodecFilter : public network::Filter {
     void onMessageComplete() override;
     void onError(const std::string& error) override;
 
-  private:
+   private:
     void forwardBodyToNextFilter(const std::string& body, bool end_stream);
 
     HttpCodecFilter& parent_filter_;

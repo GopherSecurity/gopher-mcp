@@ -11,8 +11,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
-#include <new>
 #include <mutex>
+#include <new>
 #include <unordered_map>
 #include <vector>
 
@@ -84,18 +84,23 @@ extern "C" {
  */
 
 MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
-  fprintf(stderr, "[mcp_init] Entry\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Entry\n");
+  fflush(stderr);
 
-  fprintf(stderr, "[mcp_init] About to acquire mutex lock\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] About to acquire mutex lock\n");
+  fflush(stderr);
   std::lock_guard<std::mutex> lock(g_state.mutex);
-  fprintf(stderr, "[mcp_init] Mutex lock acquired\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Mutex lock acquired\n");
+  fflush(stderr);
 
   if (g_state.initialized) {
-    fprintf(stderr, "[mcp_init] Already initialized, returning OK\n"); fflush(stderr);
+    fprintf(stderr, "[mcp_init] Already initialized, returning OK\n");
+    fflush(stderr);
     return MCP_OK;  // Already initialized
   }
 
-  fprintf(stderr, "[mcp_init] Setting up allocator\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Setting up allocator\n");
+  fflush(stderr);
   if (allocator) {
     g_state.allocator = *allocator;
     g_state.custom_allocator = true;
@@ -113,7 +118,8 @@ MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
   }
 
   // Register all core filters for static linking support
-  fprintf(stderr, "[mcp_init] Registering core filters for static linking\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Registering core filters for static linking\n");
+  fflush(stderr);
   {
     // Use std::call_once to ensure filters are only registered once
     static std::once_flag filter_init_flag;
@@ -121,17 +127,22 @@ MCP_API mcp_result_t mcp_init(const mcp_allocator_t* allocator) MCP_NOEXCEPT {
       try {
         // Register all core filters to ensure they're linked
         mcp::filter::registerAllCoreFilters();
-        fprintf(stderr, "[mcp_init] Core filters registered successfully\n"); fflush(stderr);
+        fprintf(stderr, "[mcp_init] Core filters registered successfully\n");
+        fflush(stderr);
       } catch (const std::exception& e) {
-        fprintf(stderr, "[mcp_init] WARNING: Failed to register filters: %s\n", e.what()); fflush(stderr);
+        fprintf(stderr, "[mcp_init] WARNING: Failed to register filters: %s\n",
+                e.what());
+        fflush(stderr);
         // Continue anyway - filters might be registered via other means
       }
     });
   }
 
-  fprintf(stderr, "[mcp_init] Setting initialized flag\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Setting initialized flag\n");
+  fflush(stderr);
   g_state.initialized = true;
-  fprintf(stderr, "[mcp_init] Exit - returning OK\n"); fflush(stderr);
+  fprintf(stderr, "[mcp_init] Exit - returning OK\n");
+  fflush(stderr);
   return MCP_OK;
 }
 
@@ -357,7 +368,8 @@ struct mcp_string_buffer_impl {
 
 MCP_API mcp_string_buffer_t* mcp_string_dup(mcp_string_t str) MCP_NOEXCEPT {
   // Allocate outer box that will be treated as the handle
-  auto* box = static_cast<mcp_string_buffer_t*>(mcp_malloc(sizeof(mcp_string_buffer_t)));
+  auto* box = static_cast<mcp_string_buffer_t*>(
+      mcp_malloc(sizeof(mcp_string_buffer_t)));
   if (!box) {
     return nullptr;
   }

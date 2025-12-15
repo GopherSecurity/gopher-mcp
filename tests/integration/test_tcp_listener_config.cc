@@ -9,14 +9,14 @@
  * - Error handling scenarios
  */
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-#include "mcp/network/server_listener_impl.h"
 #include "mcp/config/listener_config.h"
 #include "mcp/event/libevent_dispatcher.h"
-#include "mcp/mcp_connection_manager.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/mcp_connection_manager.h"
+#include "mcp/network/server_listener_impl.h"
 
 #define GOPHER_LOG_COMPONENT "test.tcp_listener_config"
 
@@ -25,13 +25,19 @@ namespace integration {
 namespace test {
 
 class MockListenerCallbacks : public network::ListenerCallbacks {
-public:
-  MOCK_METHOD(void, onAccept, (network::ConnectionSocketPtr&& socket), (override));
-  MOCK_METHOD(void, onNewConnection, (network::ConnectionPtr&& connection), (override));
+ public:
+  MOCK_METHOD(void,
+              onAccept,
+              (network::ConnectionSocketPtr && socket),
+              (override));
+  MOCK_METHOD(void,
+              onNewConnection,
+              (network::ConnectionPtr && connection),
+              (override));
 };
 
 class TcpListenerConfigTest : public ::testing::Test {
-protected:
+ protected:
   void SetUp() override {
     auto factory = event::createLibeventDispatcherFactory();
     dispatcher_ = factory->createDispatcher("test");
@@ -65,7 +71,8 @@ protected:
 
     registry.registerContextFactory(
         "http.codec",
-        [](const filter::FilterCreationContext& ctx, const json::JsonValue& config) {
+        [](const filter::FilterCreationContext& ctx,
+           const json::JsonValue& config) {
           // Return a mock filter for testing
           return std::shared_ptr<network::Filter>(nullptr);
         },
@@ -77,13 +84,15 @@ protected:
     sse_metadata.version = "1.0.0";
     sse_metadata.description = "SSE codec filter for testing";
     sse_metadata.default_config = json::JsonValue::object();
-    sse_metadata.default_config["keep_alive_interval_ms"] = json::JsonValue(30000);
+    sse_metadata.default_config["keep_alive_interval_ms"] =
+        json::JsonValue(30000);
     sse_metadata.default_config["event_timeout_ms"] = json::JsonValue(10000);
     sse_metadata.default_config["enable_keep_alive"] = json::JsonValue(true);
 
     registry.registerContextFactory(
         "sse.codec",
-        [](const filter::FilterCreationContext& ctx, const json::JsonValue& config) {
+        [](const filter::FilterCreationContext& ctx,
+           const json::JsonValue& config) {
           return std::shared_ptr<network::Filter>(nullptr);
         },
         sse_metadata);
@@ -95,12 +104,15 @@ protected:
     json_rpc_metadata.description = "JSON-RPC dispatcher filter for testing";
     json_rpc_metadata.default_config = json::JsonValue::object();
     json_rpc_metadata.default_config["use_framing"] = json::JsonValue(true);
-    json_rpc_metadata.default_config["max_message_size"] = json::JsonValue(1048576);
-    json_rpc_metadata.default_config["enable_batching"] = json::JsonValue(false);
+    json_rpc_metadata.default_config["max_message_size"] =
+        json::JsonValue(1048576);
+    json_rpc_metadata.default_config["enable_batching"] =
+        json::JsonValue(false);
 
     registry.registerContextFactory(
         "json_rpc.dispatcher",
-        [](const filter::FilterCreationContext& ctx, const json::JsonValue& config) {
+        [](const filter::FilterCreationContext& ctx,
+           const json::JsonValue& config) {
           return std::shared_ptr<network::Filter>(nullptr);
         },
         json_rpc_metadata);
@@ -110,7 +122,8 @@ protected:
     config::ListenerConfig listener_config;
     listener_config.name = "test_listener";
     listener_config.address.socket_address.address = "127.0.0.1";
-    listener_config.address.socket_address.port_value = 0; // Use any available port
+    listener_config.address.socket_address.port_value =
+        0;  // Use any available port
 
     // Create filter chain with HTTP -> SSE -> JSON-RPC
     config::FilterChainConfig filter_chain;
@@ -235,7 +248,8 @@ TEST_F(TcpListenerConfigTest, ConfigurationSerialization) {
   EXPECT_TRUE(json_config.contains("filter_chains"));
 
   EXPECT_EQ(json_config["name"].getString(), "test_listener");
-  EXPECT_TRUE(json_config["address"]["socket_address"]["address"].getString() == "127.0.0.1");
+  EXPECT_TRUE(json_config["address"]["socket_address"]["address"].getString() ==
+              "127.0.0.1");
   EXPECT_EQ(json_config["address"]["socket_address"]["port_value"].getInt(), 0);
 
   // Deserialize from JSON
@@ -311,7 +325,7 @@ TEST_F(TcpListenerConfigTest, EndToEndListenerWorkflow) {
   // Create a complete listener configuration
   auto listener_config = createTestListenerConfig();
   listener_config.name = "integration_test_listener";
-  listener_config.address.socket_address.port_value = 0; // Any port
+  listener_config.address.socket_address.port_value = 0;  // Any port
 
   // Validate configuration
   ASSERT_NO_THROW(listener_config.validate());

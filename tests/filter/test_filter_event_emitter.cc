@@ -6,10 +6,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "mcp/filter/filter_event_emitter.h"
-#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_chain_callbacks.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event.h"
+#include "mcp/filter/filter_event_emitter.h"
 #include "mcp/json/json_bridge.h"
 
 using namespace mcp;
@@ -41,10 +41,8 @@ class FilterEventEmitterTest : public ::testing::Test {
 TEST_F(FilterEventEmitterTest, BasicEventEmission) {
   FilterEventEmitter emitter(hub_, "test_filter", "instance_1", "chain_1");
 
-  auto event_data = json::JsonObjectBuilder()
-      .add("key1", "value1")
-      .add("key2", 42.0)
-      .build();
+  auto event_data =
+      json::JsonObjectBuilder().add("key1", "value1").add("key2", 42.0).build();
 
   // Expect event with enriched context
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
@@ -58,8 +56,7 @@ TEST_F(FilterEventEmitterTest, BasicEventEmission) {
         EXPECT_EQ(event.event_data["key1"].getString(), "value1");
       }));
 
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
                event_data);
 }
 
@@ -67,9 +64,7 @@ TEST_F(FilterEventEmitterTest, BasicEventEmission) {
 TEST_F(FilterEventEmitterTest, EmitWithCustomIds) {
   FilterEventEmitter emitter(hub_, "test_filter", "instance_1", "chain_1");
 
-  auto event_data = json::JsonObjectBuilder()
-      .add("test", "data")
-      .build();
+  auto event_data = json::JsonObjectBuilder().add("test", "data").build();
 
   // Expect event with custom stream and correlation IDs
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
@@ -79,11 +74,8 @@ TEST_F(FilterEventEmitterTest, EmitWithCustomIds) {
         EXPECT_EQ(event.context.correlation_id, "custom_corr");
       }));
 
-  emitter.emit(FilterEventType::RATE_LIMIT_EXCEEDED,
-               FilterEventSeverity::WARN,
-               event_data,
-               "custom_stream",
-               "custom_corr");
+  emitter.emit(FilterEventType::RATE_LIMIT_EXCEEDED, FilterEventSeverity::WARN,
+               event_data, "custom_stream", "custom_corr");
 }
 
 // Test setStreamId and setCorrelationId
@@ -104,8 +96,7 @@ TEST_F(FilterEventEmitterTest, SetStreamAndCorrelationIds) {
       }));
 
   emitter.emit(FilterEventType::CIRCUIT_HEALTH_UPDATE,
-               FilterEventSeverity::DEBUG,
-               event_data);
+               FilterEventSeverity::DEBUG, event_data);
 }
 
 // Test setStreamId overrides previous value
@@ -121,8 +112,7 @@ TEST_F(FilterEventEmitterTest, StreamIdOverride) {
       .WillOnce(Invoke([](const FilterEvent& event) {
         EXPECT_EQ(event.context.stream_id, "stream_1");
       }));
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
                event_data);
 
   // Change stream ID
@@ -133,8 +123,7 @@ TEST_F(FilterEventEmitterTest, StreamIdOverride) {
       .WillOnce(Invoke([](const FilterEvent& event) {
         EXPECT_EQ(event.context.stream_id, "stream_2");
       }));
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
                event_data);
 }
 
@@ -144,7 +133,7 @@ TEST_F(FilterEventEmitterTest, EmitFullyConstructedEvent) {
 
   // Create a fully constructed event
   FilterEvent event;
-  event.filter_name = "custom_filter";  // Will be preserved
+  event.filter_name = "custom_filter";           // Will be preserved
   event.filter_instance_id = "custom_instance";  // Will be preserved
   event.event_type = FilterEventType::METRIC_UPDATE;
   event.severity = FilterEventSeverity::DEBUG;
@@ -152,11 +141,12 @@ TEST_F(FilterEventEmitterTest, EmitFullyConstructedEvent) {
   event.context.stream_id = "preset_stream";
   event.context.correlation_id = "preset_corr";
   event.event_data = json::JsonObjectBuilder()
-      .add("counter", "requests")
-      .add("value", 100.0)
-      .build();
+                         .add("counter", "requests")
+                         .add("value", 100.0)
+                         .build();
 
-  // Expect event fields to be preserved (emitter only enriches empty context fields)
+  // Expect event fields to be preserved (emitter only enriches empty context
+  // fields)
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
       .WillOnce(Invoke([](const FilterEvent& received_event) {
         // Filter name and instance should be from the event (preserved)
@@ -191,7 +181,8 @@ TEST_F(FilterEventEmitterTest, EmitEventWithPartialContext) {
   event.event_type = FilterEventType::CIRCUIT_STATE_CHANGE;
   event.severity = FilterEventSeverity::INFO;
   event.context.stream_id = "";  // Empty - should be filled by emitter
-  event.context.correlation_id = "preset_corr";  // Non-empty - should be preserved
+  event.context.correlation_id =
+      "preset_corr";  // Non-empty - should be preserved
   event.event_data = json::JsonObjectBuilder().build();
 
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
@@ -234,8 +225,7 @@ TEST_F(FilterEventEmitterTest, EmitWithNullHub) {
   // Should not crash when hub is null
   EXPECT_NO_THROW({
     emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-                 FilterEventSeverity::INFO,
-                 event_data);
+                 FilterEventSeverity::INFO, event_data);
   });
 
   // No event should be received (hub is null)
@@ -251,16 +241,16 @@ TEST_F(FilterEventEmitterTest, MultipleEventsFromSameEmitter) {
   // Emit 5 different events
   EXPECT_CALL(*callbacks_, onFilterEvent(_)).Times(5);
 
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO, event_data);
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
+               event_data);
   emitter.emit(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
                FilterEventSeverity::WARN, event_data);
   emitter.emit(FilterEventType::CIRCUIT_HEALTH_UPDATE,
                FilterEventSeverity::DEBUG, event_data);
-  emitter.emit(FilterEventType::RATE_LIMIT_EXCEEDED,
-               FilterEventSeverity::WARN, event_data);
-  emitter.emit(FilterEventType::METRIC_UPDATE,
-               FilterEventSeverity::DEBUG, event_data);
+  emitter.emit(FilterEventType::RATE_LIMIT_EXCEEDED, FilterEventSeverity::WARN,
+               event_data);
+  emitter.emit(FilterEventType::METRIC_UPDATE, FilterEventSeverity::DEBUG,
+               event_data);
 }
 
 // Test event timestamp is set
@@ -275,8 +265,7 @@ TEST_F(FilterEventEmitterTest, EventTimestampIsSet) {
         EXPECT_GT(event.getTimestampMs(), 0);
       }));
 
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
                event_data);
 }
 
@@ -289,12 +278,10 @@ TEST_F(FilterEventEmitterTest, EmptyFilterName) {
   auto event_data = json::JsonObjectBuilder().build();
 
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
-      .WillOnce(Invoke([](const FilterEvent& event) {
-        EXPECT_EQ(event.filter_name, "");
-      }));
+      .WillOnce(Invoke(
+          [](const FilterEvent& event) { EXPECT_EQ(event.filter_name, ""); }));
 
-  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::CIRCUIT_STATE_CHANGE, FilterEventSeverity::INFO,
                event_data);
 }
 
@@ -315,8 +302,7 @@ TEST_F(FilterEventEmitterTest, MoveSemantics) {
   // Should be able to emit from moved emitter
   EXPECT_CALL(*callbacks_, onFilterEvent(_)).Times(1);
   emitter2.emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-                FilterEventSeverity::INFO,
-                event_data);
+                FilterEventSeverity::INFO, event_data);
 }
 
 // Test event data JSON structure preservation
@@ -324,14 +310,14 @@ TEST_F(FilterEventEmitterTest, ComplexEventDataPreservation) {
   FilterEventEmitter emitter(hub_, "test_filter", "", "");
 
   auto complex_data = json::JsonObjectBuilder()
-      .add("string_val", "test")
-      .add("number_val", 123.45)
-      .add("bool_val", true)
-      .add("nested", json::JsonObjectBuilder()
-          .add("inner_key", "inner_value")
-          .add("inner_num", 999.0)
-          .build())
-      .build();
+                          .add("string_val", "test")
+                          .add("number_val", 123.45)
+                          .add("bool_val", true)
+                          .add("nested", json::JsonObjectBuilder()
+                                             .add("inner_key", "inner_value")
+                                             .add("inner_num", 999.0)
+                                             .build())
+                          .build();
 
   EXPECT_CALL(*callbacks_, onFilterEvent(_))
       .WillOnce(Invoke([](const FilterEvent& event) {
@@ -339,12 +325,13 @@ TEST_F(FilterEventEmitterTest, ComplexEventDataPreservation) {
         EXPECT_FLOAT_EQ(event.event_data["number_val"].getFloat(), 123.45);
         EXPECT_TRUE(event.event_data["bool_val"].getBool());
         EXPECT_TRUE(event.event_data.contains("nested"));
-        EXPECT_EQ(event.event_data["nested"]["inner_key"].getString(), "inner_value");
-        EXPECT_FLOAT_EQ(event.event_data["nested"]["inner_num"].getFloat(), 999.0);
+        EXPECT_EQ(event.event_data["nested"]["inner_key"].getString(),
+                  "inner_value");
+        EXPECT_FLOAT_EQ(event.event_data["nested"]["inner_num"].getFloat(),
+                        999.0);
       }));
 
-  emitter.emit(FilterEventType::REQUEST_LOGGED,
-               FilterEventSeverity::INFO,
+  emitter.emit(FilterEventType::REQUEST_LOGGED, FilterEventSeverity::INFO,
                complex_data);
 }
 

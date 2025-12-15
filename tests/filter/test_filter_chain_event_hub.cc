@@ -3,15 +3,15 @@
  * @brief Unit tests for FilterChainEventHub
  */
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
 #include <vector>
 
-#include "mcp/filter/filter_chain_event_hub.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "mcp/filter/filter_chain_callbacks.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event.h"
 #include "mcp/json/json_bridge.h"
 
@@ -44,9 +44,7 @@ MATCHER_P(HasFilterName, expected_name, "") {
 
 class FilterChainEventHubTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    hub_ = std::make_shared<FilterChainEventHub>();
-  }
+  void SetUp() override { hub_ = std::make_shared<FilterChainEventHub>(); }
 
   // Helper to create test event
   FilterEvent createEvent(
@@ -61,9 +59,8 @@ class FilterChainEventHubTest : public ::testing::Test {
     event.context.chain_id = "chain_1";
     event.context.stream_id = "stream_1";
     event.context.correlation_id = "corr_1";
-    event.event_data = json::JsonObjectBuilder()
-        .add("test_key", "test_value")
-        .build();
+    event.event_data =
+        json::JsonObjectBuilder().add("test_key", "test_value").build();
     return event;
   }
 
@@ -104,7 +101,7 @@ TEST_F(FilterChainEventHubTest, ObserverHandleRAII) {
     // Emit event - should be received
     EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(1);
     hub_->emit(createEvent());
-  } // handle destroyed here, should auto-unregister
+  }  // handle destroyed here, should auto-unregister
 
   // Emit event - should NOT be received (observer was unregistered)
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(0);
@@ -123,8 +120,8 @@ TEST_F(FilterChainEventHubTest, ObserverHandleMoveSemantics) {
     // Move handle2 to handle1
     handle1 = std::move(handle2);
     EXPECT_TRUE(handle1.isValid());
-    EXPECT_FALSE(handle2.isValid()); // handle2 should be invalidated
-  } // handle2 destroyed, but should NOT unregister
+    EXPECT_FALSE(handle2.isValid());  // handle2 should be invalidated
+  }  // handle2 destroyed, but should NOT unregister
 
   // Emit event - should still be received via handle1
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(1);
@@ -158,14 +155,16 @@ TEST_F(FilterChainEventHubTest, FilterByEventType) {
   auto handle = hub_->registerObserver(callbacks, filter);
 
   // Emit CIRCUIT_STATE_CHANGE - should be received
-  EXPECT_CALL(*callbacks,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE));
 
   // Emit CIRCUIT_REQUEST_BLOCKED - should NOT be received
-  EXPECT_CALL(*callbacks,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
+  EXPECT_CALL(
+      *callbacks,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
       .Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_REQUEST_BLOCKED));
 }
@@ -180,28 +179,30 @@ TEST_F(FilterChainEventHubTest, FilterBySeverity) {
   auto handle = hub_->registerObserver(callbacks, filter);
 
   // Emit ERROR - should be received
-  EXPECT_CALL(*callbacks, onFilterEvent(HasSeverity(FilterEventSeverity::ERROR)))
+  EXPECT_CALL(*callbacks,
+              onFilterEvent(HasSeverity(FilterEventSeverity::ERROR)))
       .Times(1);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::ERROR));
+                         FilterEventSeverity::ERROR));
 
   // Emit WARN - should be received
   EXPECT_CALL(*callbacks, onFilterEvent(HasSeverity(FilterEventSeverity::WARN)))
       .Times(1);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::WARN));
+                         FilterEventSeverity::WARN));
 
   // Emit INFO - should NOT be received
   EXPECT_CALL(*callbacks, onFilterEvent(HasSeverity(FilterEventSeverity::INFO)))
       .Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::INFO));
+                         FilterEventSeverity::INFO));
 
   // Emit DEBUG - should NOT be received
-  EXPECT_CALL(*callbacks, onFilterEvent(HasSeverity(FilterEventSeverity::DEBUG)))
+  EXPECT_CALL(*callbacks,
+              onFilterEvent(HasSeverity(FilterEventSeverity::DEBUG)))
       .Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::DEBUG));
+                         FilterEventSeverity::DEBUG));
 }
 
 // Test filtering by filter name
@@ -217,15 +218,13 @@ TEST_F(FilterChainEventHubTest, FilterByFilterName) {
   EXPECT_CALL(*callbacks, onFilterEvent(HasFilterName("circuit_breaker")))
       .Times(1);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::INFO,
-                              "circuit_breaker"));
+                         FilterEventSeverity::INFO, "circuit_breaker"));
 
   // Emit from rate_limiter - should NOT be received
   EXPECT_CALL(*callbacks, onFilterEvent(HasFilterName("rate_limiter")))
       .Times(0);
   hub_->emit(createEvent(FilterEventType::RATE_LIMIT_EXCEEDED,
-                              FilterEventSeverity::WARN,
-                              "rate_limiter"));
+                         FilterEventSeverity::WARN, "rate_limiter"));
 }
 
 // Test combined filtering
@@ -242,26 +241,22 @@ TEST_F(FilterChainEventHubTest, CombinedFiltering) {
   // Should match all filters - received
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(1);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::WARN,
-                              "circuit_breaker"));
+                         FilterEventSeverity::WARN, "circuit_breaker"));
 
   // Wrong event type - NOT received
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
-                              FilterEventSeverity::WARN,
-                              "circuit_breaker"));
+                         FilterEventSeverity::WARN, "circuit_breaker"));
 
   // Wrong severity - NOT received
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::INFO,
-                              "circuit_breaker"));
+                         FilterEventSeverity::INFO, "circuit_breaker"));
 
   // Wrong filter name - NOT received
   EXPECT_CALL(*callbacks, onFilterEvent(_)).Times(0);
   hub_->emit(createEvent(FilterEventType::CIRCUIT_STATE_CHANGE,
-                              FilterEventSeverity::WARN,
-                              "rate_limiter"));
+                         FilterEventSeverity::WARN, "rate_limiter"));
 }
 
 // Test enable/disable functionality
@@ -296,7 +291,8 @@ TEST_F(FilterChainEventHubTest, ThreadSafety) {
   constexpr int kNumThreads = 10;
   constexpr int kEventsPerThread = 100;
 
-  std::vector<std::shared_ptr<NiceMock<MockFilterChainCallbacks>>> callbacks_list;
+  std::vector<std::shared_ptr<NiceMock<MockFilterChainCallbacks>>>
+      callbacks_list;
   std::vector<FilterChainEventHub::ObserverHandle> handles;
   std::atomic<int> total_events_received{0};
 
@@ -308,9 +304,8 @@ TEST_F(FilterChainEventHubTest, ThreadSafety) {
 
       // Count events
       ON_CALL(*callbacks, onFilterEvent(_))
-          .WillByDefault(Invoke([&](const FilterEvent&) {
-            total_events_received++;
-          }));
+          .WillByDefault(
+              Invoke([&](const FilterEvent&) { total_events_received++; }));
 
       auto handle = hub_->registerObserver(callbacks);
 

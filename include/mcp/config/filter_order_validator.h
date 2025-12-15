@@ -1,20 +1,20 @@
 /**
  * @file filter_order_validator.h
  * @brief Filter ordering model and constraints validator
- * 
+ *
  * Enforces a normative ordering model with stage taxonomy and explicit
  * constraints for safe filter chains. Ensures filters are properly ordered
- * according to their stages (Security → QoS → Observability → Protocol → Application)
- * and validates dependencies and ordering constraints.
+ * according to their stages (Security → QoS → Observability → Protocol →
+ * Application) and validates dependencies and ordering constraints.
  */
 
 #pragma once
 
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
-#include <map>
-#include <set>
 
 #include "mcp/core/compat.h"
 #include "mcp/json/json_bridge.h"

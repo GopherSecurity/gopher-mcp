@@ -8,11 +8,10 @@
 namespace mcp {
 namespace filter {
 
-FilterEventEmitter::FilterEventEmitter(
-    std::shared_ptr<FilterChainEventHub> hub,
-    const std::string& filter_name,
-    const std::string& filter_instance_id,
-    const std::string& chain_id)
+FilterEventEmitter::FilterEventEmitter(std::shared_ptr<FilterChainEventHub> hub,
+                                       const std::string& filter_name,
+                                       const std::string& filter_instance_id,
+                                       const std::string& chain_id)
     : hub_(hub),
       filter_name_(filter_name),
       filter_instance_id_(filter_instance_id),

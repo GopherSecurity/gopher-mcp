@@ -32,7 +32,7 @@ namespace examples {
  */
 class ProductionMcpClient : public client::McpClient {
  public:
- void setupFilterChain(application::FilterChainBuilder& builder) override {
+  void setupFilterChain(application::FilterChainBuilder& builder) override {
     // =========================================================================
     // Layer 1: CIRCUIT BREAKER (CLIENT ESSENTIAL)
     // =========================================================================
@@ -168,7 +168,8 @@ class BatchMcpClient : public client::McpClient {
       config.refill_rate = 5;        // Steady 5 req/sec
 
       // BATCH-SPECIFIC: Prevent overwhelming server with batch requests
-      // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
+      // NOTE: Using nullptr for event emitter - use FilterCreationContext for
+      // chain events
       return std::make_shared<filter::RateLimitFilter>(nullptr, config);
     });
 
@@ -203,7 +204,8 @@ class ProductionMcpServer : public server::McpServer {
 
       // SERVER-SPECIFIC: Enforce fair usage across clients
       // Track and limit each client separately
-      // NOTE: Using nullptr for event emitter - use FilterCreationContext for chain events
+      // NOTE: Using nullptr for event emitter - use FilterCreationContext for
+      // chain events
       return std::make_shared<filter::RateLimitFilter>(nullptr, config);
     });
 
@@ -221,8 +223,8 @@ class ProductionMcpServer : public server::McpServer {
 
         // SERVER-SPECIFIC: Protect downstream services
         // Only for outbound calls from server
-      return std::make_shared<filter::CircuitBreakerFilter>(
-          std::shared_ptr<filter::FilterEventEmitter>(), config);
+        return std::make_shared<filter::CircuitBreakerFilter>(
+            std::shared_ptr<filter::FilterEventEmitter>(), config);
       });
     }
 
@@ -298,7 +300,7 @@ class ProductionMcpServer : public server::McpServer {
 
     // Layer 6: JSON-RPC Protocol (always innermost)
     builder.addFilter(createJsonRpcFilter());
- }
+  }
 
  private:
   std::shared_ptr<filter::MetricsFilter> metrics_filter_;
@@ -360,8 +362,9 @@ class DevelopmentMcpSetup {
     builder.addFilter([]() {
       struct DebugMetricsCallbacks : filter::MetricsFilter::MetricsCallbacks {
         void onMetricsUpdate(const filter::ConnectionMetrics&) override {}
-        void onThresholdExceeded(const std::string&, uint64_t, uint64_t)
-            override {}
+        void onThresholdExceeded(const std::string&,
+                                 uint64_t,
+                                 uint64_t) override {}
       };
 
       static DebugMetricsCallbacks callbacks;
@@ -371,8 +374,7 @@ class DevelopmentMcpSetup {
           std::chrono::seconds(1);  // Frequent for debugging
       config.track_methods = true;
 
-      auto filter =
-          std::make_shared<filter::MetricsFilter>(callbacks, config);
+      auto filter = std::make_shared<filter::MetricsFilter>(callbacks, config);
       return filter->createNetworkAdapter();
     });
 

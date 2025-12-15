@@ -8,9 +8,9 @@
 #include <vector>
 
 #include "mcp/core/compat.h"
+#include "mcp/filter/filter_context.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/network/filter.h"
-#include "mcp/filter/filter_context.h"
 
 namespace mcp {
 namespace filter {
@@ -27,21 +27,20 @@ using ContextAwareFilterFactory = std::function<network::FilterSharedPtr(
  * Factory metadata for tracking versioning and dependencies
  */
 struct FilterFactoryMetadata {
-  std::string name;                      // Factory name/type
+  std::string name;                       // Factory name/type
   std::string version;                    // Factory version (semver format)
-  std::vector<std::string> dependencies; // List of required dependencies
-  json::JsonValue config_schema;         // JSON schema for configuration validation
-  std::string description;               // Human-readable description
-  
-  FilterFactoryMetadata()
-      : config_schema(json::JsonValue::object()) {}
+  std::vector<std::string> dependencies;  // List of required dependencies
+  json::JsonValue config_schema;  // JSON schema for configuration validation
+  std::string description;        // Human-readable description
+
+  FilterFactoryMetadata() : config_schema(json::JsonValue::object()) {}
 };
 
 /**
  * Abstract base class for filter factories
- * 
- * All filter implementations should create a factory that inherits from this class
- * and registers itself using the REGISTER_FILTER_FACTORY macro.
+ *
+ * All filter implementations should create a factory that inherits from this
+ * class and registers itself using the REGISTER_FILTER_FACTORY macro.
  */
 class FilterFactory {
  public:
@@ -49,7 +48,7 @@ class FilterFactory {
 
   /**
    * Create a filter instance with the given configuration
-   * 
+   *
    * @param config Configuration as JsonValue
    * @return Shared pointer to the created filter
    * @throws std::runtime_error if configuration is invalid
@@ -59,14 +58,14 @@ class FilterFactory {
 
   /**
    * Get the factory metadata
-   * 
+   *
    * @return Factory metadata including version, dependencies, and schema
    */
   virtual const FilterFactoryMetadata& getMetadata() const = 0;
 
   /**
    * Get the default configuration for this filter
-   * 
+   *
    * @return Default configuration as JsonValue
    */
   virtual json::JsonValue getDefaultConfig() const {
@@ -75,7 +74,7 @@ class FilterFactory {
 
   /**
    * Validate configuration against the factory's schema
-   * 
+   *
    * @param config Configuration to validate
    * @return true if valid, false otherwise
    */
@@ -88,7 +87,7 @@ class FilterFactory {
 
 /**
  * Filter Registry singleton
- * 
+ *
  * Manages registration and creation of filters through their factories.
  * Thread-safe for concurrent access.
  */
@@ -101,7 +100,7 @@ class FilterRegistry {
 
   /**
    * Register a filter factory
-   * 
+   *
    * @param name Filter type name
    * @param factory Factory instance
    * @return true if registered successfully, false if name already exists
@@ -110,18 +109,18 @@ class FilterRegistry {
 
   /**
    * Create a filter by name
-   * 
+   *
    * @param name Filter type name
    * @param config Configuration for the filter
    * @return Created filter instance
    * @throws std::runtime_error if filter type is unknown or creation fails
    */
   network::FilterSharedPtr createFilter(const std::string& name,
-                                       const json::JsonValue& config) const;
+                                        const json::JsonValue& config) const;
 
   /**
    * Get a factory by name
-   * 
+   *
    * @param name Filter type name
    * @return Factory instance or nullptr if not found
    */
@@ -129,21 +128,21 @@ class FilterRegistry {
 
   /**
    * List all registered factory names
-   * 
+   *
    * @return Vector of registered factory names
    */
   std::vector<std::string> listFactories() const;
 
   /**
    * Get the count of registered factories
-   * 
+   *
    * @return Number of registered factories
    */
   size_t getFactoryCount() const;
 
   /**
    * Check if a factory is registered
-   * 
+   *
    * @param name Filter type name
    * @return true if registered, false otherwise
    */
@@ -165,8 +164,8 @@ class FilterRegistry {
    * @return true if registered successfully, false if name already exists
    */
   bool registerContextFactory(const std::string& name,
-                             ContextAwareFilterFactory factory,
-                             const BasicFilterMetadata& metadata);
+                              ContextAwareFilterFactory factory,
+                              const BasicFilterMetadata& metadata);
 
   /**
    * Create a filter with context
@@ -211,7 +210,8 @@ class FilterRegistry {
    * @param filter_names List of filter names in order
    * @return true if all filters exist and chain is valid
    */
-  bool validateBasicFilterChain(const std::vector<std::string>& filter_names) const;
+  bool validateBasicFilterChain(
+      const std::vector<std::string>& filter_names) const;
 
  private:
   // Private constructor for singleton
@@ -241,7 +241,7 @@ class FilterRegistry {
 
 /**
  * Base class for self-registering filter factories
- * 
+ *
  * This template simplifies the creation of self-registering factories.
  */
 template <typename FactoryType>
@@ -255,36 +255,37 @@ class SelfRegisteringFilterFactory {
 
 /**
  * Macro for registering filter factories
- * 
+ *
  * Usage:
  *   REGISTER_FILTER_FACTORY(MyFilterFactory, "my_filter")
- * 
+ *
  * This creates a static initializer that registers the factory at startup.
  */
-#define REGISTER_FILTER_FACTORY(FactoryClass, FilterName)                    \
-  namespace {                                                                \
-  static struct FactoryClass##_Registrar {                                  \
-    FactoryClass##_Registrar() {                                           \
-      auto factory = std::make_shared<FactoryClass>();                     \
-      mcp::filter::FilterRegistry::instance().registerFactory(FilterName,   \
-                                                             factory);      \
-    }                                                                       \
-  } FactoryClass##_registrar_instance;                                     \
+#define REGISTER_FILTER_FACTORY(FactoryClass, FilterName)                 \
+  namespace {                                                             \
+  static struct FactoryClass##_Registrar {                                \
+    FactoryClass##_Registrar() {                                          \
+      auto factory = std::make_shared<FactoryClass>();                    \
+      mcp::filter::FilterRegistry::instance().registerFactory(FilterName, \
+                                                              factory);   \
+    }                                                                     \
+  } FactoryClass##_registrar_instance;                                    \
   }
 
 /**
  * Helper macro for creating filter factory classes
- * 
+ *
  * This macro reduces boilerplate when creating new filter factories.
  */
-#define DECLARE_FILTER_FACTORY(FactoryClass, FilterClass)                    \
+#define DECLARE_FILTER_FACTORY(FactoryClass, FilterClass)                   \
   class FactoryClass : public mcp::filter::FilterFactory {                  \
    public:                                                                  \
-    mcp::network::FilterSharedPtr createFilter(                            \
-        const mcp::json::JsonValue& config) const override;                \
+    mcp::network::FilterSharedPtr createFilter(                             \
+        const mcp::json::JsonValue& config) const override;                 \
     const mcp::filter::FilterFactoryMetadata& getMetadata() const override; \
+                                                                            \
    private:                                                                 \
-    static mcp::filter::FilterFactoryMetadata metadata_;                   \
+    static mcp::filter::FilterFactoryMetadata metadata_;                    \
   };
 
 }  // namespace filter

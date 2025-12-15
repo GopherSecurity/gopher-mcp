@@ -502,9 +502,9 @@ ReadDisableStatus ConnectionImpl::readDisableWithStatus(bool disable) {
       }
       enableFileEvents(events_to_enable);
 
-      // Always poke a read event after re-enabling to handle edge-trigger races.
-      // Data might have arrived while disabled (kernel buffer non-empty) but no
-      // new edge will occur, so force a read cycle now.
+      // Always poke a read event after re-enabling to handle edge-trigger
+      // races. Data might have arrived while disabled (kernel buffer non-empty)
+      // but no new edge will occur, so force a read cycle now.
       if (file_event_) {
         file_event_->activate(
             static_cast<uint32_t>(event::FileReadyType::Read));
@@ -610,8 +610,7 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
 
     const bool transport_allows_immediate_write =
-        transport_socket_ &&
-        transport_socket_->protocol() == "stdio";
+        transport_socket_ && transport_socket_->protocol() == "stdio";
 
     // If socket is already write-ready, or the transport guarantees that writes
     // never block (stdio pipes), flush immediately. Otherwise wait for the
@@ -1544,4 +1543,3 @@ void ConnectionImpl::configureStateMachine() {
 
 }  // namespace network
 }  // namespace mcp
-

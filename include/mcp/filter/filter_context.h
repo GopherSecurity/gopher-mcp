@@ -32,7 +32,8 @@ class CircuitBreakerFilter;
 /**
  * @brief Connection mode for filter creation
  *
- * Indicates whether the filter is being created for a server or client connection
+ * Indicates whether the filter is being created for a server or client
+ * connection
  */
 enum class ConnectionMode {
   /// Server mode - accepting incoming connections
@@ -89,9 +90,7 @@ struct TransportMetadata {
   /**
    * @brief Check if this is a TCP transport
    */
-  bool isTcp() const {
-    return local_port > 0 || remote_port > 0;
-  }
+  bool isTcp() const { return local_port > 0 || remote_port > 0; }
 
   /**
    * @brief Get transport type as string
@@ -148,12 +147,10 @@ struct TransportMetadata {
   }
 
   bool operator==(const TransportMetadata& other) const {
-    return alpn == other.alpn &&
-           sni == other.sni &&
+    return alpn == other.alpn && sni == other.sni &&
            local_address == other.local_address &&
            remote_address == other.remote_address &&
-           local_port == other.local_port &&
-           remote_port == other.remote_port &&
+           local_port == other.local_port && remote_port == other.remote_port &&
            custom.toString() == other.custom.toString();
   }
 
@@ -202,23 +199,17 @@ struct FilterCreationContext {
   /**
    * @brief Check if this is a server-side filter
    */
-  bool isServer() const {
-    return mode == ConnectionMode::Server;
-  }
+  bool isServer() const { return mode == ConnectionMode::Server; }
 
   /**
    * @brief Check if this is a client-side filter
    */
-  bool isClient() const {
-    return mode == ConnectionMode::Client;
-  }
+  bool isClient() const { return mode == ConnectionMode::Client; }
 
   /**
    * @brief Get connection mode as string
    */
-  std::string getModeString() const {
-    return isServer() ? "server" : "client";
-  }
+  std::string getModeString() const { return isServer() ? "server" : "client"; }
 
   /**
    * @brief Convert to JSON for debugging/logging
@@ -251,7 +242,7 @@ struct FilterCreationContext {
 };
 
 /**
- * @brief Basic filter metadata 
+ * @brief Basic filter metadata
  *
  * Simplified metadata structure focusing on essential information
  * needed for filter registration and validation.
@@ -297,7 +288,8 @@ struct BasicFilterMetadata {
     size_t second_dot = version.find('.', first_dot + 1);
 
     if (first_dot == std::string::npos || second_dot == std::string::npos) {
-      throw std::runtime_error("Filter metadata version must be in X.Y.Z format");
+      throw std::runtime_error(
+          "Filter metadata version must be in X.Y.Z format");
     }
   }
 
@@ -310,7 +302,8 @@ struct BasicFilterMetadata {
     builder.add("version", version);
     builder.add("description", description);
 
-    if (!default_config.isNull() && default_config.isObject() && default_config.size() > 0) {
+    if (!default_config.isNull() && default_config.isObject() &&
+        default_config.size() > 0) {
       builder.add("default_config", default_config);
     }
 
@@ -318,8 +311,7 @@ struct BasicFilterMetadata {
   }
 
   bool operator==(const BasicFilterMetadata& other) const {
-    return name == other.name &&
-           version == other.version &&
+    return name == other.name && version == other.version &&
            description == other.description &&
            default_config.toString() == other.default_config.toString();
   }

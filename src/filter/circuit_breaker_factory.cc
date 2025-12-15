@@ -3,11 +3,11 @@
  * @brief Factory implementation for circuit breaker filter
  */
 
-#include "mcp/filter/filter_registry.h"
 #include "mcp/filter/circuit_breaker_filter.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_event_emitter.h"
-#include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/logging/log_macros.h"
@@ -22,22 +22,21 @@ namespace filter {
  *
  * Configuration schema:
  * {
- *   "failure_threshold": number,          // Consecutive failures to open (default: 5)
- *   "error_rate_threshold": number,       // Error rate to open (0.0-1.0, default: 0.5)
- *   "min_requests": number,               // Min requests before checking error rate (default: 10)
- *   "timeout_ms": number,                 // Time before trying half-open (default: 30000)
- *   "window_size_ms": number,             // Sliding window for metrics (default: 60000)
- *   "half_open_max_requests": number,     // Max requests in half-open (default: 3)
- *   "half_open_success_threshold": number, // Successes to close circuit (default: 2)
- *   "track_timeouts": boolean,            // Track timeouts as failures (default: true)
- *   "track_errors": boolean,              // Track errors as failures (default: true)
- *   "track_4xx_as_errors": boolean        // Count client errors as failures (default: false)
+ *   "failure_threshold": number,          // Consecutive failures to open
+ * (default: 5) "error_rate_threshold": number,       // Error rate to open
+ * (0.0-1.0, default: 0.5) "min_requests": number,               // Min requests
+ * before checking error rate (default: 10) "timeout_ms": number, // Time before
+ * trying half-open (default: 30000) "window_size_ms": number,             //
+ * Sliding window for metrics (default: 60000) "half_open_max_requests": number,
+ * // Max requests in half-open (default: 3) "half_open_success_threshold":
+ * number, // Successes to close circuit (default: 2) "track_timeouts": boolean,
+ * // Track timeouts as failures (default: true) "track_errors": boolean, //
+ * Track errors as failures (default: true) "track_4xx_as_errors": boolean //
+ * Count client errors as failures (default: false)
  * }
  */
 network::FilterSharedPtr createCircuitBreakerFilter(
-    const FilterCreationContext& context,
-    const json::JsonValue& config) {
-
+    const FilterCreationContext& context, const json::JsonValue& config) {
   GOPHER_LOG(Info, "Creating CircuitBreakerFilter instance");
 
   // Extract configuration values with defaults
@@ -45,8 +44,8 @@ network::FilterSharedPtr createCircuitBreakerFilter(
 
   if (config.isObject()) {
     if (config.contains("failure_threshold")) {
-      cb_config.failure_threshold = static_cast<size_t>(
-          config["failure_threshold"].getInt(5));
+      cb_config.failure_threshold =
+          static_cast<size_t>(config["failure_threshold"].getInt(5));
     }
 
     if (config.contains("error_rate_threshold")) {
@@ -55,28 +54,28 @@ network::FilterSharedPtr createCircuitBreakerFilter(
     }
 
     if (config.contains("min_requests")) {
-      cb_config.min_requests = static_cast<size_t>(
-          config["min_requests"].getInt(10));
+      cb_config.min_requests =
+          static_cast<size_t>(config["min_requests"].getInt(10));
     }
 
     if (config.contains("timeout_ms")) {
-      cb_config.timeout = std::chrono::milliseconds(
-          config["timeout_ms"].getInt(30000));
+      cb_config.timeout =
+          std::chrono::milliseconds(config["timeout_ms"].getInt(30000));
     }
 
     if (config.contains("window_size_ms")) {
-      cb_config.window_size = std::chrono::milliseconds(
-          config["window_size_ms"].getInt(60000));
+      cb_config.window_size =
+          std::chrono::milliseconds(config["window_size_ms"].getInt(60000));
     }
 
     if (config.contains("half_open_max_requests")) {
-      cb_config.half_open_max_requests = static_cast<size_t>(
-          config["half_open_max_requests"].getInt(3));
+      cb_config.half_open_max_requests =
+          static_cast<size_t>(config["half_open_max_requests"].getInt(3));
     }
 
     if (config.contains("half_open_success_threshold")) {
-      cb_config.half_open_success_threshold = static_cast<size_t>(
-          config["half_open_success_threshold"].getInt(2));
+      cb_config.half_open_success_threshold =
+          static_cast<size_t>(config["half_open_success_threshold"].getInt(2));
     }
 
     if (config.contains("track_timeouts")) {
@@ -94,18 +93,24 @@ network::FilterSharedPtr createCircuitBreakerFilter(
   }
 
   // Log configuration
-  GOPHER_LOG(Debug, "CircuitBreakerFilter config: failure_threshold=%zu error_rate=%.2f "
-             "min_requests=%zu timeout=%ldms window=%ldms half_open_max=%zu half_open_success=%zu",
-             cb_config.failure_threshold, cb_config.error_rate_threshold,
-             cb_config.min_requests,
-             static_cast<long>(cb_config.timeout.count()),
-             static_cast<long>(cb_config.window_size.count()),
-             cb_config.half_open_max_requests, cb_config.half_open_success_threshold);
+  GOPHER_LOG(
+      Debug,
+      "CircuitBreakerFilter config: failure_threshold=%zu error_rate=%.2f "
+      "min_requests=%zu timeout=%ldms window=%ldms half_open_max=%zu "
+      "half_open_success=%zu",
+      cb_config.failure_threshold, cb_config.error_rate_threshold,
+      cb_config.min_requests, static_cast<long>(cb_config.timeout.count()),
+      static_cast<long>(cb_config.window_size.count()),
+      cb_config.half_open_max_requests, cb_config.half_open_success_threshold);
 
   // Validate logical consistency
-  if (cb_config.half_open_success_threshold > cb_config.half_open_max_requests) {
-    GOPHER_LOG(Warning, "half_open_success_threshold (%zu) > half_open_max_requests (%zu) - circuit may never close",
-               cb_config.half_open_success_threshold, cb_config.half_open_max_requests);
+  if (cb_config.half_open_success_threshold >
+      cb_config.half_open_max_requests) {
+    GOPHER_LOG(Warning,
+               "half_open_success_threshold (%zu) > half_open_max_requests "
+               "(%zu) - circuit may never close",
+               cb_config.half_open_success_threshold,
+               cb_config.half_open_max_requests);
   }
 
   // Get callbacks from context, or use default stub callbacks
@@ -117,13 +122,15 @@ network::FilterSharedPtr createCircuitBreakerFilter(
     auto hub = std::static_pointer_cast<FilterChainEventHub>(context.event_hub);
     if (hub) {
       GOPHER_LOG(Info, "Creating circuit breaker event emitter from event hub");
-      emitter_ptr = std::make_shared<FilterEventEmitter>(
-          hub, "circuit_breaker", "", "");
+      emitter_ptr =
+          std::make_shared<FilterEventEmitter>(hub, "circuit_breaker", "", "");
     }
   }
 
   if (!emitter_ptr) {
-    GOPHER_LOG(Info, "No event hub available - circuit breaker events will not be emitted");
+    GOPHER_LOG(
+        Info,
+        "No event hub available - circuit breaker events will not be emitted");
   }
 
   auto filter = std::make_shared<CircuitBreakerFilter>(emitter_ptr, cb_config);
@@ -132,7 +139,6 @@ network::FilterSharedPtr createCircuitBreakerFilter(
 
   return filter;
 }
-
 
 /**
  * Register circuit breaker filter factory
@@ -162,8 +168,8 @@ void registerCircuitBreakerFilterFactory() {
   metadata.default_config = defaults.build();
 
   // Register context-aware factory
-  registry.registerContextFactory("circuit_breaker",
-                                  createCircuitBreakerFilter, metadata);
+  registry.registerContextFactory("circuit_breaker", createCircuitBreakerFilter,
+                                  metadata);
 
   GOPHER_LOG(Info, "Registered circuit_breaker filter factory (context-aware)");
 }

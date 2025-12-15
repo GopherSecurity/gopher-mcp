@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <mcp/core/compat.h>  // For mcp::optional
+
 #include "mcp/json/json_bridge.h"
 
 namespace mcp {
@@ -444,7 +445,8 @@ inline mcp::json::JsonValue BootstrapConfig::toJson() const {
   return j;
 }
 
-inline BootstrapConfig BootstrapConfig::fromJson(const mcp::json::JsonValue& j) {
+inline BootstrapConfig BootstrapConfig::fromJson(
+    const mcp::json::JsonValue& j) {
   BootstrapConfig config;
 
   if (j.contains("version")) {

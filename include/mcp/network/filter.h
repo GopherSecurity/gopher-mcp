@@ -207,7 +207,8 @@ class Filter : public ReadFilter, public WriteFilter {
  * the methods for services they actually need.
  *
  * OWNERSHIP CONTRACTS:
- * - dispatcher, callbacks: BORROWED - do not delete, do not access after chain destroyed
+ * - dispatcher, callbacks: BORROWED - do not delete, do not access after chain
+ * destroyed
  * - metrics, circuit_breaker: SHARED - safe to hold as member variables
  *
  * THREAD SAFETY:
@@ -281,11 +282,11 @@ class DependencyInjectionAware {
    *     return FilterStatus::StopIteration;  // Fast-fail
    *   }
    */
-  virtual void setCircuitBreaker(filter::CircuitBreakerService circuit_breaker) {
+  virtual void setCircuitBreaker(
+      filter::CircuitBreakerService circuit_breaker) {
     // Default: no-op
     (void)circuit_breaker;
   }
-
 };
 
 /**

@@ -261,10 +261,11 @@ int main(int argc, char* argv[]) {
     if (request_count % 10 == 0 && request_count > 0) {
       std::vector<std::pair<std::string, Metadata>> batch;
       for (int i = 0; i < 3; ++i) {
-        auto metadata = make<Metadata>()
-                            .add("batch_sequence", static_cast<int64_t>(request_count))
-                            .add("item", static_cast<int64_t>(i))
-                            .build();
+        auto metadata =
+            make<Metadata>()
+                .add("batch_sequence", static_cast<int64_t>(request_count))
+                .add("item", static_cast<int64_t>(i))
+                .build();
         batch.push_back({"echo/batch", metadata});
       }
 
@@ -289,10 +290,11 @@ int main(int argc, char* argv[]) {
   // Send shutdown request
   {
     std::cerr << "\n[INFO] Sending shutdown request..." << std::endl;
-    auto metadata = make<Metadata>()
-                        .add("reason", "client_shutdown")
-                        .add("total_requests", static_cast<int64_t>(request_count))
-                        .build();
+    auto metadata =
+        make<Metadata>()
+            .add("reason", "client_shutdown")
+            .add("total_requests", static_cast<int64_t>(request_count))
+            .build();
 
     auto future = g_client->sendRequest("shutdown", metadata);
 

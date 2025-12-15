@@ -3,8 +3,9 @@
  * @brief Unit tests for predicate evaluation system
  */
 
-#include <gtest/gtest.h>
 #include <cstdlib>
+
+#include <gtest/gtest.h>
 
 #include "mcp/config/predicate_evaluator.h"
 #include "mcp/json/json_bridge.h"
@@ -16,12 +17,12 @@ class PredicateEvaluatorTest : public ::testing::Test {
  protected:
   void SetUp() override {
     evaluator_ = std::make_unique<PredicateEvaluator>();
-    
+
     // Set up test environment variables
     setenv("TEST_ENV_VAR", "test_value", 1);
     setenv("DEBUG", "true", 1);
     setenv("ENABLE_FEATURE", "1", 1);
-    
+
     // Set up test context
     context_.node_metadata["env"] = "production";
     context_.node_metadata["region"] = "us-west";
@@ -30,14 +31,14 @@ class PredicateEvaluatorTest : public ::testing::Test {
     context_.transport_name = "web-frontend";
     context_.route_path = "/api/v1/health";
   }
-  
+
   void TearDown() override {
     // Clean up environment variables
     unsetenv("TEST_ENV_VAR");
     unsetenv("DEBUG");
     unsetenv("ENABLE_FEATURE");
   }
-  
+
   std::unique_ptr<PredicateEvaluator> evaluator_;
   PredicateContext context_;
 };
@@ -61,13 +62,15 @@ TEST_F(PredicateEvaluatorTest, EnvVarExistence_NotExists) {
 }
 
 TEST_F(PredicateEvaluatorTest, EnvVarValue_Match) {
-  auto result = evaluator_->evaluateSingle("env:TEST_ENV_VAR=test_value", context_);
+  auto result =
+      evaluator_->evaluateSingle("env:TEST_ENV_VAR=test_value", context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, EnvVarValue_NoMatch) {
-  auto result = evaluator_->evaluateSingle("env:TEST_ENV_VAR=wrong_value", context_);
+  auto result =
+      evaluator_->evaluateSingle("env:TEST_ENV_VAR=wrong_value", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
@@ -89,27 +92,32 @@ TEST_F(PredicateEvaluatorTest, NodeMetadata_Exists) {
 }
 
 TEST_F(PredicateEvaluatorTest, NodeMetadata_NotExists) {
-  auto result = evaluator_->evaluateSingle("node.metadata.nonexistent:", context_);
+  auto result =
+      evaluator_->evaluateSingle("node.metadata.nonexistent:", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, NodeMetadata_ValueMatch) {
-  auto result = evaluator_->evaluateSingle("node.metadata.env=production", context_);
+  auto result =
+      evaluator_->evaluateSingle("node.metadata.env=production", context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, NodeMetadata_ValueNoMatch) {
-  auto result = evaluator_->evaluateSingle("node.metadata.env=development", context_);
+  auto result =
+      evaluator_->evaluateSingle("node.metadata.env=development", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, NodeMetadata_MultipleKeys) {
-  auto result1 = evaluator_->evaluateSingle("node.metadata.region=us-west", context_);
-  auto result2 = evaluator_->evaluateSingle("node.metadata.tier=frontend", context_);
-  
+  auto result1 =
+      evaluator_->evaluateSingle("node.metadata.region=us-west", context_);
+  auto result2 =
+      evaluator_->evaluateSingle("node.metadata.tier=frontend", context_);
+
   EXPECT_TRUE(result1.success && result1.matched);
   EXPECT_TRUE(result2.success && result2.matched);
 }
@@ -131,13 +139,15 @@ TEST_F(PredicateEvaluatorTest, TransportType_NoMatch) {
 }
 
 TEST_F(PredicateEvaluatorTest, TransportName_Match) {
-  auto result = evaluator_->evaluateSingle("transport.name=web-frontend", context_);
+  auto result =
+      evaluator_->evaluateSingle("transport.name=web-frontend", context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, TransportName_NoMatch) {
-  auto result = evaluator_->evaluateSingle("transport.name=api-backend", context_);
+  auto result =
+      evaluator_->evaluateSingle("transport.name=api-backend", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
@@ -147,13 +157,15 @@ TEST_F(PredicateEvaluatorTest, TransportName_NoMatch) {
 // ============================================================================
 
 TEST_F(PredicateEvaluatorTest, RoutePath_ExactMatch) {
-  auto result = evaluator_->evaluateSingle("route.path=/api/v1/health", context_);
+  auto result =
+      evaluator_->evaluateSingle("route.path=/api/v1/health", context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
 }
 
 TEST_F(PredicateEvaluatorTest, RoutePath_NoMatch) {
-  auto result = evaluator_->evaluateSingle("route.path=/api/v2/health", context_);
+  auto result =
+      evaluator_->evaluateSingle("route.path=/api/v2/health", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
@@ -165,7 +177,8 @@ TEST_F(PredicateEvaluatorTest, RoutePathPrefix_Match) {
 }
 
 TEST_F(PredicateEvaluatorTest, RoutePathPrefix_NoMatch) {
-  auto result = evaluator_->evaluateSingle("route.path.prefix=/admin", context_);
+  auto result =
+      evaluator_->evaluateSingle("route.path.prefix=/admin", context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);
 }
@@ -179,7 +192,7 @@ TEST_F(PredicateEvaluatorTest, MultiplePredicates_AllMatch) {
   predicates["env"] = JsonValue("DEBUG=true");
   predicates["node.metadata.env"] = JsonValue("production");
   predicates["transport.type"] = JsonValue("http");
-  
+
   auto result = evaluator_->evaluate(predicates, context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
@@ -190,7 +203,7 @@ TEST_F(PredicateEvaluatorTest, MultiplePredicates_SomeMatch) {
   predicates["env"] = JsonValue("DEBUG=true");
   predicates["node.metadata.env"] = JsonValue("development");  // Won't match
   predicates["transport.type"] = JsonValue("http");
-  
+
   auto result = evaluator_->evaluate(predicates, context_);
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.matched);  // All must match
@@ -198,7 +211,7 @@ TEST_F(PredicateEvaluatorTest, MultiplePredicates_SomeMatch) {
 
 TEST_F(PredicateEvaluatorTest, EmptyPredicates_AlwaysMatch) {
   auto predicates = JsonValue::object();
-  
+
   auto result = evaluator_->evaluate(predicates, context_);
   EXPECT_TRUE(result.success);
   EXPECT_TRUE(result.matched);
@@ -211,14 +224,14 @@ TEST_F(PredicateEvaluatorTest, EmptyPredicates_AlwaysMatch) {
 TEST_F(PredicateEvaluatorTest, FilterEnabled_ExplicitTrue) {
   auto filter_config = JsonValue::object();
   filter_config["enabled"] = JsonValue(true);
-  
+
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
 TEST_F(PredicateEvaluatorTest, FilterEnabled_ExplicitFalse) {
   auto filter_config = JsonValue::object();
   filter_config["enabled"] = JsonValue(false);
-  
+
   EXPECT_FALSE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
@@ -227,7 +240,7 @@ TEST_F(PredicateEvaluatorTest, FilterEnabled_ConditionalMatch) {
   auto enabled_when = JsonValue::object();
   enabled_when["env"] = JsonValue("DEBUG=true");
   filter_config["enabled_when"] = enabled_when;
-  
+
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
@@ -236,13 +249,13 @@ TEST_F(PredicateEvaluatorTest, FilterEnabled_ConditionalNoMatch) {
   auto enabled_when = JsonValue::object();
   enabled_when["env"] = JsonValue("DEBUG=false");
   filter_config["enabled_when"] = enabled_when;
-  
+
   EXPECT_FALSE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
 TEST_F(PredicateEvaluatorTest, FilterEnabled_DefaultWhenNoConditions) {
   auto filter_config = JsonValue::object();
-  
+
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
@@ -253,14 +266,14 @@ TEST_F(PredicateEvaluatorTest, FilterEnabled_DefaultWhenNoConditions) {
 TEST_F(PredicateEvaluatorTest, RouteBypass_ExplicitTrue) {
   auto route_config = JsonValue::object();
   route_config["bypass_filters"] = JsonValue(true);
-  
+
   EXPECT_TRUE(evaluator_->shouldBypassFilters(route_config, context_));
 }
 
 TEST_F(PredicateEvaluatorTest, RouteBypass_ExplicitFalse) {
   auto route_config = JsonValue::object();
   route_config["bypass_filters"] = JsonValue(false);
-  
+
   EXPECT_FALSE(evaluator_->shouldBypassFilters(route_config, context_));
 }
 
@@ -269,7 +282,7 @@ TEST_F(PredicateEvaluatorTest, RouteBypass_ConditionalMatch) {
   auto bypass_predicates = JsonValue::object();
   bypass_predicates["route.path"] = JsonValue("/api/v1/health");
   route_config["bypass_filters"] = bypass_predicates;
-  
+
   EXPECT_TRUE(evaluator_->shouldBypassFilters(route_config, context_));
 }
 
@@ -278,13 +291,13 @@ TEST_F(PredicateEvaluatorTest, RouteBypass_ConditionalNoMatch) {
   auto bypass_predicates = JsonValue::object();
   bypass_predicates["route.path"] = JsonValue("/admin/status");
   route_config["bypass_filters"] = bypass_predicates;
-  
+
   EXPECT_FALSE(evaluator_->shouldBypassFilters(route_config, context_));
 }
 
 TEST_F(PredicateEvaluatorTest, RouteBypass_DefaultWhenNotSpecified) {
   auto route_config = JsonValue::object();
-  
+
   EXPECT_FALSE(evaluator_->shouldBypassFilters(route_config, context_));
 }
 
@@ -293,7 +306,8 @@ TEST_F(PredicateEvaluatorTest, RouteBypass_DefaultWhenNotSpecified) {
 // ============================================================================
 
 TEST_F(PredicateEvaluatorTest, InvalidPredicateFormat) {
-  auto result = evaluator_->evaluateSingle("invalid::predicate::format", context_);
+  auto result =
+      evaluator_->evaluateSingle("invalid::predicate::format", context_);
   EXPECT_FALSE(result.success);
   EXPECT_FALSE(result.matched);
   EXPECT_FALSE(result.error_message.empty());
@@ -308,24 +322,24 @@ TEST_F(PredicateEvaluatorTest, UnknownPredicateType) {
 
 TEST_F(PredicateEvaluatorTest, SafeDefaults_Enabled) {
   evaluator_->setSafeDefaults(true);
-  
+
   auto filter_config = JsonValue::object();
   auto enabled_when = JsonValue::object();
   enabled_when["invalid.predicate"] = JsonValue("value");
   filter_config["enabled_when"] = enabled_when;
-  
+
   // With safe defaults, invalid predicates result in disabled filter
   EXPECT_FALSE(evaluator_->isFilterEnabled(filter_config, context_));
 }
 
 TEST_F(PredicateEvaluatorTest, SafeDefaults_Disabled) {
   evaluator_->setSafeDefaults(false);
-  
+
   auto filter_config = JsonValue::object();
   auto enabled_when = JsonValue::object();
   enabled_when["env"] = JsonValue("DEBUG=true");
   filter_config["enabled_when"] = enabled_when;
-  
+
   // Without safe defaults, valid predicates still work
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));
 }
@@ -340,7 +354,7 @@ TEST_F(PredicateEvaluatorTest, ValidatePredicates_Valid) {
   predicates["node.metadata.env"] = JsonValue("production");
   predicates["transport.type"] = JsonValue("http");
   predicates["route.path"] = JsonValue("/api/v1/health");
-  
+
   auto errors = evaluator_->validatePredicates(predicates);
   EXPECT_TRUE(errors.empty());
 }
@@ -348,7 +362,7 @@ TEST_F(PredicateEvaluatorTest, ValidatePredicates_Valid) {
 TEST_F(PredicateEvaluatorTest, ValidatePredicates_InvalidType) {
   auto predicates = JsonValue::object();
   predicates["invalid.type"] = JsonValue("value");
-  
+
   auto errors = evaluator_->validatePredicates(predicates);
   EXPECT_FALSE(errors.empty());
   EXPECT_EQ(errors[0], "Unknown predicate type: invalid.type");
@@ -357,7 +371,7 @@ TEST_F(PredicateEvaluatorTest, ValidatePredicates_InvalidType) {
 TEST_F(PredicateEvaluatorTest, ValidatePredicates_EmptyKey) {
   auto predicates = JsonValue::object();
   predicates[""] = JsonValue("value");
-  
+
   auto errors = evaluator_->validatePredicates(predicates);
   EXPECT_FALSE(errors.empty());
   EXPECT_EQ(errors[0], "Empty predicate key");
@@ -366,7 +380,7 @@ TEST_F(PredicateEvaluatorTest, ValidatePredicates_EmptyKey) {
 TEST_F(PredicateEvaluatorTest, ValidatePredicates_InvalidValueType) {
   auto predicates = JsonValue::object();
   predicates["env"] = JsonValue::array();  // Arrays not allowed
-  
+
   auto errors = evaluator_->validatePredicates(predicates);
   EXPECT_FALSE(errors.empty());
 }
@@ -380,14 +394,14 @@ TEST_F(PredicateEvaluatorTest, PredicateContext_FromJson) {
   auto metadata = JsonValue::object();
   metadata["env"] = JsonValue("test");
   metadata["region"] = JsonValue("us-east");
-  
+
   json["node_metadata"] = metadata;
   json["transport_type"] = JsonValue("tcp");
   json["transport_name"] = JsonValue("backend");
   json["route_path"] = JsonValue("/health");
-  
+
   auto ctx = PredicateContext::fromJson(json);
-  
+
   EXPECT_EQ(ctx.node_metadata["env"], "test");
   EXPECT_EQ(ctx.node_metadata["region"], "us-east");
   EXPECT_EQ(ctx.transport_type, "tcp");
@@ -401,9 +415,9 @@ TEST_F(PredicateEvaluatorTest, PredicateContext_ToJson) {
   ctx.transport_type = "https";
   ctx.transport_name = "secure-api";
   ctx.route_path = "/api/secure";
-  
+
   auto json = ctx.toJson();
-  
+
   EXPECT_TRUE(json.contains("node_metadata"));
   EXPECT_EQ(json["node_metadata"]["env"].getString(), "staging");
   EXPECT_EQ(json["transport_type"].getString(), "https");
@@ -418,7 +432,7 @@ TEST_F(PredicateEvaluatorTest, PredicateContext_ToJson) {
 TEST_F(PredicateEvaluatorTest, GlobalInstance_Singleton) {
   auto& instance1 = GlobalPredicateEvaluator::instance();
   auto& instance2 = GlobalPredicateEvaluator::instance();
-  
+
   // Both references should point to the same instance
   EXPECT_EQ(&instance1, &instance2);
 }
@@ -434,10 +448,10 @@ TEST_F(PredicateEvaluatorTest, ComplexScenario_ProductionFiltering) {
   enabled_when["env"] = JsonValue("DEBUG=true");
   enabled_when["node.metadata.env"] = JsonValue("production");
   filter_config["enabled_when"] = enabled_when;
-  
+
   // Should be enabled in our test context (production + DEBUG=true)
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));
-  
+
   // Change context to development
   context_.node_metadata["env"] = "development";
   EXPECT_FALSE(evaluator_->isFilterEnabled(filter_config, context_));
@@ -449,10 +463,10 @@ TEST_F(PredicateEvaluatorTest, ComplexScenario_HealthCheckBypass) {
   auto bypass_predicates = JsonValue::object();
   bypass_predicates["route.path.prefix"] = JsonValue("/api/v1/health");
   route_config["bypass_filters"] = bypass_predicates;
-  
+
   // Should bypass for health check
   EXPECT_TRUE(evaluator_->shouldBypassFilters(route_config, context_));
-  
+
   // Should not bypass for other endpoints
   context_.route_path = "/api/v1/users";
   EXPECT_FALSE(evaluator_->shouldBypassFilters(route_config, context_));
@@ -464,11 +478,11 @@ TEST_F(PredicateEvaluatorTest, ComplexScenario_TransportSpecificFilters) {
   auto enabled_when = JsonValue::object();
   enabled_when["transport.type"] = JsonValue("https");
   filter_config["enabled_when"] = enabled_when;
-  
+
   // Should not be enabled for HTTP
   context_.transport_type = "http";
   EXPECT_FALSE(evaluator_->isFilterEnabled(filter_config, context_));
-  
+
   // Should be enabled for HTTPS
   context_.transport_type = "https";
   EXPECT_TRUE(evaluator_->isFilterEnabled(filter_config, context_));

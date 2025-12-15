@@ -182,20 +182,20 @@ typedef mcp_bool_t (*mcp_filter_match_cb)(
 
 // Filter decision enum
 typedef enum {
-  MCP_FILTER_DECISION_ALLOW = 0,      // Continue processing
-  MCP_FILTER_DECISION_DENY = 1,       // Reject the message
-  MCP_FILTER_DECISION_DELAY = 2,      // Delay processing
-  MCP_FILTER_DECISION_QUEUE = 3,      // Queue for later
-  MCP_FILTER_DECISION_TRANSFORM = 4   // Message was transformed
+  MCP_FILTER_DECISION_ALLOW = 0,     // Continue processing
+  MCP_FILTER_DECISION_DENY = 1,      // Reject the message
+  MCP_FILTER_DECISION_DELAY = 2,     // Delay processing
+  MCP_FILTER_DECISION_QUEUE = 3,     // Queue for later
+  MCP_FILTER_DECISION_TRANSFORM = 4  // Message was transformed
 } mcp_filter_decision_t;
 
 // Filter result structure
 typedef struct mcp_filter_result {
-  mcp_filter_decision_t decision;      // Filter decision
-  char* transformed_message;           // Transformed message (NULL if unchanged)
-  char* reason;                        // Reason for decision (NULL if not provided)
-  uint32_t delay_ms;                   // Delay in milliseconds (0 if no delay)
-  void* metadata;                      // Additional metadata (reserved for future use)
+  mcp_filter_decision_t decision;  // Filter decision
+  char* transformed_message;       // Transformed message (NULL if unchanged)
+  char* reason;                    // Reason for decision (NULL if not provided)
+  uint32_t delay_ms;               // Delay in milliseconds (0 if no delay)
+  void* metadata;  // Additional metadata (reserved for future use)
 } mcp_filter_result_t;
 
 /* ============================================================================
@@ -209,17 +209,17 @@ typedef struct mcp_filter_result {
  * @param result Filter result (NULL on error)
  * @param error Error information (NULL on success)
  */
-typedef void (*mcp_filter_callback_t)(
-    void* user_data,
-    mcp_filter_result_t* result,
-    mcp_error_t* error);
+typedef void (*mcp_filter_callback_t)(void* user_data,
+                                      mcp_filter_result_t* result,
+                                      mcp_error_t* error);
 
 /* Status codes for async operations */
 typedef enum {
-  MCP_STATUS_OK = 0,                   // Request queued successfully
-  MCP_STATUS_QUEUE_FULL = 1,          // Queue at capacity, try again
-  MCP_STATUS_INVALID_ARGUMENT = 2,    // Invalid parameters
-  MCP_STATUS_NOT_INITIALIZED = 3      // Chain not initialized (CRITICAL: must be present)
+  MCP_STATUS_OK = 0,                // Request queued successfully
+  MCP_STATUS_QUEUE_FULL = 1,        // Queue at capacity, try again
+  MCP_STATUS_INVALID_ARGUMENT = 2,  // Invalid parameters
+  MCP_STATUS_NOT_INITIALIZED =
+      3  // Chain not initialized (CRITICAL: must be present)
 } mcp_status_t;
 
 /* ============================================================================
@@ -302,8 +302,7 @@ MCP_API mcp_result_t mcp_chain_set_event_callback(mcp_filter_chain_t chain,
  * @return MCP_OK on success
  */
 MCP_API mcp_result_t mcp_chain_update_dependencies(
-    mcp_filter_chain_t chain,
-    void* callbacks) MCP_NOEXCEPT;
+    mcp_filter_chain_t chain, void* callbacks) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Filter Chain Lifecycle Management
@@ -315,16 +314,16 @@ MCP_API mcp_result_t mcp_chain_update_dependencies(
  * @param chain Filter chain handle
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_filter_chain_initialize(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_filter_chain_initialize(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT;
 
 /**
  * Shutdown filter chain (cleanup resources)
  * @param chain Filter chain handle
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_filter_chain_shutdown(
-    mcp_filter_chain_t chain) MCP_NOEXCEPT;
+MCP_API mcp_result_t mcp_filter_chain_shutdown(mcp_filter_chain_t chain)
+    MCP_NOEXCEPT;
 
 /* ============================================================================
  * Async Filter Processing
@@ -340,12 +339,11 @@ MCP_API mcp_result_t mcp_filter_chain_shutdown(
  * @param error Output error information
  * @return MCP_STATUS_OK if submitted, error code otherwise
  */
-MCP_API mcp_status_t mcp_chain_submit_incoming(
-    mcp_filter_chain_t chain,
-    const char* message_json,
-    void* user_data,
-    mcp_filter_callback_t callback,
-    mcp_error_t* error) MCP_NOEXCEPT;
+MCP_API mcp_status_t mcp_chain_submit_incoming(mcp_filter_chain_t chain,
+                                               const char* message_json,
+                                               void* user_data,
+                                               mcp_filter_callback_t callback,
+                                               mcp_error_t* error) MCP_NOEXCEPT;
 
 /**
  * Submit outgoing message for async processing
@@ -356,12 +354,11 @@ MCP_API mcp_status_t mcp_chain_submit_incoming(
  * @param error Output error information
  * @return MCP_STATUS_OK if submitted, error code otherwise
  */
-MCP_API mcp_status_t mcp_chain_submit_outgoing(
-    mcp_filter_chain_t chain,
-    const char* message_json,
-    void* user_data,
-    mcp_filter_callback_t callback,
-    mcp_error_t* error) MCP_NOEXCEPT;
+MCP_API mcp_status_t mcp_chain_submit_outgoing(mcp_filter_chain_t chain,
+                                               const char* message_json,
+                                               void* user_data,
+                                               mcp_filter_callback_t callback,
+                                               mcp_error_t* error) MCP_NOEXCEPT;
 
 /* ============================================================================
  * Dynamic Chain Composition
@@ -381,8 +378,9 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
  * Create filter chain from JSON configuration asynchronously.
  *
  * This function posts the chain creation to the dispatcher thread and invokes
- * the callback when complete. This is required because mcp_chain_create_from_json
- * enforces thread affinity (must be called on dispatcher thread).
+ * the callback when complete. This is required because
+ * mcp_chain_create_from_json enforces thread affinity (must be called on
+ * dispatcher thread).
  *
  * Thread-safe: Can be called from any thread.
  * The callback will be invoked on the dispatcher thread.
@@ -399,10 +397,11 @@ MCP_API mcp_filter_chain_t mcp_chain_create_from_json(
 MCP_API void mcp_chain_create_from_json_async(
     mcp_dispatcher_t dispatcher,
     mcp_json_value_t config,
-    void (*callback)(uint64_t chain_handle, int32_t error_code,
-                     const char* error_msg, void* user_data),
-    void* user_data
-) MCP_NOEXCEPT;
+    void (*callback)(uint64_t chain_handle,
+                     int32_t error_code,
+                     const char* error_msg,
+                     void* user_data),
+    void* user_data) MCP_NOEXCEPT;
 
 /**
  * Export chain configuration to JSON
@@ -440,16 +439,16 @@ MCP_API mcp_filter_chain_t mcp_chain_merge(mcp_filter_chain_t chain1,
 /**
  * Validate a JSON configuration using the assembler semantics.
  */
-MCP_API mcp_result_t mcp_chain_validate_json(
-    mcp_json_value_t json_config,
-    mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_chain_validate_json(mcp_json_value_t json_config,
+                        mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
 
 /**
  * Validate an in-memory configuration using the assembler semantics.
  */
-MCP_API mcp_result_t mcp_chain_validate_config(
-    const mcp_filter_chain_config_t* config,
-    mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_chain_validate_config(const mcp_filter_chain_config_t* config,
+                          mcp_chain_validation_result_t* result) MCP_NOEXCEPT;
 
 /**
  * Release memory associated with a validation result structure.
@@ -460,10 +459,10 @@ MCP_API void mcp_chain_validation_result_free(
 /**
  * Assemble a chain from JSON configuration while capturing diagnostics.
  */
-MCP_API mcp_result_t mcp_chain_assemble_from_json(
-    mcp_dispatcher_t dispatcher,
-    mcp_json_value_t json_config,
-    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_chain_assemble_from_json(mcp_dispatcher_t dispatcher,
+                             mcp_json_value_t json_config,
+                             mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
 
 /**
  * Assemble a chain from in-memory configuration while capturing diagnostics.
@@ -477,8 +476,8 @@ MCP_API mcp_result_t mcp_chain_assemble_from_config(
  * Release memory associated with an assembly result structure. The caller
  * retains ownership of the produced chain handle.
  */
-MCP_API void mcp_chain_assembly_result_free(
-    mcp_chain_assembly_result_t* result) MCP_NOEXCEPT;
+MCP_API void mcp_chain_assembly_result_free(mcp_chain_assembly_result_t* result)
+    MCP_NOEXCEPT;
 
 /* ============================================================================
  * Chain Router

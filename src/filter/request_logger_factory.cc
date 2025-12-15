@@ -3,14 +3,13 @@
  * @brief Factory and registration for request logger filter
  */
 
-#include "mcp/filter/request_logger_filter.h"
-
 #include <algorithm>
 #include <cctype>
 #include <string>
 
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_registry.h"
+#include "mcp/filter/request_logger_filter.h"
 #include "mcp/json/json_bridge.h"
 
 #define GOPHER_LOG_COMPONENT "filter.factory.request_logger"
@@ -22,8 +21,9 @@ namespace filter {
 namespace {
 
 std::string toLower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
 }
 
@@ -63,14 +63,12 @@ RequestLoggerFilter::Output parseOutput(const std::string& output_str) {
 }  // namespace
 
 network::FilterSharedPtr createRequestLoggerFilter(
-    const FilterCreationContext&,
-    const json::JsonValue& config) {
+    const FilterCreationContext&, const json::JsonValue& config) {
   RequestLoggerFilter::Config filter_config;
 
   if (config.isObject()) {
     if (config.contains("log_level") && config["log_level"].isString()) {
-      filter_config.log_level =
-          parseLogLevel(config["log_level"].getString());
+      filter_config.log_level = parseLogLevel(config["log_level"].getString());
     }
 
     if (config.contains("log_format") && config["log_format"].isString()) {
@@ -79,8 +77,8 @@ network::FilterSharedPtr createRequestLoggerFilter(
     }
 
     if (config.contains("include_timestamps")) {
-      filter_config.include_timestamps =
-          config["include_timestamps"].getBool(filter_config.include_timestamps);
+      filter_config.include_timestamps = config["include_timestamps"].getBool(
+          filter_config.include_timestamps);
     }
 
     if (config.contains("include_payload")) {
@@ -93,8 +91,7 @@ network::FilterSharedPtr createRequestLoggerFilter(
       auto length = config["max_payload_length"].getInt64(
           static_cast<int64_t>(filter_config.max_payload_length));
       if (length >= 0) {
-        filter_config.max_payload_length =
-            static_cast<size_t>(length);
+        filter_config.max_payload_length = static_cast<size_t>(length);
       }
     }
 

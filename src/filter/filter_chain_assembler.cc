@@ -26,7 +26,6 @@ AssemblyResult FilterChainAssembler::assembleFilterChain(
     const config::FilterChainConfig& filter_chain_config,
     const FilterCreationContext& context,
     network::FilterManager& filter_manager) {
-
   AssemblyResult result;
   std::vector<network::FilterSharedPtr> created_filters;
 
@@ -60,7 +59,8 @@ AssemblyResult FilterChainAssembler::assembleFilterChain(
 
     } catch (const std::exception& e) {
       result.success = false;
-      result.error_message = "Failed to create filter '" + filter_config.name + "': " + e.what();
+      result.error_message =
+          "Failed to create filter '" + filter_config.name + "': " + e.what();
       return result;
     }
   }
@@ -77,7 +77,6 @@ AssemblyResult FilterChainAssembler::assembleFilterChain(
 
 ValidationResult FilterChainAssembler::validateFilterChain(
     const config::FilterChainConfig& config) {
-
   ValidationResult result;
   result.valid = true;
 
@@ -113,7 +112,6 @@ ValidationResult FilterChainAssembler::validateFilterChain(
 network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
     const config::FilterConfig& filter_config,
     const FilterCreationContext& context) {
-
   FilterCreationContext local_context = context;
 
   if (context.event_hub && !filter_config.type.empty()) {
@@ -124,10 +122,8 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
         std::string filter_name = filter_config.type;
         std::string instance_id = filter_config.name;
 
-        auto emitter = std::make_shared<FilterEventEmitter>(
-            hub,
-            filter_name,
-            instance_id);
+        auto emitter =
+            std::make_shared<FilterEventEmitter>(hub, filter_name, instance_id);
 
         local_context.event_emitter =
             std::shared_ptr<void>(emitter, emitter.get());
@@ -149,9 +145,8 @@ network::FilterSharedPtr FilterChainAssembler::createSingleFilter(
 void FilterChainAssembler::validateBasicOrdering(
     const std::vector<config::FilterConfig>& filters,
     std::vector<std::string>& warnings) {
-
   if (filters.size() < 2) {
-    return; // No ordering issues with single filter
+    return;  // No ordering issues with single filter
   }
 
   // Check for expected HTTP->SSE->JSON-RPC ordering
@@ -170,9 +165,12 @@ void FilterChainAssembler::validateBasicOrdering(
   // Find the positions of core filters if they exist
   int http_pos = -1, sse_pos = -1, json_rpc_pos = -1;
   for (size_t i = 0; i < filters.size(); ++i) {
-    if (filters[i].type == "http.codec") http_pos = i;
-    else if (filters[i].type == "sse.codec") sse_pos = i;
-    else if (filters[i].type == "json_rpc.dispatcher") json_rpc_pos = i;
+    if (filters[i].type == "http.codec")
+      http_pos = i;
+    else if (filters[i].type == "sse.codec")
+      sse_pos = i;
+    else if (filters[i].type == "json_rpc.dispatcher")
+      json_rpc_pos = i;
   }
 
   // If we have HTTP and SSE codecs, ensure proper ordering
@@ -184,19 +182,27 @@ void FilterChainAssembler::validateBasicOrdering(
   }
 }
 
-int FilterChainAssembler::getExpectedFilterPosition(const std::string& filter_name) {
+int FilterChainAssembler::getExpectedFilterPosition(
+    const std::string& filter_name) {
   // Define standard ordering for known filter types
-  if (filter_name == "http.codec") return 10;
-  if (filter_name == "sse.codec") return 20;
-  if (filter_name == "json_rpc.dispatcher") return 30;
+  if (filter_name == "http.codec")
+    return 10;
+  if (filter_name == "sse.codec")
+    return 20;
+  if (filter_name == "json_rpc.dispatcher")
+    return 30;
 
   // QoS filters typically come first
-  if (filter_name == "rate_limit") return 5;
-  if (filter_name == "circuit_breaker") return 6;
-  if (filter_name == "metrics") return 7;
-  if (filter_name == "backpressure") return 8;
+  if (filter_name == "rate_limit")
+    return 5;
+  if (filter_name == "circuit_breaker")
+    return 6;
+  if (filter_name == "metrics")
+    return 7;
+  if (filter_name == "backpressure")
+    return 8;
 
-  return 999; // Unknown filter
+  return 999;  // Unknown filter
 }
 
 // ConfigurableFilterChainFactory Implementation
@@ -204,7 +210,8 @@ int FilterChainAssembler::getExpectedFilterPosition(const std::string& filter_na
 ConfigurableFilterChainFactory::ConfigurableFilterChainFactory(
     const config::FilterChainConfig& config)
     : filter_chain_config_(config),
-      assembler_(std::make_unique<FilterChainAssembler>(FilterRegistry::instance())) {
+      assembler_(
+          std::make_unique<FilterChainAssembler>(FilterRegistry::instance())) {
   // ConfigurableFilterChainFactory created
 }
 
@@ -215,16 +222,17 @@ ConfigurableFilterChainFactory::~ConfigurableFilterChainFactory() {
 bool ConfigurableFilterChainFactory::createFilterChain(
     const FilterCreationContext& context,
     network::FilterManager& filter_manager) {
-
   std::cerr << "Creating filter chain from configuration" << std::endl;
 
-  auto result = assembler_->assembleFilterChain(
-      filter_chain_config_, context, filter_manager);
+  auto result = assembler_->assembleFilterChain(filter_chain_config_, context,
+                                                filter_manager);
 
   if (!result.success) {
-    std::cerr << "Failed to create filter chain: " << result.error_message << std::endl;
+    std::cerr << "Failed to create filter chain: " << result.error_message
+              << std::endl;
   } else {
-    std::cerr << "Successfully created filter chain with " << result.created_filters.size() << " filters" << std::endl;
+    std::cerr << "Successfully created filter chain with "
+              << result.created_filters.size() << " filters" << std::endl;
   }
 
   return result.success;
@@ -235,7 +243,8 @@ bool ConfigurableFilterChainFactory::validateConfiguration() const {
   return result.valid;
 }
 
-std::vector<std::string> ConfigurableFilterChainFactory::getValidationErrors() const {
+std::vector<std::string> ConfigurableFilterChainFactory::getValidationErrors()
+    const {
   auto result = assembler_->validateFilterChain(filter_chain_config_);
   return result.errors;
 }

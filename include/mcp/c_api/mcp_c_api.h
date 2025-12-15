@@ -24,11 +24,11 @@
 #define MCP_C_API_H
 
 /* Include FFI-safe type definitions */
+#include "mcp_c_api_json.h"
 #include "mcp_c_collections.h"
 #include "mcp_c_memory.h"
 #include "mcp_c_types.h"
 #include "mcp_c_types_api.h"
-#include "mcp_c_api_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -264,8 +264,8 @@ MCP_API mcp_result_t mcp_dispatcher_run_timeout(
  * @param dispatcher Dispatcher handle
  * @return MCP_OK on success
  */
-MCP_API mcp_result_t mcp_dispatcher_start_background(
-    mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
+MCP_API mcp_result_t
+mcp_dispatcher_start_background(mcp_dispatcher_t dispatcher) MCP_NOEXCEPT;
 
 /**
  * Join background dispatcher thread (blocks until thread exits)
@@ -871,7 +871,8 @@ MCP_API void mcp_server_destroy(mcp_server_t server) MCP_NOEXCEPT;
  * @param json JSON string as mcp_string_t
  * @return JSON value handle or NULL on error
  */
-MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCEPT;
+MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json)
+    MCP_NOEXCEPT;
 
 /**
  * Serialize JSON to string buffer (compatibility wrapper)
@@ -879,8 +880,8 @@ MCP_API mcp_json_value_t mcp_json_parse_mcp_string(mcp_string_t json) MCP_NOEXCE
  * @param pretty Whether to pretty-print (TODO: not yet implemented)
  * @return Serialized string buffer (must be freed with mcp_string_buffer_free)
  */
-MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(mcp_json_value_t value,
-                                                       mcp_bool_t pretty) MCP_NOEXCEPT;
+MCP_API mcp_string_buffer_t* mcp_json_stringify_buffer(
+    mcp_json_value_t value, mcp_bool_t pretty) MCP_NOEXCEPT;
 
 /**
  * Clone JSON value

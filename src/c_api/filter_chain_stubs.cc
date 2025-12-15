@@ -26,8 +26,10 @@ class AdvancedFilterChain;
 // Helper functions to access event_hub_ member
 // Implemented in mcp_c_filter_chain.cc where AdvancedFilterChain is defined
 namespace internal {
-std::shared_ptr<filter::FilterChainEventHub> getEventHub(AdvancedFilterChain& chain);
-std::shared_ptr<filter::FilterChainEventHub> getEventHub(const AdvancedFilterChain& chain);
+std::shared_ptr<filter::FilterChainEventHub> getEventHub(
+    AdvancedFilterChain& chain);
+std::shared_ptr<filter::FilterChainEventHub> getEventHub(
+    const AdvancedFilterChain& chain);
 }  // namespace internal
 
 // Real implementations for Phase 2

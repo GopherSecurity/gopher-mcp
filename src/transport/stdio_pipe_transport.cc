@@ -4,9 +4,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <iostream>
-#include <sys/select.h>
 #include <unistd.h>
 #include <vector>
+
+#include <sys/select.h>
 
 #include "mcp/network/address.h"
 #include "mcp/network/address_impl.h"
@@ -359,7 +360,8 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
   std::vector<char> buffer(config_.buffer_size);
 
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining responsive
+    // Use select() with 100ms timeout to wait for data while remaining
+    // responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(stdin_fd, &readfds);
@@ -448,7 +450,8 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
   std::vector<char> buffer(config_.buffer_size);
 
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining responsive
+    // Use select() with 100ms timeout to wait for data while remaining
+    // responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(read_pipe_fd, &readfds);
@@ -457,7 +460,8 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
     tv.tv_sec = 0;
     tv.tv_usec = 100000;  // 100ms timeout
 
-    int select_result = ::select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
+    int select_result =
+        ::select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
 
     if (select_result < 0) {
       // select() error

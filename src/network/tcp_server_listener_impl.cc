@@ -11,15 +11,15 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "mcp/config/listener_config.h"
+#include "mcp/filter/filter_chain_assembler.h"
+#include "mcp/filter/filter_context.h"
+#include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/config/listener_config.h"
-#include "mcp/filter/filter_chain_assembler.h"
-#include "mcp/filter/filter_context.h"
-#include "mcp/mcp_connection_manager.h"
 #include "mcp/stream_info/stream_info_impl.h"
 
 namespace mcp {
@@ -62,7 +62,8 @@ TcpListenerConfig convertListenerConfig(
     config.address = address_impl;
   } else {
     std::cerr << "[TCP LISTENER] Invalid listener address '"
-              << listener_config.address.socket_address.address << "'" << std::endl;
+              << listener_config.address.socket_address.address << "'"
+              << std::endl;
   }
 
   config.transport_socket_factory =
@@ -375,7 +376,8 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
             << std::endl;
 
   if (!config_.transport_socket_factory) {
-    config_.transport_socket_factory = std::make_shared<RawBufferTransportSocketFactory>();
+    config_.transport_socket_factory =
+        std::make_shared<RawBufferTransportSocketFactory>();
   }
 
   // Create socket if not provided
@@ -431,14 +433,18 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
   }
 }
 
-TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
-                                     const mcp::config::ListenerConfig& listener_config,
-                                     ListenerCallbacks& parent_cb)
-    : TcpActiveListener(dispatcher, convertListenerConfig(listener_config), parent_cb) {
-  listener_config_ = std::make_unique<mcp::config::ListenerConfig>(listener_config);
+TcpActiveListener::TcpActiveListener(
+    event::Dispatcher& dispatcher,
+    const mcp::config::ListenerConfig& listener_config,
+    ListenerCallbacks& parent_cb)
+    : TcpActiveListener(
+          dispatcher, convertListenerConfig(listener_config), parent_cb) {
+  listener_config_ =
+      std::make_unique<mcp::config::ListenerConfig>(listener_config);
   if (!listener_config_->filter_chains.empty()) {
-    filter_factory_ = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(
-        listener_config_->filter_chains[0]);
+    filter_factory_ =
+        std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(
+            listener_config_->filter_chains[0]);
   }
 }
 
@@ -477,9 +483,11 @@ void TcpActiveListener::setProtocolCallbacks(McpProtocolCallbacks& callbacks) {
   protocol_callbacks_ = &callbacks;
 }
 
-void TcpActiveListener::configureFilterChain(network::FilterManager& filter_manager) {
+void TcpActiveListener::configureFilterChain(
+    network::FilterManager& filter_manager) {
   if (!filter_factory_) {
-    std::cerr << "[TCP LISTENER] No config-driven filter factory available" << std::endl;
+    std::cerr << "[TCP LISTENER] No config-driven filter factory available"
+              << std::endl;
     return;
   }
 
@@ -493,7 +501,8 @@ void TcpActiveListener::configureFilterChain(network::FilterManager& filter_mana
       dispatcher_, callbacks, filter::ConnectionMode::Server, metadata);
 
   if (!filter_factory_->createFilterChain(context, filter_manager)) {
-    std::cerr << "[TCP LISTENER] Failed to assemble configurable filter chain" << std::endl;
+    std::cerr << "[TCP LISTENER] Failed to assemble configurable filter chain"
+              << std::endl;
   }
 }
 
@@ -597,7 +606,8 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
         success = config_.filter_chain_factory->createFilterChain(
             conn_impl->filterManager());
       } else {
-        std::cerr << "[WARNING] No filter chain factory configured" << std::endl;
+        std::cerr << "[WARNING] No filter chain factory configured"
+                  << std::endl;
       }
 
       if (success) {
@@ -605,7 +615,8 @@ void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
         std::cerr << "[DEBUG] Read filters initialized" << std::endl;
       }
     } else {
-      std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl" << std::endl;
+      std::cerr << "[ERROR] Failed to cast connection to ConnectionImpl"
+                << std::endl;
     }
 
     parent_cb_.onNewConnection(std::move(connection));

@@ -13,15 +13,16 @@
 #include "mcp/filter/filter_chain_callbacks.h"
 #include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event.h"
-#include "unified_filter_chain.h"
+
 #include "handle_manager.h"
+#include "unified_filter_chain.h"
 
 // Forward declare the external chain registry from mcp_c_filter_chain.cc
 namespace mcp {
 namespace c_api_internal {
 extern HandleManager<UnifiedFilterChain> g_unified_chain_manager;
 }
-}
+}  // namespace mcp
 
 namespace {
 
@@ -46,13 +47,15 @@ class CFilterEventCallback : public mcp::filter::FilterChainCallbacks {
 
     // Convert C++ event to C API format
     mcp_filter_event_context_t context;
-    context.chain_id =
-        !event.context.chain_id.empty() ? event.context.chain_id.c_str() : nullptr;
-    context.stream_id =
-        !event.context.stream_id.empty() ? event.context.stream_id.c_str() : nullptr;
-    context.correlation_id =
-        !event.context.correlation_id.empty() ? event.context.correlation_id.c_str()
-                                              : nullptr;
+    context.chain_id = !event.context.chain_id.empty()
+                           ? event.context.chain_id.c_str()
+                           : nullptr;
+    context.stream_id = !event.context.stream_id.empty()
+                            ? event.context.stream_id.c_str()
+                            : nullptr;
+    context.correlation_id = !event.context.correlation_id.empty()
+                                 ? event.context.correlation_id.c_str()
+                                 : nullptr;
 
     // Convert event type
     auto event_type = static_cast<mcp_filter_event_type_t>(event.event_type);
@@ -84,19 +87,20 @@ class CFilterEventCallback : public mcp::filter::FilterChainCallbacks {
   void* user_data_;
 };
 
-// Entry to store both callback and observer handle for proper lifetime management
+// Entry to store both callback and observer handle for proper lifetime
+// management
 struct CallbackRegistryEntry {
   std::shared_ptr<CFilterEventCallback> callback;
   mcp::filter::FilterChainEventHub::ObserverHandle observer_handle;
 
-  CallbackRegistryEntry(
-      std::shared_ptr<CFilterEventCallback> cb,
-      mcp::filter::FilterChainEventHub::ObserverHandle handle)
+  CallbackRegistryEntry(std::shared_ptr<CFilterEventCallback> cb,
+                        mcp::filter::FilterChainEventHub::ObserverHandle handle)
       : callback(std::move(cb)), observer_handle(std::move(handle)) {}
 };
 
 // Storage for active callbacks per chain
-// Stores both callback (to keep it alive) and ObserverHandle (to prevent auto-unregister)
+// Stores both callback (to keep it alive) and ObserverHandle (to prevent
+// auto-unregister)
 std::mutex g_callback_mutex;
 std::unordered_map<uint64_t, std::unique_ptr<CallbackRegistryEntry>>
     g_callback_registry;
@@ -108,7 +112,8 @@ namespace mcp {
 namespace filter_chain {
 class AdvancedFilterChain;
 
-mcp::filter::FilterChainEventHub::ObserverHandle advanced_chain_set_event_callback(
+mcp::filter::FilterChainEventHub::ObserverHandle
+advanced_chain_set_event_callback(
     AdvancedFilterChain& chain,
     std::shared_ptr<mcp::filter::FilterChainCallbacks> callbacks);
 }  // namespace filter_chain
@@ -129,22 +134,25 @@ int mcp_filter_chain_set_event_callback(mcp_filter_chain_t chain,
   }
 
   // Create C++ callback wrapper
-  auto cpp_callback = std::make_shared<CFilterEventCallback>(callback, user_data);
+  auto cpp_callback =
+      std::make_shared<CFilterEventCallback>(callback, user_data);
 
   // Set callback on advanced chain if applicable
   auto advanced_chain = chain_ptr->getAdvancedChain();
   if (advanced_chain) {
     try {
       // Register callback and get ObserverHandle
-      auto observer_handle = mcp::filter_chain::advanced_chain_set_event_callback(
-          *advanced_chain, cpp_callback);
+      auto observer_handle =
+          mcp::filter_chain::advanced_chain_set_event_callback(*advanced_chain,
+                                                               cpp_callback);
 
       // Validate that registration actually succeeded
       if (!observer_handle.isValid()) {
         return -2;  // Registration failed - invalid handle
       }
 
-      // Store both callback and handle in registry to keep callback alive and registered
+      // Store both callback and handle in registry to keep callback alive and
+      // registered
       {
         std::lock_guard<std::mutex> lock(g_callback_mutex);
         g_callback_registry[chain] = std::make_unique<CallbackRegistryEntry>(

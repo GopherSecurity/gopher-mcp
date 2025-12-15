@@ -51,11 +51,10 @@ class CircuitBreakerFilterSimpleTest : public ::testing::Test {
     config_.half_open_success_threshold = 2;
 
     // Create emitter that will send events to the hub
-    auto emitter = std::make_shared<FilterEventEmitter>(
-        event_hub_,
-        "circuit_breaker",
-        "",   // no instance ID for tests
-        "");  // no chain ID for tests
+    auto emitter =
+        std::make_shared<FilterEventEmitter>(event_hub_, "circuit_breaker",
+                                             "",   // no instance ID for tests
+                                             "");  // no chain ID for tests
 
     filter_ = std::make_unique<CircuitBreakerFilter>(emitter, config_);
   }
@@ -115,13 +114,15 @@ TEST_F(CircuitBreakerFilterSimpleTest, ConfigurationAccepted) {
 // Test state transition callback
 TEST_F(CircuitBreakerFilterSimpleTest, StateTransitionCallback) {
   // Allow health update events (emitted for every request/response)
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
       .Times(AnyNumber());
 
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   // Simulate 3 consecutive failures
@@ -160,13 +161,15 @@ TEST_F(CircuitBreakerFilterSimpleTest, HealthMetrics) {
 // Test protocol error tracking
 TEST_F(CircuitBreakerFilterSimpleTest, ProtocolErrorsTracked) {
   // Allow health update events (emitted for every error)
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
       .Times(AnyNumber());
 
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   // Protocol errors should count as failures

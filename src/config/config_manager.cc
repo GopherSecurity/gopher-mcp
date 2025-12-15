@@ -122,7 +122,8 @@ mcp::json::JsonValue EnvironmentConfigSource::parseEnvironmentVariables() {
                      if (!j.contains("server")) {
                        j["server"] = mcp::json::JsonValue::object();
                      }
-                     j["server"]["max_sessions"] = mcp::json::JsonValue(std::stoi(val));
+                     j["server"]["max_sessions"] =
+                         mcp::json::JsonValue(std::stoi(val));
                    }},
                   {prefix_ + "SESSION_TIMEOUT",
                    [](const std::string& val, mcp::json::JsonValue& j) {
@@ -155,7 +156,7 @@ namespace {
 // subsequent getCurrentVersion() from the same thread observes its own
 // version even if another thread has since advanced the global version.
 thread_local std::string tls_last_version_id;
-}
+}  // namespace
 
 ConfigurationManager::ConfigurationManager()
     : last_reload_(std::chrono::system_clock::now()) {}
@@ -179,10 +180,12 @@ bool ConfigurationManager::initialize(
     reset();
   }
 
-  LOG_INFO("[config.search] Initializing ConfigurationManager: unknown_field_policy=%s",
-           (policy == UnknownFieldPolicy::STRICT ? "STRICT"
-            : policy == UnknownFieldPolicy::WARN ? "WARN"
-                                                 : "PERMISSIVE"));
+  LOG_INFO(
+      "[config.search] Initializing ConfigurationManager: "
+      "unknown_field_policy=%s",
+      (policy == UnknownFieldPolicy::STRICT ? "STRICT"
+       : policy == UnknownFieldPolicy::WARN ? "WARN"
+                                            : "PERMISSIVE"));
 
   validation_context_.setUnknownFieldPolicy(policy);
 
@@ -193,8 +196,8 @@ bool ConfigurationManager::initialize(
     // 1. MCP_CONFIG environment variable
     // 2. Current directory: config/config.{json,yaml}, config.{json,yaml}
     // 3. System directories: /etc/mcp/config.{json,yaml}
-    auto file_source = createFileConfigSource(
-        "default", ConfigSource::Priority::FILE, "");
+    auto file_source =
+        createFileConfigSource("default", ConfigSource::Priority::FILE, "");
     if (file_source->hasConfiguration()) {
       sources_.push_back(file_source);
     }
@@ -214,7 +217,8 @@ bool ConfigurationManager::initialize(
            sources_.size());
   for (const auto& source : sources_) {
     LOG_DEBUG("[config.search] source_name=%s priority=%d",
-              source->getName().c_str(), static_cast<int>(source->getPriority()));
+              source->getName().c_str(),
+              static_cast<int>(source->getPriority()));
   }
 
   initialized_ = true;
@@ -228,11 +232,13 @@ void ConfigurationManager::loadConfiguration() {
     throw std::runtime_error("ConfigurationManager not initialized");
   }
 
-  LOG_INFO("[config.reload] Loading configuration: starting merge from %zu sources",
-           sources_.size());
+  LOG_INFO(
+      "[config.reload] Loading configuration: starting merge from %zu sources",
+      sources_.size());
 
   auto merged = mergeConfigurations();
-  fprintf(stderr, "[config.manager] merged: %s\n", merged.toString(false).c_str());
+  fprintf(stderr, "[config.manager] merged: %s\n",
+          merged.toString(false).c_str());
 
   // Count keys for logging
   size_t key_count = merged.isObject() ? merged.keys().size() : 0;
@@ -318,8 +324,11 @@ bool ConfigurationManager::reload() {
     event.new_version = snapshot.version_id;
     event.timestamp = std::chrono::system_clock::now();
 
-    LOG_INFO("[config.reload] Configuration reloaded: old_version=%s new_version=%s reload_count=%zu",
-             old_version.c_str(), snapshot.version_id.c_str(), static_cast<size_t>(reload_count_.load()));
+    LOG_INFO(
+        "[config.reload] Configuration reloaded: old_version=%s new_version=%s "
+        "reload_count=%zu",
+        old_version.c_str(), snapshot.version_id.c_str(),
+        static_cast<size_t>(reload_count_.load()));
 
     lock.unlock();
     notifyListeners(event);
@@ -467,7 +476,8 @@ mcp::json::JsonValue ConfigurationManager::mergeConfigurations() {
   // - Named resource merge-by-name support
   // - Conflict detection and reporting
   // - Array merge strategies (replace/append/merge-by-key)
-  // Current implementation does basic object merge where later sources override earlier ones
+  // Current implementation does basic object merge where later sources override
+  // earlier ones
   for (const auto& source : sources_) {
     if (source->hasConfiguration()) {
       try {
@@ -480,8 +490,10 @@ mcp::json::JsonValue ConfigurationManager::mergeConfigurations() {
           }
         }
       } catch (const std::exception& e) {
-        LOG_ERROR("[config.reload] Failed to load configuration from source: %s error=%s",
-                  source->getName().c_str(), e.what());
+        LOG_ERROR(
+            "[config.reload] Failed to load configuration from source: %s "
+            "error=%s",
+            source->getName().c_str(), e.what());
         // Continue with other sources
       }
     }
@@ -505,7 +517,7 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
   // Check for unknown fields at root level
   static const std::set<std::string> root_fields = {"node", "admin", "version",
                                                     "server", "_config_path"};
-  
+
   // Use JsonValue directly for field validation
   validateJsonFields(config, root_fields, "", ctx);
 
@@ -527,8 +539,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
           NodeConfigWithValidation::fromJson(config["node"], ctx);
       LOG_DEBUG("[config.validate] Node configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR("[config.validate] Node configuration validation failed: field=%s reason=%s",
-                e.field().c_str(), e.what());
+      LOG_ERROR(
+          "[config.validate] Node configuration validation failed: field=%s "
+          "reason=%s",
+          e.field().c_str(), e.what());
       throw;
     }
   }
@@ -538,8 +552,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
           AdminConfigWithValidation::fromJson(config["admin"], ctx);
       LOG_DEBUG("[config.validate] Admin configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR("[config.validate] Admin configuration validation failed: field=%s reason=%s",
-                e.field().c_str(), e.what());
+      LOG_ERROR(
+          "[config.validate] Admin configuration validation failed: field=%s "
+          "reason=%s",
+          e.field().c_str(), e.what());
       throw;
     }
   }
@@ -560,8 +576,10 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
           ServerConfigWithValidation::fromJson(config["server"], ctx);
       LOG_DEBUG("[config.validate] Server configuration parsed successfully");
     } catch (const ConfigValidationError& e) {
-      LOG_ERROR("[config.validate] Server configuration validation failed: field=%s reason=%s",
-                e.field().c_str(), e.what());
+      LOG_ERROR(
+          "[config.validate] Server configuration validation failed: field=%s "
+          "reason=%s",
+          e.field().c_str(), e.what());
       throw;
     }
   }
@@ -569,10 +587,12 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
   // Validate configurations
   try {
     snapshot.bootstrap->validate();
-    LOG_DEBUG("[config.validate] Bootstrap configuration validation successful");
+    LOG_DEBUG(
+        "[config.validate] Bootstrap configuration validation successful");
   } catch (const ConfigValidationError& e) {
-    LOG_ERROR("[config.validate] Bootstrap validation failed: field=%s reason=%s",
-              e.field().c_str(), e.what());
+    LOG_ERROR(
+        "[config.validate] Bootstrap validation failed: field=%s reason=%s",
+        e.field().c_str(), e.what());
     throw;
   }
 
@@ -588,8 +608,9 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
       }
     }
     if (duplicate_count > 0) {
-      LOG_WARNING("[config.validate] Duplicate filter chain names detected: count=%zu",
-                  duplicate_count);
+      LOG_WARNING(
+          "[config.validate] Duplicate filter chain names detected: count=%zu",
+          duplicate_count);
     }
 
     // Log missing chain references
@@ -608,8 +629,9 @@ ConfigSnapshot ConfigurationManager::parseConfiguration(
       }
     }
     if (missing_refs > 0) {
-      LOG_WARNING("[config.validate] Missing filter chain references: count=%zu",
-                  missing_refs);
+      LOG_WARNING(
+          "[config.validate] Missing filter chain references: count=%zu",
+          missing_refs);
     }
 
     LOG_DEBUG("[config.validate] Server configuration validation successful");
@@ -635,9 +657,9 @@ std::string ConfigurationManager::generateVersionId() {
   // Thread-safe version id in the format: YYYYMMDD-HHMMSS-NNNN
   using clock = std::chrono::system_clock;
   auto now = clock::now();
-  auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-                  now.time_since_epoch())
-                  .count();
+  auto secs =
+      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
+          .count();
 
   // Per-second atomic counter
   static std::atomic<long long> last_sec{0};
