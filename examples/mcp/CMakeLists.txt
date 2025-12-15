@@ -48,3 +48,10 @@ install(FILES
     ../configs/mcp_server_example.json
     DESTINATION share/mcp/examples/configs
 )
+
+# Windows-specific libraries
+if(WIN32)
+    target_link_libraries(mcp_example_client ws2_32 mswsock)
+    target_link_libraries(mcp_example_server ws2_32 mswsock)
+    target_link_libraries(mcp_config_example_server ws2_32 mswsock)
+endif()
