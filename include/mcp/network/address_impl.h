@@ -71,6 +71,7 @@ class Ipv6Instance : public Ip {
   sockaddr_in6 addr_;
 };
 
+#ifndef _WIN32
 /**
  * Unix domain socket address implementation
  */
@@ -99,6 +100,7 @@ class PipeInstance : public Pipe {
   std::string path_;
   mode_t mode_;
 };
+#endif  // !_WIN32
 
 }  // namespace Address
 }  // namespace network

@@ -5,10 +5,17 @@
 #include <mutex>
 
 #ifdef _WIN32
-#include <mswsock.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mswsock.h>
 #pragma comment(lib, "ws2_32.lib")
+// Define O_NONBLOCK for Windows compatibility
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0x0004
+#endif
+#ifndef FD_CLOEXEC
+#define FD_CLOEXEC 1
+#endif
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -555,7 +562,7 @@ IoResult<int> SocketInterfaceImpl::emulateSocketPairWindows(SocketType type,
   auto listen_result =
       socket(type, Address::Type::Ip, Address::IpVersion::v4, false);
   if (!listen_result.ok()) {
-    return IoResult<int>::error(*listen_result.error_code);
+    return IoResult<int>::error(listen_result.error_code());
   }
   os_fd_t listen_fd = *listen_result;
 
@@ -586,7 +593,7 @@ IoResult<int> SocketInterfaceImpl::emulateSocketPairWindows(SocketType type,
       socket(type, Address::Type::Ip, Address::IpVersion::v4, false);
   if (!connect_result.ok()) {
     ::closesocket(listen_fd);
-    return IoResult<int>::error(*connect_result.error_code);
+    return IoResult<int>::error(connect_result.error_code());
   }
   fds[0] = *connect_result;
 
@@ -636,9 +643,9 @@ SocketInterface& socketInterface() {
   return *g_socket_interface;
 }
 
-void setSocketInterface(SocketInterfacePtr interface) {
+void setSocketInterface(SocketInterfacePtr iface) {
   std::lock_guard<std::mutex> lock(g_socket_interface_mutex);
-  g_socket_interface = std::move(interface);
+  g_socket_interface = std::move(iface);
 }
 
 void resetSocketInterface() {
