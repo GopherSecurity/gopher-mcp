@@ -3,7 +3,12 @@
 #include <iostream>
 #include <sstream>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netinet/tcp.h>  // For TCP_NODELAY
+#endif
 
 #include "mcp/core/result.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
