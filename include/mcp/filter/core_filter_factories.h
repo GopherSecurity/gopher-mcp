@@ -3,7 +3,8 @@
  * @brief Core filter factory registration functions
  *
  * This header declares the registration functions for the three core filters
- * (HTTP codec, SSE codec, JSON-RPC dispatcher) used in config-driven filter chains.
+ * (HTTP codec, SSE codec, JSON-RPC dispatcher) used in config-driven filter
+ * chains.
  */
 
 #pragma once

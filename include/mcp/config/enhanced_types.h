@@ -31,8 +31,8 @@ struct NodeConfigEnhanced : public NodeConfig {
     // Optional fields
     if (j.contains("metadata")) {
       ParseContext::FieldScope scope(ctx, "metadata");
-      validateJsonType(j["metadata"], mcp::json::JsonType::Object,
-                       "metadata", ctx);
+      validateJsonType(j["metadata"], mcp::json::JsonType::Object, "metadata",
+                       ctx);
 
       try {
         std::map<std::string, std::string> meta;
@@ -72,8 +72,8 @@ struct CapabilitiesConfigEnhanced : public CapabilitiesConfig {
     // Features array
     if (j.contains("features")) {
       ParseContext::FieldScope scope(ctx, "features");
-      validateJsonType(j["features"], mcp::json::JsonType::Array,
-                       "features", ctx);
+      validateJsonType(j["features"], mcp::json::JsonType::Array, "features",
+                       ctx);
 
       try {
         std::vector<std::string> features;
@@ -148,8 +148,7 @@ struct FilterConfigEnhanced : public FilterConfig {
     // Optional config object
     if (j.contains("config")) {
       ParseContext::FieldScope scope(ctx, "config");
-      validateJsonType(j["config"], mcp::json::JsonType::Object, "config",
-                       ctx);
+      validateJsonType(j["config"], mcp::json::JsonType::Object, "config", ctx);
       config.config = j["config"];
 
       // Apply unit parsing to known size/duration fields in filter config
@@ -157,7 +156,8 @@ struct FilterConfigEnhanced : public FilterConfig {
         try {
           auto size =
               parseJsonSize<size_t>(config.config["max_size"], "max_size");
-          config.config["max_size"] = mcp::json::JsonValue(static_cast<int64_t>(size));
+          config.config["max_size"] =
+              mcp::json::JsonValue(static_cast<int64_t>(size));
         } catch (const UnitParseError& e) {
           throw ctx.createError("Invalid buffer size: " +
                                 std::string(e.what()));
@@ -169,7 +169,8 @@ struct FilterConfigEnhanced : public FilterConfig {
           try {
             auto duration = parseJsonDuration<uint32_t>(
                 config.config["window_duration"], "window_duration");
-            config.config["window_duration"] = mcp::json::JsonValue(static_cast<int64_t>(duration));
+            config.config["window_duration"] =
+                mcp::json::JsonValue(static_cast<int64_t>(duration));
           } catch (const UnitParseError& e) {
             throw ctx.createError("Invalid window duration: " +
                                   std::string(e.what()));

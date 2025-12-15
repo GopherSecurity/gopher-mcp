@@ -1,15 +1,16 @@
-#include <gtest/gtest.h>
-
 #include <cstdlib>
 #include <fstream>
-#include <nlohmann/json.hpp>
 #include <string>
+
+#include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 // Platform-specific includes for filesystem operations
 #ifndef _WIN32
 #include <dirent.h>
-#include <sys/stat.h>
 #include <unistd.h>
+
+#include <sys/stat.h>
 #else
 #include <direct.h>
 #include <windows.h>
@@ -27,7 +28,7 @@ class FileSourceCompleteTest : public ::testing::Test {
     // Create test directory
     test_dir_ = std::string("test_config_") + std::to_string(getpid());
     mkdir(test_dir_.c_str(), 0755);
-    
+
     // Save original working directory
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd))) {
@@ -40,10 +41,10 @@ class FileSourceCompleteTest : public ::testing::Test {
     if (!original_dir_.empty()) {
       chdir(original_dir_.c_str());
     }
-    
+
     // Clean up test directory
     removeDirectory(test_dir_);
-    
+
     // Clean up environment variables
     unsetenv("MCP_CONFIG");
     unsetenv("TEST_HOST");
@@ -62,7 +63,7 @@ class FileSourceCompleteTest : public ::testing::Test {
       std::string dir = path.substr(0, last_slash);
       createDirectory(dir);
     }
-    
+
     std::ofstream file(path);
     file << content;
     file.close();
@@ -127,10 +128,10 @@ features:
 )";
 
   createFile(test_dir_ + "/config.yaml", valid_yaml);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.yaml");
   auto config = source->loadConfiguration();
-  
+
   EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
   EXPECT_EQ(8080, config["server"]["port"].getInt());
   EXPECT_TRUE(config["server"]["ssl"]["enabled"].getBool());
@@ -154,20 +155,22 @@ database:
 )";
 
   createFile(test_dir_ + "/bad.yaml", invalid_yaml);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/bad.yaml");
-  
-  EXPECT_THROW({
-    try {
-      source->loadConfiguration();
-    } catch (const std::exception& e) {
-      std::string error = e.what();
-      // Should contain line/column info
-      EXPECT_TRUE(error.find("line") != std::string::npos ||
-                  error.find("parse") != std::string::npos);
-      throw;
-    }
-  }, std::exception);
+
+  EXPECT_THROW(
+      {
+        try {
+          source->loadConfiguration();
+        } catch (const std::exception& e) {
+          std::string error = e.what();
+          // Should contain line/column info
+          EXPECT_TRUE(error.find("line") != std::string::npos ||
+                      error.find("parse") != std::string::npos);
+          throw;
+        }
+      },
+      std::exception);
 }
 
 // Test environment variable substitution
@@ -184,27 +187,25 @@ TEST_F(FileSourceCompleteTest, EnvironmentSubstitution) {
 })";
 
   createFile(test_dir_ + "/config.json", config_with_env);
-  
+
   // Test with defaults (vars not set)
   {
     auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
-    
+
     // Should fail because TEST_MODE has no default
-    EXPECT_THROW({
-      source->loadConfiguration();
-    }, std::runtime_error);
+    EXPECT_THROW({ source->loadConfiguration(); }, std::runtime_error);
   }
-  
+
   // Test with environment variables set
   {
     setenv("TEST_HOST", "production.example.com", 1);
     setenv("TEST_PORT", "9090", 1);
     setenv("TEST_MODE", "production", 1);
     setenv("DB_USER", "dbadmin", 1);
-    
+
     auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
     auto config = source->loadConfiguration();
-    
+
     EXPECT_EQ(std::string("production.example.com"),
               config["server"]["host"].getString());
     EXPECT_EQ(std::string("9090"), config["server"]["port"].getString());
@@ -246,17 +247,18 @@ features:
   createFile(test_dir_ + "/config.json", main_config);
   createFile(test_dir_ + "/base.json", base_config);
   createFile(test_dir_ + "/overrides.yaml", overrides_yaml);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
   auto config = source->loadConfiguration();
-  
+
   // Check merged configuration
   EXPECT_EQ(std::string("myapp"), config["app"].getString());
   EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
-  EXPECT_EQ(9090, config["server"]["port"].getInt());  // Overridden
-  EXPECT_TRUE(config["server"]["ssl_enabled"].getBool());  // Added
+  EXPECT_EQ(9090, config["server"]["port"].getInt());       // Overridden
+  EXPECT_TRUE(config["server"]["ssl_enabled"].getBool());   // Added
   EXPECT_EQ(20, config["database"]["pool_size"].getInt());  // Overridden
-  EXPECT_EQ(std::string("enabled"), config["features"]["new_feature"].getString());
+  EXPECT_EQ(std::string("enabled"),
+            config["features"]["new_feature"].getString());
 }
 
 // Test circular include detection
@@ -279,10 +281,10 @@ TEST_F(FileSourceCompleteTest, CircularIncludeDetection) {
   createFile(test_dir_ + "/config1.json", config1);
   createFile(test_dir_ + "/config2.json", config2);
   createFile(test_dir_ + "/config3.json", config3);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config1.json");
   auto config = source->loadConfiguration();
-  
+
   // Should handle circular includes gracefully
   // Each file should be included only once
   EXPECT_TRUE(config.contains("name"));
@@ -293,18 +295,18 @@ TEST_F(FileSourceCompleteTest, MaxIncludeDepth) {
   // Create a chain of includes exceeding max depth
   for (int i = 0; i < 10; i++) {
     std::string config = R"({
-  "level": )" + std::to_string(i) + R"(,
-  "include": "config)" + std::to_string(i + 1) + R"(.json"
+  "level": )" + std::to_string(i) +
+                         R"(,
+  "include": "config)" + std::to_string(i + 1) +
+                         R"(.json"
 })";
     createFile(test_dir_ + "/config" + std::to_string(i) + ".json", config);
   }
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config0.json");
-  
+
   // Should throw when max depth exceeded
-  EXPECT_THROW({
-    source->loadConfiguration();
-  }, std::runtime_error);
+  EXPECT_THROW({ source->loadConfiguration(); }, std::runtime_error);
 }
 
 // Test config.d overlay processing
@@ -319,7 +321,7 @@ TEST_F(FileSourceCompleteTest, ConfigDOverlays) {
 
   // Create config.d directory with overlay files
   createDirectory(test_dir_ + "/config.d");
-  
+
   // Files will be processed in lexicographic order
   std::string overlay1 = R"({
   "server": {
@@ -347,10 +349,10 @@ feature2: enabled
   createFile(test_dir_ + "/config.d/01-base.json", overlay1);
   createFile(test_dir_ + "/config.d/02-workers.yaml", overlay2_yaml);
   createFile(test_dir_ + "/config.d/03-final.json", overlay3);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
   auto config = source->loadConfiguration();
-  
+
   // Check that overlays were applied in order
   EXPECT_EQ(std::string("myapp"), config["app"].getString());
   EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
@@ -368,18 +370,18 @@ TEST_F(FileSourceCompleteTest, SearchPrecedence) {
   std::string cli_config = R"({"source": "cli", "priority": 1})";
   std::string env_config = R"({"source": "env", "priority": 2})";
   std::string local_config = R"({"source": "local", "priority": 3})";
-  
+
   createFile(test_dir_ + "/cli.json", cli_config);
   createFile(test_dir_ + "/env.json", env_config);
   createFile(test_dir_ + "/config.json", local_config);
-  
+
   // Test 1: CLI config takes precedence
   {
     auto source = createFileConfigSource("test", 1, test_dir_ + "/cli.json");
     auto config = source->loadConfiguration();
     EXPECT_EQ(std::string("cli"), config["source"].getString());
   }
-  
+
   // Test 2: ENV config takes precedence when no CLI
   {
     setenv("MCP_CONFIG", (test_dir_ + "/env.json").c_str(), 1);
@@ -388,7 +390,7 @@ TEST_F(FileSourceCompleteTest, SearchPrecedence) {
     EXPECT_EQ(std::string("env"), config["source"].getString());
     unsetenv("MCP_CONFIG");
   }
-  
+
   // Test 3: Local config when no CLI or ENV
   {
     chdir(test_dir_.c_str());
@@ -406,22 +408,24 @@ TEST_F(FileSourceCompleteTest, OversizedFileRejection) {
     large_content += "x";
   }
   large_content += "\"}";
-  
+
   createFile(test_dir_ + "/large.json", large_content);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/large.json");
-  
-  EXPECT_THROW({
-    try {
-      source->loadConfiguration();
-    } catch (const std::exception& e) {
-      std::string error = e.what();
-      // Should mention file size
-      EXPECT_TRUE(error.find("size") != std::string::npos ||
-                  error.find("large") != std::string::npos);
-      throw;
-    }
-  }, std::runtime_error);
+
+  EXPECT_THROW(
+      {
+        try {
+          source->loadConfiguration();
+        } catch (const std::exception& e) {
+          std::string error = e.what();
+          // Should mention file size
+          EXPECT_TRUE(error.find("size") != std::string::npos ||
+                      error.find("large") != std::string::npos);
+          throw;
+        }
+      },
+      std::runtime_error);
 }
 
 // Test mixed JSON/YAML overlays
@@ -453,10 +457,10 @@ database:
   createDirectory(test_dir_ + "/config.d");
   createFile(test_dir_ + "/config.json", base_json);
   createFile(test_dir_ + "/config.d/database.yaml", overlay_yaml);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
   auto config = source->loadConfiguration();
-  
+
   // Check merged result
   EXPECT_EQ(std::string("myapp"), config["app"].getString());
   EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
@@ -478,16 +482,18 @@ database:
 )";
 
   createFile(test_dir_ + "/config.yaml", yaml_with_env);
-  
+
   setenv("SERVER_HOST", "prod.example.com", 1);
   setenv("DB_PORT", "5433", 1);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.yaml");
   auto config = source->loadConfiguration();
-  
-  EXPECT_EQ(std::string("prod.example.com"), config["server"]["host"].getString());
+
+  EXPECT_EQ(std::string("prod.example.com"),
+            config["server"]["host"].getString());
   EXPECT_EQ(8080, config["server"]["port"].getInt());  // Uses default
-  EXPECT_EQ(std::string("development"), config["server"]["mode"].getString());  // Uses default
+  EXPECT_EQ(std::string("development"),
+            config["server"]["mode"].getString());  // Uses default
   EXPECT_EQ(std::string("postgres://user@localhost:5433/db"),
             config["database"]["url"].getString());
 }
@@ -508,13 +514,13 @@ TEST_F(FileSourceCompleteTest, IncludeWithEnvironmentSubstitution) {
 
   createFile(test_dir_ + "/config.json", main_config);
   createFile(test_dir_ + "/base.json", base_config);
-  
+
   setenv("APP_NAME", "production-app", 1);
   setenv("SERVER_PORT", "9090", 1);
-  
+
   auto source = createFileConfigSource("test", 1, test_dir_ + "/config.json");
   auto config = source->loadConfiguration();
-  
+
   EXPECT_EQ(std::string("production-app"), config["app"].getString());
   EXPECT_EQ(std::string("localhost"), config["server"]["host"].getString());
   EXPECT_EQ(std::string("9090"), config["server"]["port"].getString());

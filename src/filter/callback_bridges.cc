@@ -6,6 +6,7 @@
 #include "mcp/filter/callback_bridges.h"
 
 #include <iostream>
+
 #include "mcp/network/buffer.h"
 
 namespace mcp {
@@ -13,15 +14,17 @@ namespace filter {
 
 // HttpToFilterChainBridge Implementation
 
-HttpToFilterChainBridge::HttpToFilterChainBridge(network::FilterCallbacks& filter_callbacks)
+HttpToFilterChainBridge::HttpToFilterChainBridge(
+    network::FilterCallbacks& filter_callbacks)
     : filter_callbacks_(filter_callbacks) {
   std::cerr << "[DEBUG] HttpToFilterChainBridge created" << std::endl;
 }
 
-void HttpToFilterChainBridge::onHeaders(const std::map<std::string, std::string>& headers,
-                                        bool keep_alive) {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onHeaders called with " << headers.size()
-            << " headers, keep_alive=" << keep_alive << std::endl;
+void HttpToFilterChainBridge::onHeaders(
+    const std::map<std::string, std::string>& headers, bool keep_alive) {
+  std::cerr << "[DEBUG] HttpToFilterChainBridge::onHeaders called with "
+            << headers.size() << " headers, keep_alive=" << keep_alive
+            << std::endl;
 
   // For HTTP → SSE pipeline, we expect the body to contain SSE data
   // Headers are typically processed but the SSE content is in the body
@@ -29,20 +32,23 @@ void HttpToFilterChainBridge::onHeaders(const std::map<std::string, std::string>
 }
 
 void HttpToFilterChainBridge::onBody(const std::string& data, bool end_stream) {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onBody called with " << data.length()
-            << " bytes, end_stream=" << end_stream << std::endl;
+  std::cerr << "[DEBUG] HttpToFilterChainBridge::onBody called with "
+            << data.length() << " bytes, end_stream=" << end_stream
+            << std::endl;
 
   // Accumulate body data for forwarding to next filter
   accumulated_body_ += data;
 
-  // If this is the end of the stream, forward accumulated data through filter chain
+  // If this is the end of the stream, forward accumulated data through filter
+  // chain
   if (end_stream) {
     // Create a buffer with the accumulated HTTP body (which should be SSE data)
     Buffer next_filter_buffer;
     next_filter_buffer.add(accumulated_body_);
 
     // Forward through filter chain to next filter
-    filter_callbacks_.injectReadDataToFilterChain(next_filter_buffer, end_stream);
+    filter_callbacks_.injectReadDataToFilterChain(next_filter_buffer,
+                                                  end_stream);
 
     // Clear accumulated data for next message
     accumulated_body_.clear();
@@ -50,9 +56,11 @@ void HttpToFilterChainBridge::onBody(const std::string& data, bool end_stream) {
 }
 
 void HttpToFilterChainBridge::onMessageComplete() {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onMessageComplete called" << std::endl;
+  std::cerr << "[DEBUG] HttpToFilterChainBridge::onMessageComplete called"
+            << std::endl;
 
-  // HTTP message complete - if we have accumulated data, forward it through chain
+  // HTTP message complete - if we have accumulated data, forward it through
+  // chain
   if (!accumulated_body_.empty()) {
     Buffer next_filter_buffer;
     next_filter_buffer.add(accumulated_body_);
@@ -64,7 +72,8 @@ void HttpToFilterChainBridge::onMessageComplete() {
 }
 
 void HttpToFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] HttpToFilterChainBridge::onError: " << error << std::endl;
+  std::cerr << "[ERROR] HttpToFilterChainBridge::onError: " << error
+            << std::endl;
 
   // Forward error through filter chain error handling
   // Note: We'll rely on the filter chain's standard error handling mechanisms
@@ -72,7 +81,8 @@ void HttpToFilterChainBridge::onError(const std::string& error) {
 
 // SseToFilterChainBridge Implementation
 
-SseToFilterChainBridge::SseToFilterChainBridge(network::FilterCallbacks& filter_callbacks)
+SseToFilterChainBridge::SseToFilterChainBridge(
+    network::FilterCallbacks& filter_callbacks)
     : filter_callbacks_(filter_callbacks) {
   std::cerr << "[DEBUG] SseToFilterChainBridge created" << std::endl;
 }
@@ -80,8 +90,8 @@ SseToFilterChainBridge::SseToFilterChainBridge(network::FilterCallbacks& filter_
 void SseToFilterChainBridge::onEvent(const std::string& event,
                                      const std::string& data,
                                      const optional<std::string>& id) {
-  std::cerr << "[DEBUG] SseToFilterChainBridge::onEvent called with event='" << event
-            << "', data length=" << data.length();
+  std::cerr << "[DEBUG] SseToFilterChainBridge::onEvent called with event='"
+            << event << "', data length=" << data.length();
   if (id.has_value()) {
     std::cerr << ", id='" << id.value() << "'";
   }
@@ -107,7 +117,8 @@ void SseToFilterChainBridge::onComment(const std::string& comment) {
 }
 
 void SseToFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] SseToFilterChainBridge::onError: " << error << std::endl;
+  std::cerr << "[ERROR] SseToFilterChainBridge::onError: " << error
+            << std::endl;
 
   // Forward error through filter chain error handling
   // We'll rely on the filter chain's standard error handling mechanisms
@@ -115,7 +126,8 @@ void SseToFilterChainBridge::onError(const std::string& error) {
 
 // JsonRpcToProtocolBridge Implementation
 
-JsonRpcToProtocolBridge::JsonRpcToProtocolBridge(McpProtocolCallbacks& callbacks)
+JsonRpcToProtocolBridge::JsonRpcToProtocolBridge(
+    McpProtocolCallbacks& callbacks)
     : callbacks_(callbacks) {
   std::cerr << "[DEBUG] JsonRpcToProtocolBridge created" << std::endl;
 }
@@ -128,9 +140,11 @@ void JsonRpcToProtocolBridge::onRequest(const jsonrpc::Request& request) {
   callbacks_.onRequest(request);
 }
 
-void JsonRpcToProtocolBridge::onNotification(const jsonrpc::Notification& notification) {
-  std::cerr << "[DEBUG] JsonRpcToProtocolBridge::onNotification called with method='"
-            << notification.method << "'" << std::endl;
+void JsonRpcToProtocolBridge::onNotification(
+    const jsonrpc::Notification& notification) {
+  std::cerr
+      << "[DEBUG] JsonRpcToProtocolBridge::onNotification called with method='"
+      << notification.method << "'" << std::endl;
 
   // Forward parsed JSON-RPC notification to final protocol callbacks
   callbacks_.onNotification(notification);
@@ -159,36 +173,40 @@ void JsonRpcToProtocolBridge::onProtocolError(const Error& error) {
 
 std::shared_ptr<HttpToFilterChainBridge> FilterBridgeFactory::createHttpBridge(
     network::FilterCallbacks& filter_callbacks) {
-
-  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge called" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge called"
+            << std::endl;
 
   auto bridge = std::make_shared<HttpToFilterChainBridge>(filter_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge completed" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge completed"
+            << std::endl;
 
   return bridge;
 }
 
 std::shared_ptr<SseToFilterChainBridge> FilterBridgeFactory::createSseBridge(
     network::FilterCallbacks& filter_callbacks) {
-
-  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge called" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge called"
+            << std::endl;
 
   auto bridge = std::make_shared<SseToFilterChainBridge>(filter_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge completed" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge completed"
+            << std::endl;
 
   return bridge;
 }
 
-std::shared_ptr<JsonRpcToProtocolBridge> FilterBridgeFactory::createJsonRpcBridge(
+std::shared_ptr<JsonRpcToProtocolBridge>
+FilterBridgeFactory::createJsonRpcBridge(
     McpProtocolCallbacks& final_callbacks) {
-
-  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge called" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge called"
+            << std::endl;
 
   auto bridge = std::make_shared<JsonRpcToProtocolBridge>(final_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge completed" << std::endl;
+  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge completed"
+            << std::endl;
 
   return bridge;
 }

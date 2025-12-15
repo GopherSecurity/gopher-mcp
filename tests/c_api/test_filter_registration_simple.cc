@@ -3,33 +3,32 @@
  * @brief Simple test to verify all core filters are registered
  */
 
+#include <string>
+#include <vector>
+
+#include <gtest/gtest.h>
+
 #include "mcp/c_api/mcp_c_api.h"
 #include "mcp/filter/filter_registry.h"
-#include <gtest/gtest.h>
-#include <vector>
-#include <string>
 
 class FilterRegistrationTest : public ::testing::Test {
-protected:
+ protected:
   void SetUp() override {
     // Initialize MCP
     mcp_result_t init_result = mcp_init(nullptr);
     ASSERT_EQ(init_result, MCP_OK) << "mcp_init failed";
   }
 
-  void TearDown() override {
-    mcp_shutdown();
-  }
+  void TearDown() override { mcp_shutdown(); }
 };
 
 TEST_F(FilterRegistrationTest, AllCoreFiltersRegistered) {
   auto& registry = mcp::filter::FilterRegistry::instance();
 
   // Expected filters
-  std::vector<std::string> expected = {
-    "http.codec", "sse.codec", "json_rpc.dispatcher",
-    "rate_limit", "circuit_breaker", "metrics"
-  };
+  std::vector<std::string> expected = {"http.codec",          "sse.codec",
+                                       "json_rpc.dispatcher", "rate_limit",
+                                       "circuit_breaker",     "metrics"};
 
   // Check each filter
   for (const auto& name : expected) {
@@ -45,9 +44,11 @@ TEST_F(FilterRegistrationTest, AllCoreFiltersRegistered) {
   auto trad_factories = registry.listFactories();
 
   EXPECT_EQ(context_factories.size(), 3u)
-      << "Expected 3 context factories (http.codec, sse.codec, json_rpc.dispatcher)";
+      << "Expected 3 context factories (http.codec, sse.codec, "
+         "json_rpc.dispatcher)";
   EXPECT_EQ(trad_factories.size(), 3u)
-      << "Expected 3 traditional factories (rate_limit, circuit_breaker, metrics)";
+      << "Expected 3 traditional factories (rate_limit, circuit_breaker, "
+         "metrics)";
 
   // Log what we found
   std::cout << "\n=== Context Factories ===" << std::endl;

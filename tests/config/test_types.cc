@@ -421,7 +421,8 @@ TEST_F(ConfigTypesTest, BootstrapConfigEquality) {
 
 TEST_F(ConfigTypesTest, JsonParsingWithMissingFields) {
   // Test that missing fields use defaults
-  JsonValue minimal = JsonValue::parse("{\"node\": {\"id\": \"minimal-node\"}}");
+  JsonValue minimal =
+      JsonValue::parse("{\"node\": {\"id\": \"minimal-node\"}}");
 
   BootstrapConfig config = BootstrapConfig::fromJson(minimal);
 

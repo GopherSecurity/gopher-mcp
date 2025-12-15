@@ -39,7 +39,7 @@ struct ValidationResult {
 };
 
 class FilterChainAssembler {
-public:
+ public:
   explicit FilterChainAssembler(FilterRegistry& registry);
   ~FilterChainAssembler();
 
@@ -50,34 +50,33 @@ public:
 
   ValidationResult validateFilterChain(const config::FilterChainConfig& config);
 
-private:
+ private:
   network::FilterSharedPtr createSingleFilter(
       const config::FilterConfig& filter_config,
       const FilterCreationContext& context);
 
-  void validateBasicOrdering(
-      const std::vector<config::FilterConfig>& filters,
-      std::vector<std::string>& warnings);
+  void validateBasicOrdering(const std::vector<config::FilterConfig>& filters,
+                             std::vector<std::string>& warnings);
 
   int getExpectedFilterPosition(const std::string& filter_name);
 
-private:
+ private:
   FilterRegistry& registry_;
 };
 
 class ConfigurableFilterChainFactory {
-public:
-  explicit ConfigurableFilterChainFactory(const config::FilterChainConfig& config);
+ public:
+  explicit ConfigurableFilterChainFactory(
+      const config::FilterChainConfig& config);
   ~ConfigurableFilterChainFactory();
 
-  bool createFilterChain(
-      const FilterCreationContext& context,
-      network::FilterManager& filter_manager);
+  bool createFilterChain(const FilterCreationContext& context,
+                         network::FilterManager& filter_manager);
 
   bool validateConfiguration() const;
   std::vector<std::string> getValidationErrors() const;
 
-private:
+ private:
   config::FilterChainConfig filter_chain_config_;
   std::unique_ptr<FilterChainAssembler> assembler_;
 };

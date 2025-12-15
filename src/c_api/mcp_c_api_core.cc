@@ -118,8 +118,8 @@ mcp_result_t mcp_dispatcher_run_timeout(mcp_dispatcher_t dispatcher,
   });
 }
 
-mcp_result_t mcp_dispatcher_start_background(
-    mcp_dispatcher_t dispatcher) MCP_NOEXCEPT {
+mcp_result_t mcp_dispatcher_start_background(mcp_dispatcher_t dispatcher)
+    MCP_NOEXCEPT {
   CHECK_HANDLE_VALID(dispatcher);
 
   TRY_WITH_RAII({

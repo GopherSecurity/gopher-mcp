@@ -3,17 +3,17 @@
  * @brief Comprehensive tests for C API JSON-based filter chain creation
  */
 
+#include <memory>
+#include <string>
+
 #include <gtest/gtest.h>
 
-#include <string>
-#include <memory>
-
-#include "mcp/c_api/mcp_c_filter_chain.h"
-#include "mcp/c_api/mcp_c_api_json.h"
 #include "mcp/c_api/mcp_c_api.h"
+#include "mcp/c_api/mcp_c_api_json.h"
+#include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/filter/filter_registry.h"
-#include "mcp/network/filter.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/network/filter.h"
 
 namespace mcp {
 namespace c_api {
@@ -35,12 +35,13 @@ class MockFilterFactory : public filter::FilterFactory {
     return metadata_;
   }
 
-  network::FilterSharedPtr createFilter(const json::JsonValue& config) const override {
+  network::FilterSharedPtr createFilter(
+      const json::JsonValue& config) const override {
     // Return nullptr to indicate filter needs runtime dependencies
     // This is acceptable for chain creation tests
     return nullptr;
   }
-  
+
  private:
   std::string name_;
   filter::FilterFactoryMetadata metadata_;
@@ -52,47 +53,47 @@ class ChainFromJsonTest : public ::testing::Test {
     // Create dispatcher
     dispatcher_ = mcp_dispatcher_create();
     ASSERT_NE(dispatcher_, nullptr);
-    
+
     // Register mock filter factories for testing
     registerMockFilters();
   }
-  
+
   void TearDown() override {
     if (dispatcher_) {
       mcp_dispatcher_destroy(dispatcher_);
       dispatcher_ = nullptr;
     }
   }
-  
+
   void registerMockFilters() {
     // Register common filter types used in tests
     auto& registry = filter::FilterRegistry::instance();
-    
+
     if (!registry.hasFactory("json_rpc")) {
-      registry.registerFactory("json_rpc", 
-        std::make_shared<MockFilterFactory>("json_rpc"));
+      registry.registerFactory("json_rpc",
+                               std::make_shared<MockFilterFactory>("json_rpc"));
     }
-    
+
     if (!registry.hasFactory("http_codec")) {
-      registry.registerFactory("http_codec",
-        std::make_shared<MockFilterFactory>("http_codec"));
+      registry.registerFactory(
+          "http_codec", std::make_shared<MockFilterFactory>("http_codec"));
     }
-    
+
     if (!registry.hasFactory("sse_codec")) {
-      registry.registerFactory("sse_codec",
-        std::make_shared<MockFilterFactory>("sse_codec"));
+      registry.registerFactory(
+          "sse_codec", std::make_shared<MockFilterFactory>("sse_codec"));
     }
-    
+
     if (!registry.hasFactory("rate_limit")) {
-      registry.registerFactory("rate_limit",
-        std::make_shared<MockFilterFactory>("rate_limit"));
+      registry.registerFactory(
+          "rate_limit", std::make_shared<MockFilterFactory>("rate_limit"));
     }
   }
-  
+
   mcp_json_value_t parseJson(const std::string& json_str) {
     return mcp_json_parse(json_str.c_str());
   }
-  
+
   mcp_dispatcher_t dispatcher_ = nullptr;
 };
 
@@ -103,13 +104,13 @@ TEST_F(ChainFromJsonTest, MinimalChain) {
       { "type": "json_rpc", "config": { "strict_mode": true } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_NE(chain, 0) << "Chain creation should succeed with minimal config";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -120,13 +121,13 @@ TEST_F(ChainFromJsonTest, UnknownFilterType) {
       { "type": "no_such_filter" }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_EQ(chain, 0) << "Chain creation should fail with unknown filter type";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -137,13 +138,13 @@ TEST_F(ChainFromJsonTest, MissingTypeField) {
       { "config": { "some_option": true } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_EQ(chain, 0) << "Chain creation should fail without type field";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -161,13 +162,13 @@ TEST_F(ChainFromJsonTest, TypedConfigNormalization) {
       }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_NE(chain, 0) << "Chain creation should succeed with typed_config";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -181,13 +182,13 @@ TEST_F(ChainFromJsonTest, MultipleFilters) {
       { "type": "json_rpc", "config": { "strict_mode": false } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_NE(chain, 0) << "Chain creation should succeed with multiple filters";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -198,13 +199,13 @@ TEST_F(ChainFromJsonTest, NameAsTypeFallback) {
       { "name": "json_rpc", "config": { "strict_mode": true } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_NE(chain, 0) << "Chain creation should succeed using name as type";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -213,13 +214,13 @@ TEST_F(ChainFromJsonTest, MissingFiltersArray) {
   const char* json_str = R"({
     "name": "test_chain"
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_EQ(chain, 0) << "Chain creation should fail without filters array";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -228,15 +229,15 @@ TEST_F(ChainFromJsonTest, EmptyFiltersArray) {
   const char* json_str = R"({
     "filters": []
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   // Empty chain might be valid depending on implementation
   // For now, we'll expect it to succeed
   EXPECT_NE(chain, 0) << "Chain creation should succeed with empty filters";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -247,13 +248,13 @@ TEST_F(ChainFromJsonTest, NullDispatcher) {
       { "type": "json_rpc", "config": {} }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(nullptr, json_config);
   EXPECT_EQ(chain, 0) << "Chain creation should fail with null dispatcher";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -292,13 +293,13 @@ TEST_F(ChainFromJsonTest, ComplexConfiguration) {
       }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_NE(chain, 0) << "Chain creation should succeed with complex config";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -309,19 +310,19 @@ TEST_F(ChainFromJsonTest, ExportToJson) {
       { "type": "json_rpc", "config": { "strict_mode": true } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   ASSERT_NE(chain, 0);
-  
+
   auto exported = mcp_chain_export_to_json(chain);
   EXPECT_NE(exported, nullptr) << "Chain export should produce valid JSON";
-  
+
   // Verify the exported JSON is valid
   EXPECT_NE(mcp_json_get_type(exported), MCP_JSON_TYPE_NULL);
-  
+
   mcp_json_free(json_config);
   mcp_json_free(exported);
 }
@@ -333,17 +334,17 @@ TEST_F(ChainFromJsonTest, ChainClone) {
       { "type": "json_rpc", "config": { "strict_mode": true } }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto original = mcp_chain_create_from_json(dispatcher_, json_config);
   ASSERT_NE(original, 0);
-  
+
   // Clone should now work with dispatcher tracking
   auto cloned = mcp_chain_clone(original);
   EXPECT_NE(cloned, 0) << "Clone should succeed with dispatcher tracking";
-  
+
   mcp_json_free(json_config);
 }
 
@@ -364,13 +365,14 @@ TEST_F(ChainFromJsonTest, MixedConfigStyles) {
       }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
-  EXPECT_NE(chain, 0) << "Chain creation should succeed with mixed config styles";
-  
+  EXPECT_NE(chain, 0)
+      << "Chain creation should succeed with mixed config styles";
+
   mcp_json_free(json_config);
 }
 
@@ -383,13 +385,13 @@ TEST_F(ChainFromJsonTest, InvalidFilterInArray) {
       { "type": "http_codec", "config": {} }
     ]
   })";
-  
+
   auto json_config = parseJson(json_str);
   ASSERT_NE(json_config, nullptr);
-  
+
   auto chain = mcp_chain_create_from_json(dispatcher_, json_config);
   EXPECT_EQ(chain, 0) << "Chain creation should fail with non-object filter";
-  
+
   mcp_json_free(json_config);
 }
 

@@ -28,8 +28,8 @@
 
 #include "../network/filter.h"
 #include "../types.h"
-#include "json_rpc_protocol_filter.h"
 #include "filter_event_emitter.h"
+#include "json_rpc_protocol_filter.h"
 
 // Temporary debug logging for circuit breaker validation
 #define GOPHER_LOG_COMPONENT "filter.circuit_breaker"
@@ -90,7 +90,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
  public:
   /**
    * Constructor
-   * @param emitter Event emitter for filter events (can be nullptr to disable events)
+   * @param emitter Event emitter for filter events (can be nullptr to disable
+   * events)
    * @param config Circuit breaker configuration
    */
   CircuitBreakerFilter(
@@ -105,7 +106,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     last_state_change_ = std::chrono::steady_clock::now();
     std::cout << "[CIRCUIT_BREAKER] 🔧 Filter created with "
               << (emitter_ ? "EVENT EMITTER" : "NO EMITTER")
-              << " failure_threshold=" << config_.failure_threshold << std::endl;
+              << " failure_threshold=" << config_.failure_threshold
+              << std::endl;
   }
 
   // Filter interface implementation
@@ -138,15 +140,17 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     // Check circuit state
     if (!allowRequest(request.method)) {
       // Circuit is open - fail fast
-      std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method << std::endl;
+      std::cout << "[CIRCUIT_BREAKER] ⛔ REQUEST BLOCKED: " << request.method
+                << std::endl;
       if (emitter_) {
-        std::cout << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_REQUEST_BLOCKED event" << std::endl;
+        std::cout
+            << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_REQUEST_BLOCKED event"
+            << std::endl;
         json::JsonObjectBuilder event_data;
         event_data.add("method", request.method);
         event_data.add("state", stateToString(state_));
         emitter_->emit(FilterEventType::CIRCUIT_REQUEST_BLOCKED,
-                       FilterEventSeverity::WARN,
-                       event_data.build());
+                       FilterEventSeverity::WARN, event_data.build());
       }
 
       // Send error response
@@ -194,7 +198,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       bool is_client_error = false;
 
       GOPHER_LOG(Debug, "onResponse: id=%s has_error=%d latency=%lums",
-                 requestIdToString(response.id).c_str(), is_error, static_cast<unsigned long>(latency));
+                 requestIdToString(response.id).c_str(), is_error,
+                 static_cast<unsigned long>(latency));
 
       if (is_error && response.error.has_value()) {
         int code = response.error->code;
@@ -205,14 +210,18 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       }
 
       if (is_error && (config_.track_errors && !is_client_error)) {
-        GOPHER_LOG(Info, "onResponse: Recording FAILURE for id=%s method=%s error_code=%d",
-                   requestIdToString(response.id).c_str(), req_info.method.c_str(),
-                   response.error->code);
+        GOPHER_LOG(
+            Info,
+            "onResponse: Recording FAILURE for id=%s method=%s error_code=%d",
+            requestIdToString(response.id).c_str(), req_info.method.c_str(),
+            response.error->code);
         recordFailure(req_info.method);
       } else {
-        GOPHER_LOG(Debug, "onResponse: Recording SUCCESS for id=%s method=%s latency=%lums",
-                   requestIdToString(response.id).c_str(), req_info.method.c_str(),
-                   static_cast<unsigned long>(latency));
+        GOPHER_LOG(
+            Debug,
+            "onResponse: Recording SUCCESS for id=%s method=%s latency=%lums",
+            requestIdToString(response.id).c_str(), req_info.method.c_str(),
+            static_cast<unsigned long>(latency));
         recordSuccess(req_info.method, latency);
       }
 
@@ -284,7 +293,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
 
     switch (state_) {
       case CircuitState::CLOSED:
-        GOPHER_LOG(Debug, "allowRequest: CLOSED - allowing request for method=%s", method.c_str());
+        GOPHER_LOG(Debug,
+                   "allowRequest: CLOSED - allowing request for method=%s",
+                   method.c_str());
         return true;
 
       case CircuitState::OPEN:
@@ -292,25 +303,35 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
         if (std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - last_state_change_) >= config_.timeout) {
           // Transition to half-open
-          GOPHER_LOG(Info, "allowRequest: Transitioning OPEN -> HALF_OPEN after timeout");
+          GOPHER_LOG(
+              Info,
+              "allowRequest: Transitioning OPEN -> HALF_OPEN after timeout");
           transitionState(CircuitState::HALF_OPEN,
                           "Timeout expired, testing recovery");
           half_open_requests_ = 0;
           half_open_successes_ = 0;
           return true;
         }
-        GOPHER_LOG(Warning, "allowRequest: OPEN - blocking request for method=%s", method.c_str());
+        GOPHER_LOG(Warning,
+                   "allowRequest: OPEN - blocking request for method=%s",
+                   method.c_str());
         return false;
 
       case CircuitState::HALF_OPEN:
         // Allow limited requests for testing
         if (half_open_requests_ < config_.half_open_max_requests) {
           half_open_requests_++;
-          GOPHER_LOG(Debug, "allowRequest: HALF_OPEN - allowing test request %zu/%zu for method=%s",
-                     static_cast<size_t>(half_open_requests_), config_.half_open_max_requests, method.c_str());
+          GOPHER_LOG(Debug,
+                     "allowRequest: HALF_OPEN - allowing test request %zu/%zu "
+                     "for method=%s",
+                     static_cast<size_t>(half_open_requests_),
+                     config_.half_open_max_requests, method.c_str());
           return true;
         }
-        GOPHER_LOG(Warning, "allowRequest: HALF_OPEN - max requests reached, blocking method=%s", method.c_str());
+        GOPHER_LOG(Warning,
+                   "allowRequest: HALF_OPEN - max requests reached, blocking "
+                   "method=%s",
+                   method.c_str());
         return false;
     }
 
@@ -327,14 +348,17 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     request_outcomes_.push_back({now, true, latency_ms});
     consecutive_failures_ = 0;
 
-    GOPHER_LOG(Debug, "recordSuccess: method=%s state=%s consecutive_failures reset to 0",
-               method.c_str(), stateToString(state_));
+    GOPHER_LOG(
+        Debug,
+        "recordSuccess: method=%s state=%s consecutive_failures reset to 0",
+        method.c_str(), stateToString(state_));
 
     // Handle half-open state
     if (state_ == CircuitState::HALF_OPEN) {
       half_open_successes_++;
       GOPHER_LOG(Info, "recordSuccess: HALF_OPEN successes=%zu/%zu",
-                 static_cast<size_t>(half_open_successes_), config_.half_open_success_threshold);
+                 static_cast<size_t>(half_open_successes_),
+                 config_.half_open_success_threshold);
       if (half_open_successes_ >= config_.half_open_success_threshold) {
         transitionState(CircuitState::CLOSED, "Recovery successful");
       }
@@ -354,7 +378,8 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     request_outcomes_.push_back({now, false, 0});
     consecutive_failures_++;
 
-    GOPHER_LOG(Warning, "recordFailure: method=%s consecutive_failures=%zu/%zu state=%s",
+    GOPHER_LOG(Warning,
+               "recordFailure: method=%s consecutive_failures=%zu/%zu state=%s",
                method.c_str(), static_cast<size_t>(consecutive_failures_),
                config_.failure_threshold, stateToString(state_));
 
@@ -362,8 +387,11 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     if (state_ == CircuitState::CLOSED) {
       // Check consecutive failures
       if (consecutive_failures_ >= config_.failure_threshold) {
-        GOPHER_LOG(Error, "recordFailure: CONSECUTIVE threshold exceeded (%zu >= %zu) - OPENING circuit",
-                   static_cast<size_t>(consecutive_failures_), config_.failure_threshold);
+        GOPHER_LOG(Error,
+                   "recordFailure: CONSECUTIVE threshold exceeded (%zu >= %zu) "
+                   "- OPENING circuit",
+                   static_cast<size_t>(consecutive_failures_),
+                   config_.failure_threshold);
         transitionState(CircuitState::OPEN,
                         "Consecutive failures exceeded threshold: " +
                             std::to_string(consecutive_failures_));
@@ -374,7 +402,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       if (request_outcomes_.size() >= config_.min_requests) {
         double error_rate = calculateErrorRate();
         if (error_rate > config_.error_rate_threshold) {
-          GOPHER_LOG(Error, "recordFailure: ERROR RATE threshold exceeded (%.2f%% > %.2f%%) - OPENING circuit",
+          GOPHER_LOG(Error,
+                     "recordFailure: ERROR RATE threshold exceeded (%.2f%% > "
+                     "%.2f%%) - OPENING circuit",
                      error_rate * 100, config_.error_rate_threshold * 100);
           transitionState(CircuitState::OPEN,
                           "Error rate exceeded threshold: " +
@@ -383,7 +413,9 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       }
     } else if (state_ == CircuitState::HALF_OPEN) {
       // Any failure in half-open returns to open
-      GOPHER_LOG(Error, "recordFailure: Failure during HALF_OPEN test - reopening circuit");
+      GOPHER_LOG(
+          Error,
+          "recordFailure: Failure during HALF_OPEN test - reopening circuit");
       transitionState(CircuitState::OPEN, "Failure during recovery test");
     }
 
@@ -396,20 +428,22 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
     last_state_change_ = std::chrono::steady_clock::now();
 
     GOPHER_LOG(Info, "Circuit state transition: %s -> %s (reason: %s)",
-               stateToString(old_state), stateToString(new_state), reason.c_str());
+               stateToString(old_state), stateToString(new_state),
+               reason.c_str());
 
-    std::cout << "[CIRCUIT_BREAKER] ⚡ STATE CHANGE: " << stateToString(old_state)
-              << " → " << stateToString(new_state) << " (reason: " << reason << ")" << std::endl;
+    std::cout << "[CIRCUIT_BREAKER] ⚡ STATE CHANGE: "
+              << stateToString(old_state) << " → " << stateToString(new_state)
+              << " (reason: " << reason << ")" << std::endl;
 
     if (emitter_) {
-      std::cout << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_STATE_CHANGE event" << std::endl;
+      std::cout << "[CIRCUIT_BREAKER] 📡 Emitting CIRCUIT_STATE_CHANGE event"
+                << std::endl;
       json::JsonObjectBuilder event_data;
       event_data.add("old_state", stateToString(old_state));
       event_data.add("new_state", stateToString(new_state));
       event_data.add("reason", reason);
       emitter_->emit(FilterEventType::CIRCUIT_STATE_CHANGE,
-                     FilterEventSeverity::INFO,
-                     event_data.build());
+                     FilterEventSeverity::INFO, event_data.build());
     }
   }
 
@@ -451,10 +485,10 @@ class CircuitBreakerFilter : public network::NetworkFilterBase,
       event_data.add("success_rate", success_rate);
       event_data.add("avg_latency_ms", static_cast<double>(avg_latency));
       event_data.add("state", stateToString(state_));
-      event_data.add("total_requests", static_cast<double>(request_outcomes_.size()));
+      event_data.add("total_requests",
+                     static_cast<double>(request_outcomes_.size()));
       emitter_->emit(FilterEventType::CIRCUIT_HEALTH_UPDATE,
-                     FilterEventSeverity::DEBUG,
-                     event_data.build());
+                     FilterEventSeverity::DEBUG, event_data.build());
     }
   }
 

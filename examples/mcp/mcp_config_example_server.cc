@@ -15,43 +15,44 @@
  *   mcp_config_example_server --config <config.json> [--verbose]
  *
  * EXAMPLE:
- *   ./mcp_config_example_server --config examples/configs/mcp_server_example.json --verbose
+ *   ./mcp_config_example_server --config
+ * examples/configs/mcp_server_example.json --verbose
  *
  * The server will load the filter chain configuration from the JSON file and
  * demonstrate a complete HTTP→SSE→JSON-RPC pipeline working with real MCP
  * protocol functionality.
  */
 
+#include <chrono>
+#include <csignal>
+#include <cstring>
+#include <ctime>
+#include <fstream>
 #include <iostream>
 #include <memory>
-#include <fstream>
-#include <cstring>
-#include <csignal>
+#include <string_view>
 #include <thread>
-#include <chrono>
-#include <ctime>
 #include <unordered_map>
-#include <vector>
 #include <utility>
 #include <variant>
-#include <string_view>
+#include <vector>
 
 // Core MCP includes
-#include "mcp/server/mcp_server.h"
-#include "mcp/core/type_helpers.h"
 #include "mcp/core/compat.h"
+#include "mcp/core/type_helpers.h"
+#include "mcp/server/mcp_server.h"
 
 // Networking includes
-#include "mcp/network/server_listener_impl.h"
-#include "mcp/network/listener.h"
-#include "mcp/network/connection.h"
-#include "mcp/network/transport_socket.h"
 #include "mcp/config/listener_config.h"
+#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
-#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/network/connection.h"
+#include "mcp/network/listener.h"
+#include "mcp/network/server_listener_impl.h"
+#include "mcp/network/transport_socket.h"
 
 #define GOPHER_LOG_COMPONENT "config.example.server"
 
@@ -63,7 +64,7 @@ using namespace mcp::filter;
  * Config-driven example server implementation
  */
 class ConfigDrivenExampleServer : public network::ListenerCallbacks {
-public:
+ public:
   explicit ConfigDrivenExampleServer(bool verbose = false)
       : verbose_(verbose), running_(false) {}
 
@@ -73,12 +74,14 @@ public:
   bool loadServerConfig(const std::string& config_path) {
     try {
       if (verbose_) {
-        std::cout << "Loading server configuration from: " << config_path << std::endl;
+        std::cout << "Loading server configuration from: " << config_path
+                  << std::endl;
       }
 
       std::ifstream file(config_path);
       if (!file.is_open()) {
-        std::cerr << "ERROR: Cannot open config file: " << config_path << std::endl;
+        std::cerr << "ERROR: Cannot open config file: " << config_path
+                  << std::endl;
         return false;
       }
       file.close();
@@ -87,7 +90,8 @@ public:
       listener_config_ = ListenerServerConfig::fromJsonFile(config_path);
 
       if (listener_config_.listeners.empty()) {
-        std::cerr << "ERROR: No listeners configured in " << config_path << std::endl;
+        std::cerr << "ERROR: No listeners configured in " << config_path
+                  << std::endl;
         return false;
       }
 
@@ -98,7 +102,8 @@ public:
             if (filter.type.empty() && !filter.name.empty()) {
               filter.type = filter.name;
               if (verbose_) {
-                std::cout << "  [Config] Populated filter type with name: " << filter.type << std::endl;
+                std::cout << "  [Config] Populated filter type with name: "
+                          << filter.type << std::endl;
               }
             }
             if (filter.name.empty() && !filter.type.empty()) {
@@ -113,7 +118,8 @@ public:
         try {
           listener.validate();
         } catch (const ConfigValidationError& e) {
-          std::cerr << "ERROR: Listener validation failed: " << e.what() << std::endl;
+          std::cerr << "ERROR: Listener validation failed: " << e.what()
+                    << std::endl;
           return false;
         }
       }
@@ -132,7 +138,8 @@ public:
             std::cout << "    Filter chain " << i << " with "
                       << chain.filters.size() << " filter(s): ";
             for (const auto& filter : chain.filters) {
-              const std::string& label = !filter.name.empty() ? filter.name : filter.type;
+              const std::string& label =
+                  !filter.name.empty() ? filter.name : filter.type;
               std::cout << label << " ";
             }
             std::cout << std::endl;
@@ -162,7 +169,8 @@ public:
 
     try {
       auto dispatcher_factory = mcp::event::createLibeventDispatcherFactory();
-      dispatcher_ = dispatcher_factory->createDispatcher("config_example_server");
+      dispatcher_ =
+          dispatcher_factory->createDispatcher("config_example_server");
       if (!dispatcher_) {
         std::cerr << "ERROR: Failed to create event dispatcher" << std::endl;
         return false;
@@ -199,7 +207,8 @@ public:
           std::cout << "  " << listener.name << " -> ";
           if (!listener.filter_chains.empty()) {
             for (const auto& filter : listener.filter_chains[0].filters) {
-              const std::string& label = !filter.name.empty() ? filter.name : filter.type;
+              const std::string& label =
+                  !filter.name.empty() ? filter.name : filter.type;
               std::cout << label << " -> ";
             }
           }
@@ -268,18 +277,19 @@ public:
     std::cout << "Server stopped gracefully" << std::endl;
   }
 
-private:
+ private:
   /**
    * Example protocol callbacks implementation
    */
   class ExampleProtocolCallbacks : public McpProtocolCallbacks {
-  public:
+   public:
     explicit ExampleProtocolCallbacks(ConfigDrivenExampleServer& server)
         : server_(server) {}
 
     void onRequest(const jsonrpc::Request& request) override {
       if (server_.verbose_) {
-        std::cout << "[Protocol] Received JSON-RPC request: " << request.method << std::endl;
+        std::cout << "[Protocol] Received JSON-RPC request: " << request.method
+                  << std::endl;
       }
 
       if (request.method == "tools/call") {
@@ -293,7 +303,8 @@ private:
 
     void onNotification(const jsonrpc::Notification& notification) override {
       if (server_.verbose_) {
-        std::cout << "[Protocol] Notification: " << notification.method << std::endl;
+        std::cout << "[Protocol] Notification: " << notification.method
+                  << std::endl;
       }
     }
 
@@ -305,11 +316,12 @@ private:
 
     void onConnectionEvent(network::ConnectionEvent event) override {
       if (server_.verbose_) {
-        std::cout << "[Protocol] Connection event: " << static_cast<int>(event) << std::endl;
+        std::cout << "[Protocol] Connection event: " << static_cast<int>(event)
+                  << std::endl;
       }
     }
 
-  private:
+   private:
     void handleToolCall(const jsonrpc::Request& request) {
       try {
         json::JsonValue params_json = paramsToJson(request.params);
@@ -326,7 +338,8 @@ private:
           sendError(request.id, -32600, "Unknown tool: " + tool_name);
         }
       } catch (const std::exception& e) {
-        sendError(request.id, -32603, "Tool execution error: " + std::string(e.what()));
+        sendError(request.id, -32603,
+                  "Tool execution error: " + std::string(e.what()));
       }
     }
 
@@ -356,7 +369,8 @@ private:
         sendResult(request.id, result.build());
       };
 
-      auto logRawArgument = [&](const char* source, const json::JsonValue& value) {
+      auto logRawArgument = [&](const char* source,
+                                const json::JsonValue& value) {
         if (!server_.verbose_) {
           return;
         }
@@ -366,7 +380,8 @@ private:
                   << (value.isString()   ? "string"
                       : value.isObject() ? "object"
                       : value.isArray()  ? "array"
-                                         : value.isNull() ? "null" : "other")
+                      : value.isNull()   ? "null"
+                                         : "other")
                   << std::endl;
       };
 
@@ -394,7 +409,8 @@ private:
         }
         if (trimmed.front() == '{' || trimmed.front() == '[') {
           try {
-            json::JsonValue parsed = json::JsonValue::parse(std::string(trimmed));
+            json::JsonValue parsed =
+                json::JsonValue::parse(std::string(trimmed));
             return tryParseArgumentsObject(parsed, source);
           } catch (const std::exception& e) {
             if (server_.verbose_) {
@@ -424,8 +440,8 @@ private:
                       << raw_value.index() << std::endl;
           }
           if (mcp::holds_alternative<std::string>(raw_value)) {
-            handled = tryDecodeArgumentsString(
-                mcp::get<std::string>(raw_value), "metadata");
+            handled = tryDecodeArgumentsString(mcp::get<std::string>(raw_value),
+                                               "metadata");
           } else if (mcp::holds_alternative<int64_t>(raw_value)) {
             respondWithText(std::to_string(mcp::get<int64_t>(raw_value)));
             handled = true;
@@ -458,7 +474,8 @@ private:
 
       if (!handled) {
         if (server_.verbose_) {
-          std::cerr << "[Tool] Falling back to default echo message" << std::endl;
+          std::cerr << "[Tool] Falling back to default echo message"
+                    << std::endl;
         }
         respondWithText("Hello World");
       }
@@ -466,20 +483,25 @@ private:
 
     void handleConfigInfoTool(const jsonrpc::Request& request) {
       json::JsonObjectBuilder result;
-      result.add("listener_count", static_cast<int>(server_.listener_config_.listeners.size()));
+      result.add("listener_count",
+                 static_cast<int>(server_.listener_config_.listeners.size()));
 
       json::JsonArrayBuilder listeners;
       for (const auto& listener : server_.listener_config_.listeners) {
         json::JsonObjectBuilder listener_info;
         listener_info.add("name", listener.name);
         listener_info.add("address", listener.address.socket_address.address);
-        listener_info.add("port", static_cast<int>(listener.address.socket_address.port_value));
-        listener_info.add("filter_chain_count", static_cast<int>(listener.filter_chains.size()));
+        listener_info.add(
+            "port",
+            static_cast<int>(listener.address.socket_address.port_value));
+        listener_info.add("filter_chain_count",
+                          static_cast<int>(listener.filter_chains.size()));
 
         if (!listener.filter_chains.empty()) {
           json::JsonArrayBuilder filters;
           for (const auto& filter : listener.filter_chains[0].filters) {
-            const std::string& label = !filter.name.empty() ? filter.name : filter.type;
+            const std::string& label =
+                !filter.name.empty() ? filter.name : filter.type;
             filters.add(label);
           }
           listener_info.add("filters", filters.build());
@@ -556,7 +578,7 @@ private:
   };
 
   class ConnectionObserver : public network::ConnectionCallbacks {
-  public:
+   public:
     ConnectionObserver(ConfigDrivenExampleServer& server, uint64_t id)
         : server_(server), connection_id_(id) {}
 
@@ -564,7 +586,7 @@ private:
     void onAboveWriteBufferHighWatermark() override;
     void onBelowWriteBufferLowWatermark() override;
 
-  private:
+   private:
     ConfigDrivenExampleServer& server_;
     uint64_t connection_id_;
   };
@@ -573,10 +595,14 @@ private:
   void onAccept(network::ConnectionSocketPtr&& socket) override;
   void onNewConnection(network::ConnectionPtr&& connection) override;
   void registerConnection(network::ConnectionPtr&& connection);
-  void handleConnectionEvent(uint64_t connection_id, network::ConnectionEvent event);
+  void handleConnectionEvent(uint64_t connection_id,
+                             network::ConnectionEvent event);
 
-  void sendJsonRpcResponse(const json::JsonValue& id, const json::JsonValue& payload);
-  void sendJsonRpcError(const json::JsonValue& id, int code, const std::string& message);
+  void sendJsonRpcResponse(const json::JsonValue& id,
+                           const json::JsonValue& payload);
+  void sendJsonRpcError(const json::JsonValue& id,
+                        int code,
+                        const std::string& message);
   void broadcastJson(const json::JsonValue& message);
   void removeConnection(uint64_t connection_id);
 
@@ -586,11 +612,14 @@ private:
   std::unique_ptr<mcp::event::Dispatcher> dispatcher_;
   std::unique_ptr<ExampleProtocolCallbacks> callbacks_;
   std::vector<std::unique_ptr<network::TcpActiveListener>> tcp_listeners_;
-  std::unordered_map<uint64_t, std::unique_ptr<network::Connection>> active_connections_;
-  std::unordered_map<uint64_t, std::unique_ptr<ConnectionObserver>> connection_observers_;
+  std::unordered_map<uint64_t, std::unique_ptr<network::Connection>>
+      active_connections_;
+  std::unordered_map<uint64_t, std::unique_ptr<ConnectionObserver>>
+      connection_observers_;
 };
 
-bool ConfigDrivenExampleServer::startListener(const ListenerConfig& listener_config) {
+bool ConfigDrivenExampleServer::startListener(
+    const ListenerConfig& listener_config) {
   if (listener_config.filter_chains.empty()) {
     std::cerr << "ERROR: Listener '" << listener_config.name
               << "' has no filter chains" << std::endl;
@@ -612,7 +641,8 @@ bool ConfigDrivenExampleServer::startListener(const ListenerConfig& listener_con
   std::vector<std::string> filter_types;
   filter_types.reserve(filter_chain.filters.size());
   for (const auto& filter_cfg : filter_chain.filters) {
-    filter_types.push_back(!filter_cfg.type.empty() ? filter_cfg.type : filter_cfg.name);
+    filter_types.push_back(!filter_cfg.type.empty() ? filter_cfg.type
+                                                    : filter_cfg.name);
   }
 
   if (!FilterRegistry::instance().validateBasicFilterChain(filter_types)) {
@@ -643,25 +673,29 @@ bool ConfigDrivenExampleServer::startListener(const ListenerConfig& listener_con
   return true;
 }
 
-void ConfigDrivenExampleServer::onAccept(network::ConnectionSocketPtr&& socket) {
+void ConfigDrivenExampleServer::onAccept(
+    network::ConnectionSocketPtr&& socket) {
   if (verbose_) {
     std::cout << "[Listener] Raw socket accepted" << std::endl;
   }
   (void)socket;  // Ownership handled by TcpActiveListener.
 }
 
-void ConfigDrivenExampleServer::onNewConnection(network::ConnectionPtr&& connection) {
+void ConfigDrivenExampleServer::onNewConnection(
+    network::ConnectionPtr&& connection) {
   registerConnection(std::move(connection));
 }
 
-void ConfigDrivenExampleServer::registerConnection(network::ConnectionPtr&& connection) {
+void ConfigDrivenExampleServer::registerConnection(
+    network::ConnectionPtr&& connection) {
   if (!connection) {
     return;
   }
 
   const uint64_t connection_id = connection->id();
   if (verbose_) {
-    std::cout << "[Connection] New connection id=" << connection_id << std::endl;
+    std::cout << "[Connection] New connection id=" << connection_id
+              << std::endl;
   }
 
   // Remove any stale state for recycled connection ids
@@ -675,25 +709,29 @@ void ConfigDrivenExampleServer::registerConnection(network::ConnectionPtr&& conn
   connection_observers_[connection_id] = std::move(observer);
 }
 
-void ConfigDrivenExampleServer::ConnectionObserver::onEvent(network::ConnectionEvent event) {
+void ConfigDrivenExampleServer::ConnectionObserver::onEvent(
+    network::ConnectionEvent event) {
   server_.handleConnectionEvent(connection_id_, event);
 }
 
-void ConfigDrivenExampleServer::ConnectionObserver::onAboveWriteBufferHighWatermark() {
+void ConfigDrivenExampleServer::ConnectionObserver::
+    onAboveWriteBufferHighWatermark() {
   if (server_.verbose_) {
-    std::cout << "[Connection] High watermark reached for id="
-              << connection_id_ << std::endl;
+    std::cout << "[Connection] High watermark reached for id=" << connection_id_
+              << std::endl;
   }
 }
 
-void ConfigDrivenExampleServer::ConnectionObserver::onBelowWriteBufferLowWatermark() {
+void ConfigDrivenExampleServer::ConnectionObserver::
+    onBelowWriteBufferLowWatermark() {
   if (server_.verbose_) {
-    std::cout << "[Connection] Low watermark for id=" << connection_id_ << std::endl;
+    std::cout << "[Connection] Low watermark for id=" << connection_id_
+              << std::endl;
   }
 }
 
-void ConfigDrivenExampleServer::handleConnectionEvent(uint64_t connection_id,
-                                                      network::ConnectionEvent event) {
+void ConfigDrivenExampleServer::handleConnectionEvent(
+    uint64_t connection_id, network::ConnectionEvent event) {
   if (verbose_) {
     std::cout << "[Connection] Event " << static_cast<int>(event)
               << " for id=" << connection_id << std::endl;
@@ -708,9 +746,8 @@ void ConfigDrivenExampleServer::handleConnectionEvent(uint64_t connection_id,
       if (dispatcher_) {
         // Defer removal until after the current callback unwinds to avoid
         // deleting observer instances while ConnectionImpl iterates
-        dispatcher_->post([this, connection_id]() {
-          removeConnection(connection_id);
-        });
+        dispatcher_->post(
+            [this, connection_id]() { removeConnection(connection_id); });
       } else {
         removeConnection(connection_id);
       }
@@ -718,8 +755,8 @@ void ConfigDrivenExampleServer::handleConnectionEvent(uint64_t connection_id,
   }
 }
 
-void ConfigDrivenExampleServer::sendJsonRpcResponse(const json::JsonValue& id,
-                                                    const json::JsonValue& payload) {
+void ConfigDrivenExampleServer::sendJsonRpcResponse(
+    const json::JsonValue& id, const json::JsonValue& payload) {
   json::JsonObjectBuilder response;
   response.add("jsonrpc", "2.0");
   response.add("id", id);
@@ -744,13 +781,15 @@ void ConfigDrivenExampleServer::sendJsonRpcError(const json::JsonValue& id,
 void ConfigDrivenExampleServer::broadcastJson(const json::JsonValue& message) {
   if (active_connections_.empty()) {
     if (verbose_) {
-      std::cout << "[Connection] No active connections to broadcast response" << std::endl;
+      std::cout << "[Connection] No active connections to broadcast response"
+                << std::endl;
     }
     return;
   }
 
   const std::string serialized = message.toString();
-  const bool ends_with_newline = !serialized.empty() && serialized.back() == '\n';
+  const bool ends_with_newline =
+      !serialized.empty() && serialized.back() == '\n';
 
   std::vector<uint64_t> targets;
   targets.reserve(active_connections_.size());
@@ -786,7 +825,8 @@ void ConfigDrivenExampleServer::removeConnection(uint64_t connection_id) {
 
   bool had_entry = false;
 
-  if (connection_it != active_connections_.end() && observer_it != connection_observers_.end()) {
+  if (connection_it != active_connections_.end() &&
+      observer_it != connection_observers_.end()) {
     if (connection_it->second) {
       connection_it->second->removeConnectionCallbacks(*observer_it->second);
     }
@@ -810,28 +850,38 @@ void ConfigDrivenExampleServer::removeConnection(uint64_t connection_id) {
 ConfigDrivenExampleServer* g_server = nullptr;
 
 void signalHandler(int signal) {
-  std::cout << "\nReceived signal " << signal << ", shutting down..." << std::endl;
+  std::cout << "\nReceived signal " << signal << ", shutting down..."
+            << std::endl;
   if (g_server) {
     g_server->stop();
   }
 }
 
 void printUsage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " --config <config.json> [--verbose] [--help]" << std::endl;
+  std::cout << "Usage: " << program_name
+            << " --config <config.json> [--verbose] [--help]" << std::endl;
   std::cout << std::endl;
-  std::cout << "Config-driven MCP server demonstrating filter pipeline configuration" << std::endl;
+  std::cout
+      << "Config-driven MCP server demonstrating filter pipeline configuration"
+      << std::endl;
   std::cout << std::endl;
   std::cout << "Options:" << std::endl;
-  std::cout << "  --config <file>     JSON configuration file (required)" << std::endl;
+  std::cout << "  --config <file>     JSON configuration file (required)"
+            << std::endl;
   std::cout << "  --verbose           Enable verbose output" << std::endl;
   std::cout << "  --help, -h          Show this help message" << std::endl;
   std::cout << std::endl;
   std::cout << "Example:" << std::endl;
-  std::cout << "  " << program_name << " --config examples/configs/mcp_server_example.json --verbose" << std::endl;
+  std::cout << "  " << program_name
+            << " --config examples/configs/mcp_server_example.json --verbose"
+            << std::endl;
   std::cout << std::endl;
-  std::cout << "The server will demonstrate HTTP→SSE→JSON-RPC filter pipeline with:" << std::endl;
+  std::cout
+      << "The server will demonstrate HTTP→SSE→JSON-RPC filter pipeline with:"
+      << std::endl;
   std::cout << "  - echo tool: Echo input text with timestamp" << std::endl;
-  std::cout << "  - config_info tool: Display server configuration" << std::endl;
+  std::cout << "  - config_info tool: Display server configuration"
+            << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -844,7 +894,8 @@ int main(int argc, char* argv[]) {
       config_path = argv[++i];
     } else if (std::strcmp(argv[i], "--verbose") == 0) {
       verbose = true;
-    } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
+    } else if (std::strcmp(argv[i], "--help") == 0 ||
+               std::strcmp(argv[i], "-h") == 0) {
       printUsage(argv[0]);
       return 0;
     } else {

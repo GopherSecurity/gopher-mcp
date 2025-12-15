@@ -35,7 +35,8 @@ void McpServer::setupEnhancedFilterChain(
   ApplicationBase::setupFilterChain(builder);
 
   if (!enhanced_filter_event_hub_) {
-    enhanced_filter_event_hub_ = std::make_shared<filter::FilterChainEventHub>();
+    enhanced_filter_event_hub_ =
+        std::make_shared<filter::FilterChainEventHub>();
   }
   auto event_hub = enhanced_filter_event_hub_;
 
@@ -51,8 +52,7 @@ void McpServer::setupEnhancedFilterChain(
       cb_config.half_open_max_requests = 3;
 
       auto emitter = std::make_shared<filter::FilterEventEmitter>(
-          event_hub,
-          "circuit_breaker");
+          event_hub, "circuit_breaker");
 
       return std::make_shared<filter::CircuitBreakerFilter>(emitter, cb_config);
     });
@@ -72,9 +72,8 @@ void McpServer::setupEnhancedFilterChain(
       rl_config.allow_burst = true;
       rl_config.burst_size = config_.rate_limit_burst_size;
 
-      auto emitter = std::make_shared<filter::FilterEventEmitter>(
-          event_hub,
-          "rate_limit");
+      auto emitter =
+          std::make_shared<filter::FilterEventEmitter>(event_hub, "rate_limit");
 
       return std::make_shared<filter::RateLimitFilter>(emitter, rl_config);
     });
@@ -246,7 +245,8 @@ void McpServer::setupEnhancedFilterChain(
   if (event_hub) {
     // Reset any previous observer so we don't leak handles
     enhanced_filter_event_callbacks_.reset();
-    enhanced_filter_event_handle_ = filter::FilterChainEventHub::ObserverHandle();
+    enhanced_filter_event_handle_ =
+        filter::FilterChainEventHub::ObserverHandle();
 
     class StatsTrackingCallbacks : public filter::FilterChainCallbacks {
      public:
@@ -255,24 +255,30 @@ void McpServer::setupEnhancedFilterChain(
       void onFilterEvent(const filter::FilterEvent& event) override {
         // Track circuit breaker events
         if (event.filter_name == "circuit_breaker") {
-          if (event.event_type == filter::FilterEventType::CIRCUIT_STATE_CHANGE) {
+          if (event.event_type ==
+              filter::FilterEventType::CIRCUIT_STATE_CHANGE) {
             // Parse new_state from event_data to check if circuit opened
             if (event.event_data.contains("new_state")) {
-              std::string new_state = event.event_data["new_state"].getString("");
+              std::string new_state =
+                  event.event_data["new_state"].getString("");
               if (new_state == "OPEN") {
                 server_.server_stats_.circuit_breaker_trips++;
               }
             }
-          } else if (event.event_type == filter::FilterEventType::CIRCUIT_REQUEST_BLOCKED) {
+          } else if (event.event_type ==
+                     filter::FilterEventType::CIRCUIT_REQUEST_BLOCKED) {
             server_.server_stats_.circuit_requests_blocked++;
-          } else if (event.event_type == filter::FilterEventType::CIRCUIT_HEALTH_UPDATE) {
+          } else if (event.event_type ==
+                     filter::FilterEventType::CIRCUIT_HEALTH_UPDATE) {
             // Update health metrics
             if (event.event_data.contains("success_rate")) {
-              double success_rate = event.event_data["success_rate"].getFloat(1.0);
+              double success_rate =
+                  event.event_data["success_rate"].getFloat(1.0);
               server_.server_stats_.current_success_rate.store(success_rate);
             }
             if (event.event_data.contains("avg_latency_ms")) {
-              uint64_t latency = static_cast<uint64_t>(event.event_data["avg_latency_ms"].getInt(0));
+              uint64_t latency = static_cast<uint64_t>(
+                  event.event_data["avg_latency_ms"].getInt(0));
               server_.server_stats_.average_latency_ms.store(latency);
             }
           }
@@ -284,7 +290,8 @@ void McpServer::setupEnhancedFilterChain(
 
         // Track rate limiter events
         if (event.filter_name == "rate_limiter") {
-          if (event.event_type == filter::FilterEventType::RATE_LIMIT_EXCEEDED) {
+          if (event.event_type ==
+              filter::FilterEventType::RATE_LIMIT_EXCEEDED) {
             server_.server_stats_.rate_limited_requests++;
           }
 
@@ -297,7 +304,8 @@ void McpServer::setupEnhancedFilterChain(
       McpServer& server_;
     };
 
-    enhanced_filter_event_callbacks_ = std::make_shared<StatsTrackingCallbacks>(*this);
+    enhanced_filter_event_callbacks_ =
+        std::make_shared<StatsTrackingCallbacks>(*this);
     enhanced_filter_event_handle_ =
         event_hub->registerObserver(enhanced_filter_event_callbacks_);
   }

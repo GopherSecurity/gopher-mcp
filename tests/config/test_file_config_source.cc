@@ -13,9 +13,10 @@
 #include <gtest/gtest.h>
 
 #include "mcp/config/config_manager.h"
+#include "mcp/json/json_bridge.h"
 #include "mcp/logging/log_sink.h"
 #include "mcp/logging/logger_registry.h"
-#include "mcp/json/json_bridge.h"
+
 #include "test_filesystem_utils.h"
 #include "test_json_helpers.h"
 
@@ -25,11 +26,11 @@ namespace testing {
 
 using namespace fs_utils;
 using mcp::json::JsonValue;
-using test::makeJsonObject;
-using test::makeJsonArray;
-using test::str;
-using test::num;
 using test::boolean;
+using test::makeJsonArray;
+using test::makeJsonObject;
+using test::num;
+using test::str;
 
 // Test fixture for FileConfigSource tests
 class FileConfigSourceTest : public ::testing::Test {
@@ -82,7 +83,8 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
   // Create config files in different locations
   std::string cli_config = joinPath(test_dir_, "cli_config.json");
   std::string env_config = joinPath(test_dir_, "env_config.json");
-  std::string local_config = joinPath(joinPath(test_dir_, "config"), "config.json");
+  std::string local_config =
+      joinPath(joinPath(test_dir_, "config"), "config.json");
 
   JsonValue cli_json = makeJsonObject({{"source", str("cli")}});
   JsonValue env_json = makeJsonObject({{"source", str("env")}});
@@ -123,13 +125,12 @@ TEST_F(FileConfigSourceTest, SearchOrderResolution) {
 TEST_F(FileConfigSourceTest, EnvironmentVariableSubstitution) {
   std::string config_file = joinPath(test_dir_, "config.json");
 
-  JsonValue config = makeJsonObject({
-    {"host", str("${TEST_HOST:-localhost}")},
-    {"port", str("${TEST_PORT}")},
-    {"path", str("/api/${TEST_VAR}/endpoint")},
-    {"timeout", str("${UNDEFINED_VAR:-30}")},
-    {"nested", makeJsonObject({{"value", str("${TEST_VAR}")}})}
-  });
+  JsonValue config = makeJsonObject(
+      {{"host", str("${TEST_HOST:-localhost}")},
+       {"port", str("${TEST_PORT}")},
+       {"path", str("/api/${TEST_VAR}/endpoint")},
+       {"timeout", str("${UNDEFINED_VAR:-30}")},
+       {"nested", makeJsonObject({{"value", str("${TEST_VAR}")}})}});
 
   createConfigFile(config_file, config);
 
@@ -143,7 +144,8 @@ TEST_F(FileConfigSourceTest, EnvironmentVariableSubstitution) {
   EXPECT_EQ(std::string("8080"), result["port"].getString());
 
   // TEST_VAR is set to test_value
-  EXPECT_EQ(std::string("/api/test_value/endpoint"), result["path"].getString());
+  EXPECT_EQ(std::string("/api/test_value/endpoint"),
+            result["path"].getString());
 
   // UNDEFINED_VAR not set, should use default
   EXPECT_EQ(std::string("30"), result["timeout"].getString());
@@ -156,20 +158,20 @@ TEST_F(FileConfigSourceTest, EnvironmentVariableSubstitution) {
 TEST_F(FileConfigSourceTest, IncludeFileResolution) {
   std::string main_config = joinPath(test_dir_, "main.json");
   std::string include1 = joinPath(joinPath(test_dir_, "includes"), "db.json");
-  std::string include2 = joinPath(joinPath(test_dir_, "includes"), "server.json");
+  std::string include2 =
+      joinPath(joinPath(test_dir_, "includes"), "server.json");
 
-  JsonValue db_config = makeJsonObject({
-    {"database", makeJsonObject({{"host", str("localhost")}, {"port", num(5432)}})}
-  });
+  JsonValue db_config = makeJsonObject(
+      {{"database",
+        makeJsonObject({{"host", str("localhost")}, {"port", num(5432)}})}});
 
-  JsonValue server_config = makeJsonObject({
-    {"server", makeJsonObject({{"port", num(8080)}, {"workers", num(4)}})}
-  });
+  JsonValue server_config = makeJsonObject(
+      {{"server", makeJsonObject({{"port", num(8080)}, {"workers", num(4)}})}});
 
-  JsonValue main = makeJsonObject({
-    {"app", str("test")},
-    {"include", makeJsonArray({str("includes/db.json"), str("includes/server.json")})}
-  });
+  JsonValue main = makeJsonObject(
+      {{"app", str("test")},
+       {"include", makeJsonArray({str("includes/db.json"),
+                                  str("includes/server.json")})}});
 
   createConfigFile(include1, db_config);
   createConfigFile(include2, server_config);
@@ -195,15 +197,20 @@ TEST_F(FileConfigSourceTest, DirectoryScanning) {
   std::string config_dir = joinPath(test_dir_, "conf.d");
 
   // Create multiple config files in directory
-  JsonValue config1 = makeJsonObject({{"module1", makeJsonObject({{"enabled", boolean(true)}})}});
-  JsonValue config2 = makeJsonObject({{"module2", makeJsonObject({{"timeout", num(30)}})}});
-  JsonValue config3 = makeJsonObject({{"module3", makeJsonObject({{"max_connections", num(100)}})}});
+  JsonValue config1 = makeJsonObject(
+      {{"module1", makeJsonObject({{"enabled", boolean(true)}})}});
+  JsonValue config2 =
+      makeJsonObject({{"module2", makeJsonObject({{"timeout", num(30)}})}});
+  JsonValue config3 = makeJsonObject(
+      {{"module3", makeJsonObject({{"max_connections", num(100)}})}});
 
   createConfigFile(joinPath(config_dir, "01-module1.json"), config1);
   createConfigFile(joinPath(config_dir, "02-module2.json"), config2);
-  createConfigFile(joinPath(config_dir, "03-module3.yaml"), config3);  // Mixed formats
+  createConfigFile(joinPath(config_dir, "03-module3.yaml"),
+                   config3);  // Mixed formats
 
-  JsonValue main = makeJsonObject({{"app", str("test")}, {"include_dir", str("conf.d")}});
+  JsonValue main =
+      makeJsonObject({{"app", str("test")}, {"include_dir", str("conf.d")}});
 
   createConfigFile(main_config, main);
 
@@ -248,7 +255,8 @@ server:
   EXPECT_EQ(std::string("production"), result["node"]["cluster"].getString());
   EXPECT_EQ(std::string("127.0.0.1"), result["admin"]["address"].getString());
   EXPECT_EQ(9001, result["admin"]["port"].getInt());
-  EXPECT_EQ(std::string("main"), result["server"]["listeners"][0]["name"].getString());
+  EXPECT_EQ(std::string("main"),
+            result["server"]["listeners"][0]["name"].getString());
 }
 
 // Test parse error handling with line/column info
@@ -304,9 +312,11 @@ TEST_F(FileConfigSourceTest, CircularIncludeDetection) {
   std::string config2 = joinPath(test_dir_, "config2.json");
 
   // Create circular includes
-  JsonValue json1 = makeJsonObject({{"data1", str("value1")}, {"include", str("config2.json")}});
+  JsonValue json1 = makeJsonObject(
+      {{"data1", str("value1")}, {"include", str("config2.json")}});
 
-  JsonValue json2 = makeJsonObject({{"data2", str("value2")}, {"include", str("config1.json")}});
+  JsonValue json2 = makeJsonObject(
+      {{"data2", str("value2")}, {"include", str("config1.json")}});
 
   createConfigFile(config1, json1);
   createConfigFile(config2, json2);
@@ -330,7 +340,8 @@ TEST_F(FileConfigSourceTest, MaxIncludeDepth) {
     JsonValue content = makeJsonObject({{"level", num(i)}});
 
     if (i < 12) {
-      content["include"] = JsonValue("config" + std::to_string(i + 1) + ".json");
+      content["include"] =
+          JsonValue("config" + std::to_string(i + 1) + ".json");
     }
 
     createConfigFile(config, content);
@@ -366,28 +377,27 @@ TEST_F(FileConfigSourceTest, MergeSemantics) {
   std::string base_config = joinPath(test_dir_, "base.json");
   std::string override_config = joinPath(test_dir_, "override.json");
 
-  JsonValue base = makeJsonObject({
-    {"server", makeJsonObject({{"port", num(8080)}, {"workers", num(4)}, {"timeout", num(30)}})},
-    {"database", makeJsonObject({{"host", str("localhost")}})}
-  });
+  JsonValue base = makeJsonObject(
+      {{"server",
+        makeJsonObject(
+            {{"port", num(8080)}, {"workers", num(4)}, {"timeout", num(30)}})},
+       {"database", makeJsonObject({{"host", str("localhost")}})}});
 
-  JsonValue override = makeJsonObject({
-    {"server", makeJsonObject({
-      {"port", num(9090)},  // Override
-      {"workers", num(8)}   // Override
-                            // timeout not specified, should keep base value
-    })},
-    {"cache", makeJsonObject({// New section
-      {"enabled", boolean(true)}
-    })}
-  });
+  JsonValue override = makeJsonObject(
+      {{"server", makeJsonObject({
+                      {"port", num(9090)},  // Override
+                      {"workers",
+                       num(8)}  // Override
+                                // timeout not specified, should keep base value
+                  })},
+       {"cache", makeJsonObject({// New section
+                                 {"enabled", boolean(true)}})}});
 
   createConfigFile(base_config, base);
   createConfigFile(override_config, override);
 
-  JsonValue main = makeJsonObject({
-    {"include", makeJsonArray({str(base_config), str(override_config)})}
-  });
+  JsonValue main = makeJsonObject(
+      {{"include", makeJsonArray({str(base_config), str(override_config)})}});
 
   std::string main_config = joinPath(test_dir_, "main.json");
   createConfigFile(main_config, main);
@@ -396,11 +406,12 @@ TEST_F(FileConfigSourceTest, MergeSemantics) {
   auto result = source->loadConfiguration();
 
   // Check merge results
-  EXPECT_EQ(9090, result["server"]["port"].getInt());           // Overridden
-  EXPECT_EQ(8, result["server"]["workers"].getInt());           // Overridden
-  EXPECT_EQ(30, result["server"]["timeout"].getInt());          // Kept from base
-  EXPECT_EQ(std::string("localhost"), result["database"]["host"].getString());  // Kept from base
-  EXPECT_TRUE(result["cache"]["enabled"].getBool());             // New from override
+  EXPECT_EQ(9090, result["server"]["port"].getInt());   // Overridden
+  EXPECT_EQ(8, result["server"]["workers"].getInt());   // Overridden
+  EXPECT_EQ(30, result["server"]["timeout"].getInt());  // Kept from base
+  EXPECT_EQ(std::string("localhost"),
+            result["database"]["host"].getString());  // Kept from base
+  EXPECT_TRUE(result["cache"]["enabled"].getBool());  // New from override
 }
 
 // Test logging output
@@ -411,14 +422,17 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
     void log(const mcp::logging::LogMessage& message) override {
       messages_.push_back(message);
     }
-    
+
     void flush() override {}
-    
-    mcp::logging::SinkType type() const override { return mcp::logging::SinkType::Null; }
+
+    mcp::logging::SinkType type() const override {
+      return mcp::logging::SinkType::Null;
+    }
 
     bool hasMessage(const std::string& substr, mcp::logging::LogLevel level) {
       for (const auto& msg : messages_) {
-        if (msg.level == level && msg.message.find(substr) != std::string::npos) {
+        if (msg.level == level &&
+            msg.message.find(substr) != std::string::npos) {
           return true;
         }
       }
@@ -474,10 +488,11 @@ TEST_F(FileConfigSourceTest, LoggingOutput) {
 TEST_F(FileConfigSourceTest, ConfigurationManagerIntegration) {
   std::string config_file = joinPath(test_dir_, "manager_test.json");
 
-  JsonValue config = makeJsonObject({
-    {"node", makeJsonObject({{"id", str("test-node-${TEST_VAR}")}, {"cluster", str("test-cluster")}})},
-    {"admin", makeJsonObject({{"address", str("127.0.0.1")}, {"port", str("${TEST_PORT}")}})}
-  });
+  JsonValue config = makeJsonObject(
+      {{"node", makeJsonObject({{"id", str("test-node-${TEST_VAR}")},
+                                {"cluster", str("test-cluster")}})},
+       {"admin", makeJsonObject({{"address", str("127.0.0.1")},
+                                 {"port", str("${TEST_PORT}")}})}});
 
   createConfigFile(config_file, config);
 

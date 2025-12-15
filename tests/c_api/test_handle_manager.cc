@@ -3,10 +3,11 @@
  * @brief Unit tests for HandleManager ownership semantics
  */
 
-#include <gtest/gtest.h>
 #include <memory>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "../../src/c_api/handle_manager.h"
 
@@ -114,7 +115,7 @@ TEST_F(HandleManagerTest, RetainIsNoOp) {
 
   // retain() is a no-op for shared_ptr-based implementation
   manager_.retain(handle);
-  
+
   auto retrieved = manager_.get(handle);
   EXPECT_NE(retrieved, nullptr);
   EXPECT_EQ(retrieved->getValue(), 20);
@@ -235,24 +236,24 @@ TEST_F(HandleManagerTest, OwnershipTransfer) {
   {
     auto obj = std::make_unique<TestObject>(777, &destruction_count);
     raw_ptr = obj.get();
-    
+
     // Transfer ownership to manager
     uint64_t handle = manager_.store(std::move(obj));
-    
+
     // Original unique_ptr should be empty
     EXPECT_EQ(obj, nullptr);
-    
+
     // Object should still be alive
     EXPECT_EQ(destruction_count, 0);
-    
+
     // Should be accessible via handle
     auto retrieved = manager_.get(handle);
     EXPECT_EQ(retrieved.get(), raw_ptr);
-    
+
     // Release the handle
     manager_.release(handle);
   }
-  
+
   // Object should be destroyed after release
   // (no other references exist)
   EXPECT_EQ(destruction_count, 1);

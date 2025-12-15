@@ -3,20 +3,19 @@
  * @brief Factory implementation for rate limiting filter
  */
 
-#include "mcp/filter/filter_registry.h"
 #include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_registry.h"
 #include "mcp/filter/rate_limit_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/json/json_serialization.h"
 #define GOPHER_LOG_COMPONENT "filter.factory.qos"
-
-#include "mcp/logging/log_macros.h"
 
 #include <cmath>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace filter {
@@ -78,21 +77,17 @@ RateLimitConfig parseRateLimitConfig(const json::JsonValue& config) {
     rl_config.strategy = RateLimitStrategy::LeakyBucket;
   }
 
-  rl_config.bucket_capacity = static_cast<size_t>(
-      config["bucket_capacity"].getInt(100));
-  rl_config.refill_rate = static_cast<size_t>(
-      config["refill_rate"].getInt(10));
-  rl_config.window_size = std::chrono::seconds(
-      config["window_size_seconds"].getInt(60));
-  rl_config.max_requests_per_window = static_cast<size_t>(
-      config["max_requests_per_window"].getInt(100));
-  rl_config.leak_rate = static_cast<size_t>(
-      config["leak_rate"].getInt(10));
+  rl_config.bucket_capacity =
+      static_cast<size_t>(config["bucket_capacity"].getInt(100));
+  rl_config.refill_rate = static_cast<size_t>(config["refill_rate"].getInt(10));
+  rl_config.window_size =
+      std::chrono::seconds(config["window_size_seconds"].getInt(60));
+  rl_config.max_requests_per_window =
+      static_cast<size_t>(config["max_requests_per_window"].getInt(100));
+  rl_config.leak_rate = static_cast<size_t>(config["leak_rate"].getInt(10));
   rl_config.allow_burst = config["allow_burst"].getBool(true);
-  rl_config.burst_size = static_cast<size_t>(
-      config["burst_size"].getInt(20));
-  rl_config.per_client_limiting =
-      config["per_client_limiting"].getBool(false);
+  rl_config.burst_size = static_cast<size_t>(config["burst_size"].getInt(20));
+  rl_config.per_client_limiting = config["per_client_limiting"].getBool(false);
 
   if (config.contains("client_limits") && config["client_limits"].isObject()) {
     const auto client_limits = config["client_limits"];
@@ -127,7 +122,6 @@ std::string describeContext(const FilterCreationContext& context) {
   return scope;
 }
 
-
 }  // namespace
 
 class RateLimitFilterFactory : public FilterFactory {
@@ -139,83 +133,108 @@ class RateLimitFilterFactory : public FilterFactory {
         "Rate limiting filter with multiple algorithm support";
     metadata_.dependencies = {"network"};
 
-    metadata_.config_schema = json::JsonObjectBuilder()
-        .add("type", "object")
-        .add("properties", json::JsonObjectBuilder()
-            .add("strategy", json::JsonObjectBuilder()
-                .add("type", "string")
-                .add("enum", json::JsonArrayBuilder()
-                    .add("token_bucket")
-                    .add("sliding_window")
-                    .add("fixed_window")
-                    .add("leaky_bucket")
+    metadata_.config_schema =
+        json::JsonObjectBuilder()
+            .add("type", "object")
+            .add(
+                "properties",
+                json::JsonObjectBuilder()
+                    .add("strategy",
+                         json::JsonObjectBuilder()
+                             .add("type", "string")
+                             .add("enum", json::JsonArrayBuilder()
+                                              .add("token_bucket")
+                                              .add("sliding_window")
+                                              .add("fixed_window")
+                                              .add("leaky_bucket")
+                                              .build())
+                             .add("default", "token_bucket")
+                             .add("description", "Rate limiting algorithm")
+                             .build())
+                    .add("bucket_capacity", json::JsonObjectBuilder()
+                                                .add("type", "integer")
+                                                .add("minimum", 1)
+                                                .add("maximum", 100000)
+                                                .add("default", 100)
+                                                .add("description",
+                                                     "Maximum tokens in bucket "
+                                                     "(token bucket strategy)")
+                                                .build())
+                    .add("refill_rate", json::JsonObjectBuilder()
+                                            .add("type", "integer")
+                                            .add("minimum", 1)
+                                            .add("maximum", 10000)
+                                            .add("default", 10)
+                                            .add("description",
+                                                 "Tokens added per second "
+                                                 "(token bucket strategy)")
+                                            .build())
+                    .add("window_size_seconds",
+                         json::JsonObjectBuilder()
+                             .add("type", "integer")
+                             .add("minimum", 1)
+                             .add("maximum", 3600)
+                             .add("default", 60)
+                             .add("description",
+                                  "Time window size in seconds (window "
+                                  "strategies)")
+                             .build())
+                    .add("max_requests_per_window",
+                         json::JsonObjectBuilder()
+                             .add("type", "integer")
+                             .add("minimum", 1)
+                             .add("maximum", 100000)
+                             .add("default", 100)
+                             .add("description",
+                                  "Maximum requests per window (window "
+                                  "strategies)")
+                             .build())
+                    .add("leak_rate", json::JsonObjectBuilder()
+                                          .add("type", "integer")
+                                          .add("minimum", 1)
+                                          .add("maximum", 10000)
+                                          .add("default", 10)
+                                          .add("description",
+                                               "Requests processed per second "
+                                               "(leaky bucket strategy)")
+                                          .build())
+                    .add("allow_burst",
+                         json::JsonObjectBuilder()
+                             .add("type", "boolean")
+                             .add("default", true)
+                             .add("description",
+                                  "Allow burst traffic beyond normal limits")
+                             .build())
+                    .add("burst_size",
+                         json::JsonObjectBuilder()
+                             .add("type", "integer")
+                             .add("minimum", 0)
+                             .add("maximum", 1000)
+                             .add("default", 20)
+                             .add("description",
+                                  "Extra capacity for burst traffic")
+                             .build())
+                    .add("per_client_limiting",
+                         json::JsonObjectBuilder()
+                             .add("type", "boolean")
+                             .add("default", false)
+                             .add("description",
+                                  "Enable per-client rate limiting")
+                             .build())
+                    .add("client_limits",
+                         json::JsonObjectBuilder()
+                             .add("type", "object")
+                             .add("additionalProperties",
+                                  json::JsonObjectBuilder()
+                                      .add("type", "integer")
+                                      .add("minimum", 1)
+                                      .build())
+                             .add("description",
+                                  "Map of client ID to rate limit")
+                             .build())
                     .build())
-                .add("default", "token_bucket")
-                .add("description", "Rate limiting algorithm")
-                .build())
-            .add("bucket_capacity", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 100000)
-                .add("default", 100)
-                .add("description", "Maximum tokens in bucket (token bucket strategy)")
-                .build())
-            .add("refill_rate", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 10000)
-                .add("default", 10)
-                .add("description", "Tokens added per second (token bucket strategy)")
-                .build())
-            .add("window_size_seconds", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 3600)
-                .add("default", 60)
-                .add("description", "Time window size in seconds (window strategies)")
-                .build())
-            .add("max_requests_per_window", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 100000)
-                .add("default", 100)
-                .add("description", "Maximum requests per window (window strategies)")
-                .build())
-            .add("leak_rate", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 1)
-                .add("maximum", 10000)
-                .add("default", 10)
-                .add("description", "Requests processed per second (leaky bucket strategy)")
-                .build())
-            .add("allow_burst", json::JsonObjectBuilder()
-                .add("type", "boolean")
-                .add("default", true)
-                .add("description", "Allow burst traffic beyond normal limits")
-                .build())
-            .add("burst_size", json::JsonObjectBuilder()
-                .add("type", "integer")
-                .add("minimum", 0)
-                .add("maximum", 1000)
-                .add("default", 20)
-                .add("description", "Extra capacity for burst traffic")
-                .build())
-            .add("per_client_limiting", json::JsonObjectBuilder()
-                .add("type", "boolean")
-                .add("default", false)
-                .add("description", "Enable per-client rate limiting")
-                .build())
-            .add("client_limits", json::JsonObjectBuilder()
-                .add("type", "object")
-                .add("additionalProperties", json::JsonObjectBuilder()
-                    .add("type", "integer")
-                    .add("minimum", 1)
-                    .build())
-                .add("description", "Map of client ID to rate limit")
-                .build())
-            .build())
-        .add("additionalProperties", false)
-        .build();
+            .add("additionalProperties", false)
+            .build();
 
     GOPHER_LOG(Debug, "RateLimitFilterFactory initialized");
   }
@@ -237,18 +256,21 @@ class RateLimitFilterFactory : public FilterFactory {
 
     const auto rl_config = parseRateLimitConfig(final_config);
 
-    GOPHER_LOG(Debug,
-               "RateLimitFilter config: strategy=%s bucket_capacity=%d refill_rate=%d "
-               "window_size=%ds max_requests=%d leak_rate=%d burst=%s burst_size=%d per_client=%s",
-               final_config["strategy"].getString("token_bucket").c_str(),
-               final_config["bucket_capacity"].getInt(100),
-               final_config["refill_rate"].getInt(10),
-               final_config["window_size_seconds"].getInt(60),
-               final_config["max_requests_per_window"].getInt(100),
-               final_config["leak_rate"].getInt(10),
-               final_config["allow_burst"].getBool(true) ? "enabled" : "disabled",
-               final_config["burst_size"].getInt(20),
-               final_config["per_client_limiting"].getBool(false) ? "enabled" : "disabled");
+    GOPHER_LOG(
+        Debug,
+        "RateLimitFilter config: strategy=%s bucket_capacity=%d refill_rate=%d "
+        "window_size=%ds max_requests=%d leak_rate=%d burst=%s burst_size=%d "
+        "per_client=%s",
+        final_config["strategy"].getString("token_bucket").c_str(),
+        final_config["bucket_capacity"].getInt(100),
+        final_config["refill_rate"].getInt(10),
+        final_config["window_size_seconds"].getInt(60),
+        final_config["max_requests_per_window"].getInt(100),
+        final_config["leak_rate"].getInt(10),
+        final_config["allow_burst"].getBool(true) ? "enabled" : "disabled",
+        final_config["burst_size"].getInt(20),
+        final_config["per_client_limiting"].getBool(false) ? "enabled"
+                                                           : "disabled");
 
     // Create with nullptr event emitter (for standalone usage without chain)
     return std::make_shared<RateLimitFilter>(nullptr, rl_config);
@@ -273,16 +295,15 @@ class RateLimitFilterFactory : public FilterFactory {
       if (strategy != "token_bucket" && strategy != "sliding_window" &&
           strategy != "fixed_window" && strategy != "leaky_bucket") {
         GOPHER_LOG(Error,
-                   "Invalid strategy '%s' - must be one of: token_bucket, sliding_window, fixed_window, leaky_bucket",
+                   "Invalid strategy '%s' - must be one of: token_bucket, "
+                   "sliding_window, fixed_window, leaky_bucket",
                    strategy.c_str());
         return false;
       }
     }
 
-    auto validateRange = [](const json::JsonValue& value,
-                            const char* key,
-                            int min,
-                            int max) -> bool {
+    auto validateRange = [](const json::JsonValue& value, const char* key,
+                            int min, int max) -> bool {
       if (!value.isNumber()) {
         GOPHER_LOG(Error, "%s must be numeric", key);
         return false;
@@ -291,20 +312,13 @@ class RateLimitFilterFactory : public FilterFactory {
       const double numeric = value.getFloat();
       const double rounded = std::round(numeric);
       if (std::fabs(numeric - rounded) > 1e-6) {
-        GOPHER_LOG(Error,
-                   "%s must be a whole number (got %.6f)",
-                   key,
-                   numeric);
+        GOPHER_LOG(Error, "%s must be a whole number (got %.6f)", key, numeric);
         return false;
       }
 
       const int current = static_cast<int>(rounded);
       if (current < min || current > max) {
-        GOPHER_LOG(Error,
-                   "%s %d out of range [%d, %d]",
-                   key,
-                   current,
-                   min,
+        GOPHER_LOG(Error, "%s %d out of range [%d, %d]", key, current, min,
                    max);
         return false;
       }
@@ -312,9 +326,7 @@ class RateLimitFilterFactory : public FilterFactory {
     };
 
     if (config.contains("bucket_capacity") &&
-        !validateRange(config["bucket_capacity"],
-                       "bucket_capacity",
-                       1,
+        !validateRange(config["bucket_capacity"], "bucket_capacity", 1,
                        100000)) {
       return false;
     }
@@ -325,18 +337,14 @@ class RateLimitFilterFactory : public FilterFactory {
     }
 
     if (config.contains("window_size_seconds") &&
-        !validateRange(config["window_size_seconds"],
-                       "window_size_seconds",
-                       1,
+        !validateRange(config["window_size_seconds"], "window_size_seconds", 1,
                        3600)) {
       return false;
     }
 
     if (config.contains("max_requests_per_window") &&
         !validateRange(config["max_requests_per_window"],
-                       "max_requests_per_window",
-                       1,
-                       100000)) {
+                       "max_requests_per_window", 1, 100000)) {
       return false;
     }
 
@@ -383,8 +391,7 @@ class RateLimitFilterFactory : public FilterFactory {
 };
 
 network::FilterSharedPtr createRateLimitFilter(
-    const FilterCreationContext& context,
-    const json::JsonValue& config) {
+    const FilterCreationContext& context, const json::JsonValue& config) {
   RateLimitFilterFactory factory;
 
   const auto final_config = mergeWithDefaults(config);
@@ -401,8 +408,11 @@ network::FilterSharedPtr createRateLimitFilter(
   std::shared_ptr<FilterEventEmitter> event_emitter;
   if (context.event_emitter) {
     try {
-      event_emitter = std::static_pointer_cast<FilterEventEmitter>(context.event_emitter);
-      GOPHER_LOG(Info, "[RATE_LIMIT] 🔧 Filter created with EVENT EMITTER from context");
+      event_emitter =
+          std::static_pointer_cast<FilterEventEmitter>(context.event_emitter);
+      GOPHER_LOG(
+          Info,
+          "[RATE_LIMIT] 🔧 Filter created with EVENT EMITTER from context");
     } catch (const std::exception& e) {
       GOPHER_LOG(Warning, "Failed to cast event_emitter: %s", e.what());
     }
@@ -410,23 +420,25 @@ network::FilterSharedPtr createRateLimitFilter(
 
   if (!event_emitter && context.event_hub) {
     try {
-      auto hub = std::static_pointer_cast<FilterChainEventHub>(context.event_hub);
+      auto hub =
+          std::static_pointer_cast<FilterChainEventHub>(context.event_hub);
       if (hub) {
         GOPHER_LOG(Info, "[RATE_LIMIT] Creating event emitter from event hub");
         event_emitter = std::make_shared<FilterEventEmitter>(
-            hub,
-            "rate_limit",
-            std::string{},  // instance id
+            hub, "rate_limit", std::string{},  // instance id
             scope);
         GOPHER_LOG(Info, "[RATE_LIMIT] ✅ Event emitter created and connected");
       }
     } catch (const std::exception& e) {
-      GOPHER_LOG(Warning, "Failed to create event emitter from hub: %s", e.what());
+      GOPHER_LOG(Warning, "Failed to create event emitter from hub: %s",
+                 e.what());
     }
   }
 
   if (!event_emitter) {
-    GOPHER_LOG(Warning, "[RATE_LIMIT] ⚠️  Filter created WITHOUT event emitter - events will NOT be emitted");
+    GOPHER_LOG(Warning,
+               "[RATE_LIMIT] ⚠️  Filter created WITHOUT event emitter - events "
+               "will NOT be emitted");
   }
 
   return std::make_shared<RateLimitFilter>(event_emitter, rl_config);
@@ -442,7 +454,6 @@ BasicFilterMetadata makeMetadata() {
   return metadata;
 }
 
-
 void registerRateLimitFilterFactory() {
   static bool registered = false;
   if (registered) {
@@ -452,17 +463,21 @@ void registerRateLimitFilterFactory() {
   auto& registry = FilterRegistry::instance();
   if (!registry.registerFactory("rate_limit",
                                 std::make_shared<RateLimitFilterFactory>())) {
-    GOPHER_LOG(Error, "Failed to register traditional rate_limit factory (duplicate?)");
+    GOPHER_LOG(
+        Error,
+        "Failed to register traditional rate_limit factory (duplicate?)");
   }
 
-  if (!registry.registerContextFactory("rate_limit",
-                                       createRateLimitFilter,
+  if (!registry.registerContextFactory("rate_limit", createRateLimitFilter,
                                        makeMetadata())) {
-    GOPHER_LOG(Error, "Failed to register context-aware rate_limit factory (duplicate?)");
+    GOPHER_LOG(
+        Error,
+        "Failed to register context-aware rate_limit factory (duplicate?)");
   }
 
   registered = true;
-  GOPHER_LOG(Debug, "RateLimitFilterFactory registered (traditional + context)");
+  GOPHER_LOG(Debug,
+             "RateLimitFilterFactory registered (traditional + context)");
 }
 
 struct RateLimitFilterRegistrar {

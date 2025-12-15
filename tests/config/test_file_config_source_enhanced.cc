@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "mcp/config/config_manager.h"
+
 #include "test_filesystem_utils.h"
 
 namespace mcp {
@@ -121,8 +122,7 @@ server:
   std::string invalid_yaml = joinPath(test_dir_, "invalid.yaml");
   createYamlFile(invalid_yaml, "key: value\n  bad indentation: here");
 
-  auto bad_source =
-      createFileConfigSource("bad_yaml", 1, invalid_yaml);
+  auto bad_source = createFileConfigSource("bad_yaml", 1, invalid_yaml);
   EXPECT_THROW(
       {
         try {
@@ -231,8 +231,7 @@ undefined:
                                      {"port", "${DB_PORT:-5432}"}}}};
     createJsonFile(default_config, with_default);
 
-    auto source =
-        createFileConfigSource("default_test", 1, default_config);
+    auto source = createFileConfigSource("default_test", 1, default_config);
     auto config = source->loadConfiguration();
 
     EXPECT_EQ(std::string("db.example.com"),
@@ -385,8 +384,10 @@ TEST_F(FileSourceEnhancedTest, ConfigDOverlayOrder) {
   createDirectoryRecursive(config_d);
 
   // Create files in non-alphabetical order
-  createJsonFile(joinPath(config_d, "30-third.json"), {{"value", 30}, {"third", true}});
-  createJsonFile(joinPath(config_d, "10-first.json"), {{"value", 10}, {"first", true}});
+  createJsonFile(joinPath(config_d, "30-third.json"),
+                 {{"value", 30}, {"third", true}});
+  createJsonFile(joinPath(config_d, "10-first.json"),
+                 {{"value", 10}, {"first", true}});
   createJsonFile(joinPath(config_d, "20-second.json"),
                  {{"value", 20}, {"second", true}});
   createJsonFile(joinPath(config_d, "40-fourth.yaml"),
@@ -413,7 +414,8 @@ TEST_F(FileSourceEnhancedTest, SearchPrecedenceOrder) {
   // Create configs in different locations
   std::string cli_config = joinPath(test_dir_, "cli.json");
   std::string env_config = joinPath(test_dir_, "env.json");
-  std::string local_config = joinPath(joinPath(test_dir_, "config"), "config.json");
+  std::string local_config =
+      joinPath(joinPath(test_dir_, "config"), "config.json");
 
   createJsonFile(cli_config, {{"source", "cli"}, {"priority", 1}});
   createJsonFile(env_config, {{"source", "env"}, {"priority", 2}});
@@ -486,8 +488,7 @@ TEST_F(FileSourceEnhancedTest, AbsolutePathRestrictions) {
   createJsonFile(abs_target, {{"data", "target_value"}});
 
   // Use absolute path in include
-  nlohmann::json with_abs = {{"base", "value"},
-                             {"include", abs_target}};
+  nlohmann::json with_abs = {{"base", "value"}, {"include", abs_target}};
   createJsonFile(abs_include, with_abs);
 
   auto source = createFileConfigSource("abs", 1, abs_include);

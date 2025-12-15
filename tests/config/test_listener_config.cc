@@ -3,15 +3,15 @@
  * @brief Unit tests for listener configuration schema
  */
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "mcp/config/listener_config.h"
-#include "mcp/filter/filter_registry.h"
-#include "mcp/filter/filter_context.h"
 #include "mcp/event/libevent_dispatcher.h"
-#include "mcp/mcp_connection_manager.h"
+#include "mcp/filter/filter_context.h"
+#include "mcp/filter/filter_registry.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/mcp_connection_manager.h"
 
 using namespace mcp::config;
 using namespace mcp::filter;
@@ -113,42 +113,48 @@ TEST_F(ListenerConfigTest, SocketAddressValidation_EmptyAddress) {
   SocketAddress addr;
   addr.address = "";
 
-  EXPECT_THROW({
-    try {
-      addr.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("IP address cannot be empty"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          addr.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("IP address cannot be empty"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, SocketAddressValidation_ZeroPort) {
   SocketAddress addr;
   addr.port_value = 0;
 
-  EXPECT_THROW({
-    try {
-      addr.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Port cannot be 0"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          addr.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Port cannot be 0"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, SocketAddressValidation_InvalidAddress) {
   SocketAddress addr;
   addr.address = "invalid@address";
 
-  EXPECT_THROW({
-    try {
-      addr.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Invalid IP address format"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          addr.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Invalid IP address format"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, SocketAddressJsonRoundtrip) {
@@ -195,28 +201,33 @@ TEST_F(ListenerConfigTest, FilterConfigValidation_EmptyName) {
   FilterConfig filter;
   filter.name = "";
 
-  EXPECT_THROW({
-    try {
-      filter.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Filter name cannot be empty"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          filter.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Filter name cannot be empty"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, FilterConfigValidation_InvalidName) {
   FilterConfig filter;
   filter.name = "invalid-name@with!special&chars";
 
-  EXPECT_THROW({
-    try {
-      filter.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Filter name contains invalid characters"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          filter.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(),
+                      HasSubstr("Filter name contains invalid characters"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, FilterConfigJsonRoundtrip) {
@@ -246,14 +257,16 @@ TEST_F(ListenerConfigTest, FilterChainConfigValidation_ValidChain) {
 TEST_F(ListenerConfigTest, FilterChainConfigValidation_EmptyChain) {
   FilterChainConfig chain;
 
-  EXPECT_THROW({
-    try {
-      chain.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Filter chain cannot be empty"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          chain.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Filter chain cannot be empty"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, FilterChainConfigValidation_DuplicateFilters) {
@@ -261,14 +274,16 @@ TEST_F(ListenerConfigTest, FilterChainConfigValidation_DuplicateFilters) {
   chain.filters.push_back(FilterConfig("http.codec"));
   chain.filters.push_back(FilterConfig("http.codec"));  // Duplicate
 
-  EXPECT_THROW({
-    try {
-      chain.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Duplicate filter name: http.codec"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          chain.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Duplicate filter name: http.codec"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, FilterChainConfigJsonRoundtrip) {
@@ -315,14 +330,16 @@ TEST_F(ListenerConfigTest, ListenerConfigValidation_EmptyName) {
   chain.filters.push_back(FilterConfig("http.codec"));
   listener.filter_chains.push_back(chain);
 
-  EXPECT_THROW({
-    try {
-      listener.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Listener name cannot be empty"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          listener.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(), HasSubstr("Listener name cannot be empty"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, ListenerConfigValidation_InvalidName) {
@@ -333,28 +350,35 @@ TEST_F(ListenerConfigTest, ListenerConfigValidation_InvalidName) {
   chain.filters.push_back(FilterConfig("http.codec"));
   listener.filter_chains.push_back(chain);
 
-  EXPECT_THROW({
-    try {
-      listener.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Listener name contains invalid characters"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          listener.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(e.what(),
+                      HasSubstr("Listener name contains invalid characters"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, ListenerConfigValidation_NoFilterChains) {
   ListenerConfig listener;
   listener.name = "test_listener";
 
-  EXPECT_THROW({
-    try {
-      listener.validate();
-    } catch (const ConfigValidationError& e) {
-      EXPECT_THAT(e.what(), HasSubstr("Listener must have at least one filter chain"));
-      throw;
-    }
-  }, ConfigValidationError);
+  EXPECT_THROW(
+      {
+        try {
+          listener.validate();
+        } catch (const ConfigValidationError& e) {
+          EXPECT_THAT(
+              e.what(),
+              HasSubstr("Listener must have at least one filter chain"));
+          throw;
+        }
+      },
+      ConfigValidationError);
 }
 
 TEST_F(ListenerConfigTest, ListenerConfigJsonRoundtrip) {
@@ -514,11 +538,13 @@ TEST_F(ListenerConfigTest, ServerConfigJsonRoundtrip) {
 
 class MockFilter : public mcp::network::Filter {
  public:
-  mcp::network::FilterStatus onData(mcp::Buffer& data, bool end_stream) override {
+  mcp::network::FilterStatus onData(mcp::Buffer& data,
+                                    bool end_stream) override {
     return mcp::network::FilterStatus::Continue;
   }
 
-  mcp::network::FilterStatus onWrite(mcp::Buffer& data, bool end_stream) override {
+  mcp::network::FilterStatus onWrite(mcp::Buffer& data,
+                                     bool end_stream) override {
     return mcp::network::FilterStatus::Continue;
   }
 
@@ -526,14 +552,17 @@ class MockFilter : public mcp::network::Filter {
     return mcp::network::FilterStatus::Continue;
   }
 
-  void initializeReadFilterCallbacks(mcp::network::ReadFilterCallbacks& callbacks) override {}
-  void initializeWriteFilterCallbacks(mcp::network::WriteFilterCallbacks& callbacks) override {}
+  void initializeReadFilterCallbacks(
+      mcp::network::ReadFilterCallbacks& callbacks) override {}
+  void initializeWriteFilterCallbacks(
+      mcp::network::WriteFilterCallbacks& callbacks) override {}
 };
 
 class MockMcpProtocolCallbacks : public mcp::McpProtocolCallbacks {
  public:
   void onRequest(const mcp::jsonrpc::Request& request) override {}
-  void onNotification(const mcp::jsonrpc::Notification& notification) override {}
+  void onNotification(const mcp::jsonrpc::Notification& notification) override {
+  }
   void onResponse(const mcp::jsonrpc::Response& response) override {}
   void onConnectionEvent(mcp::network::ConnectionEvent event) override {}
   void onError(const mcp::Error& error) override {}
@@ -544,7 +573,8 @@ TEST_F(ListenerConfigTest, ContextFactoryRegistration) {
   FilterRegistry::instance().clearFactories();
 
   // Create a mock factory
-  auto factory = [](const FilterCreationContext&, const JsonValue&) -> mcp::network::FilterSharedPtr {
+  auto factory = [](const FilterCreationContext&,
+                    const JsonValue&) -> mcp::network::FilterSharedPtr {
     return std::make_shared<MockFilter>();
   };
 
@@ -553,66 +583,72 @@ TEST_F(ListenerConfigTest, ContextFactoryRegistration) {
   metadata.version = "1.0.0";
   metadata.description = "Test filter for unit tests";
 
-  EXPECT_TRUE(FilterRegistry::instance().registerContextFactory("test_filter", factory, metadata));
+  EXPECT_TRUE(FilterRegistry::instance().registerContextFactory(
+      "test_filter", factory, metadata));
 }
 
 TEST_F(ListenerConfigTest, ContextFactoryCreation) {
   // Register a test factory
-  auto factory = [](const FilterCreationContext&, const JsonValue&) -> mcp::network::FilterSharedPtr {
+  auto factory = [](const FilterCreationContext&,
+                    const JsonValue&) -> mcp::network::FilterSharedPtr {
     return std::make_shared<MockFilter>();
   };
 
   BasicFilterMetadata metadata("test_filter", "Test filter");
-  FilterRegistry::instance().registerContextFactory("test_filter", factory, metadata);
+  FilterRegistry::instance().registerContextFactory("test_filter", factory,
+                                                    metadata);
 
   // Create filter creation context
   mcp::event::LibeventDispatcher dispatcher("test");
   MockMcpProtocolCallbacks callbacks;
   TransportMetadata transport_metadata("127.0.0.1", 8080);
-  FilterCreationContext context(dispatcher, callbacks, ConnectionMode::Server, transport_metadata);
+  FilterCreationContext context(dispatcher, callbacks, ConnectionMode::Server,
+                                transport_metadata);
 
   // Create filter using context
   JsonValue config = JsonValue::object();
-  auto filter = FilterRegistry::instance().createFilterWithContext("test_filter", context, config);
+  auto filter = FilterRegistry::instance().createFilterWithContext(
+      "test_filter", context, config);
 
   EXPECT_NE(filter, nullptr);
 }
 
 TEST_F(ListenerConfigTest, BasicFilterChainValidation) {
   // Register test filters
-  auto factory = [](const FilterCreationContext&, const JsonValue&) -> mcp::network::FilterSharedPtr {
+  auto factory = [](const FilterCreationContext&,
+                    const JsonValue&) -> mcp::network::FilterSharedPtr {
     return std::make_shared<MockFilter>();
   };
 
   BasicFilterMetadata metadata1("http.codec", "HTTP codec filter");
   BasicFilterMetadata metadata2("sse.codec", "SSE codec filter");
-  BasicFilterMetadata metadata3("json_rpc.dispatcher", "JSON-RPC dispatcher filter");
+  BasicFilterMetadata metadata3("json_rpc.dispatcher",
+                                "JSON-RPC dispatcher filter");
 
-  FilterRegistry::instance().registerContextFactory("http.codec", factory, metadata1);
-  FilterRegistry::instance().registerContextFactory("sse.codec", factory, metadata2);
-  FilterRegistry::instance().registerContextFactory("json_rpc.dispatcher", factory, metadata3);
+  FilterRegistry::instance().registerContextFactory("http.codec", factory,
+                                                    metadata1);
+  FilterRegistry::instance().registerContextFactory("sse.codec", factory,
+                                                    metadata2);
+  FilterRegistry::instance().registerContextFactory("json_rpc.dispatcher",
+                                                    factory, metadata3);
 
   // Test valid filter chain
-  std::vector<std::string> valid_chain = {
-    "http.codec",
-    "sse.codec",
-    "json_rpc.dispatcher"
-  };
+  std::vector<std::string> valid_chain = {"http.codec", "sse.codec",
+                                          "json_rpc.dispatcher"};
 
   EXPECT_TRUE(FilterRegistry::instance().validateBasicFilterChain(valid_chain));
 
   // Test invalid filter chain (unknown filter)
-  std::vector<std::string> invalid_chain = {
-    "http.codec",
-    "unknown.filter",
-    "json_rpc.dispatcher"
-  };
+  std::vector<std::string> invalid_chain = {"http.codec", "unknown.filter",
+                                            "json_rpc.dispatcher"};
 
-  EXPECT_FALSE(FilterRegistry::instance().validateBasicFilterChain(invalid_chain));
+  EXPECT_FALSE(
+      FilterRegistry::instance().validateBasicFilterChain(invalid_chain));
 
   // Test empty filter chain
   std::vector<std::string> empty_chain;
-  EXPECT_FALSE(FilterRegistry::instance().validateBasicFilterChain(empty_chain));
+  EXPECT_FALSE(
+      FilterRegistry::instance().validateBasicFilterChain(empty_chain));
 }
 
 // ============================================================================
@@ -630,17 +666,22 @@ TEST_F(ListenerConfigTest, FullIntegrationExample) {
   EXPECT_TRUE(server_config.validate());
 
   // 3. Register necessary filters
-  auto factory = [](const FilterCreationContext&, const JsonValue&) -> mcp::network::FilterSharedPtr {
+  auto factory = [](const FilterCreationContext&,
+                    const JsonValue&) -> mcp::network::FilterSharedPtr {
     return std::make_shared<MockFilter>();
   };
 
   BasicFilterMetadata http_metadata("http.codec", "HTTP codec");
   BasicFilterMetadata sse_metadata("sse.codec", "SSE codec");
-  BasicFilterMetadata rpc_metadata("json_rpc.dispatcher", "JSON-RPC dispatcher");
+  BasicFilterMetadata rpc_metadata("json_rpc.dispatcher",
+                                   "JSON-RPC dispatcher");
 
-  FilterRegistry::instance().registerContextFactory("http.codec", factory, http_metadata);
-  FilterRegistry::instance().registerContextFactory("sse.codec", factory, sse_metadata);
-  FilterRegistry::instance().registerContextFactory("json_rpc.dispatcher", factory, rpc_metadata);
+  FilterRegistry::instance().registerContextFactory("http.codec", factory,
+                                                    http_metadata);
+  FilterRegistry::instance().registerContextFactory("sse.codec", factory,
+                                                    sse_metadata);
+  FilterRegistry::instance().registerContextFactory("json_rpc.dispatcher",
+                                                    factory, rpc_metadata);
 
   // 4. Validate filter chain against registry
   const auto& listener = server_config.listeners[0];
@@ -651,7 +692,8 @@ TEST_F(ListenerConfigTest, FullIntegrationExample) {
     filter_names.push_back(filter_config.name);
   }
 
-  EXPECT_TRUE(FilterRegistry::instance().validateBasicFilterChain(filter_names));
+  EXPECT_TRUE(
+      FilterRegistry::instance().validateBasicFilterChain(filter_names));
 
   // 5. Create filters with context
   mcp::event::LibeventDispatcher dispatcher("test");
@@ -659,7 +701,8 @@ TEST_F(ListenerConfigTest, FullIntegrationExample) {
   TransportMetadata transport_metadata(
       listener.address.socket_address.address,
       listener.address.socket_address.port_value);
-  FilterCreationContext context(dispatcher, callbacks, ConnectionMode::Server, transport_metadata);
+  FilterCreationContext context(dispatcher, callbacks, ConnectionMode::Server,
+                                transport_metadata);
 
   // Create each filter in the chain
   for (const auto& filter_config : filter_chain.filters) {

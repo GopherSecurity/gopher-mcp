@@ -13,20 +13,21 @@
  * - Multiple concurrent requests
  */
 
-#include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
 #include <thread>
 
-#include "mcp/c_api/mcp_c_filter_chain.h"
+#include <gtest/gtest.h>
+
 #include "mcp/c_api/mcp_c_api.h"
+#include "mcp/c_api/mcp_c_filter_chain.h"
 
 // Test callback that counts invocations
 static std::atomic<int> g_callback_count{0};
 
 static void test_callback(void* user_data,
-                         mcp_filter_result_t* result,
-                         mcp_error_t* error) {
+                          mcp_filter_result_t* result,
+                          mcp_error_t* error) {
   g_callback_count++;
 
   // Optionally verify result structure
@@ -67,7 +68,8 @@ class AsyncFilterQueueTest : public ::testing::Test {
 
     // Use assembler API to create chain (doesn't require dispatcher thread)
     mcp_chain_assembly_result_t result{};
-    mcp_result_t rc = mcp_chain_assemble_from_json(dispatcher_, json_config_, &result);
+    mcp_result_t rc =
+        mcp_chain_assemble_from_json(dispatcher_, json_config_, &result);
     ASSERT_EQ(rc, MCP_OK);
 
     if (result.success != MCP_TRUE) {
@@ -120,12 +122,8 @@ TEST_F(AsyncFilterQueueTest, SubmitWithoutInitialize) {
   mcp_error_t error{};
   void* user_data = nullptr;
 
-  mcp_status_t status = mcp_chain_submit_incoming(
-      chain_,
-      "{}",
-      user_data,
-      test_callback,
-      &error);
+  mcp_status_t status =
+      mcp_chain_submit_incoming(chain_, "{}", user_data, test_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_NOT_INITIALIZED);
 }
@@ -142,11 +140,7 @@ TEST_F(AsyncFilterQueueTest, SubmitIncoming) {
   void* user_data = nullptr;
 
   mcp_status_t status = mcp_chain_submit_incoming(
-      chain_,
-      R"({"method": "test"})",
-      user_data,
-      test_callback,
-      &error);
+      chain_, R"({"method": "test"})", user_data, test_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_OK);
 
@@ -164,11 +158,7 @@ TEST_F(AsyncFilterQueueTest, SubmitOutgoing) {
   void* user_data = nullptr;
 
   mcp_status_t status = mcp_chain_submit_outgoing(
-      chain_,
-      R"({"method": "test"})",
-      user_data,
-      test_callback,
-      &error);
+      chain_, R"({"method": "test"})", user_data, test_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_OK);
 
@@ -193,11 +183,7 @@ TEST_F(AsyncFilterQueueTest, MultipleSubmits) {
     void* user_data = reinterpret_cast<void*>(static_cast<intptr_t>(i));
 
     mcp_status_t status = mcp_chain_submit_incoming(
-        chain_,
-        R"({"method": "test"})",
-        user_data,
-        test_callback,
-        &error);
+        chain_, R"({"method": "test"})", user_data, test_callback, &error);
 
     EXPECT_EQ(status, MCP_STATUS_OK);
   }
@@ -230,32 +216,19 @@ TEST_F(AsyncFilterQueueTest, InvalidArgumentsSubmit) {
   mcp_error_t error{};
 
   // Null message_json
-  mcp_status_t status = mcp_chain_submit_incoming(
-      chain_,
-      nullptr,
-      nullptr,
-      test_callback,
-      &error);
+  mcp_status_t status = mcp_chain_submit_incoming(chain_, nullptr, nullptr,
+                                                  test_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_INVALID_ARGUMENT);
 
   // Null callback
-  status = mcp_chain_submit_incoming(
-      chain_,
-      "{}",
-      nullptr,
-      nullptr,
-      &error);
+  status = mcp_chain_submit_incoming(chain_, "{}", nullptr, nullptr, &error);
 
   EXPECT_EQ(status, MCP_STATUS_INVALID_ARGUMENT);
 
   // Invalid chain handle
-  status = mcp_chain_submit_incoming(
-      0,  // Invalid handle
-      "{}",
-      nullptr,
-      test_callback,
-      &error);
+  status = mcp_chain_submit_incoming(0,  // Invalid handle
+                                     "{}", nullptr, test_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_INVALID_ARGUMENT);
 }
@@ -268,12 +241,8 @@ TEST_F(AsyncFilterQueueTest, ShutdownWithPendingRequests) {
   const int num_requests = 5;
   for (int i = 0; i < num_requests; ++i) {
     mcp_error_t error{};
-    mcp_chain_submit_incoming(
-        chain_,
-        R"({"method": "test"})",
-        nullptr,
-        test_callback,
-        &error);
+    mcp_chain_submit_incoming(chain_, R"({"method": "test"})", nullptr,
+                              test_callback, &error);
   }
 
   // Immediately shutdown (some requests may be pending)
@@ -306,11 +275,7 @@ TEST_F(AsyncFilterQueueTest, ConcurrentSubmitsFromMultipleThreads) {
       for (int i = 0; i < requests_per_thread; ++i) {
         mcp_error_t error{};
         mcp_status_t status = mcp_chain_submit_incoming(
-            chain_,
-            R"({"method": "test"})",
-            nullptr,
-            test_callback,
-            &error);
+            chain_, R"({"method": "test"})", nullptr, test_callback, &error);
 
         if (status == MCP_STATUS_OK) {
           submit_count++;
@@ -344,8 +309,7 @@ TEST_F(AsyncFilterQueueTest, CallbackReceivesResult) {
     std::atomic<bool> result_valid{false};
   };
 
-  auto custom_callback = [](void* user_data,
-                            mcp_filter_result_t* result,
+  auto custom_callback = [](void* user_data, mcp_filter_result_t* result,
                             mcp_error_t* error) {
     auto* flags = static_cast<CallbackFlags*>(user_data);
     flags->callback_invoked.store(true);
@@ -359,11 +323,8 @@ TEST_F(AsyncFilterQueueTest, CallbackReceivesResult) {
   mcp_error_t error{};
 
   mcp_status_t status = mcp_chain_submit_incoming(
-      chain_,
-      R"({"method": "test"})",
-      static_cast<void*>(&flags),
-      custom_callback,
-      &error);
+      chain_, R"({"method": "test"})", static_cast<void*>(&flags),
+      custom_callback, &error);
 
   EXPECT_EQ(status, MCP_STATUS_OK);
 

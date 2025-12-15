@@ -64,7 +64,8 @@ class MetricsSink {
    * Increment a counter metric
    * Thread-safe
    */
-  virtual void incrementCounter(const std::string& name, uint64_t value = 1) = 0;
+  virtual void incrementCounter(const std::string& name,
+                                uint64_t value = 1) = 0;
 
   /**
    * Record a gauge value
@@ -83,7 +84,7 @@ class MetricsSink {
    * Thread-safe
    */
   virtual void recordTiming(const std::string& name,
-                           std::chrono::microseconds duration) = 0;
+                            std::chrono::microseconds duration) = 0;
 };
 
 using MetricsService = std::shared_ptr<MetricsSink>;
@@ -149,8 +150,9 @@ struct RuntimeServices {
    * Helper: Cast shared_services from FilterCreationContext
    *
    * Usage:
-   *   auto services = RuntimeServices::fromSharedServices(context.shared_services);
-   *   if (services && services->dispatcher) { ... }
+   *   auto services =
+   * RuntimeServices::fromSharedServices(context.shared_services); if (services
+   * && services->dispatcher) { ... }
    */
   static std::shared_ptr<RuntimeServices> fromSharedServices(
       const std::shared_ptr<void>& shared_services) {

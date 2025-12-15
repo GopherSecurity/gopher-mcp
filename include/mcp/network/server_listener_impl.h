@@ -354,7 +354,8 @@ class TcpActiveListener : public TcpListenerCallbacks {
   // Optional listener config (when using config-driven construction)
   std::unique_ptr<mcp::config::ListenerConfig> listener_config_;
 
-  // Optional configurable filter chain factory (when using config-driven construction)
+  // Optional configurable filter chain factory (when using config-driven
+  // construction)
   std::unique_ptr<mcp::filter::ConfigurableFilterChainFactory> filter_factory_;
 
   // Protocol callback target for modular filter chains.

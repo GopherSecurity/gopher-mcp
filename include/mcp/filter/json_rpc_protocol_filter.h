@@ -101,7 +101,8 @@ class JsonRpcProtocolFilter : public network::Filter {
 
   /**
    * Constructor with FilterCreationContext for config-driven filter chains
-   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param context Filter creation context containing dispatcher, callbacks,
+   * and transport metadata
    * @param config Filter-specific configuration
    */
   JsonRpcProtocolFilter(const filter::FilterCreationContext& context,

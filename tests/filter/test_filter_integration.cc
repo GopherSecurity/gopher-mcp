@@ -2,24 +2,26 @@
  * @file test_filter_integration.cc
  * @brief Integration tests for HTTP->SSE->JSON-RPC filter chain
  *
- * Tests that the complete filter chain (HTTP codec, SSE codec, JSON-RPC dispatcher)
- * works correctly when chained together using the new context-aware factories.
+ * Tests that the complete filter chain (HTTP codec, SSE codec, JSON-RPC
+ * dispatcher) works correctly when chained together using the new context-aware
+ * factories.
  */
 
-#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 
+#include <gtest/gtest.h>
+
+#include "mcp/buffer.h"
+#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/json/json_bridge.h"
-#include "mcp/network/filter.h"
-#include "mcp/buffer.h"
 #include "mcp/mcp_connection_manager.h"
+#include "mcp/network/filter.h"
 
 // Forward declare factory registration functions
 extern void registerHttpCodecFilterFactory();
@@ -49,9 +51,15 @@ class MockProtocolCallbacks : public McpProtocolCallbacks {
   }
 
   // Test access methods
-  const std::vector<jsonrpc::Request>& getRequests() const { return requests_received_; }
-  const std::vector<jsonrpc::Response>& getResponses() const { return responses_received_; }
-  const std::vector<jsonrpc::Notification>& getNotifications() const { return notifications_received_; }
+  const std::vector<jsonrpc::Request>& getRequests() const {
+    return requests_received_;
+  }
+  const std::vector<jsonrpc::Response>& getResponses() const {
+    return responses_received_;
+  }
+  const std::vector<jsonrpc::Notification>& getNotifications() const {
+    return notifications_received_;
+  }
   const std::vector<Error>& getErrors() const { return errors_received_; }
 
   void clearReceived() {
@@ -69,16 +77,18 @@ class MockProtocolCallbacks : public McpProtocolCallbacks {
 };
 
 class MockFilterCallbacks : public network::ReadFilterCallbacks,
-                           public network::WriteFilterCallbacks {
+                            public network::WriteFilterCallbacks {
  public:
   network::Connection& connection() override {
     // Return a reference - this is a simple mock
     static network::Connection* mock_conn = nullptr;
-    return *mock_conn;  // This will crash if used, but it's for interface compatibility
+    return *mock_conn;  // This will crash if used, but it's for interface
+                        // compatibility
   }
 
   void continueReading() override {}
-  void upstreamHost(network::UpstreamHostDescriptionConstSharedPtr host) override {}
+  void upstreamHost(
+      network::UpstreamHostDescriptionConstSharedPtr host) override {}
   const std::string& upstreamHost() const override {
     static std::string empty_host;
     return empty_host;
@@ -104,9 +114,7 @@ class FilterIntegrationTest : public ::testing::Test {
     registerJsonRpcDispatcherFilterFactory();
   }
 
-  void TearDown() override {
-    FilterRegistry::instance().clearFactories();
-  }
+  void TearDown() override { FilterRegistry::instance().clearFactories(); }
 
   // Helper to create filter chain
   void createFilterChain() {
@@ -118,13 +126,16 @@ class FilterIntegrationTest : public ::testing::Test {
 
     // Create filters in order: HTTP -> SSE -> JSON-RPC
     http_filter_ = std::dynamic_pointer_cast<HttpCodecFilter>(
-        FilterRegistry::instance().createFilterWithContext("http.codec", context, config));
+        FilterRegistry::instance().createFilterWithContext("http.codec",
+                                                           context, config));
 
     sse_filter_ = std::dynamic_pointer_cast<SseCodecFilter>(
-        FilterRegistry::instance().createFilterWithContext("sse.codec", context, config));
+        FilterRegistry::instance().createFilterWithContext("sse.codec", context,
+                                                           config));
 
     json_rpc_filter_ = std::dynamic_pointer_cast<JsonRpcProtocolFilter>(
-        FilterRegistry::instance().createFilterWithContext("json_rpc.dispatcher", context, config));
+        FilterRegistry::instance().createFilterWithContext(
+            "json_rpc.dispatcher", context, config));
 
     ASSERT_NE(http_filter_, nullptr);
     ASSERT_NE(sse_filter_, nullptr);
@@ -160,7 +171,8 @@ TEST_F(FilterIntegrationTest, FilterChainInitialization) {
   // Test that all filters can handle onNewConnection
   EXPECT_EQ(http_filter_->onNewConnection(), network::FilterStatus::Continue);
   EXPECT_EQ(sse_filter_->onNewConnection(), network::FilterStatus::Continue);
-  EXPECT_EQ(json_rpc_filter_->onNewConnection(), network::FilterStatus::Continue);
+  EXPECT_EQ(json_rpc_filter_->onNewConnection(),
+            network::FilterStatus::Continue);
 }
 
 TEST_F(FilterIntegrationTest, BasicHttpDataFlow) {
@@ -194,9 +206,12 @@ TEST_F(FilterIntegrationTest, FilterRegistryListsAllFactories) {
   // Should contain all three factories
   EXPECT_GE(factories.size(), 3);
 
-  bool has_http = std::find(factories.begin(), factories.end(), "http.codec") != factories.end();
-  bool has_sse = std::find(factories.begin(), factories.end(), "sse.codec") != factories.end();
-  bool has_json_rpc = std::find(factories.begin(), factories.end(), "json_rpc.dispatcher") != factories.end();
+  bool has_http = std::find(factories.begin(), factories.end(), "http.codec") !=
+                  factories.end();
+  bool has_sse = std::find(factories.begin(), factories.end(), "sse.codec") !=
+                 factories.end();
+  bool has_json_rpc = std::find(factories.begin(), factories.end(),
+                                "json_rpc.dispatcher") != factories.end();
 
   EXPECT_TRUE(has_http);
   EXPECT_TRUE(has_sse);
@@ -207,9 +222,12 @@ TEST_F(FilterIntegrationTest, DefaultConfigurationIsValid) {
   createFilterChain();
 
   // Verify that default configurations are valid JSON objects
-  const auto* http_metadata = FilterRegistry::instance().getBasicMetadata("http.codec");
-  const auto* sse_metadata = FilterRegistry::instance().getBasicMetadata("sse.codec");
-  const auto* json_rpc_metadata = FilterRegistry::instance().getBasicMetadata("json_rpc.dispatcher");
+  const auto* http_metadata =
+      FilterRegistry::instance().getBasicMetadata("http.codec");
+  const auto* sse_metadata =
+      FilterRegistry::instance().getBasicMetadata("sse.codec");
+  const auto* json_rpc_metadata =
+      FilterRegistry::instance().getBasicMetadata("json_rpc.dispatcher");
 
   ASSERT_NE(http_metadata, nullptr);
   ASSERT_NE(sse_metadata, nullptr);
@@ -224,7 +242,8 @@ TEST_F(FilterIntegrationTest, MetadataValidation) {
   createFilterChain();
 
   // Test metadata validation
-  const auto* http_metadata = FilterRegistry::instance().getBasicMetadata("http.codec");
+  const auto* http_metadata =
+      FilterRegistry::instance().getBasicMetadata("http.codec");
   ASSERT_NE(http_metadata, nullptr);
 
   // This should not throw

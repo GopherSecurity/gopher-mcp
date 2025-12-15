@@ -577,7 +577,8 @@ class FilterChainBuilder {
 
   // Add rate limiting filter
   // NOTE: This method is deprecated - use chain-level event callbacks instead
-  // Rate limiting should be configured through FilterCreationContext with event emitter
+  // Rate limiting should be configured through FilterCreationContext with event
+  // emitter
   FilterChainBuilder& withRateLimiting(
       const filter::RateLimitConfig& config,
       network::Connection* connection = nullptr) {
@@ -599,12 +600,14 @@ class FilterChainBuilder {
   }
 
   // Add circuit breaker filter
-  // NOTE: Circuit breaker now uses chain-level event callbacks instead of per-filter callbacks
-  // Use chain->setEventCallback() to receive circuit breaker events
+  // NOTE: Circuit breaker now uses chain-level event callbacks instead of
+  // per-filter callbacks Use chain->setEventCallback() to receive circuit
+  // breaker events
   FilterChainBuilder& withCircuitBreaker(
       const filter::CircuitBreakerConfig& config,
       network::Connection* connection = nullptr) {
-    // Create filter with null emitter - will be injected via FilterCreationContext
+    // Create filter with null emitter - will be injected via
+    // FilterCreationContext
     auto filter =
         std::make_shared<filter::CircuitBreakerFilter>(nullptr, config);
     filters_.push_back(filter);
@@ -661,8 +664,9 @@ class FilterChainBuilder {
 
  private:
   // NOTE: RateLimitCallbacks removed - use chain-level event system instead
-  // NOTE: CircuitBreakerCallbacks removed - use chain-level FilterEventCallbacks instead
-  // See filter::FilterChainCallbacks in filter_chain_callbacks.h
+  // NOTE: CircuitBreakerCallbacks removed - use chain-level
+  // FilterEventCallbacks instead See filter::FilterChainCallbacks in
+  // filter_chain_callbacks.h
 
   class BackpressureCallbacks : public filter::BackpressureFilter::Callbacks {
    public:

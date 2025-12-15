@@ -6,15 +6,16 @@
  * using FilterCreationContext and registered factory functions.
  */
 
-#include <gtest/gtest.h>
 #include <memory>
 
+#include <gtest/gtest.h>
+
+#include "mcp/event/libevent_dispatcher.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_registry.h"
 #include "mcp/filter/http_codec_filter.h"
-#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
-#include "mcp/event/libevent_dispatcher.h"
+#include "mcp/filter/sse_codec_filter.h"
 #include "mcp/json/json_bridge.h"
 #include "mcp/mcp_connection_manager.h"
 
@@ -52,9 +53,7 @@ class ContextAwareFactoriesTest : public ::testing::Test {
     registerJsonRpcDispatcherFilterFactory();
   }
 
-  void TearDown() override {
-    FilterRegistry::instance().clearFactories();
-  }
+  void TearDown() override { FilterRegistry::instance().clearFactories(); }
 
   std::unique_ptr<event::Dispatcher> dispatcher_;
   std::unique_ptr<MockProtocolCallbacks> callbacks_;
@@ -65,7 +64,8 @@ TEST_F(ContextAwareFactoriesTest, HttpCodecFilterFactoryRegistered) {
   EXPECT_TRUE(FilterRegistry::instance().hasContextFactory("http.codec"));
 
   // Test metadata is available
-  const auto* metadata = FilterRegistry::instance().getBasicMetadata("http.codec");
+  const auto* metadata =
+      FilterRegistry::instance().getBasicMetadata("http.codec");
   ASSERT_NE(metadata, nullptr);
   EXPECT_EQ(metadata->name, "http.codec");
   EXPECT_EQ(metadata->version, "1.0.0");
@@ -77,7 +77,8 @@ TEST_F(ContextAwareFactoriesTest, SseCodecFilterFactoryRegistered) {
   EXPECT_TRUE(FilterRegistry::instance().hasContextFactory("sse.codec"));
 
   // Test metadata is available
-  const auto* metadata = FilterRegistry::instance().getBasicMetadata("sse.codec");
+  const auto* metadata =
+      FilterRegistry::instance().getBasicMetadata("sse.codec");
   ASSERT_NE(metadata, nullptr);
   EXPECT_EQ(metadata->name, "sse.codec");
   EXPECT_EQ(metadata->version, "1.0.0");
@@ -86,10 +87,12 @@ TEST_F(ContextAwareFactoriesTest, SseCodecFilterFactoryRegistered) {
 
 TEST_F(ContextAwareFactoriesTest, JsonRpcDispatcherFilterFactoryRegistered) {
   // Test that JSON-RPC dispatcher filter factory is registered
-  EXPECT_TRUE(FilterRegistry::instance().hasContextFactory("json_rpc.dispatcher"));
+  EXPECT_TRUE(
+      FilterRegistry::instance().hasContextFactory("json_rpc.dispatcher"));
 
   // Test metadata is available
-  const auto* metadata = FilterRegistry::instance().getBasicMetadata("json_rpc.dispatcher");
+  const auto* metadata =
+      FilterRegistry::instance().getBasicMetadata("json_rpc.dispatcher");
   ASSERT_NE(metadata, nullptr);
   EXPECT_EQ(metadata->name, "json_rpc.dispatcher");
   EXPECT_EQ(metadata->version, "1.0.0");
@@ -146,37 +149,37 @@ TEST_F(ContextAwareFactoriesTest, CreateJsonRpcDispatcherFilterWithContext) {
   ASSERT_NE(filter, nullptr);
 
   // Verify it's actually a JsonRpcProtocolFilter
-  auto json_rpc_filter = std::dynamic_pointer_cast<JsonRpcProtocolFilter>(filter);
+  auto json_rpc_filter =
+      std::dynamic_pointer_cast<JsonRpcProtocolFilter>(filter);
   EXPECT_NE(json_rpc_filter, nullptr);
 }
 
 TEST_F(ContextAwareFactoriesTest, FilterChainValidation) {
   // Test that a basic filter chain validates correctly
-  std::vector<std::string> filter_names = {
-    "http.codec",
-    "sse.codec",
-    "json_rpc.dispatcher"
-  };
+  std::vector<std::string> filter_names = {"http.codec", "sse.codec",
+                                           "json_rpc.dispatcher"};
 
-  EXPECT_TRUE(FilterRegistry::instance().validateBasicFilterChain(filter_names));
+  EXPECT_TRUE(
+      FilterRegistry::instance().validateBasicFilterChain(filter_names));
 }
 
 TEST_F(ContextAwareFactoriesTest, InvalidFilterChainValidation) {
   // Test that an invalid filter chain fails validation
   std::vector<std::string> invalid_filter_names = {
-    "http.codec",
-    "invalid.filter",  // This filter doesn't exist
-    "json_rpc.dispatcher"
-  };
+      "http.codec",
+      "invalid.filter",  // This filter doesn't exist
+      "json_rpc.dispatcher"};
 
-  EXPECT_FALSE(FilterRegistry::instance().validateBasicFilterChain(invalid_filter_names));
+  EXPECT_FALSE(FilterRegistry::instance().validateBasicFilterChain(
+      invalid_filter_names));
 }
 
 TEST_F(ContextAwareFactoriesTest, EmptyFilterChainValidation) {
   // Test that an empty filter chain fails validation
   std::vector<std::string> empty_filter_names;
 
-  EXPECT_FALSE(FilterRegistry::instance().validateBasicFilterChain(empty_filter_names));
+  EXPECT_FALSE(
+      FilterRegistry::instance().validateBasicFilterChain(empty_filter_names));
 }
 
 TEST_F(ContextAwareFactoriesTest, ClientModeFilters) {

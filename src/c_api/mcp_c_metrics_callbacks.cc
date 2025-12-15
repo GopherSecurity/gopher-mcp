@@ -116,13 +116,10 @@ class MetricsCallbackBridge : public MetricsFilter::MetricsCallbacks {
       callbacks_.on_threshold_exceeded(metric_name.c_str(), value, threshold,
                                        callbacks_.user_data);
     } catch (const std::exception& e) {
-      GOPHER_LOG(Error,
-                 "Exception in metrics threshold callback ({}): {}",
-                 metric_name,
-                 e.what());
+      GOPHER_LOG(Error, "Exception in metrics threshold callback ({}): {}",
+                 metric_name, e.what());
     } catch (...) {
-      GOPHER_LOG(Error,
-                 "Unknown exception in metrics threshold callback ({})",
+      GOPHER_LOG(Error, "Unknown exception in metrics threshold callback ({})",
                  metric_name);
     }
   }
@@ -136,8 +133,7 @@ class MetricsCallbackBridge : public MetricsFilter::MetricsCallbacks {
 extern "C" {
 
 int mcp_filter_chain_set_metrics_callbacks(
-    mcp_filter_chain_t chain,
-    const mcp_metrics_callbacks_t* callbacks) {
+    mcp_filter_chain_t chain, const mcp_metrics_callbacks_t* callbacks) {
   if (!chain) {
     GOPHER_LOG(Error, "Invalid chain handle (NULL)");
     return -1;
@@ -162,8 +158,7 @@ int mcp_filter_chain_set_metrics_callbacks(
   }
 
   try {
-    auto callback_bridge =
-        std::make_shared<MetricsCallbackBridge>(*callbacks);
+    auto callback_bridge = std::make_shared<MetricsCallbackBridge>(*callbacks);
     bool registered =
         advanced_chain_set_metrics_callbacks(*advanced_chain, callback_bridge);
     if (!registered) {

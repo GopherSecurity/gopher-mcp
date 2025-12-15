@@ -146,7 +146,7 @@ class MetricsFilter : public JsonRpcProtocolFilter::MessageHandler,
   void getMetrics(ConnectionMetrics& snapshot) const;
 
  private:
- friend class NetworkAdapter;
+  friend class NetworkAdapter;
 
   void initializeMetricsState();
   void resetConnectionMetrics();
@@ -220,8 +220,8 @@ inline MetricsFilter::MetricsFilter(MetricsCallbacks& callbacks,
   initializeMetricsState();
 }
 
-inline MetricsFilter::MetricsFilter(
-    std::shared_ptr<MetricsCallbacks> callbacks, const Config& config)
+inline MetricsFilter::MetricsFilter(std::shared_ptr<MetricsCallbacks> callbacks,
+                                    const Config& config)
     : callbacks_holder_(std::move(callbacks)),
       default_callbacks_holder_(callbacks_holder_),
       callbacks_(callbacks_holder_.get()),
@@ -280,9 +280,7 @@ inline void MetricsFilter::setCallbacks(
   }
 }
 
-inline void MetricsFilter::onConnectionOpened() {
-  resetConnectionMetrics();
-}
+inline void MetricsFilter::onConnectionOpened() { resetConnectionMetrics(); }
 
 inline void MetricsFilter::onConnectionClosed() {
   metrics_.last_activity = std::chrono::steady_clock::now();
@@ -295,8 +293,7 @@ inline void MetricsFilter::recordIncomingBytes(size_t bytes) {
   updateReceiveRate(bytes);
 
   if (metrics_.bytes_received > config_.bytes_threshold) {
-    callbacks_->onThresholdExceeded("bytes_received",
-                                    metrics_.bytes_received,
+    callbacks_->onThresholdExceeded("bytes_received", metrics_.bytes_received,
                                     config_.bytes_threshold);
   }
 }
@@ -516,8 +513,7 @@ inline void MetricsFilter::startReportingTimer() {
   // This would call callbacks_->onMetricsUpdate(metrics_) periodically
 }
 
-inline std::string MetricsFilter::requestIdToString(
-    const RequestId& id) const {
+inline std::string MetricsFilter::requestIdToString(const RequestId& id) const {
   return visit(make_overload([](const std::string& s) { return s; },
                              [](int i) { return std::to_string(i); }),
                id);

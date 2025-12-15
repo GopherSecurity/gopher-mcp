@@ -19,14 +19,14 @@
 #include <string>
 #include <vector>
 
-#include "mcp/json/json_bridge.h"
 #include "mcp/config/units.h"  // For unit parsing
+#include "mcp/json/json_bridge.h"
 
 // Helper macro for safe JSON field extraction with error context
 #define SAFE_GET_JSON_FIELD(json, field_name, target, error_path)          \
   do {                                                                     \
     try {                                                                  \
-      if (json.contains(field_name)) {                                    \
+      if (json.contains(field_name)) {                                     \
         target = extractJsonValue<decltype(target)>(json[field_name]);     \
       }                                                                    \
     } catch (const mcp::json::JsonException& e) {                          \
@@ -39,45 +39,47 @@ namespace mcp {
 namespace config {
 
 // Helper template to extract values from JsonValue
-template<typename T>
+template <typename T>
 T extractJsonValue(const mcp::json::JsonValue& value);
 
-template<>
-inline std::string extractJsonValue<std::string>(const mcp::json::JsonValue& value) {
+template <>
+inline std::string extractJsonValue<std::string>(
+    const mcp::json::JsonValue& value) {
   return value.getString();
 }
 
-template<>
+template <>
 inline int extractJsonValue<int>(const mcp::json::JsonValue& value) {
   return value.getInt();
 }
 
-template<>
+template <>
 inline int64_t extractJsonValue<int64_t>(const mcp::json::JsonValue& value) {
   return value.getInt64();
 }
 
-template<>
+template <>
 inline uint32_t extractJsonValue<uint32_t>(const mcp::json::JsonValue& value) {
   return static_cast<uint32_t>(value.getInt64());
 }
 
-template<>
+template <>
 inline size_t extractJsonValue<size_t>(const mcp::json::JsonValue& value) {
   return static_cast<size_t>(value.getInt64());
 }
 
-template<>
+template <>
 inline bool extractJsonValue<bool>(const mcp::json::JsonValue& value) {
   return value.getBool();
 }
 
-template<>
+template <>
 inline double extractJsonValue<double>(const mcp::json::JsonValue& value) {
   return value.getFloat();
 }
 
-// Forward declarations for vector and object extractors that depend on full definitions
+// Forward declarations for vector and object extractors that depend on full
+// definitions
 struct FilterConfig;
 struct TransportConfig;
 struct FilterChainConfig;
@@ -841,7 +843,7 @@ struct FilterConfig {
 
   /// Whether this filter is enabled
   bool enabled = true;
-  
+
   /// Conditional enablement predicates (evaluated at build time)
   mcp::json::JsonValue enabled_when = mcp::json::JsonValue::object();
 
@@ -870,7 +872,8 @@ struct FilterConfig {
     builder.add("name", name);
     builder.add("config", config);
     builder.add("enabled", enabled);
-    if (!enabled_when.isNull() && enabled_when.isObject() && enabled_when.size() > 0) {
+    if (!enabled_when.isNull() && enabled_when.isObject() &&
+        enabled_when.size() > 0) {
       builder.add("enabled_when", enabled_when);
     }
     return builder.build();
@@ -912,7 +915,7 @@ struct FilterConfig {
                                     "Type error: " + std::string(e.what()));
       }
     }
-    
+
     if (j.contains("enabled_when")) {
       fc.enabled_when = j["enabled_when"];
     }
@@ -921,7 +924,8 @@ struct FilterConfig {
   }
 
   bool operator==(const FilterConfig& other) const {
-    return type == other.type && name == other.name && config.toString() == other.config.toString() &&
+    return type == other.type && name == other.name &&
+           config.toString() == other.config.toString() &&
            enabled == other.enabled;
   }
 
@@ -942,7 +946,7 @@ struct FilterChainConfig {
 
   /// Ordered list of filters in the chain
   std::vector<FilterConfig> filters;
-  
+
   /// Route-level filter bypass configuration
   mcp::json::JsonValue bypass_filters = mcp::json::JsonValue::null();
 
@@ -988,7 +992,7 @@ struct FilterChainConfig {
     mcp::json::JsonObjectBuilder builder;
     builder.add("name", name);
     builder.add("transport_type", transport_type);
-    
+
     mcp::json::JsonArrayBuilder filters_arr;
     for (const auto& filter : filters) {
       filters_arr.add(filter.toJson());
@@ -1138,13 +1142,13 @@ struct TLSConfig {
     builder.add("ca_file", ca_file);
     builder.add("verify_client", verify_client);
     builder.add("min_version", min_version);
-    
+
     mcp::json::JsonArrayBuilder suites_arr;
     for (const auto& suite : cipher_suites) {
       suites_arr.add(suite);
     }
     builder.add("cipher_suites", suites_arr.build());
-    
+
     return builder.build();
   }
 
@@ -1393,24 +1397,28 @@ struct TransportConfig {
 // =====================
 
 // Extract single objects (now that types are complete)
-template<>
-inline FilterConfig extractJsonValue<FilterConfig>(const mcp::json::JsonValue& value) {
+template <>
+inline FilterConfig extractJsonValue<FilterConfig>(
+    const mcp::json::JsonValue& value) {
   return FilterConfig::fromJson(value);
 }
 
-template<>
-inline TransportConfig extractJsonValue<TransportConfig>(const mcp::json::JsonValue& value) {
+template <>
+inline TransportConfig extractJsonValue<TransportConfig>(
+    const mcp::json::JsonValue& value) {
   return TransportConfig::fromJson(value);
 }
 
-template<>
-inline FilterChainConfig extractJsonValue<FilterChainConfig>(const mcp::json::JsonValue& value) {
+template <>
+inline FilterChainConfig extractJsonValue<FilterChainConfig>(
+    const mcp::json::JsonValue& value) {
   return FilterChainConfig::fromJson(value);
 }
 
 // Extract vectors
-template<>
-inline std::vector<std::string> extractJsonValue<std::vector<std::string>>(const mcp::json::JsonValue& value) {
+template <>
+inline std::vector<std::string> extractJsonValue<std::vector<std::string>>(
+    const mcp::json::JsonValue& value) {
   std::vector<std::string> result;
   if (value.isArray()) {
     for (size_t i = 0; i < value.size(); ++i) {
@@ -1420,8 +1428,9 @@ inline std::vector<std::string> extractJsonValue<std::vector<std::string>>(const
   return result;
 }
 
-template<>
-inline std::vector<FilterConfig> extractJsonValue<std::vector<FilterConfig>>(const mcp::json::JsonValue& value) {
+template <>
+inline std::vector<FilterConfig> extractJsonValue<std::vector<FilterConfig>>(
+    const mcp::json::JsonValue& value) {
   std::vector<FilterConfig> result;
   if (value.isArray()) {
     for (size_t i = 0; i < value.size(); ++i) {
@@ -1431,8 +1440,10 @@ inline std::vector<FilterConfig> extractJsonValue<std::vector<FilterConfig>>(con
   return result;
 }
 
-template<>
-inline std::vector<TransportConfig> extractJsonValue<std::vector<TransportConfig>>(const mcp::json::JsonValue& value) {
+template <>
+inline std::vector<TransportConfig>
+extractJsonValue<std::vector<TransportConfig>>(
+    const mcp::json::JsonValue& value) {
   std::vector<TransportConfig> result;
   if (value.isArray()) {
     for (size_t i = 0; i < value.size(); ++i) {
@@ -1442,8 +1453,10 @@ inline std::vector<TransportConfig> extractJsonValue<std::vector<TransportConfig
   return result;
 }
 
-template<>
-inline std::vector<FilterChainConfig> extractJsonValue<std::vector<FilterChainConfig>>(const mcp::json::JsonValue& value) {
+template <>
+inline std::vector<FilterChainConfig>
+extractJsonValue<std::vector<FilterChainConfig>>(
+    const mcp::json::JsonValue& value) {
   std::vector<FilterChainConfig> result;
   if (value.isArray()) {
     for (size_t i = 0; i < value.size(); ++i) {
@@ -1474,16 +1487,19 @@ struct CapabilitiesConfig {
    */
   mcp::json::JsonValue toJson() const {
     mcp::json::JsonObjectBuilder builder;
-    
+
     mcp::json::JsonArrayBuilder features_arr;
     for (const auto& feature : features) {
       features_arr.add(feature);
     }
     builder.add("features", features_arr.build());
-    
-    builder.add("max_request_size", mcp::json::JsonValue(static_cast<int64_t>(max_request_size)));
-    builder.add("max_response_size", mcp::json::JsonValue(static_cast<int64_t>(max_response_size)));
-    builder.add("request_timeout_ms", mcp::json::JsonValue(static_cast<int>(request_timeout_ms)));
+
+    builder.add("max_request_size",
+                mcp::json::JsonValue(static_cast<int64_t>(max_request_size)));
+    builder.add("max_response_size",
+                mcp::json::JsonValue(static_cast<int64_t>(max_response_size)));
+    builder.add("request_timeout_ms",
+                mcp::json::JsonValue(static_cast<int>(request_timeout_ms)));
     return builder.build();
   }
 
@@ -1674,10 +1690,14 @@ struct ServerConfig {
     builder.add("name", name);
     builder.add("version", version.toString());
     builder.add("capabilities", capabilities.toJson());
-    builder.add("max_sessions", mcp::json::JsonValue(static_cast<int>(max_sessions)));
-    builder.add("session_timeout_ms", mcp::json::JsonValue(static_cast<int>(session_timeout_ms)));
-    builder.add("worker_threads", mcp::json::JsonValue(static_cast<int>(worker_threads)));
-    builder.add("event_threads", mcp::json::JsonValue(static_cast<int>(event_threads)));
+    builder.add("max_sessions",
+                mcp::json::JsonValue(static_cast<int>(max_sessions)));
+    builder.add("session_timeout_ms",
+                mcp::json::JsonValue(static_cast<int>(session_timeout_ms)));
+    builder.add("worker_threads",
+                mcp::json::JsonValue(static_cast<int>(worker_threads)));
+    builder.add("event_threads",
+                mcp::json::JsonValue(static_cast<int>(event_threads)));
 
     mcp::json::JsonArrayBuilder transports_arr;
     for (const auto& transport : transports) {
@@ -1786,7 +1806,8 @@ struct ServerConfig {
     if (j.contains("transports") && j["transports"].isArray()) {
       for (size_t idx = 0; idx < j["transports"].size(); ++idx) {
         try {
-          sc.transports.push_back(TransportConfig::fromJson(j["transports"][idx]));
+          sc.transports.push_back(
+              TransportConfig::fromJson(j["transports"][idx]));
         } catch (const ConfigValidationError& e) {
           throw ConfigValidationError(
               "server.transports[" + std::to_string(idx) + "]." + e.field(),
@@ -1802,7 +1823,8 @@ struct ServerConfig {
     if (j.contains("filter_chains") && j["filter_chains"].isArray()) {
       for (size_t idx = 0; idx < j["filter_chains"].size(); ++idx) {
         try {
-          sc.filter_chains.push_back(FilterChainConfig::fromJson(j["filter_chains"][idx]));
+          sc.filter_chains.push_back(
+              FilterChainConfig::fromJson(j["filter_chains"][idx]));
         } catch (const ConfigValidationError& e) {
           throw ConfigValidationError(
               "server.filter_chains[" + std::to_string(idx) + "]." + e.field(),

@@ -25,7 +25,8 @@ namespace filter {
 
 // HttpFilterChainBridge implementation
 
-HttpCodecFilter::HttpFilterChainBridge::HttpFilterChainBridge(HttpCodecFilter& parent_filter)
+HttpCodecFilter::HttpFilterChainBridge::HttpFilterChainBridge(
+    HttpCodecFilter& parent_filter)
     : parent_filter_(parent_filter) {
   std::cerr << "[DEBUG] HttpFilterChainBridge created" << std::endl;
 }
@@ -39,9 +40,11 @@ void HttpCodecFilter::HttpFilterChainBridge::onHeaders(
   (void)keep_alive;
 }
 
-void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data, bool end_stream) {
+void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data,
+                                                    bool end_stream) {
   std::cerr << "[DEBUG] HttpFilterChainBridge::onBody - received "
-            << data.length() << " bytes, end_stream=" << end_stream << std::endl;
+            << data.length() << " bytes, end_stream=" << end_stream
+            << std::endl;
 
   if (!data.empty()) {
     forwardBodyToNextFilter(data, end_stream);
@@ -53,7 +56,8 @@ void HttpCodecFilter::HttpFilterChainBridge::onMessageComplete() {
 }
 
 void HttpCodecFilter::HttpFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] HttpFilterChainBridge::onError - " << error << std::endl;
+  std::cerr << "[ERROR] HttpFilterChainBridge::onError - " << error
+            << std::endl;
   // Error handling - could inject error into filter chain if needed
 }
 
@@ -68,7 +72,8 @@ void HttpCodecFilter::HttpFilterChainBridge::forwardBodyToNextFilter(
 
   OwnedBuffer buffer;
   buffer.add(body);
-  parent_filter_.read_callbacks_->injectReadDataToFilterChain(buffer, end_stream);
+  parent_filter_.read_callbacks_->injectReadDataToFilterChain(buffer,
+                                                              end_stream);
 }
 
 // Constructor
@@ -120,7 +125,6 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
     : message_callbacks_(nullptr),
       dispatcher_(context.dispatcher),
       is_server_(context.isServer()) {
-
   // Create the filter bridge - this will be used to coordinate body forwarding
   filter_bridge_ = std::make_unique<HttpFilterChainBridge>(*this);
   message_callbacks_ = filter_bridge_.get();
@@ -154,7 +158,8 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
     onCodecError(error);
   };
 
-  state_machine_ = std::make_unique<HttpCodecStateMachine>(dispatcher_, sm_config);
+  state_machine_ =
+      std::make_unique<HttpCodecStateMachine>(dispatcher_, sm_config);
 
   // Initialize stream context for first request
   current_stream_ = stream_manager_.getOrCreateContext(0);
@@ -587,7 +592,6 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
     if (parent_.message_callbacks_) {
       parent_.message_callbacks_->onBody(parent_.current_stream_->body, true);
     }
-
   }
 
   if (parent_.message_callbacks_) {

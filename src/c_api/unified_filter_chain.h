@@ -11,10 +11,10 @@
 #include <string>
 #include <variant>
 
-#include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/c_api/mcp_c_filter_api.h"
-#include "mcp/filter/filter_service_types.h"
+#include "mcp/c_api/mcp_c_filter_chain.h"
 #include "mcp/filter/filter_chain_event_hub.h"
+#include "mcp/filter/filter_service_types.h"
 
 // Forward declarations to avoid circular dependencies
 namespace mcp {
@@ -27,30 +27,32 @@ class FilterChain;
 namespace filter {
 class FilterChainCallbacks;
 class FilterChainEventHub;
-}
-}
+}  // namespace filter
+}  // namespace mcp
 
 namespace mcp {
 namespace c_api_internal {
 
 /**
  * Unified wrapper for different filter chain implementations.
- * This allows both AdvancedFilterChain (from mcp_c_filter_chain.cc) and 
+ * This allows both AdvancedFilterChain (from mcp_c_filter_chain.cc) and
  * FilterChain (from mcp_c_filter_api.cc) to share the same handle space.
  */
 class UnifiedFilterChain {
-public:
+ public:
   enum class ChainType {
-    Simple,    // FilterChain from mcp_c_filter_api.cc
-    Advanced   // AdvancedFilterChain from mcp_c_filter_chain.cc
+    Simple,   // FilterChain from mcp_c_filter_api.cc
+    Advanced  // AdvancedFilterChain from mcp_c_filter_chain.cc
   };
 
   // Constructor for simple chain
-  explicit UnifiedFilterChain(std::shared_ptr<mcp::filter_api::FilterChain> simple_chain)
+  explicit UnifiedFilterChain(
+      std::shared_ptr<mcp::filter_api::FilterChain> simple_chain)
       : type_(ChainType::Simple), simple_chain_(simple_chain) {}
 
   // Constructor for advanced chain
-  explicit UnifiedFilterChain(std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> advanced_chain)
+  explicit UnifiedFilterChain(
+      std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> advanced_chain)
       : type_(ChainType::Advanced), advanced_chain_(advanced_chain) {}
 
   ChainType getType() const { return type_; }
@@ -61,13 +63,14 @@ public:
   }
 
   // Get the advanced chain if this wraps one, nullptr otherwise
-  std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> getAdvancedChain() const {
+  std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> getAdvancedChain()
+      const {
     return type_ == ChainType::Advanced ? advanced_chain_ : nullptr;
   }
 
   // Common operations that can be performed on both types
   // These will be implemented in the .cc file to avoid circular dependencies
-  
+
   /**
    * Pause the chain if supported (only Advanced chains support this)
    * Returns true if the operation was performed, false if not supported
@@ -102,7 +105,7 @@ public:
   /** Check if chain-level event callbacks are currently registered. */
   bool hasEventCallback() const;
 
-private:
+ private:
   ChainType type_;
   std::shared_ptr<mcp::filter_api::FilterChain> simple_chain_;
   std::shared_ptr<mcp::filter_chain::AdvancedFilterChain> advanced_chain_;

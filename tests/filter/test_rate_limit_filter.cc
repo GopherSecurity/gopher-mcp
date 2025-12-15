@@ -9,11 +9,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "mcp/filter/rate_limit_filter.h"
-#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_chain_callbacks.h"
+#include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event.h"
 #include "mcp/filter/filter_event_emitter.h"
+#include "mcp/filter/rate_limit_filter.h"
 
 #include "../integration/real_io_test_base.h"
 
@@ -24,8 +24,8 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// NOTE: This test now uses nullptr for event emitter since callbacks are removed
-// For event-based testing, see test_rate_limiter_chain_events.cc
+// NOTE: This test now uses nullptr for event emitter since callbacks are
+// removed For event-based testing, see test_rate_limiter_chain_events.cc
 
 class RateLimitFilterTest : public test::RealIoTestBase {
  protected:
@@ -41,9 +41,8 @@ class RateLimitFilterTest : public test::RealIoTestBase {
 
   void createFilter(const RateLimitConfig& config) {
     executeInDispatcher([this, config]() {
-      auto emitter = std::make_shared<FilterEventEmitter>(
-          event_hub_,
-          "rate_limit");
+      auto emitter =
+          std::make_shared<FilterEventEmitter>(event_hub_, "rate_limit");
       filter_ = std::make_unique<RateLimitFilter>(emitter, config);
     });
   }
@@ -86,7 +85,6 @@ TEST_F(RateLimitFilterTest, TokenBucketBlocksAfterCapacity) {
 
   createFilter(config);
 
-
   executeInDispatcher([this]() {
     auto data = createBuffer();
     // Use all tokens
@@ -114,13 +112,13 @@ TEST_F(RateLimitFilterTest, EmitsRateLimitEvents) {
   executeInDispatcher([this, callbacks]() {
     auto data = createBuffer();
     EXPECT_EQ(filter_->onData(*data, false), network::FilterStatus::Continue);
-    EXPECT_CALL(*callbacks,
-                onFilterEvent(AllOf(
-                    Property(&FilterEvent::filter_name, "rate_limit"),
-                    Property(&FilterEvent::event_type,
-                             FilterEventType::RATE_LIMIT_EXCEEDED),
-                    Property(&FilterEvent::severity,
-                             FilterEventSeverity::ERROR))))
+    EXPECT_CALL(
+        *callbacks,
+        onFilterEvent(AllOf(
+            Property(&FilterEvent::filter_name, "rate_limit"),
+            Property(&FilterEvent::event_type,
+                     FilterEventType::RATE_LIMIT_EXCEEDED),
+            Property(&FilterEvent::severity, FilterEventSeverity::ERROR))))
         .Times(1);
     EXPECT_EQ(filter_->onData(*data, false),
               network::FilterStatus::StopIteration);
@@ -153,7 +151,6 @@ TEST_F(RateLimitFilterTest, TokenBucketRefills) {
   // Wait for refill
   std::this_thread::sleep_for(200ms);  // Should refill 2 tokens
 
-
   executeInDispatcher([this]() {
     auto data = createBuffer();
     // Should allow 2 more requests
@@ -173,7 +170,6 @@ TEST_F(RateLimitFilterTest, SlidingWindowLimiting) {
   config.max_requests_per_window = 5;
 
   createFilter(config);
-
 
   executeInDispatcher([this]() {
     auto data = createBuffer();
@@ -210,7 +206,6 @@ TEST_F(RateLimitFilterTest, SlidingWindowExpiration) {
   // Wait for window to expire
   std::this_thread::sleep_for(1100ms);
 
-
   executeInDispatcher([this]() {
     auto data = createBuffer();
     // Should allow new requests after window expires
@@ -229,7 +224,6 @@ TEST_F(RateLimitFilterTest, FixedWindowLimiting) {
 
   createFilter(config);
 
-
   executeInDispatcher([this]() {
     auto data = createBuffer();
     // Use all requests in window
@@ -243,7 +237,6 @@ TEST_F(RateLimitFilterTest, FixedWindowLimiting) {
 
   // Wait for window reset
   std::this_thread::sleep_for(1100ms);
-
 
   executeInDispatcher([this]() {
     auto data = createBuffer();
@@ -276,7 +269,6 @@ TEST_F(RateLimitFilterTest, LeakyBucketLimiting) {
 
   // Wait for some leaking
   std::this_thread::sleep_for(150ms);  // Should leak ~1-2 requests
-
 
   executeInDispatcher([this]() {
     auto data = createBuffer();
@@ -317,7 +309,7 @@ TEST_F(RateLimitFilterTest, RetryAfterCalculation) {
   createFilter(config);
 
   std::chrono::milliseconds retry_after;
-      .WillOnce(SaveArg<0>(&retry_after));
+  .WillOnce(SaveArg<0>(&retry_after));
 
   executeInDispatcher([this]() {
     auto data = createBuffer();
@@ -344,7 +336,7 @@ TEST_F(RateLimitFilterTest, BurstHandling) {
   createFilter(config);
 
   // Should allow base capacity + burst
-      .Times(10);  // Using base capacity
+  .Times(10);  // Using base capacity
 
   executeInDispatcher([this]() {
     auto data = createBuffer();

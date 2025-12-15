@@ -98,7 +98,8 @@ class SseCodecFilter : public network::Filter {
 
   /**
    * Constructor with FilterCreationContext for config-driven filter chains
-   * @param context Filter creation context containing dispatcher, callbacks, and transport metadata
+   * @param context Filter creation context containing dispatcher, callbacks,
+   * and transport metadata
    * @param config Filter-specific configuration
    */
   SseCodecFilter(const filter::FilterCreationContext& context,
@@ -108,7 +109,8 @@ class SseCodecFilter : public network::Filter {
    * Constructor (legacy)
    * @param callbacks Event callbacks for application layer
    * @param dispatcher Event dispatcher for async operations
-   * @param is_server True for server mode (encoding), false for client (decoding)
+   * @param is_server True for server mode (encoding), false for client
+   * (decoding)
    */
   SseCodecFilter(EventCallbacks& callbacks,
                  event::Dispatcher& dispatcher,
@@ -214,7 +216,7 @@ class SseCodecFilter : public network::Filter {
 
   // Filter chain bridge for context-based construction
   class SseFilterChainBridge : public EventCallbacks {
-  public:
+   public:
     explicit SseFilterChainBridge(SseCodecFilter& parent_filter);
 
     // EventCallbacks implementation
@@ -224,11 +226,12 @@ class SseCodecFilter : public network::Filter {
     void onComment(const std::string& comment) override;
     void onError(const std::string& error) override;
 
-  private:
-    void forwardJsonRpcToNextFilter(const std::string& payload, bool end_stream);
+   private:
+    void forwardJsonRpcToNextFilter(const std::string& payload,
+                                    bool end_stream);
 
     SseCodecFilter& parent_filter_;
-};
+  };
 
   std::unique_ptr<SseFilterChainBridge> filter_bridge_;
 

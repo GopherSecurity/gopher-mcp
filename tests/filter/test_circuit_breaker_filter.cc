@@ -73,11 +73,10 @@ class CircuitBreakerFilterTest : public test::RealIoTestBase {
 
     executeInDispatcher([this]() {
       // Create emitter that will send events to the hub
-      auto emitter = std::make_shared<FilterEventEmitter>(
-          event_hub_,
-          "circuit_breaker",
-          "",   // no instance ID for tests
-          "");  // no chain ID for tests
+      auto emitter =
+          std::make_shared<FilterEventEmitter>(event_hub_, "circuit_breaker",
+                                               "",   // no instance ID for tests
+                                               "");  // no chain ID for tests
 
       filter_ = std::make_unique<CircuitBreakerFilter>(emitter, config_);
       filter_->setNextCallbacks(next_callbacks_.get());
@@ -130,8 +129,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitRemainsClosedOnSuccess) {
   // Expect all requests to be forwarded
   EXPECT_CALL(*next_callbacks_, onRequest(_)).Times(5);
   // No CIRCUIT_REQUEST_BLOCKED events expected
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
       .Times(0);
 
   executeInDispatcher([this]() {
@@ -153,8 +153,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitRemainsClosedOnSuccess) {
 // Test circuit opens after consecutive failures
 TEST_F(CircuitBreakerFilterTest, CircuitOpensAfterConsecutiveFailures) {
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -188,8 +189,9 @@ TEST_F(CircuitBreakerFilterTest, RequestsBlockedWhenCircuitOpen) {
   EXPECT_EQ(filter_->getState(), CircuitState::OPEN);
 
   // Now try to send request - should be blocked
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_REQUEST_BLOCKED)))
       .Times(1);
   EXPECT_CALL(*next_callbacks_, onRequest(_)).Times(0);
 
@@ -244,8 +246,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitClosesFromHalfOpenOnSuccess) {
   std::this_thread::sleep_for(150ms);
 
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to CLOSED
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -286,8 +289,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitReopensFromHalfOpenOnFailure) {
   EXPECT_EQ(filter_->getState(), CircuitState::HALF_OPEN);
 
   // Expect CIRCUIT_STATE_CHANGE event when transitioning back to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -304,8 +308,9 @@ TEST_F(CircuitBreakerFilterTest, CircuitReopensFromHalfOpenOnFailure) {
 TEST_F(CircuitBreakerFilterTest, ErrorRateThresholdTriggersOpen) {
   // Set up for error rate testing (50% threshold)
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {
@@ -333,8 +338,9 @@ TEST_F(CircuitBreakerFilterTest, ErrorRateThresholdTriggersOpen) {
 // Test health metrics updates
 TEST_F(CircuitBreakerFilterTest, HealthMetricsUpdate) {
   // Expect CIRCUIT_HEALTH_UPDATE events
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_HEALTH_UPDATE)))
       .Times(AtLeast(1));
 
   executeInDispatcher([this]() {
@@ -381,8 +387,9 @@ TEST_F(CircuitBreakerFilterTest, ClientErrorsDontTriggerCircuit) {
 // Test protocol errors are tracked
 TEST_F(CircuitBreakerFilterTest, ProtocolErrorsTracked) {
   // Expect CIRCUIT_STATE_CHANGE event when transitioning to OPEN
-  EXPECT_CALL(*callbacks_,
-              onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
+  EXPECT_CALL(
+      *callbacks_,
+      onFilterEvent(HasEventType(FilterEventType::CIRCUIT_STATE_CHANGE)))
       .Times(1);
 
   executeInDispatcher([this]() {

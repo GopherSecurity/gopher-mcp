@@ -6,9 +6,9 @@
  * in config-driven filter chains.
  */
 
-#include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/filter_context.h"
 #include "mcp/filter/filter_registry.h"
+#include "mcp/filter/http_codec_filter.h"
 #include "mcp/json/json_bridge.h"
 
 namespace mcp {
@@ -22,9 +22,7 @@ namespace filter {
  * @return Shared pointer to created HTTP codec filter
  */
 network::FilterSharedPtr createHttpCodecFilter(
-    const FilterCreationContext& context,
-    const json::JsonValue& config) {
-
+    const FilterCreationContext& context, const json::JsonValue& config) {
   return std::make_shared<HttpCodecFilter>(context, config);
 }
 
@@ -36,7 +34,8 @@ void registerHttpCodecFilterFactory() {
   BasicFilterMetadata metadata;
   metadata.name = "http.codec";
   metadata.version = "1.0.0";
-  metadata.description = "HTTP/1.1 codec filter for parsing and formatting HTTP messages";
+  metadata.description =
+      "HTTP/1.1 codec filter for parsing and formatting HTTP messages";
 
   // Set default configuration
   // TODO: Read these timeout values from a configuration file or environment
@@ -49,24 +48,20 @@ void registerHttpCodecFilterFactory() {
   metadata.default_config = default_config.build();
 
   FilterRegistry::instance().registerContextFactory(
-      "http.codec",
-      createHttpCodecFilter,
-      metadata);
+      "http.codec", createHttpCodecFilter, metadata);
 }
 
 // Static initializer to register the factory at startup
 namespace {
 struct HttpCodecFilterRegistrar {
-  HttpCodecFilterRegistrar() {
-    registerHttpCodecFilterFactory();
-  }
+  HttpCodecFilterRegistrar() { registerHttpCodecFilterFactory(); }
 };
 static HttpCodecFilterRegistrar http_codec_filter_registrar;
-}
+}  // namespace
 
 // Export for static linking - using magic number as sentinel value
 extern "C" {
-  void* http_codec_filter_registrar_ref = (void*)0xDEADBEEF;
+void* http_codec_filter_registrar_ref = (void*)0xDEADBEEF;
 }
 
 }  // namespace filter
