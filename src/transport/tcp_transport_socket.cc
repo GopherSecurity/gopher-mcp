@@ -6,10 +6,24 @@
 #include "mcp/transport/tcp_transport_socket.h"
 
 #include <errno.h>
-#include <unistd.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <io.h>
+// Windows uses SD_SEND instead of SHUT_WR
+#ifndef SHUT_WR
+#define SHUT_WR SD_SEND
+#endif
+// MSG_NOSIGNAL is Linux-specific (prevents SIGPIPE), not needed on Windows
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+#else
+#include <unistd.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/buffer.h"
 #include "mcp/network/socket.h"
@@ -125,7 +139,10 @@ network::TransportIoResult TcpTransportSocket::doRead(Buffer& buffer) {
   }
 
   // Perform the actual read
-  ssize_t bytes_read = ::recv(io_handle.fd(), slice.mem_, slice.len_, 0);
+  // Note: Windows recv() expects char* buffer, POSIX expects void*
+  ssize_t bytes_read = ::recv(io_handle.fd(),
+                              static_cast<char*>(slice.mem_),
+                              static_cast<int>(slice.len_), 0);
 
   if (bytes_read > 0) {
     // Successful read
