@@ -4,12 +4,18 @@
  */
 
 #include <errno.h>
-#include <fcntl.h>
 #include <iostream>
-#include <unistd.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <io.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/config/listener_config.h"
 #include "mcp/filter/filter_chain_assembler.h"
@@ -268,6 +274,10 @@ bool TcpListenerImpl::doAccept() {
   auto io_handle = std::make_unique<IoSocketHandleImpl>(new_fd);
 
   // Set non-blocking mode immediately
+#ifdef _WIN32
+  u_long mode = 1;
+  ioctlsocket(new_fd, FIONBIO, &mode);
+#else
   int flags = fcntl(new_fd, F_GETFL, 0);
   if (flags >= 0) {
     fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
@@ -275,11 +285,16 @@ bool TcpListenerImpl::doAccept() {
 
   // Set close-on-exec
   fcntl(new_fd, F_SETFD, FD_CLOEXEC);
+#endif
 
   // Create address from sockaddr
   auto remote_address = Address::addressFromSockAddr(addr, addr_len);
   if (!remote_address) {
+#ifdef _WIN32
+    ::closesocket(new_fd);
+#else
     ::close(new_fd);
+#endif
     return true;  // Continue accepting
   }
 
