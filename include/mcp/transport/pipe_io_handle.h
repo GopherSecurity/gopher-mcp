@@ -1,7 +1,13 @@
 #pragma once
 
+// Platform-specific includes
+#ifdef _WIN32
+#include <winsock2.h>
+#include <io.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include "mcp/network/io_socket_handle_impl.h"
 
@@ -23,7 +29,11 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
   ~PipeIoHandle() override {
     // Close write FD if still open
     if (write_fd_ >= 0) {
+#ifdef _WIN32
+      closesocket(write_fd_);
+#else
       ::close(write_fd_);
+#endif
       write_fd_ = -1;
     }
   }
@@ -39,11 +49,15 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
       return network::IoCallResult::success(0);
     }
 
-    // Use write() for pipes (not send() or writev())
     // Writing to pipes: handle one slice at a time for simplicity
     size_t total_written = 0;
     for (size_t i = 0; i < num_slices; ++i) {
+#ifdef _WIN32
+      int result = send(write_fd_, static_cast<const char*>(slices[i].mem_),
+                        static_cast<int>(slices[i].len_), 0);
+#else
       ssize_t result = ::write(write_fd_, slices[i].mem_, slices[i].len_);
+#endif
       if (result >= 0) {
         total_written += result;
         if (static_cast<size_t>(result) < slices[i].len_) {
@@ -51,6 +65,16 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
           break;
         }
       } else {
+#ifdef _WIN32
+        int err = WSAGetLastError();
+        if (total_written > 0) {
+          return network::IoCallResult::success(total_written);
+        }
+        if (err == WSAEWOULDBLOCK) {
+          return network::IoCallResult::error(EAGAIN);
+        }
+        return network::IoCallResult::error(err);
+#else
         int err = errno;
         if (total_written > 0) {
           // Return what we've written so far
@@ -62,6 +86,7 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
           return network::IoCallResult::error(err);
         }
         return network::IoCallResult::error(err);
+#endif
       }
     }
     return network::IoCallResult::success(total_written);
@@ -71,7 +96,11 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
   network::IoVoidResult close() override {
     // Close write FD first
     if (write_fd_ >= 0) {
+#ifdef _WIN32
+      closesocket(write_fd_);
+#else
       ::close(write_fd_);
+#endif
       write_fd_ = -1;
     }
     // Then close read FD via parent class

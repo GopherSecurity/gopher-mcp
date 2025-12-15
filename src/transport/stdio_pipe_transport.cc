@@ -2,12 +2,42 @@
 
 #include <cstring>
 #include <errno.h>
-#include <fcntl.h>
 #include <iostream>
-#include <unistd.h>
 #include <vector>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+// Windows pipe/file operations
+// Note: Using pipe_close instead of close to avoid conflict with TransportIoResult::close()
+#define pipe(fds) _pipe(fds, 4096, _O_BINARY)
+#define pipe_close(fd) _close(fd)
+#define pipe_read(fd, buf, len) _read(fd, buf, static_cast<unsigned int>(len))
+#define pipe_write(fd, buf, len) _write(fd, buf, static_cast<unsigned int>(len))
+#define usleep(us) Sleep((us) / 1000)
+#ifndef EAGAIN
+#define EAGAIN WSAEWOULDBLOCK
+#endif
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#endif
+#ifndef EPIPE
+#define EPIPE ERROR_BROKEN_PIPE
+#endif
+#ifndef ECONNRESET
+#define ECONNRESET WSAECONNRESET
+#endif
+#else
+#include <fcntl.h>
 #include <sys/select.h>
+#include <unistd.h>
+// Unix: use standard functions directly
+#define pipe_close(fd) ::close(fd)
+#define pipe_read(fd, buf, len) ::read(fd, buf, len)
+#define pipe_write(fd, buf, len) ::write(fd, buf, len)
+#endif
 
 #include "mcp/network/address.h"
 #include "mcp/network/address_impl.h"
@@ -34,14 +64,14 @@ StdioPipeTransport::~StdioPipeTransport() {
   // Close write end of stdin pipe to signal EOF to the reader thread
   // This will wake up the bridgeStdinToPipe thread if it's blocked on write()
   if (stdin_to_conn_pipe_[1] != -1) {
-    ::close(stdin_to_conn_pipe_[1]);
+    pipe_close(stdin_to_conn_pipe_[1]);
     stdin_to_conn_pipe_[1] = -1;
   }
 
   // Close read end of stdout pipe to signal EOF to the writer thread
   // This will wake up the bridgePipeToStdout thread if it's blocked on read()
   if (conn_to_stdout_pipe_[0] != -1) {
-    ::close(conn_to_stdout_pipe_[0]);
+    pipe_close(conn_to_stdout_pipe_[0]);
     conn_to_stdout_pipe_[0] = -1;
   }
 
@@ -57,18 +87,18 @@ StdioPipeTransport::~StdioPipeTransport() {
   // Close remaining pipe ends that weren't transferred to ConnectionSocketImpl
   // Only close if fd != -1 (i.e., not transferred via takePipeSocket)
   if (stdin_to_conn_pipe_[0] != -1) {
-    ::close(stdin_to_conn_pipe_[0]);
+    pipe_close(stdin_to_conn_pipe_[0]);
     stdin_to_conn_pipe_[0] = -1;
   }
   if (conn_to_stdout_pipe_[1] != -1) {
-    ::close(conn_to_stdout_pipe_[1]);
+    pipe_close(conn_to_stdout_pipe_[1]);
     conn_to_stdout_pipe_[1] = -1;
   }
 }
 
 VoidResult StdioPipeTransport::initialize() {
   // Create pipes
-  if (::pipe(stdin_to_conn_pipe_) == -1) {
+  if (pipe(stdin_to_conn_pipe_) == -1) {
     failure_reason_ = "Failed to create stdin pipe: ";
     failure_reason_ += strerror(errno);
     Error err;
@@ -77,9 +107,9 @@ VoidResult StdioPipeTransport::initialize() {
     return makeVoidError(err);
   }
 
-  if (::pipe(conn_to_stdout_pipe_) == -1) {
-    ::close(stdin_to_conn_pipe_[0]);
-    ::close(stdin_to_conn_pipe_[1]);
+  if (pipe(conn_to_stdout_pipe_) == -1) {
+    pipe_close(stdin_to_conn_pipe_[0]);
+    pipe_close(stdin_to_conn_pipe_[1]);
     failure_reason_ = "Failed to create stdout pipe: ";
     failure_reason_ += strerror(errno);
     Error err;
@@ -102,10 +132,10 @@ VoidResult StdioPipeTransport::initialize() {
 
   // Verify the handle was created successfully
   if (!io_handle || !io_handle->isOpen()) {
-    ::close(stdin_to_conn_pipe_[0]);
-    ::close(stdin_to_conn_pipe_[1]);
-    ::close(conn_to_stdout_pipe_[0]);
-    ::close(conn_to_stdout_pipe_[1]);
+    pipe_close(stdin_to_conn_pipe_[0]);
+    pipe_close(stdin_to_conn_pipe_[1]);
+    pipe_close(conn_to_stdout_pipe_[0]);
+    pipe_close(conn_to_stdout_pipe_[1]);
     failure_reason_ = "Failed to create IO handle for pipes";
     Error err;
     err.code = -1;
@@ -114,10 +144,19 @@ VoidResult StdioPipeTransport::initialize() {
   }
 
   // Create pipe addresses
+#ifdef _WIN32
+  // On Windows, use IPv4 loopback addresses as placeholders since PipeInstance
+  // (Unix domain sockets) is not available
+  auto local_address =
+      std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
+  auto remote_address =
+      std::make_shared<network::Address::Ipv4Instance>("127.0.0.1", 0);
+#else
   auto local_address =
       std::make_shared<network::Address::PipeInstance>("/tmp/mcp_stdio_in");
   auto remote_address =
       std::make_shared<network::Address::PipeInstance>("/tmp/mcp_stdio_out");
+#endif
 
   // Create the connection socket that ConnectionImpl will use
   // IMPORTANT: The io_handle takes ownership of stdin_to_conn_pipe_[0] and
@@ -202,7 +241,7 @@ void StdioPipeTransport::closeSocket(network::ConnectionEvent event) {
 
   // Close write end of stdin pipe to signal EOF to ConnectionImpl
   if (stdin_to_conn_pipe_[1] != -1) {
-    ::close(stdin_to_conn_pipe_[1]);
+    pipe_close(stdin_to_conn_pipe_[1]);
     stdin_to_conn_pipe_[1] = -1;
   }
 
@@ -359,9 +398,71 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
 
   std::vector<char> buffer(config_.buffer_size);
 
+#ifdef _WIN32
+  // Windows version: Use WaitForSingleObject with stdin handle
+  // Windows select() only works with sockets, not file descriptors
+  HANDLE stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining
-    // responsive
+    // Wait for input with 100ms timeout
+    DWORD wait_result = WaitForSingleObject(stdin_handle, 100);
+
+    if (wait_result == WAIT_TIMEOUT) {
+      // Timeout - no data available, loop back to check *running
+      continue;
+    }
+
+    if (wait_result != WAIT_OBJECT_0) {
+      // Error waiting
+      failure_reason_ = "Error waiting for stdin";
+      break;
+    }
+
+    // Data might be available, try to read
+    // Use CRT _read for consistency with _pipe
+    int bytes_read = pipe_read(stdin_fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
+
+    if (bytes_read > 0) {
+      // Write all data to the pipe
+      size_t total_written = 0;
+      while (total_written < static_cast<size_t>(bytes_read) && *running) {
+        int bytes_written =
+            pipe_write(write_pipe_fd, buffer.data() + total_written,
+                       static_cast<unsigned int>(bytes_read - total_written));
+
+        if (bytes_written > 0) {
+          total_written += bytes_written;
+        } else if (bytes_written == -1) {
+          int err = errno;
+          if (err != EAGAIN && err != EWOULDBLOCK) {
+            // Error writing to pipe
+            failure_reason_ = "Error writing to stdin pipe: ";
+            failure_reason_ += strerror(err);
+            *running = false;
+            break;
+          }
+          // Otherwise, retry
+          Sleep(1);  // Sleep 1ms
+        }
+      }
+    } else if (bytes_read == 0) {
+      // EOF on stdin
+      break;
+    } else {
+      // Error reading from stdin
+      int err = errno;
+      if (err != EAGAIN && err != EWOULDBLOCK) {
+        failure_reason_ = "Error reading from stdin: ";
+        failure_reason_ += strerror(err);
+        break;
+      }
+      // Otherwise, retry
+    }
+  }
+#else
+  // Unix version: Use select() with timeout
+  while (*running) {
+    // Use select() with 100ms timeout to wait for data while remaining responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(stdin_fd, &readfds);
@@ -370,7 +471,7 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
     tv.tv_sec = 0;
     tv.tv_usec = 100000;  // 100ms timeout
 
-    int select_result = ::select(stdin_fd + 1, &readfds, nullptr, nullptr, &tv);
+    int select_result = select(stdin_fd + 1, &readfds, nullptr, nullptr, &tv);
 
     if (select_result < 0) {
       // select() error
@@ -390,15 +491,15 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
     }
 
     // Data is available, read it
-    ssize_t bytes_read = ::read(stdin_fd, buffer.data(), buffer.size());
+    ssize_t bytes_read = pipe_read(stdin_fd, buffer.data(), buffer.size());
 
     if (bytes_read > 0) {
       // Write all data to the pipe
       size_t total_written = 0;
       while (total_written < static_cast<size_t>(bytes_read) && *running) {
         ssize_t bytes_written =
-            ::write(write_pipe_fd, buffer.data() + total_written,
-                    bytes_read - total_written);
+            pipe_write(write_pipe_fd, buffer.data() + total_written,
+                       bytes_read - total_written);
 
         if (bytes_written > 0) {
           total_written += bytes_written;
@@ -429,10 +530,11 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
       // Otherwise, retry via select() timeout
     }
   }
+#endif
 
   // Close write end of pipe to signal EOF
   if (write_pipe_fd != -1) {
-    ::close(write_pipe_fd);
+    pipe_close(write_pipe_fd);
     // Note: Don't update member variable since it may be accessed elsewhere
   }
 }
@@ -449,9 +551,63 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
 
   std::vector<char> buffer(config_.buffer_size);
 
+#ifdef _WIN32
+  // Windows version: Use polling with timeout since select() doesn't work
+  // with pipe file descriptors on Windows
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining
-    // responsive
+    // Try to read from pipe (may block briefly)
+    // On Windows, _read on pipes will block if no data is available
+    // We use smaller reads with Sleep to remain responsive
+    int bytes_read = pipe_read(read_pipe_fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
+
+    if (bytes_read > 0) {
+      // Write all data to stdout
+      size_t total_written = 0;
+      while (total_written < static_cast<size_t>(bytes_read) && *running) {
+        int bytes_written =
+            pipe_write(stdout_fd, buffer.data() + total_written,
+                       static_cast<unsigned int>(bytes_read - total_written));
+
+        if (bytes_written > 0) {
+          total_written += bytes_written;
+
+          // Flush stdout after each write to ensure data is sent immediately
+          // This is critical for tests to receive the data
+          if (stdout_fd == 1) {
+            fflush(stdout);
+          }
+        } else if (bytes_written == -1) {
+          int err = errno;
+          if (err != EAGAIN && err != EWOULDBLOCK) {
+            // Error writing to stdout
+            failure_reason_ = "Error writing to stdout: ";
+            failure_reason_ += strerror(err);
+            *running = false;
+            break;
+          }
+          // Otherwise, retry
+          Sleep(1);  // Sleep 1ms
+        }
+      }
+    } else if (bytes_read == 0) {
+      // EOF on pipe (ConnectionImpl closed)
+      break;
+    } else {
+      // Error reading from pipe
+      int err = errno;
+      if (err != EAGAIN && err != EWOULDBLOCK) {
+        failure_reason_ = "Error reading from stdout pipe: ";
+        failure_reason_ += strerror(err);
+        break;
+      }
+      // No data available, sleep briefly
+      Sleep(10);  // Sleep 10ms
+    }
+  }
+#else
+  // Unix version: Use select() with timeout
+  while (*running) {
+    // Use select() with 100ms timeout to wait for data while remaining responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(read_pipe_fd, &readfds);
@@ -460,8 +616,7 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
     tv.tv_sec = 0;
     tv.tv_usec = 100000;  // 100ms timeout
 
-    int select_result =
-        ::select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
+    int select_result = select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
 
     if (select_result < 0) {
       // select() error
@@ -481,15 +636,15 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
     }
 
     // Data is available, read it
-    ssize_t bytes_read = ::read(read_pipe_fd, buffer.data(), buffer.size());
+    ssize_t bytes_read = pipe_read(read_pipe_fd, buffer.data(), buffer.size());
 
     if (bytes_read > 0) {
       // Write all data to stdout
       size_t total_written = 0;
       while (total_written < static_cast<size_t>(bytes_read) && *running) {
         ssize_t bytes_written =
-            ::write(stdout_fd, buffer.data() + total_written,
-                    bytes_read - total_written);
+            pipe_write(stdout_fd, buffer.data() + total_written,
+                       bytes_read - total_written);
 
         if (bytes_written > 0) {
           total_written += bytes_written;
@@ -526,15 +681,23 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
       // Otherwise, retry via select() timeout
     }
   }
+#endif
 
   // Close read end of pipe
   if (read_pipe_fd != -1) {
-    ::close(read_pipe_fd);
+    pipe_close(read_pipe_fd);
     // Note: Don't update member variable since it may be accessed elsewhere
   }
 }
 
 void StdioPipeTransport::setNonBlocking(int fd) {
+#ifdef _WIN32
+  // On Windows, _pipe() creates CRT file descriptors that don't support
+  // non-blocking mode via ioctlsocket. For pipe I/O, we rely on the
+  // bridge threads to handle blocking reads/writes.
+  // This is a no-op on Windows for pipes.
+  (void)fd;
+#else
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1) {
     failure_reason_ = "Failed to get file descriptor flags";
@@ -544,6 +707,7 @@ void StdioPipeTransport::setNonBlocking(int fd) {
   if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
     failure_reason_ = "Failed to set non-blocking mode";
   }
+#endif
 }
 
 // StdioPipeTransportFactory implementation
