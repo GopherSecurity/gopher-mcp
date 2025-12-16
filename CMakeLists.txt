@@ -297,9 +297,19 @@ else()
     message(STATUS "nghttp2 support disabled")
 endif()
 
-# fmt library for formatting - use system-installed version
-find_package(fmt REQUIRED)
-message(STATUS "Found fmt: ${fmt_VERSION}")
+# fmt library for formatting - download and build
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG 10.2.1
+)
+message(STATUS "Downloading fmt... This may take a moment depending on your connection speed.")
+FetchContent_MakeAvailable(fmt)
+# Enable position-independent code for shared library linking
+if(TARGET fmt)
+    set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+message(STATUS "fmt download complete.")
 
 # nlohmann/json
 FetchContent_Declare(
