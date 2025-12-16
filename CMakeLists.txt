@@ -185,11 +185,11 @@ message(STATUS "")
 option(MCP_USE_LLHTTP "Use llhttp for HTTP/1.x parsing" ON)
 
 if(MCP_USE_LLHTTP)
-    # Use a simpler approach - download just the release archive
+    # Use Git repository approach for better compatibility with older CMake
     FetchContent_Declare(
         llhttp
-        URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.1.3.tar.gz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        GIT_REPOSITORY https://github.com/nodejs/llhttp.git
+        GIT_TAG release/v9.1.3
     )
     
     message(STATUS "Downloading llhttp... This may take a moment depending on your connection speed.")
