@@ -788,13 +788,15 @@ endif()
 
 # Add custom targets only if not a submodule
 if(NOT GOPHER_MCP_IS_SUBMODULE)
-    # Add custom target for formatting
-    add_custom_target(format
-    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests
-            -name "*.h" -o -name "*.cc" | xargs clang-format -i
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Formatting all source files with clang-format"
-)
+    # Add custom target for formatting (only if it doesn't already exist)
+    if(NOT TARGET format)
+        add_custom_target(format
+        COMMAND find ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests
+                -name "*.h" -o -name "*.cc" | xargs clang-format -i
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Formatting all source files with clang-format"
+    )
+    endif()
 
 # Add custom target to check formatting without modifying files
 add_custom_target(check-format
