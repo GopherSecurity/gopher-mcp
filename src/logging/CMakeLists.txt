@@ -1,7 +1,7 @@
 # Logging library CMake configuration
 cmake_minimum_required(VERSION 3.14)
 
-find_package(fmt REQUIRED CONFIG)
+# fmt is provided via FetchContent in parent CMakeLists.txt, so we don't need find_package
 
 # Collect logging sources
 set(MCP_LOGGING_SOURCES
@@ -25,7 +25,7 @@ target_include_directories(gopher-mcp-logging-static PUBLIC
 
 # Link with fmt - it should handle its own include directories
 target_link_libraries(gopher-mcp-logging-static PUBLIC
-  fmt::fmt
+  fmt
   Threads::Threads
 )
 
@@ -45,7 +45,7 @@ if(BUILD_SHARED_LIBS)
   )
   
   target_link_libraries(gopher-mcp-logging PUBLIC
-    fmt::fmt
+    fmt
     Threads::Threads
   )
   
