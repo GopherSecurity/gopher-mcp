@@ -125,7 +125,6 @@ endif()
 #Find packages
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(yaml-cpp REQUIRED)
 
 #Find libevent
 find_package(PkgConfig)
@@ -320,6 +319,26 @@ FetchContent_Declare(
 message(STATUS "Downloading nlohmann/json... This may take a moment depending on your connection speed.")
 FetchContent_MakeAvailable(nlohmann_json)
 message(STATUS "nlohmann/json download complete.")
+
+# yaml-cpp library for YAML parsing
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+)
+# Disable yaml-cpp tests and tools
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests")
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools")
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "Disable yaml-cpp contrib")
+set(YAML_CPP_FORMAT_SOURCE OFF CACHE BOOL "Disable yaml-cpp format target")
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "Build yaml-cpp static library")
+message(STATUS "Downloading yaml-cpp... This may take a moment depending on your connection speed.")
+FetchContent_MakeAvailable(yaml-cpp)
+# Enable position-independent code for shared library linking
+if(TARGET yaml-cpp)
+    set_target_properties(yaml-cpp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+message(STATUS "yaml-cpp download complete.")
 
 # json-schema-validator (header-only) for schema validation
 if(NOT TARGET nlohmann_json_schema_validator)
