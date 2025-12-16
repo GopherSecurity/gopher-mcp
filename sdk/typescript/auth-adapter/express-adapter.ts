@@ -42,8 +42,85 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
         return;
       }
 
-      // Attach auth payload to request
+      // Attach auth payload and token to request
       (req as any).auth = result.payload;
+      (req as any).authToken = token;
+      
+      // Try token exchange if EXCHANGE_IDPS is configured
+      const exchangeIdps = process.env.EXCHANGE_IDPS;
+      if (exchangeIdps && token) {
+        const idpList = exchangeIdps.split(',').map(idp => idp.trim()).filter(idp => idp);
+        
+        // Store all external tokens in a map
+        const externalTokens: Record<string, any> = {};
+        
+        // Exchange tokens for all configured IDPs in parallel
+        const exchangePromises = idpList.map(async (idpAlias) => {
+          console.log(`Attempting token exchange for IDP: ${idpAlias}`);
+          
+          try {
+            const exchangeResult = await oauth.exchangeTokenForExternalIDP({
+              subjectToken: token,
+              requestedIssuer: idpAlias,
+            });
+            
+            externalTokens[idpAlias] = {
+              access_token: exchangeResult.access_token,
+              token_type: exchangeResult.token_type || 'Bearer',
+              expires_in: exchangeResult.expires_in
+            };
+            
+            console.log(`✅ Token exchange successful!`);
+            console.log(`   IDP: ${idpAlias}`);
+            console.log(`   Token Type: ${exchangeResult.token_type || 'Bearer'}`);
+            if (exchangeResult.expires_in) {
+              console.log(`   Expires In: ${exchangeResult.expires_in}s`);
+            }
+            console.log(`   Access Token:`);
+            console.log(`   ${exchangeResult.access_token}`);
+            
+            return { idpAlias, success: true };
+          } catch (error: any) {
+            // Token exchange failed (e.g., user not linked to IDP) - continue anyway
+            console.log(`❌ Token exchange failed for IDP: ${idpAlias}`);
+            console.log(`   Error: ${error.errorDescription || error.message}`);
+            if (error.message?.includes('not_linked')) {
+              console.log(`   Note: User account is not linked to ${idpAlias}`);
+              console.log(`   Solution: Authenticate through ${idpAlias} when logging in`);
+            }
+            return { idpAlias, success: false, error: error.message };
+          }
+        });
+        
+        // Wait for all exchanges to complete
+        const results = await Promise.all(exchangePromises);
+        
+        // Store all successful external tokens in request
+        if (Object.keys(externalTokens).length > 0) {
+          (req as any).externalTokens = externalTokens;
+          
+          // For backward compatibility, also store the first successful token
+          const firstSuccessful = Object.keys(externalTokens)[0];
+          if (firstSuccessful) {
+            (req as any).externalToken = externalTokens[firstSuccessful].access_token;
+            (req as any).externalTokenType = externalTokens[firstSuccessful].token_type;
+            (req as any).externalIDP = firstSuccessful;
+          }
+          
+          // Log summary
+          const successful = results.filter(r => r.success).map(r => r.idpAlias);
+          const failed = results.filter(r => !r.success).map(r => r.idpAlias);
+          
+          if (successful.length > 0) {
+            console.log(`✅ Token exchange completed: ${successful.length} succeeded`);
+            console.log(`   Successful IDPs: ${successful.join(', ')}`);
+          }
+          if (failed.length > 0) {
+            console.log(`   Failed IDPs: ${failed.join(', ')}`);
+          }
+        }
+      }
+      
       next();
     } catch (error: any) {
       const result = await oauth.validateToken(undefined);
@@ -338,6 +415,142 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     }
   });
 
+  // List available IDPs for token exchange
+  router.get('/idps', async (_req, res) => {
+    // Add CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+    
+    // Get IDP configuration from EXCHANGE_IDPS
+    const exchangeIdps = process.env.EXCHANGE_IDPS || '';
+    const idpList = exchangeIdps ? exchangeIdps.split(',').map(idp => idp.trim()).filter(idp => idp) : [];
+    
+    // Map of known IDP details for documentation
+    const knownIDPs: Record<string, { name: string; example_endpoint: string }> = {
+      "google": { name: "Google OAuth 2.0", example_endpoint: "https://www.googleapis.com/oauth2/v1/userinfo" },
+      "github": { name: "GitHub OAuth", example_endpoint: "https://api.github.com/user" },
+      "microsoft": { name: "Microsoft/Azure AD", example_endpoint: "https://graph.microsoft.com/v1.0/me" },
+      "facebook": { name: "Facebook Login", example_endpoint: "https://graph.facebook.com/me" },
+      "gitlab": { name: "GitLab OAuth", example_endpoint: "https://gitlab.com/api/v4/user" },
+      "apple": { name: "Apple Sign In", example_endpoint: "https://appleid.apple.com/auth/userinfo" },
+      "linkedin": { name: "LinkedIn OAuth", example_endpoint: "https://api.linkedin.com/v2/me" },
+      "twitter": { name: "Twitter/X OAuth", example_endpoint: "https://api.twitter.com/2/users/me" }
+    };
+    
+    // Build IDP information for all configured IDPs
+    const configuredIDPs = idpList.map(idpAlias => ({
+      alias: idpAlias,
+      name: knownIDPs[idpAlias]?.name || `Custom IDP (${idpAlias})`,
+      example_endpoint: knownIDPs[idpAlias]?.example_endpoint || "https://your-idp.com/userinfo",
+      configured: true
+    }));
+    
+    const idps = {
+      description: "Multi-IDP configuration for token exchange",
+      configured_idps: configuredIDPs,
+      exchange_idps: idpList,
+      total_configured: idpList.length,
+      configuration: {
+        source: "Environment variable: EXCHANGE_IDPS (comma-separated)",
+        keycloak: "Each alias must match what's configured in Keycloak Identity Providers",
+        requirements: [
+          "IDP must be configured in Keycloak with matching alias",
+          "'Store Tokens' must be enabled in Keycloak IDP settings",
+          "'Stored Tokens Readable' must be enabled in Keycloak IDP settings",
+          "Token exchange feature must be enabled in Keycloak (--features=token-exchange)"
+        ]
+      },
+      usage: {
+        endpoint: "/oauth/token-exchange",
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer {keycloak_access_token}",
+          "Content-Type": "application/json"
+        },
+        body: {
+          "requested_issuer": "{idp_alias} - one of: " + (idpList.length > 0 ? idpList.join(', ') : "(no IDPs configured)"),
+          "requested_token_type": "access_token (optional)",
+          "audience": "{optional}",
+          "scope": "{optional}"
+        }
+      }
+    };
+    
+    res.json(idps);
+  });
+
+  // Token Exchange endpoint (RFC 8693)
+  router.post('/token-exchange', async (req, res) => {
+    // Add CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+    
+    try {
+      // Extract the bearer token from Authorization header
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({
+          error: 'unauthorized',
+          error_description: 'Bearer token required for token exchange'
+        });
+      }
+      
+      const subjectToken = authHeader.substring(7);
+      
+      // Extract exchange parameters from request body
+      const { requested_issuer, requested_token_type, audience, scope } = req.body;
+      
+      // Check if requested_issuer is provided
+      const exchangeIdps = process.env.EXCHANGE_IDPS || '';
+      const configuredIdps = exchangeIdps ? exchangeIdps.split(',').map(idp => idp.trim()).filter(idp => idp) : [];
+      
+      if (!requested_issuer) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'requested_issuer parameter is required',
+          configured_idps: configuredIdps,
+          hint: configuredIdps.length > 0 ? `Choose one of: ${configuredIdps.join(', ')}` : 'No IDPs configured in EXCHANGE_IDPS'
+        });
+      }
+      
+      const issuerToUse = requested_issuer;
+      
+      // Perform token exchange
+      const result = await oauth.exchangeTokenForExternalIDP({
+        subjectToken,
+        requestedIssuer: issuerToUse,
+        requestedTokenType: requested_token_type,
+        audience,
+        scope
+      });
+      
+      console.log(`✅ Token exchange successful for IDP: ${issuerToUse}`);
+      console.log(`   Token Type: ${result.token_type || 'Bearer'}`);
+      if (result.expires_in) {
+        console.log(`   Expires In: ${result.expires_in}s`);
+      }
+      return res.json(result);
+    } catch (error: any) {
+      console.error(`❌ Token exchange failed:`, error);
+      
+      // Handle TokenExchangeError specifically
+      if (error.name === 'TokenExchangeError') {
+        return res.status(400).json({
+          error: error.errorCode,
+          error_description: error.errorDescription || error.message
+        });
+      }
+      
+      // Generic error response
+      return res.status(500).json({
+        error: 'server_error',
+        error_description: error.message
+      });
+    }
+  });
+
   // OAuth callback endpoint (optional - for session-based auth)
   router.get('/callback', async (req, res) => {
     const { code, state, error } = req.query;
@@ -599,6 +812,8 @@ export function setupMCPOAuth(
     '/oauth/.well-known/oauth-authorization-server',
     '/oauth/authorize',
     '/oauth/token',
+    '/oauth/token-exchange',
+    '/oauth/idps',
     '/oauth/register',
     '/oauth/callback',
     '/realms/:realm/clients-registrations/openid-connect'

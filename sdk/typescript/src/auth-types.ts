@@ -292,6 +292,59 @@ export function errorCodeToString(code: AuthErrorCode): string {
   }
 }
 
+/**
+ * Token Exchange options (RFC 8693)
+ */
+export interface TokenExchangeOptions {
+  /** The Keycloak access token to exchange */
+  subjectToken: string;
+  /** The alias of the external IDP in Keycloak (e.g., "google", "github", "my-custom-idp") */
+  requestedIssuer: string;
+  /** Optional: requested token type (defaults to access_token) */
+  requestedTokenType?: 'access_token' | 'refresh_token' | 'id_token';
+  /** Optional: audience for the exchanged token */
+  audience?: string;
+  /** Optional: scopes to request for the exchanged token */
+  scope?: string;
+}
+
+/**
+ * Result of a token exchange operation
+ */
+export interface TokenExchangeResult {
+  /** The exchanged access token from the external IDP */
+  access_token: string;
+  /** Token type (usually "Bearer") */
+  token_type: string;
+  /** Token expiration in seconds */
+  expires_in?: number;
+  /** The type of token issued */
+  issued_token_type: string;
+  /** Refresh token (if available) */
+  refresh_token?: string;
+  /** Scopes granted */
+  scope?: string;
+}
+
+/**
+ * Token Exchange error
+ */
+export class TokenExchangeError extends Error {
+  public readonly errorCode: string;
+  public readonly errorDescription?: string;
+
+  constructor(errorCode: string, errorDescription?: string) {
+    super(
+      errorDescription
+        ? `Token exchange failed: ${errorCode} - ${errorDescription}`
+        : `Token exchange failed: ${errorCode}`
+    );
+    this.name = 'TokenExchangeError';
+    this.errorCode = errorCode;
+    this.errorDescription = errorDescription;
+  }
+}
+
 // Re-export for convenience
 export type {
   AuthErrorCode as ErrorCode,

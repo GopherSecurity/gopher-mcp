@@ -6,7 +6,14 @@
  */
 
 import { McpAuthClient } from './mcp-auth-api';
-import type { AuthClientConfig, ValidationOptions, TokenPayload } from './auth-types';
+import type { 
+  AuthClientConfig, 
+  ValidationOptions, 
+  TokenPayload,
+  TokenExchangeOptions,
+  TokenExchangeResult 
+} from './auth-types';
+import { TokenExchangeError } from './auth-types';
 import { 
   extractSessionId, 
   getTokenFromSession, 
@@ -80,6 +87,7 @@ export class OAuthHelper {
     this.tokenIssuer = config.issuer || env['TOKEN_ISSUER'] || authServerUrl;
     this.tokenAudience = config.tokenAudience || env['TOKEN_AUDIENCE'];
     this.allowedScopes = config.allowedScopes || ['openid', 'profile', 'email'];
+    
     
     this.config = {
       jwksUri: config.jwksUri || env['JWKS_URI'] || `${authServerUrl}/protocol/openid-connect/certs`,
@@ -291,7 +299,8 @@ export class OAuthHelper {
       console.error(`Token exchange failed:`, data);
       throw new Error(data.error_description || data.error || 'Token exchange failed');
     }
-    
+
+    console.log(`Token exchange authServerUrl: ${authServerUrl}`);
     console.log(`Token exchange successful, token type: ${data.token_type}, expires_in: ${data.expires_in}`);
     return data;
   }
@@ -563,6 +572,149 @@ export class OAuthHelper {
    */
   getServerUrl(): string {
     return this.serverUrl;
+  }
+  
+  
+  /**
+   * Exchange a Keycloak access token for an external IDP token (RFC 8693)
+   *
+   * This is useful when users authenticate via a federated IDP through Keycloak,
+   * and you need the original IDP's access token to call that IDP's APIs.
+   *
+   * Prerequisites:
+   * - Token Exchange feature must be enabled in Keycloak (features=preview or features=token-exchange)
+   * - The IDP must have "Store Tokens" and "Stored Tokens Readable" enabled
+   * - Client and IDP must have token-exchange permissions configured
+   *
+   * @param options - Token exchange options
+   * @returns The exchanged token from the external IDP
+   * @throws TokenExchangeError if the exchange fails
+   *
+   * @example
+   * ```typescript
+   * const result = await oauth.exchangeTokenForExternalIDP({
+   *   subjectToken: keycloakAccessToken,
+   *   requestedIssuer: 'google', // IDP alias in Keycloak
+   * });
+   *
+   * // Use result.access_token to call Google APIs
+   * ```
+   */
+  async exchangeTokenForExternalIDP(options: TokenExchangeOptions): Promise<TokenExchangeResult> {
+    // Get requested IDP
+    const requestedIssuer = options.requestedIssuer;
+    
+    if (!requestedIssuer) {
+      throw new TokenExchangeError('invalid_request', 'IDP alias (requested_issuer) is required');
+    }
+    
+    const authServerUrl = this.tokenIssuer || process.env['GOPHER_AUTH_SERVER_URL'];
+    if (!authServerUrl) {
+      throw new TokenExchangeError('config_error', 'Auth server URL not configured');
+    }
+
+    const clientId = process.env.GOPHER_CLIENT_ID;
+    const clientSecret = process.env.GOPHER_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      throw new TokenExchangeError('config_error', 'Client ID and secret are required for token exchange');
+    }
+
+    const tokenEndpoint = `${authServerUrl}/protocol/openid-connect/token`;
+
+    // Build the token exchange request body
+    const params = new URLSearchParams();
+    params.append('grant_type', 'urn:ietf:params:oauth:grant-type:token-exchange');
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+    params.append('subject_token', options.subjectToken);
+    params.append('subject_token_type', 'urn:ietf:params:oauth:token-type:access_token');
+    params.append('requested_issuer', requestedIssuer!);
+
+    // Optional: requested token type
+    if (options.requestedTokenType) {
+      const tokenTypeMap: Record<string, string> = {
+        'access_token': 'urn:ietf:params:oauth:token-type:access_token',
+        'refresh_token': 'urn:ietf:params:oauth:token-type:refresh_token',
+        'id_token': 'urn:ietf:params:oauth:token-type:id_token',
+      };
+      const tokenType = tokenTypeMap[options.requestedTokenType];
+      if (tokenType) {
+        params.append('requested_token_type', tokenType);
+      }
+    }
+
+    // Optional: audience
+    if (options.audience) {
+      params.append('audience', options.audience);
+    }
+
+    // Optional: scope
+    if (options.scope) {
+      params.append('scope', options.scope);
+    }
+
+    try {
+      console.log(`🔄 Exchanging token for external IDP: ${requestedIssuer}`);
+      
+      const response = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+
+      const data = await response.json() as {
+        access_token?: string;
+        token_type?: string;
+        expires_in?: number;
+        issued_token_type?: string;
+        refresh_token?: string;
+        scope?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      if (!response.ok) {
+        throw new TokenExchangeError(
+          data.error || 'unknown_error',
+          data.error_description
+        );
+      }
+
+      if (!data.access_token) {
+        throw new TokenExchangeError('invalid_response', 'No access token in response');
+      }
+
+      console.log(`✅ Token exchange successful, got ${data.token_type} token for ${requestedIssuer}`);
+
+      return {
+        access_token: data.access_token,
+        token_type: data.token_type || 'Bearer',
+        expires_in: data.expires_in,
+        issued_token_type: data.issued_token_type || 'urn:ietf:params:oauth:token-type:access_token',
+        refresh_token: data.refresh_token,
+        scope: data.scope,
+      };
+    } catch (error) {
+      if (error instanceof TokenExchangeError) {
+        throw error;
+      }
+      throw new TokenExchangeError(
+        'exchange_failed',
+        error instanceof Error ? error.message : 'Unknown error during token exchange'
+      );
+    }
+  }
+
+  /**
+   * Get the token endpoint URL for this auth server
+   * Useful for debugging or direct API calls
+   */
+  getTokenEndpoint(): string {
+    const authServerUrl = this.tokenIssuer || process.env['GOPHER_AUTH_SERVER_URL'] || '';
+    return `${authServerUrl}/protocol/openid-connect/token`;
   }
   
   /**
