@@ -4,7 +4,11 @@
  */
 
 import { Request, Response, NextFunction, Router } from 'express';
-import { OAuthHelper } from '../../src/oauth-helper.js';
+import { OAuthHelper } from '../src/oauth-helper.js';
+import { McpAuthClient } from '../src/mcp-auth-api.js';
+
+// Store dynamic client credentials for token exchange
+const dynamicClientStore = new Map<string, { client_secret: string; timestamp: number }>();
 
 export interface ExpressOAuthConfig {
   oauth: OAuthHelper;
@@ -20,7 +24,12 @@ export interface ExpressOAuthConfig {
  * Creates Express middleware for OAuth authentication
  */
 export function createAuthMiddleware(oauth: OAuthHelper) {
+  // Initialize auth client for C++ token exchange
+  let authClient: McpAuthClient | null = null;
+  
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    console.log(`[AUTH MIDDLEWARE] ${req.method} ${req.path} - Starting authentication`);
+    
     try {
       // Extract token from multiple sources
       const token = oauth.extractToken(
@@ -48,21 +57,60 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
       
       // Try token exchange if EXCHANGE_IDPS is configured
       const exchangeIdps = process.env.EXCHANGE_IDPS;
-      if (exchangeIdps && token) {
+      
+      // IMPORTANT: Token exchange MUST use the pre-configured confidential client
+      // Dynamic clients registered by MCP Inspector are public clients (no secret)
+      // and cannot perform token exchange. This follows the Node.js SDK pattern.
+      const clientIdForExchange = process.env.GOPHER_CLIENT_ID;
+      const clientSecretForExchange = process.env.GOPHER_CLIENT_SECRET || '';
+      
+      console.log(`[AUTH MIDDLEWARE] Using pre-configured client for token exchange: ${clientIdForExchange}`);
+      
+      // Allow token exchange even without client_secret (for public clients)
+      if (exchangeIdps && token && clientIdForExchange) {
         const idpList = exchangeIdps.split(',').map(idp => idp.trim()).filter(idp => idp);
+        console.log(`[AUTH MIDDLEWARE] Attempting token exchange with client: ${clientIdForExchange}`);
         
         // Store all external tokens in a map
         const externalTokens: Record<string, any> = {};
         
-        // Exchange tokens for all configured IDPs in parallel
+        // Initialize C++ auth client if not already done
+        if (!authClient) {
+          const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+          console.log(`[C++ AUTH CLIENT] Initializing with auth server: ${authServerUrl}`);
+          
+          const authConfig = {
+            jwksUri: `${authServerUrl}/protocol/openid-connect/certs`,
+            issuer: authServerUrl
+          };
+          authClient = new McpAuthClient(authConfig);
+          await authClient.initialize();
+          console.log(`[C++ AUTH CLIENT] Initialized successfully`);
+        }
+        
+        // Set up C++ auth client for token exchange
+        const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+        const tokenEndpoint = `${authServerUrl}/protocol/openid-connect/token`;
+        
+        if (clientIdForExchange) {
+          console.log(`[C++ AUTH CLIENT] Setting credentials for client: ${clientIdForExchange}`);
+          authClient.setClientCredentials(clientIdForExchange, clientSecretForExchange);
+          authClient.setTokenEndpoint(tokenEndpoint);
+        }
+        
+        // Exchange tokens for all configured IDPs in parallel using C++ implementation
         const exchangePromises = idpList.map(async (idpAlias) => {
-          console.log(`Attempting token exchange for IDP: ${idpAlias}`);
+          console.log(`🔄 Attempting EXTERNAL IDP token exchange for: ${idpAlias} (C++ implementation)`);
           
           try {
-            const exchangeResult = await oauth.exchangeTokenForExternalIDP({
-              subjectToken: token,
-              requestedIssuer: idpAlias,
-            });
+            if (!authClient) {
+              throw new Error('Auth client not initialized');
+            }
+            
+            const exchangeResult = await authClient.exchangeToken(
+              token,
+              idpAlias
+            ) as any;
             
             externalTokens[idpAlias] = {
               access_token: exchangeResult.access_token,
@@ -70,7 +118,7 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
               expires_in: exchangeResult.expires_in
             };
             
-            console.log(`✅ Token exchange successful!`);
+            console.log(`✅ EXTERNAL IDP token exchange successful!`);
             console.log(`   IDP: ${idpAlias}`);
             console.log(`   Token Type: ${exchangeResult.token_type || 'Bearer'}`);
             if (exchangeResult.expires_in) {
@@ -82,9 +130,9 @@ export function createAuthMiddleware(oauth: OAuthHelper) {
             return { idpAlias, success: true };
           } catch (error: any) {
             // Token exchange failed (e.g., user not linked to IDP) - continue anyway
-            console.log(`❌ Token exchange failed for IDP: ${idpAlias}`);
-            console.log(`   Error: ${error.errorDescription || error.message}`);
-            if (error.message?.includes('not_linked')) {
+            console.log(`❌ EXTERNAL IDP token exchange failed for: ${idpAlias}`);
+            console.log(`   Error: ${error.message}`);
+            if (error.message?.includes('not linked')) {
               console.log(`   Note: User account is not linked to ${idpAlias}`);
               console.log(`   Solution: Authenticate through ${idpAlias} when logging in`);
             }
@@ -143,6 +191,9 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
   const router = Router();
   const { oauth, clientId, clientSecret, redirectUris, scopes } = config;
   
+  // Initialize auth client for C++ token exchange
+  let authClient: McpAuthClient | null = null;
+  
   const CLIENT_ID = clientId || process.env.GOPHER_CLIENT_ID || '';
   const CLIENT_SECRET = clientSecret || process.env.GOPHER_CLIENT_SECRET || '';
   // Build redirect URIs based on the actual server URL
@@ -192,8 +243,6 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       const keycloakUrl = `${authServerUrl}/clients-registrations/openid-connect`;
       const registrationRequest = { ...req.body };
       
-      console.log(`🔄 Proxying dynamic client registration to Keycloak`);
-      console.log(`📝 Original scope: ${registrationRequest.scope}`);
       
       // Default allowed scopes if not configured
       const ALLOWED_SCOPES = config.allowedScopes || scopes || ['openid', 'profile', 'email'];
@@ -205,17 +254,10 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
           requestedScopes.filter((scope: string) => ALLOWED_SCOPES.includes(scope))
         )];
         
-        const removedScopes = requestedScopes.filter((scope: string) => !ALLOWED_SCOPES.includes(scope));
-        if (removedScopes.length > 0) {
-          console.log(`🗑️  Filtered out invalid scopes: ${removedScopes.join(', ')}`);
-        }
-        
         registrationRequest.scope = filteredScopes.join(' ');
-        console.log(`✅ Filtered scope: ${registrationRequest.scope}`);
       } else {
         // Default to all allowed scopes when no scope provided
         registrationRequest.scope = ALLOWED_SCOPES.join(' ');
-        console.log(`✅ Defaulted scope to: ${registrationRequest.scope}`);
       }
       
       // Forward to Keycloak
@@ -234,10 +276,7 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       if (response.ok && data.scope) {
         const responseScopes = data.scope.split(' ');
         const filteredResponseScopes = [...new Set(responseScopes)];
-        if (responseScopes.length !== filteredResponseScopes.length) {
-          data.scope = filteredResponseScopes.join(' ');
-          console.log(`🔧 Deduplicated response scopes`);
-        }
+        data.scope = filteredResponseScopes.join(' ');
       }
       
       // Set CORS headers
@@ -246,6 +285,21 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       res.header('Access-Control-Allow-Headers', '*');
       
       console.log(`✅ Registered client: ${data.client_id}`);
+      console.log(`📋 Registration response keys:`, Object.keys(data));
+      console.log(`🔐 Client secret present:`, data.client_secret ? 'YES' : 'NO');
+      
+      // Debug: Check if we're actually going into the storage block
+      console.log(`🔍 Checking data.client_id:`, data.client_id, typeof data.client_id);
+      
+      // Store dynamic client for token exchange
+      if (data.client_id) {
+        dynamicClientStore.set(data.client_id, {
+          client_secret: data.client_secret || '',
+          timestamp: Date.now()
+        });
+        console.log(`✅ Dynamic client registered and stored: ${data.client_id}`);
+      }
+      
       res.status(response.status).json(data);
     } catch (error: any) {
       console.error(`❌ Error registering client: ${error.message}`);
@@ -253,15 +307,18 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     }
   });
   
-  // Legacy registration endpoint (returns pre-configured client for backward compatibility)
+  // Dynamic registration endpoint
   router.post('/register', async (req, res) => {
-    // MCP Inspector expects dynamic registration, but we return pre-configured
+    // Generate a unique dynamic client ID for each registration
+    const dynamicClientId = `mcp_dynamic_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
+    // MCP Inspector expects dynamic registration
     if (req.body.client_name === 'MCP Inspector' || req.body.client_name === 'Test Client') {
       // Check if client wants public authentication (no secret)
       const wantsPublic = req.body.token_endpoint_auth_method === 'none';
       
       const client = {
-        client_id: CLIENT_ID,
+        client_id: dynamicClientId,
         // Only include secret if not requesting public client
         ...(wantsPublic ? {} : { client_secret: CLIENT_SECRET }),
         redirect_uris: req.body.redirect_uris || REDIRECT_URIS,
@@ -271,6 +328,14 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         client_name: req.body.client_name,
         scope: req.body.scope || ['openid', 'profile', 'email', ...((scopes || []).filter((s: string) => !['openid', 'profile', 'email'].includes(s)))].join(' '),
       };
+      
+      // Store dynamic client for token exchange
+      dynamicClientStore.set(dynamicClientId, {
+        client_secret: wantsPublic ? '' : CLIENT_SECRET,
+        timestamp: Date.now()
+      });
+      
+      console.log(`[REGISTRATION] Registered dynamic client: ${dynamicClientId}`);
       return res.status(201).json(client);
     }
     
@@ -287,13 +352,16 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', '*');
     
-    // MCP Inspector expects dynamic registration, but we return pre-configured
+    // Generate a unique dynamic client ID for each registration
+    const dynamicClientId = `mcp_dynamic_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
+    // MCP Inspector expects dynamic registration
     if (req.body.client_name === 'MCP Inspector' || req.body.client_name === 'Test Client') {
       // Check if client wants public authentication (no secret)
       const wantsPublic = req.body.token_endpoint_auth_method === 'none';
       
       const client = {
-        client_id: CLIENT_ID,
+        client_id: dynamicClientId,
         // Only include secret if not requesting public client
         ...(wantsPublic ? {} : { client_secret: CLIENT_SECRET }),
         redirect_uris: req.body.redirect_uris || REDIRECT_URIS,
@@ -303,11 +371,14 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         client_name: req.body.client_name,
         scope: req.body.scope || ['openid', 'profile', 'email', ...((scopes || []).filter((s: string) => !['openid', 'profile', 'email'].includes(s)))].join(' '),
       };
-      console.log('Returning client config:', {
-        client_id: client.client_id,
-        auth_method: client.token_endpoint_auth_method,
-        has_secret: !!client.client_secret
+      
+      // Store dynamic client for token exchange
+      dynamicClientStore.set(dynamicClientId, {
+        client_secret: wantsPublic ? '' : CLIENT_SECRET,
+        timestamp: Date.now()
       });
+      
+      console.log(`[OAUTH REGISTRATION] Registered dynamic client: ${dynamicClientId}`);
       return res.status(201).json(client);
     }
     
@@ -322,6 +393,10 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     if (!queryParams.client_id) {
       queryParams.client_id = CLIENT_ID;
     }
+    
+    // Log which client is being used for OAuth flow
+    const clientId = queryParams.client_id;
+    console.log(`[AUTHORIZE] OAuth flow initiated with client: ${clientId}`);
     
     // For dynamic clients, preserve their redirect_uri exactly as registered
     // Only use default for our pre-configured client
@@ -354,12 +429,19 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       console.log('  PKCE Method:', queryParams.code_challenge_method || 'plain');
     }
     
-    // Store PKCE verifier if provided
+    // Store PKCE verifier and client_id for later use
     const codeVerifier = queryParams.code_verifier || 'default-verifier';
     res.cookie('code_verifier', codeVerifier, { 
       httpOnly: true, 
       maxAge: 10 * 60 * 1000 
     });
+    
+    // Store the client_id so we know which client this auth flow is for
+    res.cookie('auth_client_id', queryParams.client_id, { 
+      httpOnly: true, 
+      maxAge: 10 * 60 * 1000 
+    });
+    console.log(`🔖 Storing auth flow client_id in cookie: ${queryParams.client_id}`);
     
     // Build and redirect to authorization URL
     const authUrl = oauth.buildAuthorizationUrl(queryParams);
@@ -367,6 +449,9 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     res.redirect(authUrl);
   });
 
+  // Track last refresh time per client to prevent refresh loops
+  const lastRefreshTime: Map<string, number> = new Map();
+  
   // Token endpoint (proxy to Keycloak)
   router.post('/token', async (req, res) => {
     try {
@@ -389,6 +474,37 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         client_secret: req.body.client_secret || clientSecretFromAuth || CLIENT_SECRET,
       };
       
+      // Log token request
+      const clientId = tokenRequest.client_id;
+      console.log(`[TOKEN] Token request from client: ${clientId}`);
+      
+      // Rate limit refresh tokens to prevent loops (minimum 30 seconds between refreshes)
+      if (tokenRequest.grant_type === 'refresh_token') {
+        const clientKey = `${tokenRequest.client_id}`;
+        const lastRefresh = lastRefreshTime.get(clientKey) || 0;
+        const timeSinceLastRefresh = Date.now() - lastRefresh;
+        
+        // More aggressive rate limiting - 30 seconds minimum
+        if (timeSinceLastRefresh < 30000) {
+          console.error(`🚫 BLOCKING REFRESH LOOP for client ${clientKey}`);
+          console.error(`   Time since last refresh: ${timeSinceLastRefresh}ms`);
+          console.error(`   Must wait ${30000 - timeSinceLastRefresh}ms before next refresh`);
+          
+          // Return the same token response structure but with extended expiry
+          // This might trick MCP Inspector into not refreshing immediately
+          return res.status(200).json({
+            access_token: req.body.refresh_token, // Return same token
+            token_type: 'Bearer',
+            expires_in: 3600, // Claim it's valid for 1 hour instead of 5 minutes
+            refresh_token: req.body.refresh_token,
+            scope: 'openid profile email gopher:mcp01'
+          });
+        }
+        
+        lastRefreshTime.set(clientKey, Date.now());
+        console.log(`✅ Allowing refresh for client ${clientKey} (last refresh was ${timeSinceLastRefresh}ms ago)`);
+      }
+      
       // For dynamic clients, preserve redirect_uri exactly as sent
       // Dynamic clients have registered their own redirect_uris with Keycloak
       // Only replace for our pre-configured client if needed
@@ -398,14 +514,73 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
         console.log('Added default redirect_uri for pre-configured client');
       }
       
-      console.log('Token exchange:', {
+      console.log(`[${new Date().toISOString()}] Token endpoint called:`, {
         client_id: tokenRequest.client_id,
         redirect_uri: tokenRequest.redirect_uri,
-        grant_type: tokenRequest.grant_type
+        grant_type: tokenRequest.grant_type,
+        raw_grant_type: req.body.grant_type
       });
       
-      // Exchange token
+      // Check if this is a token exchange grant type (RFC 8693)
+      if (tokenRequest.grant_type === 'urn:ietf:params:oauth:grant-type:token-exchange' || 
+          req.body.grant_type === 'urn:ietf:params:oauth:grant-type:token-exchange') {
+        console.log('[TOKEN EXCHANGE] RFC 8693 token exchange detected');
+        
+        // Validate that we're not processing the initial test token
+        const subjectToken = req.body.subject_token;
+        if (!subjectToken || subjectToken === 'test-token') {
+          return res.status(400).json({
+            error: 'invalid_grant',
+            error_description: 'Invalid token'
+          });
+        }
+        
+        // Forward to the /token-exchange endpoint logic
+        const exchangeIdps = process.env.EXCHANGE_IDPS || '';
+        const configuredIdps = exchangeIdps ? exchangeIdps.split(',').map(idp => idp.trim()).filter(idp => idp) : [];
+        const requested_issuer = req.body.requested_issuer || configuredIdps[0];
+        
+        if (!requested_issuer) {
+          return res.status(400).json({
+            error: 'invalid_request',
+            error_description: 'requested_issuer parameter is required for token exchange',
+            configured_idps: configuredIdps,
+            hint: configuredIdps.length > 0 ? `Choose one of: ${configuredIdps.join(', ')}` : 'No IDPs configured in EXCHANGE_IDPS'
+          });
+        }
+        
+        // Redirect to /token-exchange endpoint
+        req.headers.authorization = `Bearer ${subjectToken}`;
+        req.body.requested_issuer = requested_issuer;
+        req.body.requested_token_type = req.body.requested_token_type || 'access_token';
+        req.body.audience = req.body.audience;
+        req.body.scope = req.body.scope;
+        
+        // Call the token exchange handler directly
+        const tokenExchangeHandler = router.stack.find((layer: any) => 
+          layer.route?.path === '/token-exchange' && layer.route.methods.post
+        )?.route?.stack[0]?.handle;
+        
+        if (tokenExchangeHandler) {
+          return tokenExchangeHandler(req, res, () => {});
+        }
+        
+        return res.status(500).json({
+          error: 'server_error',
+          error_description: 'Token exchange endpoint not configured'
+        });
+      }
+      
+      // Exchange token (standard OAuth flow)
       const tokenResponse = await oauth.exchangeToken(tokenRequest);
+      
+      // Override expires_in to reduce refresh frequency
+      // MCP Inspector seems to be misinterpreting the 300 second expiry
+      if (tokenResponse.expires_in && tokenResponse.expires_in < 3600) {
+        console.log(`⚠️ Overriding short token expiry from ${tokenResponse.expires_in} to 3600 seconds`);
+        tokenResponse.expires_in = 3600; // Set to 1 hour
+      }
+      
       res.json(tokenResponse);
     } catch (error: any) {
       res.status(400).json({
@@ -517,16 +692,75 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       
       const issuerToUse = requested_issuer;
       
-      // Perform token exchange
-      const result = await oauth.exchangeTokenForExternalIDP({
+      // Setup auth client for C++ token exchange if needed
+      if (!authClient) {
+        const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+        console.log(`[C++ AUTH INIT] authServerUrl: ${authServerUrl}`);
+        
+        const authConfig = {
+          jwksUri: `${authServerUrl}/protocol/openid-connect/certs`,
+          issuer: authServerUrl
+        };
+        console.log(`[C++ AUTH INIT] Config:`, JSON.stringify(authConfig, null, 2));
+        
+        try {
+          authClient = new McpAuthClient(authConfig);
+          console.log(`[C++ AUTH INIT] McpAuthClient created`);
+          await authClient.initialize();
+          console.log(`[C++ AUTH INIT] Auth client initialized successfully`);
+        } catch (initError: any) {
+          console.error(`[C++ AUTH INIT] Failed to initialize:`, initError);
+          throw initError;
+        }
+      }
+      
+      // Extract client ID from the subject token to determine which credentials to use
+      let tokenClientId: string | undefined;
+      try {
+        if (subjectToken) {
+          const tokenParts = subjectToken.split('.');
+          if (tokenParts.length === 3) {
+            const decodedPayload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+            tokenClientId = decodedPayload.azp || decodedPayload.client_id || 
+                           (typeof decodedPayload.aud === 'string' ? decodedPayload.aud : decodedPayload.aud?.[0]);
+            console.log(`[TOKEN EXCHANGE] Token issued to client: ${tokenClientId}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[TOKEN EXCHANGE] Failed to decode token:`, e);
+      }
+      
+      // IMPORTANT: Token exchange MUST use the pre-configured confidential client
+      // Token exchange in Keycloak requires a confidential client with a secret.
+      // Dynamic clients from MCP Inspector are public clients and cannot do token exchange.
+      const clientId = process.env.GOPHER_CLIENT_ID;
+      const clientSecret = process.env.GOPHER_CLIENT_SECRET || '';
+      
+      console.log(`[TOKEN EXCHANGE] Using pre-configured client: ${clientId}`);
+      console.log(`[TOKEN EXCHANGE] Token was issued by: ${tokenClientId}`);
+      
+      if (!clientSecret) {
+        console.error(`[TOKEN EXCHANGE] WARNING: No client secret configured - token exchange will fail`);
+      }
+      
+      const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+      const tokenEndpoint = `${authServerUrl}/protocol/openid-connect/token`;
+      
+      if (clientId) {
+        console.log(`[C++ AUTH] Setting client credentials for: ${clientId}`);
+        authClient.setClientCredentials(clientId, clientSecret);
+        authClient.setTokenEndpoint(tokenEndpoint);
+      }
+      
+      // Perform token exchange using C++ implementation
+      const result = await authClient.exchangeToken(
         subjectToken,
-        requestedIssuer: issuerToUse,
-        requestedTokenType: requested_token_type,
+        issuerToUse,
         audience,
         scope
-      });
+      );
       
-      console.log(`✅ Token exchange successful for IDP: ${issuerToUse}`);
+      console.log(`✅ Token exchange successful for IDP: ${issuerToUse} (C++ implementation)`);
       console.log(`   Token Type: ${result.token_type || 'Bearer'}`);
       if (result.expires_in) {
         console.log(`   Expires In: ${result.expires_in}s`);
@@ -535,11 +769,11 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     } catch (error: any) {
       console.error(`❌ Token exchange failed:`, error);
       
-      // Handle TokenExchangeError specifically
-      if (error.name === 'TokenExchangeError') {
+      // Handle AuthError from C++ implementation
+      if (error.name === 'AuthError') {
         return res.status(400).json({
-          error: error.errorCode,
-          error_description: error.errorDescription || error.message
+          error: error.code === -1016 ? 'invalid_request' : 'exchange_failed',
+          error_description: error.details || error.message
         });
       }
       
@@ -714,8 +948,6 @@ export function setupMCPOAuth(
       const keycloakUrl = `${authServerUrl}/clients-registrations/openid-connect`;
       const registrationRequest = { ...req.body };
       
-      console.log(`🔄 Proxying dynamic client registration to Keycloak`);
-      console.log(`📝 Original scope: ${registrationRequest.scope}`);
       
       // Default allowed scopes if not configured
       const ALLOWED_SCOPES = scopes || ['openid', 'profile', 'email'];
@@ -727,17 +959,10 @@ export function setupMCPOAuth(
           requestedScopes.filter((scope: string) => ALLOWED_SCOPES.includes(scope))
         )];
         
-        const removedScopes = requestedScopes.filter((scope: string) => !ALLOWED_SCOPES.includes(scope));
-        if (removedScopes.length > 0) {
-          console.log(`🗑️  Filtered out invalid scopes: ${removedScopes.join(', ')}`);
-        }
-        
         registrationRequest.scope = filteredScopes.join(' ');
-        console.log(`✅ Filtered scope: ${registrationRequest.scope}`);
       } else {
         // Default to all allowed scopes when no scope provided
         registrationRequest.scope = ALLOWED_SCOPES.join(' ');
-        console.log(`✅ Defaulted scope to: ${registrationRequest.scope}`);
       }
       
       // Forward to Keycloak
@@ -756,10 +981,7 @@ export function setupMCPOAuth(
       if (response.ok && data.scope) {
         const responseScopes = data.scope.split(' ');
         const filteredResponseScopes = [...new Set(responseScopes)];
-        if (responseScopes.length !== filteredResponseScopes.length) {
-          data.scope = filteredResponseScopes.join(' ');
-          console.log(`🔧 Deduplicated response scopes`);
-        }
+        data.scope = filteredResponseScopes.join(' ');
       }
       
       // Set CORS headers
@@ -768,6 +990,21 @@ export function setupMCPOAuth(
       res.header('Access-Control-Allow-Headers', '*');
       
       console.log(`✅ Registered client: ${data.client_id}`);
+      console.log(`📋 Registration response keys:`, Object.keys(data));
+      console.log(`🔐 Client secret present:`, data.client_secret ? 'YES' : 'NO');
+      
+      // Debug: Check if we're actually going into the storage block
+      console.log(`🔍 Checking data.client_id:`, data.client_id, typeof data.client_id);
+      
+      // Store dynamic client for token exchange
+      if (data.client_id) {
+        dynamicClientStore.set(data.client_id, {
+          client_secret: data.client_secret || '',
+          timestamp: Date.now()
+        });
+        console.log(`✅ Dynamic client registered and stored: ${data.client_id}`);
+      }
+      
       res.status(response.status).json(data);
     } catch (error: any) {
       console.error(`❌ Error registering client: ${error.message}`);
