@@ -997,6 +997,12 @@ struct mcp_auth_client {
     bool auto_refresh = true;        // Default: enabled
     int64_t request_timeout = 10;    // Default: 10 seconds
     
+    // OAuth client credentials for token exchange
+    std::string client_id;
+    std::string client_secret;
+    std::string token_endpoint;      // Token exchange endpoint
+    std::string exchange_idps;       // Comma-separated IDP aliases
+    
     // Cached JWT header info for last validated token
     std::string last_alg;
     std::string last_kid;
@@ -1562,6 +1568,27 @@ mcp_auth_error_t mcp_auth_client_set_option(
             }
             client->request_timeout = timeout;
             
+        } else if (opt == "client_id") {
+            fprintf(stderr, "[MCP AUTH SET OPTION] Setting client_id: %s (was: %s)\n", 
+                    val.c_str(), client->client_id.c_str());
+            client->client_id = val;
+        } else if (opt == "client_secret") {
+            fprintf(stderr, "[MCP AUTH SET OPTION] Setting client_secret: %s...%s (length: %zu, was length: %zu)\n", 
+                    val.substr(0, 8).c_str(),
+                    val.length() > 16 ? val.substr(val.length() - 8).c_str() : "",
+                    val.length(),
+                    client->client_secret.length());
+            client->client_secret = val;
+        } else if (opt == "token_endpoint") {
+            if (!val.empty() && !is_valid_url(val)) {
+                set_error_with_context(MCP_AUTH_ERROR_INVALID_CONFIG, 
+                                      "Invalid token endpoint URL",
+                                      "URL: " + val);
+                return MCP_AUTH_ERROR_INVALID_CONFIG;
+            }
+            client->token_endpoint = val;
+        } else if (opt == "exchange_idps") {
+            client->exchange_idps = val;
         } else {
             set_error_with_context(MCP_AUTH_ERROR_INVALID_PARAMETER,
                                   "Unknown configuration option",
@@ -2340,6 +2367,389 @@ bool mcp_auth_validate_scopes(
     return true;
 }
 
+// ========================================================================
+// Token Exchange Implementation (OAuth 2.0 Token Exchange - RFC 8693)
+// ========================================================================
+
+// URL encoding helper for form data
+static std::string url_encode(const std::string& str) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return str;
+    
+    char* encoded = curl_easy_escape(curl, str.c_str(), str.length());
+    std::string result(encoded ? encoded : str);
+    
+    if (encoded) curl_free(encoded);
+    curl_easy_cleanup(curl);
+    
+    return result;
+}
+
+// Helper to perform token exchange request
+static bool perform_token_exchange(mcp_auth_client_t client,
+                                  const std::string& subject_token,
+                                  const std::string& idp_alias,
+                                  const std::string& audience,
+                                  const std::string& scope,
+                                  mcp_auth_token_exchange_result_t& result) {
+    
+    // Initialize result
+    memset(&result, 0, sizeof(result));
+    
+    // Validate required parameters
+    if (client->token_endpoint.empty()) {
+        result.error_code = MCP_AUTH_ERROR_INVALID_CONFIG;
+        result.error_description = safe_strdup("Token endpoint not configured");
+        return false;
+    }
+    
+    if (client->client_id.empty() || client->client_secret.empty()) {
+        result.error_code = MCP_AUTH_ERROR_INVALID_CONFIG;
+        result.error_description = safe_strdup("Client credentials not configured");
+        return false;
+    }
+    
+    // Build request body (application/x-www-form-urlencoded)
+    std::stringstream body;
+    body << "grant_type=urn:ietf:params:oauth:grant-type:token-exchange";
+    body << "&subject_token=" << url_encode(subject_token);
+    body << "&subject_token_type=urn:ietf:params:oauth:token-type:access_token";
+    body << "&requested_issuer=" << url_encode(idp_alias);
+    
+    // Add client credentials to body for Keycloak compatibility
+    // Only add client_secret if it's available (for confidential clients)
+    body << "&client_id=" << url_encode(client->client_id);
+    if (!client->client_secret.empty()) {
+        body << "&client_secret=" << url_encode(client->client_secret);
+    }
+    
+    if (!audience.empty()) {
+        body << "&audience=" << url_encode(audience);
+    }
+    
+    if (!scope.empty()) {
+        body << "&scope=" << url_encode(scope);
+    }
+    
+    // Always log client credentials being used (mask the secret)
+    fprintf(stderr, "[MCP AUTH TOKEN EXCHANGE] Using client credentials:\n");
+    fprintf(stderr, "  Client ID: %s\n", client->client_id.c_str());
+    fprintf(stderr, "  Client Secret: %s...%s (length: %zu)\n", 
+            client->client_secret.substr(0, 8).c_str(),
+            client->client_secret.length() > 16 ? client->client_secret.substr(client->client_secret.length() - 8).c_str() : "",
+            client->client_secret.length());
+    fprintf(stderr, "  Token Endpoint: %s\n", client->token_endpoint.c_str());
+    fprintf(stderr, "  IDP Alias: %s\n", idp_alias.c_str());
+    
+    // Debug: Log the request details
+    fprintf(stderr, "[MCP AUTH DEBUG] Token exchange request:\n");
+    fprintf(stderr, "  URL: %s\n", client->token_endpoint.c_str());
+    fprintf(stderr, "  Body: %s\n", body.str().c_str());
+    
+    // Perform HTTP POST request
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        result.error_code = MCP_AUTH_ERROR_INTERNAL_ERROR;
+        result.error_description = safe_strdup("Failed to initialize CURL");
+        return false;
+    }
+    
+    // RAII cleanup
+    struct curl_guard {
+        CURL* curl;
+        ~curl_guard() { if (curl) curl_easy_cleanup(curl); }
+    } guard{curl};
+    
+    // Store the body string to ensure it remains valid during the request
+    std::string body_str = body.str();
+    
+    std::string response;
+    std::string error_buffer;
+    error_buffer.resize(CURL_ERROR_SIZE);
+    
+    // Configure CURL
+    curl_easy_setopt(curl, CURLOPT_URL, client->token_endpoint.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_str.length());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, jwks_curl_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer.data());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, client->request_timeout);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    
+    // Client credentials are now sent in the request body for Keycloak compatibility
+    // (Some OAuth providers like Keycloak require this instead of Basic Auth)
+    // std::string auth = client->client_id + ":" + client->client_secret;
+    // curl_easy_setopt(curl, CURLOPT_USERPWD, auth.c_str());
+    // curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+    
+    // Set headers
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    // Perform request
+    CURLcode res = curl_easy_perform(curl);
+    
+    // Clean up headers
+    curl_slist_free_all(headers);
+    
+    // Check for CURL errors
+    if (res != CURLE_OK) {
+        result.error_code = MCP_AUTH_ERROR_NETWORK_ERROR;
+        std::string error_msg = error_buffer.empty() ? curl_easy_strerror(res) : error_buffer;
+        result.error_description = safe_strdup(error_msg);
+        return false;
+    }
+    
+    // Check HTTP status
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    
+    // Always log the response for debugging token exchange issues
+    fprintf(stderr, "[MCP AUTH DEBUG] Token exchange response:\n");
+    fprintf(stderr, "  HTTP Code: %ld\n", http_code);
+    fprintf(stderr, "  Response length: %zu\n", response.length());
+    if (response.length() < 2000) {
+        fprintf(stderr, "  Response: %s\n", response.c_str());
+    } else {
+        fprintf(stderr, "  Response (first 500 chars): %.500s...\n", response.c_str());
+    }
+    
+    if (http_code != 200) {
+        // Parse error response
+        std::string error_type, error_desc;
+        extract_json_string(response, "error", error_type);
+        extract_json_string(response, "error_description", error_desc);
+        
+        // Map error types to our error codes
+        if (error_type == "invalid_request") {
+            result.error_code = MCP_AUTH_ERROR_INVALID_PARAMETER;
+        } else if (error_type == "invalid_token") {
+            result.error_code = MCP_AUTH_ERROR_INVALID_TOKEN;
+        } else if (error_type == "insufficient_scope") {
+            result.error_code = MCP_AUTH_ERROR_INSUFFICIENT_SCOPE;
+        } else if (error_type == "invalid_target" || error_desc.find("not linked") != std::string::npos) {
+            result.error_code = MCP_AUTH_ERROR_IDP_NOT_LINKED;
+        } else {
+            result.error_code = MCP_AUTH_ERROR_TOKEN_EXCHANGE_FAILED;
+        }
+        
+        std::string error_msg = error_desc.empty() ? 
+            ("Token exchange failed with status " + std::to_string(http_code)) : 
+            error_desc;
+        result.error_description = safe_strdup(error_msg);
+        return false;
+    }
+    
+    // Parse successful response
+    // Note: Some Keycloak configurations may include account-link-url even on success,
+    // so we don't treat its presence as an error. Check for access_token first.
+    std::string access_token, token_type, scope_str, refresh_token;
+    int64_t expires_in = 0;
+    
+    if (!extract_json_string(response, "access_token", access_token)) {
+        // Check if this is an account linking response (no access_token but has account-link-url)
+        std::string account_link_url;
+        if (extract_json_string(response, "account-link-url", account_link_url) && !account_link_url.empty()) {
+            // This is an account linking response - the user needs to link their account to the external IDP
+            fprintf(stderr, "[MCP AUTH] Account linking required for IDP: %s\n", idp_alias.c_str());
+            fprintf(stderr, "  Link URL: %s\n", account_link_url.c_str());
+            
+            // Return a special error code to indicate account linking is needed
+            result.error_code = MCP_AUTH_ERROR_INVALID_IDP_ALIAS; // Using existing error code
+            std::string msg = "Account not linked to IDP '" + idp_alias + "'. User must link account at: " + account_link_url;
+            result.error_description = safe_strdup(msg.c_str());
+            
+            // Store the link URL in the access_token field for the application to handle if needed
+            result.access_token = safe_strdup(account_link_url.c_str());
+            result.token_type = safe_strdup("account-link-required");
+            return false;
+        }
+        
+        result.error_code = MCP_AUTH_ERROR_INTERNAL_ERROR;
+        result.error_description = safe_strdup("Invalid response: missing access_token");
+        return false;
+    }
+    
+    extract_json_string(response, "token_type", token_type);
+    extract_json_string(response, "scope", scope_str);
+    extract_json_string(response, "refresh_token", refresh_token);
+    extract_json_number(response, "expires_in", expires_in);
+    
+    // Populate result
+    result.access_token = safe_strdup(access_token);
+    result.token_type = safe_strdup(token_type.empty() ? "Bearer" : token_type);
+    result.scope = scope_str.empty() ? nullptr : safe_strdup(scope_str);
+    result.refresh_token = refresh_token.empty() ? nullptr : safe_strdup(refresh_token);
+    result.expires_in = expires_in;
+    result.error_code = MCP_AUTH_SUCCESS;
+    
+    return true;
+}
+
+mcp_auth_token_exchange_result_t mcp_auth_exchange_token(
+    mcp_auth_client_t client,
+    const char* subject_token,
+    const char* idp_alias,
+    const char* audience,
+    const char* scope) {
+    
+    mcp_auth_token_exchange_result_t result;
+    memset(&result, 0, sizeof(result));
+    
+    // Validate parameters
+    if (!client) {
+        result.error_code = MCP_AUTH_ERROR_INVALID_PARAMETER;
+        result.error_description = safe_strdup("Client is required");
+        return result;
+    }
+    
+    if (!subject_token || !subject_token[0]) {
+        result.error_code = MCP_AUTH_ERROR_INVALID_PARAMETER;
+        result.error_description = safe_strdup("Subject token is required");
+        return result;
+    }
+    
+    if (!idp_alias || !idp_alias[0]) {
+        result.error_code = MCP_AUTH_ERROR_INVALID_IDP_ALIAS;
+        result.error_description = safe_strdup("IDP alias is required");
+        return result;
+    }
+    
+    // Auto-detect token endpoint if not set
+    if (client->token_endpoint.empty() && !client->issuer.empty()) {
+        // Derive from issuer (Keycloak pattern)
+        client->token_endpoint = client->issuer + "/protocol/openid-connect/token";
+    }
+    
+    // Perform the exchange
+    perform_token_exchange(client, subject_token, idp_alias,
+                          audience ? audience : "",
+                          scope ? scope : "",
+                          result);
+    
+    return result;
+}
+
+mcp_auth_error_t mcp_auth_exchange_token_multi(
+    mcp_auth_client_t client,
+    const char* subject_token,
+    const char* idp_aliases,
+    mcp_auth_token_exchange_result_t* results,
+    size_t* result_count) {
+    
+    if (!client || !subject_token || !idp_aliases || !results || !result_count) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "All parameters are required");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Parse comma-separated IDP aliases
+    std::vector<std::string> idps;
+    std::stringstream ss(idp_aliases);
+    std::string idp;
+    
+    while (std::getline(ss, idp, ',')) {
+        // Trim whitespace
+        idp.erase(0, idp.find_first_not_of(" \t"));
+        idp.erase(idp.find_last_not_of(" \t") + 1);
+        
+        if (!idp.empty()) {
+            idps.push_back(idp);
+        }
+    }
+    
+    if (idps.empty()) {
+        set_error(MCP_AUTH_ERROR_INVALID_IDP_ALIAS, "No valid IDP aliases provided");
+        return MCP_AUTH_ERROR_INVALID_IDP_ALIAS;
+    }
+    
+    // Check result array size
+    if (*result_count < idps.size()) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, 
+                 "Result array too small: need " + std::to_string(idps.size()));
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Perform parallel exchanges using threads
+    std::vector<std::thread> threads;
+    threads.reserve(idps.size());
+    
+    for (size_t i = 0; i < idps.size(); i++) {
+        threads.emplace_back([client, subject_token, &idps, &results, i]() {
+            results[i] = mcp_auth_exchange_token(client, subject_token, 
+                                                idps[i].c_str(), nullptr, nullptr);
+        });
+    }
+    
+    // Wait for all threads to complete
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    // Update result count
+    *result_count = idps.size();
+    
+    return MCP_AUTH_SUCCESS;
+}
+
+mcp_auth_error_t mcp_auth_set_exchange_idps(mcp_auth_client_t client, const char* idp_aliases) {
+    if (!client) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Client is required");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    client->exchange_idps = idp_aliases ? idp_aliases : "";
+    return MCP_AUTH_SUCCESS;
+}
+
+void mcp_auth_free_exchange_result(mcp_auth_token_exchange_result_t* result) {
+    if (!result) return;
+    
+    free(result->access_token);
+    free(result->token_type);
+    free(result->refresh_token);
+    free(result->scope);
+    
+    memset(result, 0, sizeof(*result));
+}
+
+mcp_auth_error_t mcp_auth_validate_and_exchange(
+    mcp_auth_client_t client,
+    const char* token,
+    mcp_auth_validation_options_t options,
+    mcp_auth_validation_result_t* validation_result,
+    mcp_auth_token_exchange_result_t* exchange_results,
+    size_t* exchange_count) {
+    
+    if (!client || !token || !validation_result) {
+        set_error(MCP_AUTH_ERROR_INVALID_PARAMETER, "Required parameters missing");
+        return MCP_AUTH_ERROR_INVALID_PARAMETER;
+    }
+    
+    // First validate the token
+    mcp_auth_error_t validation_err = mcp_auth_validate_token(client, token, options, validation_result);
+    
+    if (validation_err != MCP_AUTH_SUCCESS || !validation_result->valid) {
+        // Validation failed, don't attempt exchange
+        if (exchange_count) *exchange_count = 0;
+        return validation_err != MCP_AUTH_SUCCESS ? validation_err : MCP_AUTH_ERROR_INVALID_TOKEN;
+    }
+    
+    // Check if automatic exchange is configured
+    if (client->exchange_idps.empty() || !exchange_results || !exchange_count) {
+        // No exchange configured or no result buffer
+        if (exchange_count) *exchange_count = 0;
+        return MCP_AUTH_SUCCESS;
+    }
+    
+    // Perform multi-IDP exchange
+    return mcp_auth_exchange_token_multi(client, token, client->exchange_idps.c_str(),
+                                        exchange_results, exchange_count);
+}
+
 const char* mcp_auth_error_to_string(mcp_auth_error_t error_code) {
     switch (error_code) {
         case MCP_AUTH_SUCCESS:
@@ -2372,6 +2782,12 @@ const char* mcp_auth_error_to_string(mcp_auth_error_t error_code) {
             return "Authentication library not initialized";
         case MCP_AUTH_ERROR_INTERNAL_ERROR:
             return "Internal library error";
+        case MCP_AUTH_ERROR_INVALID_IDP_ALIAS:
+            return "Invalid or missing IDP alias";
+        case MCP_AUTH_ERROR_IDP_NOT_LINKED:
+            return "User account not linked to requested IDP";
+        case MCP_AUTH_ERROR_TOKEN_EXCHANGE_FAILED:
+            return "Token exchange failed";
         default:
             return "Unknown error code";
     }

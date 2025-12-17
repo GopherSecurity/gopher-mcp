@@ -64,6 +64,7 @@ add_auth_test(benchmark_network_optimization)
 add_auth_test(test_keycloak_integration)
 add_auth_test(test_mcp_inspector_flow)
 add_auth_test(test_complete_integration)
+add_auth_test(test_token_exchange)
 
 # Optional: Add test for memory cache if it exists
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_memory_cache.cc")
