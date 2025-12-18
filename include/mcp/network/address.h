@@ -1,6 +1,7 @@
 #ifndef MCP_NETWORK_ADDRESS_H
 #define MCP_NETWORK_ADDRESS_H
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
