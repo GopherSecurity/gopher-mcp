@@ -7,9 +7,29 @@
 
 #include <cstring>
 #include <errno.h>
-#include <fcntl.h>
 #include <iostream>
+
+#ifdef _WIN32
+#include <io.h>
+#include <winsock2.h>
+#define read(fd, buf, len) _read(fd, buf, static_cast<unsigned int>(len))
+#define write(fd, buf, len) _write(fd, buf, static_cast<unsigned int>(len))
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#endif
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+#ifndef EAGAIN
+#define EAGAIN WSAEWOULDBLOCK
+#endif
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#endif
+#else
+#include <fcntl.h>
 #include <unistd.h>
+#endif
 
 namespace mcp {
 namespace echo {
@@ -165,10 +185,17 @@ void StdioEchoTransport::readThread() {
 }
 
 void StdioEchoTransport::setNonBlocking(int fd) {
+#ifdef _WIN32
+  // On Windows, stdin/stdout don't support ioctlsocket
+  // Non-blocking mode for console I/O requires different approach
+  // For now, we rely on polling with timeout
+  (void)fd;  // Suppress unused parameter warning
+#else
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags != -1) {
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
   }
+#endif
 }
 
 }  // namespace echo
