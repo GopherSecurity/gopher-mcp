@@ -97,11 +97,12 @@ enum class FileTriggerType {
 
 // Determine platform-preferred event type
 constexpr FileTriggerType determinePlatformPreferredEventType() {
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || \
-    defined(FORCE_LEVEL_EVENTS)
-  // Windows doesn't support native edge triggers, use emulated
-  // FORCE_LEVEL_EVENTS allows testing Windows behavior on POSIX
-  return FileTriggerType::EmulatedEdge;
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
+  // Windows select() only supports level-triggered mode
+  return FileTriggerType::Level;
+#elif defined(FORCE_LEVEL_EVENTS)
+  // FORCE_LEVEL_EVENTS allows testing level-triggered behavior on POSIX
+  return FileTriggerType::Level;
 #elif defined(__APPLE__) || defined(__FreeBSD__)
   // macOS/BSD: Use level-triggered to avoid issues
   // Edge-triggered with EV_CLEAR causes problems with our event handling
