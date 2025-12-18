@@ -20,9 +20,11 @@ class IoHandle;
 using IoHandlePtr = std::unique_ptr<IoHandle>;
 
 // Platform-specific socket type
+// On Windows, uses SOCKET type directly
+// On Unix/Linux, uses int file descriptor
 #ifdef _WIN32
-using os_fd_t = uintptr_t;
-constexpr os_fd_t INVALID_SOCKET_FD = static_cast<os_fd_t>(-1);
+using os_fd_t = SOCKET;
+constexpr os_fd_t INVALID_SOCKET_FD = INVALID_SOCKET;
 #else
 using os_fd_t = int;
 constexpr os_fd_t INVALID_SOCKET_FD = -1;

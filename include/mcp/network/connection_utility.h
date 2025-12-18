@@ -2,6 +2,7 @@
 
 #include <chrono>
 
+#include "mcp/network/io_handle.h"  // For os_fd_t
 #include "mcp/network/socket.h"
 
 namespace mcp {
@@ -14,9 +15,9 @@ class SocketConfigUtility {
  public:
   /**
    * Set socket options optimized for performance (simple interface)
-   * @param fd The file descriptor to configure
+   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, SOCKET on Windows)
    */
-  static void setSocketOptions(int fd);
+  static void setSocketOptions(os_fd_t fd);
 
   /**
    * Configure a socket for optimal connection settings
