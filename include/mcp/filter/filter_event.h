@@ -63,6 +63,10 @@ enum class FilterEventType {
  *
  * Severity classification for filtering and prioritization of events.
  */
+// Windows defines ERROR as a macro in wingdi.h, undef it to avoid conflict
+#ifdef ERROR
+#undef ERROR
+#endif
 enum class FilterEventSeverity {
   TRACE = 0,    ///< Trace-level diagnostic information
   DEBUG = 1,    ///< Debug-level information
