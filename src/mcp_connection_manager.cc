@@ -118,10 +118,19 @@ VoidResult McpConnectionManager::connect() {
           config_.stdio_config->stdin_fd, config_.stdio_config->stdout_fd);
 
       // Create pipe addresses
+#ifndef _WIN32
       auto local_address = std::make_shared<network::Address::PipeInstance>(
           "/tmp/test_stdio_in");
       auto remote_address = std::make_shared<network::Address::PipeInstance>(
           "/tmp/test_stdio_out");
+#else
+      // Windows: Use loopback placeholder addresses for test pipes
+      // (PipeInstance is Unix-only, use Ipv4Instance as placeholder)
+      auto local_address = std::make_shared<network::Address::Ipv4Instance>(
+          "127.0.0.1", 0);
+      auto remote_address = std::make_shared<network::Address::Ipv4Instance>(
+          "127.0.0.1", 0);
+#endif
 
       // Create the connection socket
       socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
