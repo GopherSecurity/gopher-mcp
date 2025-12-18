@@ -9,10 +9,23 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
+
 #include "mcp/core/compat.h"
 
 namespace mcp {
 namespace event {
+
+// Platform-specific socket/fd type for event monitoring
+// On Windows, socket handles are SOCKET type
+// On Unix/Linux, file descriptors are 32-bit int
+#ifdef _WIN32
+using os_fd_t = SOCKET;
+#else
+using os_fd_t = int;
+#endif
 
 // Forward declaration
 class WatermarkFactory {
@@ -309,8 +322,9 @@ class Dispatcher : public DispatcherBase {
 
   /**
    * Create a file event that monitors a file descriptor.
+   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, uintptr_t on Windows)
    */
-  virtual FileEventPtr createFileEvent(int fd,
+  virtual FileEventPtr createFileEvent(os_fd_t fd,
                                        FileReadyCb cb,
                                        FileTriggerType trigger,
                                        uint32_t events) = 0;

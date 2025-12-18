@@ -15,8 +15,8 @@
 namespace mcp {
 namespace network {
 
-void SocketConfigUtility::setSocketOptions(int fd) {
-  if (fd < 0)
+void SocketConfigUtility::setSocketOptions(os_fd_t fd) {
+  if (fd == INVALID_SOCKET_FD)
     return;
 
   // Set TCP_NODELAY to disable Nagle's algorithm
@@ -82,7 +82,7 @@ void SocketConfigUtility::configureKeepAlive(Socket& socket,
                                              std::chrono::seconds idle_time,
                                              std::chrono::seconds interval,
                                              uint32_t probes) {
-  int fd = socket.ioHandle().fd();
+  os_fd_t fd = socket.ioHandle().fd();
 
   // Enable/disable keep-alive
   int keep_alive = enable ? 1 : 0;
@@ -113,7 +113,7 @@ void SocketConfigUtility::configureKeepAlive(Socket& socket,
 void SocketConfigUtility::configureBufferSizes(Socket& socket,
                                                uint32_t receive_buffer_size,
                                                uint32_t send_buffer_size) {
-  int fd = socket.ioHandle().fd();
+  os_fd_t fd = socket.ioHandle().fd();
 
   if (receive_buffer_size > 0) {
     int size = receive_buffer_size;
@@ -129,7 +129,7 @@ void SocketConfigUtility::configureBufferSizes(Socket& socket,
 }
 
 void SocketConfigUtility::configureForLowLatency(Socket& socket) {
-  int fd = socket.ioHandle().fd();
+  os_fd_t fd = socket.ioHandle().fd();
 
   // Disable Nagle's algorithm
   int nodelay = 1;
@@ -147,7 +147,7 @@ void SocketConfigUtility::configureForLowLatency(Socket& socket) {
 }
 
 void SocketConfigUtility::configureForHighThroughput(Socket& socket) {
-  int fd = socket.ioHandle().fd();
+  os_fd_t fd = socket.ioHandle().fd();
 
   // Enable Nagle's algorithm for better throughput
   int nodelay = 0;

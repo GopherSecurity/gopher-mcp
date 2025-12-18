@@ -18,6 +18,15 @@ namespace event {
 // Rename to avoid conflict with struct event
 using libevent_event = struct event;
 
+// Platform-compatible socket type to match libevent's evutil_socket_t
+// On Windows, uses SOCKET type (same as os_fd_t)
+// On Unix/Linux, uses int (32-bit)
+#ifdef _WIN32
+using libevent_socket_t = SOCKET;
+#else
+using libevent_socket_t = int;
+#endif
+
 /**
  * @brief Libevent-based implementation of the Dispatcher interface
  *
@@ -40,7 +49,7 @@ class LibeventDispatcher : public Dispatcher {
   void registerWatchdog(const WatchDogSharedPtr& watchdog,
                         std::chrono::milliseconds min_touch_interval) override;
 
-  FileEventPtr createFileEvent(int fd,
+  FileEventPtr createFileEvent(os_fd_t fd,
                                FileReadyCb cb,
                                FileTriggerType trigger,
                                uint32_t events) override;
@@ -87,7 +96,7 @@ class LibeventDispatcher : public Dispatcher {
   class FileEventImpl : public FileEvent {
    public:
     FileEventImpl(LibeventDispatcher& dispatcher,
-                  int fd,
+                  os_fd_t fd,
                   FileReadyCb cb,
                   FileTriggerType trigger,
                   uint32_t events);
@@ -99,13 +108,13 @@ class LibeventDispatcher : public Dispatcher {
     void registerEventIfEmulatedEdge(uint32_t event) override;
 
    private:
-    static void eventCallback(int fd, short events, void* arg);
+    static void eventCallback(libevent_socket_t fd, short events, void* arg);
     void assignEvents(uint32_t events);
     void updateEvents(uint32_t events);
     void mergeInjectedEventsAndRunCb(uint32_t events);
 
     LibeventDispatcher& dispatcher_;
-    int fd_;
+    os_fd_t fd_;
     FileReadyCb cb_;
     FileTriggerType trigger_;
     libevent_event* event_;
@@ -129,7 +138,7 @@ class LibeventDispatcher : public Dispatcher {
     bool enabled() override;
 
    private:
-    static void timerCallback(int fd, short events, void* arg);
+    static void timerCallback(libevent_socket_t fd, short events, void* arg);
 
     LibeventDispatcher& dispatcher_;
     TimerCb cb_;
@@ -165,7 +174,7 @@ class LibeventDispatcher : public Dispatcher {
     ~SignalEventImpl() override;
 
    private:
-    static void signalCallback(int fd, short events, void* arg);
+    static void signalCallback(libevent_socket_t fd, short events, void* arg);
 
     LibeventDispatcher& dispatcher_;
     int signal_num_;
@@ -185,7 +194,7 @@ class LibeventDispatcher : public Dispatcher {
   void runDeferredDeletes();
   void touchWatchdog();
   void initializeLibevent();
-  static void postWakeupCallback(int fd, short events, void* arg);
+  static void postWakeupCallback(libevent_socket_t fd, short events, void* arg);
 
   // Member variables
   const std::string name_;
@@ -196,7 +205,7 @@ class LibeventDispatcher : public Dispatcher {
   // Post callback handling
   std::mutex post_mutex_;
   std::queue<PostCb> post_callbacks_;
-  int wakeup_fd_[2];  // Pipe for waking up event loop
+  libevent_socket_t wakeup_fd_[2];  // Pipe for waking up event loop
   libevent_event* wakeup_event_;
 
   // Deferred deletion
