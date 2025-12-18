@@ -84,7 +84,7 @@ class SocketInterfaceImpl : public SocketInterface {
   bool supportsReusePort() const override;
 
  private:
-  void setNonBlocking(os_fd_t fd);
+  int setNonBlocking(os_fd_t fd);  // Returns 0 on success, -1 on error
   void setCloseOnExec(os_fd_t fd);
   std::string detectPlatform();
   void initializeCapabilities();
