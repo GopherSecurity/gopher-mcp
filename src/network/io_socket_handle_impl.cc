@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iostream>
 
 #ifdef _WIN32
 #include <mswsock.h>
@@ -72,7 +73,13 @@ IoSocketHandleImpl::~IoSocketHandleImpl() {
 void IoSocketHandleImpl::setNonBlocking() {
 #ifdef _WIN32
   u_long mode = 1;
-  ::ioctlsocket(fd_, FIONBIO, &mode);
+  int result = ::ioctlsocket(fd_, FIONBIO, &mode);
+  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::setNonBlocking: fd=" << fd_
+            << " result=" << result;
+  if (result != 0) {
+    std::cerr << " WSAError=" << WSAGetLastError();
+  }
+  std::cerr << std::endl;
 #else
   int flags = ::fcntl(fd_, F_GETFL, 0);
   if (flags != -1) {
@@ -514,21 +521,63 @@ IoResult<int> IoSocketHandleImpl::bind(
     return IoResult<int>::error(EBADF);
   }
 
+  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::bind() called: fd=" << fd_
+            << " addr=" << (address ? address->asStringView() : "<null>")
+            << std::endl;
   int result = ::bind(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
+    sockaddr_storage local_addr;
+    socklen_t local_len = sizeof(local_addr);
+    int local_result = ::getsockname(
+        fd_, reinterpret_cast<sockaddr*>(&local_addr), &local_len);
+    if (local_result == 0) {
+      auto addr = Address::addressFromSockAddr(local_addr, local_len,
+                                               socket_v6only_);
+      std::cerr << "[DEBUG SOCKET] bind() local address: "
+                << (addr ? addr->asStringView() : "<unknown>") << std::endl;
+    } else {
+      std::cerr << "[DEBUG SOCKET] bind() getsockname failed: "
+                << getLastSocketError() << std::endl;
+    }
     return IoResult<int>::success(0);
   } else {
+    std::cerr << "[DEBUG SOCKET] bind() failed: error=" << getLastSocketError()
+              << std::endl;
     return IoResult<int>::error(getLastSocketError());
   }
 }
 
 IoResult<int> IoSocketHandleImpl::listen(int backlog) {
+  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::listen() called: fd=" << fd_
+            << " backlog=" << backlog << std::endl;
+
   if (!isOpen()) {
+    std::cerr << "[DEBUG SOCKET] listen() failed: socket not open" << std::endl;
     return IoResult<int>::error(EBADF);
   }
 
+  std::cerr << "[DEBUG SOCKET] ::listen() before ";
   int result = ::listen(fd_, backlog);
+  std::cerr << "[DEBUG SOCKET] ::listen() returned: " << result;
+#ifdef _WIN32
+  if (result != 0) {
+    std::cerr << " WSAError=" << WSAGetLastError();
+  }
+#endif
+  std::cerr << std::endl;
+
   if (result == 0) {
+    int accept_conn = 0;
+    socklen_t optlen = sizeof(accept_conn);
+    int opt_result =
+        ::getsockopt(fd_, SOL_SOCKET, SO_ACCEPTCONN,
+                     reinterpret_cast<char*>(&accept_conn), &optlen);
+    if (opt_result == 0) {
+      std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN=" << accept_conn << std::endl;
+    } else {
+      std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN check failed: "
+                << getLastSocketError() << std::endl;
+    }
     return IoResult<int>::success(0);
   } else {
     return IoResult<int>::error(getLastSocketError());
@@ -546,8 +595,12 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
 #ifdef _WIN32
   SOCKET new_fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (new_fd != INVALID_SOCKET) {
+    std::cerr << "[DEBUG SOCKET] accept() success: fd=" << new_fd << std::endl;
     return IoResult<IoHandlePtr>::success(
         std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_));
+  } else {
+    std::cerr << "[DEBUG SOCKET] accept() failed: WSAError="
+              << WSAGetLastError() << std::endl;
   }
 #else
 #ifdef __linux__
@@ -817,14 +870,22 @@ void IoSocketHandleImpl::configureInitialCongestionWindow(
 IoHandlePtr IoSocketHandleImpl::duplicate() {
 #ifdef _WIN32
   WSAPROTOCOL_INFO info;
+  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::duplicate() called: fd=" << fd_ << std::endl;
   if (::WSADuplicateSocket(fd_, ::GetCurrentProcessId(), &info) == 0) {
+    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()" << std::endl;
     SOCKET new_fd =
         ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                     &info, 0, WSA_FLAG_OVERLAPPED);
+    std::cerr << "[DEBUG SOCKET] WSASocket() returned: new_fd=" << new_fd
+              << " (INVALID_SOCKET=" << INVALID_SOCKET << ")" << std::endl;
     if (new_fd != INVALID_SOCKET) {
       return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
                                                   domain_);
+    } else {
+      std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError=" << WSAGetLastError() << std::endl;
     }
+  } else {
+    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError=" << WSAGetLastError() << std::endl;
   }
 #else
   int new_fd = ::dup(fd_);
