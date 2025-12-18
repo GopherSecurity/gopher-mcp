@@ -176,15 +176,29 @@ mkdir -p "$TS_TEST_DIR"
 
 # Copy TypeScript SDK files (auth-related only)
 echo "  Copying auth SDK files..."
-# Copy only auth-related files
-cp "${PROJECT_ROOT}/sdk/typescript/src/auth-types.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/auth.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-api.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-ffi-bindings.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/oauth-helper.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/session-manager.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/src/sdk-index.ts" "$TS_SDK_DIR/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/sdk/typescript/auth-adapter/express-adapter.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+# Copy from new auth/src directory structure
+if [ -d "${PROJECT_ROOT}/sdk/typescript/auth/src" ]; then
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/auth-types.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/auth.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/mcp-auth-api.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/mcp-auth-ffi-bindings.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/oauth-helper.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/session-manager.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/index.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth/src/express-adapter.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+else
+  # Fallback to old structure if new one doesn't exist
+  cp "${PROJECT_ROOT}/sdk/typescript/src/auth-types.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/auth.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-api.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/mcp-auth-ffi-bindings.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/oauth-helper.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/session-manager.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/src/sdk-index.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+  cp "${PROJECT_ROOT}/sdk/typescript/auth-adapter/express-adapter.ts" "$TS_SDK_DIR/" 2>/dev/null || true
+fi
+# Also copy adapter if it exists in the new location
+cp "${PROJECT_ROOT}/sdk/typescript/auth/adapter/express-adapter.ts" "$TS_SDK_DIR/" 2>/dev/null || true
 
 # Copy package.json for SDK
 cat > "$TS_SDK_DIR/package.json" << 'EOF'
