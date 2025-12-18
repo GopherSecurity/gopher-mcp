@@ -145,6 +145,8 @@ const IoHandle& SocketImpl::ioHandle() const { return *io_handle_; }
 
 void SocketImpl::close() {
   if (io_handle_) {
+    std::cerr << "[DEBUG SOCKET] SocketImpl::close() fd=" << io_handle_->fd()
+              << std::endl;
     io_handle_->close();
   }
 }
@@ -170,6 +172,8 @@ IoResult<int> SocketImpl::listen(int backlog) {
     return IoResult<int>::error(EBADF);
   }
 
+  std::cerr << "[DEBUG SOCKET] SocketImpl::listen() fd=" << io_handle_->fd()
+            << " backlog=" << backlog << std::endl;
   return io_handle_->listen(backlog);
 }
 
