@@ -10,6 +10,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <io.h>
+#include <event2/util.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
@@ -139,7 +140,7 @@ TcpListenerImpl::TcpListenerImpl(event::Dispatcher& dispatcher,
             << std::endl;
 
   if (bind_to_port_ && socket_) {
-    int fd = socket_->ioHandle().fd();
+    os_fd_t fd = socket_->ioHandle().fd();
     std::cerr << "[DEBUG] Creating file event for listener fd: " << fd
               << std::endl;
 
@@ -186,8 +187,20 @@ void TcpListenerImpl::enable() {
 
   enabled_ = true;
   if (file_event_) {
-    std::cerr << "[DEBUG] Enabling file event for listener fd: "
-              << socket_->ioHandle().fd() << std::endl;
+    os_fd_t fd = socket_->ioHandle().fd();
+    std::cerr << "[DEBUG] Enabling file event for listener fd: " << fd << std::endl;
+
+#ifdef _WIN32
+    // Debug: Test if select() can see this socket at all
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(fd, &read_fds);  // fd is already os_fd_t (SOCKET on Windows)
+    struct timeval tv = {0, 0};  // Non-blocking poll
+    int sel_result = select(0, &read_fds, NULL, NULL, &tv);
+    std::cerr << "[DEBUG] Manual select() test: result=" << sel_result
+              << " WSAError=" << WSAGetLastError() << std::endl;
+#endif
+
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
   } else {
     std::cerr << "[ERROR] No file event to enable for listener!" << std::endl;
@@ -205,8 +218,11 @@ void TcpListenerImpl::configureLoadShedPoints(LoadShedPoint& load_shed_point) {
 }
 
 void TcpListenerImpl::onSocketEvent(uint32_t events) {
+  std::cerr << "[DEBUG LISTENER] onSocketEvent called: events=" << events << std::endl;
+
   // Only handle read events (new connections)
   if (!(events & static_cast<uint32_t>(event::FileReadyType::Read))) {
+    std::cerr << "[DEBUG LISTENER] Not a read event, returning" << std::endl;
     return;
   }
 
@@ -252,11 +268,29 @@ bool TcpListenerImpl::doAccept() {
   sockaddr_storage addr;
   socklen_t addr_len = sizeof(addr);
 
-  // Accept new connection
-  int new_fd = ::accept(socket_->ioHandle().fd(),
-                        reinterpret_cast<sockaddr*>(&addr), &addr_len);
+  std::cerr << "[DEBUG LISTENER] Calling accept() on fd="
+            << socket_->ioHandle().fd() << std::endl;
 
-  if (new_fd < 0) {
+  // Accept new connection
+  // On Windows, accept() returns SOCKET (uintptr_t), on Linux returns int
+#ifdef _WIN32
+  os_fd_t new_fd = ::accept(socket_->ioHandle().fd(),
+                            reinterpret_cast<sockaddr*>(&addr), &addr_len);
+  bool accept_failed = (new_fd == INVALID_SOCKET);
+#else
+  os_fd_t new_fd = ::accept(socket_->ioHandle().fd(),
+                            reinterpret_cast<sockaddr*>(&addr), &addr_len);
+  bool accept_failed = (new_fd < 0);
+#endif
+
+  std::cerr << "[DEBUG LISTENER] accept() returned: new_fd=" << new_fd
+            << " errno=" << errno << std::endl;
+
+  if (accept_failed) {
+#ifdef _WIN32
+    std::cerr << "[DEBUG LISTENER] accept() WSAError=" << WSAGetLastError()
+              << std::endl;
+#endif
     // Would block or error
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
       return false;  // No more connections available
