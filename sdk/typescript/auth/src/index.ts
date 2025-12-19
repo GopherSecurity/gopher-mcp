@@ -12,8 +12,11 @@ export * from "./auth";
 export { OAuthHelper } from "./oauth-helper";
 export type { OAuthConfig, TokenValidationOptions, AuthResult } from "./oauth-helper";
 
-// Session management
+// Session management (includes enhanced features)
 export * from "./session-manager";
 
-// Express adapter for easy integration
+// Express adapter for easy integration (includes enhanced features)
 export * from "./express-adapter";
+
+// Keycloak admin client for automatic permissions
+export * from "./keycloak-admin";

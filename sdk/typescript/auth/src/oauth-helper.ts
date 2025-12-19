@@ -138,8 +138,20 @@ export class OAuthHelper {
     } catch (mcpError) {
       // Fallback implementation until C++ functions are available
       try {
-        // Fetch discovery metadata from auth server
-        const response = await fetch(`${authServerUrl}/.well-known/openid-configuration`);
+        // Fetch discovery metadata from auth server with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        console.log(`Fetching discovery metadata from: ${authServerUrl}/.well-known/openid-configuration`);
+        const response = await fetch(`${authServerUrl}/.well-known/openid-configuration`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch discovery metadata: ${response.status} ${response.statusText}`);
+        }
+        
         const metadata = await response.json() as any;
         
         // Extract realm from authServerUrl
