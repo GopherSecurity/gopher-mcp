@@ -1,6 +1,6 @@
-# Dockerfile for Ubuntu 20.04 ARM64 build
+# Dockerfile for Linux ARM64 build
 # Uses pre-built GCC image for fast ARM64 builds
-FROM --platform=linux/arm64 gcc:11
+FROM gcc:11
 
 # Install CMake (GCC image already has build tools)
 RUN apt-get update && apt-get install -y \

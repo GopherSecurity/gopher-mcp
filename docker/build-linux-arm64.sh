@@ -27,9 +27,10 @@ mkdir -p "$OUTPUT_DIR"
 
 echo -e "${YELLOW}Building ARM64 library using Docker...${NC}"
 
-# Build using the GCC-based Dockerfile
-docker build \
+# Build using the GCC-based Dockerfile with buildx
+docker buildx build \
     --platform linux/arm64 \
+    --load \
     -t mcp-auth:arm64 \
     -f "$SCRIPT_DIR/Dockerfile.linux-arm64" \
     "$PROJECT_ROOT"
