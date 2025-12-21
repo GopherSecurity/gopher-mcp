@@ -1,0 +1,65 @@
+# Dockerfile for Ubuntu 20.04 ARM64 build
+# Uses pre-built GCC image for fast ARM64 builds
+FROM --platform=linux/arm64 gcc:11
+
+# Install CMake (GCC image already has build tools)
+RUN apt-get update && apt-get install -y \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy source files
+COPY src/auth /build/src/auth
+COPY include/mcp/auth /build/include/mcp/auth
+
+# Copy TypeScript SDK files (auth-related only)
+COPY sdk/typescript/auth/src/auth-types.ts /build/sdk/typescript/src/auth-types.ts
+COPY sdk/typescript/auth/src/mcp-auth-api.ts /build/sdk/typescript/src/mcp-auth-api.ts
+COPY sdk/typescript/auth/src/express-adapter.ts /build/sdk/typescript/auth-adapter/express-adapter.ts
+
+# Build directory
+RUN mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=11 \
+          -DBUILD_SHARED_LIBS=ON \
+          /build/src/auth && \
+    make -j$(nproc) && \
+    make install
+
+# Create output directory and copy built files
+RUN mkdir -p /output && \
+    cp /usr/local/lib/libgopher-mcp-auth.so* /output/ 2>/dev/null || \
+    cp /build/build/libgopher-mcp-auth.so* /output/ 2>/dev/null || \
+    find /build -name "*.so*" -exec cp {} /output/ \; 2>/dev/null || true
+
+# Rename library to match expected naming
+RUN cd /output && \
+    if [ -f libgopher-mcp-auth.so ]; then \
+        mv libgopher-mcp-auth.so libgopher_mcp_auth.so; \
+        mv libgopher-mcp-auth.so.0 libgopher_mcp_auth.so.0 2>/dev/null || true; \
+        mv libgopher-mcp-auth.so.0.1.0 libgopher_mcp_auth.so.0.1.0 2>/dev/null || true; \
+    fi && \
+    # Create proper symlinks
+    if [ -f libgopher_mcp_auth.so.0.1.0 ]; then \
+        ln -sf libgopher_mcp_auth.so.0.1.0 libgopher_mcp_auth.so.0 2>/dev/null || true; \
+        ln -sf libgopher_mcp_auth.so.0 libgopher_mcp_auth.so 2>/dev/null || true; \
+    fi
+
+# Build verification tool
+RUN cd /build && \
+    g++ -o /output/verify_auth \
+        /build/src/auth/verify_auth.cc \
+        -L/output \
+        -lgopher_mcp_auth \
+        -ldl \
+        -Wl,-rpath,'$ORIGIN' \
+        -O2
+
+# Copy TypeScript files
+RUN cp -r /build/sdk/typescript /output/
+
+# Default command to copy files to host
+CMD cp -r /output/* /host-output/ && \
+    echo "ARM64 build complete!" && \
+    ls -la /output/

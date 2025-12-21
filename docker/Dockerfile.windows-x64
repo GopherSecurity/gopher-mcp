@@ -74,7 +74,7 @@ RUN mkdir -p /output
 # Copy library files
 RUN cp /install/bin/gopher_mcp_auth.dll /output/ 2>/dev/null || \
     cp /build/gopher_mcp_auth.dll /output/ 2>/dev/null || true && \
-    cp /install/lib/gopher_mcp_auth.dll.a /output/gopher_mcp_auth.lib 2>/dev/null || \
+    cp /install/lib/libgopher_mcp_auth.dll.a /output/gopher_mcp_auth.lib 2>/dev/null || \
     cp /install/lib/gopher_mcp_auth.lib /output/ 2>/dev/null || true
 
 # No external DLLs needed - uses Windows system libraries only

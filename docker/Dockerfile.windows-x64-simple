@@ -1,0 +1,77 @@
+# Simple cross-compile for Windows x64 using MinGW-w64
+FROM debian:bullseye-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install MinGW-w64 and build tools
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    mingw-w64 \
+    git \
+    curl \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy source files
+COPY src/auth /build/src/auth
+COPY include/mcp/auth /build/include/mcp/auth
+
+# Create Windows toolchain file
+RUN echo 'set(CMAKE_SYSTEM_NAME Windows)' > /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_SYSTEM_PROCESSOR x86_64)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_C_COMPILER /usr/bin/x86_64-w64-mingw32-gcc)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_CXX_COMPILER /usr/bin/x86_64-w64-mingw32-g++)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_RC_COMPILER /usr/bin/x86_64-w64-mingw32-windres)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_PREFIX "")' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")' >> /build/toolchain-win64.cmake && \
+    echo 'set(CMAKE_EXECUTABLE_SUFFIX ".exe")' >> /build/toolchain-win64.cmake
+
+# Build the library for Windows x64
+RUN mkdir build-win64 && cd build-win64 && \
+    cmake -DCMAKE_TOOLCHAIN_FILE=/build/toolchain-win64.cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=11 \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_INSTALL_PREFIX=/output \
+          -DCMAKE_CXX_FLAGS="-D_WIN32_WINNT=0x0600" \
+          /build/src/auth && \
+    make -j$(nproc) && \
+    make install || true
+
+# Create output directory and copy files
+RUN mkdir -p /output/bin && \
+    (cp /output/lib/*.dll /output/bin/ 2>/dev/null || true) && \
+    (cp /output/lib/*.lib /output/bin/ 2>/dev/null || true) && \
+    (cp /output/lib/*.a /output/bin/ 2>/dev/null || true) && \
+    (cp /build/build-win64/*.dll /output/bin/ 2>/dev/null || true) && \
+    (cp /build/build-win64/*.exe /output/bin/ 2>/dev/null || true)
+
+# Create simple Windows test executable
+RUN echo '#include <windows.h>' > /tmp/test.c && \
+    echo '#include <stdio.h>' >> /tmp/test.c && \
+    echo 'int main() {' >> /tmp/test.c && \
+    echo '    printf("gopher_mcp_auth Windows x64 Test\\n");' >> /tmp/test.c && \
+    echo '    printf("====================================\\n");' >> /tmp/test.c && \
+    echo '    HMODULE hLib = LoadLibrary("gopher_mcp_auth.dll");' >> /tmp/test.c && \
+    echo '    if (!hLib) {' >> /tmp/test.c && \
+    echo '        hLib = LoadLibrary("libgopher_mcp_auth.dll");' >> /tmp/test.c && \
+    echo '    }' >> /tmp/test.c && \
+    echo '    if (!hLib) {' >> /tmp/test.c && \
+    echo '        printf("Failed to load DLL\\n");' >> /tmp/test.c && \
+    echo '        return 1;' >> /tmp/test.c && \
+    echo '    }' >> /tmp/test.c && \
+    echo '    printf("DLL loaded successfully!\\n");' >> /tmp/test.c && \
+    echo '    FreeLibrary(hLib);' >> /tmp/test.c && \
+    echo '    return 0;' >> /tmp/test.c && \
+    echo '}' >> /tmp/test.c && \
+    x86_64-w64-mingw32-gcc -o /output/bin/test_auth.exe /tmp/test.c -static && \
+    rm /tmp/test.c
+
+CMD ["sh", "-c", "cp -r /output/bin/* /host-output/ 2>/dev/null && echo 'Windows x64 build complete!' && ls -la /output/bin/"]

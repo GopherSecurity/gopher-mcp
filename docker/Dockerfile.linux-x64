@@ -25,9 +25,9 @@ COPY build_auth_tests_minimal.sh /build/
 COPY run_tests_with_standalone_auth.sh /build/
 
 # Copy TypeScript SDK files (auth-related only)
-COPY sdk/typescript/src/auth-types.ts /build/sdk/typescript/src/
-COPY sdk/typescript/src/mcp-auth-api.ts /build/sdk/typescript/src/
-COPY sdk/typescript/auth-adapter/express-adapter.ts /build/sdk/typescript/auth-adapter/
+COPY sdk/typescript/auth/src/auth-types.ts /build/sdk/typescript/src/
+COPY sdk/typescript/auth/src/mcp-auth-api.ts /build/sdk/typescript/src/
+COPY sdk/typescript/auth/src/express-adapter.ts /build/sdk/typescript/auth-adapter/
 COPY sdk/typescript/tsconfig.json /build/sdk/typescript/
 
 # Copy test files

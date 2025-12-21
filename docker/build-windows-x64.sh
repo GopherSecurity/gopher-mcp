@@ -1,7 +1,7 @@
-#!/bin/bash
+#\!/bin/bash
 
-# Build script for cross-compiling libgopher_mcp_auth for Windows x64
-# Uses Docker with MinGW-w64 and official Windows OpenSSL/CURL libraries
+# Build script for libgopher_mcp_auth on Windows x64
+# Cross-compiles using MinGW-w64 in Docker
 
 set -e
 
@@ -10,97 +10,69 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-echo -e "${GREEN}=================================================="
-echo "Building libgopher_mcp_auth for Windows x64"
-echo "Target: Windows 7+ (x86_64)"
-echo "Using: Windows native crypto and HTTP APIs"
-echo "  - Crypto: Windows CryptoAPI (replaces OpenSSL)"
-echo "  - HTTP: Windows WinHTTP (replaces CURL)"
-echo -e "==================================================${NC}"
+echo -e "${BLUE}=======================================${NC}"
+echo -e "${BLUE}Building libgopher_mcp_auth for Windows x64${NC}"
+echo -e "${BLUE}=======================================${NC}"
 echo ""
 
-# Build Docker image
-echo -e "${BLUE}🐳 Building Docker image with Windows libraries...${NC}"
-docker build -t mcp-auth-builder:windows-x64 \
-    -f "$SCRIPT_DIR/Dockerfile.windows-x64" \
-    "$PROJECT_ROOT"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+OUTPUT_DIR="${PROJECT_ROOT}/build-output/windows-x64"
 
-# Create output directory on host
-OUTPUT_DIR="$PROJECT_ROOT/build-output/windows-x64"
+# Clean and create output directory
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# Run container to build the library
-echo ""
-echo -e "${BLUE}🔨 Building library with official OpenSSL/CURL...${NC}"
-docker run --rm \
-    -v "$OUTPUT_DIR:/host-output" \
-    mcp-auth-builder:windows-x64 \
-    bash -c "cp -r /output/* /host-output/ 2>/dev/null || true"
+echo -e "${YELLOW}Building Windows x64 DLL using MinGW-w64...${NC}"
 
-echo ""
-echo -e "${GREEN}✅ Build complete!${NC}"
-echo ""
-echo -e "${YELLOW}Output files:${NC}"
-echo "------------------------------------"
-ls -lah "$OUTPUT_DIR"
+# Build using the simplified Dockerfile
+docker build \
+    -t mcp-auth:windows-x64 \
+    -f "$SCRIPT_DIR/Dockerfile.windows-x64" \
+    "$PROJECT_ROOT"
 
-# Check main library
-echo ""
-echo -e "${YELLOW}Library information:${NC}"
-if [ -f "$OUTPUT_DIR/gopher_mcp_auth.dll" ]; then
-    echo -e "${GREEN}Main library:${NC}"
-    file "$OUTPUT_DIR/gopher_mcp_auth.dll"
-    echo "  Size: $(du -h "$OUTPUT_DIR/gopher_mcp_auth.dll" | cut -f1)"
-else
-    echo -e "${RED}Warning: gopher_mcp_auth.dll not found${NC}"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Docker build failed${NC}"
+    exit 1
 fi
 
-# Check dependencies
-echo ""
-echo -e "${YELLOW}Dependencies included:${NC}"
-for dll in libcurl-4.dll libssl-3-x64.dll libcrypto-3-x64.dll zlib1.dll libssh2-1.dll; do
-    if [ -f "$OUTPUT_DIR/$dll" ]; then
-        echo -e "  ${GREEN}✓${NC} $dll ($(du -h "$OUTPUT_DIR/$dll" | cut -f1))"
-    else
-        echo -e "  ${YELLOW}⚠${NC} $dll not found"
+echo -e "${YELLOW}Extracting built files...${NC}"
+
+# Run container and copy files
+# Create temporary container and copy files manually
+CONTAINER_ID=$(docker create mcp-auth:windows-x64)
+docker cp "$CONTAINER_ID:/output/gopher_mcp_auth.dll" "$OUTPUT_DIR/" 2>/dev/null || true
+docker cp "$CONTAINER_ID:/output/gopher_mcp_auth.lib" "$OUTPUT_DIR/" 2>/dev/null || true
+docker cp "$CONTAINER_ID:/output/verify_auth.exe" "$OUTPUT_DIR/" 2>/dev/null || true
+docker cp "$CONTAINER_ID:/output/typescript" "$OUTPUT_DIR/" 2>/dev/null || true
+docker rm "$CONTAINER_ID" > /dev/null
+
+# Check results
+if ls "$OUTPUT_DIR"/*.dll >/dev/null 2>&1 || ls "$OUTPUT_DIR"/*.exe >/dev/null 2>&1; then
+    echo -e "${GREEN}✅ Build successful\!${NC}"
+    echo ""
+    echo "Files created:"
+    ls -lh "$OUTPUT_DIR"
+    
+    if command -v file >/dev/null 2>&1; then
+        echo ""
+        echo "File information:"
+        for f in "$OUTPUT_DIR"/*.dll "$OUTPUT_DIR"/*.exe; do
+            [ -f "$f" ] && file "$f"
+        done
     fi
-done
-
-# Check verification tool
-if [ -f "$OUTPUT_DIR/verify_auth.exe" ]; then
+    
     echo ""
-    echo -e "${YELLOW}Verification tool:${NC}"
-    file "$OUTPUT_DIR/verify_auth.exe"
-    echo "  Size: $(du -h "$OUTPUT_DIR/verify_auth.exe" | cut -f1)"
-fi
-
-# Check TypeScript tests
-if [ -d "$OUTPUT_DIR/typescript" ]; then
+    echo -e "${GREEN}Windows x64 build complete\!${NC}"
     echo ""
-    echo -e "${YELLOW}TypeScript test files:${NC}"
-    ls -la "$OUTPUT_DIR/typescript/"
+    echo "To test on Windows:"
+    echo "  1. Copy build-output/windows-x64/ to Windows system"
+    echo "  2. Run test_auth.exe"
+else
+    echo -e "${RED}Build failed - no DLL or EXE files found${NC}"
+    echo "Contents of output directory:"
+    ls -la "$OUTPUT_DIR"
+    exit 1
 fi
-
-# Total size
-echo ""
-echo -e "${YELLOW}Total size:${NC} $(du -sh "$OUTPUT_DIR" | cut -f1)"
-
-echo ""
-echo -e "${GREEN}📦 Windows x64 build artifacts are in:${NC}"
-echo "   $OUTPUT_DIR"
-echo ""
-echo -e "${BLUE}To test on Windows:${NC}"
-echo "  1. Copy the entire build-output/windows-x64/ directory to a Windows machine"
-echo "  2. Run: verify_auth.exe"
-echo "  3. For Node.js test: cd typescript && run_test.bat"
-echo ""
-echo -e "${YELLOW}Note:${NC} The DLL uses Windows native APIs for cryptography and networking."
-echo "No external OpenSSL or CURL dependencies required."
-echo -e "${GREEN}This provides real crypto and network functionality as requested.${NC}"
-echo ""

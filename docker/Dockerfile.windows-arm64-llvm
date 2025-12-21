@@ -1,0 +1,99 @@
+# Use LLVM-MinGW for Windows ARM64 cross-compilation
+# LLVM-MinGW supports ARM64 Windows targets
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic build tools
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install LLVM-MinGW (includes ARM64 Windows support)
+WORKDIR /tools
+RUN wget https://github.com/mstorsjo/llvm-mingw/releases/download/20231128/llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64.tar.xz && \
+    tar -xf llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64.tar.xz && \
+    rm llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64.tar.xz && \
+    mv llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64 llvm-mingw
+
+# Add LLVM-MinGW to PATH
+ENV PATH="/tools/llvm-mingw/bin:${PATH}"
+
+WORKDIR /build
+
+# Copy source files
+COPY src/auth /build/src/auth
+COPY include/mcp/auth /build/include/mcp/auth
+
+# Copy Windows-specific files and CMakeLists
+COPY docker/windows-x64 /docker/windows-x64
+
+# Copy the Windows implementation file to the expected location
+RUN cp /docker/windows-x64/mcp_auth_windows.cc /build/src/auth/
+
+# Use Windows-specific CMakeLists that uses Windows native APIs
+# (Windows CryptoAPI instead of OpenSSL, WinHTTP instead of CURL)
+RUN cp /docker/windows-x64/CMakeLists-windows.txt /build/src/auth/CMakeLists.txt
+
+# Create Windows ARM64 toolchain file
+RUN echo 'set(CMAKE_SYSTEM_NAME Windows)' > /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_SYSTEM_PROCESSOR aarch64)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_C_COMPILER /tools/llvm-mingw/bin/aarch64-w64-mingw32-clang)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_CXX_COMPILER /tools/llvm-mingw/bin/aarch64-w64-mingw32-clang++)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_RC_COMPILER /tools/llvm-mingw/bin/aarch64-w64-mingw32-windres)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_AR /tools/llvm-mingw/bin/aarch64-w64-mingw32-ar)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_RANLIB /tools/llvm-mingw/bin/aarch64-w64-mingw32-ranlib)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH /tools/llvm-mingw/aarch64-w64-mingw32)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_PREFIX "")' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_EXECUTABLE_SUFFIX ".exe")' >> /build/toolchain-win-arm64.cmake
+
+# Build the library for Windows ARM64 using Windows native APIs
+RUN mkdir build-arm64 && cd build-arm64 && \
+    cmake -DCMAKE_TOOLCHAIN_FILE=/build/toolchain-win-arm64.cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=11 \
+          -DCMAKE_C_STANDARD=11 \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_INSTALL_PREFIX=/output \
+          -DCMAKE_SYSTEM_NAME=Windows \
+          /build/src/auth && \
+    make -j$(nproc) && \
+    make install
+
+# Move DLL files to root output directory (matching x64 structure)
+RUN cp /output/bin/gopher_mcp_auth.dll /output/gopher_mcp_auth.dll 2>/dev/null || \
+    cp /output/lib/gopher_mcp_auth.dll /output/gopher_mcp_auth.dll 2>/dev/null || true && \
+    cp /output/lib/libgopher_mcp_auth.dll.a /output/gopher_mcp_auth.lib 2>/dev/null || true
+
+# Build verification tool using the existing verify_auth.c
+RUN aarch64-w64-mingw32-clang -o /output/verify_auth.exe \
+    /docker/windows-x64/verify_auth.c \
+    -O2 \
+    -lpsapi \
+    -static
+
+# Strip symbols to reduce size
+RUN aarch64-w64-mingw32-strip --strip-unneeded /output/verify_auth.exe 2>/dev/null || true && \
+    aarch64-w64-mingw32-strip --strip-unneeded /output/gopher_mcp_auth.dll 2>/dev/null || true
+
+# Copy TypeScript test files (matching x64 structure)
+RUN mkdir -p /output/typescript && \
+    cp /docker/windows-x64/simple-test.js /output/typescript/ 2>/dev/null || true && \
+    cp /docker/windows-x64/run_test.bat /output/typescript/ 2>/dev/null || true
+
+# Clean up subdirectories to match x64 structure
+RUN rm -rf /output/bin /output/lib
+
+# List final output
+RUN ls -la /output/
+
+CMD ["/bin/bash"]

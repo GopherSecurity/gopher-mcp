@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Build script for libgopher_mcp_auth on macOS x86_64
-# Target: macOS 10.14+ (Mojave and later)
-# Architecture: x86_64
+# Build script for libgopher_mcp_auth on macOS ARM64 (Apple Silicon)
+# Target: macOS 11.0+ (Big Sur and later for Apple Silicon)
+# Architecture: arm64
 
 set -e
 
@@ -13,8 +13,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Building libgopher_mcp_auth for macOS x86_64${NC}"
-echo -e "${GREEN}Target: macOS 10.14+ (x86_64)${NC}"
+echo -e "${GREEN}Building libgopher_mcp_auth for macOS ARM64${NC}"
+echo -e "${GREEN}Target: macOS 11.0+ (arm64/Apple Silicon)${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Get the script directory
@@ -22,9 +22,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Build configuration
-BUILD_DIR="${PROJECT_ROOT}/build-mac-x64"
-OUTPUT_DIR="${PROJECT_ROOT}/build-output/mac-x64"
-MIN_MACOS_VERSION="10.14"
+BUILD_DIR="${PROJECT_ROOT}/build-mac-arm64"
+OUTPUT_DIR="${PROJECT_ROOT}/build-output/mac-arm64"
+MIN_MACOS_VERSION="11.0"  # Minimum version for Apple Silicon
 
 # Clean previous builds
 echo -e "${YELLOW}Cleaning previous builds...${NC}"
@@ -36,19 +36,75 @@ mkdir -p "$OUTPUT_DIR"
 # Navigate to build directory
 cd "$BUILD_DIR"
 
-# Configure CMake with macOS-specific settings
-echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_STANDARD=11 \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
-    -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
-    -DCMAKE_MACOSX_RPATH=ON \
-    -DCMAKE_INSTALL_RPATH="@loader_path" \
-    "${PROJECT_ROOT}/src/auth"
+# Check for ARM64 OpenSSL installation
+echo -e "${YELLOW}Checking for ARM64 OpenSSL...${NC}"
+
+# Common locations for ARM64 OpenSSL
+ARM64_OPENSSL_ROOT=""
+if [ -d "/opt/homebrew/opt/openssl" ]; then
+    ARM64_OPENSSL_ROOT="/opt/homebrew/opt/openssl"
+    echo "  Found ARM64 OpenSSL at: $ARM64_OPENSSL_ROOT"
+elif [ -d "/opt/homebrew/opt/openssl@3" ]; then
+    ARM64_OPENSSL_ROOT="/opt/homebrew/opt/openssl@3"
+    echo "  Found ARM64 OpenSSL at: $ARM64_OPENSSL_ROOT"
+elif [ -d "/opt/homebrew/opt/openssl@1.1" ]; then
+    ARM64_OPENSSL_ROOT="/opt/homebrew/opt/openssl@1.1"
+    echo "  Found ARM64 OpenSSL at: $ARM64_OPENSSL_ROOT"
+else
+    echo -e "${RED}Error: ARM64 OpenSSL not found!${NC}"
+    echo "Please install OpenSSL for ARM64 using:"
+    echo "  arch -arm64 /bin/bash -c \"curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash\""
+    echo "  /opt/homebrew/bin/brew install openssl"
+    echo ""
+    echo "Or if building on Intel Mac, use cross-compilation:"
+    echo "  ./docker/build-mac-universal.sh"
+    exit 1
+fi
+
+# Check for ARM64 libcurl
+echo -e "${YELLOW}Checking for ARM64 libcurl...${NC}"
+ARM64_CURL_ROOT=""
+if [ -d "/opt/homebrew/opt/curl" ]; then
+    ARM64_CURL_ROOT="/opt/homebrew/opt/curl"
+    echo "  Found ARM64 curl at: $ARM64_CURL_ROOT"
+else
+    # Use system curl as fallback
+    echo "  Using system curl (universal)"
+fi
+
+# Configure CMake with macOS ARM64-specific settings
+echo -e "${YELLOW}Configuring CMake for macOS ARM64...${NC}"
+
+CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_CXX_STANDARD=11
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}
+    -DCMAKE_OSX_ARCHITECTURES=arm64
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DBUILD_SHARED_LIBS=ON
+    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install"
+    -DCMAKE_MACOSX_RPATH=ON
+    -DCMAKE_INSTALL_RPATH="@loader_path"
+)
+
+# Add OpenSSL paths if found
+if [ -n "$ARM64_OPENSSL_ROOT" ]; then
+    CMAKE_ARGS+=(
+        -DOPENSSL_ROOT_DIR="$ARM64_OPENSSL_ROOT"
+        -DOPENSSL_LIBRARIES="${ARM64_OPENSSL_ROOT}/lib/libssl.dylib;${ARM64_OPENSSL_ROOT}/lib/libcrypto.dylib"
+        -DOPENSSL_INCLUDE_DIR="${ARM64_OPENSSL_ROOT}/include"
+    )
+fi
+
+# Add curl paths if found
+if [ -n "$ARM64_CURL_ROOT" ]; then
+    CMAKE_ARGS+=(
+        -DCURL_LIBRARY="${ARM64_CURL_ROOT}/lib/libcurl.dylib"
+        -DCURL_INCLUDE_DIR="${ARM64_CURL_ROOT}/include"
+    )
+fi
+
+cmake "${CMAKE_ARGS[@]}" "${PROJECT_ROOT}/src/auth"
 
 # Build the library
 echo -e "${YELLOW}Building library...${NC}"
@@ -64,7 +120,7 @@ cp "${BUILD_DIR}/install/lib/libgopher_mcp_auth.0.1.0.dylib" "${OUTPUT_DIR}/"
 # Create symlink for compatibility
 ln -sf libgopher_mcp_auth.0.1.0.dylib "${OUTPUT_DIR}/libgopher_mcp_auth.dylib"
 
-# Build verification app for macOS
+# Build verification app for macOS ARM64
 echo -e "${YELLOW}Building verification app...${NC}"
 cd "${OUTPUT_DIR}"
 
@@ -77,8 +133,8 @@ if [ -f "${VERIFY_SAFE}" ]; then
     echo "  Building safe verification tool from docker/mac-x64/verify_auth_safe.c"
     cp "${VERIFY_SAFE}" verify_auth.c
     
-    # Build with macOS 10.14 compatibility
-    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    # Build with macOS 11.0 compatibility for ARM64
+    MACOSX_DEPLOYMENT_TARGET=11.0 cc -arch arm64 -o verify_auth verify_auth.c
     
     if [ $? -eq 0 ]; then
         echo "  ✓ Built safe verification tool"
@@ -86,7 +142,7 @@ if [ -f "${VERIFY_SAFE}" ]; then
         echo "  Warning: Safe version build failed, trying simple version..."
         if [ -f "${VERIFY_SIMPLE}" ]; then
             cp "${VERIFY_SIMPLE}" verify_auth.c
-            MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+            MACOSX_DEPLOYMENT_TARGET=11.0 cc -arch arm64 -o verify_auth verify_auth.c
             echo "  ✓ Built simple verification tool"
         fi
     fi
@@ -97,14 +153,14 @@ if [ -f "${VERIFY_SAFE}" ]; then
 elif [ -f "${VERIFY_FULL}" ]; then
     echo "  Building full verification tool from docker/mac-x64/verify_auth_full.c"
     cp "${VERIFY_FULL}" verify_auth.c
-    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    MACOSX_DEPLOYMENT_TARGET=11.0 cc -arch arm64 -o verify_auth verify_auth.c
     rm -f verify_auth.c
     echo "  ✓ Built full verification tool"
     
 elif [ -f "${VERIFY_SIMPLE}" ]; then
     echo "  Building simple verification tool from docker/mac-x64/verify_auth.c"
     cp "${VERIFY_SIMPLE}" verify_auth.c
-    MACOSX_DEPLOYMENT_TARGET=10.14 cc -o verify_auth verify_auth.c
+    MACOSX_DEPLOYMENT_TARGET=11.0 cc -arch arm64 -o verify_auth verify_auth.c
     rm verify_auth.c
     echo "  ✓ Built simple verification tool"
 else
@@ -115,7 +171,7 @@ fi
 # Strip extended attributes to avoid security issues
 xattr -cr verify_auth 2>/dev/null || true
 
-echo "  Created verify_auth (macOS compatible)"
+echo "  Created verify_auth (macOS ARM64 compatible)"
 
 # Clean up build directory
 cd "$PROJECT_ROOT"
@@ -140,32 +196,41 @@ if [ -f "libgopher_mcp_auth.0.1.0.dylib" ] && [ -f "verify_auth" ]; then
     file libgopher_mcp_auth.0.1.0.dylib
     echo ""
     
+    # Show architecture
+    echo "Architecture:"
+    lipo -info libgopher_mcp_auth.0.1.0.dylib
+    echo ""
+    
     # Show minimum macOS version
     echo "Minimum macOS version:"
     otool -l libgopher_mcp_auth.0.1.0.dylib | grep -A 4 "LC_BUILD_VERSION\|LC_VERSION_MIN" | head -6
     echo ""
     
     echo -e "${GREEN}📦 Output contains:${NC}"
-    echo "  - libgopher_mcp_auth.0.1.0.dylib (the authentication library)"
+    echo "  - libgopher_mcp_auth.0.1.0.dylib (ARM64 authentication library)"
     echo "  - libgopher_mcp_auth.dylib (symlink for compatibility)"
-    echo "  - verify_auth (verification tool, macOS 10.14.6+ compatible)"
+    echo "  - verify_auth (verification tool, macOS 11.0+ ARM64 compatible)"
     echo ""
     
-    # Test verification app
-    echo -e "${YELLOW}Testing verification app...${NC}"
-    if ./verify_auth; then
-        echo -e "${GREEN}✓ Verification test passed${NC}"
+    # Test verification app (only if running on ARM64)
+    if [[ $(uname -m) == "arm64" ]]; then
+        echo -e "${YELLOW}Testing verification app...${NC}"
+        if ./verify_auth; then
+            echo -e "${GREEN}✓ Verification test passed${NC}"
+        else
+            echo -e "${YELLOW}⚠ Verification test failed or crashed${NC}"
+            echo "This may be due to missing dependencies or library issues"
+            echo "The build artifacts have been created successfully"
+        fi
     else
-        echo -e "${YELLOW}⚠ Verification test failed or crashed${NC}"
-        echo "This may be due to missing dependencies or library issues"
-        echo "The build artifacts have been created successfully"
+        echo -e "${YELLOW}Skipping verification test (not running on ARM64)${NC}"
     fi
 else
     echo -e "${RED}❌ Build failed - required files not found${NC}"
     exit 1
 fi
 
-# Build TypeScript SDK and tests
+# Build TypeScript SDK and tests (same as x64 version)
 echo ""
 echo -e "${YELLOW}Building TypeScript SDK and tests...${NC}"
 
@@ -222,7 +287,7 @@ cp "${SCRIPT_DIR}/mac-x64/typescript-test.ts" "$TS_TEST_DIR/" 2>/dev/null || {
     # If typescript-test.ts doesn't exist, create a minimal one
     cat > "$TS_TEST_DIR/typescript-test.ts" << 'EOF'
 import * as koffi from 'koffi';
-console.log('TypeScript test for libgopher_mcp_auth');
+console.log('TypeScript test for libgopher_mcp_auth (ARM64)');
 try {
     const lib = koffi.load('../../libgopher_mcp_auth.dylib');
     console.log('✓ Library loaded successfully');
@@ -291,16 +356,16 @@ echo ""
 echo -e "${GREEN}✨ Build complete!${NC}"
 echo ""
 echo "Output structure:"
-echo "  build-output/mac-x64/"
-echo "    ├── libgopher_mcp_auth.0.1.0.dylib"
+echo "  build-output/mac-arm64/"
+echo "    ├── libgopher_mcp_auth.0.1.0.dylib (ARM64)"
 echo "    ├── libgopher_mcp_auth.dylib (symlink)"
-echo "    ├── verify_auth (C verification)"
+echo "    ├── verify_auth (C verification for ARM64)"
 echo "    └── typescript/"
 echo "        ├── sdk/          (TypeScript SDK files)"
 echo "        └── tests/        (TypeScript test suite)"
 echo ""
-echo "To use on macOS:"
-echo "  1. Copy the entire build-output/mac-x64/ directory to the target machine"
+echo "To use on Apple Silicon Macs:"
+echo "  1. Copy the entire build-output/mac-arm64/ directory to the target machine"
 echo "  2. For C verification: ./verify_auth"
 echo "  3. For TypeScript tests: cd typescript/tests && ./run-test.sh"
 echo ""

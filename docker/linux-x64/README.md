@@ -26,9 +26,9 @@ The build process creates the following files in `build-output/linux-x64/`:
 
 ## Compatibility
 
-- Target: Ubuntu 20.04+ (Focal Fossa and later)
+- Target: Linux distributions with GLIBC 2.31+
 - Architecture: x86_64 / amd64
-- GLIBC: 2.31+ (Ubuntu 20.04 baseline)
+- GLIBC: 2.31+ (Compatible with Ubuntu 20.04, Debian 11, RHEL 8+, etc.)
 - OpenSSL: 1.1.1+ or 3.0+
 - GCC/G++: 9.3.0+ (C++11 support)
 
