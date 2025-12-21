@@ -22,10 +22,12 @@ COPY sdk/typescript/auth/src/mcp-auth-api.ts /build/sdk/typescript/src/mcp-auth-
 COPY sdk/typescript/auth/src/express-adapter.ts /build/sdk/typescript/auth-adapter/express-adapter.ts
 
 # Build directory
-# Set OpenSSL paths explicitly for ARM64 build
+# Set OpenSSL and curl paths explicitly for ARM64 build
 ENV OPENSSL_ROOT_DIR=/usr
 ENV OPENSSL_CRYPTO_LIBRARY=/usr/lib/aarch64-linux-gnu/libcrypto.so
 ENV OPENSSL_SSL_LIBRARY=/usr/lib/aarch64-linux-gnu/libssl.so
+ENV CURL_LIBRARY=/usr/lib/aarch64-linux-gnu/libcurl.so
+ENV CURL_INCLUDE_DIR=/usr/include
 
 RUN mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release \
@@ -34,6 +36,8 @@ RUN mkdir build && cd build && \
           -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} \
           -DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY} \
           -DOPENSSL_SSL_LIBRARY=${OPENSSL_SSL_LIBRARY} \
+          -DCURL_LIBRARY=${CURL_LIBRARY} \
+          -DCURL_INCLUDE_DIR=${CURL_INCLUDE_DIR} \
           /build/src/auth && \
     make -j$(nproc) && \
     make install
