@@ -43,32 +43,65 @@ echo ""
 echo -e "${GREEN}[1/3] Building x86_64 version...${NC}"
 cd "$BUILD_DIR_X64"
 
-# For x86_64, use the OpenSSL in /usr/local if available
-X64_CMAKE_ARGS=(
-    -DCMAKE_BUILD_TYPE=Release
-    -DCMAKE_CXX_STANDARD=11
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
-    -DCMAKE_OSX_ARCHITECTURES=x86_64
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-    -DBUILD_SHARED_LIBS=ON
-    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR_X64}/install"
-    -DCMAKE_MACOSX_RPATH=ON
-    -DCMAKE_INSTALL_RPATH="@loader_path"
-)
-
-# Add x86_64 OpenSSL if found
-if [ -d "/usr/local/opt/openssl" ]; then
-    X64_CMAKE_ARGS+=(
-        -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl"
-        -DOPENSSL_LIBRARIES="/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib"
-        -DOPENSSL_INCLUDE_DIR="/usr/local/opt/openssl/include"
+# Check if we're on ARM64 and need to cross-compile
+if [[ "$(uname -m)" == "arm64" ]]; then
+    echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
+    
+    # Check for x86_64 Homebrew
+    if [ -d "/usr/local/Homebrew" ] && [ -d "/usr/local/opt/openssl@3" ]; then
+        echo "Using x86_64 Homebrew at /usr/local"
+        X64_CMAKE_ARGS=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_CXX_STANDARD=11
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
+            -DCMAKE_OSX_ARCHITECTURES=x86_64
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+            -DBUILD_SHARED_LIBS=ON
+            -DCMAKE_INSTALL_PREFIX="${BUILD_DIR_X64}/install"
+            -DCMAKE_MACOSX_RPATH=ON
+            -DCMAKE_INSTALL_RPATH="@loader_path"
+            -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
+            -DOPENSSL_CRYPTO_LIBRARY="/usr/local/opt/openssl@3/lib/libcrypto.dylib"
+            -DOPENSSL_SSL_LIBRARY="/usr/local/opt/openssl@3/lib/libssl.dylib"
+            -DOPENSSL_INCLUDE_DIR="/usr/local/opt/openssl@3/include"
+            -DCURL_LIBRARY="/usr/local/opt/curl/lib/libcurl.dylib"
+            -DCURL_INCLUDE_DIR="/usr/local/opt/curl/include"
+        )
+    else
+        echo -e "${RED}Error: x86_64 Homebrew not found at /usr/local${NC}"
+        echo -e "${YELLOW}Please install x86_64 dependencies first:${NC}"
+        echo "arch -x86_64 /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        echo "arch -x86_64 /usr/local/bin/brew install openssl@3 curl"
+        exit 1
+    fi
+else
+    # On Intel Mac, use standard paths
+    X64_CMAKE_ARGS=(
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_CXX_STANDARD=11
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
+        -DCMAKE_OSX_ARCHITECTURES=x86_64
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DBUILD_SHARED_LIBS=ON
+        -DCMAKE_INSTALL_PREFIX="${BUILD_DIR_X64}/install"
+        -DCMAKE_MACOSX_RPATH=ON
+        -DCMAKE_INSTALL_RPATH="@loader_path"
     )
-elif [ -d "/usr/local/opt/openssl@3" ]; then
-    X64_CMAKE_ARGS+=(
-        -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
-        -DOPENSSL_LIBRARIES="/usr/local/opt/openssl@3/lib/libssl.dylib;/usr/local/opt/openssl@3/lib/libcrypto.dylib"
-        -DOPENSSL_INCLUDE_DIR="/usr/local/opt/openssl@3/include"
-    )
+    
+    # Add x86_64 OpenSSL if found
+    if [ -d "/usr/local/opt/openssl@3" ]; then
+        X64_CMAKE_ARGS+=(
+            -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
+            -DOPENSSL_LIBRARIES="/usr/local/opt/openssl@3/lib/libssl.dylib;/usr/local/opt/openssl@3/lib/libcrypto.dylib"
+            -DOPENSSL_INCLUDE_DIR="/usr/local/opt/openssl@3/include"
+        )
+    elif [ -d "/usr/local/opt/openssl" ]; then
+        X64_CMAKE_ARGS+=(
+            -DOPENSSL_ROOT_DIR="/usr/local/opt/openssl"
+            -DOPENSSL_LIBRARIES="/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib"
+            -DOPENSSL_INCLUDE_DIR="/usr/local/opt/openssl/include"
+        )
+    fi
 fi
 
 cmake "${X64_CMAKE_ARGS[@]}" "${PROJECT_ROOT}/src/auth"
