@@ -144,7 +144,7 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: macos-13  # Intel runner
+            runner: macos-latest  # Intel/Universal runner
           - arch: arm64
             runner: macos-14  # Apple Silicon runner
     
