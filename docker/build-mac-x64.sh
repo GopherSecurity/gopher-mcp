@@ -36,6 +36,25 @@ mkdir -p "$OUTPUT_DIR"
 # Navigate to build directory
 cd "$BUILD_DIR"
 
+# Check if we're on ARM64 and need to cross-compile
+if [[ "$(uname -m)" == "arm64" ]]; then
+    echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
+    
+    # Use x86_64 homebrew if available
+    if [ -d "/usr/local/Homebrew" ]; then
+        echo "Using x86_64 Homebrew at /usr/local"
+        export OPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
+        export OPENSSL_CRYPTO_LIBRARY="/usr/local/opt/openssl@3/lib/libcrypto.dylib"
+        export OPENSSL_SSL_LIBRARY="/usr/local/opt/openssl@3/lib/libssl.dylib"
+        export OPENSSL_INCLUDE_DIR="/usr/local/opt/openssl@3/include"
+        export CURL_LIBRARY="/usr/local/opt/curl/lib/libcurl.dylib"
+        export CURL_INCLUDE_DIR="/usr/local/opt/curl/include"
+    else
+        echo -e "${YELLOW}Warning: x86_64 Homebrew not found, build may fail${NC}"
+        echo -e "${YELLOW}Install with: arch -x86_64 /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}"
+    fi
+fi
+
 # Configure CMake with macOS-specific settings
 echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
 cmake \
@@ -48,6 +67,12 @@ cmake \
     -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
     -DCMAKE_MACOSX_RPATH=ON \
     -DCMAKE_INSTALL_RPATH="@loader_path" \
+    ${OPENSSL_ROOT_DIR:+-DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR}"} \
+    ${OPENSSL_CRYPTO_LIBRARY:+-DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_CRYPTO_LIBRARY}"} \
+    ${OPENSSL_SSL_LIBRARY:+-DOPENSSL_SSL_LIBRARY="${OPENSSL_SSL_LIBRARY}"} \
+    ${OPENSSL_INCLUDE_DIR:+-DOPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR}"} \
+    ${CURL_LIBRARY:+-DCURL_LIBRARY="${CURL_LIBRARY}"} \
+    ${CURL_INCLUDE_DIR:+-DCURL_INCLUDE_DIR="${CURL_INCLUDE_DIR}"} \
     "${PROJECT_ROOT}/src/auth"
 
 # Build the library
