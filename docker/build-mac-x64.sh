@@ -39,41 +39,49 @@ cd "$BUILD_DIR"
 # Check if we're on ARM64 and need to cross-compile
 if [[ "$(uname -m)" == "arm64" ]]; then
     echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
+    echo -e "${YELLOW}Using macOS SDK libraries which are universal binaries${NC}"
     
-    # Use x86_64 homebrew if available
-    if [ -d "/usr/local/Homebrew" ]; then
-        echo "Using x86_64 Homebrew at /usr/local"
-        export OPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
-        export OPENSSL_CRYPTO_LIBRARY="/usr/local/opt/openssl@3/lib/libcrypto.dylib"
-        export OPENSSL_SSL_LIBRARY="/usr/local/opt/openssl@3/lib/libssl.dylib"
-        export OPENSSL_INCLUDE_DIR="/usr/local/opt/openssl@3/include"
-        export CURL_LIBRARY="/usr/local/opt/curl/lib/libcurl.dylib"
-        export CURL_INCLUDE_DIR="/usr/local/opt/curl/include"
-    else
-        echo -e "${YELLOW}Warning: x86_64 Homebrew not found, build may fail${NC}"
-        echo -e "${YELLOW}Install with: arch -x86_64 /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}"
-    fi
+    # Use macOS SDK's universal libraries (they include both architectures)
+    # These are available on all macOS systems
+    export CURL_LIBRARY="/usr/lib/libcurl.dylib"
+    export CURL_INCLUDE_DIR="/usr/include"
+    
+    # For OpenSSL, we'll try to use system SSL frameworks instead
+    # This avoids the need for x86_64 Homebrew
+    export CMAKE_ARGS="${CMAKE_ARGS} -DUSE_SYSTEM_SSL=ON"
 fi
 
 # Configure CMake with macOS-specific settings
 echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_STANDARD=11 \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
-    -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
-    -DCMAKE_MACOSX_RPATH=ON \
-    -DCMAKE_INSTALL_RPATH="@loader_path" \
-    ${OPENSSL_ROOT_DIR:+-DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR}"} \
-    ${OPENSSL_CRYPTO_LIBRARY:+-DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_CRYPTO_LIBRARY}"} \
-    ${OPENSSL_SSL_LIBRARY:+-DOPENSSL_SSL_LIBRARY="${OPENSSL_SSL_LIBRARY}"} \
-    ${OPENSSL_INCLUDE_DIR:+-DOPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR}"} \
-    ${CURL_LIBRARY:+-DCURL_LIBRARY="${CURL_LIBRARY}"} \
-    ${CURL_INCLUDE_DIR:+-DCURL_INCLUDE_DIR="${CURL_INCLUDE_DIR}"} \
-    "${PROJECT_ROOT}/src/auth"
+
+# Base CMake arguments
+CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_CXX_STANDARD=11
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}
+    -DCMAKE_OSX_ARCHITECTURES=x86_64
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DBUILD_SHARED_LIBS=ON
+    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install"
+    -DCMAKE_MACOSX_RPATH=ON
+    -DCMAKE_INSTALL_RPATH="@loader_path"
+)
+
+# Add library paths if set
+if [ -n "${CURL_LIBRARY}" ]; then
+    CMAKE_ARGS+=(-DCURL_LIBRARY="${CURL_LIBRARY}")
+fi
+if [ -n "${CURL_INCLUDE_DIR}" ]; then
+    CMAKE_ARGS+=(-DCURL_INCLUDE_DIR="${CURL_INCLUDE_DIR}")
+fi
+
+# If not cross-compiling, let CMake find OpenSSL normally
+if [[ "$(uname -m)" != "arm64" ]]; then
+    # On Intel Mac, OpenSSL should be found automatically
+    echo -e "${YELLOW}Building natively on x86_64${NC}"
+fi
+
+cmake "${CMAKE_ARGS[@]}" "${PROJECT_ROOT}/src/auth"
 
 # Build the library
 echo -e "${YELLOW}Building library...${NC}"

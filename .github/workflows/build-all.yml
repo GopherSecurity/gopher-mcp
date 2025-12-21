@@ -161,23 +161,15 @@ jobs:
       
       - name: Install dependencies
         run: |
+          # Always install native cmake for build system
+          brew install cmake
+          
           if [ "${{ matrix.arch }}" == "x64" ]; then
-            # For x64 builds on ARM64 runner, install x86_64 Homebrew
-            echo "Installing x86_64 dependencies for cross-compilation..."
-            
-            # Install x86_64 Homebrew if not present
-            if [ ! -d "/usr/local/Homebrew" ]; then
-              arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            fi
-            
-            # Install x86_64 dependencies
-            arch -x86_64 /usr/local/bin/brew install cmake openssl@3 curl
-            
-            # Also ensure ARM64 cmake is available for the build system
-            /opt/homebrew/bin/brew install cmake
+            echo "x64 build will use cross-compilation with system libraries"
+            # No need to install x86_64 Homebrew - we'll use system libraries
           else
-            # For ARM64 builds, use native Homebrew
-            brew install cmake openssl@3 curl
+            # For ARM64 builds, install native dependencies
+            brew install openssl@3 curl
           fi
       
       - name: Make build script executable
