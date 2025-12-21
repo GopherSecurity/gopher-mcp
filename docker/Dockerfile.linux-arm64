@@ -2,9 +2,12 @@
 # Uses pre-built GCC image for fast ARM64 builds
 FROM gcc:11
 
-# Install CMake (GCC image already has build tools)
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     cmake \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
