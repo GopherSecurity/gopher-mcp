@@ -39,49 +39,27 @@ cd "$BUILD_DIR"
 # Check if we're on ARM64 and need to cross-compile
 if [[ "$(uname -m)" == "arm64" ]]; then
     echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
-    echo -e "${YELLOW}Using macOS SDK libraries which are universal binaries${NC}"
+    echo -e "${YELLOW}Will let CMake find libraries automatically${NC}"
     
-    # Use macOS SDK's universal libraries (they include both architectures)
-    # These are available on all macOS systems
-    export CURL_LIBRARY="/usr/lib/libcurl.dylib"
-    export CURL_INCLUDE_DIR="/usr/include"
-    
-    # For OpenSSL, we'll try to use system SSL frameworks instead
-    # This avoids the need for x86_64 Homebrew
-    export CMAKE_ARGS="${CMAKE_ARGS} -DUSE_SYSTEM_SSL=ON"
+    # Don't specify library paths - let CMake find them
+    # The CMAKE_OSX_ARCHITECTURES=x86_64 flag will handle cross-compilation
 fi
 
 # Configure CMake with macOS-specific settings
 echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
 
-# Base CMake arguments
-CMAKE_ARGS=(
-    -DCMAKE_BUILD_TYPE=Release
-    -DCMAKE_CXX_STANDARD=11
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}
-    -DCMAKE_OSX_ARCHITECTURES=x86_64
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-    -DBUILD_SHARED_LIBS=ON
-    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install"
-    -DCMAKE_MACOSX_RPATH=ON
-    -DCMAKE_INSTALL_RPATH="@loader_path"
-)
-
-# Add library paths if set
-if [ -n "${CURL_LIBRARY}" ]; then
-    CMAKE_ARGS+=(-DCURL_LIBRARY="${CURL_LIBRARY}")
-fi
-if [ -n "${CURL_INCLUDE_DIR}" ]; then
-    CMAKE_ARGS+=(-DCURL_INCLUDE_DIR="${CURL_INCLUDE_DIR}")
-fi
-
-# If not cross-compiling, let CMake find OpenSSL normally
-if [[ "$(uname -m)" != "arm64" ]]; then
-    # On Intel Mac, OpenSSL should be found automatically
-    echo -e "${YELLOW}Building natively on x86_64${NC}"
-fi
-
-cmake "${CMAKE_ARGS[@]}" "${PROJECT_ROOT}/src/auth"
+# Configure CMake - it will find the right libraries for the target architecture
+cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_STANDARD=11 \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
+    -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
+    -DCMAKE_MACOSX_RPATH=ON \
+    -DCMAKE_INSTALL_RPATH="@loader_path" \
+    "${PROJECT_ROOT}/src/auth"
 
 # Build the library
 echo -e "${YELLOW}Building library...${NC}"

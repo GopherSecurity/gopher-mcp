@@ -47,7 +47,7 @@ cd "$BUILD_DIR_X64"
 if [[ "$(uname -m)" == "arm64" ]]; then
     echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
     
-    echo "Using macOS SDK libraries for cross-compilation"
+    echo "Using CMake to find appropriate libraries for x86_64"
     X64_CMAKE_ARGS=(
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_CXX_STANDARD=11
@@ -58,8 +58,6 @@ if [[ "$(uname -m)" == "arm64" ]]; then
         -DCMAKE_INSTALL_PREFIX="${BUILD_DIR_X64}/install"
         -DCMAKE_MACOSX_RPATH=ON
         -DCMAKE_INSTALL_RPATH="@loader_path"
-        -DCURL_LIBRARY="/usr/lib/libcurl.dylib"
-        -DCURL_INCLUDE_DIR="/usr/include"
     )
 else
     # On Intel Mac, use standard paths
