@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
+
+# Allow VERSION in project() command
+cmake_policy(SET CMP0048 NEW)
+
 project(gopher-mcp-auth VERSION 0.1.0 LANGUAGES CXX)
 
 # Set C++ standard to C++11 for maximum compatibility
