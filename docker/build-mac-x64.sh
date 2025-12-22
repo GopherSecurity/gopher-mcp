@@ -39,16 +39,20 @@ cd "$BUILD_DIR"
 # Check if we're on ARM64 and need to cross-compile
 if [[ "$(uname -m)" == "arm64" ]]; then
     echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
-    echo -e "${YELLOW}Will let CMake find libraries automatically${NC}"
+    echo -e "${YELLOW}Disabling OpenSSL to avoid ARM64 library conflicts${NC}"
     
-    # Don't specify library paths - let CMake find them
-    # The CMAKE_OSX_ARCHITECTURES=x86_64 flag will handle cross-compilation
+    # On ARM64 hosts, we need to avoid using Homebrew's ARM64 OpenSSL
+    # Instead, we'll build without OpenSSL or use system frameworks
+    USE_OPENSSL="OFF"
+else
+    # On Intel hosts, we can use OpenSSL normally
+    USE_OPENSSL="ON"
 fi
 
 # Configure CMake with macOS-specific settings
 echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
 
-# Configure CMake - it will find the right libraries for the target architecture
+# Configure CMake
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_STANDARD=11 \
@@ -59,6 +63,8 @@ cmake \
     -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
     -DCMAKE_MACOSX_RPATH=ON \
     -DCMAKE_INSTALL_RPATH="@loader_path" \
+    -DCMAKE_IGNORE_PATH="/opt/homebrew;/opt/homebrew/lib;/opt/homebrew/include" \
+    -DCMAKE_SYSTEM_IGNORE_PATH="/opt/homebrew;/opt/homebrew/lib;/opt/homebrew/include" \
     "${PROJECT_ROOT}/src/auth"
 
 # Build the library
