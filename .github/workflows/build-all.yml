@@ -151,7 +151,7 @@ jobs:
           - arch: x64
             runner: macos-15-intel  # Intel runner (x86_64) - new macOS 15 Intel runner
           - arch: arm64
-            runner: macos-latest  # Apple Silicon runner (ARM64) - macOS 15 ARM64
+            runner: macos-15  # Apple Silicon runner (ARM64) - macOS 15 ARM64
     
     steps:
       - name: Checkout code
@@ -212,7 +212,7 @@ jobs:
   # Build universal binary for macOS
   build-macos-universal:
     name: Build macOS Universal Binary
-    runs-on: macos-latest
+    runs-on: macos-15
     needs: build-macos
     
     steps:
