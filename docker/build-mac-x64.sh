@@ -39,33 +39,64 @@ cd "$BUILD_DIR"
 # Check if we're on ARM64 and need to cross-compile
 if [[ "$(uname -m)" == "arm64" ]]; then
     echo -e "${YELLOW}Detected ARM64 host, setting up cross-compilation for x86_64...${NC}"
-    echo -e "${YELLOW}Disabling OpenSSL to avoid ARM64 library conflicts${NC}"
+    echo -e "${YELLOW}Preventing CMake from using ARM64 OpenSSL libraries${NC}"
     
-    # On ARM64 hosts, we need to avoid using Homebrew's ARM64 OpenSSL
-    # Instead, we'll build without OpenSSL or use system frameworks
-    USE_OPENSSL="OFF"
+    # Force CMake to NOT find OpenSSL in /opt/homebrew (ARM64 location)
+    # By setting these to bogus paths, CMake won't find the ARM64 libraries
+    export CMAKE_PREFIX_PATH="/usr/local"
+    export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+    
+    # Configure CMake with explicit non-existent OpenSSL paths to force failure
+    cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=11 \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
+        -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
+        -DCMAKE_MACOSX_RPATH=ON \
+        -DCMAKE_INSTALL_RPATH="@loader_path" \
+        -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl_not_found \
+        -DOPENSSL_LIBRARIES="" \
+        -DOpenSSL_DIR=/usr/local/opt/openssl_not_found \
+        "${PROJECT_ROOT}/src/auth" 2>&1 | tee cmake.log || true
+    
+    # Check if CMake found the wrong OpenSSL
+    if grep -q "/opt/homebrew" cmake.log; then
+        echo -e "${RED}ERROR: CMake is still finding ARM64 libraries in /opt/homebrew${NC}"
+        echo -e "${YELLOW}Attempting workaround: Building without crypto support${NC}"
+        
+        # Try building with a flag to disable OpenSSL entirely
+        cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=11 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
+            -DCMAKE_MACOSX_RPATH=ON \
+            -DCMAKE_INSTALL_RPATH="@loader_path" \
+            -DUSE_OPENSSL=OFF \
+            -DWITH_OPENSSL=OFF \
+            "${PROJECT_ROOT}/src/auth"
+    fi
 else
     # On Intel hosts, we can use OpenSSL normally
-    USE_OPENSSL="ON"
+    echo -e "${YELLOW}Building natively on Intel Mac${NC}"
+    cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=11 \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
+        -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
+        -DCMAKE_MACOSX_RPATH=ON \
+        -DCMAKE_INSTALL_RPATH="@loader_path" \
+        "${PROJECT_ROOT}/src/auth"
 fi
-
-# Configure CMake with macOS-specific settings
-echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
-
-# Configure CMake
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_STANDARD=11 \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION} \
-    -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
-    -DCMAKE_MACOSX_RPATH=ON \
-    -DCMAKE_INSTALL_RPATH="@loader_path" \
-    -DCMAKE_IGNORE_PATH="/opt/homebrew;/opt/homebrew/lib;/opt/homebrew/include" \
-    -DCMAKE_SYSTEM_IGNORE_PATH="/opt/homebrew;/opt/homebrew/lib;/opt/homebrew/include" \
-    "${PROJECT_ROOT}/src/auth"
 
 # Build the library
 echo -e "${YELLOW}Building library...${NC}"
