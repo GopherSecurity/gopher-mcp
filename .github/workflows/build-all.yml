@@ -212,7 +212,7 @@ jobs:
   # Build universal binary for macOS
   build-macos-universal:
     name: Build macOS Universal Binary
-    runs-on: macos-14
+    runs-on: macos-latest
     needs: build-macos
     
     steps:
