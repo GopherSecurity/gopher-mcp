@@ -24,8 +24,13 @@ on:
         default: true
         type: boolean
 
+permissions:
+  contents: write
+  packages: write
+
 env:
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  LIB_VERSION: ${{ github.event.inputs.version || '0.1.0' }}
 
 jobs:
   # Linux builds (x64 and ARM64)
@@ -58,15 +63,11 @@ jobs:
       
       - name: Configure version
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "Setting version from workflow input: ${{ github.event.inputs.version }}"
-            sed -i "s/VERSION [0-9.]\+/VERSION ${{ github.event.inputs.version }}/" src/auth/CMakeLists.txt
-          else
-            echo "Using version from CMakeLists.txt"
-          fi
+          # Use version from env variable (which comes from input or default)
+          echo "Setting version to: ${{ env.LIB_VERSION }}"
+          sed -i "s/VERSION [0-9.]\+/VERSION ${{ env.LIB_VERSION }}/" src/auth/CMakeLists.txt
           VERSION=$(grep "project(gopher-mcp-auth VERSION" src/auth/CMakeLists.txt | sed -n 's/.*VERSION \([0-9.]\+\).*/\1/p')
           echo "Building with version: $VERSION"
-          echo "LIB_VERSION=$VERSION" >> $GITHUB_ENV
       
       - name: Build library
         run: |
@@ -113,15 +114,11 @@ jobs:
       
       - name: Configure version
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "Setting version from workflow input: ${{ github.event.inputs.version }}"
-            sed -i "s/VERSION [0-9.]\+/VERSION ${{ github.event.inputs.version }}/" src/auth/CMakeLists.txt
-          else
-            echo "Using version from CMakeLists.txt"
-          fi
+          # Use version from env variable (which comes from input or default)
+          echo "Setting version to: ${{ env.LIB_VERSION }}"
+          sed -i "s/VERSION [0-9.]\+/VERSION ${{ env.LIB_VERSION }}/" src/auth/CMakeLists.txt
           VERSION=$(grep "project(gopher-mcp-auth VERSION" src/auth/CMakeLists.txt | sed -n 's/.*VERSION \([0-9.]\+\).*/\1/p')
           echo "Building with version: $VERSION"
-          echo "LIB_VERSION=$VERSION" >> $GITHUB_ENV
       
       - name: Build library
         run: |
@@ -322,12 +319,13 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          # Generate tag based on version and timestamp
+          # Use the LIB_VERSION from the global env
           VERSION="${{ env.LIB_VERSION }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           TAG="v${VERSION}-${TIMESTAMP}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG}"
+          echo "Version for release: ${VERSION}"
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
