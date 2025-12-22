@@ -149,9 +149,9 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: macos-13  # Intel runner (x86_64) - macos-13 is often more available
+            runner: macos-15-intel  # Intel runner (x86_64) - new macOS 15 Intel runner
           - arch: arm64
-            runner: macos-14  # Apple Silicon runner (ARM64)
+            runner: macos-latest  # Apple Silicon runner (ARM64) - macOS 15 ARM64
     
     steps:
       - name: Checkout code
