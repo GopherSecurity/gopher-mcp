@@ -150,13 +150,15 @@ void LibeventDispatcher::initializeLibevent() {
     throw std::runtime_error("Failed to create event base");
   }
 
+#ifndef NDEBUG
   // Debug: Print which backend libevent is using
   const char* method = event_base_get_method(base_);
-  std::cerr << "[DEBUG LIBEVENT] Created event base using backend: "
+  std::cerr << "[LIBEVENT] Created event base using backend: "
             << (method ? method : "unknown") << std::endl;
+#endif
 
   // Create pipe for waking up the event loop
-  // TODO We can keep evutil_socketpair as platformm independent code 
+  // TODO We can keep evutil_socketpair as platformm independent code
   // and remove pipe later
 #ifdef _WIN32
   // On Windows, use evutil_socketpair which emulates Unix socketpair
@@ -177,12 +179,12 @@ void LibeventDispatcher::initializeLibevent() {
   evutil_make_socket_nonblocking(static_cast<evutil_socket_t>(wakeup_fd_[0]));
   evutil_make_socket_nonblocking(static_cast<evutil_socket_t>(wakeup_fd_[1]));
 
-  // Create wakeup event
   // Cast callback to match libevent's expected signature (evutil_socket_t is intptr_t)
   wakeup_event_ = event_new(base_, static_cast<evutil_socket_t>(wakeup_fd_[0]),
                             EV_READ | EV_PERSIST,
                             reinterpret_cast<event_callback_fn>(&LibeventDispatcher::postWakeupCallback),
                             this);
+
   if (!wakeup_event_) {
     throw std::runtime_error("Failed to create wakeup event");
   }
@@ -254,12 +256,16 @@ FileEventPtr LibeventDispatcher::createFileEvent(os_fd_t fd,
                                                  FileReadyCb cb,
                                                  FileTriggerType trigger,
                                                  uint32_t events) {
-  std::cerr << "[DEBUG LIBEVENT] createFileEvent: fd=" << fd
-            << " events=" << events
-            << " trigger=" << static_cast<int>(trigger) << std::endl;
   assert(thread_id_ == std::thread::id() || isThreadSafe());
-  return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger,
-                                         events);
+
+#ifndef NDEBUG
+  const char* trigger_str = (trigger == FileTriggerType::Level) ? "Level" :
+                            (trigger == FileTriggerType::Edge) ? "Edge" : "EmulatedEdge";
+  std::cerr << "[LIBEVENT] createFileEvent: fd=" << fd
+            << " events=" << events << " trigger=" << trigger_str << std::endl;
+#endif
+
+  return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger, events);
 }
 
 TimerPtr LibeventDispatcher::createTimer(TimerCb cb) {
@@ -315,9 +321,6 @@ SignalEventPtr LibeventDispatcher::listenForSignal(int signal_num,
 }
 
 void LibeventDispatcher::run(RunType type) {
-  std::cerr << "[DEBUG LIBEVENT] run() called with type=" << static_cast<int>(type)
-            << " base_ptr=" << (void*)base_ << std::endl;
-
   // Reset exit flag to allow dispatcher reuse
   exit_requested_ = false;
   thread_id_ = std::this_thread::get_id();
@@ -328,45 +331,31 @@ void LibeventDispatcher::run(RunType type) {
   int flags = 0;
   switch (type) {
     case RunType::Block:
-      std::cerr << "[DEBUG LIBEVENT] Using Block mode" << std::endl;
       // Run until no more events
       break;
     case RunType::NonBlock:
       flags = EVLOOP_NONBLOCK;
       break;
     case RunType::RunUntilExit:
-      std::cerr << "[DEBUG LIBEVENT] Entering RunUntilExit loop" << std::endl;
       while (!exit_requested_) {
         updateApproximateMonotonicTime();
-        int loop_result = event_base_loop(base_, EVLOOP_ONCE);
-        std::cerr << "[DEBUG LIBEVENT] event_base_loop returned: " << loop_result
-                  << " exit_requested=" << exit_requested_ << std::endl;
+        event_base_loop(base_, EVLOOP_ONCE);
         runPostCallbacks();
       }
       return;
   }
 
   updateApproximateMonotonicTime();
-  int num_events = event_base_get_num_events(base_, EVENT_BASE_COUNT_ADDED);
-  std::cerr << "[DEBUG LIBEVENT] Calling event_base_loop with flags=" << flags
-            << " num_events=" << num_events << std::endl;
-  std::cerr.flush();
-
-#ifdef _WIN32
-  // On Windows, try dispatch() for blocking mode - might handle sockets better
-  int result;
-  if (flags == 0) {
-    std::cerr << "[DEBUG LIBEVENT] Using event_base_dispatch() for Windows" << std::endl;
-    std::cerr.flush();
-    result = event_base_dispatch(base_);
-  } else {
-    result = event_base_loop(base_, flags);
-  }
-#else
   int result = event_base_loop(base_, flags);
+
+#ifndef NDEBUG
+  if (result == 1) {
+    std::cerr << "[LIBEVENT] Warning: event_base_loop returned 1 (no events)" << std::endl;
+  } else if (result == -1) {
+    std::cerr << "[LIBEVENT] Error: event_base_loop returned -1" << std::endl;
+  }
 #endif
-  std::cerr << "[DEBUG LIBEVENT] event loop returned: " << result << std::endl;
-  std::cerr.flush();
+
   runPostCallbacks();
 }
 
@@ -513,10 +502,6 @@ LibeventDispatcher::FileEventImpl::FileEventImpl(LibeventDispatcher& dispatcher,
     throw std::runtime_error("Failed to create file event");
   }
 
-  std::cerr << "[DEBUG LIBEVENT] FileEventImpl created: fd=" << fd_
-            << " event_ptr=" << (void*)event_
-            << " base_ptr=" << (void*)dispatcher_.base() << std::endl;
-
   if (trigger_ == FileTriggerType::EmulatedEdge) {
     // Create activation callback for emulated edge support
     activation_cb_ = std::make_unique<SchedulableCallbackImpl>(
@@ -602,75 +587,40 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
   // On Windows, we create events fresh each time with the proper flags.
   // This is because Windows select() requires the socket to be properly
   // registered when the event is created, not reassigned later.
-  // Free old event if it exists (from previous assignEvents call)
   if (event_) {
     event_del(event_);
     event_free(event_);
-    std::cerr << "[DEBUG LIBEVENT] Windows: freed old event" << std::endl;
   }
 
-  // Debug: Use a simple C callback wrapper to test if the issue is with our callback
-  // Store 'this' in a static map since we'll pass nullptr to event_new to test
-  static std::unordered_map<evutil_socket_t, FileEventImpl*> fd_to_impl;
-  fd_to_impl[fd_] = this;
-
-  static auto debug_callback = [](evutil_socket_t fd, short what, void* arg) {
-    std::cerr << "[DEBUG LIBEVENT] *** C CALLBACK WRAPPER FIRED! fd=" << fd
-              << " what=" << what << " arg=" << arg << " ***" << std::endl;
-    std::cerr.flush();
-    // Look up the real impl from our map
-    auto it = fd_to_impl.find(fd);
-    if (it != fd_to_impl.end()) {
-      FileEventImpl::eventCallback(fd, what, it->second);
-    }
-  };
-
-  // Create new event with proper flags from the start
-  // TEST: Pass nullptr like the working direct test socket
+  // Create new event with proper callback and arg
   event_ = event_new(dispatcher_.base(), fd_, libevent_events,
-                     debug_callback, nullptr);
+                     &FileEventImpl::eventCallback, this);
+
   if (!event_) {
-    std::cerr << "[DEBUG LIBEVENT] ERROR: event_new failed in assignEvents!" << std::endl;
+#ifndef NDEBUG
+    std::cerr << "[LIBEVENT] Error: event_new() returned NULL for fd=" << fd_ << std::endl;
+#endif
     return;
   }
+
   int add_result = event_add(event_, nullptr);
-
-  std::cerr << "[DEBUG LIBEVENT] Windows: created event with flags, fd=" << fd_
-            << " libevent_events=" << libevent_events
-            << " event_ptr=" << (void*)event_
-            << " base_ptr=" << (void*)dispatcher_.base()
-            << " callback=" << (void*)+debug_callback
-            << " this=" << (void*)this
-            << " add_result=" << add_result << std::endl;
-
-  short pending = event_pending(event_, EV_READ | EV_WRITE | EV_TIMEOUT, nullptr);
-  std::cerr << "[DEBUG LIBEVENT] Windows: event_pending="
-            << pending << " event_fd=" << event_get_fd(event_)
-            << " event_events=" << event_get_events(event_) << std::endl;
-
-  static bool dumped_events = false;
-  if (!dumped_events) {
-    std::cerr << "[DEBUG LIBEVENT] Dumping event_base events once for debugging"
-              << std::endl;
-    event_base_dump_events(dispatcher_.base(), stderr);
-    dumped_events = true;
+#ifndef NDEBUG
+  if (add_result != 0) {
+    std::cerr << "[LIBEVENT] Error: event_add() failed for fd=" << fd_ << std::endl;
   }
+#else
+  (void)add_result;
+#endif
 #else
   event_assign(event_, dispatcher_.base(), fd_, libevent_events,
                &FileEventImpl::eventCallback, this);
-  int add_result = event_add(event_, nullptr);
-  std::cerr << "[DEBUG LIBEVENT] event_add called: fd=" << fd_
-            << " libevent_events=" << libevent_events
-            << " result=" << add_result << std::endl;
+  event_add(event_, nullptr);
 #endif
 }
 
 void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
                                                       short events,
                                                       void* arg) {
-  std::cerr << "[DEBUG LIBEVENT] eventCallback fired: fd=" << fd
-            << " events=" << events << std::endl;
-
   auto* file_event = static_cast<FileEventImpl*>(arg);
 
   // Update approximate time before callback
@@ -701,6 +651,7 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
 
   // Touch watchdog after callback
   file_event->dispatcher_.touchWatchdog();
+  (void)fd;  // Suppress unused parameter warning
 }
 
 void LibeventDispatcher::FileEventImpl::mergeInjectedEventsAndRunCb(
