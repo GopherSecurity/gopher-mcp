@@ -30,7 +30,7 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
     // Close write FD if still open
     if (write_fd_ >= 0) {
 #ifdef _WIN32
-      closesocket(write_fd_);
+      _close(write_fd_);  // CRT close for pipe fds created with _pipe()
 #else
       ::close(write_fd_);
 #endif
@@ -53,8 +53,9 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
     size_t total_written = 0;
     for (size_t i = 0; i < num_slices; ++i) {
 #ifdef _WIN32
-      int result = send(write_fd_, static_cast<const char*>(slices[i].mem_),
-                        static_cast<int>(slices[i].len_), 0);
+      // Use CRT _write for pipes created with _pipe()
+      int result = _write(write_fd_, slices[i].mem_,
+                          static_cast<unsigned int>(slices[i].len_));
 #else
       ssize_t result = ::write(write_fd_, slices[i].mem_, slices[i].len_);
 #endif
@@ -65,16 +66,7 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
           break;
         }
       } else {
-#ifdef _WIN32
-        int err = WSAGetLastError();
-        if (total_written > 0) {
-          return network::IoCallResult::success(total_written);
-        }
-        if (err == WSAEWOULDBLOCK) {
-          return network::IoCallResult::error(EAGAIN);
-        }
-        return network::IoCallResult::error(err);
-#else
+        // CRT pipes use errno on all platforms
         int err = errno;
         if (total_written > 0) {
           // Return what we've written so far
@@ -82,11 +74,9 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
         }
         if (err == EAGAIN || err == EWOULDBLOCK) {
           // Would block - this is normal for non-blocking pipes
-          // The caller will check wouldBlock() on the result
-          return network::IoCallResult::error(err);
+          return network::IoCallResult::error(EAGAIN);
         }
         return network::IoCallResult::error(err);
-#endif
       }
     }
     return network::IoCallResult::success(total_written);
@@ -97,7 +87,7 @@ class PipeIoHandle : public network::IoSocketHandleImpl {
     // Close write FD first
     if (write_fd_ >= 0) {
 #ifdef _WIN32
-      closesocket(write_fd_);
+      _close(write_fd_);  // CRT close for pipe fds created with _pipe()
 #else
       ::close(write_fd_);
 #endif
