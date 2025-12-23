@@ -131,13 +131,13 @@ struct LoggingLevel {
     return nullopt;
   }
 
-  // Restore macros if they were defined before
+  // Clean up saved macros (do NOT restore - breaks FilterEventSeverity::ERROR)
 #ifdef MCP_SAVED_DEBUG
-#define DEBUG MCP_SAVED_DEBUG
+// #define DEBUG MCP_SAVED_DEBUG  // DISABLED - breaks FilterEventSeverity
 #undef MCP_SAVED_DEBUG
 #endif
 #ifdef MCP_SAVED_ERROR
-#define ERROR MCP_SAVED_ERROR
+// #define ERROR MCP_SAVED_ERROR  // DISABLED - breaks FilterEventSeverity
 #undef MCP_SAVED_ERROR
 #endif
 };
