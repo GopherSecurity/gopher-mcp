@@ -12,18 +12,20 @@
 struct event_base;
 struct event;
 
-// Include libevent util header for evutil_socket_t
-#include <event2/util.h>
-
 namespace mcp {
 namespace event {
 
 // Rename to avoid conflict with struct event
 using libevent_event = struct event;
 
-// Use libevent's socket type directly to ensure callback signature
-// compatibility
+// Use libevent's socket type for callback signature compatibility.
+// On Windows, libevent uses intptr_t (SOCKET), on POSIX it uses int.
+#ifdef _WIN32
+#include <event2/util.h>
 using libevent_socket_t = evutil_socket_t;
+#else
+using libevent_socket_t = int;
+#endif
 
 /**
  * @brief Libevent-based implementation of the Dispatcher interface
