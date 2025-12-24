@@ -904,7 +904,8 @@ class ErrorManager {
   class ErrorScope {
    public:
     ErrorScope() { ClearError(); }
-    ~ErrorScope() { /* Error persists after scope */ }
+    ~ErrorScope() { /* Error persists after scope */
+    }
   };
 
  private:
