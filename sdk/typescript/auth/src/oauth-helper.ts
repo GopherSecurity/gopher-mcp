@@ -5,19 +5,19 @@
  * Provides OAuth functionality without framework dependency
  */
 
-import { McpAuthClient } from './mcp-auth-api';
+import { McpAuthClient } from './mcp-auth-api.js';
 import type { 
   AuthClientConfig, 
   ValidationOptions, 
   TokenPayload
-} from './auth-types';
+} from './auth-types.js';
 import { 
   extractSessionId, 
   getTokenFromSession, 
   storeTokenInSession, 
   setSessionCookie,
   generateSessionId 
-} from './session-manager';
+} from './session-manager.js';
 
 /**
  * OAuth configuration options

@@ -722,5 +722,5 @@ export function isAuthAvailable(): boolean {
 }
 
 // Re-export types for convenience
-export type { ValidationResult, TokenPayload, AuthClientConfig, ValidationOptions } from './auth-types';
-export { AuthErrorCode } from './auth-types';
+export type { ValidationResult, TokenPayload, AuthClientConfig, ValidationOptions } from './auth-types.js';
+export { AuthErrorCode } from './auth-types.js';

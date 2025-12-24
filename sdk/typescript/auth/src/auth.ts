@@ -7,7 +7,7 @@
  */
 
 // Export all authentication types
-export * from './auth-types';
+export * from './auth-types.js';
 
 // Export high-level API
 export {
@@ -16,7 +16,7 @@ export {
   validateToken,
   extractTokenPayload,
   isAuthAvailable
-} from './mcp-auth-api';
+} from './mcp-auth-api.js';
 
 // Export OAuth helper (framework-agnostic)
 export {
@@ -24,7 +24,7 @@ export {
   type OAuthConfig,
   type TokenValidationOptions,
   type AuthResult
-} from './oauth-helper';
+} from './oauth-helper.js';
 
 
 // Export FFI bindings for advanced users
@@ -32,7 +32,7 @@ export {
   getAuthFFI,
   hasAuthSupport,
   AuthErrorCodes
-} from './mcp-auth-ffi-bindings';
+} from './mcp-auth-ffi-bindings.js';
 
 // Export utility functions
 export function errorCodeToString(code: number): string {

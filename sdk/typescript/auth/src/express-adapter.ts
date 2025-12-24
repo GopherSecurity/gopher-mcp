@@ -16,11 +16,11 @@ import {
   EnhancedSessionManager, 
   initializeEnhancedSessionManager,
   getEnhancedSessionManager 
-} from './session-manager';
-import { initializeKeycloakAdmin } from './keycloak-admin';
+} from './session-manager.js';
+import { initializeKeycloakAdmin } from './keycloak-admin.js';
 
 // Store dynamic client credentials for token exchange
-const dynamicClientStore = new Map<string, { client_secret: string; timestamp: number }>();
+const dynamicClientStore = new Map<string, { client_secret: string; timestamp: number; mappedTo?: string }>();
 
 export interface ExpressOAuthConfig {
   oauth: OAuthHelper;
@@ -541,13 +541,13 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       
       // Rewrite token_endpoint to point to our proxy (required for CORS)
       if (metadata.token_endpoint) {
-        metadata.token_endpoint = `${serverUrl}/oauth/token`;
+        metadata.token_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;
         console.log(`🔧 Rewrote token_endpoint to: ${metadata.token_endpoint}`);
       }
       
       // Rewrite authorization_endpoint to point to our proxy
       if (metadata.authorization_endpoint) {
-        metadata.authorization_endpoint = `${serverUrl}/oauth/authorize`;
+        metadata.authorization_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth`;
         console.log(`🔧 Rewrote authorization_endpoint to: ${metadata.authorization_endpoint}`);
       }
       
@@ -840,17 +840,94 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
     next();
   });
 
-  // Authorization endpoint (redirect to Keycloak)
-  router.get('/authorize', (req, res) => {
+  // Authorization endpoint with auto-registration for unknown clients
+  router.get('/authorize', async (req, res) => {
     // Ensure client_id is present
     const queryParams = { ...req.query } as Record<string, string>;
     if (!queryParams.client_id) {
       queryParams.client_id = CLIENT_ID;
     }
     
-    // Log which client is being used for OAuth flow
     const clientId = queryParams.client_id;
+    const redirectUri = queryParams.redirect_uri || '';
+    
     console.log(`[AUTHORIZE] OAuth flow initiated with client: ${clientId}`);
+    console.log(`[AUTHORIZE] Redirect URI: ${redirectUri}`);
+    
+    // Check if this is Claude based on redirect URI
+    const isClaudeRedirect = redirectUri.includes('claude.ai/api/mcp/auth_callback') || 
+                            redirectUri.includes('claude.com/api/mcp/auth_callback');
+    
+    // Check if client exists in our dynamic store
+    const isKnownClient = dynamicClientStore.has(clientId) || clientId === CLIENT_ID;
+    
+    // Auto-register unknown clients from Claude
+    if (!isKnownClient && isClaudeRedirect) {
+      console.log(`🤖 Unknown client ${clientId} from Claude - auto-registering...`);
+      
+      try {
+        const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL;
+        // Extract realm from authServerUrl or use default
+        const realmMatch = authServerUrl ? authServerUrl.match(/\/realms\/([^/]+)/) : null;
+        const realm = realmMatch ? realmMatch[1] : 'gopher-mcp-auth';
+        const keycloakUrl = authServerUrl?.includes('/realms/') 
+          ? `${authServerUrl}/clients-registrations/openid-connect`
+          : `${authServerUrl}/realms/${realm}/clients-registrations/openid-connect`;
+        
+        const registrationRequest = {
+          // Don't include client_id - Keycloak will generate one
+          client_name: `Claude Desktop (${clientId})`,
+          redirect_uris: [
+            'https://claude.ai/api/mcp/auth_callback',
+            'https://claude.com/api/mcp/auth_callback'
+          ],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none', // Public client for Claude
+          scope: queryParams.scope || 'openid profile email'
+        };
+        
+        console.log(`📝 Registering client with redirect URIs:`, registrationRequest.redirect_uris);
+        
+        const response = await fetch(keycloakUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(registrationRequest),
+        });
+        
+        const data = await response.json() as any;
+        
+        if (response.ok && data.client_id) {
+          // Store the registered client
+          dynamicClientStore.set(data.client_id, {
+            client_secret: data.client_secret || '',
+            timestamp: Date.now()
+          });
+          
+          // Also map the requested client_id to the generated one
+          dynamicClientStore.set(clientId, {
+            client_secret: data.client_secret || '',
+            timestamp: Date.now(),
+            mappedTo: data.client_id
+          });
+          
+          console.log(`✅ Auto-registered client: ${data.client_id} (requested: ${clientId})`);
+          
+          // Use the dynamically registered client for authorization
+          // This ensures the redirect_uri is valid
+          queryParams.client_id = data.client_id;
+          console.log(`🔄 Using dynamic client for authorization: ${data.client_id}`);
+        } else {
+          console.log(`⚠️ Registration failed, continuing with original client_id`);
+          console.log(`   Response:`, data);
+        }
+      } catch (error: any) {
+        console.error(`❌ Auto-registration error: ${error.message}`);
+        // Continue with original client_id even if registration fails
+      }
+    }
     
     // For dynamic clients, preserve their redirect_uri exactly as registered
     // Only use default for our pre-configured client
@@ -922,11 +999,46 @@ export function createOAuthRouter(config: ExpressOAuthConfig): Router {
       }
       
       // Build token request
-      const tokenRequest = {
+      let tokenRequest = {
         ...req.body,
         client_id: req.body.client_id || clientIdFromAuth || CLIENT_ID,
         client_secret: req.body.client_secret || clientSecretFromAuth || CLIENT_SECRET,
       };
+      
+      // Handle client mapping for dynamic clients
+      const originalClientId = tokenRequest.client_id;
+      const clientEntry = dynamicClientStore.get(originalClientId);
+      
+      if (tokenRequest.grant_type === 'authorization_code') {
+        // Check if this is the original fake client_id with a mapping
+        if (clientEntry && clientEntry.mappedTo) {
+          // Map the fake client_id to the real dynamic client
+          console.log(`🔄 Mapping client_id: ${originalClientId} -> ${clientEntry.mappedTo}`);
+          tokenRequest.client_id = clientEntry.mappedTo;
+          // Dynamic clients are public, remove any secret
+          delete tokenRequest.client_secret;
+        } else if (dynamicClientStore.has(originalClientId)) {
+          // This is already the dynamic client_id
+          console.log(`🔓 Using dynamic client: ${originalClientId}`);
+          // Dynamic clients are public, remove any secret
+          delete tokenRequest.client_secret;
+        }
+        
+        // Log PKCE parameters if present
+        if (tokenRequest.code_verifier) {
+          console.log(`✅ PKCE code_verifier present for public client`);
+        }
+      } else if (tokenRequest.grant_type === 'refresh_token') {
+        // For refresh tokens, use configured credentials
+        const configuredClientId = process.env.GOPHER_CLIENT_ID || CLIENT_ID;
+        const configuredClientSecret = process.env.GOPHER_CLIENT_SECRET || CLIENT_SECRET;
+        
+        if (configuredClientId && configuredClientSecret) {
+          console.log(`🔐 refresh_token: using configured client ${configuredClientId}`);
+          tokenRequest.client_id = configuredClientId;
+          tokenRequest.client_secret = configuredClientSecret;
+        }
+      }
       
       // Log token request
       const clientId = tokenRequest.client_id;
@@ -1359,14 +1471,14 @@ export function setupMCPOAuth(
       const realmMatch = authServerUrl.match(/\/realms\/([^/]+)/);
       const realm = realmMatch ? realmMatch[1] : 'gopher-mcp-auth';
       
-      // Rewrite token_endpoint to point to our proxy
+      // Rewrite token_endpoint to point to our proxy using realm-based paths
       if (metadata.token_endpoint) {
-        metadata.token_endpoint = `${serverUrl}/oauth/token`;
+        metadata.token_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;
       }
       
-      // Rewrite authorization_endpoint to point to our proxy
+      // Rewrite authorization_endpoint to point to our proxy using realm-based paths
       if (metadata.authorization_endpoint) {
-        metadata.authorization_endpoint = `${serverUrl}/oauth/authorize`;
+        metadata.authorization_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth`;
       }
       
       // Rewrite registration endpoint to point to our proxy
@@ -1417,14 +1529,14 @@ export function setupMCPOAuth(
       const realmMatch = authServerUrl.match(/\/realms\/([^/]+)/);
       const realm = realmMatch ? realmMatch[1] : 'gopher-mcp-auth';
       
-      // Rewrite token_endpoint to point to our proxy
+      // Rewrite token_endpoint to point to our proxy using realm-based paths
       if (metadata.token_endpoint) {
-        metadata.token_endpoint = `${serverUrl}/oauth/token`;
+        metadata.token_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;
       }
       
-      // Rewrite authorization_endpoint to point to our proxy
+      // Rewrite authorization_endpoint to point to our proxy using realm-based paths
       if (metadata.authorization_endpoint) {
-        metadata.authorization_endpoint = `${serverUrl}/oauth/authorize`;
+        metadata.authorization_endpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth`;
       }
       
       // Rewrite registration endpoint to point to our proxy
@@ -1556,6 +1668,196 @@ export function setupMCPOAuth(
     }
   });
 
+  // ================================================================
+  // Token Endpoint Proxy (required for CORS) - Critical for Claude
+  // ================================================================
+  app.post('/realms/:realm/protocol/openid-connect/token', async (req: Request, res: Response) => {
+    try {
+      const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+      const keycloakUrl = `${authServerUrl}/protocol/openid-connect/token`;
+
+      console.log(`🔄 Proxying token request to Keycloak: ${keycloakUrl}`);
+      
+      // Parse the request body
+      let requestParams: Record<string, string>;
+      if (typeof req.body === 'string' && req.body.length > 0) {
+        // Body is already a string (raw body)
+        requestParams = Object.fromEntries(new URLSearchParams(req.body));
+      } else if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+        // Body is an object (parsed by urlencoded middleware)
+        requestParams = req.body as Record<string, string>;
+      } else {
+        // Fallback: body might be empty, return error
+        console.log(`❌ Request body is empty or invalid`);
+        res.status(400).json({ error: 'invalid_request', error_description: 'Empty request body' });
+        return;
+      }
+
+      // Handle client mapping for dynamic clients
+      const originalClientId = requestParams.client_id;
+      const clientEntry = dynamicClientStore.get(originalClientId);
+      
+      if (requestParams.grant_type === 'authorization_code') {
+        // Check if this is the original fake client_id with a mapping
+        if (clientEntry && clientEntry.mappedTo) {
+          // Map the fake client_id to the real dynamic client
+          console.log(`🔄 Mapping client_id: ${originalClientId} -> ${clientEntry.mappedTo}`);
+          requestParams.client_id = clientEntry.mappedTo;
+          // Dynamic clients are public, remove any secret
+          delete requestParams.client_secret;
+        } else if (dynamicClientStore.has(originalClientId)) {
+          // This is already the dynamic client_id
+          console.log(`🔓 Using dynamic client: ${originalClientId}`);
+          // Dynamic clients are public, remove any secret
+          delete requestParams.client_secret;
+        }
+        
+        // Log PKCE parameters if present
+        if (requestParams.code_verifier) {
+          console.log(`✅ PKCE code_verifier present for public client`);
+        }
+      } else if (requestParams.grant_type === 'refresh_token') {
+        // For refresh tokens, use configured credentials
+        const configuredClientId = process.env.GOPHER_CLIENT_ID;
+        const configuredClientSecret = process.env.GOPHER_CLIENT_SECRET;
+        
+        if (configuredClientId && configuredClientSecret) {
+          console.log(`🔐 refresh_token: using configured client ${configuredClientId}`);
+          requestParams.client_id = configuredClientId;
+          requestParams.client_secret = configuredClientSecret;
+        }
+      }
+      
+      // Build the body for Keycloak
+      const bodyToSend = new URLSearchParams(requestParams).toString();
+
+      // Forward the request to Keycloak
+      const response = await fetch(keycloakUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: bodyToSend,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        console.log(`✅ Token exchange successful`);
+      } else {
+        console.log(`❌ Token exchange failed: ${JSON.stringify(data)}`);
+      }
+
+      // Forward the response with same status and CORS headers
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', '*');
+      res.status(response.status).json(data);
+    } catch (error: any) {
+      console.error(`❌ Error proxying token request: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ================================================================
+  // Authorization Endpoint with Auto-Registration - Critical for Claude
+  // ================================================================
+  app.get('/realms/:realm/protocol/openid-connect/auth', async (req: Request, res: Response) => {
+    const queryParams = req.query as Record<string, string>;
+    const clientId = queryParams.client_id;
+    const redirectUri = queryParams.redirect_uri || '';
+    
+    console.log(`[AUTHORIZE-REALM] OAuth flow initiated with client: ${clientId}`);
+    console.log(`[AUTHORIZE-REALM] Redirect URI: ${redirectUri}`);
+    
+    // Check if this is Claude based on redirect URI
+    const isClaudeRedirect = redirectUri.includes('claude.ai/api/mcp/auth_callback') || 
+                            redirectUri.includes('claude.com/api/mcp/auth_callback');
+    
+    // Check if client exists in our dynamic store
+    const isKnownClient = dynamicClientStore.has(clientId) || 
+                         clientId === process.env.GOPHER_CLIENT_ID;
+    
+    // Auto-register unknown clients from Claude
+    if (!isKnownClient && isClaudeRedirect && clientId) {
+      console.log(`🤖 Unknown client ${clientId} from Claude - auto-registering...`);
+      
+      try {
+        const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+        // Extract realm from authServerUrl or use default
+        const realmMatch = authServerUrl ? authServerUrl.match(/\/realms\/([^/]+)/) : null;
+        const realm = realmMatch ? realmMatch[1] : 'gopher-mcp-auth';
+        const keycloakUrl = authServerUrl.includes('/realms/') 
+          ? `${authServerUrl}/clients-registrations/openid-connect`
+          : `${authServerUrl}/realms/${realm}/clients-registrations/openid-connect`;
+        
+        const registrationRequest = {
+          // Don't include client_id - Keycloak will generate one
+          client_name: `Claude Desktop (${clientId})`,
+          redirect_uris: [
+            'https://claude.ai/api/mcp/auth_callback',
+            'https://claude.com/api/mcp/auth_callback'
+          ],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none', // Public client for Claude
+          scope: queryParams.scope || 'openid profile email'
+        };
+        
+        console.log(`📝 Registering client with redirect URIs:`, registrationRequest.redirect_uris);
+        
+        const response = await fetch(keycloakUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(registrationRequest),
+        });
+        
+        const data = await response.json() as any;
+        
+        if (response.ok && data.client_id) {
+          // Store the registered client
+          dynamicClientStore.set(data.client_id, {
+            client_secret: data.client_secret || '',
+            timestamp: Date.now()
+          });
+          
+          // Also map the requested client_id to the generated one
+          dynamicClientStore.set(clientId, {
+            client_secret: data.client_secret || '',
+            timestamp: Date.now(),
+            mappedTo: data.client_id
+          });
+          
+          console.log(`✅ Auto-registered client: ${data.client_id} (requested: ${clientId})`);
+          
+          // Use the dynamically registered client for authorization
+          // This ensures the redirect_uri is valid
+          queryParams.client_id = data.client_id;
+          console.log(`🔄 Using dynamic client for authorization: ${data.client_id}`);
+        } else {
+          console.log(`⚠️ Registration failed, continuing with original client_id`);
+          console.log(`   Response:`, data);
+        }
+      } catch (error: any) {
+        console.error(`❌ Auto-registration error: ${error.message}`);
+        // Continue with original client_id even if registration fails
+      }
+    }
+    
+    // Build the final Keycloak authorization URL
+    const authServerUrl = process.env.GOPHER_AUTH_SERVER_URL || process.env.KEYCLOAK_URL || '';
+    const keycloakAuthUrl = `${authServerUrl}/protocol/openid-connect/auth`;
+    const queryString = new URLSearchParams(queryParams).toString();
+    const redirectUrl = queryString ? `${keycloakAuthUrl}?${queryString}` : keycloakAuthUrl;
+
+    console.log(`🔄 Redirecting authorization request to Keycloak: ${redirectUrl}`);
+
+    // Redirect to Keycloak (this is a user-facing redirect, not a proxy)
+    res.redirect(redirectUrl);
+  });
+
   // MCP endpoint with authentication
   app.all('/mcp', createAuthMiddleware(oauth), mcpHandler);
   
@@ -1597,7 +1899,9 @@ export function setupMCPOAuth(
     '/oauth/idps',
     '/oauth/register',
     '/oauth/callback',
-    '/realms/:realm/clients-registrations/openid-connect'
+    '/realms/:realm/clients-registrations/openid-connect',
+    '/realms/:realm/protocol/openid-connect/token',
+    '/realms/:realm/protocol/openid-connect/auth'
   ], (_req: Request, res: Response) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

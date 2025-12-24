@@ -8,7 +8,7 @@
 
 import type { Request, Response } from 'express';
 import * as crypto from 'crypto';
-import type { McpAuthClient } from './mcp-auth-api';
+import type { McpAuthClient } from './mcp-auth-api.js';
 
 /**
  * Token storage with expiration tracking
