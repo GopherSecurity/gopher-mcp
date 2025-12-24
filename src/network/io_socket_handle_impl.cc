@@ -531,8 +531,8 @@ IoResult<int> IoSocketHandleImpl::bind(
     int local_result = ::getsockname(
         fd_, reinterpret_cast<sockaddr*>(&local_addr), &local_len);
     if (local_result == 0) {
-      auto addr = Address::addressFromSockAddr(local_addr, local_len,
-                                               socket_v6only_);
+      auto addr =
+          Address::addressFromSockAddr(local_addr, local_len, socket_v6only_);
       std::cerr << "[DEBUG SOCKET] bind() local address: "
                 << (addr ? addr->asStringView() : "<unknown>") << std::endl;
     } else {
@@ -870,9 +870,12 @@ void IoSocketHandleImpl::configureInitialCongestionWindow(
 IoHandlePtr IoSocketHandleImpl::duplicate() {
 #ifdef _WIN32
   WSAPROTOCOL_INFO info;
-  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::duplicate() called: fd=" << fd_ << std::endl;
+  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::duplicate() called: fd="
+            << fd_ << std::endl;
   if (::WSADuplicateSocket(fd_, ::GetCurrentProcessId(), &info) == 0) {
-    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()" << std::endl;
+    std::cerr
+        << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()"
+        << std::endl;
     SOCKET new_fd =
         ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                     &info, 0, WSA_FLAG_OVERLAPPED);
@@ -882,10 +885,12 @@ IoHandlePtr IoSocketHandleImpl::duplicate() {
       return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
                                                   domain_);
     } else {
-      std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError=" << WSAGetLastError() << std::endl;
+      std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError="
+                << WSAGetLastError() << std::endl;
     }
   } else {
-    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError=" << WSAGetLastError() << std::endl;
+    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError="
+              << WSAGetLastError() << std::endl;
   }
 #else
   int new_fd = ::dup(fd_);

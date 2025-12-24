@@ -6,26 +6,28 @@
 #include <errno.h>
 
 #ifdef _WIN32
+#include <io.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <io.h>
+
 #include <event2/util.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
+
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #endif
 
+#include "mcp/config/listener_config.h"
+#include "mcp/filter/filter_chain_assembler.h"
+#include "mcp/filter/filter_context.h"
+#include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/server_listener_impl.h"
 #include "mcp/network/socket_impl.h"
 #include "mcp/network/transport_socket.h"
-#include "mcp/config/listener_config.h"
-#include "mcp/filter/filter_chain_assembler.h"
-#include "mcp/filter/filter_context.h"
-#include "mcp/mcp_connection_manager.h"
 #include "mcp/stream_info/stream_info_impl.h"
 
 namespace mcp {
@@ -380,7 +382,8 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
       random_(std::random_device{}()),
       listener_tag_(next_listener_tag_++) {
   if (!config_.transport_socket_factory) {
-    config_.transport_socket_factory = std::make_shared<RawBufferTransportSocketFactory>();
+    config_.transport_socket_factory =
+        std::make_shared<RawBufferTransportSocketFactory>();
   }
 
   // Create socket if not provided
@@ -417,14 +420,18 @@ TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
   }
 }
 
-TcpActiveListener::TcpActiveListener(event::Dispatcher& dispatcher,
-                                     const mcp::config::ListenerConfig& listener_config,
-                                     ListenerCallbacks& parent_cb)
-    : TcpActiveListener(dispatcher, convertListenerConfig(listener_config), parent_cb) {
-  listener_config_ = std::make_unique<mcp::config::ListenerConfig>(listener_config);
+TcpActiveListener::TcpActiveListener(
+    event::Dispatcher& dispatcher,
+    const mcp::config::ListenerConfig& listener_config,
+    ListenerCallbacks& parent_cb)
+    : TcpActiveListener(
+          dispatcher, convertListenerConfig(listener_config), parent_cb) {
+  listener_config_ =
+      std::make_unique<mcp::config::ListenerConfig>(listener_config);
   if (!listener_config_->filter_chains.empty()) {
-    filter_factory_ = std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(
-        listener_config_->filter_chains[0]);
+    filter_factory_ =
+        std::make_unique<mcp::filter::ConfigurableFilterChainFactory>(
+            listener_config_->filter_chains[0]);
   }
 }
 
@@ -463,7 +470,8 @@ void TcpActiveListener::setProtocolCallbacks(McpProtocolCallbacks& callbacks) {
   protocol_callbacks_ = &callbacks;
 }
 
-void TcpActiveListener::configureFilterChain(network::FilterManager& filter_manager) {
+void TcpActiveListener::configureFilterChain(
+    network::FilterManager& filter_manager) {
   if (!filter_factory_) {
     return;
   }

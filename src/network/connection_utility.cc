@@ -5,6 +5,7 @@
 #include <ws2tcpip.h>
 #else
 #include <fcntl.h>
+
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
@@ -21,8 +22,8 @@ void SocketConfigUtility::setSocketOptions(os_fd_t fd) {
 
   // Set TCP_NODELAY to disable Nagle's algorithm
   int flag = 1;
-  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
-             reinterpret_cast<const char*>(&flag), sizeof(flag));
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag),
+             sizeof(flag));
 
   // Enable keep-alive
   int keepalive = 1;
@@ -64,10 +65,10 @@ void SocketConfigUtility::setSocketOptions(os_fd_t fd) {
   // Set socket buffer sizes
   int sndbuf = 256 * 1024;
   int rcvbuf = 256 * 1024;
-  setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
-             reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
-  setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
-             reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
+  setsockopt(fd, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf),
+             sizeof(sndbuf));
+  setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf),
+             sizeof(rcvbuf));
 }
 
 void SocketConfigUtility::configureSocket(Socket& socket,
@@ -117,14 +118,14 @@ void SocketConfigUtility::configureBufferSizes(Socket& socket,
 
   if (receive_buffer_size > 0) {
     int size = receive_buffer_size;
-    setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
-               reinterpret_cast<const char*>(&size), sizeof(size));
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&size),
+               sizeof(size));
   }
 
   if (send_buffer_size > 0) {
     int size = send_buffer_size;
-    setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
-               reinterpret_cast<const char*>(&size), sizeof(size));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&size),
+               sizeof(size));
   }
 }
 

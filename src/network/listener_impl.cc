@@ -6,6 +6,7 @@
 #include <ws2tcpip.h>
 #else
 #include <unistd.h>
+
 #include <sys/socket.h>
 #include <sys/types.h>
 #endif
@@ -104,8 +105,8 @@ ActiveListener::~ActiveListener() { disable(); }
 
 VoidResult ActiveListener::listen() {
   std::cerr << "[DEBUG LISTENER] ActiveListener::listen() called: bind_to_port="
-            << config_.bind_to_port << " address="
-            << config_.address->asStringView() << std::endl;
+            << config_.bind_to_port
+            << " address=" << config_.address->asStringView() << std::endl;
   // Create socket
   if (config_.bind_to_port) {
     // Use the global createListenSocket function
@@ -175,8 +176,8 @@ VoidResult ActiveListener::listen() {
       event::PlatformDefaultTriggerType,  // Use platform-specific default
       static_cast<uint32_t>(event::FileReadyType::Closed));
   std::cerr << "[DEBUG LISTENER] file_event created: "
-            << (file_event_ ? "SUCCESS" : "FAILED") << " fd="
-            << socket_->ioHandle().fd() << std::endl;
+            << (file_event_ ? "SUCCESS" : "FAILED")
+            << " fd=" << socket_->ioHandle().fd() << std::endl;
 
   if (enabled_) {
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));

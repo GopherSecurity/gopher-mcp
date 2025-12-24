@@ -2,8 +2,8 @@
 
 // Platform-specific includes
 #ifdef _WIN32
-#include <winsock2.h>
 #include <io.h>
+#include <winsock2.h>
 #else
 #include <fcntl.h>
 #include <unistd.h>
