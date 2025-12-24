@@ -6,9 +6,9 @@
 #include <mutex>
 
 #ifdef _WIN32
+#include <mswsock.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <mswsock.h>
 #pragma comment(lib, "ws2_32.lib")
 // Define O_NONBLOCK for Windows compatibility
 #ifndef O_NONBLOCK
@@ -126,14 +126,16 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
     Address::Type addr_type,
     optional<Address::IpVersion> version,
     bool socket_v6only) {
-  std::cerr << "[DEBUG SOCKET] socket() requested: type=" << static_cast<int>(type)
-            << " addr_type=" << static_cast<int>(addr_type)
-            << " version=" << (version.has_value() ? static_cast<int>(*version) : -1)
+  std::cerr << "[DEBUG SOCKET] socket() requested: type="
+            << static_cast<int>(type)
+            << " addr_type=" << static_cast<int>(addr_type) << " version="
+            << (version.has_value() ? static_cast<int>(*version) : -1)
             << " v6only=" << socket_v6only << std::endl;
 
   int domain = addressTypeToDomain(addr_type, version);
   if (domain < 0) {
-    std::cerr << "[DEBUG SOCKET] socket() failed: unsupported domain" << std::endl;
+    std::cerr << "[DEBUG SOCKET] socket() failed: unsupported domain"
+              << std::endl;
     return IoResult<os_fd_t>::error(SOCKET_ERROR_AFNOSUPPORT);
   }
 
@@ -150,8 +152,8 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
 
   os_fd_t fd = ::socket(domain, sock_type, 0);
   if (fd == INVALID_SOCKET_FD) {
-    std::cerr << "[DEBUG SOCKET] ::socket() failed: error=" << getLastSocketError()
-              << std::endl;
+    std::cerr << "[DEBUG SOCKET] ::socket() failed: error="
+              << getLastSocketError() << std::endl;
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
   std::cerr << "[DEBUG SOCKET] ::socket() success: fd=" << fd << std::endl;
@@ -160,7 +162,8 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
 #ifndef __linux__
   int nb_result = setNonBlocking(fd);
   if (nb_result != 0) {
-    std::cerr << "[ERROR SOCKET] Failed to set socket non-blocking: fd=" << fd << std::endl;
+    std::cerr << "[ERROR SOCKET] Failed to set socket non-blocking: fd=" << fd
+              << std::endl;
     // Continue anyway - socket may still work
   }
   setCloseOnExec(fd);
@@ -229,20 +232,25 @@ IoResult<os_fd_t> SocketInterfaceImpl::duplicate(os_fd_t fd) {
 #ifdef _WIN32
   // Windows socket duplication is more complex
   WSAPROTOCOL_INFO info;
-  std::cerr << "[DEBUG SOCKET] SocketInterfaceImpl::duplicate() called: fd=" << fd << std::endl;
+  std::cerr << "[DEBUG SOCKET] SocketInterfaceImpl::duplicate() called: fd="
+            << fd << std::endl;
   if (::WSADuplicateSocket(fd, ::GetCurrentProcessId(), &info) != 0) {
-    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError=" << WSAGetLastError() << std::endl;
+    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError="
+              << WSAGetLastError() << std::endl;
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
 
-  std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()" << std::endl;
+  std::cerr
+      << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()"
+      << std::endl;
   os_fd_t new_fd =
       ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                   &info, 0, WSA_FLAG_OVERLAPPED);
   std::cerr << "[DEBUG SOCKET] WSASocket() returned: new_fd=" << new_fd
             << " (INVALID_SOCKET=" << INVALID_SOCKET << ")" << std::endl;
   if (new_fd == INVALID_SOCKET) {
-    std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError=" << WSAGetLastError() << std::endl;
+    std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError="
+              << WSAGetLastError() << std::endl;
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
   return IoResult<os_fd_t>::success(new_fd);
@@ -335,8 +343,8 @@ IoResult<int> SocketInterfaceImpl::bind(os_fd_t fd,
             << " addr=" << addr.asStringView() << std::endl;
   int result = ::bind(fd, addr.sockAddr(), addr.sockAddrLen());
   if (result < 0) {
-    std::cerr << "[DEBUG SOCKET] ::bind() failed: error=" << getLastSocketError()
-              << std::endl;
+    std::cerr << "[DEBUG SOCKET] ::bind() failed: error="
+              << getLastSocketError() << std::endl;
     return IoResult<int>::error(getLastSocketError());
   }
   std::cerr << "[DEBUG SOCKET] ::bind() success" << std::endl;
@@ -363,9 +371,8 @@ IoResult<int> SocketInterfaceImpl::listen(os_fd_t fd, int backlog) {
 
   int accept_conn = 0;
   socklen_t optlen = sizeof(accept_conn);
-  int opt_result =
-      ::getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN,
-                   reinterpret_cast<char*>(&accept_conn), &optlen);
+  int opt_result = ::getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN,
+                                reinterpret_cast<char*>(&accept_conn), &optlen);
   if (opt_result == 0) {
     std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN=" << accept_conn << std::endl;
   } else {
@@ -399,8 +406,8 @@ IoResult<os_fd_t> SocketInterfaceImpl::accept(os_fd_t fd,
     setNonBlocking(new_fd);
     setCloseOnExec(new_fd);
   } else {
-    std::cerr << "[DEBUG SOCKET] accept() failed: error=" << getLastSocketError()
-              << std::endl;
+    std::cerr << "[DEBUG SOCKET] accept() failed: error="
+              << getLastSocketError() << std::endl;
   }
 #endif
 
@@ -560,12 +567,13 @@ int SocketInterfaceImpl::setNonBlocking(os_fd_t fd) {
 #else
   int flags = ::fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
-    std::cerr << "[DEBUG SOCKET] setNonBlocking: fcntl(F_GETFL) failed fd=" << fd
-              << " errno=" << errno << std::endl;
+    std::cerr << "[DEBUG SOCKET] setNonBlocking: fcntl(F_GETFL) failed fd="
+              << fd << " errno=" << errno << std::endl;
     return -1;
   }
   int result = ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-  std::cerr << "[DEBUG SOCKET] setNonBlocking: fd=" << fd << " result=" << result;
+  std::cerr << "[DEBUG SOCKET] setNonBlocking: fd=" << fd
+            << " result=" << result;
   if (result < 0) {
     std::cerr << " errno=" << errno << " FAILED";
   } else {

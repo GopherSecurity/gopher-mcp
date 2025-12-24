@@ -8,9 +8,9 @@
 #include <errno.h>
 
 #ifdef _WIN32
+#include <io.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <io.h>
 // Windows uses SD_SEND instead of SHUT_WR
 #ifndef SHUT_WR
 #define SHUT_WR SD_SEND
@@ -21,6 +21,7 @@
 #endif
 #else
 #include <unistd.h>
+
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #endif
@@ -140,8 +141,7 @@ network::TransportIoResult TcpTransportSocket::doRead(Buffer& buffer) {
 
   // Perform the actual read
   // Note: Windows recv() expects char* buffer, POSIX expects void*
-  ssize_t bytes_read = ::recv(io_handle.fd(),
-                              static_cast<char*>(slice.mem_),
+  ssize_t bytes_read = ::recv(io_handle.fd(), static_cast<char*>(slice.mem_),
                               static_cast<int>(slice.len_), 0);
 
   if (bytes_read > 0) {
@@ -247,7 +247,8 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
     const uint8_t* data = static_cast<const uint8_t*>(slice.mem_);
 
     while (remaining > 0) {
-      // Note: Windows send() expects const char* buffer, POSIX expects const void*
+      // Note: Windows send() expects const char* buffer, POSIX expects const
+      // void*
       ssize_t bytes_written =
           ::send(io_handle.fd(), reinterpret_cast<const char*>(data),
                  static_cast<int>(remaining), MSG_NOSIGNAL);

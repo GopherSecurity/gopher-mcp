@@ -21,7 +21,8 @@ namespace event {
 // Rename to avoid conflict with struct event
 using libevent_event = struct event;
 
-// Use libevent's socket type directly to ensure callback signature compatibility
+// Use libevent's socket type directly to ensure callback signature
+// compatibility
 using libevent_socket_t = evutil_socket_t;
 
 /**

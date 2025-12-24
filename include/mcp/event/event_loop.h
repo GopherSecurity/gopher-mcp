@@ -323,7 +323,8 @@ class Dispatcher : public DispatcherBase {
 
   /**
    * Create a file event that monitors a file descriptor.
-   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, uintptr_t on Windows)
+   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, uintptr_t on
+   * Windows)
    */
   virtual FileEventPtr createFileEvent(os_fd_t fd,
                                        FileReadyCb cb,

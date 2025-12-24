@@ -10,10 +10,14 @@
 
 #ifdef _WIN32
 // memmem is a GNU extension, provide implementation for Windows
-static void* memmem(const void* haystack, size_t haystacklen,
-                    const void* needle, size_t needlelen) {
-  if (needlelen == 0) return const_cast<void*>(haystack);
-  if (haystacklen < needlelen) return nullptr;
+static void* memmem(const void* haystack,
+                    size_t haystacklen,
+                    const void* needle,
+                    size_t needlelen) {
+  if (needlelen == 0)
+    return const_cast<void*>(haystack);
+  if (haystacklen < needlelen)
+    return nullptr;
 
   const char* h = static_cast<const char*>(haystack);
   const char* n = static_cast<const char*>(needle);

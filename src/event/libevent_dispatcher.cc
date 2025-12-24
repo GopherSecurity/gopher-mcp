@@ -162,7 +162,8 @@ void LibeventDispatcher::initializeLibevent() {
   // and remove pipe later
 #ifdef _WIN32
   // On Windows, use evutil_socketpair which emulates Unix socketpair
-  // evutil_socketpair expects evutil_socket_t* (intptr_t*), cast from our SOCKET type
+  // evutil_socketpair expects evutil_socket_t* (intptr_t*), cast from our
+  // SOCKET type
   evutil_socket_t temp_fds[2];
   if (evutil_socketpair(AF_INET, SOCK_STREAM, 0, temp_fds) != 0) {
     throw std::runtime_error("Failed to create wakeup pipe");
@@ -179,10 +180,12 @@ void LibeventDispatcher::initializeLibevent() {
   evutil_make_socket_nonblocking(static_cast<evutil_socket_t>(wakeup_fd_[0]));
   evutil_make_socket_nonblocking(static_cast<evutil_socket_t>(wakeup_fd_[1]));
 
-  // Cast callback to match libevent's expected signature (evutil_socket_t is intptr_t)
+  // Cast callback to match libevent's expected signature (evutil_socket_t is
+  // intptr_t)
   wakeup_event_ = event_new(base_, static_cast<evutil_socket_t>(wakeup_fd_[0]),
                             EV_READ | EV_PERSIST,
-                            reinterpret_cast<event_callback_fn>(&LibeventDispatcher::postWakeupCallback),
+                            reinterpret_cast<event_callback_fn>(
+                                &LibeventDispatcher::postWakeupCallback),
                             this);
 
   if (!wakeup_event_) {
@@ -259,13 +262,16 @@ FileEventPtr LibeventDispatcher::createFileEvent(os_fd_t fd,
   assert(thread_id_ == std::thread::id() || isThreadSafe());
 
 #ifndef NDEBUG
-  const char* trigger_str = (trigger == FileTriggerType::Level) ? "Level" :
-                            (trigger == FileTriggerType::Edge) ? "Edge" : "EmulatedEdge";
-  std::cerr << "[LIBEVENT] createFileEvent: fd=" << fd
-            << " events=" << events << " trigger=" << trigger_str << std::endl;
+  const char* trigger_str = (trigger == FileTriggerType::Level) ? "Level"
+                            : (trigger == FileTriggerType::Edge)
+                                ? "Edge"
+                                : "EmulatedEdge";
+  std::cerr << "[LIBEVENT] createFileEvent: fd=" << fd << " events=" << events
+            << " trigger=" << trigger_str << std::endl;
 #endif
 
-  return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger, events);
+  return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger,
+                                         events);
 }
 
 TimerPtr LibeventDispatcher::createTimer(TimerCb cb) {
@@ -350,7 +356,8 @@ void LibeventDispatcher::run(RunType type) {
 
 #ifndef NDEBUG
   if (result == 1) {
-    std::cerr << "[LIBEVENT] Warning: event_base_loop returned 1 (no events)" << std::endl;
+    std::cerr << "[LIBEVENT] Warning: event_base_loop returned 1 (no events)"
+              << std::endl;
   } else if (result == -1) {
     std::cerr << "[LIBEVENT] Error: event_base_loop returned -1" << std::endl;
   }
@@ -598,7 +605,8 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
 
   if (!event_) {
 #ifndef NDEBUG
-    std::cerr << "[LIBEVENT] Error: event_new() returned NULL for fd=" << fd_ << std::endl;
+    std::cerr << "[LIBEVENT] Error: event_new() returned NULL for fd=" << fd_
+              << std::endl;
 #endif
     return;
   }
@@ -606,7 +614,8 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
   int add_result = event_add(event_, nullptr);
 #ifndef NDEBUG
   if (add_result != 0) {
-    std::cerr << "[LIBEVENT] Error: event_add() failed for fd=" << fd_ << std::endl;
+    std::cerr << "[LIBEVENT] Error: event_add() failed for fd=" << fd_
+              << std::endl;
   }
 #else
   (void)add_result;
@@ -691,9 +700,9 @@ void LibeventDispatcher::FileEventImpl::registerEventIfEmulatedEdge(
 LibeventDispatcher::TimerImpl::TimerImpl(LibeventDispatcher& dispatcher,
                                          TimerCb cb)
     : dispatcher_(dispatcher), cb_(std::move(cb)), enabled_(false) {
-  event_ = evtimer_new(dispatcher_.base(),
-                       reinterpret_cast<event_callback_fn>(&TimerImpl::timerCallback),
-                       this);
+  event_ = evtimer_new(
+      dispatcher_.base(),
+      reinterpret_cast<event_callback_fn>(&TimerImpl::timerCallback), this);
   if (!event_) {
     throw std::runtime_error("Failed to create timer");
   }
@@ -809,9 +818,10 @@ bool LibeventDispatcher::SchedulableCallbackImpl::enabled() {
 LibeventDispatcher::SignalEventImpl::SignalEventImpl(
     LibeventDispatcher& dispatcher, int signal_num, SignalCb cb)
     : dispatcher_(dispatcher), signal_num_(signal_num), cb_(std::move(cb)) {
-  event_ = evsignal_new(dispatcher_.base(), signal_num_,
-                        reinterpret_cast<event_callback_fn>(&SignalEventImpl::signalCallback),
-                        this);
+  event_ = evsignal_new(
+      dispatcher_.base(), signal_num_,
+      reinterpret_cast<event_callback_fn>(&SignalEventImpl::signalCallback),
+      this);
   if (!event_) {
     throw std::runtime_error("Failed to create signal event");
   }
@@ -826,9 +836,8 @@ LibeventDispatcher::SignalEventImpl::~SignalEventImpl() {
   }
 }
 
-void LibeventDispatcher::SignalEventImpl::signalCallback(libevent_socket_t /*fd*/,
-                                                         short /*events*/,
-                                                         void* arg) {
+void LibeventDispatcher::SignalEventImpl::signalCallback(
+    libevent_socket_t /*fd*/, short /*events*/, void* arg) {
   auto* signal_event = static_cast<SignalEventImpl*>(arg);
 
   // Update approximate time before callback

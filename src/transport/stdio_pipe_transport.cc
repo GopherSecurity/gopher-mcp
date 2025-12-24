@@ -6,12 +6,13 @@
 #include <vector>
 
 #ifdef _WIN32
-#include <winsock2.h>
-#include <windows.h>
-#include <io.h>
 #include <fcntl.h>
+#include <io.h>
+#include <windows.h>
+#include <winsock2.h>
 // Windows pipe/file operations
-// Note: Using pipe_close instead of close to avoid conflict with TransportIoResult::close()
+// Note: Using pipe_close instead of close to avoid conflict with
+// TransportIoResult::close()
 #define pipe(fds) _pipe(fds, 4096, _O_BINARY)
 #define pipe_close(fd) _close(fd)
 #define pipe_read(fd, buf, len) _read(fd, buf, static_cast<unsigned int>(len))
@@ -31,8 +32,9 @@
 #endif
 #else
 #include <fcntl.h>
-#include <sys/select.h>
 #include <unistd.h>
+
+#include <sys/select.h>
 // Unix: use standard functions directly
 #define pipe_close(fd) ::close(fd)
 #define pipe_read(fd, buf, len) ::read(fd, buf, len)
@@ -420,7 +422,8 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
 
     // Data might be available, try to read
     // Use CRT _read for consistency with _pipe
-    int bytes_read = pipe_read(stdin_fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
+    int bytes_read = pipe_read(stdin_fd, buffer.data(),
+                               static_cast<unsigned int>(buffer.size()));
 
     if (bytes_read > 0) {
       // Write all data to the pipe
@@ -462,7 +465,8 @@ void StdioPipeTransport::bridgeStdinToPipe(int stdin_fd,
 #else
   // Unix version: Use select() with timeout
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining responsive
+    // Use select() with 100ms timeout to wait for data while remaining
+    // responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(stdin_fd, &readfds);
@@ -558,7 +562,8 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
     // Try to read from pipe (may block briefly)
     // On Windows, _read on pipes will block if no data is available
     // We use smaller reads with Sleep to remain responsive
-    int bytes_read = pipe_read(read_pipe_fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
+    int bytes_read = pipe_read(read_pipe_fd, buffer.data(),
+                               static_cast<unsigned int>(buffer.size()));
 
     if (bytes_read > 0) {
       // Write all data to stdout
@@ -607,7 +612,8 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
 #else
   // Unix version: Use select() with timeout
   while (*running) {
-    // Use select() with 100ms timeout to wait for data while remaining responsive
+    // Use select() with 100ms timeout to wait for data while remaining
+    // responsive
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(read_pipe_fd, &readfds);
@@ -616,7 +622,8 @@ void StdioPipeTransport::bridgePipeToStdout(int read_pipe_fd,
     tv.tv_sec = 0;
     tv.tv_usec = 100000;  // 100ms timeout
 
-    int select_result = select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
+    int select_result =
+        select(read_pipe_fd + 1, &readfds, nullptr, nullptr, &tv);
 
     if (select_result < 0) {
       // select() error

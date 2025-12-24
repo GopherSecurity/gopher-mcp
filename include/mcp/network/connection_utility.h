@@ -15,7 +15,8 @@ class SocketConfigUtility {
  public:
   /**
    * Set socket options optimized for performance (simple interface)
-   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, SOCKET on Windows)
+   * @param fd Platform-specific socket/fd (os_fd_t: int on Unix, SOCKET on
+   * Windows)
    */
   static void setSocketOptions(os_fd_t fd);
 
