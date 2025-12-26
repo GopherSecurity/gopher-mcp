@@ -210,8 +210,22 @@ void LibeventDispatcher::post(PostCb callback) {
     post_callbacks_.push(std::move(callback));
   }
 
-  if (need_wakeup && !isThreadSafe()) {
-    // Wake up the event loop
+#ifndef NDEBUG
+  bool is_thread_safe = isThreadSafe();
+  std::cerr << "[LIBEVENT] post(): need_wakeup=" << need_wakeup
+            << " isThreadSafe=" << is_thread_safe
+            << " thread=" << std::this_thread::get_id()
+            << " dispatcher_thread=" << thread_id_ << std::endl;
+#endif
+
+  if (need_wakeup) {
+    // Wake up the event loop - the queue was empty, so the event loop
+    // may be blocked waiting for events. We need to wake it up even if
+    // we're on the dispatcher thread, because event_base_loop() in Block
+    // mode won't return to check post_callbacks_ until an event fires.
+#ifndef NDEBUG
+    std::cerr << "[LIBEVENT] post(): waking up event loop" << std::endl;
+#endif
     char byte = 1;
 #ifdef _WIN32
     int rc = send(wakeup_fd_[1], &byte, 1, 0);
@@ -331,6 +345,14 @@ void LibeventDispatcher::run(RunType type) {
   exit_requested_ = false;
   thread_id_ = std::this_thread::get_id();
 
+#ifndef NDEBUG
+  const char* type_str = (type == RunType::Block)       ? "Block"
+                         : (type == RunType::NonBlock)  ? "NonBlock"
+                         : (type == RunType::RunUntilExit) ? "RunUntilExit"
+                         : "Unknown";
+  std::cerr << "[LIBEVENT] run(): starting, type=" << type_str << std::endl;
+#endif
+
   // Run any pending post callbacks before starting
   runPostCallbacks();
 
@@ -348,6 +370,9 @@ void LibeventDispatcher::run(RunType type) {
         event_base_loop(base_, EVLOOP_ONCE);
         runPostCallbacks();
       }
+#ifndef NDEBUG
+      std::cerr << "[LIBEVENT] run(): RunUntilExit loop ended" << std::endl;
+#endif
       return;
   }
 
@@ -355,6 +380,8 @@ void LibeventDispatcher::run(RunType type) {
   int result = event_base_loop(base_, flags);
 
 #ifndef NDEBUG
+  std::cerr << "[LIBEVENT] run(): event_base_loop returned " << result
+            << " (type=" << type_str << ")" << std::endl;
   if (result == 1) {
     std::cerr << "[LIBEVENT] Warning: event_base_loop returned 1 (no events)"
               << std::endl;
@@ -423,6 +450,10 @@ void LibeventDispatcher::postWakeupCallback(libevent_socket_t fd,
                                             void* arg) {
   auto* dispatcher = static_cast<LibeventDispatcher*>(arg);
 
+#ifndef NDEBUG
+  std::cerr << "[LIBEVENT] postWakeupCallback: entering" << std::endl;
+#endif
+
   // Drain the pipe
   char buffer[256];
 #ifdef _WIN32
@@ -434,6 +465,14 @@ void LibeventDispatcher::postWakeupCallback(libevent_socket_t fd,
   }
 
   dispatcher->runPostCallbacks();
+
+#ifndef NDEBUG
+  std::cerr << "[LIBEVENT] postWakeupCallback: returning, active events="
+            << event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ACTIVE)
+            << " added="
+            << event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ADDED)
+            << std::endl << std::flush;
+#endif
 }
 
 void LibeventDispatcher::runPostCallbacks() {
@@ -442,6 +481,13 @@ void LibeventDispatcher::runPostCallbacks() {
     std::lock_guard<std::mutex> lock(post_mutex_);
     callbacks.swap(post_callbacks_);
   }
+
+#ifndef NDEBUG
+  if (!callbacks.empty()) {
+    std::cerr << "[LIBEVENT] runPostCallbacks(): running " << callbacks.size()
+              << " callbacks" << std::endl;
+  }
+#endif
 
   while (!callbacks.empty()) {
     callbacks.front()();
@@ -545,9 +591,16 @@ void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
 }
 
 void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
+#ifndef NDEBUG
+  std::cerr << "[LIBEVENT] setEnabled: fd=" << fd_ << " events=" << events
+            << " (prev=" << enabled_events_ << ")" << std::endl;
+#endif
   // For edge-triggered, always update even if mask unchanged
   // This forces re-computation of readable/writable state
   if (trigger_ != FileTriggerType::Edge && enabled_events_ == events) {
+#ifndef NDEBUG
+    std::cerr << "[LIBEVENT] setEnabled: skipping (no change)" << std::endl;
+#endif
     return;
   }
   enabled_events_ = events;
@@ -623,7 +676,12 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
 #else
   event_assign(event_, dispatcher_.base(), fd_, libevent_events,
                &FileEventImpl::eventCallback, this);
-  event_add(event_, nullptr);
+  int add_result = event_add(event_, nullptr);
+#ifndef NDEBUG
+  std::cerr << "[LIBEVENT] assignEvents: fd=" << fd_
+            << " libevent_events=0x" << std::hex << libevent_events << std::dec
+            << " event_add=" << add_result << std::endl;
+#endif
 #endif
 }
 
@@ -631,6 +689,12 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
                                                       short events,
                                                       void* arg) {
   auto* file_event = static_cast<FileEventImpl*>(arg);
+
+#ifndef NDEBUG
+  std::cerr << "[LIBEVENT] eventCallback: fd=" << fd << " events=0x"
+            << std::hex << events << std::dec
+            << " enabled=" << file_event->enabled_events_ << std::endl;
+#endif
 
   // Update approximate time before callback
   file_event->dispatcher_.updateApproximateMonotonicTime();
