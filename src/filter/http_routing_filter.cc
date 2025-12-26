@@ -49,9 +49,20 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 void HttpRoutingFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
   std::cerr << "[DEBUG] HttpRoutingFilter::onHeaders called with "
-            << headers.size() << " headers" << std::endl;
+            << headers.size() << " headers, is_server=" << is_server_
+            << std::endl;
 
-  // Stateless processing - make routing decision immediately
+  // In client mode, we're receiving responses, not requests - skip routing
+  if (!is_server_) {
+    std::cerr << "[DEBUG] HttpRoutingFilter: client mode, passing through response"
+              << std::endl;
+    if (next_callbacks_) {
+      next_callbacks_->onHeaders(headers, keep_alive);
+    }
+    return;
+  }
+
+  // Server mode: route incoming requests
   std::string method = extractMethod(headers);
   std::string path = extractPath(headers);
 
