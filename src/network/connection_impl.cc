@@ -10,6 +10,7 @@
 #else
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #endif
 
@@ -341,20 +342,20 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
         uint32_t initial_events;
         if (connected) {
           // Server connection or already connected (e.g., stdio pipes)
-          // Always enable read to receive data
-          // For TCP servers, we need write events to detect when client
-          // disconnects For stdio/pipes, both should be enabled for
-          // bidirectional communication
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
-                           static_cast<uint32_t>(event::FileReadyType::Write);
+          // CRITICAL FIX: Only enable Read events initially.
+          // Enabling both Read and Write causes a busy loop on macOS/kqueue
+          // because Write events fire continuously (socket is always writable)
+          // and mask Read events. Write events should only be enabled when
+          // there's actually data to send.
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
         } else if (connecting_) {
           // Client connecting - enable write to detect connection completion
           initial_events = static_cast<uint32_t>(event::FileReadyType::Write);
         } else {
           // Not connected and not connecting - for stdio/pipes, treat as
-          // already connected and enable both for bidirectional communication
-          initial_events = static_cast<uint32_t>(event::FileReadyType::Read) |
-                           static_cast<uint32_t>(event::FileReadyType::Write);
+          // already connected. Only enable Read initially; Write will be
+          // enabled when there's data to send.
+          initial_events = static_cast<uint32_t>(event::FileReadyType::Read);
         }
 
         file_event_ = dispatcher_.createFileEvent(
@@ -611,6 +612,10 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
 
   // Enable write events and trigger write
   if (write_buffer_.length() > 0) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] write(): buffer_len=" << write_buffer_.length()
+              << " write_ready_=" << write_ready_ << std::endl;
+#endif
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
 
@@ -621,7 +626,14 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     // never block (stdio pipes), flush immediately. Otherwise wait for the
     // dispatcher to signal write readiness.
     if (write_ready_ || transport_allows_immediate_write) {
+#ifndef NDEBUG
+      std::cerr << "[CONN] write(): calling doWrite()" << std::endl;
+#endif
       doWrite();
+    } else {
+#ifndef NDEBUG
+      std::cerr << "[CONN] write(): waiting for Write event" << std::endl;
+#endif
     }
   }
 }
@@ -999,9 +1011,10 @@ void ConnectionImpl::doConnect() {
     onConnected();
 
     raiseConnectionEvent(ConnectionEvent::Connected);
-    // Enable both read and write events
-    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read) |
-                     static_cast<uint32_t>(event::FileReadyType::Write));
+    // CRITICAL FIX: Only enable Read events initially.
+    // Write events should only be enabled when there's data to send.
+    // Enabling both causes busy loop on macOS/kqueue.
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
   } else if (!result.ok() && result.error_code() == EINPROGRESS) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
@@ -1189,34 +1202,74 @@ void ConnectionImpl::doWrite() {
    * Thread safety: All operations in dispatcher thread
    */
   if (state_ != ConnectionState::Open) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] doWrite(): state != Open, returning" << std::endl;
+#endif
     return;
   }
+
+#ifndef NDEBUG
+  std::cerr << "[CONN] doWrite(): starting, buffer_len=" << write_buffer_.length()
+            << " transport_socket_=" << (transport_socket_ ? "yes" : "no") << std::endl;
+#endif
 
   // Use transport socket for initial processing if available
   // This is essential for stdio transport which manages pipe bridging
   // TODO: Fix transport socket implementation for HTTP/SSE
   if (transport_socket_ &&
       dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] doWrite(): using transport socket, protocol="
+              << transport_socket_->protocol() << std::endl;
+#endif
     // Let transport process any pending operations
     // For stdio, this ensures the bridge threads are active
     auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     if (!result.ok()) {
+#ifndef NDEBUG
+      std::cerr << "[CONN] doWrite(): transport error, closing" << std::endl;
+#endif
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
     if (result.action_ == TransportIoResult::CLOSE) {
+#ifndef NDEBUG
+      std::cerr << "[CONN] doWrite(): transport requested close" << std::endl;
+#endif
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
     // If transport handled all data, we're done
     if (write_buffer_.length() == 0) {
+#ifndef NDEBUG
+      std::cerr << "[CONN] doWrite(): transport handled all data, enabling Read"
+                << std::endl;
+#endif
+      // CRITICAL FIX: Must enable Read events before returning!
+      // Otherwise the caller (write()) left us with only Write events enabled.
+      enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+#ifndef NDEBUG
+      // Debug: Check if socket has pending data
+      if (socket_) {
+        int bytes_available = 0;
+        if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
+          std::cerr << "[CONN] doWrite(): socket has " << bytes_available
+                    << " bytes pending" << std::endl << std::flush;
+        }
+      }
+#endif
       return;
     }
   }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
-    // Buffer is empty after transport processing
+#ifndef NDEBUG
+    std::cerr << "[CONN] doWrite(): buffer empty after transport, enabling Read"
+              << std::endl;
+#endif
+    // CRITICAL FIX: Must enable Read events before returning!
+    enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
     return;
   }
 
@@ -1294,7 +1347,14 @@ void ConnectionImpl::doWrite() {
 
   // Keep both Read and Write events enabled after writing
   // This ensures proper event handling for both client and server
+#ifndef NDEBUG
+  std::cerr << "[CONN] doWrite(): done, buffer_len=" << write_buffer_.length()
+            << std::endl;
+#endif
   if (write_buffer_.length() == 0) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] doWrite(): enabling Read events" << std::endl;
+#endif
     // Finished writing current data - only enable read events
     // Write events will be enabled when new data arrives to prevent busy loop
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
@@ -1389,8 +1449,16 @@ void ConnectionImpl::onConnectTimeout() {
 }
 
 void ConnectionImpl::enableFileEvents(uint32_t events) {
-  uint32_t old_state = file_event_state_;
-  file_event_state_ |= events;
+  // CRITICAL FIX: Set events directly instead of OR-ing them.
+  // The previous code used |= which would ADD events but never REMOVE them.
+  // This caused Write events to stay enabled even when we only wanted Read,
+  // which on macOS/kqueue with level-triggered events causes a busy loop
+  // where continuous Write events mask Read events.
+  //
+  // The fix: Directly set the events we want, replacing the previous state.
+  // Callers should specify all events they want enabled (e.g., Read | Write
+  // if both are needed, or just Read if only Read is needed).
+  file_event_state_ = events;
   if (file_event_) {
     file_event_->setEnabled(file_event_state_);
   }
