@@ -340,11 +340,19 @@ class HttpSseJsonRpcProtocolFilter
 
     // Normal HTTP path (non-SSE responses)
     // JSON-RPC filter handles framing
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - data_len="
+              << data.length() << " is_server=" << is_server_ << std::endl;
+#endif
     auto status = jsonrpc_filter_->onWrite(data, end_stream);
     if (status == network::FilterStatus::StopIteration) {
       return status;
     }
 
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter"
+              << std::endl;
+#endif
     // HTTP filter adds headers/framing for normal HTTP responses
     return http_filter_->onWrite(data, end_stream);
   }
@@ -384,19 +392,24 @@ class HttpSseJsonRpcProtocolFilter
 
     // Determine transport mode based on headers
     if (is_server_) {
-      // Server: check Accept header for SSE
+      // Server: check Accept header for SSE - but DON'T enable SSE mode yet!
+      // The Accept header just indicates the client SUPPORTS SSE, not that we
+      // should use it. For JSON-RPC request/response (like initialize), we
+      // should use normal HTTP with Content-Length.
+      // SSE mode should only be enabled explicitly when the server wants to
+      // stream notifications. For now, always use normal HTTP for responses.
       auto accept = headers.find("accept");
       if (accept != headers.end() &&
           accept->second.find("text/event-stream") != std::string::npos) {
-        is_sse_mode_ = true;
-        // Server detected SSE mode from Accept header
-        // Headers will be sent with first data in onWrite()
-        // This avoids calling connection().write() from onHeaders()
-        sse_filter_->startEventStream();
-      } else {
-        is_sse_mode_ = false;
-        // Server using normal HTTP mode
+        client_accepts_sse_ = true;  // Track that client supports SSE
+        // But don't set is_sse_mode_ = true here - that would break JSON-RPC
+#ifndef NDEBUG
+        std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter: client accepts SSE"
+                  << std::endl;
+#endif
       }
+      // Always use normal HTTP mode for request/response pattern
+      is_sse_mode_ = false;
     } else {
       // Client: check Content-Type for SSE
       auto content_type = headers.find("content-type");
@@ -623,6 +636,7 @@ class HttpSseJsonRpcProtocolFilter
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
   bool is_sse_mode_{false};
+  bool client_accepts_sse_{false};  // Track if client supports SSE (Accept header)
   bool sse_headers_written_{
       false};  // Track if HTTP headers sent for SSE stream
 
