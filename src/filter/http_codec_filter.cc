@@ -243,24 +243,17 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       }
       response << version_str.str() << " 200 OK\r\n";
 
-      // Detect SSE either via Accept header or the formatted payload
+      // Detect SSE ONLY by the formatted payload, NOT by Accept header.
+      // The Accept header just indicates client SUPPORTS SSE, not that we
+      // should use it. For JSON-RPC request/response, we need proper HTTP
+      // with Content-Length. Only use SSE format if the payload is already
+      // SSE-formatted (contains event:/data: lines).
       bool is_sse_response = false;
-      if (current_stream_) {
-        std::string accept_lower = current_stream_->accept_header;
-        std::transform(accept_lower.begin(), accept_lower.end(),
-                       accept_lower.begin(), ::tolower);
-        if (accept_lower.find("text/event-stream") != std::string::npos) {
-          is_sse_response = true;
-        }
-      }
-
-      if (!is_sse_response) {
-        // Heuristic: SSE payloads contain event/data lines
-        std::string_view payload_view(body_data);
-        if (payload_view.find("event:") != std::string_view::npos &&
-            payload_view.find("data:") != std::string_view::npos) {
-          is_sse_response = true;
-        }
+      // Heuristic: SSE payloads contain event/data lines
+      std::string_view payload_view(body_data);
+      if (payload_view.find("event:") != std::string_view::npos &&
+          payload_view.find("data:") != std::string_view::npos) {
+        is_sse_response = true;
       }
 
       if (is_sse_response) {
@@ -276,6 +269,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         // Regular JSON response
         response << "Content-Type: application/json\r\n";
         response << "Content-Length: " << body_length << "\r\n";
+#ifndef NDEBUG
+        std::cerr << "[HTTP-CODEC] onWrite: Content-Length=" << body_length
+                  << " body_preview=" << body_data.substr(0, 50) << "..."
+                  << std::endl;
+#endif
         response << "Cache-Control: no-cache\r\n";
         if (current_stream_) {
           response << "Connection: "
@@ -301,6 +299,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
   } else {
     // Client mode: format as HTTP POST request
     auto current_state = state_machine_->currentState();
+
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] HttpCodecFilter::onWrite client state="
+              << HttpCodecStateMachine::getStateName(current_state) << std::endl;
+#endif
 
     // Check if we can send a request
     // Client can send when idle or after receiving a complete response
@@ -331,11 +334,10 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::cerr << "[DEBUG] HttpCodecFilter client sending HTTP request: "
                 << request_str.substr(0, 200) << "..." << std::endl;
 
-      // Update state machine
+      // Update state machine - the entire request (headers + body) is formatted
+      // in one call, so the request is complete after this
       state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
-      if (end_stream) {
-        state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
-      }
+      state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
     }
   }
   return network::FilterStatus::Continue;
@@ -566,8 +568,16 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
 
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
+#ifndef NDEBUG
+  std::cerr << "[DEBUG] ParserCallbacks::onBody - received " << length
+            << " bytes" << std::endl;
+#endif
   if (parent_.current_stream_) {
     parent_.current_stream_->body.append(data, length);
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] ParserCallbacks::onBody - total body now "
+              << parent_.current_stream_->body.length() << " bytes" << std::endl;
+#endif
   }
   // Trigger body data event based on mode
   if (parent_.is_server_) {
@@ -580,6 +590,12 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
 
 http::ParserCallbackResult
 HttpCodecFilter::ParserCallbacks::onMessageComplete() {
+#ifndef NDEBUG
+  std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - is_server="
+            << parent_.is_server_
+            << " body_len=" << (parent_.current_stream_ ? parent_.current_stream_->body.length() : 0)
+            << std::endl;
+#endif
   // Trigger message complete event based on mode
   if (parent_.is_server_) {
     parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
@@ -589,9 +605,18 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
 
   // Send body to callbacks
   if (parent_.current_stream_ && !parent_.current_stream_->body.empty()) {
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - forwarding body"
+              << std::endl;
+#endif
     if (parent_.message_callbacks_) {
       parent_.message_callbacks_->onBody(parent_.current_stream_->body, true);
     }
+  } else {
+#ifndef NDEBUG
+    std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - NO BODY to forward!"
+              << std::endl;
+#endif
   }
 
   if (parent_.message_callbacks_) {
