@@ -288,25 +288,53 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   }
 
   // Defer all protocol operations to dispatcher thread
-  main_dispatcher_->post([this, result_promise]() {
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<jsonrpc::Response>>();
+
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr]() {
+    // Notify protocol state machine that initialization is starting
+    if (protocol_state_machine_) {
+      protocol_state_machine_->handleEvent(
+          protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
+    }
+
+    // Build initialize request with client capabilities
+    auto init_params = make_metadata();
+    init_params["protocolVersion"] = config_.protocol_version;
+    init_params["clientName"] = config_.client_name;
+    init_params["clientVersion"] = config_.client_version;
+
+    // Send request - do NOT block here!
+    *request_future_ptr = sendRequest("initialize", mcp::make_optional(init_params));
+#ifndef NDEBUG
+    std::cerr << "[MCP-CLIENT] initializeProtocol: request sent, callback returning"
+              << std::endl << std::flush;
+#endif
+    // Callback returns immediately - response will be processed elsewhere
+  });
+
+  // Step 2: Use std::async to wait for response on a worker thread (not dispatcher!)
+  // Fire and forget - the async thread will set the promise when done
+  std::thread([this, result_promise, request_future_ptr]() {
     try {
-      // Notify protocol state machine that initialization is starting
-      if (protocol_state_machine_) {
-        protocol_state_machine_->handleEvent(
-            protocol::McpProtocolEvent::INITIALIZE_REQUESTED);
+      // Wait for the request to be sent (the dispatcher callback to complete)
+      // Then wait for the response - this blocks a worker thread, NOT the dispatcher
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
-      // Build initialize request with client capabilities
-      // For now, use simple parameters - full serialization needs JSON
-      // conversion
-      auto init_params = make_metadata();
-      init_params["protocolVersion"] = config_.protocol_version;
-      init_params["clientName"] = config_.client_name;
-      init_params["clientVersion"] = config_.client_version;
-
-      // Send request and get response
-      auto future = sendRequest("initialize", mcp::make_optional(init_params));
-      auto response = future.get();
+#ifndef NDEBUG
+      std::cerr << "[MCP-CLIENT] initializeProtocol: waiting for response on worker thread"
+                << std::endl << std::flush;
+#endif
+      auto response = request_future_ptr->get();
+#ifndef NDEBUG
+      std::cerr << "[MCP-CLIENT] initializeProtocol: got response" << std::endl << std::flush;
+#endif
 
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
@@ -392,7 +420,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  });
+  }).detach();  // Detach the thread - it will set the promise when done
 
   return result_promise->get_future();
 }
