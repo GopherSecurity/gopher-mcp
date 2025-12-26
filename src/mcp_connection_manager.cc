@@ -694,16 +694,23 @@ VoidResult McpConnectionManager::sendJsonMessage(
     json_str += "\n";
   }
 
-  // Create buffer with JSON payload
-  auto buffer = std::make_unique<OwnedBuffer>();
-  buffer->add(json_str);
+  // Capture connection pointer for use in lambda
+  network::Connection* conn = active_connection_.get();
 
-  // Write through filter chain - each filter handles its protocol layer:
-  // - JSON-RPC filter: message framing if configured
-  // - SSE filter: SSE event formatting if applicable
-  // - HTTP filter: HTTP request/response formatting if applicable
-  // - Transport socket: raw I/O only
-  active_connection_->write(*buffer, false);
+  // Post write to dispatcher thread to ensure thread safety
+  // The write() call must happen on the dispatcher thread
+  dispatcher_.post([json_str = std::move(json_str), conn]() {
+    // Create buffer with JSON payload
+    OwnedBuffer buffer;
+    buffer.add(json_str);
+
+    // Write through filter chain - each filter handles its protocol layer:
+    // - JSON-RPC filter: message framing if configured
+    // - SSE filter: SSE event formatting if applicable
+    // - HTTP filter: HTTP request/response formatting if applicable
+    // - Transport socket: raw I/O only
+    conn->write(buffer, false);
+  });
 
   return makeVoidSuccess();
 }
