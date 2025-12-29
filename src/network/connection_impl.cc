@@ -46,6 +46,11 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
   // Register state change listener
   state_machine_->addStateChangeListener(
       [this](const StateTransitionContext& ctx) {
+#ifndef NDEBUG
+        std::cerr << "[CONN] State machine transition: "
+                  << static_cast<int>(ctx.from_state) << " -> "
+                  << static_cast<int>(ctx.to_state) << std::endl;
+#endif
         // Map machine state to connection state
         switch (ctx.to_state) {
           // Connecting states
@@ -383,6 +388,11 @@ void ConnectionImpl::close(ConnectionCloseType type) { close(type, ""); }
 
 void ConnectionImpl::close(ConnectionCloseType type,
                            const std::string& details) {
+#ifndef NDEBUG
+  std::cerr << "[CONN] close(): fd=" << socket_->ioHandle().fd()
+            << " type=" << static_cast<int>(type) << " details=" << details
+            << " state=" << static_cast<int>(state_) << std::endl;
+#endif
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -572,6 +582,12 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
          "write() must be called from dispatcher thread");
 
   if (state_ != ConnectionState::Open || write_half_closed_) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] write(): early return - state="
+              << static_cast<int>(state_)
+              << " write_half_closed=" << write_half_closed_
+              << " fd=" << socket_->ioHandle().fd() << std::endl;
+#endif
     return;
   }
 
@@ -884,6 +900,12 @@ void ConnectionImpl::onWriteReady() {
 }
 
 void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
+#ifndef NDEBUG
+  std::cerr << "[CONN] closeThroughFilterManager(): fd="
+            << socket_->ioHandle().fd()
+            << " close_type=" << static_cast<int>(close_type)
+            << " state=" << static_cast<int>(state_) << std::endl;
+#endif
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -924,6 +946,11 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
 }
 
 void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
+#ifndef NDEBUG
+  std::cerr << "[CONN] closeSocket(): fd=" << socket_->ioHandle().fd()
+            << " close_type=" << static_cast<int>(close_type)
+            << " state=" << static_cast<int>(state_) << std::endl;
+#endif
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -1081,6 +1108,11 @@ void ConnectionImpl::doRead() {
 
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
     // Don't clear transport_wants_read_ when returning early
+#ifndef NDEBUG
+    std::cerr << "[CONN] doRead(): early return - read_disable_count="
+              << read_disable_count_ << " state=" << static_cast<int>(state_)
+              << " fd=" << socket_->ioHandle().fd() << std::endl;
+#endif
     return;
   }
 
@@ -1143,6 +1175,12 @@ void ConnectionImpl::doRead() {
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
 
+#ifndef NDEBUG
+  std::cerr << "[CONN] doReadFromSocket(): fd=" << socket_->ioHandle().fd()
+            << " transport_socket=" << (transport_socket_ ? "yes" : "no")
+            << std::endl;
+#endif
+
   // Use transport socket for reading if available
   // TODO: Fix transport socket implementation for HTTP/SSE
   // For now, check if this is a real transport socket (not RawTransportSocket)
@@ -1179,9 +1217,17 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Check for EOF
   if (bytes_read == 0) {
     // EOF - connection closed
+#ifndef NDEBUG
+    std::cerr << "[CONN] doReadFromSocket(): EOF detected on fd="
+              << socket_->ioHandle().fd() << std::endl;
+#endif
     return TransportIoResult::close();
   }
 
+#ifndef NDEBUG
+  std::cerr << "[CONN] doReadFromSocket(): read " << bytes_read
+            << " bytes from fd=" << socket_->ioHandle().fd() << std::endl;
+#endif
   return TransportIoResult::success(bytes_read);
 }
 
@@ -1214,8 +1260,10 @@ void ConnectionImpl::doWrite() {
   }
 
 #ifndef NDEBUG
-  std::cerr << "[CONN] doWrite(): starting, buffer_len=" << write_buffer_.length()
-            << " transport_socket_=" << (transport_socket_ ? "yes" : "no") << std::endl;
+  std::cerr << "[CONN] doWrite(): starting, buffer_len="
+            << write_buffer_.length()
+            << " transport_socket_=" << (transport_socket_ ? "yes" : "no")
+            << std::endl;
 #endif
 
   // Use transport socket for initial processing if available
@@ -1259,7 +1307,8 @@ void ConnectionImpl::doWrite() {
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
           std::cerr << "[CONN] doWrite(): socket has " << bytes_available
-                    << " bytes pending" << std::endl << std::flush;
+                    << " bytes pending" << std::endl
+                    << std::flush;
         }
       }
 #endif
