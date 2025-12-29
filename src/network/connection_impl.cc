@@ -1007,6 +1007,11 @@ void ConnectionImpl::doConnect() {
 
     // We're already in the dispatcher thread, just call directly
 
+    // Notify state machine of connection success - this cancels connect timer
+    if (state_machine_) {
+      state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
+    }
+
     // Notify transport socket (must be before raising event)
     onConnected();
 
