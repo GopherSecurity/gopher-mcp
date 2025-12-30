@@ -290,7 +290,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
   // Defer all protocol operations to dispatcher thread
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<jsonrpc::Response>>();
 
@@ -309,31 +310,39 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     init_params["clientVersion"] = config_.client_version;
 
     // Send request - do NOT block here!
-    *request_future_ptr = sendRequest("initialize", mcp::make_optional(init_params));
+    *request_future_ptr =
+        sendRequest("initialize", mcp::make_optional(init_params));
 #ifndef NDEBUG
-    std::cerr << "[MCP-CLIENT] initializeProtocol: request sent, callback returning"
-              << std::endl << std::flush;
+    std::cerr
+        << "[MCP-CLIENT] initializeProtocol: request sent, callback returning"
+        << std::endl
+        << std::flush;
 #endif
     // Callback returns immediately - response will be processed elsewhere
   });
 
-  // Step 2: Use std::async to wait for response on a worker thread (not dispatcher!)
-  // Fire and forget - the async thread will set the promise when done
+  // Step 2: Use std::async to wait for response on a worker thread (not
+  // dispatcher!) Fire and forget - the async thread will set the promise when
+  // done
   std::thread([this, result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent (the dispatcher callback to complete)
-      // Then wait for the response - this blocks a worker thread, NOT the dispatcher
+      // Then wait for the response - this blocks a worker thread, NOT the
+      // dispatcher
       while (!request_future_ptr->valid()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
 #ifndef NDEBUG
-      std::cerr << "[MCP-CLIENT] initializeProtocol: waiting for response on worker thread"
-                << std::endl << std::flush;
+      std::cerr << "[MCP-CLIENT] initializeProtocol: waiting for response on "
+                   "worker thread"
+                << std::endl
+                << std::flush;
 #endif
       auto response = request_future_ptr->get();
 #ifndef NDEBUG
-      std::cerr << "[MCP-CLIENT] initializeProtocol: got response" << std::endl << std::flush;
+      std::cerr << "[MCP-CLIENT] initializeProtocol: got response" << std::endl
+                << std::flush;
 #endif
 
       if (response.error.has_value()) {
@@ -649,24 +658,42 @@ void McpClient::processQueuedRequests() {
 // List available resources
 std::future<ListResourcesResult> McpClient::listResources(
     const optional<std::string>& cursor) {
+  auto result_promise = std::make_shared<std::promise<ListResourcesResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
   auto params = make_metadata();
   if (cursor.has_value()) {
     params["cursor"] = cursor.value();
   }
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  auto future = sendRequest("resources/list", mcp::make_optional(params));
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("resources/list", mcp::make_optional(*params_ptr));
+  });
 
-  // Create promise for ListResourcesResult
-  auto result_promise = std::make_shared<std::promise<ListResourcesResult>>();
-
-  // Process response in dispatcher context
-  // Use shared_ptr to allow copying the lambda
-  auto shared_future =
-      std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise]() {
-    // Process the future result directly
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
     try {
-      auto response = shared_future->get();
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
@@ -679,7 +706,7 @@ std::future<ListResourcesResult> McpClient::listResources(
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  });
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -687,22 +714,40 @@ std::future<ListResourcesResult> McpClient::listResources(
 // Read resource content
 std::future<ReadResourceResult> McpClient::readResource(
     const std::string& uri) {
-  auto params = make_metadata();
-  params["uri"] = uri;
-
-  auto future = sendRequest("resources/read", mcp::make_optional(params));
-
-  // Create promise for ReadResourceResult
   auto result_promise = std::make_shared<std::promise<ReadResourceResult>>();
 
-  // Process response in dispatcher context
-  // Use shared_ptr to allow copying the lambda
-  auto shared_future =
-      std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise]() {
-    // Process the future result directly
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
+  auto params = make_metadata();
+  params["uri"] = uri;
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("resources/read", mcp::make_optional(*params_ptr));
+  });
+
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
     try {
-      auto response = shared_future->get();
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
@@ -715,80 +760,105 @@ std::future<ReadResourceResult> McpClient::readResource(
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  });
+  }).detach();
 
   return result_promise->get_future();
 }
 
 // Subscribe to resource updates
 std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
-  auto params = make_metadata();
-  params["uri"] = uri;
-
-  auto future = sendRequest("resources/subscribe", mcp::make_optional(params));
-
-  // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
 
-  // Use dispatcher post pattern (reference architecture)
-  // Never use detached threads for async operations
-  // Wrap future in shared_ptr to allow capture in lambda
-  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
-
-  if (main_dispatcher_) {
-    main_dispatcher_->post([future_ptr, result_promise]() {
-      try {
-        auto response = future_ptr->get();
-        if (response.error.has_value()) {
-          result_promise->set_value(makeVoidError(*response.error));
-        } else {
-          result_promise->set_value(VoidResult(nullptr));
-        }
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
-      }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
   }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
+  auto params = make_metadata();
+  params["uri"] = uri;
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("resources/subscribe", mcp::make_optional(*params_ptr));
+  });
+
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_promise->get_future();
 }
 
 // Unsubscribe from resource updates
 std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
-  auto params = make_metadata();
-  params["uri"] = uri;
-
-  auto future =
-      sendRequest("resources/unsubscribe", mcp::make_optional(params));
-
-  // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
 
-  // Use dispatcher post pattern (reference architecture)
-  // Never use detached threads for async operations
-  // Wrap future in shared_ptr to allow capture in lambda
-  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
-
-  if (main_dispatcher_) {
-    main_dispatcher_->post([future_ptr, result_promise]() {
-      try {
-        auto response = future_ptr->get();
-        if (response.error.has_value()) {
-          result_promise->set_value(makeVoidError(*response.error));
-        } else {
-          result_promise->set_value(VoidResult(nullptr));
-        }
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
-      }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
   }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
+  auto params = make_metadata();
+  params["uri"] = uri;
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("resources/unsubscribe", mcp::make_optional(*params_ptr));
+  });
+
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -796,24 +866,42 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
 // List available tools
 std::future<ListToolsResult> McpClient::listTools(
     const optional<std::string>& cursor) {
+  auto result_promise = std::make_shared<std::promise<ListToolsResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
   auto params = make_metadata();
   if (cursor.has_value()) {
     params["cursor"] = cursor.value();
   }
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  auto future = sendRequest("tools/list", mcp::make_optional(params));
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("tools/list", mcp::make_optional(*params_ptr));
+  });
 
-  // Create promise for ListToolsResult
-  auto result_promise = std::make_shared<std::promise<ListToolsResult>>();
-
-  // Process response in dispatcher context
-  // Use shared_ptr to allow copying the lambda
-  auto shared_future =
-      std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise]() {
-    // Process the future result directly
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
     try {
-      auto response = shared_future->get();
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
@@ -826,7 +914,7 @@ std::future<ListToolsResult> McpClient::listTools(
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  });
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -834,6 +922,21 @@ std::future<ListToolsResult> McpClient::listTools(
 // Call a tool
 std::future<CallToolResult> McpClient::callTool(
     const std::string& name, const optional<Metadata>& arguments) {
+  auto result_promise = std::make_shared<std::promise<CallToolResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
   auto params = make_metadata();
   params["name"] = name;
   if (arguments.has_value()) {
@@ -842,20 +945,23 @@ std::future<CallToolResult> McpClient::callTool(
       params["arguments." + arg.first] = arg.second;
     }
   }
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  auto future = sendRequest("tools/call", mcp::make_optional(params));
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("tools/call", mcp::make_optional(*params_ptr));
+  });
 
-  // Create promise for CallToolResult
-  auto result_promise = std::make_shared<std::promise<CallToolResult>>();
-
-  // Process response in dispatcher context
-  // Use shared_ptr to allow copying the lambda
-  auto shared_future =
-      std::make_shared<std::future<Response>>(std::move(future));
-  main_dispatcher_->post([shared_future, result_promise]() {
-    // Process the future result directly
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
     try {
-      auto response = shared_future->get();
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
@@ -868,7 +974,7 @@ std::future<CallToolResult> McpClient::callTool(
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
-  });
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -876,38 +982,52 @@ std::future<CallToolResult> McpClient::callTool(
 // List available prompts
 std::future<ListPromptsResult> McpClient::listPrompts(
     const optional<std::string>& cursor) {
+  auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
   auto params = make_metadata();
   if (cursor.has_value()) {
     params["cursor"] = cursor.value();
   }
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  auto future = sendRequest("prompts/list", mcp::make_optional(params));
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("prompts/list", mcp::make_optional(*params_ptr));
+  });
 
-  // Create promise for ListPromptsResult
-  auto result_promise = std::make_shared<std::promise<ListPromptsResult>>();
-
-  // Use dispatcher post pattern (reference architecture)
-  // Wrap future in shared_ptr to allow capture in lambda
-  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
-
-  if (main_dispatcher_) {
-    main_dispatcher_->post([future_ptr, result_promise]() {
-      try {
-        auto response = future_ptr->get();
-        ListPromptsResult result;
-        // Parse response into result structure
-        if (!response.error.has_value() && response.result.has_value()) {
-          // TODO: Proper parsing
-        }
-        result_promise->set_value(result);
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
-  }
+
+      auto response = request_future_ptr->get();
+      ListPromptsResult result;
+      // Parse response into result structure
+      if (!response.error.has_value() && response.result.has_value()) {
+        // TODO: Proper parsing
+      }
+      result_promise->set_value(result);
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -915,6 +1035,21 @@ std::future<ListPromptsResult> McpClient::listPrompts(
 // Get a prompt
 std::future<GetPromptResult> McpClient::getPrompt(
     const std::string& name, const optional<Metadata>& arguments) {
+  auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
+
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
+  }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
   auto params = make_metadata();
   params["name"] = name;
   if (arguments.has_value()) {
@@ -923,34 +1058,33 @@ std::future<GetPromptResult> McpClient::getPrompt(
       params["arguments." + arg.first] = arg.second;
     }
   }
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
-  auto future = sendRequest("prompts/get", mcp::make_optional(params));
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("prompts/get", mcp::make_optional(*params_ptr));
+  });
 
-  // Create promise for GetPromptResult
-  auto result_promise = std::make_shared<std::promise<GetPromptResult>>();
-
-  // Use dispatcher post pattern (reference architecture)
-  // Wrap future in shared_ptr to allow capture in lambda
-  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
-
-  if (main_dispatcher_) {
-    main_dispatcher_->post([future_ptr, result_promise]() {
-      try {
-        auto response = future_ptr->get();
-        GetPromptResult result;
-        // Parse response into result structure
-        if (!response.error.has_value() && response.result.has_value()) {
-          // TODO: Proper parsing
-        }
-        result_promise->set_value(result);
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
-  }
+
+      auto response = request_future_ptr->get();
+      GetPromptResult result;
+      // Parse response into result structure
+      if (!response.error.has_value() && response.result.has_value()) {
+        // TODO: Proper parsing
+      }
+      result_promise->set_value(result);
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -958,36 +1092,49 @@ std::future<GetPromptResult> McpClient::getPrompt(
 // Set logging level
 std::future<VoidResult> McpClient::setLogLevel(
     enums::LoggingLevel::Value level) {
-  auto params = make_metadata();
-  params["level"] = static_cast<int64_t>(level);
-
-  auto future = sendRequest("logging/setLevel", mcp::make_optional(params));
-
-  // Convert Response to VoidResult
   auto result_promise = std::make_shared<std::promise<VoidResult>>();
 
-  // Use dispatcher post pattern (reference architecture)
-  // Never use detached threads for async operations
-  // Wrap future in shared_ptr to allow capture in lambda
-  auto future_ptr = std::make_shared<decltype(future)>(std::move(future));
-
-  if (main_dispatcher_) {
-    main_dispatcher_->post([future_ptr, result_promise]() {
-      try {
-        auto response = future_ptr->get();
-        if (response.error.has_value()) {
-          result_promise->set_value(makeVoidError(*response.error));
-        } else {
-          result_promise->set_value(VoidResult(nullptr));
-        }
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
-      }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
+  if (!main_dispatcher_) {
+    result_promise->set_exception(
+        std::make_exception_ptr(std::runtime_error("No dispatcher")));
+    return result_promise->get_future();
   }
+
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+
+  auto request_future_ptr = std::make_shared<std::future<Response>>();
+
+  // Prepare params before posting to dispatcher
+  auto params = make_metadata();
+  params["level"] = static_cast<int64_t>(level);
+  auto params_ptr = std::make_shared<Metadata>(std::move(params));
+
+  // Step 1: Post to dispatcher to send the request (non-blocking)
+  main_dispatcher_->post([this, request_future_ptr, params_ptr]() {
+    *request_future_ptr =
+        sendRequest("logging/setLevel", mcp::make_optional(*params_ptr));
+  });
+
+  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([result_promise, request_future_ptr]() {
+    try {
+      // Wait for the request to be sent
+      while (!request_future_ptr->valid()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+
+      auto response = request_future_ptr->get();
+      if (response.error.has_value()) {
+        result_promise->set_value(makeVoidError(*response.error));
+      } else {
+        result_promise->set_value(VoidResult(nullptr));
+      }
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_promise->get_future();
 }
@@ -1067,31 +1214,30 @@ std::future<CreateMessageResult> McpClient::createMessage(
   auto result_promise = std::make_shared<std::promise<CreateMessageResult>>();
   auto result_future = result_promise->get_future();
 
-  // Use dispatcher post pattern (reference architecture)
-  if (main_dispatcher_) {
-    main_dispatcher_->post([context, result_promise]() {
-      try {
-        auto response = context->promise.get_future().get();
-        CreateMessageResult result;
-        // Parse response into result structure
-        if (!response.error.has_value() && response.result.has_value()) {
-          // Extract created message
-          TextContent text_content;
-          text_content.type = "text";
-          text_content.text = "";
-          result.content = text_content;
-          result.model = "unknown";
-          result.role = enums::Role::ASSISTANT;
-        }
-        result_promise->set_value(result);
-      } catch (...) {
-        result_promise->set_exception(std::current_exception());
+  // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
+  // That would deadlock because the dispatcher thread processes Read events.
+  // Instead, we wait on a worker thread.
+
+  // Step: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  std::thread([context, result_promise]() {
+    try {
+      auto response = context->promise.get_future().get();
+      CreateMessageResult result;
+      // Parse response into result structure
+      if (!response.error.has_value() && response.result.has_value()) {
+        // Extract created message
+        TextContent text_content;
+        text_content.type = "text";
+        text_content.text = "";
+        result.content = text_content;
+        result.model = "unknown";
+        result.role = enums::Role::ASSISTANT;
       }
-    });
-  } else {
-    result_promise->set_exception(std::make_exception_ptr(
-        std::runtime_error("Dispatcher not available")));
-  }
+      result_promise->set_value(result);
+    } catch (...) {
+      result_promise->set_exception(std::current_exception());
+    }
+  }).detach();
 
   return result_future;
 }
