@@ -122,6 +122,10 @@ JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
           builder.add(to_json(resource));
         }
         json_result = builder.build();
+      },
+      [&json_result](const ListResourcesResult& list_result) {
+        // ListResourcesResult is a full result object with resources array
+        json_result = to_json(list_result);
       });
 
   return json_result;
