@@ -302,12 +302,15 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
 
 #ifndef NDEBUG
     std::cerr << "[DEBUG] HttpCodecFilter::onWrite client state="
-              << HttpCodecStateMachine::getStateName(current_state) << std::endl;
+              << HttpCodecStateMachine::getStateName(current_state)
+              << std::endl;
 #endif
 
     // Check if we can send a request
-    // Client can send when idle or after receiving a complete response
-    if (current_state == HttpCodecState::Idle) {
+    // Client can send when idle or while waiting for response (HTTP pipelining)
+    // HTTP/1.1 allows multiple requests to be sent before receiving responses
+    if (current_state == HttpCodecState::Idle ||
+        current_state == HttpCodecState::WaitingForResponse) {
       // Save the original request body (JSON-RPC)
       size_t body_length = data.length();
       std::string body_data(
@@ -334,10 +337,13 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::cerr << "[DEBUG] HttpCodecFilter client sending HTTP request: "
                 << request_str.substr(0, 200) << "..." << std::endl;
 
-      // Update state machine - the entire request (headers + body) is formatted
-      // in one call, so the request is complete after this
-      state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
-      state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
+      // Update state machine - only transition if we're in Idle state
+      // For pipelined requests (when already WaitingForResponse), just send
+      // without additional state transitions
+      if (current_state == HttpCodecState::Idle) {
+        state_machine_->handleEvent(HttpCodecEvent::RequestBegin);
+        state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
+      }
     }
   }
   return network::FilterStatus::Continue;
@@ -576,7 +582,8 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     parent_.current_stream_->body.append(data, length);
 #ifndef NDEBUG
     std::cerr << "[DEBUG] ParserCallbacks::onBody - total body now "
-              << parent_.current_stream_->body.length() << " bytes" << std::endl;
+              << parent_.current_stream_->body.length() << " bytes"
+              << std::endl;
 #endif
   }
   // Trigger body data event based on mode
@@ -592,8 +599,9 @@ http::ParserCallbackResult
 HttpCodecFilter::ParserCallbacks::onMessageComplete() {
 #ifndef NDEBUG
   std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - is_server="
-            << parent_.is_server_
-            << " body_len=" << (parent_.current_stream_ ? parent_.current_stream_->body.length() : 0)
+            << parent_.is_server_ << " body_len="
+            << (parent_.current_stream_ ? parent_.current_stream_->body.length()
+                                        : 0)
             << std::endl;
 #endif
   // Trigger message complete event based on mode
@@ -614,8 +622,9 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
     }
   } else {
 #ifndef NDEBUG
-    std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - NO BODY to forward!"
-              << std::endl;
+    std::cerr
+        << "[DEBUG] ParserCallbacks::onMessageComplete - NO BODY to forward!"
+        << std::endl;
 #endif
   }
 
