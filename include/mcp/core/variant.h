@@ -663,9 +663,11 @@ auto visit(Visitor&& vis, const variant<Types...>& v)
 }
 
 // Visitor implementation
+// Template parameter order: I comes before Variant so that recursive calls
+// can specify just I+1 and let Variant be deduced from arguments.
 template <typename Visitor, typename... Types>
 struct visitor_helper {
-  template <typename Variant, std::size_t I = 0>
+  template <std::size_t I = 0, typename Variant>
   static typename std::enable_if<
       I == sizeof...(Types) - 1,
       decltype(std::declval<Visitor>()(
@@ -674,7 +676,7 @@ struct visitor_helper {
     return vis(std::forward<Variant>(v).template get_by_index<I>());
   }
 
-  template <typename Variant, std::size_t I = 0>
+  template <std::size_t I = 0, typename Variant>
       static typename std::enable_if <
       I<sizeof...(Types) - 1,
         decltype(std::declval<Visitor>()(
@@ -683,8 +685,9 @@ struct visitor_helper {
     if (index == I) {
       return vis(std::forward<Variant>(v).template get_by_index<I>());
     }
-    return visit<Variant, I + 1>(std::forward<Visitor>(vis),
-                                 std::forward<Variant>(v), index);
+    // Recursive call: only specify I+1 explicitly, let Variant be deduced
+    return visit<I + 1>(std::forward<Visitor>(vis), std::forward<Variant>(v),
+                        index);
   }
 };
 
