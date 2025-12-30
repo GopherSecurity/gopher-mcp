@@ -699,11 +699,18 @@ std::future<ListResourcesResult> McpClient::listResources(
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
+      } else if (response.result.has_value()) {
+        // Extract ListResourcesResult from response
+        // ResponseResult variant directly contains ListResourcesResult
+        if (holds_alternative<ListResourcesResult>(response.result.value())) {
+          result_promise->set_value(
+              get<ListResourcesResult>(response.result.value()));
+        } else {
+          // Fallback: return empty result if type doesn't match
+          result_promise->set_value(ListResourcesResult());
+        }
       } else {
-        // Parse ListResourcesResult from response
-        ListResourcesResult result;
-        // TODO: Parse response into result structure
-        result_promise->set_value(result);
+        result_promise->set_value(ListResourcesResult());
       }
     } catch (...) {
       result_promise->set_exception(std::current_exception());
@@ -915,11 +922,16 @@ std::future<ListToolsResult> McpClient::listTools(
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
-      } else {
-        // Parse ListToolsResult from response
+      } else if (response.result.has_value()) {
+        // Extract tools vector from response and wrap in ListToolsResult
+        // ResponseResult variant contains std::vector<Tool>
         ListToolsResult result;
-        // TODO: Parse response into result structure
+        if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+          result.tools = get<std::vector<Tool>>(response.result.value());
+        }
         result_promise->set_value(result);
+      } else {
+        result_promise->set_value(ListToolsResult());
       }
     } catch (...) {
       result_promise->set_exception(std::current_exception());
