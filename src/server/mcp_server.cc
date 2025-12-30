@@ -897,23 +897,11 @@ jsonrpc::Response McpServer::handleListResources(
     }
   }
 
-  // Get resources from resource manager
+  // Get resources from resource manager and return directly
+  // ResponseResult variant supports ListResourcesResult
   auto result = resource_manager_->listResources(cursor);
-
-  // Convert to response
-  // TODO: Serialize ListResourcesResult to ResponseResult
-  auto response_metadata =
-      make<Metadata>()
-          .add("resourceCount", static_cast<int64_t>(result.resources.size()))
-          .build();
-
-  if (result.nextCursor.has_value()) {
-    // Add nextCursor to the response
-    response_metadata["nextCursor"] = result.nextCursor.value();
-  }
-
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result));
 }
 
 jsonrpc::Response McpServer::handleReadResource(const jsonrpc::Request& request,
@@ -1003,18 +991,11 @@ jsonrpc::Response McpServer::handleUnsubscribe(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
                                              SessionContext& session) {
-  // Get tools from tool registry
+  // Get tools from tool registry and return tools vector directly
+  // ResponseResult variant supports std::vector<Tool>
   auto result = tool_registry_->listTools();
-
-  // Convert to response
-  // TODO: Serialize ListToolsResult to ResponseResult
-  auto response_metadata =
-      make<Metadata>()
-          .add("toolCount", static_cast<int64_t>(result.tools.size()))
-          .build();
-
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result.tools));
 }
 
 jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
@@ -1102,20 +1083,11 @@ jsonrpc::Response McpServer::handleListPrompts(const jsonrpc::Request& request,
     }
   }
 
-  // Get prompts from prompt registry
+  // Get prompts from prompt registry and return prompts vector directly
+  // ResponseResult variant supports std::vector<Prompt>
   auto result = prompt_registry_->listPrompts(cursor);
-
-  // Convert to response
-  // TODO: Serialize ListPromptsResult to ResponseResult
-  auto response_metadata =
-      make<Metadata>()
-          .add("prompts",
-               std::string("Prompts list placeholder"))  // Simplified - avoid
-                                                         // nested metadata
-          .build();
-
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result.prompts));
 }
 
 jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
