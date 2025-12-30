@@ -461,6 +461,17 @@ const Error* get_error(const Result<T>& result) {
 
 // Builder pattern for complex types
 
+// Forward declarations for paginated results (needed for ResponseResult)
+struct PaginatedResultBase {
+  optional<Cursor> nextCursor;
+  PaginatedResultBase() = default;
+};
+
+struct ListResourcesResult : PaginatedResultBase {
+  std::vector<Resource> resources;
+  ListResourcesResult() = default;
+};
+
 // JSON-RPC message types
 namespace jsonrpc {
 
@@ -481,6 +492,7 @@ struct Request {
 };
 
 // Generic result type for responses
+// Note: ListResourcesResult is defined outside jsonrpc namespace but used here
 using ResponseResult = variant<std::nullptr_t,
                                bool,
                                int,
@@ -490,7 +502,8 @@ using ResponseResult = variant<std::nullptr_t,
                                std::vector<ContentBlock>,
                                std::vector<Tool>,
                                std::vector<Prompt>,
-                               std::vector<Resource>>;
+                               std::vector<Resource>,
+                               ListResourcesResult>;
 
 struct Response {
   std::string jsonrpc = "2.0";
@@ -758,9 +771,8 @@ struct PaginatedRequest : jsonrpc::Request {
   PaginatedRequest() = default;
 };
 
-struct PaginatedResult {
-  optional<Cursor> nextCursor;
-
+// PaginatedResult extends PaginatedResultBase for backwards compatibility
+struct PaginatedResult : PaginatedResultBase {
   PaginatedResult() = default;
 };
 
@@ -888,11 +900,8 @@ struct ListResourcesRequest : PaginatedRequest {
   ListResourcesRequest() : PaginatedRequest() { method = "resources/list"; }
 };
 
-struct ListResourcesResult : PaginatedResult {
-  std::vector<Resource> resources;
-
-  ListResourcesResult() = default;
-};
+// Note: ListResourcesResult is defined earlier (before ResponseResult) to allow
+// it to be used in the ResponseResult variant type.
 
 struct ListResourceTemplatesRequest : PaginatedRequest {
   ListResourceTemplatesRequest() : PaginatedRequest() {
