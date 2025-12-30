@@ -346,10 +346,10 @@ void LibeventDispatcher::run(RunType type) {
   thread_id_ = std::this_thread::get_id();
 
 #ifndef NDEBUG
-  const char* type_str = (type == RunType::Block)       ? "Block"
-                         : (type == RunType::NonBlock)  ? "NonBlock"
+  const char* type_str = (type == RunType::Block)          ? "Block"
+                         : (type == RunType::NonBlock)     ? "NonBlock"
                          : (type == RunType::RunUntilExit) ? "RunUntilExit"
-                         : "Unknown";
+                                                           : "Unknown";
   std::cerr << "[LIBEVENT] run(): starting, type=" << type_str << std::endl;
 #endif
 
@@ -468,10 +468,13 @@ void LibeventDispatcher::postWakeupCallback(libevent_socket_t fd,
 
 #ifndef NDEBUG
   std::cerr << "[LIBEVENT] postWakeupCallback: returning, active events="
-            << event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ACTIVE)
+            << event_base_get_num_events(dispatcher->base_,
+                                         EVENT_BASE_COUNT_ACTIVE)
             << " added="
-            << event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ADDED)
-            << std::endl << std::flush;
+            << event_base_get_num_events(dispatcher->base_,
+                                         EVENT_BASE_COUNT_ADDED)
+            << std::endl
+            << std::flush;
 #endif
 }
 
@@ -678,8 +681,8 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
                &FileEventImpl::eventCallback, this);
   int add_result = event_add(event_, nullptr);
 #ifndef NDEBUG
-  std::cerr << "[LIBEVENT] assignEvents: fd=" << fd_
-            << " libevent_events=0x" << std::hex << libevent_events << std::dec
+  std::cerr << "[LIBEVENT] assignEvents: fd=" << fd_ << " libevent_events=0x"
+            << std::hex << libevent_events << std::dec
             << " event_add=" << add_result << std::endl;
 #endif
 #endif
@@ -691,9 +694,9 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
   auto* file_event = static_cast<FileEventImpl*>(arg);
 
 #ifndef NDEBUG
-  std::cerr << "[LIBEVENT] eventCallback: fd=" << fd << " events=0x"
-            << std::hex << events << std::dec
-            << " enabled=" << file_event->enabled_events_ << std::endl;
+  std::cerr << "[LIBEVENT] eventCallback: fd=" << fd << " events=0x" << std::hex
+            << events << std::dec << " enabled=" << file_event->enabled_events_
+            << std::endl;
 #endif
 
   // Update approximate time before callback
