@@ -542,8 +542,9 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
           }
           return jsonrpc::ResponseResult(blocks);
         }
-      } else if (first.contains("name") && first.contains("inputSchema")) {
-        // Array of Tools
+      } else if (first.contains("name") && !first.contains("uri")) {
+        // Array of Tools - tools have "name" but not "uri"
+        // inputSchema is optional per MCP spec
         std::vector<Tool> tools;
         size_t size = json.size();
         for (size_t i = 0; i < size; ++i) {
