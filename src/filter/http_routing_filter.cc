@@ -54,8 +54,9 @@ void HttpRoutingFilter::onHeaders(
 
   // In client mode, we're receiving responses, not requests - skip routing
   if (!is_server_) {
-    std::cerr << "[DEBUG] HttpRoutingFilter: client mode, passing through response"
-              << std::endl;
+    std::cerr
+        << "[DEBUG] HttpRoutingFilter: client mode, passing through response"
+        << std::endl;
     if (next_callbacks_) {
       next_callbacks_->onHeaders(headers, keep_alive);
     }

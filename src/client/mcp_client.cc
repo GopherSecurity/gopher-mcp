@@ -668,7 +668,8 @@ std::future<ListResourcesResult> McpClient::listResources(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -685,7 +686,8 @@ std::future<ListResourcesResult> McpClient::listResources(
         sendRequest("resources/list", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -724,7 +726,8 @@ std::future<ReadResourceResult> McpClient::readResource(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -739,7 +742,8 @@ std::future<ReadResourceResult> McpClient::readResource(
         sendRequest("resources/read", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -777,7 +781,8 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -792,7 +797,8 @@ std::future<VoidResult> McpClient::subscribeResource(const std::string& uri) {
         sendRequest("resources/subscribe", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -826,7 +832,8 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -841,7 +848,8 @@ std::future<VoidResult> McpClient::unsubscribeResource(const std::string& uri) {
         sendRequest("resources/unsubscribe", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -876,7 +884,8 @@ std::future<ListToolsResult> McpClient::listTools(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -893,7 +902,8 @@ std::future<ListToolsResult> McpClient::listTools(
         sendRequest("tools/list", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -932,7 +942,8 @@ std::future<CallToolResult> McpClient::callTool(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -953,7 +964,8 @@ std::future<CallToolResult> McpClient::callTool(
         sendRequest("tools/call", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -992,7 +1004,8 @@ std::future<ListPromptsResult> McpClient::listPrompts(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -1009,7 +1022,8 @@ std::future<ListPromptsResult> McpClient::listPrompts(
         sendRequest("prompts/list", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -1045,7 +1059,8 @@ std::future<GetPromptResult> McpClient::getPrompt(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -1066,7 +1081,8 @@ std::future<GetPromptResult> McpClient::getPrompt(
         sendRequest("prompts/get", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -1102,7 +1118,8 @@ std::future<VoidResult> McpClient::setLogLevel(
 
   // CRITICAL: We must NOT block on future.get() inside the dispatcher callback!
   // That would deadlock because the dispatcher thread processes Read events.
-  // Instead, we send the request in the dispatcher, then wait on a worker thread.
+  // Instead, we send the request in the dispatcher, then wait on a worker
+  // thread.
 
   auto request_future_ptr = std::make_shared<std::future<Response>>();
 
@@ -1117,7 +1134,8 @@ std::future<VoidResult> McpClient::setLogLevel(
         sendRequest("logging/setLevel", mcp::make_optional(*params_ptr));
   });
 
-  // Step 2: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step 2: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([result_promise, request_future_ptr]() {
     try {
       // Wait for the request to be sent
@@ -1218,7 +1236,8 @@ std::future<CreateMessageResult> McpClient::createMessage(
   // That would deadlock because the dispatcher thread processes Read events.
   // Instead, we wait on a worker thread.
 
-  // Step: Use std::thread to wait for response on a worker thread (not dispatcher!)
+  // Step: Use std::thread to wait for response on a worker thread (not
+  // dispatcher!)
   std::thread([context, result_promise]() {
     try {
       auto response = context->promise.get_future().get();

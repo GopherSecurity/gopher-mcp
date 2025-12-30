@@ -350,8 +350,9 @@ class HttpSseJsonRpcProtocolFilter
     }
 
 #ifndef NDEBUG
-    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter"
-              << std::endl;
+    std::cerr
+        << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter"
+        << std::endl;
 #endif
     // HTTP filter adds headers/framing for normal HTTP responses
     return http_filter_->onWrite(data, end_stream);
@@ -636,7 +637,8 @@ class HttpSseJsonRpcProtocolFilter
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
   bool is_sse_mode_{false};
-  bool client_accepts_sse_{false};  // Track if client supports SSE (Accept header)
+  bool client_accepts_sse_{
+      false};  // Track if client supports SSE (Accept header)
   bool sse_headers_written_{
       false};  // Track if HTTP headers sent for SSE stream
 
