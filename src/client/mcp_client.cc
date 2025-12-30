@@ -989,11 +989,30 @@ std::future<CallToolResult> McpClient::callTool(
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
-      } else {
-        // Parse CallToolResult from response
+      } else if (response.result.has_value()) {
+        // Extract CallToolResult from response
+        // Server returns Metadata with "content" (string) and "isError" (bool)
         CallToolResult result;
-        // TODO: Parse response into result structure
+        if (holds_alternative<Metadata>(response.result.value())) {
+          auto metadata = get<Metadata>(response.result.value());
+          // Extract content string and convert to TextContent
+          auto content_it = metadata.find("content");
+          if (content_it != metadata.end() &&
+              holds_alternative<std::string>(content_it->second)) {
+            result.content.push_back(
+                ExtendedContentBlock(TextContent(
+                    get<std::string>(content_it->second))));
+          }
+          // Extract isError flag
+          auto error_it = metadata.find("isError");
+          if (error_it != metadata.end() &&
+              holds_alternative<bool>(error_it->second)) {
+            result.isError = get<bool>(error_it->second);
+          }
+        }
         result_promise->set_value(result);
+      } else {
+        result_promise->set_value(CallToolResult());
       }
     } catch (...) {
       result_promise->set_exception(std::current_exception());
