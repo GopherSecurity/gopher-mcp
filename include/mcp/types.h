@@ -493,6 +493,7 @@ struct Request {
 
 // Generic result type for responses
 // Note: ListResourcesResult is defined outside jsonrpc namespace but used here
+// For tools and prompts, we use the vector types directly since they're simpler
 using ResponseResult = variant<std::nullptr_t,
                                bool,
                                int,
