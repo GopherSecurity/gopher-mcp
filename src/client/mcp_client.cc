@@ -464,6 +464,32 @@ std::future<Response> McpClient::sendRequest(const std::string& method,
   return context->promise.get_future();
 }
 
+// Send notification (fire-and-forget, no response expected)
+VoidResult McpClient::sendNotification(const std::string& method,
+                                       const optional<Metadata>& params) {
+  // Check if connected
+  if (!connected_ || !connection_manager_) {
+    return makeError<std::nullptr_t>(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "Not connected"));
+  }
+
+  // Build JSON-RPC notification (no id field)
+  Notification notification;
+  notification.jsonrpc = "2.0";
+  notification.method = method;
+  notification.params = params;
+
+  // Send through connection manager
+  // Post to dispatcher thread to ensure thread safety
+  main_dispatcher_->post([this, notification]() {
+    if (connection_manager_) {
+      connection_manager_->sendNotification(notification);
+    }
+  });
+
+  return makeSuccess<std::nullptr_t>(nullptr);
+}
+
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // Check if connected
