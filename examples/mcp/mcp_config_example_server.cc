@@ -30,11 +30,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
-#include <variant>
 #include <vector>
 
 // Core MCP includes
@@ -350,11 +348,11 @@ class ConfigDrivenExampleServer : public network::ListenerCallbacks {
                   << std::endl;
       }
 
-      auto trimView = [](std::string_view value) -> std::string_view {
+      auto trimString = [](const std::string& value) -> std::string {
         const char* whitespace = " \t\n\r";
         const auto first = value.find_first_not_of(whitespace);
-        if (first == std::string_view::npos) {
-          return std::string_view{};
+        if (first == std::string::npos) {
+          return std::string{};
         }
         const auto last = value.find_last_not_of(whitespace);
         return value.substr(first, last - first + 1);
@@ -403,14 +401,13 @@ class ConfigDrivenExampleServer : public network::ListenerCallbacks {
 
       auto tryDecodeArgumentsString = [&](const std::string& raw,
                                           const char* source) -> bool {
-        std::string_view trimmed = trimView(raw);
+        std::string trimmed = trimString(raw);
         if (trimmed.empty()) {
           return false;
         }
         if (trimmed.front() == '{' || trimmed.front() == '[') {
           try {
-            json::JsonValue parsed =
-                json::JsonValue::parse(std::string(trimmed));
+            json::JsonValue parsed = json::JsonValue::parse(trimmed);
             return tryParseArgumentsObject(parsed, source);
           } catch (const std::exception& e) {
             if (server_.verbose_) {
@@ -424,7 +421,7 @@ class ConfigDrivenExampleServer : public network::ListenerCallbacks {
           std::cerr << "[Tool] Treating arguments from " << source
                     << " as plain text" << std::endl;
         }
-        respondWithText(std::string(trimmed));
+        respondWithText(trimmed);
         return true;
       };
 
