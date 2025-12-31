@@ -16,11 +16,18 @@
 #define MCP_ECHO_STDIO_TRANSPORT_H
 
 #include <atomic>
-#include <fcntl.h>
 #include <iostream>
-#include <poll.h>
 #include <thread>
+
+// Platform-specific includes
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
+#endif
 
 #include "mcp/echo/echo_basic.h"
 #include "mcp/event/libevent_dispatcher.h"
@@ -76,6 +83,13 @@ class StdioTransport : public EchoTransportBase {
       return true;
     }
 
+#ifdef _WIN32
+    // On Windows, get stdin handle for later use
+    stdin_handle_ = GetStdHandle(STD_INPUT_HANDLE);
+    if (stdin_handle_ == INVALID_HANDLE_VALUE) {
+      return false;
+    }
+#else
     // Set stdin to non-blocking mode
     // This prevents read() from blocking indefinitely
     // and allows clean shutdown via poll timeout
@@ -84,6 +98,7 @@ class StdioTransport : public EchoTransportBase {
       return false;
     }
     fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+#endif
 
     running_ = true;
     connected_ = true;
@@ -129,6 +144,34 @@ class StdioTransport : public EchoTransportBase {
     // Uses poll() for efficient waiting with timeout
     // Allows responsive shutdown without blocking
     char buffer[8192];
+
+#ifdef _WIN32
+    // Windows implementation using WaitForSingleObject and ReadFile
+    while (running_) {
+      // Wait with 100ms timeout for responsive shutdown
+      DWORD waitResult = WaitForSingleObject(stdin_handle_, 100);
+
+      if (waitResult == WAIT_OBJECT_0) {
+        DWORD bytesRead = 0;
+        if (ReadFile(stdin_handle_, buffer, sizeof(buffer), &bytesRead, NULL)) {
+          if (bytesRead > 0) {
+            // Data received
+            if (data_callback_) {
+              data_callback_(std::string(buffer, bytesRead));
+            }
+          } else {
+            // EOF - stdin closed
+            if (connection_callback_) {
+              connection_callback_(false);
+            }
+            connected_ = false;
+            break;
+          }
+        }
+      }
+      // WAIT_TIMEOUT is normal, just continue loop
+    }
+#else
     struct pollfd pfd;
     pfd.fd = STDIN_FILENO;
     pfd.events = POLLIN;
@@ -158,6 +201,7 @@ class StdioTransport : public EchoTransportBase {
         // This is normal when no data available
       }
     }
+#endif
   }
 
   std::atomic<bool> running_;
@@ -165,6 +209,9 @@ class StdioTransport : public EchoTransportBase {
   std::thread read_thread_;
   DataCallback data_callback_;
   ConnectionCallback connection_callback_;
+#ifdef _WIN32
+  HANDLE stdin_handle_ = INVALID_HANDLE_VALUE;
+#endif
 };
 
 /**
