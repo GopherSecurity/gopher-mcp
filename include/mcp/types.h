@@ -472,6 +472,11 @@ struct ListResourcesResult : PaginatedResultBase {
   ListResourcesResult() = default;
 };
 
+struct ListToolsResult {
+  std::vector<Tool> tools;
+  ListToolsResult() = default;
+};
+
 // JSON-RPC message types
 namespace jsonrpc {
 
@@ -492,8 +497,8 @@ struct Request {
 };
 
 // Generic result type for responses
-// Note: ListResourcesResult is defined outside jsonrpc namespace but used here
-// For tools and prompts, we use the vector types directly since they're simpler
+// Note: ListResourcesResult and ListToolsResult are defined outside jsonrpc
+// namespace but used here
 using ResponseResult = variant<std::nullptr_t,
                                bool,
                                int,
@@ -504,7 +509,8 @@ using ResponseResult = variant<std::nullptr_t,
                                std::vector<Tool>,
                                std::vector<Prompt>,
                                std::vector<Resource>,
-                               ListResourcesResult>;
+                               ListResourcesResult,
+                               ListToolsResult>;
 
 struct Response {
   std::string jsonrpc = "2.0";
@@ -1017,11 +1023,8 @@ struct ListToolsRequest : PaginatedRequest {
   ListToolsRequest() : PaginatedRequest() { method = "tools/list"; }
 };
 
-struct ListToolsResult {
-  std::vector<Tool> tools;
-
-  ListToolsResult() = default;
-};
+// Note: ListToolsResult is defined earlier (before ResponseResult) to allow
+// it to be used in the ResponseResult variant type.
 
 struct CallToolRequest : jsonrpc::Request {
   std::string name;
