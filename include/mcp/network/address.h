@@ -12,6 +12,11 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+// Windows doesn't define socklen_t - use int as per Winsock convention
+#ifndef _SOCKLEN_T_DEFINED
+#define _SOCKLEN_T_DEFINED
+typedef int socklen_t;
+#endif
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>
