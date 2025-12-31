@@ -1120,16 +1120,13 @@ jsonrpc::Response McpServer::handleGetPrompt(const jsonrpc::Request& request,
   // Get prompt
   auto result = prompt_registry_->getPrompt(name, arguments, session);
 
-  // Convert to response
-  // TODO: Serialize GetPromptResult to ResponseResult
-  auto response_metadata =
-      make<Metadata>()
-          .add("promptName", name)
-          .add("messageCount", static_cast<int64_t>(0))  // Simplified
-          .build();
+  // Serialize GetPromptResult to JSON and convert to Metadata for response
+  // The result contains description and messages from the prompt handler
+  auto result_json = json::to_json(result);
+  auto result_metadata = json::jsonToMetadata(result_json);
 
   return jsonrpc::Response::success(request.id,
-                                    jsonrpc::ResponseResult(response_metadata));
+                                    jsonrpc::ResponseResult(result_metadata));
 }
 
 // Background task management using dispatcher timers
