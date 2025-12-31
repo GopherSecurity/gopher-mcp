@@ -1,20 +1,52 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <fcntl.h>
 #include <iostream>
 #include <thread>
-#include <unistd.h>
 
+// Platform-specific includes - must come before mcp headers
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#ifndef _SOCKLEN_T_DEFINED
+#define _SOCKLEN_T_DEFINED
+typedef int socklen_t;
+#endif
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#endif
 
 #include "mcp/event/event_loop.h"
 #include "mcp/event/libevent_dispatcher.h"
 
 using namespace mcp::event;
 using namespace std::chrono_literals;
+
+// Platform-specific socket helpers (os_fd_t is defined in event_loop.h)
+namespace {
+#ifdef _WIN32
+constexpr os_fd_t INVALID_SOCKET_FD = INVALID_SOCKET;
+inline void close_socket(os_fd_t s) { closesocket(s); }
+inline int get_socket_error() { return WSAGetLastError(); }
+inline bool is_would_block(int err) { return err == WSAEWOULDBLOCK; }
+inline void set_nonblocking(os_fd_t fd) {
+  u_long mode = 1;
+  ioctlsocket(fd, FIONBIO, &mode);
+}
+#else
+constexpr os_fd_t INVALID_SOCKET_FD = -1;
+inline void close_socket(os_fd_t s) { close(s); }
+inline int get_socket_error() { return errno; }
+inline bool is_would_block(int err) { return err == EAGAIN || err == EWOULDBLOCK; }
+inline void set_nonblocking(os_fd_t fd) {
+  fcntl(fd, F_SETFL, O_NONBLOCK);
+}
+#endif
+}  // namespace
 
 /**
  * Simple echo server example using the MCP event loop
@@ -25,23 +57,32 @@ class EchoServer {
       : dispatcher_(dispatcher), port_(port) {}
 
   bool start() {
+#ifdef _WIN32
+    // Initialize Winsock
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+      std::cerr << "WSAStartup failed\n";
+      return false;
+    }
+#endif
+
     // Create server socket
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd_ < 0) {
+    if (server_fd_ == INVALID_SOCKET_FD) {
       std::cerr << "Failed to create socket\n";
       return false;
     }
 
     // Set socket options
     int opt = 1;
-    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) <
-        0) {
+    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&opt), sizeof(opt)) < 0) {
       std::cerr << "Failed to set socket options\n";
       return false;
     }
 
     // Make non-blocking
-    fcntl(server_fd_, F_SETFL, O_NONBLOCK);
+    set_nonblocking(server_fd_);
 
     // Bind
     struct sockaddr_in addr;
@@ -49,7 +90,7 @@ class EchoServer {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(port_);
 
-    if (bind(server_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(server_fd_, reinterpret_cast<::sockaddr*>(&addr), sizeof(addr)) < 0) {
       std::cerr << "Failed to bind to port " << port_ << "\n";
       return false;
     }
@@ -73,15 +114,18 @@ class EchoServer {
   void stop() {
     accept_event_.reset();
     connections_.clear();
-    if (server_fd_ >= 0) {
-      close(server_fd_);
-      server_fd_ = -1;
+    if (server_fd_ != INVALID_SOCKET_FD) {
+      close_socket(server_fd_);
+      server_fd_ = INVALID_SOCKET_FD;
     }
+#ifdef _WIN32
+    WSACleanup();
+#endif
   }
 
  private:
   struct Connection {
-    int fd;
+    os_fd_t fd;
     FileEventPtr event;
     std::string buffer;
   };
@@ -95,10 +139,10 @@ class EchoServer {
       struct sockaddr_in client_addr;
       socklen_t client_len = sizeof(client_addr);
 
-      int client_fd =
-          accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
-      if (client_fd < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      os_fd_t client_fd =
+          accept(server_fd_, reinterpret_cast<::sockaddr*>(&client_addr), &client_len);
+      if (client_fd == INVALID_SOCKET_FD) {
+        if (is_would_block(get_socket_error())) {
           break;  // No more connections
         }
         std::cerr << "Accept failed\n";
@@ -106,7 +150,7 @@ class EchoServer {
       }
 
       // Make non-blocking
-      fcntl(client_fd, F_SETFL, O_NONBLOCK);
+      set_nonblocking(client_fd);
 
       std::cout << "New connection from " << inet_ntoa(client_addr.sin_addr)
                 << ":" << ntohs(client_addr.sin_port) << "\n";
@@ -130,7 +174,11 @@ class EchoServer {
     if (events & static_cast<uint32_t>(FileReadyType::Read)) {
       char buffer[1024];
       while (true) {
+#ifdef _WIN32
+        int n = recv(conn->fd, buffer, sizeof(buffer), 0);
+#else
         ssize_t n = read(conn->fd, buffer, sizeof(buffer));
+#endif
         if (n > 0) {
           // Echo back
           conn->buffer.append(buffer, n);
@@ -138,16 +186,16 @@ class EchoServer {
           // Connection closed
           std::cout << "Connection closed\n";
           connections_.erase(conn->fd);
-          close(conn->fd);
+          close_socket(conn->fd);
           return;
         } else {
-          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          if (is_would_block(get_socket_error())) {
             break;  // No more data
           }
           // Error
           std::cerr << "Read error\n";
           connections_.erase(conn->fd);
-          close(conn->fd);
+          close_socket(conn->fd);
           return;
         }
       }
@@ -156,17 +204,22 @@ class EchoServer {
     if (events & static_cast<uint32_t>(FileReadyType::Write) &&
         !conn->buffer.empty()) {
       while (!conn->buffer.empty()) {
+#ifdef _WIN32
+        int n = send(conn->fd, conn->buffer.data(),
+                     static_cast<int>(conn->buffer.size()), 0);
+#else
         ssize_t n = write(conn->fd, conn->buffer.data(), conn->buffer.size());
+#endif
         if (n > 0) {
           conn->buffer.erase(0, n);
         } else {
-          if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          if (is_would_block(get_socket_error())) {
             break;  // Can't write more now
           }
           // Error
           std::cerr << "Write error\n";
           connections_.erase(conn->fd);
-          close(conn->fd);
+          close_socket(conn->fd);
           return;
         }
       }
@@ -180,9 +233,9 @@ class EchoServer {
 
   Dispatcher& dispatcher_;
   int port_;
-  int server_fd_ = -1;
+  os_fd_t server_fd_ = INVALID_SOCKET_FD;
   FileEventPtr accept_event_;
-  std::unordered_map<int, std::shared_ptr<Connection>> connections_;
+  std::unordered_map<os_fd_t, std::shared_ptr<Connection>> connections_;
 };
 
 int main(int argc, char* argv[]) {

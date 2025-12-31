@@ -957,73 +957,44 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // For HTTP+SSE, connection is established immediately (stateless protocol)
-  // For stdio/websocket, wait for actual connection
-  if (options.transport != "http") {
-    std::cerr << "[INFO] Waiting for connection to be established..."
-              << std::endl;
-
-    int wait_count = 0;
-    bool connected = false;
-    while (!connected && wait_count < 100 &&
-           !g_shutdown) {  // 10 seconds timeout
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      wait_count++;
-      if (wait_count % 10 == 0) {
-        std::cerr << "[INFO] Still connecting..." << std::endl;
-      }
-
-      // Check connection status safely
-      {
-        std::lock_guard<std::mutex> lock(g_client_mutex);
-        if (g_client) {
-          connected = g_client->isConnected();
-        }
-      }
-    }
-
-    if (!connected) {
-      if (g_shutdown) {
-        std::cerr << "[INFO] Shutdown requested during connection" << std::endl;
-        return 0;
-      }
-      std::cerr << "[ERROR] Connection timeout - failed to establish connection"
-                << std::endl;
-      std::cerr << "[HINT] Make sure the server is running on " << options.host
-                << ":" << options.port << std::endl;
-      return 1;
-    }
-  }
-
-  if (g_shutdown) {
-    std::cerr << "[INFO] Shutdown requested, exiting..." << std::endl;
-    return 0;
-  }
-
-  std::cerr << "[INFO] Connected successfully!" << std::endl;
-
-  // The event loop is already running from connect()
-  // No need to start it separately
-
   // Wait for connection to be fully established
   // The connection happens asynchronously, so we need to wait for it
   std::cerr << "[INFO] Waiting for connection to be established..."
             << std::endl;
-  {
-    std::lock_guard<std::mutex> lock(g_client_mutex);
-    if (g_client) {
-      // Wait up to 5 seconds for connection to be established
-      auto start = std::chrono::steady_clock::now();
-      while (!g_client->isConnected()) {
-        if (std::chrono::steady_clock::now() - start >
-            std::chrono::seconds(5)) {
-          std::cerr << "[ERROR] Timeout waiting for connection" << std::endl;
-          return 1;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  int wait_count = 0;
+  bool connected = false;
+  while (!connected && wait_count < 100 && !g_shutdown) {  // 10 seconds timeout
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    wait_count++;
+    if (wait_count % 10 == 0) {
+      std::cerr << "[INFO] Still connecting... (" << wait_count / 10 << "s)"
+                << std::endl;
+    }
+
+    // Check connection status safely
+    {
+      std::lock_guard<std::mutex> lock(g_client_mutex);
+      if (g_client) {
+        connected = g_client->isConnected();
       }
     }
   }
+
+  if (g_shutdown) {
+    std::cerr << "[INFO] Shutdown requested during connection" << std::endl;
+    return 0;
+  }
+
+  if (!connected) {
+    std::cerr << "[ERROR] Connection timeout - failed to establish connection"
+              << std::endl;
+    std::cerr << "[HINT] Make sure the server is running on " << options.host
+              << ":" << options.port << std::endl;
+    return 1;
+  }
+
+  std::cerr << "[INFO] Connected successfully!" << std::endl;
 
   // Initialize MCP protocol - REQUIRED before any requests
   std::cerr << "[INFO] Initializing MCP protocol..." << std::endl;

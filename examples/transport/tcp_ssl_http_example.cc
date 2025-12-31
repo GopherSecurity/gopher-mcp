@@ -9,6 +9,12 @@
  * 4. Use the transport for MCP communication
  */
 
+// Platform-specific includes must come first
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
 #include <chrono>
 #include <iostream>
 #include <memory>

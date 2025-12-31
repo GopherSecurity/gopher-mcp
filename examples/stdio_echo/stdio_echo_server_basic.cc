@@ -164,7 +164,9 @@ int main(int argc, char* argv[]) {
   // Setup signal handlers
   signal(SIGINT, signalHandler);
   signal(SIGTERM, signalHandler);
-  signal(SIGPIPE, SIG_IGN);
+#ifndef _WIN32
+  signal(SIGPIPE, SIG_IGN);  // SIGPIPE doesn't exist on Windows
+#endif
 
   try {
     std::cerr << "MCP Stdio Echo Server (Basic)\n"
