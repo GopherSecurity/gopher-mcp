@@ -288,6 +288,9 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                 }
               }
               std::cerr << std::endl;
+            } else {
+              std::cerr << "[DEMO] Calculator returned error, content size: "
+                        << call_result.content.size() << std::endl;
             }
           } catch (const std::exception& e) {
             std::cerr << "[ERROR] Tool call failed: " << e.what() << std::endl;

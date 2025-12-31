@@ -963,10 +963,11 @@ std::future<CallToolResult> McpClient::callTool(
   auto params = make_metadata();
   params["name"] = name;
   if (arguments.has_value()) {
-    // Arguments is a Metadata object, merge it
-    for (const auto& arg : arguments.value()) {
-      params["arguments." + arg.first] = arg.second;
-    }
+    // Convert arguments to JSON string for nested object support
+    // Server expects "arguments" as a nested JSON object which is stored
+    // as a JSON string in Metadata since MetadataValue doesn't support nesting
+    auto args_json = json::metadataToJson(arguments.value());
+    params["arguments"] = args_json.toString();
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
@@ -1099,10 +1100,11 @@ std::future<GetPromptResult> McpClient::getPrompt(
   auto params = make_metadata();
   params["name"] = name;
   if (arguments.has_value()) {
-    // Arguments is a Metadata object, merge it
-    for (const auto& arg : arguments.value()) {
-      params["arguments." + arg.first] = arg.second;
-    }
+    // Convert arguments to JSON string for nested object support
+    // Server expects "arguments" as a nested JSON object which is stored
+    // as a JSON string in Metadata since MetadataValue doesn't support nesting
+    auto args_json = json::metadataToJson(arguments.value());
+    params["arguments"] = args_json.toString();
   }
   auto params_ptr = std::make_shared<Metadata>(std::move(params));
 
