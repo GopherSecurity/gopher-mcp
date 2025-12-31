@@ -216,6 +216,30 @@ make release
 sudo make install
 ```
 
+### Windows Build (Cygwin + MinGW)
+
+Building on Windows requires Cygwin with MinGW-w64 toolchain:
+
+#### Prerequisites
+Install [Cygwin](https://www.cygwin.com/) with these packages:
+- `make`, `cmake` - Build tools
+- `mingw64-x86_64-gcc-g++` - MinGW C++ compiler
+- `mingw64-x86_64-libevent` - Event library
+- `mingw64-x86_64-openssl` - SSL/TLS library
+
+#### Build Commands
+```bash
+# From Cygwin bash shell
+./build-mingw.sh           # Release build (default)
+./build-mingw.sh debug     # Debug build
+./build-mingw.sh release   # Release build
+./build-mingw.sh clean     # Clean build directory
+```
+
+#### Output
+- Build directory: `build-mingw/`
+- Executable: `build-mingw/examples/mcp/mcp_example_server.exe`
+
 ### Running Tests
 ```bash
 make test           # Run tests with minimal output
