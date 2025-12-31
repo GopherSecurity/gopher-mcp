@@ -28,22 +28,20 @@ namespace network {
 
 namespace {
 
-// Platform-specific error codes
+// Additional platform-specific error codes not in io_handle.h
 #ifdef _WIN32
-constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
 constexpr int SOCKET_ERROR_INVAL = WSAEINVAL;
-constexpr int SOCKET_ERROR_INPROGRESS = WSAEINPROGRESS;
 constexpr int SOCKET_ERROR_MSGSIZE = WSAEMSGSIZE;
-
-int getLastSocketError() { return WSAGetLastError(); }
 #else
-constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
 constexpr int SOCKET_ERROR_INVAL = EINVAL;
-constexpr int SOCKET_ERROR_INPROGRESS = EINPROGRESS;
 constexpr int SOCKET_ERROR_MSGSIZE = EMSGSIZE;
-
-int getLastSocketError() { return errno; }
 #endif
+
+// Use constants from io_handle.h for common error codes:
+// - SOCKET_ERROR_AGAIN
+// - SOCKET_ERROR_INPROGRESS
+// - SOCKET_ERROR_WOULDBLOCK
+// - getLastSocketError()
 
 // Maximum number of iovecs for vectored I/O
 #ifdef IOV_MAX
@@ -643,18 +641,38 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
 IoResult<int> IoSocketHandleImpl::connect(
     const Address::InstanceConstSharedPtr& address) {
   if (!isOpen()) {
+    std::cerr << "[DEBUG SOCKET] connect(): fd not open" << std::endl;
     return IoResult<int>::error(EBADF);
   }
 
+  std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
+            << " addr=" << address->asString() << std::endl;
+
   int result = ::connect(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
+    // Immediate connection success (rare but can happen for local connections)
+    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
+              << " immediate success" << std::endl;
     return IoResult<int>::success(0);
   } else {
     int error = getLastSocketError();
-    // EINPROGRESS is expected for non-blocking connect
-    if (error == SOCKET_ERROR_INPROGRESS) {
-      return IoResult<int>::success(0);
+    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
+              << " result=" << result << " error=" << error
+              << " (INPROGRESS=" << SOCKET_ERROR_INPROGRESS
+              << " AGAIN=" << SOCKET_ERROR_AGAIN << ")" << std::endl;
+
+    // For non-blocking connect:
+    // - EINPROGRESS (Unix) or WSAEINPROGRESS (Windows): connection in progress
+    // - EWOULDBLOCK/WSAEWOULDBLOCK: also means connection in progress on some platforms
+    // Return error with the appropriate code so caller can wait for completion
+    if (error == SOCKET_ERROR_INPROGRESS || error == SOCKET_ERROR_AGAIN) {
+      // Return EINPROGRESS (normalized) so caller knows to wait for write event
+      std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
+                << " connection in progress, returning INPROGRESS" << std::endl;
+      return IoResult<int>::error(SOCKET_ERROR_INPROGRESS);
     }
+    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
+              << " connect failed with error=" << error << std::endl;
     return IoResult<int>::error(error);
   }
 }

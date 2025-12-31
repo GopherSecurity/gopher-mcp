@@ -38,14 +38,12 @@ namespace network {
 
 namespace {
 
-// Platform-specific error codes
+// Additional platform-specific error codes not in io_handle.h
+// Common error codes (SOCKET_ERROR_AGAIN, SOCKET_ERROR_INPROGRESS,
+// SOCKET_ERROR_WOULDBLOCK, getLastSocketError) are defined in io_handle.h
 #ifdef _WIN32
-constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
 constexpr int SOCKET_ERROR_INVAL = WSAEINVAL;
 constexpr int SOCKET_ERROR_AFNOSUPPORT = WSAEAFNOSUPPORT;
-constexpr int SOCKET_ERROR_INPROGRESS = WSAEINPROGRESS;
-
-int getLastSocketError() { return WSAGetLastError(); }
 
 class WinsockInitializer {
  public:
@@ -64,12 +62,8 @@ class WinsockInitializer {
 static WinsockInitializer winsock_init;
 
 #else
-constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
 constexpr int SOCKET_ERROR_INVAL = EINVAL;
 constexpr int SOCKET_ERROR_AFNOSUPPORT = EAFNOSUPPORT;
-constexpr int SOCKET_ERROR_INPROGRESS = EINPROGRESS;
-
-int getLastSocketError() { return errno; }
 #endif
 
 // Convert address type and IP version to socket domain
