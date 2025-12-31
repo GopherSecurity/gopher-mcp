@@ -16,6 +16,9 @@
 #include <sstream>
 
 #include <sys/stat.h>
+#if defined(__linux__) || defined(__unix__)
+#include <unistd.h>  // for environ
+#endif
 
 #include "mcp/config/json_conversion.h"
 #include "mcp/config/parse_error.h"
@@ -58,8 +61,9 @@ bool EnvironmentConfigSource::hasConfiguration() const {
   char** envp = *_NSGetEnviron();
   for (char** env = envp; env && *env; ++env) {
 #elif defined(__linux__) || defined(__unix__)
-  extern char** environ;  // provided by C runtime
-  for (char** env = environ; env && *env; ++env) {
+  // environ is a global C variable, must reference with :: to avoid namespace
+  // issues
+  for (char** env = ::environ; env && *env; ++env) {
 #else
   // Fallback: no portable way; report none
   for (char** env = nullptr; env && *env; ++env) {
