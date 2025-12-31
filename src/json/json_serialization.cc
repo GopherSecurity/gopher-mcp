@@ -514,7 +514,7 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
   } else if (json.isString()) {
     return jsonrpc::ResponseResult(json.getString());
   } else if (json.isObject()) {
-    // Check if it's a specific type based on "type" field
+    // Check if it's a specific type based on fields present
     if (json.contains("type")) {
       std::string type = json["type"].getString();
       if (type == "text" || type == "image" || type == "resource") {
@@ -523,6 +523,10 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
         blocks.push_back(from_json<ContentBlock>(json));
         return jsonrpc::ResponseResult(blocks);
       }
+    }
+    // Check if it's a ListResourcesResult - has "resources" array field
+    if (json.contains("resources") && json["resources"].isArray()) {
+      return jsonrpc::ResponseResult(from_json<ListResourcesResult>(json));
     }
     // Otherwise treat as Metadata
     return jsonrpc::ResponseResult(jsonToMetadata(json));
