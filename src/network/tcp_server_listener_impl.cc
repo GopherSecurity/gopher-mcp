@@ -38,19 +38,14 @@ std::atomic<uint64_t> TcpActiveListener::next_listener_tag_{1};
 
 namespace {
 
-// Platform-specific socket error codes and helper
+// Additional platform-specific socket error codes not in io_handle.h
+// Common error codes (SOCKET_ERROR_AGAIN, getLastSocketError) are in io_handle.h
 #ifdef _WIN32
-constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
 constexpr int SOCKET_ERROR_MFILE = WSAEMFILE;
 constexpr int SOCKET_ERROR_NOFILE = WSAENOBUFS;  // Closest to ENFILE on Windows
-
-int getLastSocketError() { return WSAGetLastError(); }
 #else
-constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
 constexpr int SOCKET_ERROR_MFILE = EMFILE;
 constexpr int SOCKET_ERROR_NOFILE = ENFILE;
-
-int getLastSocketError() { return errno; }
 #endif
 
 class NullProtocolCallbacks : public McpProtocolCallbacks {

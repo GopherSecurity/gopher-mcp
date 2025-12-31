@@ -30,6 +30,26 @@ using os_fd_t = int;
 constexpr os_fd_t INVALID_SOCKET_FD = -1;
 #endif
 
+// Platform-specific socket error codes
+// These constants normalize error handling across Windows and Unix
+#ifdef _WIN32
+constexpr int SOCKET_ERROR_AGAIN = WSAEWOULDBLOCK;
+constexpr int SOCKET_ERROR_INPROGRESS = WSAEINPROGRESS;
+constexpr int SOCKET_ERROR_WOULDBLOCK = WSAEWOULDBLOCK;
+constexpr int SOCKET_ERROR_CONNREFUSED = WSAECONNREFUSED;
+constexpr int SOCKET_ERROR_CONNRESET = WSAECONNRESET;
+constexpr int SOCKET_ERROR_NOTCONN = WSAENOTCONN;
+inline int getLastSocketError() { return WSAGetLastError(); }
+#else
+constexpr int SOCKET_ERROR_AGAIN = EAGAIN;
+constexpr int SOCKET_ERROR_INPROGRESS = EINPROGRESS;
+constexpr int SOCKET_ERROR_WOULDBLOCK = EWOULDBLOCK;
+constexpr int SOCKET_ERROR_CONNREFUSED = ECONNREFUSED;
+constexpr int SOCKET_ERROR_CONNRESET = ECONNRESET;
+constexpr int SOCKET_ERROR_NOTCONN = ENOTCONN;
+inline int getLastSocketError() { return errno; }
+#endif
+
 // Bring IoResult types into this namespace
 using ::mcp::IoCallResult;
 using ::mcp::IoResult;
