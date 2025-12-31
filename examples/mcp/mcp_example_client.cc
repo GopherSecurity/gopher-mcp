@@ -181,11 +181,14 @@ ClientOptions parseArguments(int argc, char* argv[]) {
 // Helper to extract string from Metadata response
 std::string extractMetadataString(const jsonrpc::Response& response,
                                   const std::string& key) {
-  if (!response.result.has_value()) return "";
-  if (!holds_alternative<Metadata>(response.result.value())) return "";
+  if (!response.result.has_value())
+    return "";
+  if (!holds_alternative<Metadata>(response.result.value()))
+    return "";
   auto metadata = get<Metadata>(response.result.value());
   auto it = metadata.find(key);
-  if (it == metadata.end()) return "";
+  if (it == metadata.end())
+    return "";
   if (holds_alternative<std::string>(it->second)) {
     return get<std::string>(it->second);
   }
@@ -195,11 +198,14 @@ std::string extractMetadataString(const jsonrpc::Response& response,
 // Helper to extract bool from Metadata response
 bool extractMetadataBool(const jsonrpc::Response& response,
                          const std::string& key) {
-  if (!response.result.has_value()) return false;
-  if (!holds_alternative<Metadata>(response.result.value())) return false;
+  if (!response.result.has_value())
+    return false;
+  if (!holds_alternative<Metadata>(response.result.value()))
+    return false;
   auto metadata = get<Metadata>(response.result.value());
   auto it = metadata.find(key);
-  if (it == metadata.end()) return false;
+  if (it == metadata.end())
+    return false;
   if (holds_alternative<bool>(it->second)) {
     return get<bool>(it->second);
   }
@@ -209,11 +215,14 @@ bool extractMetadataBool(const jsonrpc::Response& response,
 // Helper to extract int64 from Metadata response
 int64_t extractMetadataInt(const jsonrpc::Response& response,
                            const std::string& key) {
-  if (!response.result.has_value()) return 0;
-  if (!holds_alternative<Metadata>(response.result.value())) return 0;
+  if (!response.result.has_value())
+    return 0;
+  if (!holds_alternative<Metadata>(response.result.value()))
+    return 0;
   auto metadata = get<Metadata>(response.result.value());
   auto it = metadata.find(key);
-  if (it == metadata.end()) return 0;
+  if (it == metadata.end())
+    return 0;
   if (holds_alternative<int64_t>(it->second)) {
     return get<int64_t>(it->second);
   }
@@ -314,10 +323,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
 
     // Test echo handler
     try {
-      auto echo_params =
-          make<Metadata>().add("test_key", "test_value").build();
-      auto echo_future =
-          client.sendRequest("echo", make_optional(echo_params));
+      auto echo_params = make<Metadata>().add("test_key", "test_value").build();
+      auto echo_future = client.sendRequest("echo", make_optional(echo_params));
       auto echo_response = echo_future.get();
       if (!echo_response.error.has_value() &&
           extractMetadataBool(echo_response, "echo") &&
@@ -336,8 +343,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       auto status_response = status_future.get();
       if (!status_response.error.has_value() &&
           extractMetadataBool(status_response, "running")) {
-        int64_t sessions = extractMetadataInt(status_response, "sessions_active");
-        int64_t requests = extractMetadataInt(status_response, "requests_total");
+        int64_t sessions =
+            extractMetadataInt(status_response, "sessions_active");
+        int64_t requests =
+            extractMetadataInt(status_response, "requests_total");
         std::cerr << "    Sessions: " << sessions << ", Requests: " << requests
                   << std::endl;
         results.pass("server/status handler - returns running=true");
@@ -356,7 +365,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       if (!health_response.error.has_value() && status == "healthy") {
         results.pass("health handler - returns status=healthy");
       } else {
-        results.fail("health handler", "Expected status=healthy, got: " + status);
+        results.fail("health handler",
+                     "Expected status=healthy, got: " + status);
       }
     } catch (const std::exception& e) {
       results.fail("health handler", e.what());
@@ -379,9 +389,12 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       for (const auto& resource : list_result.resources) {
         std::cerr << "    - " << resource.name << " (" << resource.uri << ")"
                   << std::endl;
-        if (resource.uri == "config://server/settings") found_config = true;
-        if (resource.uri == "log://server/events") found_log = true;
-        if (resource.uri == "metrics://server/stats") found_metrics = true;
+        if (resource.uri == "config://server/settings")
+          found_config = true;
+        if (resource.uri == "log://server/events")
+          found_log = true;
+        if (resource.uri == "metrics://server/stats")
+          found_metrics = true;
       }
 
       if (found_config) {
@@ -417,7 +430,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       std::cerr << "  Found " << tools_result.tools.size() << " tools"
                 << std::endl;
 
-      bool found_calculator = false, found_sysinfo = false, found_dbquery = false;
+      bool found_calculator = false, found_sysinfo = false,
+           found_dbquery = false;
 
       for (const auto& tool : tools_result.tools) {
         std::cerr << "    - " << tool.name;
@@ -426,9 +440,12 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
         }
         std::cerr << std::endl;
 
-        if (tool.name == "calculator") found_calculator = true;
-        if (tool.name == "system_info") found_sysinfo = true;
-        if (tool.name == "database_query") found_dbquery = true;
+        if (tool.name == "calculator")
+          found_calculator = true;
+        if (tool.name == "system_info")
+          found_sysinfo = true;
+        if (tool.name == "database_query")
+          found_dbquery = true;
       }
 
       // Test calculator tool - all operations
@@ -441,7 +458,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("a", 10.0)
                             .add("b", 5.0)
                             .build();
-        auto add_future = client.callTool("calculator", make_optional(add_args));
+        auto add_future =
+            client.callTool("calculator", make_optional(add_args));
         auto add_result = add_future.get();
         std::cerr << "    add(10, 5) = ";
         printToolResult(add_result);
@@ -458,7 +476,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("a", 20.0)
                             .add("b", 8.0)
                             .build();
-        auto sub_future = client.callTool("calculator", make_optional(sub_args));
+        auto sub_future =
+            client.callTool("calculator", make_optional(sub_args));
         auto sub_result = sub_future.get();
         std::cerr << "    subtract(20, 8) = ";
         printToolResult(sub_result);
@@ -475,7 +494,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("a", 6.0)
                             .add("b", 7.0)
                             .build();
-        auto mul_future = client.callTool("calculator", make_optional(mul_args));
+        auto mul_future =
+            client.callTool("calculator", make_optional(mul_args));
         auto mul_result = mul_future.get();
         std::cerr << "    multiply(6, 7) = ";
         printToolResult(mul_result);
@@ -492,7 +512,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("a", 100.0)
                             .add("b", 4.0)
                             .build();
-        auto div_future = client.callTool("calculator", make_optional(div_args));
+        auto div_future =
+            client.callTool("calculator", make_optional(div_args));
         auto div_result = div_future.get();
         std::cerr << "    divide(100, 4) = ";
         printToolResult(div_result);
@@ -568,9 +589,12 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
         }
         std::cerr << std::endl;
 
-        if (prompt.name == "greeting") found_greeting = true;
-        if (prompt.name == "code_review") found_code_review = true;
-        if (prompt.name == "data_analysis") found_data_analysis = true;
+        if (prompt.name == "greeting")
+          found_greeting = true;
+        if (prompt.name == "code_review")
+          found_code_review = true;
+        if (prompt.name == "data_analysis")
+          found_data_analysis = true;
       }
 
       if (found_greeting) {
@@ -673,8 +697,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
 
     // Send progress notification
     try {
-      auto progress_params =
-          make<Metadata>().add("progress", 0.5).add("message", "Halfway done").build();
+      auto progress_params = make<Metadata>()
+                                 .add("progress", 0.5)
+                                 .add("message", "Halfway done")
+                                 .build();
       client.sendNotification("progress", make_optional(progress_params));
       results.pass("Notification: progress");
     } catch (const std::exception& e) {
