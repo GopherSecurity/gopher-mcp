@@ -857,8 +857,9 @@ void ConnectionImpl::onWriteReady() {
   }
 
   if (connecting_) {
-    // Write event fired while connecting - check if connection actually succeeded
-    // For non-blocking connect, we MUST check SO_ERROR to determine actual result
+    // Write event fired while connecting - check if connection actually
+    // succeeded For non-blocking connect, we MUST check SO_ERROR to determine
+    // actual result
     int socket_error = 0;
     socklen_t error_len = sizeof(socket_error);
     auto getsockopt_result = socket_->ioHandle().getSocketOption(
@@ -1060,7 +1061,8 @@ void ConnectionImpl::doConnect() {
     // connections) Schedule the Connected event to be handled in the next
     // dispatcher iteration This ensures all callbacks are invoked in proper
     // dispatcher thread context
-    std::cerr << "[CONN] doConnect(): immediate connection success" << std::endl;
+    std::cerr << "[CONN] doConnect(): immediate connection success"
+              << std::endl;
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -1081,16 +1083,18 @@ void ConnectionImpl::doConnect() {
     // Write events should only be enabled when there's data to send.
     // Enabling both causes busy loop on macOS/kqueue.
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-  } else if (!result.ok() &&
-             (result.error_code() == SOCKET_ERROR_INPROGRESS ||
-              result.error_code() == SOCKET_ERROR_WOULDBLOCK)) {
+  } else if (!result.ok() && (result.error_code() == SOCKET_ERROR_INPROGRESS ||
+                              result.error_code() == SOCKET_ERROR_WOULDBLOCK)) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
-    std::cerr << "[CONN] doConnect(): connection in progress, waiting for Write event" << std::endl;
+    std::cerr
+        << "[CONN] doConnect(): connection in progress, waiting for Write event"
+        << std::endl;
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed immediately
-    std::cerr << "[CONN] doConnect(): connection failed immediately" << std::endl;
+    std::cerr << "[CONN] doConnect(): connection failed immediately"
+              << std::endl;
     immediate_error_event_ = ConnectionEvent::RemoteClose;
     connecting_ = false;
     // Activate write event to trigger error handling on next loop

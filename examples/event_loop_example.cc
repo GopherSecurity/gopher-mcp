@@ -15,6 +15,7 @@ typedef int socklen_t;
 #else
 #include <fcntl.h>
 #include <unistd.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -41,10 +42,10 @@ inline void set_nonblocking(os_fd_t fd) {
 constexpr os_fd_t INVALID_SOCKET_FD = -1;
 inline void close_socket(os_fd_t s) { close(s); }
 inline int get_socket_error() { return errno; }
-inline bool is_would_block(int err) { return err == EAGAIN || err == EWOULDBLOCK; }
-inline void set_nonblocking(os_fd_t fd) {
-  fcntl(fd, F_SETFL, O_NONBLOCK);
+inline bool is_would_block(int err) {
+  return err == EAGAIN || err == EWOULDBLOCK;
 }
+inline void set_nonblocking(os_fd_t fd) { fcntl(fd, F_SETFL, O_NONBLOCK); }
 #endif
 }  // namespace
 
@@ -90,7 +91,8 @@ class EchoServer {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(port_);
 
-    if (bind(server_fd_, reinterpret_cast<::sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (bind(server_fd_, reinterpret_cast<::sockaddr*>(&addr), sizeof(addr)) <
+        0) {
       std::cerr << "Failed to bind to port " << port_ << "\n";
       return false;
     }
@@ -139,8 +141,8 @@ class EchoServer {
       struct sockaddr_in client_addr;
       socklen_t client_len = sizeof(client_addr);
 
-      os_fd_t client_fd =
-          accept(server_fd_, reinterpret_cast<::sockaddr*>(&client_addr), &client_len);
+      os_fd_t client_fd = accept(
+          server_fd_, reinterpret_cast<::sockaddr*>(&client_addr), &client_len);
       if (client_fd == INVALID_SOCKET_FD) {
         if (is_would_block(get_socket_error())) {
           break;  // No more connections

@@ -651,20 +651,21 @@ IoResult<int> IoSocketHandleImpl::connect(
   int result = ::connect(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
     // Immediate connection success (rare but can happen for local connections)
-    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
-              << " immediate success" << std::endl;
+    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_ << " immediate success"
+              << std::endl;
     return IoResult<int>::success(0);
   } else {
     int error = getLastSocketError();
-    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
-              << " result=" << result << " error=" << error
+    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_ << " result=" << result
+              << " error=" << error
               << " (INPROGRESS=" << SOCKET_ERROR_INPROGRESS
               << " AGAIN=" << SOCKET_ERROR_AGAIN << ")" << std::endl;
 
     // For non-blocking connect:
     // - EINPROGRESS (Unix) or WSAEINPROGRESS (Windows): connection in progress
-    // - EWOULDBLOCK/WSAEWOULDBLOCK: also means connection in progress on some platforms
-    // Return error with the appropriate code so caller can wait for completion
+    // - EWOULDBLOCK/WSAEWOULDBLOCK: also means connection in progress on some
+    // platforms Return error with the appropriate code so caller can wait for
+    // completion
     if (error == SOCKET_ERROR_INPROGRESS || error == SOCKET_ERROR_AGAIN) {
       // Return EINPROGRESS (normalized) so caller knows to wait for write event
       std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_

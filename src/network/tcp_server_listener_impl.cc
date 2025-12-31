@@ -39,7 +39,8 @@ std::atomic<uint64_t> TcpActiveListener::next_listener_tag_{1};
 namespace {
 
 // Additional platform-specific socket error codes not in io_handle.h
-// Common error codes (SOCKET_ERROR_AGAIN, getLastSocketError) are in io_handle.h
+// Common error codes (SOCKET_ERROR_AGAIN, getLastSocketError) are in
+// io_handle.h
 #ifdef _WIN32
 constexpr int SOCKET_ERROR_MFILE = WSAEMFILE;
 constexpr int SOCKET_ERROR_NOFILE = WSAENOBUFS;  // Closest to ENFILE on Windows
