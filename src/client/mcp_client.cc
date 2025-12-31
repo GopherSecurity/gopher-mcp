@@ -1000,9 +1000,8 @@ std::future<CallToolResult> McpClient::callTool(
           auto content_it = metadata.find("content");
           if (content_it != metadata.end() &&
               holds_alternative<std::string>(content_it->second)) {
-            result.content.push_back(
-                ExtendedContentBlock(TextContent(
-                    get<std::string>(content_it->second))));
+            result.content.push_back(ExtendedContentBlock(
+                TextContent(get<std::string>(content_it->second))));
           }
           // Extract isError flag
           auto error_it = metadata.find("isError");
