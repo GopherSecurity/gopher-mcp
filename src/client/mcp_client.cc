@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/json/json_serialization.h"
 #include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/socket_interface_impl.h"
