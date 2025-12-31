@@ -1,6 +1,13 @@
 #ifndef MCP_NETWORK_ADDRESS_IMPL_H
 #define MCP_NETWORK_ADDRESS_IMPL_H
 
+// Platform-specific includes for socket structures
+// Must come before other includes to avoid conflicts
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
 #include <array>
 
 #include "mcp/network/address.h"
