@@ -126,6 +126,10 @@ JsonValue serialize_ResponseResult(const jsonrpc::ResponseResult& result) {
       [&json_result](const ListResourcesResult& list_result) {
         // ListResourcesResult is a full result object with resources array
         json_result = to_json(list_result);
+      },
+      [&json_result](const ListToolsResult& list_result) {
+        // ListToolsResult is a full result object with tools array
+        json_result = to_json(list_result);
       });
 
   return json_result;
@@ -527,6 +531,10 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
     // Check if it's a ListResourcesResult - has "resources" array field
     if (json.contains("resources") && json["resources"].isArray()) {
       return jsonrpc::ResponseResult(from_json<ListResourcesResult>(json));
+    }
+    // Check if it's a ListToolsResult (has "tools" array)
+    if (json.contains("tools") && json["tools"].isArray()) {
+      return jsonrpc::ResponseResult(from_json<ListToolsResult>(json));
     }
     // Otherwise treat as Metadata
     return jsonrpc::ResponseResult(jsonToMetadata(json));
