@@ -547,7 +547,8 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
         // Distinguish by checking for type-specific optional fields:
         // - Tool has "inputSchema" field
         // - Prompt has "arguments" field
-        // If neither is present, check all elements for the distinguishing field
+        // If neither is present, check all elements for the distinguishing
+        // field
         bool has_input_schema = false;
         bool has_arguments = false;
         size_t size = json.size();
