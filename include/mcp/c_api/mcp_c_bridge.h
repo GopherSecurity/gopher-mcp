@@ -21,6 +21,12 @@
 #ifndef MCP_C_BRIDGE_H
 #define MCP_C_BRIDGE_H
 
+/* Windows socket headers must come first to avoid conflicts */
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
 /* Include C API headers */
 #include "mcp_c_api.h"
 #include "mcp_c_collections.h"
@@ -690,8 +696,13 @@ inline mcp::network::Address::InstanceConstSharedPtr to_cpp_address_safe(
           std::string(addr->addr.inet.host), addr->addr.inet.port);
 
     case mcp_address::MCP_AF_UNIX:
+#ifndef _WIN32
       return std::make_shared<mcp::network::Address::PipeInstance>(
           std::string(addr->addr.unix.path));
+#else
+      // Unix domain sockets not supported on Windows
+      return nullptr;
+#endif
 
     default:
       return nullptr;
@@ -904,8 +915,7 @@ class ErrorManager {
   class ErrorScope {
    public:
     ErrorScope() { ClearError(); }
-    ~ErrorScope() { /* Error persists after scope */
-    }
+    ~ErrorScope() { /* Error persists after scope */ }
   };
 
  private:
