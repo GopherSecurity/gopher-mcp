@@ -1089,12 +1089,20 @@ std::future<ListPromptsResult> McpClient::listPrompts(
       }
 
       auto response = request_future_ptr->get();
-      ListPromptsResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // TODO: Proper parsing
+      if (response.error.has_value()) {
+        result_promise->set_exception(std::make_exception_ptr(
+            std::runtime_error(response.error->message)));
+      } else if (response.result.has_value()) {
+        // Extract prompts vector from response and wrap in ListPromptsResult
+        // ResponseResult variant contains std::vector<Prompt>
+        ListPromptsResult result;
+        if (holds_alternative<std::vector<Prompt>>(response.result.value())) {
+          result.prompts = get<std::vector<Prompt>>(response.result.value());
+        }
+        result_promise->set_value(result);
+      } else {
+        result_promise->set_value(ListPromptsResult());
       }
-      result_promise->set_value(result);
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
@@ -1149,12 +1157,48 @@ std::future<GetPromptResult> McpClient::getPrompt(
       }
 
       auto response = request_future_ptr->get();
-      GetPromptResult result;
-      // Parse response into result structure
-      if (!response.error.has_value() && response.result.has_value()) {
-        // TODO: Proper parsing
+      if (response.error.has_value()) {
+        result_promise->set_exception(std::make_exception_ptr(
+            std::runtime_error(response.error->message)));
+      } else if (response.result.has_value()) {
+        // Extract GetPromptResult from response
+        // Server serializes GetPromptResult to Metadata containing:
+        // - description (optional string)
+        // - messages (JSON string of array)
+        GetPromptResult result;
+        if (holds_alternative<Metadata>(response.result.value())) {
+          auto metadata = get<Metadata>(response.result.value());
+          // Extract description
+          auto desc_it = metadata.find("description");
+          if (desc_it != metadata.end() &&
+              holds_alternative<std::string>(desc_it->second)) {
+            result.description =
+                mcp::make_optional(get<std::string>(desc_it->second));
+          }
+          // Extract messages from JSON string
+          auto msgs_it = metadata.find("messages");
+          if (msgs_it != metadata.end() &&
+              holds_alternative<std::string>(msgs_it->second)) {
+            // Parse messages JSON string back to PromptMessage array
+            std::string msgs_json = get<std::string>(msgs_it->second);
+            try {
+              auto msgs_value = json::JsonValue::parse(msgs_json);
+              if (msgs_value.isArray()) {
+                size_t size = msgs_value.size();
+                for (size_t i = 0; i < size; ++i) {
+                  result.messages.push_back(
+                      json::from_json<PromptMessage>(msgs_value[i]));
+                }
+              }
+            } catch (...) {
+              // Failed to parse messages, leave empty
+            }
+          }
+        }
+        result_promise->set_value(result);
+      } else {
+        result_promise->set_value(GetPromptResult());
       }
-      result_promise->set_value(result);
     } catch (...) {
       result_promise->set_exception(std::current_exception());
     }
