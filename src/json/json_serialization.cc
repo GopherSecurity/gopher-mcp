@@ -543,14 +543,41 @@ jsonrpc::ResponseResult deserialize_ResponseResult(const JsonValue& json) {
           return jsonrpc::ResponseResult(blocks);
         }
       } else if (first.contains("name") && !first.contains("uri")) {
-        // Array of Tools - tools have "name" but not "uri"
-        // inputSchema is optional per MCP spec
-        std::vector<Tool> tools;
+        // Both Tools and Prompts have "name" but not "uri"
+        // Distinguish by checking for type-specific optional fields:
+        // - Tool has "inputSchema" field
+        // - Prompt has "arguments" field
+        // If neither is present, check all elements for the distinguishing field
+        bool has_input_schema = false;
+        bool has_arguments = false;
         size_t size = json.size();
         for (size_t i = 0; i < size; ++i) {
-          tools.push_back(from_json<Tool>(json[i]));
+          if (json[i].contains("inputSchema")) {
+            has_input_schema = true;
+            break;
+          }
+          if (json[i].contains("arguments")) {
+            has_arguments = true;
+            break;
+          }
         }
-        return jsonrpc::ResponseResult(tools);
+
+        if (has_input_schema || (!has_arguments && !has_input_schema)) {
+          // Array of Tools - default to Tool if no distinguishing field found
+          // since most tools have inputSchema in practice
+          std::vector<Tool> tools;
+          for (size_t i = 0; i < size; ++i) {
+            tools.push_back(from_json<Tool>(json[i]));
+          }
+          return jsonrpc::ResponseResult(tools);
+        } else {
+          // Array of Prompts - has "arguments" field
+          std::vector<Prompt> prompts;
+          for (size_t i = 0; i < size; ++i) {
+            prompts.push_back(from_json<Prompt>(json[i]));
+          }
+          return jsonrpc::ResponseResult(prompts);
+        }
       } else if (first.contains("uri")) {
         // Array of Resources
         std::vector<Resource> resources;
