@@ -74,10 +74,12 @@ void IoSocketHandleImpl::setNonBlocking() {
   u_long mode = 1;
   int result = ::ioctlsocket(fd_, FIONBIO, &mode);
   if (result != 0) {
-    GOPHER_LOG_TRACE("IoSocketHandleImpl::setNonBlocking: fd={} result={} WSAError={}",
-                     fd_, result, WSAGetLastError());
+    GOPHER_LOG_TRACE(
+        "IoSocketHandleImpl::setNonBlocking: fd={} result={} WSAError={}", fd_,
+        result, WSAGetLastError());
   } else {
-    GOPHER_LOG_TRACE("IoSocketHandleImpl::setNonBlocking: fd={} result={}", fd_, result);
+    GOPHER_LOG_TRACE("IoSocketHandleImpl::setNonBlocking: fd={} result={}", fd_,
+                     result);
   }
 #else
   int flags = ::fcntl(fd_, F_GETFL, 0);
@@ -520,8 +522,8 @@ IoResult<int> IoSocketHandleImpl::bind(
     return IoResult<int>::error(EBADF);
   }
 
-  GOPHER_LOG_TRACE("IoSocketHandleImpl::bind() called: fd={} addr={}",
-                   fd_, address ? address->asStringView() : "<null>");
+  GOPHER_LOG_TRACE("IoSocketHandleImpl::bind() called: fd={} addr={}", fd_,
+                   address ? address->asStringView() : "<null>");
   int result = ::bind(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
     sockaddr_storage local_addr;
@@ -544,7 +546,8 @@ IoResult<int> IoSocketHandleImpl::bind(
 }
 
 IoResult<int> IoSocketHandleImpl::listen(int backlog) {
-  GOPHER_LOG_TRACE("IoSocketHandleImpl::listen() called: fd={} backlog={}", fd_, backlog);
+  GOPHER_LOG_TRACE("IoSocketHandleImpl::listen() called: fd={} backlog={}", fd_,
+                   backlog);
 
   if (!isOpen()) {
     GOPHER_LOG_TRACE("listen() failed: socket not open");
@@ -554,7 +557,8 @@ IoResult<int> IoSocketHandleImpl::listen(int backlog) {
   int result = ::listen(fd_, backlog);
 #ifdef _WIN32
   if (result != 0) {
-    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result, WSAGetLastError());
+    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result,
+                     WSAGetLastError());
   } else {
     GOPHER_LOG_TRACE("::listen() returned: {}", result);
   }
@@ -650,8 +654,9 @@ IoResult<int> IoSocketHandleImpl::connect(
     return IoResult<int>::success(0);
   } else {
     int error = getLastSocketError();
-    GOPHER_LOG_TRACE("connect(): fd={} result={} error={} (INPROGRESS={} AGAIN={})",
-                     fd_, result, error, SOCKET_ERROR_INPROGRESS, SOCKET_ERROR_AGAIN);
+    GOPHER_LOG_TRACE(
+        "connect(): fd={} result={} error={} (INPROGRESS={} AGAIN={})", fd_,
+        result, error, SOCKET_ERROR_INPROGRESS, SOCKET_ERROR_AGAIN);
 
     // For non-blocking connect:
     // - EINPROGRESS (Unix) or WSAEINPROGRESS (Windows): connection in progress
@@ -660,10 +665,12 @@ IoResult<int> IoSocketHandleImpl::connect(
     // completion
     if (error == SOCKET_ERROR_INPROGRESS || error == SOCKET_ERROR_AGAIN) {
       // Return EINPROGRESS (normalized) so caller knows to wait for write event
-      GOPHER_LOG_TRACE("connect(): fd={} connection in progress, returning INPROGRESS", fd_);
+      GOPHER_LOG_TRACE(
+          "connect(): fd={} connection in progress, returning INPROGRESS", fd_);
       return IoResult<int>::error(SOCKET_ERROR_INPROGRESS);
     }
-    GOPHER_LOG_TRACE("connect(): fd={} connect failed with error={}", fd_, error);
+    GOPHER_LOG_TRACE("connect(): fd={} connect failed with error={}", fd_,
+                     error);
     return IoResult<int>::error(error);
   }
 }
@@ -885,7 +892,8 @@ IoHandlePtr IoSocketHandleImpl::duplicate() {
     SOCKET new_fd =
         ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                     &info, 0, WSA_FLAG_OVERLAPPED);
-    GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})", new_fd, INVALID_SOCKET);
+    GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})",
+                     new_fd, INVALID_SOCKET);
     if (new_fd != INVALID_SOCKET) {
       return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
                                                   domain_);
@@ -893,7 +901,8 @@ IoHandlePtr IoSocketHandleImpl::duplicate() {
       GOPHER_LOG_TRACE("WSASocket() failed: WSAError={}", WSAGetLastError());
     }
   } else {
-    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}", WSAGetLastError());
+    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}",
+                     WSAGetLastError());
   }
 #else
   int new_fd = ::dup(fd_);

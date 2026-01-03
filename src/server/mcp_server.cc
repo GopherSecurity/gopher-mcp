@@ -11,10 +11,10 @@
 #include <sstream>
 
 #include "mcp/filter/filter_chain_assembler.h"
-#include "mcp/logging/log_macros.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 // NOTE: We'll implement connection handler directly in server for now
 // to avoid conflicts with existing connection management in
@@ -186,7 +186,8 @@ void McpServer::performListen() {
       std::unique_ptr<network::TcpActiveListener> tcp_listener;
 
       if (config_.filter_chain_config.has_value()) {
-        GOPHER_LOG_INFO("Using config-driven TCP listener with configurable filter chain");
+        GOPHER_LOG_INFO(
+            "Using config-driven TCP listener with configurable filter chain");
 
         // Create a ListenerConfig from the filter chain configuration
         mcp::config::ListenerConfig listener_config;
@@ -239,7 +240,8 @@ void McpServer::performListen() {
       // Store the listener
       tcp_listeners_.push_back(std::move(tcp_listener));
 
-      GOPHER_LOG_DEBUG("Successfully started HTTP+SSE listener on port {}", port);
+      GOPHER_LOG_DEBUG("Successfully started HTTP+SSE listener on port {}",
+                       port);
     } else {
       // Future: support for other transports
       auto net_address = network::Address::pipeAddress(address);
@@ -280,14 +282,16 @@ void McpServer::performListen() {
 void McpServer::run() {
   // Check if we have either a listen address or pending listener configs
   if (listen_address_.empty() && pending_listener_configs_.empty()) {
-    GOPHER_LOG_ERROR("No listen address or listener configurations specified. "
-                     "Call listen() or createListenersFromConfig() first.");
+    GOPHER_LOG_ERROR(
+        "No listen address or listener configurations specified. "
+        "Call listen() or createListenersFromConfig() first.");
     return;
   }
 
   if (!initialized_) {
-    GOPHER_LOG_ERROR("Server not initialized. Call listen() or "
-                     "createListenersFromConfig() first.");
+    GOPHER_LOG_ERROR(
+        "Server not initialized. Call listen() or "
+        "createListenersFromConfig() first.");
     return;
   }
 
@@ -510,7 +514,8 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
 
 // McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
-  GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}", request.method);
+  GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
+                   request.method);
 
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
@@ -1273,8 +1278,7 @@ VoidResult McpServer::createListenersFromConfig(
 void McpServer::startListener(
     const mcp::config::ListenerConfig& listener_config) {
   try {
-    GOPHER_LOG_INFO("Starting listener '{}' on {}:{}",
-                    listener_config.name,
+    GOPHER_LOG_INFO("Starting listener '{}' on {}:{}", listener_config.name,
                     listener_config.address.socket_address.address,
                     listener_config.address.socket_address.port_value);
 
@@ -1294,11 +1298,12 @@ void McpServer::startListener(
     // Store the listener
     tcp_listeners_.push_back(std::move(tcp_listener));
 
-    GOPHER_LOG_DEBUG("Successfully started listener '{}'", listener_config.name);
+    GOPHER_LOG_DEBUG("Successfully started listener '{}'",
+                     listener_config.name);
 
   } catch (const std::exception& e) {
-    GOPHER_LOG_ERROR("Failed to start listener '{}': {}",
-                     listener_config.name, e.what());
+    GOPHER_LOG_ERROR("Failed to start listener '{}': {}", listener_config.name,
+                     e.what());
     // Continue with other listeners rather than failing entirely
   }
 }

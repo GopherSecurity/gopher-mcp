@@ -48,12 +48,14 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 // HttpCodecFilter::MessageCallbacks implementation
 void HttpRoutingFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
-  GOPHER_LOG_DEBUG("HttpRoutingFilter::onHeaders called with {} headers, is_server={}",
-                   headers.size(), is_server_);
+  GOPHER_LOG_DEBUG(
+      "HttpRoutingFilter::onHeaders called with {} headers, is_server={}",
+      headers.size(), is_server_);
 
   // In client mode, we're receiving responses, not requests - skip routing
   if (!is_server_) {
-    GOPHER_LOG_DEBUG("HttpRoutingFilter: client mode, passing through response");
+    GOPHER_LOG_DEBUG(
+        "HttpRoutingFilter: client mode, passing through response");
     if (next_callbacks_) {
       next_callbacks_->onHeaders(headers, keep_alive);
     }

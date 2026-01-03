@@ -415,19 +415,20 @@ void AdvancedEchoClient::updateLatencyMetrics(uint64_t duration_ms) {
 }
 
 void AdvancedEchoClient::printMetrics() {
-  GOPHER_LOG_INFO("Echo Client Statistics: requests_total={} success={} "
-                  "failed={} timeout={} circuit_breaker_opens={} "
-                  "bytes_sent={} bytes_recv={}",
-                  stats_.requests_total.load(), stats_.requests_success.load(),
-                  stats_.requests_failed.load(), stats_.requests_timeout.load(),
-                  stats_.circuit_breaker_opens.load(), stats_.bytes_sent.load(),
-                  stats_.bytes_received.load());
+  GOPHER_LOG_INFO(
+      "Echo Client Statistics: requests_total={} success={} "
+      "failed={} timeout={} circuit_breaker_opens={} "
+      "bytes_sent={} bytes_recv={}",
+      stats_.requests_total.load(), stats_.requests_success.load(),
+      stats_.requests_failed.load(), stats_.requests_timeout.load(),
+      stats_.circuit_breaker_opens.load(), stats_.bytes_sent.load(),
+      stats_.bytes_received.load());
 
   if (stats_.requests_success.load() > 0) {
-    uint64_t avg_latency =
-        stats_.request_duration_ms_total.load() / stats_.requests_success.load();
-    GOPHER_LOG_INFO("Latency: avg={} ms min={} ms max={} ms",
-                    avg_latency, stats_.request_duration_ms_min.load(),
+    uint64_t avg_latency = stats_.request_duration_ms_total.load() /
+                           stats_.requests_success.load();
+    GOPHER_LOG_INFO("Latency: avg={} ms min={} ms max={} ms", avg_latency,
+                    stats_.request_duration_ms_min.load(),
                     stats_.request_duration_ms_max.load());
   }
 

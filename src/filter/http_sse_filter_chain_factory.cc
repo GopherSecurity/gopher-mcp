@@ -53,14 +53,13 @@
 #include <ctime>
 #include <sstream>
 
-#include "mcp/logging/log_macros.h"
-
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/stream_info/stream_info.h"
 
@@ -341,14 +340,16 @@ class HttpSseJsonRpcProtocolFilter
 
     // Normal HTTP path (non-SSE responses)
     // JSON-RPC filter handles framing
-    GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter::onWrite - data_len={} is_server={}",
-                     data.length(), is_server_);
+    GOPHER_LOG_DEBUG(
+        "HttpSseJsonRpcProtocolFilter::onWrite - data_len={} is_server={}",
+        data.length(), is_server_);
     auto status = jsonrpc_filter_->onWrite(data, end_stream);
     if (status == network::FilterStatus::StopIteration) {
       return status;
     }
 
-    GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
+    GOPHER_LOG_DEBUG(
+        "HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
     // HTTP filter adds headers/framing for normal HTTP responses
     return http_filter_->onWrite(data, end_stream);
   }
@@ -543,8 +544,10 @@ class HttpSseJsonRpcProtocolFilter
       // Following production pattern: no stream means request was already
       // completed or never existed Drop the response - do NOT send it (would
       // violate HTTP protocol)
-      GOPHER_LOG_ERROR("No stream found for response ID {} - dropping response "
-                       "(possible duplicate or late response)", id_key);
+      GOPHER_LOG_ERROR(
+          "No stream found for response ID {} - dropping response "
+          "(possible duplicate or late response)",
+          id_key);
       // NO FALLBACK - just return
     }
   }
@@ -670,8 +673,9 @@ void RequestStream::sendResponse(const jsonrpc::Response& response) {
 // thread
 void HttpSseFilterChainFactory::sendHttpResponse(
     const jsonrpc::Response& response, network::Connection& connection) {
-  GOPHER_LOG_WARN("HttpSseFilterChainFactory::sendHttpResponse called but filter "
-                  "access not available");
+  GOPHER_LOG_WARN(
+      "HttpSseFilterChainFactory::sendHttpResponse called but filter "
+      "access not available");
   GOPHER_LOG_WARN("Response ID {} dropped - no direct filter access",
                   requestIdToString(response.id));
 

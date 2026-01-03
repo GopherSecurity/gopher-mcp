@@ -6,8 +6,8 @@
 #include <thread>
 
 #include "mcp/event/libevent_dispatcher.h"
-#include "mcp/logging/log_macros.h"
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/socket_interface_impl.h"
@@ -329,7 +329,8 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
-      GOPHER_LOG_TRACE("initializeProtocol: waiting for response on worker thread");
+      GOPHER_LOG_TRACE(
+          "initializeProtocol: waiting for response on worker thread");
       auto response = request_future_ptr->get();
       GOPHER_LOG_TRACE("initializeProtocol: got response");
 

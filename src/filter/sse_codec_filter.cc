@@ -31,11 +31,14 @@ void SseCodecFilter::SseFilterChainBridge::onEvent(
     const std::string& data,
     const optional<std::string>& id) {
   if (id.has_value()) {
-    GOPHER_LOG_DEBUG("SseFilterChainBridge::onEvent - event='{}', data length={}, "
-                     "id='{}'", event, data.length(), id.value());
+    GOPHER_LOG_DEBUG(
+        "SseFilterChainBridge::onEvent - event='{}', data length={}, "
+        "id='{}'",
+        event, data.length(), id.value());
   } else {
-    GOPHER_LOG_DEBUG("SseFilterChainBridge::onEvent - event='{}', data length={}",
-                     event, data.length());
+    GOPHER_LOG_DEBUG(
+        "SseFilterChainBridge::onEvent - event='{}', data length={}", event,
+        data.length());
   }
 
   if (!data.empty()) {

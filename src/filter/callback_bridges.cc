@@ -21,8 +21,10 @@ HttpToFilterChainBridge::HttpToFilterChainBridge(
 
 void HttpToFilterChainBridge::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
-  GOPHER_LOG_DEBUG("HttpToFilterChainBridge::onHeaders called with {} headers, "
-                   "keep_alive={}", headers.size(), keep_alive);
+  GOPHER_LOG_DEBUG(
+      "HttpToFilterChainBridge::onHeaders called with {} headers, "
+      "keep_alive={}",
+      headers.size(), keep_alive);
 
   // For HTTP → SSE pipeline, we expect the body to contain SSE data
   // Headers are typically processed but the SSE content is in the body
@@ -30,8 +32,10 @@ void HttpToFilterChainBridge::onHeaders(
 }
 
 void HttpToFilterChainBridge::onBody(const std::string& data, bool end_stream) {
-  GOPHER_LOG_DEBUG("HttpToFilterChainBridge::onBody called with {} bytes, "
-                   "end_stream={}", data.length(), end_stream);
+  GOPHER_LOG_DEBUG(
+      "HttpToFilterChainBridge::onBody called with {} bytes, "
+      "end_stream={}",
+      data.length(), end_stream);
 
   // Accumulate body data for forwarding to next filter
   accumulated_body_ += data;
@@ -86,11 +90,15 @@ void SseToFilterChainBridge::onEvent(const std::string& event,
                                      const std::string& data,
                                      const optional<std::string>& id) {
   if (id.has_value()) {
-    GOPHER_LOG_DEBUG("SseToFilterChainBridge::onEvent called with event='{}', "
-                     "data length={}, id='{}'", event, data.length(), id.value());
+    GOPHER_LOG_DEBUG(
+        "SseToFilterChainBridge::onEvent called with event='{}', "
+        "data length={}, id='{}'",
+        event, data.length(), id.value());
   } else {
-    GOPHER_LOG_DEBUG("SseToFilterChainBridge::onEvent called with event='{}', "
-                     "data length={}", event, data.length());
+    GOPHER_LOG_DEBUG(
+        "SseToFilterChainBridge::onEvent called with event='{}', "
+        "data length={}",
+        event, data.length());
   }
 
   // Forward SSE event data through filter chain for JSON-RPC parsing
@@ -137,8 +145,9 @@ void JsonRpcToProtocolBridge::onRequest(const jsonrpc::Request& request) {
 
 void JsonRpcToProtocolBridge::onNotification(
     const jsonrpc::Notification& notification) {
-  GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onNotification called with method='{}'",
-                   notification.method);
+  GOPHER_LOG_DEBUG(
+      "JsonRpcToProtocolBridge::onNotification called with method='{}'",
+      notification.method);
 
   // Forward parsed JSON-RPC notification to final protocol callbacks
   callbacks_.onNotification(notification);
@@ -157,7 +166,8 @@ void JsonRpcToProtocolBridge::onResponse(const jsonrpc::Response& response) {
 }
 
 void JsonRpcToProtocolBridge::onProtocolError(const Error& error) {
-  GOPHER_LOG_ERROR("JsonRpcToProtocolBridge::onProtocolError: {}", error.message);
+  GOPHER_LOG_ERROR("JsonRpcToProtocolBridge::onProtocolError: {}",
+                   error.message);
 
   // Forward protocol error to final callbacks
   callbacks_.onError(error);

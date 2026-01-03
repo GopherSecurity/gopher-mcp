@@ -2,8 +2,8 @@
 #include <list>
 
 #include "mcp/buffer.h"
-#include "mcp/logging/log_macros.h"
 #include "mcp/event/event_loop.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/filter.h"

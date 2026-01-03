@@ -171,7 +171,8 @@ IoResult<int> SocketImpl::listen(int backlog) {
     return IoResult<int>::error(EBADF);
   }
 
-  GOPHER_LOG_TRACE("SocketImpl::listen() fd={} backlog={}", io_handle_->fd(), backlog);
+  GOPHER_LOG_TRACE("SocketImpl::listen() fd={} backlog={}", io_handle_->fd(),
+                   backlog);
   return io_handle_->listen(backlog);
 }
 
@@ -668,16 +669,18 @@ ListenSocketPtr createListenSocket(
     ip_version = address->ip()->version();
   }
 
-  GOPHER_LOG_DEBUG("Creating socket: type={} ip_version={}",
-                   static_cast<int>(addr_type),
-                   ip_version.has_value() ? std::to_string(static_cast<int>(*ip_version)) : "none");
+  GOPHER_LOG_DEBUG(
+      "Creating socket: type={} ip_version={}", static_cast<int>(addr_type),
+      ip_version.has_value() ? std::to_string(static_cast<int>(*ip_version))
+                             : "none");
 
   // Create socket
   auto socket_result = socketInterface().socket(SocketType::Stream, addr_type,
                                                 ip_version, options.v6_only);
 
   if (!socket_result.ok()) {
-    GOPHER_LOG_ERROR("Failed to create socket: error={}", socket_result.error_code());
+    GOPHER_LOG_ERROR("Failed to create socket: error={}",
+                     socket_result.error_code());
     return nullptr;
   }
 
@@ -711,9 +714,10 @@ ListenSocketPtr createListenSocket(
     GOPHER_LOG_DEBUG("Binding socket to {}", address->asString());
     auto bind_result = socket->bind(address);
     if (!bind_result.ok()) {
-      GOPHER_LOG_ERROR("Failed to bind socket: error={} message={}",
-                       bind_result.error_code(),
-                       bind_result.error_info ? bind_result.error_info->message : "unknown");
+      GOPHER_LOG_ERROR(
+          "Failed to bind socket: error={} message={}",
+          bind_result.error_code(),
+          bind_result.error_info ? bind_result.error_info->message : "unknown");
       return nullptr;
     }
     GOPHER_LOG_DEBUG("Socket bound successfully");

@@ -388,8 +388,8 @@ void ConnectionImpl::close(ConnectionCloseType type) { close(type, ""); }
 void ConnectionImpl::close(ConnectionCloseType type,
                            const std::string& details) {
   GOPHER_LOG_TRACE("close(): fd={} type={} details={} state={}",
-                   socket_->ioHandle().fd(), static_cast<int>(type),
-                   details, static_cast<int>(state_));
+                   socket_->ioHandle().fd(), static_cast<int>(type), details,
+                   static_cast<int>(state_));
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -579,9 +579,9 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
          "write() must be called from dispatcher thread");
 
   if (state_ != ConnectionState::Open || write_half_closed_) {
-    GOPHER_LOG_TRACE("write(): early return - state={} write_half_closed={} fd={}",
-                     static_cast<int>(state_), write_half_closed_,
-                     socket_->ioHandle().fd());
+    GOPHER_LOG_TRACE(
+        "write(): early return - state={} write_half_closed={} fd={}",
+        static_cast<int>(state_), write_half_closed_, socket_->ioHandle().fd());
     return;
   }
 
@@ -858,7 +858,8 @@ void ConnectionImpl::onWriteReady() {
 
     if (!getsockopt_result.ok() || socket_error != 0) {
       // Connection failed
-      GOPHER_LOG_TRACE("onWriteReady(): connection FAILED, error={}", socket_error);
+      GOPHER_LOG_TRACE("onWriteReady(): connection FAILED, error={}",
+                       socket_error);
       connecting_ = false;
       connected_ = false;
       immediate_error_event_ = ConnectionEvent::RemoteClose;
@@ -1031,9 +1032,11 @@ void ConnectionImpl::doConnect() {
     GOPHER_LOG_TRACE("doConnect(): fd={} result.ok()=true value={}",
                      socket_->ioHandle().fd(), *result);
   } else {
-    GOPHER_LOG_TRACE("doConnect(): fd={} result.ok()=false error={} (INPROGRESS={} WOULDBLOCK={})",
-                     socket_->ioHandle().fd(), result.error_code(),
-                     SOCKET_ERROR_INPROGRESS, SOCKET_ERROR_WOULDBLOCK);
+    GOPHER_LOG_TRACE(
+        "doConnect(): fd={} result.ok()=false error={} (INPROGRESS={} "
+        "WOULDBLOCK={})",
+        socket_->ioHandle().fd(), result.error_code(), SOCKET_ERROR_INPROGRESS,
+        SOCKET_ERROR_WOULDBLOCK);
   }
 
   if (result.ok() && *result == 0) {
@@ -1066,7 +1069,8 @@ void ConnectionImpl::doConnect() {
                               result.error_code() == SOCKET_ERROR_WOULDBLOCK)) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
-    GOPHER_LOG_TRACE("doConnect(): connection in progress, waiting for Write event");
+    GOPHER_LOG_TRACE(
+        "doConnect(): connection in progress, waiting for Write event");
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed immediately
@@ -1126,9 +1130,10 @@ void ConnectionImpl::doRead() {
 
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
     // Don't clear transport_wants_read_ when returning early
-    GOPHER_LOG_TRACE("doRead(): early return - read_disable_count={} state={} fd={}",
-                     read_disable_count_, static_cast<int>(state_),
-                     socket_->ioHandle().fd());
+    GOPHER_LOG_TRACE(
+        "doRead(): early return - read_disable_count={} state={} fd={}",
+        read_disable_count_, static_cast<int>(state_),
+        socket_->ioHandle().fd());
     return;
   }
 
@@ -1192,8 +1197,7 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
 
   GOPHER_LOG_TRACE("doReadFromSocket(): fd={} transport_socket={}",
-                   socket_->ioHandle().fd(),
-                   transport_socket_ ? "yes" : "no");
+                   socket_->ioHandle().fd(), transport_socket_ ? "yes" : "no");
 
   // Use transport socket for reading if available
   // TODO: Fix transport socket implementation for HTTP/SSE
@@ -1236,8 +1240,8 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
     return TransportIoResult::close();
   }
 
-  GOPHER_LOG_TRACE("doReadFromSocket(): read {} bytes from fd={}",
-                   bytes_read, socket_->ioHandle().fd());
+  GOPHER_LOG_TRACE("doReadFromSocket(): read {} bytes from fd={}", bytes_read,
+                   socket_->ioHandle().fd());
   return TransportIoResult::success(bytes_read);
 }
 
@@ -1268,8 +1272,7 @@ void ConnectionImpl::doWrite() {
   }
 
   GOPHER_LOG_TRACE("doWrite(): starting, buffer_len={} transport_socket_={}",
-                   write_buffer_.length(),
-                   transport_socket_ ? "yes" : "no");
+                   write_buffer_.length(), transport_socket_ ? "yes" : "no");
 
   // Use transport socket for initial processing if available
   // This is essential for stdio transport which manages pipe bridging
@@ -1301,7 +1304,8 @@ void ConnectionImpl::doWrite() {
       if (socket_) {
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
-          GOPHER_LOG_TRACE("doWrite(): socket has {} bytes pending", bytes_available);
+          GOPHER_LOG_TRACE("doWrite(): socket has {} bytes pending",
+                           bytes_available);
         }
       }
       return;
