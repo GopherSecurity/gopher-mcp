@@ -1,8 +1,8 @@
 #include <algorithm>
-#include <iostream>
 #include <list>
 
 #include "mcp/buffer.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/event/event_loop.h"
 #include "mcp/network/connection.h"
 #include "mcp/network/connection_impl.h"
@@ -279,8 +279,7 @@ void FilterManagerImpl::injectWriteDataToFilterChain(Buffer& data,
   // This method is deprecated in favor of the production pattern
   // where connection sets current_write_buffer_ and calls onWrite()
   // Keeping stub for interface compatibility
-  std::cerr << "[DEBUG] injectWriteDataToFilterChain called (deprecated)"
-            << std::endl;
+  GOPHER_LOG_DEBUG("injectWriteDataToFilterChain called (deprecated)");
 }
 
 bool FilterManagerImpl::aboveWriteBufferHighWatermark() const {
