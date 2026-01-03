@@ -2,7 +2,8 @@
 
 #include <algorithm>
 #include <cstring>
-#include <iostream>
+
+#include "mcp/logging/log_macros.h"
 
 #ifdef _WIN32
 #include <mswsock.h>
@@ -72,12 +73,12 @@ void IoSocketHandleImpl::setNonBlocking() {
 #ifdef _WIN32
   u_long mode = 1;
   int result = ::ioctlsocket(fd_, FIONBIO, &mode);
-  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::setNonBlocking: fd=" << fd_
-            << " result=" << result;
   if (result != 0) {
-    std::cerr << " WSAError=" << WSAGetLastError();
+    GOPHER_LOG_TRACE("IoSocketHandleImpl::setNonBlocking: fd={} result={} WSAError={}",
+                     fd_, result, WSAGetLastError());
+  } else {
+    GOPHER_LOG_TRACE("IoSocketHandleImpl::setNonBlocking: fd={} result={}", fd_, result);
   }
-  std::cerr << std::endl;
 #else
   int flags = ::fcntl(fd_, F_GETFL, 0);
   if (flags != -1) {
@@ -519,9 +520,8 @@ IoResult<int> IoSocketHandleImpl::bind(
     return IoResult<int>::error(EBADF);
   }
 
-  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::bind() called: fd=" << fd_
-            << " addr=" << (address ? address->asStringView() : "<null>")
-            << std::endl;
+  GOPHER_LOG_TRACE("IoSocketHandleImpl::bind() called: fd={} addr={}",
+                   fd_, address ? address->asStringView() : "<null>");
   int result = ::bind(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
     sockaddr_storage local_addr;
@@ -531,38 +531,36 @@ IoResult<int> IoSocketHandleImpl::bind(
     if (local_result == 0) {
       auto addr =
           Address::addressFromSockAddr(local_addr, local_len, socket_v6only_);
-      std::cerr << "[DEBUG SOCKET] bind() local address: "
-                << (addr ? addr->asStringView() : "<unknown>") << std::endl;
+      GOPHER_LOG_TRACE("bind() local address: {}",
+                       addr ? addr->asStringView() : "<unknown>");
     } else {
-      std::cerr << "[DEBUG SOCKET] bind() getsockname failed: "
-                << getLastSocketError() << std::endl;
+      GOPHER_LOG_TRACE("bind() getsockname failed: {}", getLastSocketError());
     }
     return IoResult<int>::success(0);
   } else {
-    std::cerr << "[DEBUG SOCKET] bind() failed: error=" << getLastSocketError()
-              << std::endl;
+    GOPHER_LOG_TRACE("bind() failed: error={}", getLastSocketError());
     return IoResult<int>::error(getLastSocketError());
   }
 }
 
 IoResult<int> IoSocketHandleImpl::listen(int backlog) {
-  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::listen() called: fd=" << fd_
-            << " backlog=" << backlog << std::endl;
+  GOPHER_LOG_TRACE("IoSocketHandleImpl::listen() called: fd={} backlog={}", fd_, backlog);
 
   if (!isOpen()) {
-    std::cerr << "[DEBUG SOCKET] listen() failed: socket not open" << std::endl;
+    GOPHER_LOG_TRACE("listen() failed: socket not open");
     return IoResult<int>::error(EBADF);
   }
 
-  std::cerr << "[DEBUG SOCKET] ::listen() before ";
   int result = ::listen(fd_, backlog);
-  std::cerr << "[DEBUG SOCKET] ::listen() returned: " << result;
 #ifdef _WIN32
   if (result != 0) {
-    std::cerr << " WSAError=" << WSAGetLastError();
+    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result, WSAGetLastError());
+  } else {
+    GOPHER_LOG_TRACE("::listen() returned: {}", result);
   }
+#else
+  GOPHER_LOG_TRACE("::listen() returned: {}", result);
 #endif
-  std::cerr << std::endl;
 
   if (result == 0) {
     int accept_conn = 0;
@@ -571,10 +569,9 @@ IoResult<int> IoSocketHandleImpl::listen(int backlog) {
         ::getsockopt(fd_, SOL_SOCKET, SO_ACCEPTCONN,
                      reinterpret_cast<char*>(&accept_conn), &optlen);
     if (opt_result == 0) {
-      std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN=" << accept_conn << std::endl;
+      GOPHER_LOG_TRACE("SO_ACCEPTCONN={}", accept_conn);
     } else {
-      std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN check failed: "
-                << getLastSocketError() << std::endl;
+      GOPHER_LOG_TRACE("SO_ACCEPTCONN check failed: {}", getLastSocketError());
     }
     return IoResult<int>::success(0);
   } else {
@@ -593,12 +590,11 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
 #ifdef _WIN32
   SOCKET new_fd = ::accept(fd_, reinterpret_cast<sockaddr*>(&addr), &addr_len);
   if (new_fd != INVALID_SOCKET) {
-    std::cerr << "[DEBUG SOCKET] accept() success: fd=" << new_fd << std::endl;
+    GOPHER_LOG_TRACE("accept() success: fd={}", new_fd);
     return IoResult<IoHandlePtr>::success(
         std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_, domain_));
   } else {
-    std::cerr << "[DEBUG SOCKET] accept() failed: WSAError="
-              << WSAGetLastError() << std::endl;
+    GOPHER_LOG_TRACE("accept() failed: WSAError={}", WSAGetLastError());
   }
 #else
 #ifdef __linux__
@@ -641,25 +637,21 @@ IoResult<IoHandlePtr> IoSocketHandleImpl::accept() {
 IoResult<int> IoSocketHandleImpl::connect(
     const Address::InstanceConstSharedPtr& address) {
   if (!isOpen()) {
-    std::cerr << "[DEBUG SOCKET] connect(): fd not open" << std::endl;
+    GOPHER_LOG_TRACE("connect(): fd not open");
     return IoResult<int>::error(EBADF);
   }
 
-  std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
-            << " addr=" << address->asString() << std::endl;
+  GOPHER_LOG_TRACE("connect(): fd={} addr={}", fd_, address->asString());
 
   int result = ::connect(fd_, address->sockAddr(), address->sockAddrLen());
   if (result == 0) {
     // Immediate connection success (rare but can happen for local connections)
-    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_ << " immediate success"
-              << std::endl;
+    GOPHER_LOG_TRACE("connect(): fd={} immediate success", fd_);
     return IoResult<int>::success(0);
   } else {
     int error = getLastSocketError();
-    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_ << " result=" << result
-              << " error=" << error
-              << " (INPROGRESS=" << SOCKET_ERROR_INPROGRESS
-              << " AGAIN=" << SOCKET_ERROR_AGAIN << ")" << std::endl;
+    GOPHER_LOG_TRACE("connect(): fd={} result={} error={} (INPROGRESS={} AGAIN={})",
+                     fd_, result, error, SOCKET_ERROR_INPROGRESS, SOCKET_ERROR_AGAIN);
 
     // For non-blocking connect:
     // - EINPROGRESS (Unix) or WSAEINPROGRESS (Windows): connection in progress
@@ -668,12 +660,10 @@ IoResult<int> IoSocketHandleImpl::connect(
     // completion
     if (error == SOCKET_ERROR_INPROGRESS || error == SOCKET_ERROR_AGAIN) {
       // Return EINPROGRESS (normalized) so caller knows to wait for write event
-      std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
-                << " connection in progress, returning INPROGRESS" << std::endl;
+      GOPHER_LOG_TRACE("connect(): fd={} connection in progress, returning INPROGRESS", fd_);
       return IoResult<int>::error(SOCKET_ERROR_INPROGRESS);
     }
-    std::cerr << "[DEBUG SOCKET] connect(): fd=" << fd_
-              << " connect failed with error=" << error << std::endl;
+    GOPHER_LOG_TRACE("connect(): fd={} connect failed with error={}", fd_, error);
     return IoResult<int>::error(error);
   }
 }
@@ -889,27 +879,21 @@ void IoSocketHandleImpl::configureInitialCongestionWindow(
 IoHandlePtr IoSocketHandleImpl::duplicate() {
 #ifdef _WIN32
   WSAPROTOCOL_INFO info;
-  std::cerr << "[DEBUG SOCKET] IoSocketHandleImpl::duplicate() called: fd="
-            << fd_ << std::endl;
+  GOPHER_LOG_TRACE("IoSocketHandleImpl::duplicate() called: fd={}", fd_);
   if (::WSADuplicateSocket(fd_, ::GetCurrentProcessId(), &info) == 0) {
-    std::cerr
-        << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()"
-        << std::endl;
+    GOPHER_LOG_TRACE("WSADuplicateSocket() success, calling WSASocket()");
     SOCKET new_fd =
         ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                     &info, 0, WSA_FLAG_OVERLAPPED);
-    std::cerr << "[DEBUG SOCKET] WSASocket() returned: new_fd=" << new_fd
-              << " (INVALID_SOCKET=" << INVALID_SOCKET << ")" << std::endl;
+    GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})", new_fd, INVALID_SOCKET);
     if (new_fd != INVALID_SOCKET) {
       return std::make_unique<IoSocketHandleImpl>(new_fd, socket_v6only_,
                                                   domain_);
     } else {
-      std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError="
-                << WSAGetLastError() << std::endl;
+      GOPHER_LOG_TRACE("WSASocket() failed: WSAError={}", WSAGetLastError());
     }
   } else {
-    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError="
-              << WSAGetLastError() << std::endl;
+    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}", WSAGetLastError());
   }
 #else
   int new_fd = ::dup(fd_);
