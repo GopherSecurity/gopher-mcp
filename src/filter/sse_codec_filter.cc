@@ -10,9 +10,9 @@
 
 #include "mcp/filter/sse_codec_filter.h"
 
-#include <iostream>
 #include <sstream>
 
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
 namespace mcp {
@@ -23,19 +23,20 @@ namespace filter {
 SseCodecFilter::SseFilterChainBridge::SseFilterChainBridge(
     SseCodecFilter& parent_filter)
     : parent_filter_(parent_filter) {
-  std::cerr << "[DEBUG] SseFilterChainBridge created" << std::endl;
+  GOPHER_LOG_DEBUG("SseFilterChainBridge created");
 }
 
 void SseCodecFilter::SseFilterChainBridge::onEvent(
     const std::string& event,
     const std::string& data,
     const optional<std::string>& id) {
-  std::cerr << "[DEBUG] SseFilterChainBridge::onEvent - event='" << event
-            << "', data length=" << data.length();
   if (id.has_value()) {
-    std::cerr << ", id='" << id.value() << "'";
+    GOPHER_LOG_DEBUG("SseFilterChainBridge::onEvent - event='{}', data length={}, "
+                     "id='{}'", event, data.length(), id.value());
+  } else {
+    GOPHER_LOG_DEBUG("SseFilterChainBridge::onEvent - event='{}', data length={}",
+                     event, data.length());
   }
-  std::cerr << std::endl;
 
   if (!data.empty()) {
     forwardJsonRpcToNextFilter(data, false);
@@ -44,13 +45,12 @@ void SseCodecFilter::SseFilterChainBridge::onEvent(
 
 void SseCodecFilter::SseFilterChainBridge::onComment(
     const std::string& comment) {
-  std::cerr << "[DEBUG] SseFilterChainBridge::onComment - '" << comment << "'"
-            << std::endl;
+  GOPHER_LOG_DEBUG("SseFilterChainBridge::onComment - '{}'", comment);
   // SSE comments are typically used for keep-alive, no JSON-RPC data to forward
 }
 
 void SseCodecFilter::SseFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] SseFilterChainBridge::onError - " << error << std::endl;
+  GOPHER_LOG_ERROR("SseFilterChainBridge::onError - {}", error);
   // Error handling - could inject error into filter chain if needed
 }
 
@@ -65,8 +65,8 @@ void SseCodecFilter::SseFilterChainBridge::forwardJsonRpcToNextFilter(
     forwarded.push_back('\n');
   }
 
-  std::cerr << "[SUCCESS] SseFilterChainBridge forwarding "
-            << forwarded.length() << " bytes of JSON-RPC data" << std::endl;
+  GOPHER_LOG_DEBUG("SseFilterChainBridge forwarding {} bytes of JSON-RPC data",
+                   forwarded.length());
 
   OwnedBuffer buffer;
   buffer.add(forwarded);
@@ -200,8 +200,7 @@ network::FilterStatus SseCodecFilter::onWrite(Buffer& data, bool end_stream) {
     std::string sse_event = "event: message\n";
     sse_event += "data: " + json_data + "\n\n";
 
-    std::cerr << "[TRACE] SseCodecFilter formatting SSE response: " << sse_event
-              << std::endl;
+    GOPHER_LOG_TRACE("SseCodecFilter formatting SSE response: {}", sse_event);
 
     // Add formatted SSE event back to buffer
     data.add(sse_event.c_str(), sse_event.length());
