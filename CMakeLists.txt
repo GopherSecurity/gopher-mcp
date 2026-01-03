@@ -663,8 +663,10 @@ foreach(lib_target ${ECHO_REAL_TARGETS})
         elseif(TARGET gopher-mcp-static)
             target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
         endif()
-        target_link_libraries(${lib_target} PUBLIC 
+        target_link_libraries(${lib_target} PUBLIC
             Threads::Threads
+            gopher-mcp-logging
+            fmt::fmt
         )
     endif()
 endforeach()
