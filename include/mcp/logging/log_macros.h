@@ -46,6 +46,17 @@
 #define GOPHER_LOG_COMPONENT "default"
 #endif
 
+// Convenience macros for common log levels
+// Note: Using Debug level for TRACE since RFC-5424 doesn't have Trace
+#define GOPHER_LOG_TRACE(...) GOPHER_LOG(Debug, __VA_ARGS__)
+#define GOPHER_LOG_DEBUG(...) GOPHER_LOG(Debug, __VA_ARGS__)
+#define GOPHER_LOG_INFO(...) GOPHER_LOG(Info, __VA_ARGS__)
+#define GOPHER_LOG_NOTICE(...) GOPHER_LOG(Notice, __VA_ARGS__)
+#define GOPHER_LOG_WARN(...) GOPHER_LOG(Warning, __VA_ARGS__)
+#define GOPHER_LOG_WARNING(...) GOPHER_LOG(Warning, __VA_ARGS__)
+#define GOPHER_LOG_ERROR(...) GOPHER_LOG(Error, __VA_ARGS__)
+#define GOPHER_LOG_CRITICAL(...) GOPHER_LOG(Critical, __VA_ARGS__)
+
 // Source location helper
 #define GOPHER_LOG_LOCATION __FILE__, __LINE__, __FUNCTION__
 
