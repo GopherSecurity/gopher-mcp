@@ -80,10 +80,16 @@
 #include <thread>
 
 #include "mcp/client/mcp_client.h"
+#include "mcp/logging/log_macros.h"
+#include "mcp/logging/log_sink.h"
+#include "mcp/logging/logger_registry.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 
 using namespace mcp;
 using namespace mcp::client;
+
+// Use logging namespace explicitly to avoid conflicts with std::make_optional
+namespace logging = mcp::logging;
 
 // Global client for signal handling
 std::shared_ptr<McpClient> g_client;
@@ -107,6 +113,37 @@ struct ClientOptions {
   int request_timeout_seconds = 30;
   int num_workers = 2;
 };
+
+// Application logger - logs at INFO level to console
+std::shared_ptr<logging::Logger> g_logger;
+
+// Setup logging framework
+// - Default level: INFO
+// - Library (mcp.*): DEBUG level
+// - Application: INFO level (visible on console)
+void setupLogging(bool verbose) {
+  auto& registry = logging::LoggerRegistry::instance();
+
+  // Set global default level to INFO
+  registry.setGlobalLevel(logging::LogLevel::Info);
+
+  // Create console sink (stderr)
+  auto console_sink = logging::SinkFactory::createStdioSink(true);
+
+  // Create application logger at INFO level
+  g_logger = registry.getOrCreateLogger("mcp_example_client");
+  g_logger->setSink(std::move(console_sink));
+  g_logger->setLevel(logging::LogLevel::Info);
+
+  // Set library loggers to DEBUG level (will show if global is DEBUG)
+  // Use pattern matching for library components
+  registry.setPattern("mcp.*", logging::LogLevel::Debug);
+
+  // If verbose mode, set global to DEBUG to see library logs
+  if (verbose) {
+    registry.setGlobalLevel(logging::LogLevel::Debug);
+  }
+}
 
 void signal_handler(int signal) {
   // Signal handlers should do minimal work to avoid deadlocks
@@ -231,13 +268,19 @@ int64_t extractMetadataInt(const jsonrpc::Response& response,
 
 // Helper to print CallToolResult content
 void printToolResult(const CallToolResult& result) {
+  std::string output;
   if (result.isError) {
-    std::cerr << "[ERROR] ";
+    output = "[ERROR] ";
   }
   for (const auto& content : result.content) {
     if (holds_alternative<TextContent>(content)) {
-      std::cerr << get<TextContent>(content).text;
+      output += get<TextContent>(content).text;
     }
+  }
+  if (result.isError) {
+    g_logger->error("{}", output);
+  } else {
+    g_logger->info("{}", output);
   }
 }
 
@@ -248,48 +291,47 @@ struct TestResults {
 
   void pass(const std::string& test_name) {
     passed++;
-    std::cerr << "  [PASS] " << test_name << std::endl;
+    g_logger->info("  [PASS] {}", test_name);
   }
 
   void fail(const std::string& test_name, const std::string& reason = "") {
     failed++;
-    std::cerr << "  [FAIL] " << test_name;
     if (!reason.empty()) {
-      std::cerr << " - " << reason;
+      g_logger->error("  [FAIL] {} - {}", test_name, reason);
+    } else {
+      g_logger->error("  [FAIL] {}", test_name);
     }
-    std::cerr << std::endl;
   }
 
   void summary() {
-    std::cerr << "\n========================================" << std::endl;
-    std::cerr << "TEST SUMMARY: " << passed << " passed, " << failed
-              << " failed" << std::endl;
-    std::cerr << "========================================" << std::endl;
+    g_logger->info("========================================");
+    g_logger->info("TEST SUMMARY: {} passed, {} failed", passed, failed);
+    g_logger->info("========================================");
   }
 };
 
 // Demonstrate and verify all server features
 void demonstrateFeatures(McpClient& client, bool verbose) {
-  std::cerr << "\n========================================" << std::endl;
-  std::cerr << "MCP Client Feature Verification Suite" << std::endl;
-  std::cerr << "========================================" << std::endl;
+  g_logger->info("========================================");
+  g_logger->info("MCP Client Feature Verification Suite");
+  g_logger->info("========================================");
 
   TestResults results;
 
   // 1. Initialize protocol
-  std::cerr << "\n[TEST 1] Protocol Initialization" << std::endl;
+  g_logger->info("[TEST 1] Protocol Initialization");
   {
     auto init_future = client.initializeProtocol();
 
     try {
       auto init_result = init_future.get();
-      std::cerr << "  Protocol: " << init_result.protocolVersion << std::endl;
-      std::cerr << "  Server: "
-                << (init_result.serverInfo.has_value()
-                        ? init_result.serverInfo->name + " v" +
-                              init_result.serverInfo->version
-                        : "unknown")
-                << std::endl;
+      g_logger->info("  Protocol: {}", init_result.protocolVersion);
+      g_logger->info(
+          "  Server: {}",
+          init_result.serverInfo.has_value()
+              ? init_result.serverInfo->name + " v" +
+                    init_result.serverInfo->version
+              : "unknown");
 
       client.setServerCapabilities(init_result.capabilities);
 
@@ -305,7 +347,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 2. Test custom request handlers (ping, echo, server/status, health)
-  std::cerr << "\n[TEST 2] Custom Request Handlers" << std::endl;
+  g_logger->info("[TEST 2] Custom Request Handlers");
   {
     // Test ping handler
     try {
@@ -324,7 +366,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     // Test echo handler
     try {
       auto echo_params = make<Metadata>().add("test_key", "test_value").build();
-      auto echo_future = client.sendRequest("echo", make_optional(echo_params));
+      auto echo_future = client.sendRequest("echo", mcp::make_optional(echo_params));
       auto echo_response = echo_future.get();
       if (!echo_response.error.has_value() &&
           extractMetadataBool(echo_response, "echo") &&
@@ -347,8 +389,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
             extractMetadataInt(status_response, "sessions_active");
         int64_t requests =
             extractMetadataInt(status_response, "requests_total");
-        std::cerr << "    Sessions: " << sessions << ", Requests: " << requests
-                  << std::endl;
+        g_logger->info("    Sessions: {}, Requests: {}", sessions, requests);
         results.pass("server/status handler - returns running=true");
       } else {
         results.fail("server/status handler", "Missing running=true");
@@ -374,21 +415,19 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 3. Test resources (config, log, metrics)
-  std::cerr << "\n[TEST 3] Resources" << std::endl;
+  g_logger->info("[TEST 3] Resources");
   {
     try {
       auto list_future = client.listResources();
       auto list_result = list_future.get();
 
-      std::cerr << "  Found " << list_result.resources.size() << " resources"
-                << std::endl;
+      g_logger->info("  Found {} resources", list_result.resources.size());
 
       // Verify expected resources exist
       bool found_config = false, found_log = false, found_metrics = false;
 
       for (const auto& resource : list_result.resources) {
-        std::cerr << "    - " << resource.name << " (" << resource.uri << ")"
-                  << std::endl;
+        g_logger->info("    - {} ({})", resource.name, resource.uri);
         if (resource.uri == "config://server/settings")
           found_config = true;
         if (resource.uri == "log://server/events")
@@ -421,24 +460,23 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 4. Test all tools (calculator, system_info, database_query)
-  std::cerr << "\n[TEST 4] Tools" << std::endl;
+  g_logger->info("[TEST 4] Tools");
   {
     try {
       auto tools_future = client.listTools();
       auto tools_result = tools_future.get();
 
-      std::cerr << "  Found " << tools_result.tools.size() << " tools"
-                << std::endl;
+      g_logger->info("  Found {} tools", tools_result.tools.size());
 
       bool found_calculator = false, found_sysinfo = false,
            found_dbquery = false;
 
       for (const auto& tool : tools_result.tools) {
-        std::cerr << "    - " << tool.name;
         if (tool.description.has_value()) {
-          std::cerr << ": " << tool.description.value();
+          g_logger->info("    - {}: {}", tool.name, tool.description.value());
+        } else {
+          g_logger->info("    - {}", tool.name);
         }
-        std::cerr << std::endl;
 
         if (tool.name == "calculator")
           found_calculator = true;
@@ -459,11 +497,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("b", 5.0)
                             .build();
         auto add_future =
-            client.callTool("calculator", make_optional(add_args));
+            client.callTool("calculator", mcp::make_optional(add_args));
         auto add_result = add_future.get();
-        std::cerr << "    add(10, 5) = ";
+        g_logger->info("    add(10, 5) = ");
         printToolResult(add_result);
-        std::cerr << std::endl;
         if (!add_result.isError && !add_result.content.empty()) {
           results.pass("calculator: add operation");
         } else {
@@ -477,11 +514,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("b", 8.0)
                             .build();
         auto sub_future =
-            client.callTool("calculator", make_optional(sub_args));
+            client.callTool("calculator", mcp::make_optional(sub_args));
         auto sub_result = sub_future.get();
-        std::cerr << "    subtract(20, 8) = ";
+        g_logger->info("    subtract(20, 8) = ");
         printToolResult(sub_result);
-        std::cerr << std::endl;
         if (!sub_result.isError && !sub_result.content.empty()) {
           results.pass("calculator: subtract operation");
         } else {
@@ -495,11 +531,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("b", 7.0)
                             .build();
         auto mul_future =
-            client.callTool("calculator", make_optional(mul_args));
+            client.callTool("calculator", mcp::make_optional(mul_args));
         auto mul_result = mul_future.get();
-        std::cerr << "    multiply(6, 7) = ";
+        g_logger->info("    multiply(6, 7) = ");
         printToolResult(mul_result);
-        std::cerr << std::endl;
         if (!mul_result.isError && !mul_result.content.empty()) {
           results.pass("calculator: multiply operation");
         } else {
@@ -513,11 +548,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("b", 4.0)
                             .build();
         auto div_future =
-            client.callTool("calculator", make_optional(div_args));
+            client.callTool("calculator", mcp::make_optional(div_args));
         auto div_result = div_future.get();
-        std::cerr << "    divide(100, 4) = ";
+        g_logger->info("    divide(100, 4) = ");
         printToolResult(div_result);
-        std::cerr << std::endl;
         if (!div_result.isError && !div_result.content.empty()) {
           results.pass("calculator: divide operation");
         } else {
@@ -532,9 +566,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
         results.pass("Tool exists: system_info");
         auto info_future = client.callTool("system_info", nullopt);
         auto info_result = info_future.get();
-        std::cerr << "    system_info result: ";
+        g_logger->info("    system_info result:");
         printToolResult(info_result);
-        std::cerr << std::endl;
         if (!info_result.isError && !info_result.content.empty()) {
           results.pass("system_info: execution");
         } else {
@@ -550,11 +583,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
         auto query_args =
             make<Metadata>().add("query", "SELECT * FROM users").build();
         auto query_future =
-            client.callTool("database_query", make_optional(query_args));
+            client.callTool("database_query", mcp::make_optional(query_args));
         auto query_result = query_future.get();
-        std::cerr << "    database_query result: ";
+        g_logger->info("    database_query result:");
         printToolResult(query_result);
-        std::cerr << std::endl;
         if (!query_result.isError && !query_result.content.empty()) {
           results.pass("database_query: execution");
         } else {
@@ -570,24 +602,23 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 5. Test prompts (greeting, code_review, data_analysis)
-  std::cerr << "\n[TEST 5] Prompts" << std::endl;
+  g_logger->info("[TEST 5] Prompts");
   {
     try {
       auto prompts_future = client.listPrompts();
       auto prompts_result = prompts_future.get();
 
-      std::cerr << "  Found " << prompts_result.prompts.size() << " prompts"
-                << std::endl;
+      g_logger->info("  Found {} prompts", prompts_result.prompts.size());
 
       bool found_greeting = false, found_code_review = false,
            found_data_analysis = false;
 
       for (const auto& prompt : prompts_result.prompts) {
-        std::cerr << "    - " << prompt.name;
         if (prompt.description.has_value()) {
-          std::cerr << ": " << prompt.description.value();
+          g_logger->info("    - {}: {}", prompt.name, prompt.description.value());
+        } else {
+          g_logger->info("    - {}", prompt.name);
         }
-        std::cerr << std::endl;
 
         if (prompt.name == "greeting")
           found_greeting = true;
@@ -604,8 +635,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
         try {
           auto greeting_result = greeting_future.get();
           if (!greeting_result.messages.empty()) {
-            std::cerr << "    greeting messages: "
-                      << greeting_result.messages.size() << std::endl;
+            g_logger->info("    greeting messages: {}",
+                           greeting_result.messages.size());
             results.pass("getPrompt: greeting");
           } else {
             results.fail("getPrompt: greeting", "No messages returned");
@@ -625,12 +656,12 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                              .add("language", "javascript")
                              .build();
         auto code_review_future =
-            client.getPrompt("code_review", make_optional(code_args));
+            client.getPrompt("code_review", mcp::make_optional(code_args));
         try {
           auto code_review_result = code_review_future.get();
           if (!code_review_result.messages.empty()) {
-            std::cerr << "    code_review messages: "
-                      << code_review_result.messages.size() << std::endl;
+            g_logger->info("    code_review messages: {}",
+                           code_review_result.messages.size());
             results.pass("getPrompt: code_review with args");
           } else {
             results.fail("getPrompt: code_review", "No messages returned");
@@ -650,12 +681,12 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                              .add("analysis_type", "predictive")
                              .build();
         auto data_future =
-            client.getPrompt("data_analysis", make_optional(data_args));
+            client.getPrompt("data_analysis", mcp::make_optional(data_args));
         try {
           auto data_result = data_future.get();
           if (!data_result.messages.empty()) {
-            std::cerr << "    data_analysis messages: "
-                      << data_result.messages.size() << std::endl;
+            g_logger->info("    data_analysis messages: {}",
+                           data_result.messages.size());
             results.pass("getPrompt: data_analysis with args");
           } else {
             results.fail("getPrompt: data_analysis", "No messages returned");
@@ -673,7 +704,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 6. Test notifications (log, heartbeat, progress)
-  std::cerr << "\n[TEST 6] Notifications" << std::endl;
+  g_logger->info("[TEST 6] Notifications");
   {
     // Send log notification
     try {
@@ -681,7 +712,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                             .add("message", "Test log message from client")
                             .add("level", "INFO")
                             .build();
-      client.sendNotification("log", make_optional(log_params));
+      client.sendNotification("log", mcp::make_optional(log_params));
       results.pass("Notification: log");
     } catch (const std::exception& e) {
       results.fail("Notification: log", e.what());
@@ -701,7 +732,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                                  .add("progress", 0.5)
                                  .add("message", "Halfway done")
                                  .build();
-      client.sendNotification("progress", make_optional(progress_params));
+      client.sendNotification("progress", mcp::make_optional(progress_params));
       results.pass("Notification: progress");
     } catch (const std::exception& e) {
       results.fail("Notification: progress", e.what());
@@ -709,7 +740,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
   }
 
   // 7. Batch requests test
-  std::cerr << "\n[TEST 7] Batch Requests" << std::endl;
+  g_logger->info("[TEST 7] Batch Requests");
   {
     std::vector<std::pair<std::string, optional<Metadata>>> batch;
     batch.push_back({"ping", nullopt});
@@ -717,7 +748,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     batch.push_back({"server/status", nullopt});
 
     auto futures = client.sendBatch(batch);
-    std::cerr << "  Sent " << futures.size() << " batch requests" << std::endl;
+    g_logger->info("  Sent {} batch requests", futures.size());
 
     int success_count = 0;
     for (size_t i = 0; i < futures.size(); ++i) {
@@ -731,8 +762,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       }
     }
 
-    std::cerr << "  Results: " << success_count << "/" << futures.size()
-              << " successful" << std::endl;
+    g_logger->info("  Results: {}/{} successful", success_count, futures.size());
 
     if (success_count == static_cast<int>(futures.size())) {
       results.pass("Batch requests: all succeeded");
@@ -744,7 +774,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
 
   // 8. Stress test (only in verbose mode)
   if (verbose) {
-    std::cerr << "\n[TEST 8] Stress Test (10 rapid echo requests)" << std::endl;
+    g_logger->info("[TEST 8] Stress Test (10 rapid echo requests)");
 
     std::vector<std::future<jsonrpc::Response>> stress_futures;
     for (int i = 0; i < 10; ++i) {
@@ -753,7 +783,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
                         .add("test", true)
                         .build();
       stress_futures.push_back(
-          client.sendRequest("echo", make_optional(params)));
+          client.sendRequest("echo", mcp::make_optional(params)));
     }
 
     int completed = 0;
@@ -771,8 +801,7 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       }
     }
 
-    std::cerr << "  Results: " << completed << " successful, " << failed
-              << " failed" << std::endl;
+    g_logger->info("  Results: {} successful, {} failed", completed, failed);
 
     if (failed == 0) {
       results.pass("Stress test: all requests succeeded");
@@ -789,49 +818,36 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
 void printStatistics(const McpClient& client) {
   const auto& stats = client.getClientStats();
 
-  std::cerr << "\n=== Client Statistics ===" << std::endl;
-  std::cerr << "Connections:" << std::endl;
-  std::cerr << "  Total: " << stats.connections_total << std::endl;
-  std::cerr << "  Active: " << stats.connections_active << std::endl;
-
-  std::cerr << "\nRequests:" << std::endl;
-  std::cerr << "  Total: " << stats.requests_total << std::endl;
-  std::cerr << "  Success: " << stats.requests_success << std::endl;
-  std::cerr << "  Failed: " << stats.requests_failed << std::endl;
-  std::cerr << "  Timeout: " << stats.requests_timeout << std::endl;
-  std::cerr << "  Retried: " << stats.requests_retried << std::endl;
-  std::cerr << "  Batched: " << stats.requests_batched << std::endl;
-  std::cerr << "  Queued: " << stats.requests_queued << std::endl;
-
-  std::cerr << "\nCircuit Breaker:" << std::endl;
-  std::cerr << "  Opens: " << stats.circuit_breaker_opens << std::endl;
-  std::cerr << "  Closes: " << stats.circuit_breaker_closes << std::endl;
-  std::cerr << "  Half-opens: " << stats.circuit_breaker_half_opens
-            << std::endl;
-
-  std::cerr << "\nConnection Pool:" << std::endl;
-  std::cerr << "  Hits: " << stats.connection_pool_hits << std::endl;
-  std::cerr << "  Misses: " << stats.connection_pool_misses << std::endl;
-  std::cerr << "  Evictions: " << stats.connection_pool_evictions << std::endl;
-
-  std::cerr << "\nProtocol Operations:" << std::endl;
-  std::cerr << "  Resources read: " << stats.resources_read << std::endl;
-  std::cerr << "  Tools called: " << stats.tools_called << std::endl;
-  std::cerr << "  Prompts retrieved: " << stats.prompts_retrieved << std::endl;
-
-  std::cerr << "\nData Transfer:" << std::endl;
-  std::cerr << "  Bytes sent: " << stats.bytes_sent << std::endl;
-  std::cerr << "  Bytes received: " << stats.bytes_received << std::endl;
+  g_logger->info("=== Client Statistics ===");
+  g_logger->info("Connections: Total={} Active={}", stats.connections_total.load(),
+                 stats.connections_active.load());
+  g_logger->info(
+      "Requests: Total={} Success={} Failed={} Timeout={} Retried={} Batched={} "
+      "Queued={}",
+      stats.requests_total.load(), stats.requests_success.load(),
+      stats.requests_failed.load(), stats.requests_timeout.load(),
+      stats.requests_retried.load(), stats.requests_batched.load(),
+      stats.requests_queued.load());
+  g_logger->info("Circuit Breaker: Opens={} Closes={} Half-opens={}",
+                 stats.circuit_breaker_opens.load(),
+                 stats.circuit_breaker_closes.load(),
+                 stats.circuit_breaker_half_opens.load());
+  g_logger->info("Connection Pool: Hits={} Misses={} Evictions={}",
+                 stats.connection_pool_hits.load(),
+                 stats.connection_pool_misses.load(),
+                 stats.connection_pool_evictions.load());
+  g_logger->info("Protocol: Resources={} Tools={} Prompts={}",
+                 stats.resources_read.load(), stats.tools_called.load(),
+                 stats.prompts_retrieved.load());
+  g_logger->info("Data Transfer: Sent={} bytes Received={} bytes",
+                 stats.bytes_sent.load(), stats.bytes_received.load());
 
   if (stats.requests_success > 0) {
     uint64_t avg_latency =
         stats.request_duration_ms_total / stats.requests_success;
-    std::cerr << "\nLatency:" << std::endl;
-    std::cerr << "  Average: " << avg_latency << " ms" << std::endl;
-    std::cerr << "  Min: " << stats.request_duration_ms_min << " ms"
-              << std::endl;
-    std::cerr << "  Max: " << stats.request_duration_ms_max << " ms"
-              << std::endl;
+    g_logger->info("Latency: Avg={} ms Min={} ms Max={} ms", avg_latency,
+                   stats.request_duration_ms_min.load(),
+                   stats.request_duration_ms_max.load());
   }
 }
 
@@ -843,11 +859,12 @@ int main(int argc, char* argv[]) {
   // Parse command-line options
   ClientOptions options = parseArguments(argc, argv);
 
-  std::cerr << "====================================================="
-            << std::endl;
-  std::cerr << "MCP Client - Enterprise Edition" << std::endl;
-  std::cerr << "====================================================="
-            << std::endl;
+  // Setup logging framework before any logging
+  setupLogging(options.verbose);
+
+  g_logger->info("=====================================================");
+  g_logger->info("MCP Client - Enterprise Edition");
+  g_logger->info("=====================================================");
 
   // Build server URI based on transport type
   std::string server_uri;
@@ -863,8 +880,8 @@ int main(int argc, char* argv[]) {
     server_uri = uri.str();
   }
 
-  std::cerr << "[INFO] Transport: " << options.transport << std::endl;
-  std::cerr << "[INFO] Server URI: " << server_uri << std::endl;
+  g_logger->info("Transport: {}", options.transport);
+  g_logger->info("Server URI: {}", server_uri);
 
   // Configure client with enterprise features
   McpClientConfig config;
@@ -913,7 +930,7 @@ int main(int argc, char* argv[]) {
 
   // Client capabilities
   config.capabilities = ClientCapabilities();
-  config.capabilities.experimental = make_optional(Metadata());
+  config.capabilities.experimental = mcp::make_optional(Metadata());
 
   // Add HTTP/SSE specific configuration if using HTTP transport
   if (options.transport == "http") {
@@ -922,45 +939,42 @@ int main(int argc, char* argv[]) {
   }
 
   // Create client
-  std::cerr << "[INFO] Creating MCP client..." << std::endl;
-  std::cerr << "[INFO] Connection pool size: " << options.pool_size
-            << std::endl;
-  std::cerr << "[INFO] Worker threads: " << options.num_workers << std::endl;
-  std::cerr << "[INFO] Max retries: " << options.max_retries << std::endl;
+  g_logger->info("Creating MCP client...");
+  g_logger->info("Connection pool size: {}", options.pool_size);
+  g_logger->info("Worker threads: {}", options.num_workers);
+  g_logger->info("Max retries: {}", options.max_retries);
 
   {
     std::lock_guard<std::mutex> lock(g_client_mutex);
     g_client = createMcpClient(config);
     if (!g_client) {
-      std::cerr << "[ERROR] Failed to create client" << std::endl;
+      g_logger->error("Failed to create client");
       return 1;
     }
   }
 
   // Connect to server first - this will initialize the application
-  std::cerr << "[INFO] Connecting to server..." << std::endl;
+  g_logger->info("Connecting to server...");
   VoidResult connect_result;
   {
     std::lock_guard<std::mutex> lock(g_client_mutex);
     if (g_client) {
       connect_result = g_client->connect(server_uri);
     } else {
-      std::cerr << "[ERROR] Client not initialized" << std::endl;
+      g_logger->error("Client not initialized");
       return 1;
     }
   }
 
   if (is_error<std::nullptr_t>(connect_result)) {
-    std::cerr << "[ERROR] Failed to connect: "
-              << get_error<std::nullptr_t>(connect_result)->message
-              << std::endl;
+    g_logger->error("Failed to connect: {}",
+                    get_error<std::nullptr_t>(connect_result)->message);
     return 1;
   }
 
   // Wait for connection to be fully established
   // The connection happens asynchronously, so we need to wait for it
-  std::cerr << "[INFO] Waiting for connection to be established..."
-            << std::endl;
+  g_logger->info("Waiting for connection to be established...");
 
   int wait_count = 0;
   bool connected = false;
@@ -968,8 +982,7 @@ int main(int argc, char* argv[]) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     wait_count++;
     if (wait_count % 10 == 0) {
-      std::cerr << "[INFO] Still connecting... (" << wait_count / 10 << "s)"
-                << std::endl;
+      g_logger->info("Still connecting... ({}s)", wait_count / 10);
     }
 
     // Check connection status safely
@@ -982,22 +995,21 @@ int main(int argc, char* argv[]) {
   }
 
   if (g_shutdown) {
-    std::cerr << "[INFO] Shutdown requested during connection" << std::endl;
+    g_logger->info("Shutdown requested during connection");
     return 0;
   }
 
   if (!connected) {
-    std::cerr << "[ERROR] Connection timeout - failed to establish connection"
-              << std::endl;
-    std::cerr << "[HINT] Make sure the server is running on " << options.host
-              << ":" << options.port << std::endl;
+    g_logger->error("Connection timeout - failed to establish connection");
+    g_logger->info("HINT: Make sure the server is running on {}:{}",
+                   options.host, options.port);
     return 1;
   }
 
-  std::cerr << "[INFO] Connected successfully!" << std::endl;
+  g_logger->info("Connected successfully!");
 
   // Initialize MCP protocol - REQUIRED before any requests
-  std::cerr << "[INFO] Initializing MCP protocol..." << std::endl;
+  g_logger->info("Initializing MCP protocol...");
   std::future<InitializeResult> init_future;
   {
     std::lock_guard<std::mutex> lock(g_client_mutex);
@@ -1005,8 +1017,7 @@ int main(int argc, char* argv[]) {
       try {
         init_future = g_client->initializeProtocol();
       } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Failed to start initialization: " << e.what()
-                  << std::endl;
+        g_logger->error("Failed to start initialization: {}", e.what());
         return 1;
       }
     }
@@ -1025,17 +1036,15 @@ int main(int argc, char* argv[]) {
       if (status == std::future_status::ready) {
         try {
           auto init_result = init_future.get();
-          std::cerr << "[INFO] Protocol initialized: "
-                    << init_result.protocolVersion << std::endl;
+          g_logger->info("Protocol initialized: {}", init_result.protocolVersion);
           if (init_result.serverInfo.has_value()) {
-            std::cerr << "[INFO] Server: " << init_result.serverInfo->name
-                      << " v" << init_result.serverInfo->version << std::endl;
+            g_logger->info("Server: {} v{}", init_result.serverInfo->name,
+                           init_result.serverInfo->version);
           }
           // Store server capabilities
           g_client->setServerCapabilities(init_result.capabilities);
         } catch (const std::exception& e) {
-          std::cerr << "[ERROR] Failed to initialize protocol: " << e.what()
-                    << std::endl;
+          g_logger->error("Failed to initialize protocol: {}", e.what());
           return 1;
         }
         initialized = true;
@@ -1054,14 +1063,14 @@ int main(int argc, char* argv[]) {
 
   // Check for shutdown before entering main loop
   if (g_shutdown) {
-    std::cerr << "[INFO] Shutdown requested, exiting..." << std::endl;
+    g_logger->info("Shutdown requested, exiting...");
     return 0;
   }
 
   // Main loop - send periodic pings
-  std::cerr << "\n[INFO] Entering main loop (Ctrl+C to exit)..." << std::endl;
+  g_logger->info("Entering main loop (Ctrl+C to exit)...");
   if (!options.quiet) {
-    std::cerr << "[INFO] Sending ping every 5 seconds..." << std::endl;
+    g_logger->info("Sending ping every 5 seconds...");
   }
 
   int ping_count = 0;
@@ -1074,8 +1083,7 @@ int main(int argc, char* argv[]) {
       {
         std::lock_guard<std::mutex> lock(g_client_mutex);
         if (!g_client || !g_client->isConnected()) {
-          std::cerr << "[WARNING] Client disconnected, exiting main loop"
-                    << std::endl;
+          g_logger->warning("Client disconnected, exiting main loop");
           break;
         }
         ping_future = g_client->sendRequest("ping");
@@ -1084,7 +1092,7 @@ int main(int argc, char* argv[]) {
       // Use wait_for with timeout to allow checking for shutdown
       auto status = ping_future.wait_for(std::chrono::seconds(5));
       if (status == std::future_status::timeout) {
-        std::cerr << "[WARN] Ping timeout" << std::endl;
+        g_logger->warning("Ping timeout");
         consecutive_failures++;
       } else if (status == std::future_status::ready) {
         auto response = ping_future.get();
@@ -1093,24 +1101,21 @@ int main(int argc, char* argv[]) {
           consecutive_failures = 0;
           // Only show ping messages in verbose mode or if quiet is not enabled
           if (!options.quiet && (ping_count % 100 == 0 || options.verbose)) {
-            std::cerr << "[INFO] Ping #" << ping_count << " successful"
-                      << std::endl;
+            g_logger->info("Ping #{} successful", ping_count);
           }
         } else {
           consecutive_failures++;
-          std::cerr << "[WARN] Ping failed: " << response.error->message
-                    << std::endl;
+          g_logger->warning("Ping failed: {}", response.error->message);
         }
       }
     } catch (const std::exception& e) {
       consecutive_failures++;
-      std::cerr << "[ERROR] Ping exception: " << e.what() << std::endl;
+      g_logger->error("Ping exception: {}", e.what());
     }
 
     // Check for excessive failures
     if (consecutive_failures >= 5) {
-      std::cerr << "[ERROR] Too many consecutive failures, shutting down"
-                << std::endl;
+      g_logger->error("Too many consecutive failures, shutting down");
       break;
     }
 
@@ -1123,8 +1128,7 @@ int main(int argc, char* argv[]) {
         try {
           printStatistics(*g_client);
         } catch (const std::exception& e) {
-          std::cerr << "[ERROR] Failed to print statistics: " << e.what()
-                    << std::endl;
+          g_logger->error("Failed to print statistics: {}", e.what());
         }
       }
     }
@@ -1137,15 +1141,14 @@ int main(int argc, char* argv[]) {
   }
 
   // Disconnect
-  std::cerr << "\n[INFO] Disconnecting..." << std::endl;
+  g_logger->info("Disconnecting...");
   {
     std::lock_guard<std::mutex> lock(g_client_mutex);
     if (g_client) {
       try {
         g_client->disconnect();
       } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Exception during disconnect: " << e.what()
-                  << std::endl;
+        g_logger->error("Exception during disconnect: {}", e.what());
       }
     }
   }
@@ -1157,14 +1160,13 @@ int main(int argc, char* argv[]) {
       try {
         printStatistics(*g_client);
       } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Failed to print final statistics: " << e.what()
-                  << std::endl;
+        g_logger->error("Failed to print final statistics: {}", e.what());
       }
     }
   }
 
-  std::cerr << "\n[INFO] Client shutdown complete" << std::endl;
-  std::cerr << "[INFO] Total pings sent: " << ping_count << std::endl;
+  g_logger->info("Client shutdown complete");
+  g_logger->info("Total pings sent: {}", ping_count);
 
   // Shutdown client and clean up
   {
