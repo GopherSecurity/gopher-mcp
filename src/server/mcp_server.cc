@@ -8,10 +8,10 @@
 
 #include <algorithm>
 #include <future>
-#include <iostream>
 #include <sstream>
 
 #include "mcp/filter/filter_chain_assembler.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/filter/json_rpc_filter_factory.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -67,7 +67,7 @@ VoidResult McpServer::listen(const std::string& address) {
 
     // Verify main dispatcher was created
     if (!main_dispatcher_) {
-      std::cerr << "[ERROR] Failed to create main dispatcher" << std::endl;
+      GOPHER_LOG_ERROR("Failed to create main dispatcher");
       return makeVoidError(
           Error(jsonrpc::INTERNAL_ERROR, "Dispatcher initialization failed"));
     }
@@ -128,12 +128,10 @@ void McpServer::performListen() {
       auto result = conn_manager->connect();
       if (holds_alternative<std::nullptr_t>(result)) {
         connection_managers_.push_back(std::move(conn_manager));
-        std::cerr << "[DEBUG] Successfully started stdio transport"
-                  << std::endl;
+        GOPHER_LOG_DEBUG("Successfully started stdio transport");
       } else {
         auto error = get<Error>(result);
-        std::cerr << "[ERROR] Failed to setup stdio transport: "
-                  << error.message << std::endl;
+        GOPHER_LOG_ERROR("Failed to setup stdio transport: {}", error.message);
         main_dispatcher_->exit();
         return;
       }
@@ -188,9 +186,7 @@ void McpServer::performListen() {
       std::unique_ptr<network::TcpActiveListener> tcp_listener;
 
       if (config_.filter_chain_config.has_value()) {
-        std::cerr << "[INFO] Using config-driven TCP listener with "
-                     "configurable filter chain"
-                  << std::endl;
+        GOPHER_LOG_INFO("Using config-driven TCP listener with configurable filter chain");
 
         // Create a ListenerConfig from the filter chain configuration
         mcp::config::ListenerConfig listener_config;
@@ -217,8 +213,7 @@ void McpServer::performListen() {
       } else {
         // Fallback to old constructor with default HTTP/SSE factory for
         // backward compatibility
-        std::cerr << "[INFO] Using default HTTP/SSE filter chain factory"
-                  << std::endl;
+        GOPHER_LOG_INFO("Using default HTTP/SSE filter chain factory");
 
         tcp_config.filter_chain_factory =
             std::make_shared<filter::HttpSseFilterChainFactory>(
@@ -244,8 +239,7 @@ void McpServer::performListen() {
       // Store the listener
       tcp_listeners_.push_back(std::move(tcp_listener));
 
-      std::cerr << "[DEBUG] Successfully started HTTP+SSE listener on port "
-                << port << std::endl;
+      GOPHER_LOG_DEBUG("Successfully started HTTP+SSE listener on port {}", port);
     } else {
       // Future: support for other transports
       auto net_address = network::Address::pipeAddress(address);
@@ -271,11 +265,11 @@ void McpServer::performListen() {
     startBackgroundTasks();
 
     // Successfully started listening
-    std::cerr << "[INFO] Server started successfully!" << std::endl;
-    std::cerr << "[INFO] Listening on " << address << std::endl;
+    GOPHER_LOG_INFO("Server started successfully!");
+    GOPHER_LOG_INFO("Listening on {}", address);
 
   } catch (const std::exception& e) {
-    std::cerr << "[ERROR] Failed to start transport: " << e.what() << std::endl;
+    GOPHER_LOG_ERROR("Failed to start transport: {}", e.what());
     // Exit the dispatcher on fatal error
     main_dispatcher_->exit();
   }
@@ -286,16 +280,14 @@ void McpServer::performListen() {
 void McpServer::run() {
   // Check if we have either a listen address or pending listener configs
   if (listen_address_.empty() && pending_listener_configs_.empty()) {
-    std::cerr
-        << "[ERROR] No listen address or listener configurations specified. "
-        << "Call listen() or createListenersFromConfig() first." << std::endl;
+    GOPHER_LOG_ERROR("No listen address or listener configurations specified. "
+                     "Call listen() or createListenersFromConfig() first.");
     return;
   }
 
   if (!initialized_) {
-    std::cerr << "[ERROR] Server not initialized. Call listen() or "
-                 "createListenersFromConfig() first."
-              << std::endl;
+    GOPHER_LOG_ERROR("Server not initialized. Call listen() or "
+                     "createListenersFromConfig() first.");
     return;
   }
 
@@ -304,11 +296,11 @@ void McpServer::run() {
   bool need_start_listeners = !pending_listener_configs_.empty();
 
   // Override the base class run to handle listening in dispatcher thread
-  std::cerr << "[INFO] Running main event loop" << std::endl;
+  GOPHER_LOG_INFO("Running main event loop");
 
   // Main dispatcher should already be created in initialize()
   if (!main_dispatcher_) {
-    std::cerr << "[ERROR] Main dispatcher not initialized." << std::endl;
+    GOPHER_LOG_ERROR("Main dispatcher not initialized.");
     return;
   }
 
@@ -324,7 +316,7 @@ void McpServer::run() {
 
   // Start listeners from configuration if provided
   if (need_start_listeners) {
-    std::cerr << "[INFO] Starting listeners from configuration" << std::endl;
+    GOPHER_LOG_INFO("Starting listeners from configuration");
     for (const auto& listener_config : pending_listener_configs_) {
       startListener(listener_config);
     }
@@ -334,14 +326,14 @@ void McpServer::run() {
     // Start background tasks for session cleanup and resource updates
     startBackgroundTasks();
 
-    std::cerr << "[INFO] All listeners started successfully!" << std::endl;
+    GOPHER_LOG_INFO("All listeners started successfully!");
   }
 
   // Following production pattern: use blocking dispatch loop
   // This properly waits for and processes file events
-  std::cerr << "[INFO] Starting blocking dispatch loop" << std::endl;
+  GOPHER_LOG_INFO("Starting blocking dispatch loop");
   main_dispatcher_->run(event::RunType::Block);
-  std::cerr << "[INFO] Main dispatch loop exited" << std::endl;
+  GOPHER_LOG_INFO("Main dispatch loop exited");
 }
 
 // Shutdown server
@@ -518,8 +510,7 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
 
 // McpProtocolCallbacks overrides
 void McpServer::onRequest(const jsonrpc::Request& request) {
-  std::cerr << "[DEBUG] McpServer::onRequest called with method: "
-            << request.method << std::endl;
+  GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}", request.method);
 
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
@@ -558,7 +549,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
 
     // Send response through appropriate mechanism
     // For HTTP connections, use filter chain; for stdio, use connection manager
-    std::cerr << "[DEBUG] Sending error response for max sessions" << std::endl;
+    GOPHER_LOG_DEBUG("Sending error response for max sessions");
 
     // Send response through the current connection (for TCP/HTTP connections)
     // Following production pattern: thread-local connection context
@@ -570,8 +561,7 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
     // Also try connection managers (for stdio connections)
     for (auto& conn_manager : connection_managers_) {
       if (conn_manager->isConnected()) {
-        std::cerr << "[DEBUG] Found connected manager, sending response"
-                  << std::endl;
+        GOPHER_LOG_DEBUG("Found connected manager, sending response");
         conn_manager->sendResponse(response);
         break;
       }
@@ -632,11 +622,10 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
   // Send response through appropriate channel
   // Following proper architecture: use filter chain for HTTP, connection
   // manager for stdio
-  std::cerr << "[DEBUG] Sending response for request id: "
-            << (holds_alternative<std::string>(request.id)
-                    ? get<std::string>(request.id)
-                    : std::to_string(get<int64_t>(request.id)))
-            << std::endl;
+  GOPHER_LOG_DEBUG("Sending response for request id: {}",
+                   holds_alternative<std::string>(request.id)
+                       ? get<std::string>(request.id)
+                       : std::to_string(get<int64_t>(request.id)));
 
   // Send response through the current connection (for TCP/HTTP connections)
   // Following production pattern: server sends JSON-RPC, filter handles HTTP
@@ -733,8 +722,7 @@ void McpServer::onNotification(const jsonrpc::Notification& notification) {
           auto it = pending_requests_.find(key_to_cancel);
           if (it != pending_requests_.end()) {
             it->second->cancelled = true;
-            std::cerr << "[INFO] Request marked as cancelled: " << key_to_cancel
-                      << std::endl;
+            GOPHER_LOG_INFO("Request marked as cancelled: {}", key_to_cancel);
           }
         }
       }
@@ -1243,8 +1231,7 @@ void McpServer::onNewConnection(network::ConnectionPtr&& connection) {
   // Messages will flow through filter chain to our onRequest/onNotification
   // handlers
 
-  std::cerr << "[DEBUG] New connection established, session: "
-            << session->getId() << std::endl;
+  GOPHER_LOG_DEBUG("New connection established, session: {}", session->getId());
 }
 
 // Listener configuration-based server startup methods
@@ -1257,7 +1244,7 @@ VoidResult McpServer::createListenersFromConfig(
 
     // Verify main dispatcher was created
     if (!main_dispatcher_) {
-      std::cerr << "[ERROR] Failed to create main dispatcher" << std::endl;
+      GOPHER_LOG_ERROR("Failed to create main dispatcher");
       return makeVoidError(
           Error(jsonrpc::INTERNAL_ERROR, "Dispatcher initialization failed"));
     }
@@ -1268,8 +1255,8 @@ VoidResult McpServer::createListenersFromConfig(
     try {
       listener_config.validate();
     } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Invalid listener config for '"
-                << listener_config.name << "': " << e.what() << std::endl;
+      GOPHER_LOG_ERROR("Invalid listener config for '{}': {}",
+                       listener_config.name, e.what());
       return makeVoidError(
           Error(jsonrpc::INVALID_PARAMS,
                 "Invalid listener configuration: " + std::string(e.what())));
@@ -1279,17 +1266,17 @@ VoidResult McpServer::createListenersFromConfig(
   // Store listeners for deferred creation in run()
   pending_listener_configs_ = listeners;
 
-  std::cerr << "[INFO] Configured " << listeners.size()
-            << " listener(s) for startup" << std::endl;
+  GOPHER_LOG_INFO("Configured {} listener(s) for startup", listeners.size());
   return makeVoidSuccess();
 }
 
 void McpServer::startListener(
     const mcp::config::ListenerConfig& listener_config) {
   try {
-    std::cerr << "[INFO] Starting listener '" << listener_config.name << "' on "
-              << listener_config.address.socket_address.address << ":"
-              << listener_config.address.socket_address.port_value << std::endl;
+    GOPHER_LOG_INFO("Starting listener '{}' on {}:{}",
+                    listener_config.name,
+                    listener_config.address.socket_address.address,
+                    listener_config.address.socket_address.port_value);
 
     // Create TcpActiveListener with the new constructor
     auto tcp_listener = std::make_unique<network::TcpActiveListener>(
@@ -1307,12 +1294,11 @@ void McpServer::startListener(
     // Store the listener
     tcp_listeners_.push_back(std::move(tcp_listener));
 
-    std::cerr << "[DEBUG] Successfully started listener '"
-              << listener_config.name << "'" << std::endl;
+    GOPHER_LOG_DEBUG("Successfully started listener '{}'", listener_config.name);
 
   } catch (const std::exception& e) {
-    std::cerr << "[ERROR] Failed to start listener '" << listener_config.name
-              << "': " << e.what() << std::endl;
+    GOPHER_LOG_ERROR("Failed to start listener '{}': {}",
+                     listener_config.name, e.what());
     // Continue with other listeners rather than failing entirely
   }
 }
