@@ -106,11 +106,17 @@
 #endif
 
 #include "mcp/json/json_bridge.h"
+#include "mcp/logging/log_macros.h"
+#include "mcp/logging/log_sink.h"
+#include "mcp/logging/logger_registry.h"
 #include "mcp/server/mcp_server.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 
 using namespace mcp;
 using namespace mcp::server;
+
+// Use logging namespace explicitly to avoid conflicts with std::make_optional
+namespace logging = mcp::logging;
 
 // Global server for signal handling
 std::shared_ptr<McpServer> g_server;
@@ -139,6 +145,37 @@ struct ServerOptions {
   std::string http_sse_path = "/events";
   std::string http_health_path = "/health";
 };
+
+// Application logger - logs at INFO level to console
+std::shared_ptr<logging::Logger> g_logger;
+
+// Setup logging framework
+// - Default level: INFO
+// - Library (mcp.*): DEBUG level
+// - Application: INFO level (visible on console)
+void setupLogging(bool verbose) {
+  auto& registry = logging::LoggerRegistry::instance();
+
+  // Set global default level to INFO
+  registry.setGlobalLevel(logging::LogLevel::Info);
+
+  // Create console sink (stderr)
+  auto console_sink = logging::SinkFactory::createStdioSink(true);
+
+  // Create application logger at INFO level
+  g_logger = registry.getOrCreateLogger("mcp_example_server");
+  g_logger->setSink(std::move(console_sink));
+  g_logger->setLevel(logging::LogLevel::Info);
+
+  // Set library loggers to DEBUG level (will show if global is DEBUG)
+  // Use pattern matching for library components
+  registry.setPattern("mcp.*", logging::LogLevel::Debug);
+
+  // If verbose mode, set global to DEBUG to see library logs
+  if (verbose) {
+    registry.setGlobalLevel(logging::LogLevel::Debug);
+  }
+}
 
 // Platform-specific shutdown handler
 #ifdef _WIN32
@@ -253,7 +290,8 @@ ServerOptions parseArguments(int argc, char* argv[]) {
     } else if (arg == "--health-path" && i + 1 < argc) {
       options.http_health_path = argv[++i];
     } else {
-      std::cerr << "[ERROR] Unknown option: " << arg << std::endl;
+      // Use std::cerr since logging may not be set up yet
+      std::cerr << "ERROR: Unknown option: " << arg << std::endl;
       printUsage(argv[0]);
       exit(1);
     }
@@ -395,7 +433,7 @@ GetPromptResult getSamplePrompt(const std::string& name,
 
   if (name == "greeting") {
     result.description =
-        make_optional(std::string("A friendly greeting prompt"));
+        mcp::make_optional(std::string("A friendly greeting prompt"));
 
     // Add prompt messages
     PromptMessage msg1(enums::Role::USER, TextContent("Hello!"));
@@ -408,7 +446,7 @@ GetPromptResult getSamplePrompt(const std::string& name,
     result.messages.push_back(msg2);
   } else if (name == "code_review") {
     result.description =
-        make_optional(std::string("Code review prompt template"));
+        mcp::make_optional(std::string("Code review prompt template"));
 
     std::string code = "// Your code here";
     std::string language = "javascript";
@@ -444,7 +482,7 @@ GetPromptResult getSamplePrompt(const std::string& name,
     result.messages.push_back(msg);
   } else if (name == "data_analysis") {
     result.description =
-        make_optional(std::string("Data analysis prompt template"));
+        mcp::make_optional(std::string("Data analysis prompt template"));
 
     std::string dataset = "sample_data.csv";
     std::string analysis_type = "descriptive";
@@ -482,7 +520,7 @@ GetPromptResult getSamplePrompt(const std::string& name,
 
 // Setup server with resources, tools, and prompts
 void setupServer(McpServer& server, bool verbose) {
-  std::cerr << "[SETUP] Configuring server resources and tools..." << std::endl;
+  g_logger->info("Configuring server resources and tools...");
 
   // Register sample resources
   {
@@ -491,8 +529,8 @@ void setupServer(McpServer& server, bool verbose) {
     config_resource.uri = "config://server/settings";
     config_resource.name = "Server Configuration";
     config_resource.description =
-        make_optional(std::string("Current server configuration and settings"));
-    config_resource.mimeType = make_optional(std::string("application/json"));
+        mcp::make_optional(std::string("Current server configuration and settings"));
+    config_resource.mimeType = mcp::make_optional(std::string("application/json"));
 
     server.registerResource(config_resource);
 
@@ -501,8 +539,8 @@ void setupServer(McpServer& server, bool verbose) {
     log_resource.uri = "log://server/events";
     log_resource.name = "Server Event Log";
     log_resource.description =
-        make_optional(std::string("Real-time server event log"));
-    log_resource.mimeType = make_optional(std::string("text/plain"));
+        mcp::make_optional(std::string("Real-time server event log"));
+    log_resource.mimeType = mcp::make_optional(std::string("text/plain"));
 
     server.registerResource(log_resource);
 
@@ -511,13 +549,13 @@ void setupServer(McpServer& server, bool verbose) {
     metrics_resource.uri = "metrics://server/stats";
     metrics_resource.name = "Server Metrics";
     metrics_resource.description =
-        make_optional(std::string("Server performance metrics and statistics"));
-    metrics_resource.mimeType = make_optional(std::string("application/json"));
+        mcp::make_optional(std::string("Server performance metrics and statistics"));
+    metrics_resource.mimeType = mcp::make_optional(std::string("application/json"));
 
     server.registerResource(metrics_resource);
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 3 static resources" << std::endl;
+      g_logger->debug("Registered 3 static resources");
     }
   }
 
@@ -527,8 +565,8 @@ void setupServer(McpServer& server, bool verbose) {
     file_template.uriTemplate = "file://{path}";
     file_template.name = "File Resource";
     file_template.description =
-        make_optional(std::string("Access files on the server filesystem"));
-    file_template.mimeType = make_optional(std::string("text/plain"));
+        mcp::make_optional(std::string("Access files on the server filesystem"));
+    file_template.mimeType = mcp::make_optional(std::string("text/plain"));
 
     server.registerResourceTemplate(file_template);
 
@@ -536,24 +574,24 @@ void setupServer(McpServer& server, bool verbose) {
     db_template.uriTemplate = "db://{database}/{table}";
     db_template.name = "Database Resource";
     db_template.description =
-        make_optional(std::string("Access database tables"));
-    db_template.mimeType = make_optional(std::string("application/json"));
+        mcp::make_optional(std::string("Access database tables"));
+    db_template.mimeType = mcp::make_optional(std::string("application/json"));
 
     server.registerResourceTemplate(db_template);
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 2 resource templates" << std::endl;
+      g_logger->debug("Registered 2 resource templates");
     }
   }
 
   // Register tools
   {
-    std::cerr << "[SETUP] About to register tools..." << std::endl;
+    g_logger->debug("About to register tools...");
 
     // Calculator tool with schema
     Tool calc_tool;
     calc_tool.name = "calculator";
-    calc_tool.description = make_optional(
+    calc_tool.description = mcp::make_optional(
         std::string("Simple calculator for basic arithmetic operations"));
 
     // Define input schema for calculator
@@ -593,17 +631,17 @@ void setupServer(McpServer& server, bool verbose) {
     required.push_back("b");
     schema["required"] = required;
 
-    calc_tool.inputSchema = make_optional(schema);
+    calc_tool.inputSchema = mcp::make_optional(schema);
 
-    std::cerr << "[SETUP] Registering calculator tool..." << std::endl;
+    g_logger->debug("Registering calculator tool...");
     server.registerTool(calc_tool, executeSampleTool);
-    std::cerr << "[SETUP] Calculator tool registered" << std::endl;
+    g_logger->debug("Calculator tool registered");
 
     // System info tool
     Tool info_tool;
     info_tool.name = "system_info";
     info_tool.description =
-        make_optional(std::string("Get system and server information"));
+        mcp::make_optional(std::string("Get system and server information"));
 
     server.registerTool(info_tool, executeSampleTool);
 
@@ -611,7 +649,7 @@ void setupServer(McpServer& server, bool verbose) {
     Tool db_tool;
     db_tool.name = "database_query";
     db_tool.description =
-        make_optional(std::string("Execute database queries"));
+        mcp::make_optional(std::string("Execute database queries"));
 
     // Define schema as json::JsonValue
     json::JsonValue db_schema;
@@ -628,12 +666,12 @@ void setupServer(McpServer& server, bool verbose) {
     db_required.push_back("query");
     db_schema["required"] = db_required;
 
-    db_tool.inputSchema = make_optional(db_schema);
+    db_tool.inputSchema = mcp::make_optional(db_schema);
 
     server.registerTool(db_tool, executeSampleTool);
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 3 tools" << std::endl;
+      g_logger->debug("Registered 3 tools");
     }
   }
 
@@ -642,7 +680,7 @@ void setupServer(McpServer& server, bool verbose) {
     Prompt greeting_prompt;
     greeting_prompt.name = "greeting";
     greeting_prompt.description =
-        make_optional(std::string("A friendly greeting interaction"));
+        mcp::make_optional(std::string("A friendly greeting interaction"));
 
     server.registerPrompt(greeting_prompt, getSamplePrompt);
 
@@ -650,20 +688,20 @@ void setupServer(McpServer& server, bool verbose) {
     Prompt code_prompt;
     code_prompt.name = "code_review";
     code_prompt.description =
-        make_optional(std::string("Template for code review requests"));
+        mcp::make_optional(std::string("Template for code review requests"));
 
     PromptArgument code_arg;
     code_arg.name = "code";
-    code_arg.description = make_optional(std::string("The code to review"));
+    code_arg.description = mcp::make_optional(std::string("The code to review"));
     code_arg.required = true;
 
     PromptArgument lang_arg;
     lang_arg.name = "language";
-    lang_arg.description = make_optional(std::string("Programming language"));
+    lang_arg.description = mcp::make_optional(std::string("Programming language"));
     lang_arg.required = false;
 
     code_prompt.arguments =
-        make_optional(std::vector<PromptArgument>{code_arg, lang_arg});
+        mcp::make_optional(std::vector<PromptArgument>{code_arg, lang_arg});
 
     server.registerPrompt(code_prompt, getSamplePrompt);
 
@@ -671,25 +709,25 @@ void setupServer(McpServer& server, bool verbose) {
     Prompt data_prompt;
     data_prompt.name = "data_analysis";
     data_prompt.description =
-        make_optional(std::string("Template for data analysis requests"));
+        mcp::make_optional(std::string("Template for data analysis requests"));
 
     PromptArgument dataset_arg;
     dataset_arg.name = "dataset";
-    dataset_arg.description = make_optional(std::string("Dataset to analyze"));
+    dataset_arg.description = mcp::make_optional(std::string("Dataset to analyze"));
     dataset_arg.required = true;
 
     PromptArgument type_arg;
     type_arg.name = "analysis_type";
-    type_arg.description = make_optional(std::string("Type of analysis"));
+    type_arg.description = mcp::make_optional(std::string("Type of analysis"));
     type_arg.required = false;
 
     data_prompt.arguments =
-        make_optional(std::vector<PromptArgument>{dataset_arg, type_arg});
+        mcp::make_optional(std::vector<PromptArgument>{dataset_arg, type_arg});
 
     server.registerPrompt(data_prompt, getSamplePrompt);
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 3 prompts" << std::endl;
+      g_logger->debug("Registered 3 prompts");
     }
   }
 
@@ -770,9 +808,8 @@ void setupServer(McpServer& server, bool verbose) {
         });
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 4 custom request handlers (ping, echo, "
-                   "status, health)"
-                << std::endl;
+      g_logger->debug(
+          "Registered 4 custom request handlers (ping, echo, status, health)");
     }
   }
 
@@ -796,8 +833,14 @@ void setupServer(McpServer& server, bool verbose) {
             if (msg_it != params.end() &&
                 holds_alternative<std::string>(msg_it->second)) {
               if (verbose || level == "ERROR" || level == "WARN") {
-                std::cerr << "[" << level << " from " << session.getId() << "] "
-                          << get<std::string>(msg_it->second) << std::endl;
+                std::string msg = get<std::string>(msg_it->second);
+                if (level == "ERROR") {
+                  g_logger->error("[{}] {}", session.getId(), msg);
+                } else if (level == "WARN") {
+                  g_logger->warning("[{}] {}", session.getId(), msg);
+                } else {
+                  g_logger->info("[{}] {}", session.getId(), msg);
+                }
               }
             }
           }
@@ -831,59 +874,44 @@ void setupServer(McpServer& server, bool verbose) {
                 message = get<std::string>(message_it->second);
               }
 
-              std::cerr << "[PROGRESS from " << session.getId() << "] "
-                        << (progress * 100) << "% - " << message << std::endl;
+              g_logger->debug("[PROGRESS from {}] {}% - {}", session.getId(),
+                              progress * 100, message);
             }
           }
         });
 
     if (verbose) {
-      std::cerr << "[SETUP] Registered 3 notification handlers" << std::endl;
+      g_logger->debug("Registered 3 notification handlers");
     }
   }
 
-  std::cerr << "[SETUP] Server configuration complete" << std::endl;
+  g_logger->info("Server configuration complete");
 }
 
 // Print server statistics
 void printStatistics(const McpServer& server) {
   const auto& stats = server.getServerStats();
 
-  std::cerr << "\n=== Server Statistics ===" << std::endl;
-  std::cerr << "Sessions:" << std::endl;
-  std::cerr << "  Total: " << stats.sessions_total << std::endl;
-  std::cerr << "  Active: " << stats.sessions_active << std::endl;
-  std::cerr << "  Expired: " << stats.sessions_expired << std::endl;
-
-  std::cerr << "\nConnections:" << std::endl;
-  std::cerr << "  Total: " << stats.connections_total << std::endl;
-  std::cerr << "  Active: " << stats.connections_active << std::endl;
-
-  std::cerr << "\nRequests:" << std::endl;
-  std::cerr << "  Total: " << stats.requests_total << std::endl;
-  std::cerr << "  Success: " << stats.requests_success << std::endl;
-  std::cerr << "  Failed: " << stats.requests_failed << std::endl;
-  std::cerr << "  Invalid: " << stats.requests_invalid << std::endl;
-  std::cerr << "  Notifications: " << stats.notifications_total << std::endl;
-
-  std::cerr << "\nResources:" << std::endl;
-  std::cerr << "  Served: " << stats.resources_served << std::endl;
-  std::cerr << "  Subscribed: " << stats.resources_subscribed << std::endl;
-  std::cerr << "  Updates sent: " << stats.resource_updates_sent << std::endl;
-
-  std::cerr << "\nTools:" << std::endl;
-  std::cerr << "  Executed: " << stats.tools_executed << std::endl;
-  std::cerr << "  Failed: " << stats.tools_failed << std::endl;
-
-  std::cerr << "\nPrompts:" << std::endl;
-  std::cerr << "  Retrieved: " << stats.prompts_retrieved << std::endl;
-
-  std::cerr << "\nData Transfer:" << std::endl;
-  std::cerr << "  Bytes sent: " << stats.bytes_sent << std::endl;
-  std::cerr << "  Bytes received: " << stats.bytes_received << std::endl;
-
-  std::cerr << "\nErrors:" << std::endl;
-  std::cerr << "  Total: " << stats.errors_total << std::endl;
+  g_logger->info("=== Server Statistics ===");
+  g_logger->info("Sessions: Total={} Active={} Expired={}",
+                 stats.sessions_total.load(), stats.sessions_active.load(),
+                 stats.sessions_expired.load());
+  g_logger->info("Connections: Total={} Active={}", stats.connections_total.load(),
+                 stats.connections_active.load());
+  g_logger->info(
+      "Requests: Total={} Success={} Failed={} Invalid={} Notifications={}",
+      stats.requests_total.load(), stats.requests_success.load(),
+      stats.requests_failed.load(), stats.requests_invalid.load(),
+      stats.notifications_total.load());
+  g_logger->info("Resources: Served={} Subscribed={} Updates={}",
+                 stats.resources_served.load(), stats.resources_subscribed.load(),
+                 stats.resource_updates_sent.load());
+  g_logger->info("Tools: Executed={} Failed={}", stats.tools_executed.load(),
+                 stats.tools_failed.load());
+  g_logger->info("Prompts: Retrieved={}", stats.prompts_retrieved.load());
+  g_logger->info("Data Transfer: Sent={} bytes Received={} bytes",
+                 stats.bytes_sent.load(), stats.bytes_received.load());
+  g_logger->info("Errors: Total={}", stats.errors_total.load());
 }
 
 int main(int argc, char* argv[]) {
@@ -898,11 +926,12 @@ int main(int argc, char* argv[]) {
   // Parse command-line options
   ServerOptions options = parseArguments(argc, argv);
 
-  std::cerr << "====================================================="
-            << std::endl;
-  std::cerr << "MCP Server - Enterprise Edition" << std::endl;
-  std::cerr << "====================================================="
-            << std::endl;
+  // Setup logging framework before any logging
+  setupLogging(options.verbose);
+
+  g_logger->info("=====================================================");
+  g_logger->info("MCP Server - Enterprise Edition");
+  g_logger->info("=====================================================");
 
   // Build listen address based on transport type
   std::string listen_address;
@@ -923,8 +952,8 @@ int main(int argc, char* argv[]) {
     listen_address = addr.str();
   }
 
-  std::cerr << "[INFO] Primary transport: " << options.transport << std::endl;
-  std::cerr << "[INFO] Listen address: " << listen_address << std::endl;
+  g_logger->info("Primary transport: {}", options.transport);
+  g_logger->info("Listen address: {}", listen_address);
 
   // Configure server with enterprise features
   McpServerConfig config;
@@ -988,29 +1017,27 @@ int main(int argc, char* argv[]) {
   // config.enable_access_logs = true;  // Not yet available
 
   // Server capabilities
-  config.capabilities.tools = make_optional(true);
-  config.capabilities.prompts = make_optional(true);
-  config.capabilities.logging = make_optional(true);
+  config.capabilities.tools = mcp::make_optional(true);
+  config.capabilities.prompts = mcp::make_optional(true);
+  config.capabilities.logging = mcp::make_optional(true);
 
   // Resources capability with subscription support
   ResourcesCapability res_cap;
-  res_cap.subscribe = make_optional(EmptyCapability());
-  res_cap.listChanged = make_optional(EmptyCapability());
+  res_cap.subscribe = mcp::make_optional(EmptyCapability());
+  res_cap.listChanged = mcp::make_optional(EmptyCapability());
   config.capabilities.resources =
-      make_optional(variant<bool, ResourcesCapability>(res_cap));
+      mcp::make_optional(variant<bool, ResourcesCapability>(res_cap));
 
   // Experimental capabilities
-  config.capabilities.experimental = make_optional(Metadata());
+  config.capabilities.experimental = mcp::make_optional(Metadata());
 
   // Parse configuration file if provided
   if (!options.config_file.empty()) {
-    std::cerr << "[INFO] Loading configuration from: " << options.config_file
-              << std::endl;
+    g_logger->info("Loading configuration from: {}", options.config_file);
 
     std::ifstream config_file(options.config_file);
     if (!config_file) {
-      std::cerr << "[ERROR] Cannot open config file: " << options.config_file
-                << std::endl;
+      g_logger->error("Cannot open config file: {}", options.config_file);
       return 1;
     }
 
@@ -1030,19 +1057,18 @@ int main(int argc, char* argv[]) {
             if (chain.contains("name") &&
                 chain["name"].getString() == "server") {
               // Store the entire chain configuration
-              config.filter_chain_config = make_optional(chain);
-              std::cerr << "[CONFIG] Found server filter chain configuration"
-                        << std::endl;
+              config.filter_chain_config = mcp::make_optional(chain);
+              g_logger->info("Found server filter chain configuration");
 
               // Log the filters that will be created
               if (chain.contains("filters") && chain["filters"].isArray()) {
                 auto& filters = chain["filters"];
-                std::cerr << "[CONFIG] Filter chain will include "
-                          << filters.size() << " filters:" << std::endl;
+                g_logger->info("Filter chain will include {} filters:",
+                               filters.size());
                 for (size_t j = 0; j < filters.size(); ++j) {
                   if (filters[j].contains("type")) {
                     std::string filter_type = filters[j]["type"].getString();
-                    std::cerr << "[CONFIG]   - " << filter_type;
+                    std::string framing_info;
 
                     // Special handling for json_rpc to show framing config
                     if (filter_type == "json_rpc" &&
@@ -1050,11 +1076,10 @@ int main(int argc, char* argv[]) {
                         filters[j]["config"].contains("use_framing")) {
                       bool use_framing =
                           filters[j]["config"]["use_framing"].getBool();
-                      std::cerr << " (framing: "
-                                << (use_framing ? "enabled" : "disabled")
-                                << ")";
+                      framing_info = use_framing ? " (framing: enabled)"
+                                                 : " (framing: disabled)";
                     }
-                    std::cerr << std::endl;
+                    g_logger->info("  - {}{}", filter_type, framing_info);
                   }
                 }
               }
@@ -1065,28 +1090,25 @@ int main(int argc, char* argv[]) {
       }
 
       if (!config.filter_chain_config.has_value()) {
-        std::cerr << "[WARNING] No server filter chain found in config file"
-                  << std::endl;
+        g_logger->warning("No server filter chain found in config file");
       }
     } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Failed to parse config file: " << e.what()
-                << std::endl;
+      g_logger->error("Failed to parse config file: {}", e.what());
       return 1;
     }
   }
 
   // Create server
-  std::cerr << "[INFO] Creating MCP server..." << std::endl;
-  std::cerr << "[INFO] Worker threads: " << options.workers << std::endl;
-  std::cerr << "[INFO] Max sessions: " << options.max_sessions << std::endl;
-  std::cerr << "[INFO] Session timeout: " << options.session_timeout_minutes
-            << " minutes" << std::endl;
+  g_logger->info("Creating MCP server...");
+  g_logger->info("Worker threads: {}", options.workers);
+  g_logger->info("Max sessions: {}", options.max_sessions);
+  g_logger->info("Session timeout: {} minutes", options.session_timeout_minutes);
 
   {
     std::lock_guard<std::mutex> lock(g_server_mutex);
     g_server = createMcpServer(config);
     if (!g_server) {
-      std::cerr << "[ERROR] Failed to create server" << std::endl;
+      g_logger->error("Failed to create server");
       return 1;
     }
   }
@@ -1095,37 +1117,35 @@ int main(int argc, char* argv[]) {
   setupServer(*g_server, options.verbose);
 
   // Start listening
-  std::cerr << "[INFO] Starting server on port " << options.port << "..."
-            << std::endl;
+  g_logger->info("Starting server on port {}...", options.port);
   auto listen_result = g_server->listen(listen_address);
 
   if (is_error<std::nullptr_t>(listen_result)) {
-    std::cerr << "[ERROR] Failed to start server: "
-              << get_error<std::nullptr_t>(listen_result)->message << std::endl;
-    std::cerr << "[HINT] Make sure port " << options.port
-              << " is not already in use" << std::endl;
+    g_logger->error("Failed to start server: {}",
+                    get_error<std::nullptr_t>(listen_result)->message);
+    g_logger->info("HINT: Make sure port {} is not already in use",
+                   options.port);
     return 1;
   }
 
-  std::cerr << "[INFO] Server started successfully!" << std::endl;
-  std::cerr << "[INFO] Listening on " << options.host << ":" << options.port
-            << std::endl;
+  g_logger->info("Server started successfully!");
+  g_logger->info("Listening on {}:{}", options.host, options.port);
 
   if (options.transport == "http" || options.transport == "all") {
-    std::cerr << "\n[INFO] HTTP/SSE Endpoints:" << std::endl;
-    std::cerr << "  JSON-RPC: POST http://" << options.host << ":"
-              << options.port << config.http_rpc_path << std::endl;
-    std::cerr << "  SSE Events: GET http://" << options.host << ":"
-              << options.port << config.http_sse_path << std::endl;
-    std::cerr << "  Health: GET http://" << options.host << ":" << options.port
-              << config.http_health_path << std::endl;
+    g_logger->info("HTTP/SSE Endpoints:");
+    g_logger->info("  JSON-RPC: POST http://{}:{}{}", options.host, options.port,
+                   config.http_rpc_path);
+    g_logger->info("  SSE Events: GET http://{}:{}{}", options.host,
+                   options.port, config.http_sse_path);
+    g_logger->info("  Health: GET http://{}:{}{}", options.host, options.port,
+                   config.http_health_path);
     if (options.metrics) {
-      std::cerr << "  Metrics: GET http://" << options.host << ":"
-                << options.port << "/metrics" << std::endl;
+      g_logger->info("  Metrics: GET http://{}:{}/metrics", options.host,
+                     options.port);
     }
   }
 
-  std::cerr << "\n[INFO] Press Ctrl+C to shutdown" << std::endl;
+  g_logger->info("Press Ctrl+C to shutdown");
 
   // Give server time to fully initialize
   std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -1135,7 +1155,7 @@ int main(int argc, char* argv[]) {
   auto start_time = std::chrono::steady_clock::now();
 
   if (options.verbose) {
-    std::cerr << "[DEBUG] About to run server event loop..." << std::endl;
+    g_logger->debug("About to run server event loop...");
   }
 
   // Start a shutdown monitor thread
@@ -1143,16 +1163,13 @@ int main(int argc, char* argv[]) {
     std::unique_lock<std::mutex> lock(g_server_mutex);
     g_shutdown_cv.wait(lock, []() { return g_shutdown.load(); });
 
-    std::cerr
-        << "[DEBUG] Shutdown monitor triggered, initiating server shutdown..."
-        << std::endl;
+    g_logger->debug("Shutdown monitor triggered, initiating server shutdown...");
 
     // Shutdown was requested
     if (g_server) {
       try {
         // Print statistics before shutdown
-        std::cerr << "\n[INFO] Printing server statistics before shutdown..."
-                  << std::endl;
+        g_logger->info("Printing server statistics before shutdown...");
         printStatistics(*g_server);
 
         // Send shutdown notification to all clients
@@ -1163,16 +1180,14 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // Shutdown server - this will cause run() to return
-        std::cerr << "[DEBUG] Calling g_server->shutdown()..." << std::endl;
+        g_logger->debug("Calling g_server->shutdown()...");
         g_server->shutdown();
-        std::cerr << "[DEBUG] Server shutdown called successfully" << std::endl;
+        g_logger->debug("Server shutdown called successfully");
       } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Exception during shutdown: " << e.what()
-                  << std::endl;
+        g_logger->error("Exception during shutdown: {}", e.what());
       }
     } else {
-      std::cerr << "[ERROR] g_server is null, cannot shutdown properly"
-                << std::endl;
+      g_logger->error("g_server is null, cannot shutdown properly");
     }
   });
 
@@ -1261,7 +1276,7 @@ int main(int argc, char* argv[]) {
   */
 
   // Graceful shutdown
-  std::cerr << "\n[INFO] Shutting down application..." << std::endl;
+  g_logger->info("Shutting down application...");
 
   // Server shutdown already initiated in signal handler
   // Statistics were already printed in shutdown monitor
@@ -1276,7 +1291,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  std::cerr << "\n[INFO] Server shutdown complete" << std::endl;
+  g_logger->info("Server shutdown complete");
 
   return 0;
 }
