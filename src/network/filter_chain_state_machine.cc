@@ -7,8 +7,9 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 #include <sstream>
+
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace network {
@@ -717,11 +718,10 @@ FilterStatus FilterChainStateMachine::iterateReadFilters(Buffer& data,
 
       // Store the original data length before filter processing
       size_t data_len = data.length();
-      std::cerr << "[DEBUG] Calling read_filter->onData() with " << data_len
-                << " bytes" << std::endl;
+      GOPHER_LOG_DEBUG("Calling read_filter->onData() with {} bytes", data_len);
       status = read_filter->onData(data, end_stream);
-      std::cerr << "[DEBUG] read_filter->onData() returned status="
-                << static_cast<int>(status) << std::endl;
+      GOPHER_LOG_DEBUG("read_filter->onData() returned status={}",
+                       static_cast<int>(status));
       entry.bytes_processed += data_len;
 
       if (status == FilterStatus::StopIteration) {
