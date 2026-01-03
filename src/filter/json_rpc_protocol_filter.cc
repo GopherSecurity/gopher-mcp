@@ -196,9 +196,9 @@ JsonRpcProtocolFilter::JsonRpcProtocolFilter(
   // This replaces the no-op static callbacks with proper data flow
   encoder_ = std::make_unique<EncoderImpl>(*this);
 
-  GOPHER_LOG_DEBUG("Created JsonRpcProtocolFilter (context-based) - mode: {}, framing: {}",
-                   is_server_ ? "server" : "client",
-                   use_framing_ ? "enabled" : "disabled");
+  GOPHER_LOG_DEBUG(
+      "Created JsonRpcProtocolFilter (context-based) - mode: {}, framing: {}",
+      is_server_ ? "server" : "client", use_framing_ ? "enabled" : "disabled");
 }
 
 JsonRpcProtocolFilter::~JsonRpcProtocolFilter() {

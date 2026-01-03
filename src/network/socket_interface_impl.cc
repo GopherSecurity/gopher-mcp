@@ -121,10 +121,10 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
     Address::Type addr_type,
     optional<Address::IpVersion> version,
     bool socket_v6only) {
-  GOPHER_LOG_TRACE("socket() requested: type={} addr_type={} version={} v6only={}",
-                   static_cast<int>(type), static_cast<int>(addr_type),
-                   version.has_value() ? static_cast<int>(*version) : -1,
-                   socket_v6only);
+  GOPHER_LOG_TRACE(
+      "socket() requested: type={} addr_type={} version={} v6only={}",
+      static_cast<int>(type), static_cast<int>(addr_type),
+      version.has_value() ? static_cast<int>(*version) : -1, socket_v6only);
 
   int domain = addressTypeToDomain(addr_type, version);
   if (domain < 0) {
@@ -225,7 +225,8 @@ IoResult<os_fd_t> SocketInterfaceImpl::duplicate(os_fd_t fd) {
   WSAPROTOCOL_INFO info;
   GOPHER_LOG_TRACE("SocketInterfaceImpl::duplicate() called: fd={}", fd);
   if (::WSADuplicateSocket(fd, ::GetCurrentProcessId(), &info) != 0) {
-    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}", WSAGetLastError());
+    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}",
+                     WSAGetLastError());
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
 
@@ -233,7 +234,8 @@ IoResult<os_fd_t> SocketInterfaceImpl::duplicate(os_fd_t fd) {
   os_fd_t new_fd =
       ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                   &info, 0, WSA_FLAG_OVERLAPPED);
-  GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})", new_fd, INVALID_SOCKET);
+  GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})",
+                   new_fd, INVALID_SOCKET);
   if (new_fd == INVALID_SOCKET) {
     GOPHER_LOG_TRACE("WSASocket() failed: WSAError={}", WSAGetLastError());
     return IoResult<os_fd_t>::error(getLastSocketError());
@@ -335,12 +337,14 @@ IoResult<int> SocketInterfaceImpl::bind(os_fd_t fd,
 }
 
 IoResult<int> SocketInterfaceImpl::listen(os_fd_t fd, int backlog) {
-  GOPHER_LOG_TRACE("SocketInterfaceImpl::listen() called: fd={} backlog={}", fd, backlog);
+  GOPHER_LOG_TRACE("SocketInterfaceImpl::listen() called: fd={} backlog={}", fd,
+                   backlog);
 
   int result = ::listen(fd, backlog);
 #ifdef _WIN32
   if (result != 0) {
-    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result, WSAGetLastError());
+    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result,
+                     WSAGetLastError());
   } else {
     GOPHER_LOG_TRACE("::listen() returned: {}", result);
   }
@@ -537,22 +541,27 @@ int SocketInterfaceImpl::setNonBlocking(os_fd_t fd) {
   int result = ::ioctlsocket(fd, FIONBIO, &mode);
   if (result != 0) {
     int err = WSAGetLastError();
-    GOPHER_LOG_TRACE("setNonBlocking (ioctlsocket): fd={} mode={} result={} WSAError={} FAILED",
-                     fd, mode, result, err);
+    GOPHER_LOG_TRACE(
+        "setNonBlocking (ioctlsocket): fd={} mode={} result={} WSAError={} "
+        "FAILED",
+        fd, mode, result, err);
   } else {
-    GOPHER_LOG_TRACE("setNonBlocking (ioctlsocket): fd={} mode={} result={} SUCCESS",
-                     fd, mode, result);
+    GOPHER_LOG_TRACE(
+        "setNonBlocking (ioctlsocket): fd={} mode={} result={} SUCCESS", fd,
+        mode, result);
   }
   return result;
 #else
   int flags = ::fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
-    GOPHER_LOG_TRACE("setNonBlocking: fcntl(F_GETFL) failed fd={} errno={}", fd, errno);
+    GOPHER_LOG_TRACE("setNonBlocking: fcntl(F_GETFL) failed fd={} errno={}", fd,
+                     errno);
     return -1;
   }
   int result = ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
   if (result < 0) {
-    GOPHER_LOG_TRACE("setNonBlocking: fd={} result={} errno={} FAILED", fd, result, errno);
+    GOPHER_LOG_TRACE("setNonBlocking: fd={} result={} errno={} FAILED", fd,
+                     result, errno);
   } else {
     GOPHER_LOG_TRACE("setNonBlocking: fd={} result={} SUCCESS", fd, result);
   }

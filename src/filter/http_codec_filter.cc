@@ -42,8 +42,9 @@ void HttpCodecFilter::HttpFilterChainBridge::onHeaders(
 
 void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data,
                                                     bool end_stream) {
-  GOPHER_LOG_DEBUG("HttpFilterChainBridge::onBody - received {} bytes, end_stream={}",
-                   data.length(), end_stream);
+  GOPHER_LOG_DEBUG(
+      "HttpFilterChainBridge::onBody - received {} bytes, end_stream={}",
+      data.length(), end_stream);
 
   if (!data.empty()) {
     forwardBodyToNextFilter(data, end_stream);
@@ -174,8 +175,9 @@ network::FilterStatus HttpCodecFilter::onNewConnection() {
 }
 
 network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
-  GOPHER_LOG_DEBUG("HttpCodecFilter::onData called with {} bytes, end_stream={}",
-                   data.length(), end_stream);
+  GOPHER_LOG_DEBUG(
+      "HttpCodecFilter::onData called with {} bytes, end_stream={}",
+      data.length(), end_stream);
 
   // Check if we need to reset for next message
   if (state_machine_->currentState() == HttpCodecState::Closed) {
@@ -195,16 +197,18 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
   // Process HTTP data
   dispatch(data);
 
-  GOPHER_LOG_DEBUG("HttpCodecFilter::onData completed, remaining data: {} bytes",
-                   data.length());
+  GOPHER_LOG_DEBUG(
+      "HttpCodecFilter::onData completed, remaining data: {} bytes",
+      data.length());
 
   return network::FilterStatus::Continue;
 }
 
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite called with {} bytes, is_server={}",
-                   data.length(), is_server_);
+  GOPHER_LOG_DEBUG(
+      "HttpCodecFilter::onWrite called with {} bytes, is_server={}",
+      data.length(), is_server_);
 
   // Following production pattern: format HTTP message in-place
   if (data.length() == 0) {
@@ -582,9 +586,10 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
 
 http::ParserCallbackResult
 HttpCodecFilter::ParserCallbacks::onMessageComplete() {
-  GOPHER_LOG_DEBUG("ParserCallbacks::onMessageComplete - is_server={} body_len={}",
-                   parent_.is_server_,
-                   parent_.current_stream_ ? parent_.current_stream_->body.length() : 0);
+  GOPHER_LOG_DEBUG(
+      "ParserCallbacks::onMessageComplete - is_server={} body_len={}",
+      parent_.is_server_,
+      parent_.current_stream_ ? parent_.current_stream_->body.length() : 0);
   // Trigger message complete event based on mode
   if (parent_.is_server_) {
     parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
@@ -599,7 +604,8 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
       parent_.message_callbacks_->onBody(parent_.current_stream_->body, true);
     }
   } else {
-    GOPHER_LOG_DEBUG("ParserCallbacks::onMessageComplete - NO BODY to forward!");
+    GOPHER_LOG_DEBUG(
+        "ParserCallbacks::onMessageComplete - NO BODY to forward!");
   }
 
   if (parent_.message_callbacks_) {

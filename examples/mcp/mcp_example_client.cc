@@ -326,12 +326,10 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     try {
       auto init_result = init_future.get();
       g_logger->info("  Protocol: {}", init_result.protocolVersion);
-      g_logger->info(
-          "  Server: {}",
-          init_result.serverInfo.has_value()
-              ? init_result.serverInfo->name + " v" +
-                    init_result.serverInfo->version
-              : "unknown");
+      g_logger->info("  Server: {}", init_result.serverInfo.has_value()
+                                         ? init_result.serverInfo->name + " v" +
+                                               init_result.serverInfo->version
+                                         : "unknown");
 
       client.setServerCapabilities(init_result.capabilities);
 
@@ -366,7 +364,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
     // Test echo handler
     try {
       auto echo_params = make<Metadata>().add("test_key", "test_value").build();
-      auto echo_future = client.sendRequest("echo", mcp::make_optional(echo_params));
+      auto echo_future =
+          client.sendRequest("echo", mcp::make_optional(echo_params));
       auto echo_response = echo_future.get();
       if (!echo_response.error.has_value() &&
           extractMetadataBool(echo_response, "echo") &&
@@ -615,7 +614,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
 
       for (const auto& prompt : prompts_result.prompts) {
         if (prompt.description.has_value()) {
-          g_logger->info("    - {}: {}", prompt.name, prompt.description.value());
+          g_logger->info("    - {}: {}", prompt.name,
+                         prompt.description.value());
         } else {
           g_logger->info("    - {}", prompt.name);
         }
@@ -762,7 +762,8 @@ void demonstrateFeatures(McpClient& client, bool verbose) {
       }
     }
 
-    g_logger->info("  Results: {}/{} successful", success_count, futures.size());
+    g_logger->info("  Results: {}/{} successful", success_count,
+                   futures.size());
 
     if (success_count == static_cast<int>(futures.size())) {
       results.pass("Batch requests: all succeeded");
@@ -819,10 +820,12 @@ void printStatistics(const McpClient& client) {
   const auto& stats = client.getClientStats();
 
   g_logger->info("=== Client Statistics ===");
-  g_logger->info("Connections: Total={} Active={}", stats.connections_total.load(),
+  g_logger->info("Connections: Total={} Active={}",
+                 stats.connections_total.load(),
                  stats.connections_active.load());
   g_logger->info(
-      "Requests: Total={} Success={} Failed={} Timeout={} Retried={} Batched={} "
+      "Requests: Total={} Success={} Failed={} Timeout={} Retried={} "
+      "Batched={} "
       "Queued={}",
       stats.requests_total.load(), stats.requests_success.load(),
       stats.requests_failed.load(), stats.requests_timeout.load(),
@@ -1036,7 +1039,8 @@ int main(int argc, char* argv[]) {
       if (status == std::future_status::ready) {
         try {
           auto init_result = init_future.get();
-          g_logger->info("Protocol initialized: {}", init_result.protocolVersion);
+          g_logger->info("Protocol initialized: {}",
+                         init_result.protocolVersion);
           if (init_result.serverInfo.has_value()) {
             g_logger->info("Server: {} v{}", init_result.serverInfo->name,
                            init_result.serverInfo->version);

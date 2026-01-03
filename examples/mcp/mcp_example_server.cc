@@ -528,9 +528,10 @@ void setupServer(McpServer& server, bool verbose) {
     Resource config_resource;
     config_resource.uri = "config://server/settings";
     config_resource.name = "Server Configuration";
-    config_resource.description =
-        mcp::make_optional(std::string("Current server configuration and settings"));
-    config_resource.mimeType = mcp::make_optional(std::string("application/json"));
+    config_resource.description = mcp::make_optional(
+        std::string("Current server configuration and settings"));
+    config_resource.mimeType =
+        mcp::make_optional(std::string("application/json"));
 
     server.registerResource(config_resource);
 
@@ -548,9 +549,10 @@ void setupServer(McpServer& server, bool verbose) {
     Resource metrics_resource;
     metrics_resource.uri = "metrics://server/stats";
     metrics_resource.name = "Server Metrics";
-    metrics_resource.description =
-        mcp::make_optional(std::string("Server performance metrics and statistics"));
-    metrics_resource.mimeType = mcp::make_optional(std::string("application/json"));
+    metrics_resource.description = mcp::make_optional(
+        std::string("Server performance metrics and statistics"));
+    metrics_resource.mimeType =
+        mcp::make_optional(std::string("application/json"));
 
     server.registerResource(metrics_resource);
 
@@ -564,8 +566,8 @@ void setupServer(McpServer& server, bool verbose) {
     ResourceTemplate file_template;
     file_template.uriTemplate = "file://{path}";
     file_template.name = "File Resource";
-    file_template.description =
-        mcp::make_optional(std::string("Access files on the server filesystem"));
+    file_template.description = mcp::make_optional(
+        std::string("Access files on the server filesystem"));
     file_template.mimeType = mcp::make_optional(std::string("text/plain"));
 
     server.registerResourceTemplate(file_template);
@@ -692,12 +694,14 @@ void setupServer(McpServer& server, bool verbose) {
 
     PromptArgument code_arg;
     code_arg.name = "code";
-    code_arg.description = mcp::make_optional(std::string("The code to review"));
+    code_arg.description =
+        mcp::make_optional(std::string("The code to review"));
     code_arg.required = true;
 
     PromptArgument lang_arg;
     lang_arg.name = "language";
-    lang_arg.description = mcp::make_optional(std::string("Programming language"));
+    lang_arg.description =
+        mcp::make_optional(std::string("Programming language"));
     lang_arg.required = false;
 
     code_prompt.arguments =
@@ -713,7 +717,8 @@ void setupServer(McpServer& server, bool verbose) {
 
     PromptArgument dataset_arg;
     dataset_arg.name = "dataset";
-    dataset_arg.description = mcp::make_optional(std::string("Dataset to analyze"));
+    dataset_arg.description =
+        mcp::make_optional(std::string("Dataset to analyze"));
     dataset_arg.required = true;
 
     PromptArgument type_arg;
@@ -896,7 +901,8 @@ void printStatistics(const McpServer& server) {
   g_logger->info("Sessions: Total={} Active={} Expired={}",
                  stats.sessions_total.load(), stats.sessions_active.load(),
                  stats.sessions_expired.load());
-  g_logger->info("Connections: Total={} Active={}", stats.connections_total.load(),
+  g_logger->info("Connections: Total={} Active={}",
+                 stats.connections_total.load(),
                  stats.connections_active.load());
   g_logger->info(
       "Requests: Total={} Success={} Failed={} Invalid={} Notifications={}",
@@ -904,7 +910,8 @@ void printStatistics(const McpServer& server) {
       stats.requests_failed.load(), stats.requests_invalid.load(),
       stats.notifications_total.load());
   g_logger->info("Resources: Served={} Subscribed={} Updates={}",
-                 stats.resources_served.load(), stats.resources_subscribed.load(),
+                 stats.resources_served.load(),
+                 stats.resources_subscribed.load(),
                  stats.resource_updates_sent.load());
   g_logger->info("Tools: Executed={} Failed={}", stats.tools_executed.load(),
                  stats.tools_failed.load());
@@ -1102,7 +1109,8 @@ int main(int argc, char* argv[]) {
   g_logger->info("Creating MCP server...");
   g_logger->info("Worker threads: {}", options.workers);
   g_logger->info("Max sessions: {}", options.max_sessions);
-  g_logger->info("Session timeout: {} minutes", options.session_timeout_minutes);
+  g_logger->info("Session timeout: {} minutes",
+                 options.session_timeout_minutes);
 
   {
     std::lock_guard<std::mutex> lock(g_server_mutex);
@@ -1133,8 +1141,8 @@ int main(int argc, char* argv[]) {
 
   if (options.transport == "http" || options.transport == "all") {
     g_logger->info("HTTP/SSE Endpoints:");
-    g_logger->info("  JSON-RPC: POST http://{}:{}{}", options.host, options.port,
-                   config.http_rpc_path);
+    g_logger->info("  JSON-RPC: POST http://{}:{}{}", options.host,
+                   options.port, config.http_rpc_path);
     g_logger->info("  SSE Events: GET http://{}:{}{}", options.host,
                    options.port, config.http_sse_path);
     g_logger->info("  Health: GET http://{}:{}{}", options.host, options.port,
@@ -1163,7 +1171,8 @@ int main(int argc, char* argv[]) {
     std::unique_lock<std::mutex> lock(g_server_mutex);
     g_shutdown_cv.wait(lock, []() { return g_shutdown.load(); });
 
-    g_logger->debug("Shutdown monitor triggered, initiating server shutdown...");
+    g_logger->debug(
+        "Shutdown monitor triggered, initiating server shutdown...");
 
     // Shutdown was requested
     if (g_server) {
