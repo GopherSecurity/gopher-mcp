@@ -1,9 +1,10 @@
 #include "mcp/network/socket_interface_impl.h"
 
 #include <cstring>
-#include <iostream>
 #include <map>
 #include <mutex>
+
+#include "mcp/logging/log_macros.h"
 
 #ifdef _WIN32
 #include <mswsock.h>
@@ -120,22 +121,20 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
     Address::Type addr_type,
     optional<Address::IpVersion> version,
     bool socket_v6only) {
-  std::cerr << "[DEBUG SOCKET] socket() requested: type="
-            << static_cast<int>(type)
-            << " addr_type=" << static_cast<int>(addr_type) << " version="
-            << (version.has_value() ? static_cast<int>(*version) : -1)
-            << " v6only=" << socket_v6only << std::endl;
+  GOPHER_LOG_TRACE("socket() requested: type={} addr_type={} version={} v6only={}",
+                   static_cast<int>(type), static_cast<int>(addr_type),
+                   version.has_value() ? static_cast<int>(*version) : -1,
+                   socket_v6only);
 
   int domain = addressTypeToDomain(addr_type, version);
   if (domain < 0) {
-    std::cerr << "[DEBUG SOCKET] socket() failed: unsupported domain"
-              << std::endl;
+    GOPHER_LOG_TRACE("socket() failed: unsupported domain");
     return IoResult<os_fd_t>::error(SOCKET_ERROR_AFNOSUPPORT);
   }
 
   int sock_type = socketTypeToInt(type);
   if (sock_type < 0) {
-    std::cerr << "[DEBUG SOCKET] socket() failed: invalid type" << std::endl;
+    GOPHER_LOG_TRACE("socket() failed: invalid type");
     return IoResult<os_fd_t>::error(SOCKET_ERROR_INVAL);
   }
 
@@ -146,18 +145,16 @@ IoResult<os_fd_t> SocketInterfaceImpl::socket(
 
   os_fd_t fd = ::socket(domain, sock_type, 0);
   if (fd == INVALID_SOCKET_FD) {
-    std::cerr << "[DEBUG SOCKET] ::socket() failed: error="
-              << getLastSocketError() << std::endl;
+    GOPHER_LOG_TRACE("::socket() failed: error={}", getLastSocketError());
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
-  std::cerr << "[DEBUG SOCKET] ::socket() success: fd=" << fd << std::endl;
+  GOPHER_LOG_TRACE("::socket() success: fd={}", fd);
 
   // Set non-blocking and close-on-exec on other platforms
 #ifndef __linux__
   int nb_result = setNonBlocking(fd);
   if (nb_result != 0) {
-    std::cerr << "[ERROR SOCKET] Failed to set socket non-blocking: fd=" << fd
-              << std::endl;
+    GOPHER_LOG_ERROR("Failed to set socket non-blocking: fd={}", fd);
     // Continue anyway - socket may still work
   }
   setCloseOnExec(fd);
@@ -226,25 +223,19 @@ IoResult<os_fd_t> SocketInterfaceImpl::duplicate(os_fd_t fd) {
 #ifdef _WIN32
   // Windows socket duplication is more complex
   WSAPROTOCOL_INFO info;
-  std::cerr << "[DEBUG SOCKET] SocketInterfaceImpl::duplicate() called: fd="
-            << fd << std::endl;
+  GOPHER_LOG_TRACE("SocketInterfaceImpl::duplicate() called: fd={}", fd);
   if (::WSADuplicateSocket(fd, ::GetCurrentProcessId(), &info) != 0) {
-    std::cerr << "[DEBUG SOCKET] WSADuplicateSocket() failed: WSAError="
-              << WSAGetLastError() << std::endl;
+    GOPHER_LOG_TRACE("WSADuplicateSocket() failed: WSAError={}", WSAGetLastError());
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
 
-  std::cerr
-      << "[DEBUG SOCKET] WSADuplicateSocket() success, calling WSASocket()"
-      << std::endl;
+  GOPHER_LOG_TRACE("WSADuplicateSocket() success, calling WSASocket()");
   os_fd_t new_fd =
       ::WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
                   &info, 0, WSA_FLAG_OVERLAPPED);
-  std::cerr << "[DEBUG SOCKET] WSASocket() returned: new_fd=" << new_fd
-            << " (INVALID_SOCKET=" << INVALID_SOCKET << ")" << std::endl;
+  GOPHER_LOG_TRACE("WSASocket() returned: new_fd={} (INVALID_SOCKET={})", new_fd, INVALID_SOCKET);
   if (new_fd == INVALID_SOCKET) {
-    std::cerr << "[DEBUG SOCKET] WSASocket() failed: WSAError="
-              << WSAGetLastError() << std::endl;
+    GOPHER_LOG_TRACE("WSASocket() failed: WSAError={}", WSAGetLastError());
     return IoResult<os_fd_t>::error(getLastSocketError());
   }
   return IoResult<os_fd_t>::success(new_fd);
@@ -333,31 +324,29 @@ IoResult<int> SocketInterfaceImpl::getsockopt(
 
 IoResult<int> SocketInterfaceImpl::bind(os_fd_t fd,
                                         const Address::Instance& addr) {
-  std::cerr << "[DEBUG SOCKET] bind() called: fd=" << fd
-            << " addr=" << addr.asStringView() << std::endl;
+  GOPHER_LOG_TRACE("bind() called: fd={} addr={}", fd, addr.asStringView());
   int result = ::bind(fd, addr.sockAddr(), addr.sockAddrLen());
   if (result < 0) {
-    std::cerr << "[DEBUG SOCKET] ::bind() failed: error="
-              << getLastSocketError() << std::endl;
+    GOPHER_LOG_TRACE("::bind() failed: error={}", getLastSocketError());
     return IoResult<int>::error(getLastSocketError());
   }
-  std::cerr << "[DEBUG SOCKET] ::bind() success" << std::endl;
+  GOPHER_LOG_TRACE("::bind() success");
   return IoResult<int>::success(0);
 }
 
 IoResult<int> SocketInterfaceImpl::listen(os_fd_t fd, int backlog) {
-  std::cerr << "[DEBUG SOCKET] ::listen() before 1";
-  std::cerr << "[DEBUG SOCKET] SocketInterfaceImpl::listen() called: fd=" << fd
-            << " backlog=" << backlog << std::endl;
+  GOPHER_LOG_TRACE("SocketInterfaceImpl::listen() called: fd={} backlog={}", fd, backlog);
 
   int result = ::listen(fd, backlog);
-  std::cerr << "[DEBUG SOCKET] ::listen() returned: " << result;
 #ifdef _WIN32
   if (result != 0) {
-    std::cerr << " WSAError=" << WSAGetLastError();
+    GOPHER_LOG_TRACE("::listen() returned: {} WSAError={}", result, WSAGetLastError());
+  } else {
+    GOPHER_LOG_TRACE("::listen() returned: {}", result);
   }
+#else
+  GOPHER_LOG_TRACE("::listen() returned: {}", result);
 #endif
-  std::cerr << std::endl;
 
   if (result < 0) {
     return IoResult<int>::error(getLastSocketError());
@@ -368,10 +357,9 @@ IoResult<int> SocketInterfaceImpl::listen(os_fd_t fd, int backlog) {
   int opt_result = ::getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN,
                                 reinterpret_cast<char*>(&accept_conn), &optlen);
   if (opt_result == 0) {
-    std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN=" << accept_conn << std::endl;
+    GOPHER_LOG_TRACE("SO_ACCEPTCONN={}", accept_conn);
   } else {
-    std::cerr << "[DEBUG SOCKET] SO_ACCEPTCONN check failed: "
-              << getLastSocketError() << std::endl;
+    GOPHER_LOG_TRACE("SO_ACCEPTCONN check failed: {}", getLastSocketError());
   }
 
   return IoResult<int>::success(0);
@@ -396,12 +384,11 @@ IoResult<os_fd_t> SocketInterfaceImpl::accept(os_fd_t fd,
 #else
   os_fd_t new_fd = ::accept(fd, addr, addrlen);
   if (new_fd != INVALID_SOCKET_FD) {
-    std::cerr << "[DEBUG SOCKET] accept() success: fd=" << new_fd << std::endl;
+    GOPHER_LOG_TRACE("accept() success: fd={}", new_fd);
     setNonBlocking(new_fd);
     setCloseOnExec(new_fd);
   } else {
-    std::cerr << "[DEBUG SOCKET] accept() failed: error="
-              << getLastSocketError() << std::endl;
+    GOPHER_LOG_TRACE("accept() failed: error={}", getLastSocketError());
   }
 #endif
 
@@ -548,32 +535,27 @@ int SocketInterfaceImpl::setNonBlocking(os_fd_t fd) {
 #ifdef _WIN32
   u_long mode = 1;
   int result = ::ioctlsocket(fd, FIONBIO, &mode);
-  std::cerr << "[DEBUG SOCKET] setNonBlocking (ioctlsocket): fd=" << fd
-            << " mode=" << mode << " result=" << result;
   if (result != 0) {
     int err = WSAGetLastError();
-    std::cerr << " WSAError=" << err << " FAILED";
+    GOPHER_LOG_TRACE("setNonBlocking (ioctlsocket): fd={} mode={} result={} WSAError={} FAILED",
+                     fd, mode, result, err);
   } else {
-    std::cerr << " SUCCESS";
+    GOPHER_LOG_TRACE("setNonBlocking (ioctlsocket): fd={} mode={} result={} SUCCESS",
+                     fd, mode, result);
   }
-  std::cerr << std::endl;
   return result;
 #else
   int flags = ::fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
-    std::cerr << "[DEBUG SOCKET] setNonBlocking: fcntl(F_GETFL) failed fd="
-              << fd << " errno=" << errno << std::endl;
+    GOPHER_LOG_TRACE("setNonBlocking: fcntl(F_GETFL) failed fd={} errno={}", fd, errno);
     return -1;
   }
   int result = ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-  std::cerr << "[DEBUG SOCKET] setNonBlocking: fd=" << fd
-            << " result=" << result;
   if (result < 0) {
-    std::cerr << " errno=" << errno << " FAILED";
+    GOPHER_LOG_TRACE("setNonBlocking: fd={} result={} errno={} FAILED", fd, result, errno);
   } else {
-    std::cerr << " SUCCESS";
+    GOPHER_LOG_TRACE("setNonBlocking: fd={} result={} SUCCESS", fd, result);
   }
-  std::cerr << std::endl;
   return result;
 #endif
 }

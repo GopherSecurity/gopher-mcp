@@ -1,8 +1,8 @@
 #include "mcp/network/socket_impl.h"
 
 #include <algorithm>
-#include <iostream>
 
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/io_socket_handle_impl.h"
 #include "mcp/network/socket_interface.h"
 #include "mcp/network/socket_option_impl.h"
@@ -145,8 +145,7 @@ const IoHandle& SocketImpl::ioHandle() const { return *io_handle_; }
 
 void SocketImpl::close() {
   if (io_handle_) {
-    std::cerr << "[DEBUG SOCKET] SocketImpl::close() fd=" << io_handle_->fd()
-              << std::endl;
+    GOPHER_LOG_TRACE("SocketImpl::close() fd={}", io_handle_->fd());
     io_handle_->close();
   }
 }
@@ -172,8 +171,7 @@ IoResult<int> SocketImpl::listen(int backlog) {
     return IoResult<int>::error(EBADF);
   }
 
-  std::cerr << "[DEBUG SOCKET] SocketImpl::listen() fd=" << io_handle_->fd()
-            << " backlog=" << backlog << std::endl;
+  GOPHER_LOG_TRACE("SocketImpl::listen() fd={} backlog={}", io_handle_->fd(), backlog);
   return io_handle_->listen(backlog);
 }
 
@@ -654,12 +652,11 @@ ListenSocketPtr createListenSocket(
     const Address::InstanceConstSharedPtr& address,
     const SocketCreationOptions& options,
     bool bind_to_port) {
-  std::cerr << "[DEBUG] createListenSocket called: address="
-            << (address ? address->asString() : "null")
-            << " bind_to_port=" << bind_to_port << std::endl;
+  GOPHER_LOG_DEBUG("createListenSocket called: address={} bind_to_port={}",
+                   address ? address->asString() : "null", bind_to_port);
 
   if (!address) {
-    std::cerr << "[ERROR] createListenSocket: address is null" << std::endl;
+    GOPHER_LOG_ERROR("createListenSocket: address is null");
     return nullptr;
   }
 
@@ -671,20 +668,16 @@ ListenSocketPtr createListenSocket(
     ip_version = address->ip()->version();
   }
 
-  std::cerr << "[DEBUG] Creating socket: type=" << static_cast<int>(addr_type)
-            << " ip_version="
-            << (ip_version.has_value()
-                    ? std::to_string(static_cast<int>(*ip_version))
-                    : "none")
-            << std::endl;
+  GOPHER_LOG_DEBUG("Creating socket: type={} ip_version={}",
+                   static_cast<int>(addr_type),
+                   ip_version.has_value() ? std::to_string(static_cast<int>(*ip_version)) : "none");
 
   // Create socket
   auto socket_result = socketInterface().socket(SocketType::Stream, addr_type,
                                                 ip_version, options.v6_only);
 
   if (!socket_result.ok()) {
-    std::cerr << "[ERROR] Failed to create socket: error="
-              << socket_result.error_code() << std::endl;
+    GOPHER_LOG_ERROR("Failed to create socket: error={}", socket_result.error_code());
     return nullptr;
   }
 
@@ -696,17 +689,17 @@ ListenSocketPtr createListenSocket(
                                                                : AF_INET6)
           : nullopt);
 
-  std::cerr << "[DEBUG] Socket created, fd=" << *socket_result << std::endl;
+  GOPHER_LOG_DEBUG("Socket created, fd={}", *socket_result);
 
   // Create socket object
   auto socket =
       std::make_unique<ListenSocketImpl>(std::move(io_handle), address);
 
-  std::cerr << "[DEBUG] ListenSocketImpl created" << std::endl;
+  GOPHER_LOG_DEBUG("ListenSocketImpl created");
 
   // Set socket options
   socket->setListenSocketOptions(options);
-  std::cerr << "[DEBUG] Socket options set" << std::endl;
+  GOPHER_LOG_DEBUG("Socket options set");
 
   // Apply pre-bind options
   for (const auto& option : *socket->options()) {
@@ -715,18 +708,15 @@ ListenSocketPtr createListenSocket(
 
   // Bind if requested
   if (bind_to_port) {
-    std::cerr << "[DEBUG] Binding socket to " << address->asString()
-              << std::endl;
+    GOPHER_LOG_DEBUG("Binding socket to {}", address->asString());
     auto bind_result = socket->bind(address);
     if (!bind_result.ok()) {
-      std::cerr << "[ERROR] Failed to bind socket: error="
-                << bind_result.error_code() << " message="
-                << (bind_result.error_info ? bind_result.error_info->message
-                                           : "unknown")
-                << std::endl;
+      GOPHER_LOG_ERROR("Failed to bind socket: error={} message={}",
+                       bind_result.error_code(),
+                       bind_result.error_info ? bind_result.error_info->message : "unknown");
       return nullptr;
     }
-    std::cerr << "[DEBUG] Socket bound successfully" << std::endl;
+    GOPHER_LOG_DEBUG("Socket bound successfully");
 
     // If bound to port 0, update the address with the actual assigned port
     if (address->ip() && address->ip()->port() == 0) {
