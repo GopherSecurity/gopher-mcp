@@ -1,8 +1,9 @@
 #include "mcp/network/connection_impl.h"
 
 #include <algorithm>
-#include <iostream>
 #include <sstream>
+
+#include "mcp/logging/log_macros.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -46,11 +47,9 @@ ConnectionImplBase::ConnectionImplBase(event::Dispatcher& dispatcher,
   // Register state change listener
   state_machine_->addStateChangeListener(
       [this](const StateTransitionContext& ctx) {
-#ifndef NDEBUG
-        std::cerr << "[CONN] State machine transition: "
-                  << static_cast<int>(ctx.from_state) << " -> "
-                  << static_cast<int>(ctx.to_state) << std::endl;
-#endif
+        GOPHER_LOG_TRACE("State machine transition: {} -> {}",
+                         static_cast<int>(ctx.from_state),
+                         static_cast<int>(ctx.to_state));
         // Map machine state to connection state
         switch (ctx.to_state) {
           // Connecting states
@@ -388,11 +387,9 @@ void ConnectionImpl::close(ConnectionCloseType type) { close(type, ""); }
 
 void ConnectionImpl::close(ConnectionCloseType type,
                            const std::string& details) {
-#ifndef NDEBUG
-  std::cerr << "[CONN] close(): fd=" << socket_->ioHandle().fd()
-            << " type=" << static_cast<int>(type) << " details=" << details
-            << " state=" << static_cast<int>(state_) << std::endl;
-#endif
+  GOPHER_LOG_TRACE("close(): fd={} type={} details={} state={}",
+                   socket_->ioHandle().fd(), static_cast<int>(type),
+                   details, static_cast<int>(state_));
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -582,12 +579,9 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
          "write() must be called from dispatcher thread");
 
   if (state_ != ConnectionState::Open || write_half_closed_) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] write(): early return - state="
-              << static_cast<int>(state_)
-              << " write_half_closed=" << write_half_closed_
-              << " fd=" << socket_->ioHandle().fd() << std::endl;
-#endif
+    GOPHER_LOG_TRACE("write(): early return - state={} write_half_closed={} fd={}",
+                     static_cast<int>(state_), write_half_closed_,
+                     socket_->ioHandle().fd());
     return;
   }
 
@@ -628,10 +622,8 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
 
   // Enable write events and trigger write
   if (write_buffer_.length() > 0) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] write(): buffer_len=" << write_buffer_.length()
-              << " write_ready_=" << write_ready_ << std::endl;
-#endif
+    GOPHER_LOG_TRACE("write(): buffer_len={} write_ready_={}",
+                     write_buffer_.length(), write_ready_);
     // Enable write events for future writes
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
 
@@ -642,14 +634,10 @@ void ConnectionImpl::write(Buffer& data, bool end_stream) {
     // never block (stdio pipes), flush immediately. Otherwise wait for the
     // dispatcher to signal write readiness.
     if (write_ready_ || transport_allows_immediate_write) {
-#ifndef NDEBUG
-      std::cerr << "[CONN] write(): calling doWrite()" << std::endl;
-#endif
+      GOPHER_LOG_TRACE("write(): calling doWrite()");
       doWrite();
     } else {
-#ifndef NDEBUG
-      std::cerr << "[CONN] write(): waiting for Write event" << std::endl;
-#endif
+      GOPHER_LOG_TRACE("write(): waiting for Write event");
     }
   }
 }
@@ -865,13 +853,12 @@ void ConnectionImpl::onWriteReady() {
     auto getsockopt_result = socket_->ioHandle().getSocketOption(
         SOL_SOCKET, SO_ERROR, &socket_error, &error_len);
 
-    std::cerr << "[CONN] onWriteReady(): fd=" << socket_->ioHandle().fd()
-              << " connecting=true, SO_ERROR=" << socket_error << std::endl;
+    GOPHER_LOG_TRACE("onWriteReady(): fd={} connecting=true, SO_ERROR={}",
+                     socket_->ioHandle().fd(), socket_error);
 
     if (!getsockopt_result.ok() || socket_error != 0) {
       // Connection failed
-      std::cerr << "[CONN] onWriteReady(): connection FAILED, error="
-                << socket_error << std::endl;
+      GOPHER_LOG_TRACE("onWriteReady(): connection FAILED, error={}", socket_error);
       connecting_ = false;
       connected_ = false;
       immediate_error_event_ = ConnectionEvent::RemoteClose;
@@ -880,7 +867,7 @@ void ConnectionImpl::onWriteReady() {
     }
 
     // Connection succeeded
-    std::cerr << "[CONN] onWriteReady(): connection SUCCEEDED" << std::endl;
+    GOPHER_LOG_TRACE("onWriteReady(): connection SUCCEEDED");
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -923,12 +910,9 @@ void ConnectionImpl::onWriteReady() {
 }
 
 void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
-#ifndef NDEBUG
-  std::cerr << "[CONN] closeThroughFilterManager(): fd="
-            << socket_->ioHandle().fd()
-            << " close_type=" << static_cast<int>(close_type)
-            << " state=" << static_cast<int>(state_) << std::endl;
-#endif
+  GOPHER_LOG_TRACE("closeThroughFilterManager(): fd={} close_type={} state={}",
+                   socket_->ioHandle().fd(), static_cast<int>(close_type),
+                   static_cast<int>(state_));
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -969,11 +953,9 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
 }
 
 void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
-#ifndef NDEBUG
-  std::cerr << "[CONN] closeSocket(): fd=" << socket_->ioHandle().fd()
-            << " close_type=" << static_cast<int>(close_type)
-            << " state=" << static_cast<int>(state_) << std::endl;
-#endif
+  GOPHER_LOG_TRACE("closeSocket(): fd={} close_type={} state={}",
+                   socket_->ioHandle().fd(), static_cast<int>(close_type),
+                   static_cast<int>(state_));
   if (state_ == ConnectionState::Closed) {
     return;
   }
@@ -1045,24 +1027,21 @@ void ConnectionImpl::doConnect() {
   auto result =
       socket_->connect(socket_->connectionInfoProvider().remoteAddress());
 
-  std::cerr << "[CONN] doConnect(): fd=" << socket_->ioHandle().fd()
-            << " result.ok()=" << result.ok();
   if (result.ok()) {
-    std::cerr << " value=" << *result;
+    GOPHER_LOG_TRACE("doConnect(): fd={} result.ok()=true value={}",
+                     socket_->ioHandle().fd(), *result);
   } else {
-    std::cerr << " error=" << result.error_code()
-              << " (INPROGRESS=" << SOCKET_ERROR_INPROGRESS
-              << " WOULDBLOCK=" << SOCKET_ERROR_WOULDBLOCK << ")";
+    GOPHER_LOG_TRACE("doConnect(): fd={} result.ok()=false error={} (INPROGRESS={} WOULDBLOCK={})",
+                     socket_->ioHandle().fd(), result.error_code(),
+                     SOCKET_ERROR_INPROGRESS, SOCKET_ERROR_WOULDBLOCK);
   }
-  std::cerr << std::endl;
 
   if (result.ok() && *result == 0) {
     // Immediate connection success (rare for TCP but can happen with local
     // connections) Schedule the Connected event to be handled in the next
     // dispatcher iteration This ensures all callbacks are invoked in proper
     // dispatcher thread context
-    std::cerr << "[CONN] doConnect(): immediate connection success"
-              << std::endl;
+    GOPHER_LOG_TRACE("doConnect(): immediate connection success");
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
@@ -1087,14 +1066,11 @@ void ConnectionImpl::doConnect() {
                               result.error_code() == SOCKET_ERROR_WOULDBLOCK)) {
     // Connection in progress, wait for write ready
     // Note: Only Write needed here since connection isn't established yet
-    std::cerr
-        << "[CONN] doConnect(): connection in progress, waiting for Write event"
-        << std::endl;
+    GOPHER_LOG_TRACE("doConnect(): connection in progress, waiting for Write event");
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
   } else {
     // Connection failed immediately
-    std::cerr << "[CONN] doConnect(): connection failed immediately"
-              << std::endl;
+    GOPHER_LOG_TRACE("doConnect(): connection failed immediately");
     immediate_error_event_ = ConnectionEvent::RemoteClose;
     connecting_ = false;
     // Activate write event to trigger error handling on next loop
@@ -1150,11 +1126,9 @@ void ConnectionImpl::doRead() {
 
   if (read_disable_count_ > 0 || state_ != ConnectionState::Open) {
     // Don't clear transport_wants_read_ when returning early
-#ifndef NDEBUG
-    std::cerr << "[CONN] doRead(): early return - read_disable_count="
-              << read_disable_count_ << " state=" << static_cast<int>(state_)
-              << " fd=" << socket_->ioHandle().fd() << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doRead(): early return - read_disable_count={} state={} fd={}",
+                     read_disable_count_, static_cast<int>(state_),
+                     socket_->ioHandle().fd());
     return;
   }
 
@@ -1217,11 +1191,9 @@ void ConnectionImpl::doRead() {
 TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Read from transport socket or directly from socket
 
-#ifndef NDEBUG
-  std::cerr << "[CONN] doReadFromSocket(): fd=" << socket_->ioHandle().fd()
-            << " transport_socket=" << (transport_socket_ ? "yes" : "no")
-            << std::endl;
-#endif
+  GOPHER_LOG_TRACE("doReadFromSocket(): fd={} transport_socket={}",
+                   socket_->ioHandle().fd(),
+                   transport_socket_ ? "yes" : "no");
 
   // Use transport socket for reading if available
   // TODO: Fix transport socket implementation for HTTP/SSE
@@ -1259,17 +1231,13 @@ TransportIoResult ConnectionImpl::doReadFromSocket() {
   // Check for EOF
   if (bytes_read == 0) {
     // EOF - connection closed
-#ifndef NDEBUG
-    std::cerr << "[CONN] doReadFromSocket(): EOF detected on fd="
-              << socket_->ioHandle().fd() << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doReadFromSocket(): EOF detected on fd={}",
+                     socket_->ioHandle().fd());
     return TransportIoResult::close();
   }
 
-#ifndef NDEBUG
-  std::cerr << "[CONN] doReadFromSocket(): read " << bytes_read
-            << " bytes from fd=" << socket_->ioHandle().fd() << std::endl;
-#endif
+  GOPHER_LOG_TRACE("doReadFromSocket(): read {} bytes from fd={}",
+                   bytes_read, socket_->ioHandle().fd());
   return TransportIoResult::success(bytes_read);
 }
 
@@ -1295,75 +1263,54 @@ void ConnectionImpl::doWrite() {
    * Thread safety: All operations in dispatcher thread
    */
   if (state_ != ConnectionState::Open) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] doWrite(): state != Open, returning" << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doWrite(): state != Open, returning");
     return;
   }
 
-#ifndef NDEBUG
-  std::cerr << "[CONN] doWrite(): starting, buffer_len="
-            << write_buffer_.length()
-            << " transport_socket_=" << (transport_socket_ ? "yes" : "no")
-            << std::endl;
-#endif
+  GOPHER_LOG_TRACE("doWrite(): starting, buffer_len={} transport_socket_={}",
+                   write_buffer_.length(),
+                   transport_socket_ ? "yes" : "no");
 
   // Use transport socket for initial processing if available
   // This is essential for stdio transport which manages pipe bridging
   // TODO: Fix transport socket implementation for HTTP/SSE
   if (transport_socket_ &&
       dynamic_cast<RawTransportSocket*>(transport_socket_.get()) == nullptr) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] doWrite(): using transport socket, protocol="
-              << transport_socket_->protocol() << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doWrite(): using transport socket, protocol={}",
+                     transport_socket_->protocol());
     // Let transport process any pending operations
     // For stdio, this ensures the bridge threads are active
     auto result = transport_socket_->doWrite(write_buffer_, write_half_closed_);
     if (!result.ok()) {
-#ifndef NDEBUG
-      std::cerr << "[CONN] doWrite(): transport error, closing" << std::endl;
-#endif
+      GOPHER_LOG_TRACE("doWrite(): transport error, closing");
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
     if (result.action_ == TransportIoResult::CLOSE) {
-#ifndef NDEBUG
-      std::cerr << "[CONN] doWrite(): transport requested close" << std::endl;
-#endif
+      GOPHER_LOG_TRACE("doWrite(): transport requested close");
       closeSocket(ConnectionEvent::LocalClose);
       return;
     }
     // If transport handled all data, we're done
     if (write_buffer_.length() == 0) {
-#ifndef NDEBUG
-      std::cerr << "[CONN] doWrite(): transport handled all data, enabling Read"
-                << std::endl;
-#endif
+      GOPHER_LOG_TRACE("doWrite(): transport handled all data, enabling Read");
       // CRITICAL FIX: Must enable Read events before returning!
       // Otherwise the caller (write()) left us with only Write events enabled.
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
-#ifndef NDEBUG
       // Debug: Check if socket has pending data
       if (socket_) {
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
-          std::cerr << "[CONN] doWrite(): socket has " << bytes_available
-                    << " bytes pending" << std::endl
-                    << std::flush;
+          GOPHER_LOG_TRACE("doWrite(): socket has {} bytes pending", bytes_available);
         }
       }
-#endif
       return;
     }
   }
 
   // Now check if we have data to write after transport processing
   if (write_buffer_.length() == 0) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] doWrite(): buffer empty after transport, enabling Read"
-              << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doWrite(): buffer empty after transport, enabling Read");
     // CRITICAL FIX: Must enable Read events before returning!
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
     return;
@@ -1443,14 +1390,9 @@ void ConnectionImpl::doWrite() {
 
   // Keep both Read and Write events enabled after writing
   // This ensures proper event handling for both client and server
-#ifndef NDEBUG
-  std::cerr << "[CONN] doWrite(): done, buffer_len=" << write_buffer_.length()
-            << std::endl;
-#endif
+  GOPHER_LOG_TRACE("doWrite(): done, buffer_len={}", write_buffer_.length());
   if (write_buffer_.length() == 0) {
-#ifndef NDEBUG
-    std::cerr << "[CONN] doWrite(): enabling Read events" << std::endl;
-#endif
+    GOPHER_LOG_TRACE("doWrite(): enabling Read events");
     // Finished writing current data - only enable read events
     // Write events will be enabled when new data arrives to prevent busy loop
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
