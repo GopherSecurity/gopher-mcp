@@ -30,6 +30,7 @@
 #include "mcp/buffer.h"
 #include "mcp/builders.h"
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/filter/backpressure_filter.h"
 #include "mcp/filter/circuit_breaker_filter.h"
 #include "mcp/filter/json_rpc_protocol_filter.h"
@@ -192,9 +193,8 @@ class ApplicationMetricsCallbacks
   void onThresholdExceeded(const std::string& metric_name,
                            uint64_t value,
                            uint64_t threshold) override {
-    std::cerr << "[WARNING] Metric threshold exceeded: " << metric_name
-              << " (value: " << value << ", threshold: " << threshold << ")"
-              << std::endl;
+    GOPHER_LOG_WARN("Metric threshold exceeded: {} (value: {}, threshold: {})",
+                    metric_name, value, threshold);
   }
 
  private:
@@ -910,8 +910,7 @@ class ApplicationBase {
 
   ApplicationBase(const Config& config)
       : config_(config), shutdown_requested_(false), workers_started_(false) {
-    std::cerr << "[INFO] Initializing application: " << config_.name
-              << std::endl;
+    GOPHER_LOG_INFO("Initializing application: {}", config_.name);
   }
 
   virtual ~ApplicationBase() { shutdown(); }
@@ -931,11 +930,11 @@ class ApplicationBase {
       main_dispatcher_owned_ =
           std::make_unique<event::LibeventDispatcher>("main");
       main_dispatcher_ = main_dispatcher_owned_.get();
-      std::cerr << "[INFO] Created main dispatcher" << std::endl;
+      GOPHER_LOG_INFO("Created main dispatcher");
     }
 
-    std::cerr << "[INFO] Initializing application with "
-              << config_.worker_threads << " workers" << std::endl;
+    GOPHER_LOG_INFO("Initializing application with {} workers",
+                    config_.worker_threads);
 
     // Create worker threads
     for (size_t i = 0; i < config_.worker_threads; ++i) {
@@ -965,7 +964,7 @@ class ApplicationBase {
       return true;
     }
 
-    std::cerr << "[INFO] Starting application workers" << std::endl;
+    GOPHER_LOG_INFO("Starting application workers");
 
     // Start worker threads
     for (size_t i = 0; i < workers_.size(); ++i) {
@@ -994,13 +993,12 @@ class ApplicationBase {
    * Run the main event loop
    */
   virtual void run() {
-    std::cerr << "[INFO] Running main event loop" << std::endl;
+    GOPHER_LOG_INFO("Running main event loop");
 
     // Main dispatcher should already be created in initialize()
     if (!main_dispatcher_) {
-      std::cerr
-          << "[ERROR] Main dispatcher not initialized. Call initialize() first."
-          << std::endl;
+      GOPHER_LOG_ERROR(
+          "Main dispatcher not initialized. Call initialize() first.");
       return;
     }
 
@@ -1022,7 +1020,7 @@ class ApplicationBase {
       return;
     }
 
-    std::cerr << "[INFO] Shutting down application" << std::endl;
+    GOPHER_LOG_INFO("Shutting down application");
     shutdown_requested_ = true;
     running_ = false;      // Legacy API compatibility
     initialized_ = false;  // Legacy API compatibility
@@ -1060,7 +1058,7 @@ class ApplicationBase {
       main_dispatcher_owned_.reset();
     }
 
-    std::cerr << "[INFO] Application shutdown complete" << std::endl;
+    GOPHER_LOG_INFO("Application shutdown complete");
   }
 
   /**
@@ -1204,7 +1202,7 @@ class ApplicationBase {
 
    private:
     void run() {
-      std::cerr << "[INFO] Worker " << name_ << " starting" << std::endl;
+      GOPHER_LOG_INFO("Worker {} starting", name_);
 
       // Create dispatcher for this thread
       dispatcher_ = std::make_unique<event::LibeventDispatcher>(name_);
@@ -1215,7 +1213,7 @@ class ApplicationBase {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
 
-      std::cerr << "[INFO] Worker " << name_ << " stopped" << std::endl;
+      GOPHER_LOG_INFO("Worker {} stopped", name_);
     }
 
     std::string name_;
