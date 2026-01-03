@@ -7,9 +7,9 @@
 
 #include "mcp/filter/http_routing_filter.h"
 
-#include <iostream>
 #include <sstream>
 
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
 namespace mcp {
@@ -48,15 +48,12 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 // HttpCodecFilter::MessageCallbacks implementation
 void HttpRoutingFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
-  std::cerr << "[DEBUG] HttpRoutingFilter::onHeaders called with "
-            << headers.size() << " headers, is_server=" << is_server_
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpRoutingFilter::onHeaders called with {} headers, is_server={}",
+                   headers.size(), is_server_);
 
   // In client mode, we're receiving responses, not requests - skip routing
   if (!is_server_) {
-    std::cerr
-        << "[DEBUG] HttpRoutingFilter: client mode, passing through response"
-        << std::endl;
+    GOPHER_LOG_DEBUG("HttpRoutingFilter: client mode, passing through response");
     if (next_callbacks_) {
       next_callbacks_->onHeaders(headers, keep_alive);
     }
@@ -67,8 +64,7 @@ void HttpRoutingFilter::onHeaders(
   std::string method = extractMethod(headers);
   std::string path = extractPath(headers);
 
-  std::cerr << "[DEBUG] HttpRoutingFilter: method=" << method
-            << " path=" << path << std::endl;
+  GOPHER_LOG_DEBUG("HttpRoutingFilter: method={} path={}", method, path);
 
   // Check if we have a handler for this endpoint
   std::string key = buildRouteKey(method, path);
@@ -107,8 +103,7 @@ void HttpRoutingFilter::onBody(const std::string& data, bool end_stream) {
 }
 
 void HttpRoutingFilter::onMessageComplete() {
-  std::cerr << "[DEBUG] HttpRoutingFilter::onMessageComplete called"
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpRoutingFilter::onMessageComplete called");
 
   // Stateless - always pass through
   // If we handled the request in onHeaders, this won't be called
@@ -125,8 +120,8 @@ void HttpRoutingFilter::onError(const std::string& error) {
 }
 
 void HttpRoutingFilter::sendResponse(const Response& response) {
-  std::cerr << "[DEBUG] HttpRoutingFilter::sendResponse called with status "
-            << response.status_code << std::endl;
+  GOPHER_LOG_DEBUG("HttpRoutingFilter::sendResponse called with status {}",
+                   response.status_code);
 
   // Build complete HTTP response
   std::ostringstream http_response;
@@ -180,8 +175,8 @@ void HttpRoutingFilter::sendResponse(const Response& response) {
     response_buffer.add(response_str);
     write_callbacks_->connection().write(response_buffer, false);
 
-    std::cerr << "[DEBUG] HttpRoutingFilter sent response: "
-              << response_str.length() << " bytes" << std::endl;
+    GOPHER_LOG_DEBUG("HttpRoutingFilter sent response: {} bytes",
+                     response_str.length());
   }
 }
 
