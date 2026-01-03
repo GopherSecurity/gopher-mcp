@@ -2,9 +2,10 @@
 
 #include <cassert>
 #include <cstring>
-#include <iostream>
 #include <mutex>
 #include <unordered_map>
+
+#include "mcp/logging/log_macros.h"
 
 // Platform-specific includes
 #ifdef _WIN32
@@ -150,12 +151,10 @@ void LibeventDispatcher::initializeLibevent() {
     throw std::runtime_error("Failed to create event base");
   }
 
-#ifndef NDEBUG
-  // Debug: Print which backend libevent is using
+  // Log which backend libevent is using
   const char* method = event_base_get_method(base_);
-  std::cerr << "[LIBEVENT] Created event base using backend: "
-            << (method ? method : "unknown") << std::endl;
-#endif
+  GOPHER_LOG_DEBUG("Created event base using backend: {}",
+                   method ? method : "unknown");
 
   // Create pipe for waking up the event loop
   // TODO We can keep evutil_socketpair as platformm independent code
@@ -210,22 +209,15 @@ void LibeventDispatcher::post(PostCb callback) {
     post_callbacks_.push(std::move(callback));
   }
 
-#ifndef NDEBUG
-  bool is_thread_safe = isThreadSafe();
-  std::cerr << "[LIBEVENT] post(): need_wakeup=" << need_wakeup
-            << " isThreadSafe=" << is_thread_safe
-            << " thread=" << std::this_thread::get_id()
-            << " dispatcher_thread=" << thread_id_ << std::endl;
-#endif
+  GOPHER_LOG_TRACE("post(): need_wakeup={} isThreadSafe={}", need_wakeup,
+                   isThreadSafe());
 
   if (need_wakeup) {
     // Wake up the event loop - the queue was empty, so the event loop
     // may be blocked waiting for events. We need to wake it up even if
     // we're on the dispatcher thread, because event_base_loop() in Block
     // mode won't return to check post_callbacks_ until an event fires.
-#ifndef NDEBUG
-    std::cerr << "[LIBEVENT] post(): waking up event loop" << std::endl;
-#endif
+    GOPHER_LOG_TRACE("post(): waking up event loop");
     char byte = 1;
 #ifdef _WIN32
     int rc = send(wakeup_fd_[1], &byte, 1, 0);
@@ -275,14 +267,12 @@ FileEventPtr LibeventDispatcher::createFileEvent(os_fd_t fd,
                                                  uint32_t events) {
   assert(thread_id_ == std::thread::id() || isThreadSafe());
 
-#ifndef NDEBUG
   const char* trigger_str = (trigger == FileTriggerType::Level) ? "Level"
                             : (trigger == FileTriggerType::Edge)
                                 ? "Edge"
                                 : "EmulatedEdge";
-  std::cerr << "[LIBEVENT] createFileEvent: fd=" << fd << " events=" << events
-            << " trigger=" << trigger_str << std::endl;
-#endif
+  GOPHER_LOG_TRACE("createFileEvent: fd={} events={} trigger={}", fd, events,
+                   trigger_str);
 
   return std::make_unique<FileEventImpl>(*this, fd, std::move(cb), trigger,
                                          events);
@@ -345,13 +335,11 @@ void LibeventDispatcher::run(RunType type) {
   exit_requested_ = false;
   thread_id_ = std::this_thread::get_id();
 
-#ifndef NDEBUG
   const char* type_str = (type == RunType::Block)          ? "Block"
                          : (type == RunType::NonBlock)     ? "NonBlock"
                          : (type == RunType::RunUntilExit) ? "RunUntilExit"
                                                            : "Unknown";
-  std::cerr << "[LIBEVENT] run(): starting, type=" << type_str << std::endl;
-#endif
+  GOPHER_LOG_TRACE("run(): starting, type={}", type_str);
 
   // Run any pending post callbacks before starting
   runPostCallbacks();
@@ -370,25 +358,20 @@ void LibeventDispatcher::run(RunType type) {
         event_base_loop(base_, EVLOOP_ONCE);
         runPostCallbacks();
       }
-#ifndef NDEBUG
-      std::cerr << "[LIBEVENT] run(): RunUntilExit loop ended" << std::endl;
-#endif
+      GOPHER_LOG_TRACE("run(): RunUntilExit loop ended");
       return;
   }
 
   updateApproximateMonotonicTime();
   int result = event_base_loop(base_, flags);
 
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] run(): event_base_loop returned " << result
-            << " (type=" << type_str << ")" << std::endl;
+  GOPHER_LOG_TRACE("run(): event_base_loop returned {} (type={})", result,
+                   type_str);
   if (result == 1) {
-    std::cerr << "[LIBEVENT] Warning: event_base_loop returned 1 (no events)"
-              << std::endl;
+    GOPHER_LOG_TRACE("run(): event_base_loop returned 1 (no events)");
   } else if (result == -1) {
-    std::cerr << "[LIBEVENT] Error: event_base_loop returned -1" << std::endl;
+    GOPHER_LOG_ERROR("run(): event_base_loop returned -1");
   }
-#endif
 
   runPostCallbacks();
 }
@@ -450,9 +433,7 @@ void LibeventDispatcher::postWakeupCallback(libevent_socket_t fd,
                                             void* arg) {
   auto* dispatcher = static_cast<LibeventDispatcher*>(arg);
 
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] postWakeupCallback: entering" << std::endl;
-#endif
+  GOPHER_LOG_TRACE("postWakeupCallback: entering");
 
   // Drain the pipe
   char buffer[256];
@@ -466,16 +447,10 @@ void LibeventDispatcher::postWakeupCallback(libevent_socket_t fd,
 
   dispatcher->runPostCallbacks();
 
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] postWakeupCallback: returning, active events="
-            << event_base_get_num_events(dispatcher->base_,
-                                         EVENT_BASE_COUNT_ACTIVE)
-            << " added="
-            << event_base_get_num_events(dispatcher->base_,
-                                         EVENT_BASE_COUNT_ADDED)
-            << std::endl
-            << std::flush;
-#endif
+  GOPHER_LOG_TRACE(
+      "postWakeupCallback: returning, active events={} added={}",
+      event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ACTIVE),
+      event_base_get_num_events(dispatcher->base_, EVENT_BASE_COUNT_ADDED));
 }
 
 void LibeventDispatcher::runPostCallbacks() {
@@ -485,12 +460,10 @@ void LibeventDispatcher::runPostCallbacks() {
     callbacks.swap(post_callbacks_);
   }
 
-#ifndef NDEBUG
   if (!callbacks.empty()) {
-    std::cerr << "[LIBEVENT] runPostCallbacks(): running " << callbacks.size()
-              << " callbacks" << std::endl;
+    GOPHER_LOG_TRACE("runPostCallbacks(): running {} callbacks",
+                     callbacks.size());
   }
-#endif
 
   while (!callbacks.empty()) {
     callbacks.front()();
@@ -594,16 +567,12 @@ void LibeventDispatcher::FileEventImpl::activate(uint32_t events) {
 }
 
 void LibeventDispatcher::FileEventImpl::setEnabled(uint32_t events) {
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] setEnabled: fd=" << fd_ << " events=" << events
-            << " (prev=" << enabled_events_ << ")" << std::endl;
-#endif
+  GOPHER_LOG_TRACE("setEnabled: fd={} events={} (prev={})", fd_, events,
+                   enabled_events_);
   // For edge-triggered, always update even if mask unchanged
   // This forces re-computation of readable/writable state
   if (trigger_ != FileTriggerType::Edge && enabled_events_ == events) {
-#ifndef NDEBUG
-    std::cerr << "[LIBEVENT] setEnabled: skipping (no change)" << std::endl;
-#endif
+    GOPHER_LOG_TRACE("setEnabled: skipping (no change)");
     return;
   }
   enabled_events_ = events;
@@ -660,31 +629,20 @@ void LibeventDispatcher::FileEventImpl::assignEvents(uint32_t events) {
                      &FileEventImpl::eventCallback, this);
 
   if (!event_) {
-#ifndef NDEBUG
-    std::cerr << "[LIBEVENT] Error: event_new() returned NULL for fd=" << fd_
-              << std::endl;
-#endif
+    GOPHER_LOG_ERROR("event_new() returned NULL for fd={}", fd_);
     return;
   }
 
   int add_result = event_add(event_, nullptr);
-#ifndef NDEBUG
   if (add_result != 0) {
-    std::cerr << "[LIBEVENT] Error: event_add() failed for fd=" << fd_
-              << std::endl;
+    GOPHER_LOG_ERROR("event_add() failed for fd={}", fd_);
   }
-#else
-  (void)add_result;
-#endif
 #else
   event_assign(event_, dispatcher_.base(), fd_, libevent_events,
                &FileEventImpl::eventCallback, this);
   int add_result = event_add(event_, nullptr);
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] assignEvents: fd=" << fd_ << " libevent_events=0x"
-            << std::hex << libevent_events << std::dec
-            << " event_add=" << add_result << std::endl;
-#endif
+  GOPHER_LOG_TRACE("assignEvents: fd={} libevent_events=0x{:x} event_add={}",
+                   fd_, libevent_events, add_result);
 #endif
 }
 
@@ -693,11 +651,8 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
                                                       void* arg) {
   auto* file_event = static_cast<FileEventImpl*>(arg);
 
-#ifndef NDEBUG
-  std::cerr << "[LIBEVENT] eventCallback: fd=" << fd << " events=0x" << std::hex
-            << events << std::dec << " enabled=" << file_event->enabled_events_
-            << std::endl;
-#endif
+  GOPHER_LOG_TRACE("eventCallback: fd={} events=0x{:x} enabled={}", fd, events,
+                   file_event->enabled_events_);
 
   // Update approximate time before callback
   file_event->dispatcher_.updateApproximateMonotonicTime();
