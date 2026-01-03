@@ -5,8 +5,7 @@
 
 #include "mcp/filter/callback_bridges.h"
 
-#include <iostream>
-
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/buffer.h"
 
 namespace mcp {
@@ -17,14 +16,13 @@ namespace filter {
 HttpToFilterChainBridge::HttpToFilterChainBridge(
     network::FilterCallbacks& filter_callbacks)
     : filter_callbacks_(filter_callbacks) {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge created" << std::endl;
+  GOPHER_LOG_DEBUG("HttpToFilterChainBridge created");
 }
 
 void HttpToFilterChainBridge::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onHeaders called with "
-            << headers.size() << " headers, keep_alive=" << keep_alive
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpToFilterChainBridge::onHeaders called with {} headers, "
+                   "keep_alive={}", headers.size(), keep_alive);
 
   // For HTTP → SSE pipeline, we expect the body to contain SSE data
   // Headers are typically processed but the SSE content is in the body
@@ -32,9 +30,8 @@ void HttpToFilterChainBridge::onHeaders(
 }
 
 void HttpToFilterChainBridge::onBody(const std::string& data, bool end_stream) {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onBody called with "
-            << data.length() << " bytes, end_stream=" << end_stream
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpToFilterChainBridge::onBody called with {} bytes, "
+                   "end_stream={}", data.length(), end_stream);
 
   // Accumulate body data for forwarding to next filter
   accumulated_body_ += data;
@@ -56,8 +53,7 @@ void HttpToFilterChainBridge::onBody(const std::string& data, bool end_stream) {
 }
 
 void HttpToFilterChainBridge::onMessageComplete() {
-  std::cerr << "[DEBUG] HttpToFilterChainBridge::onMessageComplete called"
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpToFilterChainBridge::onMessageComplete called");
 
   // HTTP message complete - if we have accumulated data, forward it through
   // chain
@@ -72,8 +68,7 @@ void HttpToFilterChainBridge::onMessageComplete() {
 }
 
 void HttpToFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] HttpToFilterChainBridge::onError: " << error
-            << std::endl;
+  GOPHER_LOG_ERROR("HttpToFilterChainBridge::onError: {}", error);
 
   // Forward error through filter chain error handling
   // Note: We'll rely on the filter chain's standard error handling mechanisms
@@ -84,18 +79,19 @@ void HttpToFilterChainBridge::onError(const std::string& error) {
 SseToFilterChainBridge::SseToFilterChainBridge(
     network::FilterCallbacks& filter_callbacks)
     : filter_callbacks_(filter_callbacks) {
-  std::cerr << "[DEBUG] SseToFilterChainBridge created" << std::endl;
+  GOPHER_LOG_DEBUG("SseToFilterChainBridge created");
 }
 
 void SseToFilterChainBridge::onEvent(const std::string& event,
                                      const std::string& data,
                                      const optional<std::string>& id) {
-  std::cerr << "[DEBUG] SseToFilterChainBridge::onEvent called with event='"
-            << event << "', data length=" << data.length();
   if (id.has_value()) {
-    std::cerr << ", id='" << id.value() << "'";
+    GOPHER_LOG_DEBUG("SseToFilterChainBridge::onEvent called with event='{}', "
+                     "data length={}, id='{}'", event, data.length(), id.value());
+  } else {
+    GOPHER_LOG_DEBUG("SseToFilterChainBridge::onEvent called with event='{}', "
+                     "data length={}", event, data.length());
   }
-  std::cerr << std::endl;
 
   // Forward SSE event data through filter chain for JSON-RPC parsing
   if (!data.empty()) {
@@ -109,16 +105,15 @@ void SseToFilterChainBridge::onEvent(const std::string& event,
 }
 
 void SseToFilterChainBridge::onComment(const std::string& comment) {
-  std::cerr << "[DEBUG] SseToFilterChainBridge::onComment called with comment='"
-            << comment << "'" << std::endl;
+  GOPHER_LOG_DEBUG("SseToFilterChainBridge::onComment called with comment='{}'",
+                   comment);
 
   // SSE comments are typically used for keep-alive, no need to forward
   // to JSON-RPC layer as they don't contain protocol data
 }
 
 void SseToFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] SseToFilterChainBridge::onError: " << error
-            << std::endl;
+  GOPHER_LOG_ERROR("SseToFilterChainBridge::onError: {}", error);
 
   // Forward error through filter chain error handling
   // We'll rely on the filter chain's standard error handling mechanisms
@@ -129,12 +124,12 @@ void SseToFilterChainBridge::onError(const std::string& error) {
 JsonRpcToProtocolBridge::JsonRpcToProtocolBridge(
     McpProtocolCallbacks& callbacks)
     : callbacks_(callbacks) {
-  std::cerr << "[DEBUG] JsonRpcToProtocolBridge created" << std::endl;
+  GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge created");
 }
 
 void JsonRpcToProtocolBridge::onRequest(const jsonrpc::Request& request) {
-  std::cerr << "[DEBUG] JsonRpcToProtocolBridge::onRequest called with method='"
-            << request.method << "'" << std::endl;
+  GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onRequest called with method='{}'",
+                   request.method);
 
   // Forward parsed JSON-RPC request to final protocol callbacks
   callbacks_.onRequest(request);
@@ -142,28 +137,27 @@ void JsonRpcToProtocolBridge::onRequest(const jsonrpc::Request& request) {
 
 void JsonRpcToProtocolBridge::onNotification(
     const jsonrpc::Notification& notification) {
-  std::cerr
-      << "[DEBUG] JsonRpcToProtocolBridge::onNotification called with method='"
-      << notification.method << "'" << std::endl;
+  GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onNotification called with method='{}'",
+                   notification.method);
 
   // Forward parsed JSON-RPC notification to final protocol callbacks
   callbacks_.onNotification(notification);
 }
 
 void JsonRpcToProtocolBridge::onResponse(const jsonrpc::Response& response) {
-  std::cerr << "[DEBUG] JsonRpcToProtocolBridge::onResponse called";
   if (response.id.has_value()) {
-    std::cerr << " with id=" << response.id.value().toString();
+    GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onResponse called with id={}",
+                     response.id.value().toString());
+  } else {
+    GOPHER_LOG_DEBUG("JsonRpcToProtocolBridge::onResponse called");
   }
-  std::cerr << std::endl;
 
   // Forward parsed JSON-RPC response to final protocol callbacks
   callbacks_.onResponse(response);
 }
 
 void JsonRpcToProtocolBridge::onProtocolError(const Error& error) {
-  std::cerr << "[ERROR] JsonRpcToProtocolBridge::onProtocolError: "
-            << error.message << std::endl;
+  GOPHER_LOG_ERROR("JsonRpcToProtocolBridge::onProtocolError: {}", error.message);
 
   // Forward protocol error to final callbacks
   callbacks_.onError(error);
@@ -173,26 +167,22 @@ void JsonRpcToProtocolBridge::onProtocolError(const Error& error) {
 
 std::shared_ptr<HttpToFilterChainBridge> FilterBridgeFactory::createHttpBridge(
     network::FilterCallbacks& filter_callbacks) {
-  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge called"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createHttpBridge called");
 
   auto bridge = std::make_shared<HttpToFilterChainBridge>(filter_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createHttpBridge completed"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createHttpBridge completed");
 
   return bridge;
 }
 
 std::shared_ptr<SseToFilterChainBridge> FilterBridgeFactory::createSseBridge(
     network::FilterCallbacks& filter_callbacks) {
-  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge called"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createSseBridge called");
 
   auto bridge = std::make_shared<SseToFilterChainBridge>(filter_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createSseBridge completed"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createSseBridge completed");
 
   return bridge;
 }
@@ -200,13 +190,11 @@ std::shared_ptr<SseToFilterChainBridge> FilterBridgeFactory::createSseBridge(
 std::shared_ptr<JsonRpcToProtocolBridge>
 FilterBridgeFactory::createJsonRpcBridge(
     McpProtocolCallbacks& final_callbacks) {
-  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge called"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createJsonRpcBridge called");
 
   auto bridge = std::make_shared<JsonRpcToProtocolBridge>(final_callbacks);
 
-  std::cerr << "[DEBUG] FilterBridgeFactory::createJsonRpcBridge completed"
-            << std::endl;
+  GOPHER_LOG_DEBUG("FilterBridgeFactory::createJsonRpcBridge completed");
 
   return bridge;
 }
