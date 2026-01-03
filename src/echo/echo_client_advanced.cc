@@ -5,10 +5,10 @@
 
 #include "mcp/echo/echo_client_advanced.h"
 
-#include <iostream>
 #include <sstream>
 
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace echo {
@@ -337,7 +337,7 @@ void AdvancedEchoClient::handleError(const Error& error) {
   stats_.requests_failed++;
   circuit_breaker_->recordFailure();
 
-  std::cerr << "[ERROR] Transport error: " << error.message << std::endl;
+  GOPHER_LOG_ERROR("Transport error: {}", error.message);
 }
 
 void AdvancedEchoClient::processMessage(const std::string& message) {
@@ -380,7 +380,7 @@ void AdvancedEchoClient::processMessage(const std::string& message) {
     }
   } catch (const std::exception& e) {
     stats_.requests_failed++;
-    std::cerr << "[ERROR] Failed to parse message: " << e.what() << std::endl;
+    GOPHER_LOG_ERROR("Failed to parse message: {}", e.what());
   }
 }
 
@@ -415,37 +415,35 @@ void AdvancedEchoClient::updateLatencyMetrics(uint64_t duration_ms) {
 }
 
 void AdvancedEchoClient::printMetrics() {
-  std::cerr << "\n[METRICS] Echo Client Statistics:\n"
-            << "  Requests total: " << stats_.requests_total << "\n"
-            << "  Requests success: " << stats_.requests_success << "\n"
-            << "  Requests failed: " << stats_.requests_failed << "\n"
-            << "  Requests timeout: " << stats_.requests_timeout << "\n"
-            << "  Circuit breaker opens: " << stats_.circuit_breaker_opens
-            << "\n"
-            << "  Bytes sent: " << stats_.bytes_sent << "\n"
-            << "  Bytes received: " << stats_.bytes_received << "\n";
+  GOPHER_LOG_INFO("Echo Client Statistics: requests_total={} success={} "
+                  "failed={} timeout={} circuit_breaker_opens={} "
+                  "bytes_sent={} bytes_recv={}",
+                  stats_.requests_total.load(), stats_.requests_success.load(),
+                  stats_.requests_failed.load(), stats_.requests_timeout.load(),
+                  stats_.circuit_breaker_opens.load(), stats_.bytes_sent.load(),
+                  stats_.bytes_received.load());
 
-  if (stats_.requests_success > 0) {
+  if (stats_.requests_success.load() > 0) {
     uint64_t avg_latency =
-        stats_.request_duration_ms_total / stats_.requests_success;
-    std::cerr << "  Average latency: " << avg_latency << " ms\n"
-              << "  Min latency: " << stats_.request_duration_ms_min << " ms\n"
-              << "  Max latency: " << stats_.request_duration_ms_max << " ms\n";
+        stats_.request_duration_ms_total.load() / stats_.requests_success.load();
+    GOPHER_LOG_INFO("Latency: avg={} ms min={} ms max={} ms",
+                    avg_latency, stats_.request_duration_ms_min.load(),
+                    stats_.request_duration_ms_max.load());
   }
 
-  std::cerr << "  Circuit breaker state: ";
+  const char* cb_state = "UNKNOWN";
   switch (circuit_breaker_->getState()) {
     case CircuitBreaker::State::Closed:
-      std::cerr << "CLOSED";
+      cb_state = "CLOSED";
       break;
     case CircuitBreaker::State::Open:
-      std::cerr << "OPEN";
+      cb_state = "OPEN";
       break;
     case CircuitBreaker::State::HalfOpen:
-      std::cerr << "HALF-OPEN";
+      cb_state = "HALF-OPEN";
       break;
   }
-  std::cerr << "\n" << std::endl;
+  GOPHER_LOG_INFO("Circuit breaker state: {}", cb_state);
 }
 
 }  // namespace echo
