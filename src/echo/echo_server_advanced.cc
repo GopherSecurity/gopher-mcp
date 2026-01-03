@@ -6,10 +6,10 @@
 #include "mcp/echo/echo_server_advanced.h"
 
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace echo {
@@ -82,8 +82,7 @@ optional<jsonrpc::Notification> RequestProcessor::processNotification(
         .build();
   } catch (const std::exception& e) {
     // Log error but don't send error notification
-    std::cerr << "[ERROR] Failed to process notification: " << e.what()
-              << std::endl;
+    GOPHER_LOG_ERROR("Failed to process notification: {}", e.what());
     return nullopt;
   }
 }
@@ -175,8 +174,8 @@ variant<Success, Error> AdvancedEchoServer::start(const std::string& endpoint) {
     });
   }
 
-  std::cerr << "[INFO] Echo server started on " << endpoint << " with "
-            << config_.num_workers << " workers" << std::endl;
+  GOPHER_LOG_INFO("Echo server started on {} with {} workers", endpoint,
+                  config_.num_workers);
 
   return Success{};
 }
@@ -203,7 +202,7 @@ void AdvancedEchoServer::stop() {
     metrics_thread_.join();
   }
 
-  std::cerr << "[INFO] Echo server stopped" << std::endl;
+  GOPHER_LOG_INFO("Echo server stopped");
 }
 
 void AdvancedEchoServer::resetStats() {
@@ -245,7 +244,7 @@ void AdvancedEchoServer::handleDataReceived(const std::string& data) {
   // Check flow control
   if (!context->flow_control->processData(data.length())) {
     // Would disable reading if transport supported it
-    std::cerr << "[WARN] Flow control: High watermark reached" << std::endl;
+    GOPHER_LOG_WARN("Flow control: High watermark reached");
   }
 
   context->partial_message += data;
@@ -276,7 +275,7 @@ void AdvancedEchoServer::handleStatusChange(
 
 void AdvancedEchoServer::handleError(const Error& error) {
   stats_.errors_total++;
-  std::cerr << "[ERROR] Transport error: " << error.message << std::endl;
+  GOPHER_LOG_ERROR("Transport error: {}", error.message);
 }
 
 void AdvancedEchoServer::processMessage(const std::string& message,
@@ -297,7 +296,7 @@ void AdvancedEchoServer::processMessage(const std::string& message,
     }
   } catch (const std::exception& e) {
     stats_.errors_total++;
-    std::cerr << "[ERROR] Failed to parse message: " << e.what() << std::endl;
+    GOPHER_LOG_ERROR("Failed to parse message: {}", e.what());
 
     // Send parse error response
     auto error_response = make<jsonrpc::Response>(0)
@@ -438,23 +437,21 @@ void AdvancedEchoServer::updateLatencyMetrics(uint64_t duration_ms) {
 }
 
 void AdvancedEchoServer::printMetrics() {
-  std::cerr << "\n[METRICS] Echo Server Statistics:\n"
-            << "  Connections total: " << stats_.connections_total << "\n"
-            << "  Connections active: " << stats_.connections_active << "\n"
-            << "  Requests total: " << stats_.requests_total << "\n"
-            << "  Requests success: " << stats_.requests_success << "\n"
-            << "  Requests failed: " << stats_.requests_failed << "\n"
-            << "  Notifications total: " << stats_.notifications_total << "\n"
-            << "  Errors total: " << stats_.errors_total << "\n"
-            << "  Bytes received: " << stats_.bytes_received << "\n"
-            << "  Bytes sent: " << stats_.bytes_sent << "\n";
+  GOPHER_LOG_INFO("Echo Server Statistics: connections_total={} active={} "
+                  "requests_total={} success={} failed={} notifications={} "
+                  "errors={} bytes_recv={} bytes_sent={}",
+                  stats_.connections_total.load(), stats_.connections_active.load(),
+                  stats_.requests_total.load(), stats_.requests_success.load(),
+                  stats_.requests_failed.load(), stats_.notifications_total.load(),
+                  stats_.errors_total.load(), stats_.bytes_received.load(),
+                  stats_.bytes_sent.load());
 
-  if (stats_.requests_success > 0) {
+  if (stats_.requests_success.load() > 0) {
     uint64_t avg_latency =
-        stats_.request_duration_ms_total / stats_.requests_success;
-    std::cerr << "  Average latency: " << avg_latency << " ms\n"
-              << "  Min latency: " << stats_.request_duration_ms_min << " ms\n"
-              << "  Max latency: " << stats_.request_duration_ms_max << " ms\n";
+        stats_.request_duration_ms_total.load() / stats_.requests_success.load();
+    GOPHER_LOG_INFO("Latency: avg={} ms min={} ms max={} ms",
+                    avg_latency, stats_.request_duration_ms_min.load(),
+                    stats_.request_duration_ms_max.load());
   }
 
   if (primary_connection_) {
@@ -462,10 +459,8 @@ void AdvancedEchoServer::printMetrics() {
         std::chrono::steady_clock::now() - primary_connection_->connect_time;
     auto uptime_sec =
         std::chrono::duration_cast<std::chrono::seconds>(uptime).count();
-    std::cerr << "  Uptime: " << uptime_sec << " seconds\n";
+    GOPHER_LOG_INFO("Uptime: {} seconds", uptime_sec);
   }
-
-  std::cerr << std::endl;
 }
 
 void AdvancedEchoServer::workerThread(size_t worker_id) {
