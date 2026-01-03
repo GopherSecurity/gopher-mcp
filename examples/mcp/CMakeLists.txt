@@ -9,6 +9,7 @@ target_link_libraries(mcp_example_client
     gopher-mcp
     gopher-mcp-event
     gopher-mcp-echo-advanced  # For advanced features
+    gopher-mcp-logging        # For logging framework
     ${LIBEVENT_LIBRARIES}
     fmt::fmt
 )
@@ -22,6 +23,7 @@ target_link_libraries(mcp_example_server
     gopher-mcp
     gopher-mcp-event
     gopher-mcp-echo-advanced  # For advanced features
+    gopher-mcp-logging        # For logging framework
     ${LIBEVENT_LIBRARIES}
     fmt::fmt
 )
