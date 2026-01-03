@@ -51,8 +51,9 @@
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 
 #include <ctime>
-#include <iostream>
 #include <sstream>
+
+#include "mcp/logging/log_macros.h"
 
 #include "mcp/filter/http_codec_filter.h"
 #include "mcp/filter/http_routing_filter.h"
@@ -340,20 +341,14 @@ class HttpSseJsonRpcProtocolFilter
 
     // Normal HTTP path (non-SSE responses)
     // JSON-RPC filter handles framing
-#ifndef NDEBUG
-    std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - data_len="
-              << data.length() << " is_server=" << is_server_ << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter::onWrite - data_len={} is_server={}",
+                     data.length(), is_server_);
     auto status = jsonrpc_filter_->onWrite(data, end_stream);
     if (status == network::FilterStatus::StopIteration) {
       return status;
     }
 
-#ifndef NDEBUG
-    std::cerr
-        << "[DEBUG] HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter"
-        << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
     // HTTP filter adds headers/framing for normal HTTP responses
     return http_filter_->onWrite(data, end_stream);
   }
@@ -404,10 +399,7 @@ class HttpSseJsonRpcProtocolFilter
           accept->second.find("text/event-stream") != std::string::npos) {
         client_accepts_sse_ = true;  // Track that client supports SSE
         // But don't set is_sse_mode_ = true here - that would break JSON-RPC
-#ifndef NDEBUG
-        std::cerr << "[DEBUG] HttpSseJsonRpcProtocolFilter: client accepts SSE"
-                  << std::endl;
-#endif
+        GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: client accepts SSE");
       }
       // Always use normal HTTP mode for request/response pattern
       is_sse_mode_ = false;
@@ -551,9 +543,8 @@ class HttpSseJsonRpcProtocolFilter
       // Following production pattern: no stream means request was already
       // completed or never existed Drop the response - do NOT send it (would
       // violate HTTP protocol)
-      std::cerr << "[ERROR] No stream found for response ID " << id_key
-                << " - dropping response (possible duplicate or late response)"
-                << std::endl;
+      GOPHER_LOG_ERROR("No stream found for response ID {} - dropping response "
+                       "(possible duplicate or late response)", id_key);
       // NO FALLBACK - just return
     }
   }
@@ -575,9 +566,7 @@ class HttpSseJsonRpcProtocolFilter
     // 3. The formatted data is written to the socket
     //
     // This entire RequestStream mechanism is unused and should be removed.
-    std::cerr
-        << "[WARNING] sendResponseThroughFilter called - this is dead code!"
-        << std::endl;
+    GOPHER_LOG_WARN("sendResponseThroughFilter called - this is dead code!");
   }
 
  private:
@@ -681,11 +670,10 @@ void RequestStream::sendResponse(const jsonrpc::Response& response) {
 // thread
 void HttpSseFilterChainFactory::sendHttpResponse(
     const jsonrpc::Response& response, network::Connection& connection) {
-  std::cerr << "[WARNING] HttpSseFilterChainFactory::sendHttpResponse called "
-               "but filter access not available"
-            << std::endl;
-  std::cerr << "[WARNING] Response ID " << requestIdToString(response.id)
-            << " dropped - no direct filter access" << std::endl;
+  GOPHER_LOG_WARN("HttpSseFilterChainFactory::sendHttpResponse called but filter "
+                  "access not available");
+  GOPHER_LOG_WARN("Response ID {} dropped - no direct filter access",
+                  requestIdToString(response.id));
 
   // Following production pattern: without direct filter access, we cannot route
   // responses The proper solution is for the connection manager to maintain
