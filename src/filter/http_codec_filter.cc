@@ -12,12 +12,12 @@
 
 #include <algorithm>
 #include <cctype>
-#include <iostream>
 #include <map>
 #include <sstream>
 #include <string_view>
 
 #include "mcp/http/llhttp_parser.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
 namespace mcp {
@@ -28,13 +28,13 @@ namespace filter {
 HttpCodecFilter::HttpFilterChainBridge::HttpFilterChainBridge(
     HttpCodecFilter& parent_filter)
     : parent_filter_(parent_filter) {
-  std::cerr << "[DEBUG] HttpFilterChainBridge created" << std::endl;
+  GOPHER_LOG_DEBUG("HttpFilterChainBridge created");
 }
 
 void HttpCodecFilter::HttpFilterChainBridge::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
-  std::cerr << "[DEBUG] HttpFilterChainBridge::onHeaders - received "
-            << headers.size() << " headers" << std::endl;
+  GOPHER_LOG_DEBUG("HttpFilterChainBridge::onHeaders - received {} headers",
+                   headers.size());
 
   (void)headers;
   (void)keep_alive;
@@ -42,9 +42,8 @@ void HttpCodecFilter::HttpFilterChainBridge::onHeaders(
 
 void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data,
                                                     bool end_stream) {
-  std::cerr << "[DEBUG] HttpFilterChainBridge::onBody - received "
-            << data.length() << " bytes, end_stream=" << end_stream
-            << std::endl;
+  GOPHER_LOG_DEBUG("HttpFilterChainBridge::onBody - received {} bytes, end_stream={}",
+                   data.length(), end_stream);
 
   if (!data.empty()) {
     forwardBodyToNextFilter(data, end_stream);
@@ -52,12 +51,11 @@ void HttpCodecFilter::HttpFilterChainBridge::onBody(const std::string& data,
 }
 
 void HttpCodecFilter::HttpFilterChainBridge::onMessageComplete() {
-  std::cerr << "[DEBUG] HttpFilterChainBridge::onMessageComplete" << std::endl;
+  GOPHER_LOG_DEBUG("HttpFilterChainBridge::onMessageComplete");
 }
 
 void HttpCodecFilter::HttpFilterChainBridge::onError(const std::string& error) {
-  std::cerr << "[ERROR] HttpFilterChainBridge::onError - " << error
-            << std::endl;
+  GOPHER_LOG_ERROR("HttpFilterChainBridge::onError - {}", error);
   // Error handling - could inject error into filter chain if needed
 }
 
@@ -67,8 +65,7 @@ void HttpCodecFilter::HttpFilterChainBridge::forwardBodyToNextFilter(
     return;
   }
 
-  std::cerr << "[TRACE] HttpFilterChainBridge forwarding body chunk: " << body
-            << std::endl;
+  GOPHER_LOG_TRACE("HttpFilterChainBridge forwarding body chunk: {}", body);
 
   OwnedBuffer buffer;
   buffer.add(body);
@@ -177,8 +174,8 @@ network::FilterStatus HttpCodecFilter::onNewConnection() {
 }
 
 network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
-  std::cerr << "[DEBUG] HttpCodecFilter::onData called with " << data.length()
-            << " bytes, end_stream=" << end_stream << std::endl;
+  GOPHER_LOG_DEBUG("HttpCodecFilter::onData called with {} bytes, end_stream={}",
+                   data.length(), end_stream);
 
   // Check if we need to reset for next message
   if (state_machine_->currentState() == HttpCodecState::Closed) {
@@ -198,16 +195,16 @@ network::FilterStatus HttpCodecFilter::onData(Buffer& data, bool end_stream) {
   // Process HTTP data
   dispatch(data);
 
-  std::cerr << "[DEBUG] HttpCodecFilter::onData completed, remaining data: "
-            << data.length() << " bytes" << std::endl;
+  GOPHER_LOG_DEBUG("HttpCodecFilter::onData completed, remaining data: {} bytes",
+                   data.length());
 
   return network::FilterStatus::Continue;
 }
 
 // network::WriteFilter interface
 network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
-  std::cerr << "[DEBUG] HttpCodecFilter::onWrite called with " << data.length()
-            << " bytes, is_server=" << is_server_ << std::endl;
+  GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite called with {} bytes, is_server={}",
+                   data.length(), is_server_);
 
   // Following production pattern: format HTTP message in-place
   if (data.length() == 0) {
@@ -269,11 +266,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         // Regular JSON response
         response << "Content-Type: application/json\r\n";
         response << "Content-Length: " << body_length << "\r\n";
-#ifndef NDEBUG
-        std::cerr << "[HTTP-CODEC] onWrite: Content-Length=" << body_length
-                  << " body_preview=" << body_data.substr(0, 50) << "..."
-                  << std::endl;
-#endif
+        GOPHER_LOG_TRACE("onWrite: Content-Length={} body_preview={}...",
+                         body_length, body_data.substr(0, 50));
         response << "Cache-Control: no-cache\r\n";
         if (current_stream_) {
           response << "Connection: "
@@ -300,11 +294,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     // Client mode: format as HTTP POST request
     auto current_state = state_machine_->currentState();
 
-#ifndef NDEBUG
-    std::cerr << "[DEBUG] HttpCodecFilter::onWrite client state="
-              << HttpCodecStateMachine::getStateName(current_state)
-              << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}",
+                     HttpCodecStateMachine::getStateName(current_state));
 
     // Check if we can send a request
     // Client can send when idle or while waiting for response (HTTP pipelining)
@@ -334,8 +325,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
 
-      std::cerr << "[DEBUG] HttpCodecFilter client sending HTTP request: "
-                << request_str.substr(0, 200) << "..." << std::endl;
+      GOPHER_LOG_DEBUG("HttpCodecFilter client sending HTTP request: {}...",
+                       request_str.substr(0, 200));
 
       // Update state machine - only transition if we're in Idle state
       // For pipelined requests (when already WaitingForResponse), just send
@@ -574,17 +565,11 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
 
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
-#ifndef NDEBUG
-  std::cerr << "[DEBUG] ParserCallbacks::onBody - received " << length
-            << " bytes" << std::endl;
-#endif
+  GOPHER_LOG_DEBUG("ParserCallbacks::onBody - received {} bytes", length);
   if (parent_.current_stream_) {
     parent_.current_stream_->body.append(data, length);
-#ifndef NDEBUG
-    std::cerr << "[DEBUG] ParserCallbacks::onBody - total body now "
-              << parent_.current_stream_->body.length() << " bytes"
-              << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("ParserCallbacks::onBody - total body now {} bytes",
+                     parent_.current_stream_->body.length());
   }
   // Trigger body data event based on mode
   if (parent_.is_server_) {
@@ -597,13 +582,9 @@ http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
 
 http::ParserCallbackResult
 HttpCodecFilter::ParserCallbacks::onMessageComplete() {
-#ifndef NDEBUG
-  std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - is_server="
-            << parent_.is_server_ << " body_len="
-            << (parent_.current_stream_ ? parent_.current_stream_->body.length()
-                                        : 0)
-            << std::endl;
-#endif
+  GOPHER_LOG_DEBUG("ParserCallbacks::onMessageComplete - is_server={} body_len={}",
+                   parent_.is_server_,
+                   parent_.current_stream_ ? parent_.current_stream_->body.length() : 0);
   // Trigger message complete event based on mode
   if (parent_.is_server_) {
     parent_.state_machine_->handleEvent(HttpCodecEvent::RequestComplete);
@@ -613,19 +594,12 @@ HttpCodecFilter::ParserCallbacks::onMessageComplete() {
 
   // Send body to callbacks
   if (parent_.current_stream_ && !parent_.current_stream_->body.empty()) {
-#ifndef NDEBUG
-    std::cerr << "[DEBUG] ParserCallbacks::onMessageComplete - forwarding body"
-              << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("ParserCallbacks::onMessageComplete - forwarding body");
     if (parent_.message_callbacks_) {
       parent_.message_callbacks_->onBody(parent_.current_stream_->body, true);
     }
   } else {
-#ifndef NDEBUG
-    std::cerr
-        << "[DEBUG] ParserCallbacks::onMessageComplete - NO BODY to forward!"
-        << std::endl;
-#endif
+    GOPHER_LOG_DEBUG("ParserCallbacks::onMessageComplete - NO BODY to forward!");
   }
 
   if (parent_.message_callbacks_) {

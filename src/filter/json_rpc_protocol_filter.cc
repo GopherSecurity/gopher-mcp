@@ -9,9 +9,8 @@
 
 #include "mcp/filter/json_rpc_protocol_filter.h"
 
-#include <iostream>
-
 #include "mcp/json/json_serialization.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/connection.h"
 
@@ -50,26 +49,25 @@ class ProtocolCallbackBridge : public JsonRpcProtocolFilter::MessageHandler {
       : callbacks_(callbacks) {}
 
   void onRequest(const jsonrpc::Request& request) override {
-    std::cerr << "[DEBUG] ProtocolCallbackBridge forwarding request: "
-              << request.method << std::endl;
+    GOPHER_LOG_DEBUG("ProtocolCallbackBridge forwarding request: {}",
+                     request.method);
     callbacks_.onRequest(request);
   }
 
   void onNotification(const jsonrpc::Notification& notification) override {
-    std::cerr << "[DEBUG] ProtocolCallbackBridge forwarding notification: "
-              << notification.method << std::endl;
+    GOPHER_LOG_DEBUG("ProtocolCallbackBridge forwarding notification: {}",
+                     notification.method);
     callbacks_.onNotification(notification);
   }
 
   void onResponse(const jsonrpc::Response& response) override {
-    std::cerr << "[DEBUG] ProtocolCallbackBridge forwarding response"
-              << std::endl;
+    GOPHER_LOG_DEBUG("ProtocolCallbackBridge forwarding response");
     callbacks_.onResponse(response);
   }
 
   void onProtocolError(const Error& error) override {
-    std::cerr << "[ERROR] ProtocolCallbackBridge forwarding error: "
-              << error.message << std::endl;
+    GOPHER_LOG_ERROR("ProtocolCallbackBridge forwarding error: {}",
+                     error.message);
     callbacks_.onError(error);
   }
 
@@ -176,10 +174,9 @@ JsonRpcProtocolFilter::JsonRpcProtocolFilter(MessageHandler& handler,
       dispatcher_(dispatcher),
       is_server_(is_server),
       encoder_(std::make_unique<EncoderImpl>(*this)) {
-  std::cerr << "[JSON-RPC-FILTER] Created JsonRpcProtocolFilter - mode: "
-            << (is_server_ ? "server" : "client")
-            << ", framing: " << (use_framing_ ? "enabled" : "disabled")
-            << std::endl;
+  GOPHER_LOG_DEBUG("Created JsonRpcProtocolFilter - mode: {}, framing: {}",
+                   is_server_ ? "server" : "client",
+                   use_framing_ ? "enabled" : "disabled");
 }
 
 // Helper function to create protocol callback bridge
@@ -199,11 +196,9 @@ JsonRpcProtocolFilter::JsonRpcProtocolFilter(
   // This replaces the no-op static callbacks with proper data flow
   encoder_ = std::make_unique<EncoderImpl>(*this);
 
-  std::cerr << "[JSON-RPC-FILTER] Created JsonRpcProtocolFilter "
-               "(context-based) - mode: "
-            << (is_server_ ? "server" : "client")
-            << ", framing: " << (use_framing_ ? "enabled" : "disabled")
-            << std::endl;
+  GOPHER_LOG_DEBUG("Created JsonRpcProtocolFilter (context-based) - mode: {}, framing: {}",
+                   is_server_ ? "server" : "client",
+                   use_framing_ ? "enabled" : "disabled");
 }
 
 JsonRpcProtocolFilter::~JsonRpcProtocolFilter() {
@@ -216,8 +211,8 @@ JsonRpcProtocolFilter::Encoder& JsonRpcProtocolFilter::encoder() {
 
 void JsonRpcProtocolFilter::setUseFraming(bool use_framing) {
   use_framing_ = use_framing;
-  std::cerr << "[JSON-RPC-FILTER] Configuration applied - framing: "
-            << (use_framing_ ? "enabled" : "disabled") << std::endl;
+  GOPHER_LOG_DEBUG("Configuration applied - framing: {}",
+                   use_framing_ ? "enabled" : "disabled");
 }
 
 void JsonRpcProtocolFilter::initializeReadFilterCallbacks(
@@ -235,8 +230,8 @@ void JsonRpcProtocolFilter::initializeWriteFilterCallbacks(
 
 network::FilterStatus JsonRpcProtocolFilter::onData(Buffer& data,
                                                     bool end_stream) {
-  std::cerr << "[JSON-RPC-FILTER] onData called - buffer size: "
-            << data.length() << ", end_stream: " << end_stream << std::endl;
+  GOPHER_LOG_TRACE("onData called - buffer size: {}, end_stream: {}",
+                   data.length(), end_stream);
   // Parse JSON-RPC messages from the data buffer
   // This data has already been processed by lower protocol layers (HTTP/SSE)
   parseMessages(data);
@@ -320,8 +315,7 @@ void JsonRpcProtocolFilter::parseMessages(Buffer& buffer) {
 }
 
 bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
-  std::cerr << "[TRACE] JsonRpcProtocolFilter attempting to parse: " << json_str
-            << std::endl;
+  GOPHER_LOG_TRACE("JsonRpcProtocolFilter attempting to parse: {}", json_str);
   try {
     // Parse JSON string
     auto json_val = json::JsonValue::parse(json_str);
