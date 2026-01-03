@@ -701,7 +701,7 @@ endif()
 foreach(lib_target ${EVENT_REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
-            PUBLIC 
+            PUBLIC
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<BUILD_INTERFACE:${LIBEVENT_INCLUDE_DIRS}>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
@@ -713,7 +713,10 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
             target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
         endif()
         target_link_libraries(${lib_target} PUBLIC Threads::Threads)
-        
+
+        # Link logging library for GOPHER_LOG macros
+        target_link_libraries(${lib_target} PUBLIC gopher-mcp-logging fmt::fmt)
+
         if(LIBEVENT_FOUND)
             if(LIBEVENT_LIBRARY_DIRS)
                 target_link_directories(${lib_target} PUBLIC ${LIBEVENT_LIBRARY_DIRS})
