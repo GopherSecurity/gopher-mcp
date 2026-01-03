@@ -2,11 +2,11 @@
 
 #include <algorithm>
 #include <future>
-#include <iostream>
 #include <sstream>
 #include <thread>
 
 #include "mcp/event/libevent_dispatcher.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/json/json_serialization.h"
 #include "mcp/mcp_application_base.h"
 #include "mcp/mcp_connection_manager.h"
@@ -313,12 +313,7 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     // Send request - do NOT block here!
     *request_future_ptr =
         sendRequest("initialize", mcp::make_optional(init_params));
-#ifndef NDEBUG
-    std::cerr
-        << "[MCP-CLIENT] initializeProtocol: request sent, callback returning"
-        << std::endl
-        << std::flush;
-#endif
+    GOPHER_LOG_TRACE("initializeProtocol: request sent, callback returning");
     // Callback returns immediately - response will be processed elsewhere
   });
 
@@ -334,17 +329,9 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
 
-#ifndef NDEBUG
-      std::cerr << "[MCP-CLIENT] initializeProtocol: waiting for response on "
-                   "worker thread"
-                << std::endl
-                << std::flush;
-#endif
+      GOPHER_LOG_TRACE("initializeProtocol: waiting for response on worker thread");
       auto response = request_future_ptr->get();
-#ifndef NDEBUG
-      std::cerr << "[MCP-CLIENT] initializeProtocol: got response" << std::endl
-                << std::flush;
-#endif
+      GOPHER_LOG_TRACE("initializeProtocol: got response");
 
       if (response.error.has_value()) {
         result_promise->set_exception(std::make_exception_ptr(
