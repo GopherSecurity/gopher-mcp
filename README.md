@@ -124,11 +124,19 @@ int main() {
     calculator.name = "add";
     calculator.description = "Add two numbers";
 
-    server->registerTool(calculator, [](const auto& name, const auto& args, auto& ctx) {
-        double a = args->at("a").template get<double>();
-        double b = args->at("b").template get<double>();
-
+    server->registerTool(calculator, [](const std::string& name,
+                                         const mcp::optional<mcp::Metadata>& arguments,
+                                         mcp::server::SessionContext& ctx) {
         mcp::CallToolResult result;
+        auto args = arguments.value();
+        auto a_it = args.find("a");
+        auto b_it = args.find("b");
+
+        double a = mcp::holds_alternative<double>(a_it->second)
+                       ? mcp::get<double>(a_it->second) : 0.0;
+        double b = mcp::holds_alternative<double>(b_it->second)
+                       ? mcp::get<double>(b_it->second) : 0.0;
+
         result.content.push_back(mcp::TextContent{"Result: " + std::to_string(a + b)});
         return result;
     });
@@ -154,11 +162,12 @@ int main() {
     auto init = client->initializeProtocol().get();
 
     // Call a tool
-    mcp::Metadata args;
-    args["a"] = 10.0;
-    args["b"] = 5.0;
+    auto args = mcp::make<mcp::Metadata>()
+                    .add("a", 10.0)
+                    .add("b", 5.0)
+                    .build();
 
-    auto result = client->callTool("add", args).get();
+    auto result = client->callTool("add", mcp::make_optional(args)).get();
 }
 ```
 
