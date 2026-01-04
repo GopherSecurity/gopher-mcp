@@ -1,189 +1,183 @@
-# MCP Example Server - Configuration Guide
+# MCP C++ Examples - Server and Client
 
-## Overview
-
-The MCP Example Server (`mcp_example_server`) is a production-ready Model Context Protocol server that supports configurable filter chains for processing requests through various protocol layers and quality-of-service filters.
+Production-ready examples demonstrating the MCP C++ SDK capabilities.
 
 ## Quick Start
 
-### Basic Usage
+### Build the Examples
 
 ```bash
-# Run with default settings (no filter configuration)
-./mcp_example_server
-
-# Run with stdio transport
-./mcp_example_server --transport stdio
-
-# Run with TCP transport on custom port
-./mcp_example_server --transport tcp --port 8080
-
-# Run with filter configuration
-./mcp_example_server --transport stdio --config minimal_config.json
+# From the project root
+make
+# or
+cmake -B build && cmake --build build
 ```
 
-### Command Line Options
+### Run the Server
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--transport` | Transport type: `stdio`, `tcp`, `http_sse` | `stdio` |
-| `--port` | TCP port number | `3000` |
-| `--config` | Path to JSON configuration file | None |
-| `--verbose` | Enable verbose logging | `false` |
-| `--http-health-path` | HTTP health check endpoint | `/health` |
-| `--help` | Show help message | - |
+```bash
+# Start HTTP/SSE server on port 3000 (default)
+./build/examples/mcp/mcp_example_server
+
+# Start with verbose logging
+./build/examples/mcp/mcp_example_server --verbose
+
+# Start with custom port and metrics
+./build/examples/mcp/mcp_example_server --port 8080 --metrics
+```
+
+### Run the Client
+
+```bash
+# Connect and run feature demo
+./build/examples/mcp/mcp_example_client --demo --verbose
+
+# Connect to custom host/port
+./build/examples/mcp/mcp_example_client --host localhost --port 8080 --demo
+
+# Run quietly (only show errors)
+./build/examples/mcp/mcp_example_client --demo --quiet
+```
+
+## Example Server Features
+
+The `mcp_example_server` demonstrates:
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-transport** | HTTP/SSE (default), stdio, WebSocket |
+| **Resources** | Static resources and templates with subscriptions |
+| **Tools** | Calculator, database query, system info tools |
+| **Prompts** | Code review, data analysis, greeting prompts |
+| **Sessions** | Session management with configurable timeouts |
+| **Metrics** | Request counts, latency, error tracking |
+
+### Server Command Line Options
+
+```
+Usage: mcp_example_server [options]
+
+Options:
+  --port <port>        Listen port (default: 3000)
+  --host <address>     Bind address (default: 0.0.0.0)
+  --transport <type>   Transport: http, stdio, websocket, all (default: http)
+  --workers <n>        Number of worker threads (default: 4)
+  --max-sessions <n>   Maximum concurrent sessions (default: 100)
+  --config <path>      Configuration file (JSON format)
+  --metrics            Enable metrics endpoint
+  --verbose            Enable verbose logging
+  --rpc-path <path>    HTTP JSON-RPC endpoint path (default: /rpc)
+  --sse-path <path>    HTTP SSE events endpoint path (default: /events)
+  --health-path <path> HTTP health check endpoint path (default: /health)
+  --help               Show help message
+```
+
+### Server API Endpoints (HTTP Transport)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/rpc` | POST | JSON-RPC 2.0 endpoint |
+| `/events` | GET | Server-Sent Events stream |
+| `/health` | GET | Health check endpoint |
+
+## Example Client Features
+
+The `mcp_example_client` demonstrates:
+
+| Feature | Description |
+|---------|-------------|
+| **Protocol initialization** | MCP handshake and capability negotiation |
+| **Resource listing** | Discover and read server resources |
+| **Tool execution** | Call tools with parameters |
+| **Prompt retrieval** | Get prompt templates with arguments |
+| **Notifications** | Send log, progress, heartbeat notifications |
+| **Batch requests** | Send multiple requests concurrently |
+| **Connection pooling** | Efficient connection reuse |
+
+### Client Command Line Options
+
+```
+Usage: mcp_example_client [options]
+
+Options:
+  --host <hostname>    Server hostname (default: localhost)
+  --port <port>        Server port (default: 3000)
+  --transport <type>   Transport: http, stdio, websocket (default: http)
+  --demo               Run feature demonstrations
+  --metrics            Show detailed metrics
+  --verbose            Enable verbose logging
+  --pool-size <n>      Connection pool size (default: 5)
+  --max-retries <n>    Maximum retry attempts (default: 3)
+  --workers <n>        Number of worker threads (default: 2)
+  --quiet              Reduce output (only show errors)
+  --help               Show help message
+```
+
+## Example Session
+
+### Terminal 1: Start Server
+```bash
+$ ./build/examples/mcp/mcp_example_server --verbose
+
+[INFO] MCP Server - Enterprise Edition
+[INFO] Primary transport: http
+[INFO] Listen address: http://0.0.0.0:3000
+[INFO] Server started successfully!
+[INFO] HTTP/SSE Endpoints:
+[INFO]   JSON-RPC: POST http://0.0.0.0:3000/rpc
+[INFO]   SSE Events: GET http://0.0.0.0:3000/events
+[INFO]   Health: GET http://0.0.0.0:3000/health
+[INFO] Press Ctrl+C to shutdown
+```
+
+### Terminal 2: Run Client
+```bash
+$ ./build/examples/mcp/mcp_example_client --demo --verbose
+
+[INFO] MCP Client - Enterprise Edition
+[INFO] Transport: http
+[INFO] Server URI: http://localhost:3000
+[INFO] Connected successfully!
+[INFO] Protocol initialized: 2025-06-18
+[INFO] Server: mcp-enterprise-server v2.0.0
+
+[TEST 1] Protocol Initialization
+  [PASS] Protocol initialization
+
+[TEST 2] Custom Request Handlers
+  [PASS] ping handler - returns pong=true
+  [PASS] echo handler
+  [PASS] server/status handler
+  [PASS] health handler
+
+[TEST 3] Resources
+  Found 3 resources
+    - Server Configuration (config://server/settings)
+    - Server Event Log (log://server/events)
+    - Server Metrics (metrics://server/stats)
+
+[TEST 4] Tools
+  Found 3 tools
+    - calculator: Simple calculator for basic arithmetic
+    - database_query: Execute database queries
+    - system_info: Get system information
+  add(10, 5) = 15.000000
+  [PASS] calculator: add operation
+
+[TEST 5] Prompts
+  Found 3 prompts
+    - code_review
+    - data_analysis
+    - greeting
+
+TEST SUMMARY: 28 passed, 0 failed
+```
 
 ## Filter Configuration
 
-### Configuration File Structure
+For advanced users, the server supports configurable filter chains via JSON configuration files.
 
-Filter configurations are defined in JSON files with the following structure:
-
-```json
-{
-  "filter_chains": [
-    {
-      "name": "server",
-      "filters": [
-        {
-          "type": "filter_type",
-          "name": "filter_instance_name",
-          "config": {
-            // Filter-specific configuration
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Available Filter Types
-
-#### 1. JSON-RPC Protocol Filter (`json_rpc`)
-
-Handles JSON-RPC 2.0 protocol processing.
-
-**Configuration:**
-```json
-{
-  "type": "json_rpc",
-  "name": "json_rpc_protocol",
-  "config": {
-    "mode": "server",           // "server" or "client"
-    "use_framing": false,        // Enable length-prefixed framing
-    "max_message_size": 1048576, // Max message size in bytes
-    "batch_enabled": true,       // Enable batch requests
-    "batch_limit": 100,          // Max requests in a batch
-    "strict_mode": true,         // Enforce strict JSON-RPC 2.0
-    "timeout_ms": 30000,         // Request timeout in milliseconds
-    "validate_params": true      // Validate method parameters
-  }
-}
-```
-
-#### 2. HTTP Codec Filter (`http_codec`)
-
-Processes HTTP/1.1 protocol layer.
-
-**Configuration:**
-```json
-{
-  "type": "http_codec",
-  "name": "http_parser",
-  "config": {
-    "mode": "server",            // "server" or "client"
-    "max_header_size": 8192,     // Max HTTP header size in bytes
-    "max_body_size": 1048576,    // Max HTTP body size in bytes
-    "timeout_ms": 30000,         // Request timeout
-    "keepalive": true            // Enable HTTP keep-alive
-  }
-}
-```
-
-#### 3. Server-Sent Events Filter (`sse_codec`)
-
-Handles SSE protocol for event streaming.
-
-**Configuration:**
-```json
-{
-  "type": "sse_codec",
-  "name": "sse_parser",
-  "config": {
-    "max_event_size": 65536,     // Max event size in bytes
-    "reconnect_time_ms": 3000,   // Client reconnection time
-    "enable_compression": false,  // Enable compression
-    "keepalive_interval_ms": 15000 // Keepalive ping interval
-  }
-}
-```
-
-#### 4. Metrics Filter (`metrics`)
-
-Collects performance metrics and statistics.
-
-**Configuration:**
-```json
-{
-  "type": "metrics",
-  "name": "metrics_collector",
-  "config": {
-    "track_methods": true,       // Track per-method metrics
-    "track_errors": true,        // Track error rates
-    "report_interval_ms": 5000,  // Reporting interval
-    "histogram_buckets": [0.001, 0.01, 0.1, 1, 10], // Latency buckets
-    "export_format": "prometheus" // Metrics format
-  }
-}
-```
-
-#### 5. Rate Limiting Filter (`rate_limit`)
-
-Enforces request rate limits.
-
-**Configuration:**
-```json
-{
-  "type": "rate_limit",
-  "name": "rate_limiter",
-  "config": {
-    "max_requests_per_second": 100,  // Global rate limit
-    "burst_size": 200,                // Token bucket burst size
-    "strategy": "token_bucket",       // Rate limiting strategy
-    "per_method_limits": {            // Per-method limits (optional)
-      "initialize": 10,
-      "shutdown": 10,
-      "process": 1000
-    }
-  }
-}
-```
-
-#### 6. Circuit Breaker Filter (`circuit_breaker`)
-
-Provides fault tolerance through circuit breaking.
-
-**Configuration:**
-```json
-{
-  "type": "circuit_breaker",
-  "name": "circuit_breaker",
-  "config": {
-    "failure_threshold": 5,          // Failures to open circuit
-    "success_threshold": 2,          // Successes to close circuit
-    "timeout_ms": 1000,              // Call timeout
-    "reset_timeout_ms": 5000,        // Time before retry
-    "half_open_max_requests": 3,     // Requests in half-open state
-    "error_percentage_threshold": 50, // Error % to open circuit
-    "min_request_count": 10          // Min requests for % calculation
-  }
-}
-```
-
-## Configuration Examples
-
-### Minimal Configuration (JSON-RPC Only)
+### Basic Configuration (stdio transport)
 
 `minimal_config.json`:
 ```json
@@ -207,19 +201,14 @@ Provides fault tolerance through circuit breaking.
 }
 ```
 
-**Usage:**
+Usage:
 ```bash
 ./mcp_example_server --transport stdio --config minimal_config.json
 ```
 
-This configuration is ideal for:
-- Direct stdio communication
-- Simple JSON-RPC processing
-- No HTTP/SSE overhead
+### Production Configuration (HTTP/SSE with QoS)
 
-### Full Protocol Stack Configuration
-
-`full_config.json`:
+`production_config.json`:
 ```json
 {
   "filter_chains": [
@@ -243,55 +232,6 @@ This configuration is ideal for:
           }
         },
         {
-          "type": "http_codec",
-          "name": "http_parser",
-          "config": {
-            "mode": "server",
-            "max_header_size": 8192
-          }
-        },
-        {
-          "type": "sse_codec",
-          "name": "sse_parser",
-          "config": {
-            "max_event_size": 65536
-          }
-        },
-        {
-          "type": "json_rpc",
-          "name": "json_rpc_protocol",
-          "config": {
-            "mode": "server",
-            "use_framing": true
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Usage:**
-```bash
-./mcp_example_server --transport http_sse --config full_config.json --port 8080
-```
-
-This configuration provides:
-- Full HTTP/SSE/JSON-RPC protocol stack
-- Metrics collection
-- Rate limiting
-- Suitable for production deployments
-
-### QoS-Focused Configuration
-
-`qos_config.json`:
-```json
-{
-  "filter_chains": [
-    {
-      "name": "server",
-      "filters": [
-        {
           "type": "circuit_breaker",
           "name": "circuit_breaker",
           "config": {
@@ -300,27 +240,10 @@ This configuration provides:
           }
         },
         {
-          "type": "rate_limit",
-          "name": "rate_limiter",
-          "config": {
-            "max_requests_per_second": 50,
-            "burst_size": 100
-          }
-        },
-        {
-          "type": "metrics",
-          "name": "metrics_collector",
-          "config": {
-            "track_methods": true,
-            "track_errors": true
-          }
-        },
-        {
           "type": "json_rpc",
           "name": "json_rpc_protocol",
           "config": {
-            "mode": "server",
-            "use_framing": false
+            "mode": "server"
           }
         }
       ]
@@ -329,127 +252,41 @@ This configuration provides:
 }
 ```
 
-This configuration emphasizes:
-- Fault tolerance with circuit breaking
-- Rate limiting for resource protection
-- Comprehensive metrics collection
+### Available Filter Types
 
-## Filter Chain Processing Order
+| Filter | Description |
+|--------|-------------|
+| `json_rpc` | JSON-RPC 2.0 protocol processing |
+| `http_codec` | HTTP/1.1 protocol handling |
+| `sse_codec` | Server-Sent Events processing |
+| `metrics` | Performance metrics collection |
+| `rate_limit` | Token bucket rate limiting |
+| `circuit_breaker` | Fault tolerance circuit breaker |
 
-Filters are processed in the order they appear in the configuration:
+## Other Examples
 
-1. **Inbound Request Flow**: First filter → Last filter
-2. **Outbound Response Flow**: Last filter → First filter
-
-Example with full stack:
-```
-Inbound:  Request → Metrics → RateLimit → HTTP → SSE → JSON-RPC → Application
-Outbound: Application → JSON-RPC → SSE → HTTP → RateLimit → Metrics → Response
-```
-
-## Transport-Specific Recommendations
-
-### Stdio Transport
-- Use minimal configuration (JSON-RPC only)
-- Set `use_framing: false` for newline-delimited messages
-- Ideal for command-line tools and scripts
-
-### TCP Transport
-- Can use any filter configuration
-- Consider adding rate limiting for protection
-- Add metrics for monitoring
-
-### HTTP/SSE Transport
-- Requires full protocol stack (HTTP + SSE + JSON-RPC)
-- Always include http_codec and sse_codec filters
-- Set `use_framing: false` as SSE handles message boundaries
-
-## Monitoring and Debugging
-
-### Verbose Mode
-
-Enable detailed logging:
-```bash
-./mcp_example_server --config full_config.json --verbose
-```
-
-### Configuration Validation
-
-The server validates configuration on startup and reports:
-- Number of filters loaded
-- Filter types and names
-- Configuration errors
-
-Example output:
-```
-[CONFIG] Found server filter chain configuration
-[CONFIG] Filter chain will include 5 filters:
-[CONFIG]   - metrics
-[CONFIG]   - rate_limit
-[CONFIG]   - http_codec
-[CONFIG]   - sse_codec
-[CONFIG]   - json_rpc (framing: enabled)
-```
-
-### Runtime Behavior
-
-Filters log their activity when verbose mode is enabled:
-```
-[JSON-RPC-FILTER] Created JsonRpcProtocolFilter - mode: server, framing: disabled
-[JSON-RPC-FILTER] Configuration applied - framing: disabled
-[JSON-RPC-FILTER] onData called - buffer size: 45, end_stream: false
-```
-
-## Best Practices
-
-1. **Start Simple**: Begin with minimal configuration and add filters as needed
-2. **Order Matters**: Place QoS filters (metrics, rate_limit) before protocol filters
-3. **Transport Matching**: Ensure filter chain matches transport requirements
-4. **Resource Limits**: Always configure appropriate size and rate limits
-5. **Monitoring**: Include metrics filter in production deployments
-6. **Testing**: Test configuration changes in development before production
+| Example | Description |
+|---------|-------------|
+| `mcp_example_server_enhanced.cc` | Extended server with additional features |
+| `mcp_https_example.cc` | HTTPS/TLS server example |
+| `mcp_config_example_server.cc` | Configuration-driven server |
 
 ## Troubleshooting
 
-### Common Issues
+### Connection Refused
+- Ensure server is running before starting client
+- Check port is not in use: `lsof -i :3000`
+- Verify firewall allows connections
 
-1. **"Filter type not found"**: Ensure filter type is correctly spelled
-2. **"Invalid configuration"**: Check JSON syntax and required fields
-3. **"Connection refused"**: Verify port is not in use and transport matches client
-4. **"Parse error"**: Validate JSON structure and data types
+### Parse Errors
+- Enable verbose mode (`--verbose`) to see raw messages
+- Check JSON syntax in configuration files
 
-### Configuration Tips
-
-- Use JSON validators to check syntax
-- Start with provided example configurations
-- Enable verbose mode for debugging
-- Check server logs for detailed error messages
-
-## Advanced Usage
-
-### Custom Filter Development
-
-To add custom filters:
-1. Implement the filter following the Filter interface
-2. Register with FilterRegistry
-3. Add configuration schema
-4. Include in filter chain configuration
-
-### Dynamic Reconfiguration
-
-Note: Hot reload is not currently supported. To change configuration:
-1. Stop the server (Ctrl+C)
-2. Modify configuration file
-3. Restart server with new configuration
-
-## Examples Directory
-
-This directory contains:
-- `minimal_config.json` - Basic JSON-RPC only configuration
-- `full_config.json` - Complete protocol stack with QoS filters
-- `mcp_example_server.cc` - Server implementation source
-- `mcp_example_client.cc` - Example client implementation
+### Signal Handling
+- Use Ctrl+C for graceful shutdown
+- Server prints statistics before exit
 
 ## Related Documentation
 
-- [MCP Protocol Specification](https://modelcontextprotocol.io)
+- [Main README](../../README.md) - Project overview and installation
+- [MCP Protocol](https://modelcontextprotocol.io) - Protocol specification
