@@ -4,20 +4,21 @@
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-green.svg)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
+[![Multi-Language](https://img.shields.io/badge/Multi--Language-Python%20%7C%20Go%20%7C%20Rust%20%7C%20Java%20%7C%20C%23%20and%20more-orange.svg)]()
 
-**The most comprehensive C++ implementation of the Model Context Protocol (MCP)** for building AI-powered applications. Production-ready SDK with enterprise features including multi-transport support, connection pooling, and cross-language bindings.
+**The most comprehensive C++ implementation of the Model Context Protocol (MCP)** for building AI-powered applications. Production-ready SDK with enterprise features including multi-transport support, connection pooling, and **multi-language bindings via C API (Python, TypeScript, Go, Rust, Java, C#, Ruby and more)**.
 
 ⭐ **Please give a star if you find this useful!**
 
 ## Table of Contents
 
 - [Architecture](#architecture)
+- [Cross-Language Support](#cross-language-support)
 - [What is MCP?](#what-is-mcp)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Examples](#examples)
 - [Installation](#installation)
-- [Cross-Language Support](#cross-language-support)
 - [Documentation](#documentation)
 - [FAQ](#faq)
 - [Contributing](#contributing)
@@ -61,6 +62,26 @@
 1. **Thread-Safe Dispatcher Model** - All I/O in dispatcher threads, no complex synchronization
 2. **Filter Chain Architecture** - Modular, composable request processing
 3. **Production Patterns** - Connection pooling, circuit breaker, graceful shutdown
+
+## Cross-Language Support
+
+**Use MCP C++ SDK from any programming language** via the stable C API (`libgopher_mcp_c`):
+
+| Language | Binding Type | Features |
+|----------|--------------|----------|
+| **Python** | ctypes/cffi | Async support, type hints |
+| **TypeScript/Node.js** | N-API | High performance, native async |
+| **Go** | CGO | Goroutine-safe wrappers |
+| **Rust** | FFI | Safe wrappers, ownership guarantees |
+| **Java** | JNI | Automatic resource management |
+| **C#/.NET** | P/Invoke | Async/await support |
+| **Ruby** | Native extension | GC integration |
+
+```bash
+# Installation paths
+Headers: /usr/local/include/gopher-mcp/mcp/c_api/
+Library: /usr/local/lib/libgopher_mcp_c.{so,dylib,dll}
+```
 
 ## What is MCP?
 
@@ -241,24 +262,6 @@ Install [Cygwin](https://www.cygwin.com/) with these packages:
 #### Output
 - Build directory: `build-mingw/`
 - Executable: `build-mingw/examples/mcp/mcp_example_server.exe`
-
-## Cross-Language Support
-
-The C API (`libgopher_mcp_c`) provides FFI bindings for any language:
-
-```bash
-# Headers: /usr/local/include/gopher-mcp/mcp/c_api/
-# Library: /usr/local/lib/libgopher_mcp_c.{so,dylib,dll}
-```
-
-Supported languages:
-- **Python** - ctypes/cffi with async support
-- **Node.js** - N-API bindings
-- **Go** - CGO integration
-- **Rust** - Safe FFI wrappers
-- **Java** - JNI bindings
-- **C#/.NET** - P/Invoke
-- **Ruby** - Native extension
 
 ## Documentation
 
