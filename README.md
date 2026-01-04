@@ -11,17 +11,56 @@
 
 ## Table of Contents
 
+- [Architecture](#architecture)
 - [What is MCP?](#what-is-mcp)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Examples](#examples)
 - [Installation](#installation)
-- [Architecture](#architecture)
 - [Cross-Language Support](#cross-language-support)
 - [Documentation](#documentation)
 - [FAQ](#faq)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Application Layer                       │
+│         MCP Server / Client / Custom Applications           │
+├─────────────────────────────────────────────────────────────┤
+│              Cross-Language Binding Layer                   │
+│      Python │ TypeScript │ Go │ Rust │ Java │ C# │ Ruby     │
+├─────────────────────────────────────────────────────────────┤
+│                    C API (FFI Layer)                        │
+│       libgopher_mcp_c: Opaque Handles │ Memory Safety       │
+│        RAII Guards │ Type Safety │ Error Handling           │
+├─────────────────────────────────────────────────────────────┤
+│                      Protocol Layer                         │
+│           MCP JSON-RPC Protocol Implementation              │
+│          Request/Response/Notification Handling             │
+├─────────────────────────────────────────────────────────────┤
+│                    Filter Chain Layer                       │
+│      HTTP Codec │ SSE Codec │ Routing │ Rate Limiting       │
+│      Circuit Breaker │ Metrics │ Backpressure │ Auth        │
+├─────────────────────────────────────────────────────────────┤
+│                    Transport Layer                          │
+│      Stdio │ HTTP(s)+SSE │ WebSocket │ TCP │ Redis │ P2P    │
+├─────────────────────────────────────────────────────────────┤
+│                     Network Layer                           │
+│      Connection Management │ Listener │ Socket Interface    │
+├─────────────────────────────────────────────────────────────┤
+│                  Event Loop & Dispatcher                    │
+│      Libevent Integration │ Timer Management │ I/O Events   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Design Principles
+
+1. **Thread-Safe Dispatcher Model** - All I/O in dispatcher threads, no complex synchronization
+2. **Filter Chain Architecture** - Modular, composable request processing
+3. **Production Patterns** - Connection pooling, circuit breaker, graceful shutdown
 
 ## What is MCP?
 
@@ -193,36 +232,6 @@ Install [Cygwin](https://www.cygwin.com/) with these packages:
 #### Output
 - Build directory: `build-mingw/`
 - Executable: `build-mingw/examples/mcp/mcp_example_server.exe`
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Application Layer                       │
-│           MCP Server / Client / Custom Applications         │
-├─────────────────────────────────────────────────────────────┤
-│              Cross-Language Binding Layer (C API)           │
-│      Python │ TypeScript │ Go │ Rust │ Java │ C# │ Ruby     │
-├─────────────────────────────────────────────────────────────┤
-│                      Protocol Layer                         │
-│             MCP JSON-RPC Request/Response/Notification      │
-├─────────────────────────────────────────────────────────────┤
-│                    Filter Chain Layer                       │
-│    HTTP Codec │ SSE │ Rate Limiting │ Circuit Breaker       │
-├─────────────────────────────────────────────────────────────┤
-│                    Transport Layer                          │
-│         Stdio │ HTTP+SSE │ WebSocket │ TCP │ TLS            │
-├─────────────────────────────────────────────────────────────┤
-│                  Event Loop & Dispatcher                    │
-│          Libevent Integration │ Timer │ I/O Events          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Design Principles
-
-1. **Thread-Safe Dispatcher Model** - All I/O in dispatcher threads, no complex synchronization
-2. **Filter Chain Architecture** - Modular, composable request processing
-3. **Production Patterns** - Connection pooling, circuit breaker, graceful shutdown
 
 ## Cross-Language Support
 
