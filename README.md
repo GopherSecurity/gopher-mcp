@@ -253,11 +253,23 @@ Supported languages:
 
 ## Documentation
 
+### MCP C++ Documentation
+
 - [Examples Guide](examples/mcp/README.md) - Working server and client examples
+
+### MCP CPP Core Components
+
+- [MCP Protocol in C++](docs/mcp_protocol.md) - Model Context Protocol implementation details
 - [Filter Chain](docs/filter_chain.md) - Processing pipeline architecture
 - [Transport Layer](docs/transport_layer.md) - Transport implementations
-- [Event Loop Design](docs/event_loop_design.md) - Async architecture
-- [MCP Serialization](docs/MCP_serialization_coverage.md) - JSON serialization
+- [Network Layer](docs/network_layer.md) - Connection management and socket abstraction
+
+### Design Documents
+
+- [Event Loop Design](docs/event_loop_design.md) - Event-driven architecture and dispatcher design
+- [Filter Usage Guide](docs/filter_usage_guide.md) - Comprehensive guide for using and creating filters
+- [CTAD Alternatives](docs/ctad_alternatives.md) - Class Template Argument Deduction alternatives for C++14
+- [MCP Serialization Coverage](docs/MCP_serialization_coverage.md) - JSON serialization implementation details
 
 ## FAQ
 
@@ -292,6 +304,10 @@ Yes. The SDK includes connection pooling, circuit breakers, rate limiting, TLS s
 ### How do I contribute?
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Issues and pull requests welcome!
+
+## Keywords & Search Terms
+
+`MCP C++`, `MCP CPP`, `Model Context Protocol C++`, `MCP SDK`, `C++ MCP`, `CPP MCP`, `Model Context Protocol CPP`, `MCP implementation`, `AI model integration C++`, `LLM integration C++`, `MCP server C++`, `MCP client C++`, `Model Context Protocol SDK`, `C++ AI SDK`, `Enterprise MCP`, `Production MCP C++`
 
 ## Contributing
 
