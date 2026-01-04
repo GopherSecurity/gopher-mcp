@@ -7,6 +7,8 @@
 
 **The most comprehensive C++ implementation of the Model Context Protocol (MCP)** for building AI-powered applications. Production-ready SDK with enterprise features including multi-transport support, connection pooling, and cross-language bindings.
 
+⭐ **Please give a star if you find this useful!**
+
 ## Table of Contents
 
 - [What is MCP?](#what-is-mcp)
@@ -54,6 +56,9 @@ This MCP C++ SDK implements the [official MCP specification](https://modelcontex
 ### Build and Install
 
 ```bash
+# Show all available commands
+make help
+
 # Build
 make
 
@@ -167,9 +172,27 @@ cmake -B build -DCMAKE_INSTALL_PREFIX=~/.local
 
 ### Windows (Cygwin + MinGW)
 
+Building on Windows requires Cygwin with MinGW-w64 toolchain:
+
+#### Prerequisites
+Install [Cygwin](https://www.cygwin.com/) with these packages:
+- `make`, `cmake` - Build tools
+- `mingw64-x86_64-gcc-g++` - MinGW C++ compiler
+- `mingw64-x86_64-libevent` - Event library
+- `mingw64-x86_64-openssl` - SSL/TLS library
+
+#### Build Commands
 ```bash
-./build-mingw.sh
+# From Cygwin bash shell
+./build-mingw.sh           # Release build (default)
+./build-mingw.sh debug     # Debug build
+./build-mingw.sh release   # Release build
+./build-mingw.sh clean     # Clean build directory
 ```
+
+#### Output
+- Build directory: `build-mingw/`
+- Executable: `build-mingw/examples/mcp/mcp_example_server.exe`
 
 ## Architecture
 
