@@ -497,6 +497,8 @@ VoidResult McpConnectionManager::sendResponse(
 void McpConnectionManager::close() {
   // Close active connection if any
   if (active_connection_) {
+    // Remove ourselves as callbacks first to prevent use-after-free
+    active_connection_->removeConnectionCallbacks(*this);
     active_connection_->close(network::ConnectionCloseType::FlushWrite);
     active_connection_.reset();
   }
