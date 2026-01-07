@@ -123,8 +123,15 @@ void ConnectionImplBase::closeConnectionImmediately() {
 }
 
 void ConnectionImplBase::raiseConnectionEvent(ConnectionEvent event) {
-  for (auto* cb : callbacks_) {
-    cb->onEvent(event);
+  // Make a copy of callbacks to avoid iterator invalidation if a callback removes itself
+  auto callbacks_copy = callbacks_;
+  for (auto* cb : callbacks_copy) {
+    // Check if callback is still in the list (might have been removed)
+    if (std::find(callbacks_.begin(), callbacks_.end(), cb) != callbacks_.end()) {
+      if (cb) {  // Null check
+        cb->onEvent(event);
+      }
+    }
   }
 }
 
@@ -295,7 +302,10 @@ ConnectionImpl::ConnectionImpl(event::Dispatcher& dispatcher,
   // Set initial state
   connected_ = connected;
   connecting_ = !connected;
-  state_ = connected ? ConnectionState::Open : ConnectionState::Closed;
+  // CRITICAL FIX: Don't start in Closed state when connecting!
+  // If we're connecting, the state should be Open (not yet closed)
+  // The connection will transition to Closed only after an actual close event
+  state_ = ConnectionState::Open;
 
   // Set up transport socket callbacks
   if (transport_socket_) {
@@ -762,6 +772,19 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
    * - Closed: Socket closed/error → closeSocket()
    */
 
+  // CRITICAL FIX: Check if connection is already closed
+  // This prevents processing events after closeSocket() has been called
+  // Events may still fire from libevent queue even after file_event_ is reset
+  if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
+#ifndef NDEBUG
+    std::cerr << "[CONN] onFileEvent(): ignoring events on closed connection, fd="
+              << (socket_ ? socket_->ioHandle().fd() : -1) 
+              << " state=" << static_cast<int>(state_)
+              << " (0=Open, 1=Closing, 2=Closed)" << std::endl;
+#endif
+    return;
+  }
+
   // Check for immediate error first (following reference pattern)
   if (immediate_error_event_ == ConnectionEvent::LocalClose ||
       immediate_error_event_ == ConnectionEvent::RemoteClose) {
@@ -863,7 +886,13 @@ void ConnectionImpl::onWriteReady() {
       connecting_ = false;
       connected_ = false;
       immediate_error_event_ = ConnectionEvent::RemoteClose;
-      closeSocket(ConnectionEvent::RemoteClose);
+      // CRITICAL FIX: Defer the close to avoid destroying FileEventImpl during its callback
+      // Post the close to the dispatcher to execute after the current event completes
+      dispatcher_.post([this]() {
+        if (state_ != ConnectionState::Closed && state_ != ConnectionState::Closing) {
+          closeSocket(ConnectionEvent::RemoteClose);
+        }
+      });
       return;
     }
 
@@ -954,22 +983,36 @@ void ConnectionImpl::closeThroughFilterManager(ConnectionEvent close_type) {
 }
 
 void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
+  // Check if socket is null and handle gracefully
+  if (!socket_) {
+    GOPHER_LOG_WARN("closeSocket called with null socket, setting state to Closed");
+    state_ = ConnectionState::Closed;
+    return;
+  }
+  
   GOPHER_LOG_TRACE("closeSocket(): fd={} close_type={} state={}",
                    socket_->ioHandle().fd(), static_cast<int>(close_type),
                    static_cast<int>(state_));
-  if (state_ == ConnectionState::Closed) {
+  
+  // CRITICAL FIX: Check both Closed and Closing states
+  // Closing state indicates we're in the process of closing
+  if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
+    GOPHER_LOG_TRACE("closeSocket(): already closed/closing, returning");
     return;
   }
 
-  // Set state to Closed immediately to prevent re-entrancy
-  state_ = ConnectionState::Closed;
+  // Set state to Closing first to prevent re-entrancy
+  // This prevents the infinite loop where events keep firing
+  state_ = ConnectionState::Closing;
 
   // Transition state machine to Closed
   if (state_machine_) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::SocketClosed);
   }
 
-  // Disable all file events
+  // CRITICAL FIX: Disable and reset file event carefully
+  // We may be called from within the event callback, so we need to be careful
+  // Reset the pointer first to prevent re-entrancy, then the destructor will handle cleanup
   file_event_.reset();
 
   // Cancel timers
@@ -980,9 +1023,15 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
     transport_connect_timer_->disableTimer();
   }
 
-  // Close transport socket
+  // Close transport socket safely
   if (transport_socket_) {
-    transport_socket_->closeSocket(close_type);
+    try {
+      transport_socket_->closeSocket(close_type);
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Exception in transport_socket_->closeSocket: " << e.what() << std::endl;
+    } catch (...) {
+      std::cerr << "[ERROR] Unknown exception in transport_socket_->closeSocket" << std::endl;
+    }
   }
 
   // Drain buffers (reference pattern)
@@ -990,10 +1039,15 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
   write_buffer_.drain(write_buffer_.length());
   read_buffer_.drain(read_buffer_.length());
 
-  // Close actual socket
-  socket_->close();
+  // Close actual socket (with null check)
+  if (socket_) {
+    socket_->close();
+  }
+  
+  // Now set final state to Closed
+  state_ = ConnectionState::Closed;
 
-  // Raise close event
+  // Raise close event (callbacks should be safe to call now)
   raiseConnectionEvent(close_type);
 }
 

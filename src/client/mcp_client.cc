@@ -221,7 +221,24 @@ VoidResult McpClient::connect(const std::string& uri) {
 
 // Disconnect from server
 void McpClient::disconnect() {
-  // Trigger protocol shutdown
+  // Don't create timers if we're shutting down
+  if (shutting_down_) {
+    return;
+  }
+  
+  // Check if we're in dispatcher thread or post to it
+  if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
+    // We're not in dispatcher thread, post the disconnect
+    main_dispatcher_->post([this]() {
+      if (protocol_state_machine_ && !shutting_down_) {
+        protocol_state_machine_->handleEvent(
+            protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
+      }
+    });
+    return;
+  }
+  
+  // We're in dispatcher thread or no dispatcher, proceed directly
   if (protocol_state_machine_) {
     protocol_state_machine_->handleEvent(
         protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
@@ -244,10 +261,21 @@ void McpClient::shutdown() {
   }
   shutting_down_ = true;
 
-  // Disconnect if connected
-  if (connected_) {
-    disconnect();
+  // Close connection directly without triggering state machine
+  if (connection_manager_) {
+    if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
+      // Post to dispatcher thread
+      main_dispatcher_->post([this]() {
+        if (connection_manager_) {
+          connection_manager_->close();
+        }
+      });
+    } else {
+      connection_manager_->close();
+    }
   }
+  
+  connected_ = false;
 
   // Request dispatcher shutdown
   shutdown_requested_ = true;
@@ -938,10 +966,13 @@ std::future<ListToolsResult> McpClient::listTools(
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
       } else if (response.result.has_value()) {
-        // Extract tools vector from response and wrap in ListToolsResult
-        // ResponseResult variant contains std::vector<Tool>
+        // Extract tools from response
+        // The response.result contains ListToolsResult
         ListToolsResult result;
-        if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+        if (holds_alternative<ListToolsResult>(response.result.value())) {
+          result = get<ListToolsResult>(response.result.value());
+        } else if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+          // Backward compatibility: if it's a vector of tools directly
           result.tools = get<std::vector<Tool>>(response.result.value());
         }
         result_promise->set_value(result);
