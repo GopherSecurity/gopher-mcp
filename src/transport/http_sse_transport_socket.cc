@@ -47,8 +47,16 @@ HttpSseTransportSocket::~HttpSseTransportSocket() {
   }
 
   // Close underlying transport if still open
-  if (underlying_transport_ && connected_) {
-    underlying_transport_->closeSocket(network::ConnectionEvent::LocalClose);
+  if (underlying_transport_) {
+    try {
+      underlying_transport_->closeSocket(network::ConnectionEvent::LocalClose);
+    } catch (const std::exception& e) {
+      // Log but don't propagate exception during destructor
+      std::cerr << "[ERROR] Exception during transport close: " << e.what() << std::endl;
+    } catch (...) {
+      // Catch any other exception to prevent destructor crash
+      std::cerr << "[ERROR] Unknown exception during transport close" << std::endl;
+    }
   }
 }
 
@@ -176,9 +184,17 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
     // Filter manager doesn't have onConnectionEvent, skip for now
   }
 
-  // Close underlying transport
+  // Close underlying transport safely
   if (underlying_transport_) {
-    underlying_transport_->closeSocket(event);
+    try {
+      underlying_transport_->closeSocket(event);
+    } catch (const std::exception& e) {
+      std::cerr << "[ERROR] Exception in underlying transport closeSocket: " << e.what() << std::endl;
+    } catch (...) {
+      std::cerr << "[ERROR] Unknown exception in underlying transport closeSocket" << std::endl;
+    }
+    // Clear the transport pointer to prevent double-close
+    underlying_transport_.reset();
   }
 
   // Notify callbacks
