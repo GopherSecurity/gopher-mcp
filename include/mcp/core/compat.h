@@ -10,11 +10,9 @@
 // Check C++ version and feature availability
 // Can be overridden by CMake definition
 #ifndef MCP_USE_STD_OPTIONAL_VARIANT
-#if defined(__cplusplus) && __cplusplus >= 201703L
-#define MCP_USE_STD_OPTIONAL_VARIANT 1
-#else
+// Force C++14 compatibility since the project uses C++14
+// Even if compiler supports C++17, we need to use custom implementations
 #define MCP_USE_STD_OPTIONAL_VARIANT 0
-#endif
 #endif
 
 #define MCP_HAS_STD_OPTIONAL MCP_USE_STD_OPTIONAL_VARIANT
