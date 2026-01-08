@@ -16,7 +16,6 @@
 #include <string>
 
 #include "mcp/core/compat.h"
-
 #include "mcp/json/json_serialization.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
