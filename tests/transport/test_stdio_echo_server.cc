@@ -167,7 +167,7 @@ class StdioEchoServerTest : public ::testing::Test {
         add_metadata(result, "has_params", true);
       }
 
-      response.result = make_optional(jsonrpc::ResponseResult(result));
+      response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
       connection_manager_->sendResponse(response);
     }
 
@@ -186,7 +186,7 @@ class StdioEchoServerTest : public ::testing::Test {
 
       Metadata params;
       add_metadata(params, "original", notification.method);
-      echo.params = make_optional(params);
+      echo.params = mcp::make_optional(params);
 
       connection_manager_->sendNotification(echo);
     }
@@ -549,7 +549,7 @@ TEST_F(StdioEchoServerTest, DISABLED_LargeMessageHandling) {
   jsonrpc::Request request;
   request.id = RequestId(1);
   request.method = "test.large";
-  request.params = make_optional(large_params);
+  request.params = mcp::make_optional(large_params);
 
   // Serialize and send
   auto json_result = json::to_json(request);
