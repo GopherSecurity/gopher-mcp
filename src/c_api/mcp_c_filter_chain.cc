@@ -14,8 +14,6 @@
 #include <memory>
 #include <mutex>
 #include <queue>
-
-#include "mcp/core/compat.h"
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -31,6 +29,7 @@
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/c_api/mcp_c_types_api.h"
 #include "mcp/config/types.h"
+#include "mcp/core/compat.h"
 #include "mcp/filter/circuit_breaker_filter.h"
 #include "mcp/filter/filter_chain_assembler.h"
 #include "mcp/filter/filter_chain_event_hub.h"
