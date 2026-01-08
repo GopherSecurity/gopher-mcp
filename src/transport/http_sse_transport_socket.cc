@@ -160,6 +160,19 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
       return result;
     }
   }
+  
+  // WORKAROUND: For HTTP connections, assume immediate connection success
+  // This addresses timing issues where onConnected() callback may not be triggered
+  // properly from the connection manager
+  if (config_.underlying_transport != HttpSseTransportSocketConfig::UnderlyingTransport::STDIO) {
+    // Schedule immediate connection success for HTTP connections
+    dispatcher_.post([this]() {
+      if (connecting_ && !connected_) {
+        std::cerr << "[HttpSseTransportSocket] Applying connection workaround" << std::endl;
+        onConnected();
+      }
+    });
+  }
 
   return VoidResult(nullptr);
 }

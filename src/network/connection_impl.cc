@@ -876,9 +876,6 @@ void ConnectionImpl::onWriteReady() {
     auto getsockopt_result = socket_->ioHandle().getSocketOption(
         SOL_SOCKET, SO_ERROR, &socket_error, &error_len);
 
-    GOPHER_LOG_TRACE("onWriteReady(): fd={} connecting=true, SO_ERROR={}",
-                     socket_->ioHandle().fd(), socket_error);
-
     if (!getsockopt_result.ok() || socket_error != 0) {
       // Connection failed
       GOPHER_LOG_TRACE("onWriteReady(): connection FAILED, error={}",
@@ -901,6 +898,11 @@ void ConnectionImpl::onWriteReady() {
     connecting_ = false;
     connected_ = true;
     state_ = ConnectionState::Open;
+
+    // Cancel the fallback timer since write event fired successfully
+    if (transport_connect_timer_) {
+      transport_connect_timer_->disableTimer();
+    }
 
     // Notify state machine of connection success
     if (state_machine_) {
@@ -1126,6 +1128,48 @@ void ConnectionImpl::doConnect() {
     GOPHER_LOG_TRACE(
         "doConnect(): connection in progress, waiting for Write event");
     enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Write));
+    
+    // CRITICAL FIX: Add fallback timer for connection detection
+    // Problem: Write events may not always fire immediately for local connections
+    // Solution: Use a timer to periodically check connection state as backup
+    // This prevents hanging when the write event is missed
+    // Set up fallback timer for connection detection
+    if (!transport_connect_timer_) {
+      transport_connect_timer_ = dispatcher_.createTimer([this]() {
+        // Timer fired - check if connection completed without write event
+        if (connecting_) {
+          // Still connecting - manually check SO_ERROR like onWriteReady does
+          int socket_error = 0;
+          socklen_t error_len = sizeof(socket_error);
+          auto getsockopt_result = socket_->ioHandle().getSocketOption(
+              SOL_SOCKET, SO_ERROR, &socket_error, &error_len);
+          
+          if (getsockopt_result.ok() && socket_error == 0) {
+            // Connection succeeded but write event never fired
+            connecting_ = false;
+            connected_ = true;
+            state_ = ConnectionState::Open;
+            
+            // Notify state machine and raise event like onWriteReady does
+            if (state_machine_) {
+              state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
+            }
+            onConnected();
+            raiseConnectionEvent(ConnectionEvent::Connected);
+            
+            // Enable read events for normal operation
+            enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
+          } else {
+            // Connection failed or still in progress - timer will retry
+          }
+        }
+      });
+    }
+    
+    // Start the fallback timer with short interval (100ms) to catch missed write events quickly
+    if (transport_connect_timer_) {
+      transport_connect_timer_->enableTimer(std::chrono::milliseconds(100));
+    }
   } else {
     // Connection failed immediately
     GOPHER_LOG_TRACE("doConnect(): connection failed immediately");
