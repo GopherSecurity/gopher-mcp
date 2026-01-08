@@ -1449,7 +1449,6 @@ void McpClient::coordinateProtocolState() {
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events in dispatcher context
-
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
