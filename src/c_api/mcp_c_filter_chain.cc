@@ -13,8 +13,9 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <queue>
+
+#include "mcp/core/compat.h"
 #include <sstream>
 #include <stdexcept>
 #include <thread>

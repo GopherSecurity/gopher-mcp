@@ -314,7 +314,7 @@ inline void MetricsFilter::onRequest(const jsonrpc::Request& request) {
     metrics_.method_counts[request.method]++;
   }
 
-  if (holds_alternative<int>(request.id) ||
+  if (holds_alternative<int64_t>(request.id) ||
       holds_alternative<std::string>(request.id)) {
     std::lock_guard<std::mutex> lock(request_mutex_);
     pending_requests_[requestIdToString(request.id)] =
@@ -515,7 +515,7 @@ inline void MetricsFilter::startReportingTimer() {
 
 inline std::string MetricsFilter::requestIdToString(const RequestId& id) const {
   return visit(make_overload([](const std::string& s) { return s; },
-                             [](int i) { return std::to_string(i); }),
+                             [](int64_t i) { return std::to_string(i); }),
                id);
 }
 
