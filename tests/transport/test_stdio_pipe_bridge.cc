@@ -335,7 +335,7 @@ class MockBridgeEchoServer : public McpProtocolCallbacks {
       add_metadata(result, "has_params", true);
     }
 
-    response.result = make_optional(jsonrpc::ResponseResult(result));
+    response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 
     // Send response - this writes to the connection's write buffer
     // The data flows as follows:
@@ -364,7 +364,7 @@ class MockBridgeEchoServer : public McpProtocolCallbacks {
 
     Metadata params;
     add_metadata(params, "original", notification.method);
-    echo.params = make_optional(params);
+    echo.params = mcp::make_optional(params);
 
     connection_manager_->sendNotification(echo);
   }
@@ -572,7 +572,7 @@ TEST_F(StdioPipeBridgeTest, HandleLargeMessages) {
   jsonrpc::Request request;
   request.id = RequestId(1);
   request.method = "test.large";
-  request.params = make_optional(large_params);
+  request.params = mcp::make_optional(large_params);
 
   // Serialize and send
   auto json_result = json::to_json(request);
@@ -668,7 +668,7 @@ class MockBridgeClient : public McpProtocolCallbacks {
     request.method = method;
 
     if (!params.empty()) {
-      request.params = make_optional(params);
+      request.params = mcp::make_optional(params);
     }
 
     pending_requests_[id] = method;
@@ -689,7 +689,7 @@ class MockBridgeClient : public McpProtocolCallbacks {
     notification.method = method;
 
     if (!params.empty()) {
-      notification.params = make_optional(params);
+      notification.params = mcp::make_optional(params);
     }
 
     sent_notifications_.push_back(notification);
@@ -706,7 +706,7 @@ class MockBridgeClient : public McpProtocolCallbacks {
 
     Metadata result;
     add_metadata(result, "client_response", true);
-    response.result = make_optional(jsonrpc::ResponseResult(result));
+    response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 
     connection_manager_->sendResponse(response);
   }

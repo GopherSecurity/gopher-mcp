@@ -163,7 +163,7 @@ class StdioEchoClientTest : public ::testing::Test {
       request.method = method;
 
       if (!params.empty()) {
-        request.params = make_optional(params);
+        request.params = mcp::make_optional(params);
       }
 
       pending_requests_[id] = method;
@@ -184,7 +184,7 @@ class StdioEchoClientTest : public ::testing::Test {
       notification.method = method;
 
       if (!params.empty()) {
-        notification.params = make_optional(params);
+        notification.params = mcp::make_optional(params);
       }
 
       sent_notifications_.push_back(notification);
@@ -201,7 +201,7 @@ class StdioEchoClientTest : public ::testing::Test {
 
       Metadata result;
       add_metadata(result, "client_response", true);
-      response.result = make_optional(jsonrpc::ResponseResult(result));
+      response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 
       connection_manager_->sendResponse(response);
     }
@@ -366,7 +366,7 @@ class StdioEchoClientTest : public ::testing::Test {
             Metadata result;
             add_metadata(result, "echo", true);
             add_metadata(result, "method", request.method);
-            response.result = make_optional(jsonrpc::ResponseResult(result));
+            response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 
             auto response_json = json::to_json(response);
             writeMessage(response_json.toString());
