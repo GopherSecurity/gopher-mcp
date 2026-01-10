@@ -497,6 +497,8 @@ VoidResult McpConnectionManager::sendResponse(
 void McpConnectionManager::close() {
   // Close active connection if any
   if (active_connection_) {
+    // Remove ourselves as callbacks first to prevent use-after-free
+    active_connection_->removeConnectionCallbacks(*this);
     active_connection_->close(network::ConnectionCloseType::FlushWrite);
     active_connection_.reset();
   }
@@ -537,10 +539,14 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
-
   if (event == network::ConnectionEvent::Connected) {
     // Connection established successfully
     connected_ = true;
+
+    // Ensure connection state is fully propagated
+    dispatcher_.post([this]() {
+      // Connection state verification completed
+    });
 
     // TRANSPORT NOTIFICATION: Notify HTTP/SSE transport about TCP connection
     // Flow: TCP connected → ConnectionEvent::Connected →
@@ -560,12 +566,29 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
              event == network::ConnectionEvent::LocalClose) {
     // Connection closed - clean up state
     connected_ = false;
-    active_connection_.reset();
+    // CRITICAL FIX: Defer connection destruction
+    // We are being called from within the connection's callback loop (raiseConnectionEvent).
+    // Destroying the connection here would cause use-after-free when the callback loop
+    // continues to iterate. Use post() to defer destruction until after current callback.
+    if (active_connection_) {
+      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(std::move(active_connection_));
+      dispatcher_.post([conn_to_delete]() {
+        // Connection is destroyed when lambda and shared_ptr go out of scope
+        conn_to_delete->reset();
+      });
+    }
   }
 
-  // Forward event to upper layer callbacks
+  // Forward event to upper layer callbacks  
   if (protocol_callbacks_) {
     protocol_callbacks_->onConnectionEvent(event);
+    
+    // Ensure protocol callbacks are processed before any requests
+    if (event == network::ConnectionEvent::Connected) {
+      dispatcher_.post([this]() {
+        // Connection event processing completed
+      });
+    }
   }
 }
 

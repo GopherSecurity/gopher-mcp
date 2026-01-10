@@ -34,22 +34,26 @@ VoidResult RawBufferTransportSocket::connect(Socket& socket) {
 }
 
 void RawBufferTransportSocket::closeSocket(ConnectionEvent event) {
-  if (!callbacks_) {
-    return;
-  }
-
+  // Set shutdown flags
   switch (event) {
     case ConnectionEvent::RemoteClose:
       shutdown_read_ = true;
       break;
     case ConnectionEvent::LocalClose:
       shutdown_write_ = true;
+      shutdown_read_ = true;  // Also stop reading on local close
       break;
     default:
       break;
   }
 
-  callbacks_->raiseEvent(event);
+  // Mark as disconnected
+  connected_ = false;
+  
+  // Clear callbacks to prevent use-after-free
+  // Don't raise events back - we're being called FROM the connection during close
+  // Raising events here would create circular callbacks and potential crashes
+  callbacks_ = nullptr;
 }
 
 TransportIoResult RawBufferTransportSocket::doRead(Buffer& buffer) {
