@@ -657,6 +657,9 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
   // Update approximate time before callback
   file_event->dispatcher_.updateApproximateMonotonicTime();
 
+  // Save dispatcher reference before callback - callback may schedule deferred delete
+  auto& dispatcher = file_event->dispatcher_;
+
   uint32_t ready_events = fromLibeventEvents(events);
 
   if (file_event->trigger_ == FileTriggerType::EmulatedEdge) {
@@ -668,12 +671,22 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
       file_event->assignEvents(file_event->enabled_events_);
     }
   } else if (ready_events != 0) {
+    // CRITICAL FIX: Save values before callback since callback may disable/delete this object
+    // This happens when connection closes during event handling (e.g., connection refused)
+    // The connection code uses deferred delete, but we still need to check enabled_events_
+#if defined(__APPLE__) || defined(__FreeBSD__)
+    auto trigger = file_event->trigger_;
+#endif
+
     file_event->cb_(ready_events);
 
+    // After callback, check if event was disabled (enabled_events_ == 0)
+    // If disabled, don't try to re-add the event
 #if defined(__APPLE__) || defined(__FreeBSD__)
     // On macOS/BSD with EV_CLEAR, we need to re-add the event after it fires
     // This is necessary for edge-triggered behavior with kqueue
-    if (file_event->trigger_ == FileTriggerType::Edge &&
+    // Only do this if the event is still enabled
+    if (trigger == FileTriggerType::Edge &&
         file_event->enabled_events_ != 0) {
       file_event->assignEvents(file_event->enabled_events_);
     }
@@ -681,7 +694,7 @@ void LibeventDispatcher::FileEventImpl::eventCallback(libevent_socket_t fd,
   }
 
   // Touch watchdog after callback
-  file_event->dispatcher_.touchWatchdog();
+  dispatcher.touchWatchdog();
   (void)fd;  // Suppress unused parameter warning
 }
 
