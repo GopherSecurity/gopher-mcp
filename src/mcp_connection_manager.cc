@@ -566,7 +566,17 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
              event == network::ConnectionEvent::LocalClose) {
     // Connection closed - clean up state
     connected_ = false;
-    active_connection_.reset();
+    // CRITICAL FIX: Defer connection destruction
+    // We are being called from within the connection's callback loop (raiseConnectionEvent).
+    // Destroying the connection here would cause use-after-free when the callback loop
+    // continues to iterate. Use post() to defer destruction until after current callback.
+    if (active_connection_) {
+      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(std::move(active_connection_));
+      dispatcher_.post([conn_to_delete]() {
+        // Connection is destroyed when lambda and shared_ptr go out of scope
+        conn_to_delete->reset();
+      });
+    }
   }
 
   // Forward event to upper layer callbacks  
