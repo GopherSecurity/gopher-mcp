@@ -1012,10 +1012,21 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
     state_machine_->handleEvent(ConnectionStateMachineEvent::SocketClosed);
   }
 
-  // CRITICAL FIX: Disable and reset file event carefully
-  // We may be called from within the event callback, so we need to be careful
-  // Reset the pointer first to prevent re-entrancy, then the destructor will handle cleanup
-  file_event_.reset();
+  // CRITICAL FIX: Disable file event and defer destruction
+  // We may be called from within the event callback, so we need to defer destruction
+  // to avoid use-after-free when the callback returns to libevent code
+  if (file_event_) {
+    // First disable the event to prevent more callbacks
+    file_event_->setEnabled(0);
+    // Use post() to defer destruction until after current callback completes
+    // This ensures libevent doesn't access the event after it's destroyed
+    // Wrap in shared_ptr for copyability (required by std::function)
+    auto event_to_delete = std::make_shared<event::FileEventPtr>(std::move(file_event_));
+    dispatcher_.post([event_to_delete]() {
+      // event is destroyed when shared_ptr ref count drops to zero
+      event_to_delete->reset();
+    });
+  }
 
   // Cancel timers
   if (delayed_close_timer_) {
