@@ -31,6 +31,7 @@ add_executable(test_transport_socket network/test_transport_socket.cc)
 add_executable(test_filter network/test_filter.cc)
 add_executable(test_connection_impl network/test_connection_impl.cc)
 add_executable(test_connection_state_fixes network/test_connection_state_fixes.cc)
+add_executable(test_connection_race_condition_fixes network/test_connection_race_condition_fixes.cc)
 add_executable(test_connection_manager_callback_fixes network/test_connection_manager_callback_fixes.cc)
 add_executable(test_listener_impl network/test_listener_impl.cc)
 add_executable(test_tcp_listener network/test_tcp_listener.cc)
@@ -316,6 +317,15 @@ target_link_libraries(test_connection_impl
 )
 
 target_link_libraries(test_connection_state_fixes
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_race_condition_fixes
     gopher-mcp
     gopher-mcp-event
     gtest
