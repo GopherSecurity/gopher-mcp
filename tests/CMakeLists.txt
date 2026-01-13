@@ -30,6 +30,8 @@ add_executable(test_socket_option network/test_socket_option.cc)
 add_executable(test_transport_socket network/test_transport_socket.cc)
 add_executable(test_filter network/test_filter.cc)
 add_executable(test_connection_impl network/test_connection_impl.cc)
+add_executable(test_connection_state_fixes network/test_connection_state_fixes.cc)
+add_executable(test_connection_manager_callback_fixes network/test_connection_manager_callback_fixes.cc)
 add_executable(test_listener_impl network/test_listener_impl.cc)
 add_executable(test_tcp_listener network/test_tcp_listener.cc)
 add_executable(test_connection_manager_impl network/test_connection_manager_impl.cc)
@@ -41,6 +43,7 @@ add_executable(test_stream_info_impl stream_info/test_stream_info_impl.cc)
 add_executable(test_stdio_transport_socket transport/test_stdio_transport_socket.cc)
 add_executable(test_http_sse_transport_socket transport/test_http_sse_transport_socket.cc)
 add_executable(test_http_sse_transport_socket_simple transport/test_http_sse_transport_socket_simple.cc)
+add_executable(test_sse_connection_fixes transport/test_sse_connection_fixes.cc)
 add_executable(test_stdio_pipe_bridge transport/test_stdio_pipe_bridge.cc)
 
 # SSL/TLS transport tests
@@ -82,6 +85,7 @@ add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
+add_executable(test_client_disconnect_fixes client/test_client_disconnect_fixes.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # C API tests
@@ -305,6 +309,24 @@ target_link_libraries(test_connection_impl
     Threads::Threads
 )
 
+target_link_libraries(test_connection_state_fixes
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_manager_callback_fixes
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
 target_link_libraries(test_listener_impl
     gopher-mcp
     gopher-mcp-event
@@ -368,6 +390,15 @@ target_link_libraries(test_http_sse_transport_socket
 )
 
 target_link_libraries(test_http_sse_transport_socket_simple
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_sse_connection_fixes
     gopher-mcp
     gopher-mcp-event
     gtest
@@ -578,6 +609,14 @@ target_link_libraries(test_tcp_echo_server_basic
 
 # MCP test libraries
 target_link_libraries(test_mcp_connection_manager
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_client_disconnect_fixes
     gopher-mcp
     gopher-mcp-event
     gtest
