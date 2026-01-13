@@ -1191,7 +1191,7 @@ TEST_F(StdioPipeBridgeTest, ErrorResponseHandling) {
   jsonrpc::Response error_response;
   error_response.id = RequestId(1);
   error_response.error =
-      make_optional(Error(jsonrpc::METHOD_NOT_FOUND, "Method not found"));
+      mcp::make_optional(Error(jsonrpc::METHOD_NOT_FOUND, "Method not found"));
 
   auto json_result = json::to_json(error_response);
   writeMessage(test_stdin_pipe_[1], json_result.toString());
