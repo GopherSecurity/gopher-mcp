@@ -49,8 +49,8 @@ void HttpRoutingFilter::registerDefaultHandler(HandlerFunc handler) {
 void HttpRoutingFilter::onHeaders(
     const std::map<std::string, std::string>& headers, bool keep_alive) {
   GOPHER_LOG_DEBUG(
-      "HttpRoutingFilter::onHeaders called with {} headers, is_server={}",
-      headers.size(), is_server_);
+      "HttpRoutingFilter::onHeaders called with {} headers, is_server={}, keep_alive={}",
+      headers.size(), is_server_, keep_alive);
 
   // In client mode, we're receiving responses, not requests - skip routing
   if (!is_server_) {

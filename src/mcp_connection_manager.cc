@@ -531,12 +531,30 @@ void McpConnectionManager::onNotification(
 }
 
 void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
+  std::string id_str;
+  if (holds_alternative<std::string>(response.id)) {
+    id_str = get<std::string>(response.id);
+  } else {
+    id_str = std::to_string(get<int64_t>(response.id));
+  }
+  GOPHER_LOG_DEBUG("McpConnectionManager::onResponse id={}, has_error={}",
+                   id_str, response.error.has_value());
+
   if (protocol_callbacks_) {
     protocol_callbacks_->onResponse(response);
   }
 }
 
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
+  const char* event_name = "unknown";
+  switch (event) {
+    case network::ConnectionEvent::Connected: event_name = "Connected"; break;
+    case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
+    case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
+  }
+  GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent event={}, is_server={}",
+                   event_name, is_server_);
+
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
   if (event == network::ConnectionEvent::Connected) {
@@ -702,6 +720,9 @@ McpConnectionManager::createFilterChainFactory() {
 
 VoidResult McpConnectionManager::sendJsonMessage(
     const json::JsonValue& message) {
+  GOPHER_LOG_DEBUG("McpConnectionManager::sendJsonMessage called, connected={}, conn={}",
+                   connected_, (void*)active_connection_.get());
+
   // Convert to string
   std::string json_str = message.toString();
 
@@ -723,6 +744,9 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Post write to dispatcher thread to ensure thread safety
   // The write() call must happen on the dispatcher thread
   dispatcher_.post([json_str = std::move(json_str), conn]() {
+    GOPHER_LOG_DEBUG("McpConnectionManager write callback executing, conn={}, msg_len={}",
+                     (void*)conn, json_str.length());
+
     // Create buffer with JSON payload
     OwnedBuffer buffer;
     buffer.add(json_str);
@@ -733,6 +757,8 @@ VoidResult McpConnectionManager::sendJsonMessage(
     // - HTTP filter: HTTP request/response formatting if applicable
     // - Transport socket: raw I/O only
     conn->write(buffer, false);
+
+    GOPHER_LOG_DEBUG("McpConnectionManager write completed");
   });
 
   return makeVoidSuccess();

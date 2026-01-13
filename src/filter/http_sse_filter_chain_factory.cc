@@ -492,6 +492,7 @@ class HttpSseJsonRpcProtocolFilter
    * Server only - clients don't receive requests
    */
   void onRequest(const jsonrpc::Request& request) override {
+    GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
     // Following production pattern: create a new stream for each request
     // This supports HTTP pipelining with multiple concurrent requests
     // Executed in dispatcher thread - no synchronization needed
