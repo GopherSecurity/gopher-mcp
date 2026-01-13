@@ -201,6 +201,7 @@ VoidResult McpClient::connect(const std::string& uri) {
         }
       } else {
         // Connection initiated successfully
+        last_activity_time_ = std::chrono::steady_clock::now();
         connect_promise->set_value(VoidResult(nullptr));
       }
     } catch (const std::exception& e) {
@@ -252,6 +253,77 @@ void McpClient::disconnect() {
   // Reset state
   connected_ = false;
   initialized_ = false;
+}
+
+// Check if the underlying connection is actually open
+bool McpClient::isConnectionOpen() const {
+  if (!connected_ || !connection_manager_) {
+    return false;
+  }
+  return connection_manager_->isConnected();
+}
+
+// Reconnect using stored URI
+VoidResult McpClient::reconnect() {
+  if (current_uri_.empty()) {
+    return makeVoidError(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No URI stored for reconnection"));
+  }
+
+  // Disconnect first if we think we're connected
+  if (connected_ || connection_manager_) {
+    // Close the old connection
+    if (connection_manager_) {
+      connection_manager_->close();
+      connection_manager_.reset();
+    }
+    connected_ = false;
+    initialized_ = false;
+  }
+
+  // Now reconnect - reuse existing dispatcher if available
+  if (!main_dispatcher_) {
+    return makeVoidError(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher available for reconnection"));
+  }
+
+  // Do reconnection work directly (not via dispatcher post)
+  // This avoids deadlock when called from the dispatcher thread
+  try {
+    // Negotiate transport based on URI scheme
+    TransportType transport = negotiateTransport(current_uri_);
+
+    // Create connection configuration
+    McpConnectionConfig conn_config = createConnectionConfig(transport);
+
+    // Create new connection manager
+    connection_manager_ = std::make_unique<McpConnectionManager>(
+        *main_dispatcher_, *socket_interface_, conn_config);
+
+    // Set message callback handler
+    connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
+
+    // Initiate connection (asynchronous - doesn't wait for TCP handshake)
+    VoidResult result = connection_manager_->connect();
+
+    if (is_error<std::nullptr_t>(result)) {
+      auto error = get_error<std::nullptr_t>(result);
+      return makeVoidError(*error);
+    }
+
+    // The connection_manager_->connect() initiates the TCP connection asynchronously.
+    // The dispatcher needs to process events for the connection to complete.
+    // Since we might be ON the dispatcher thread, we can't block waiting.
+    //
+    // Simply mark that reconnection is in progress. The handleConnectionEvent
+    // callback will set connected_=true when the TCP handshake completes.
+    // We return success here - the connection will be ready shortly.
+    last_activity_time_ = std::chrono::steady_clock::now();
+
+    return makeSuccess<std::nullptr_t>(nullptr);
+  } catch (const std::exception& e) {
+    return makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR, e.what()));
+  }
 }
 
 // Shutdown client
@@ -509,7 +581,60 @@ VoidResult McpClient::sendNotification(const std::string& method,
 
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
-  // Check if connected
+  // Check if connection is stale (idle for too long)
+  auto now = std::chrono::steady_clock::now();
+  auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+      now - last_activity_time_).count();
+  bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
+
+  // Check if connection is stale or not open - need to reconnect
+  // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
+  static constexpr int kMaxReconnectRetries = 50;
+
+  if (is_stale || !isConnectionOpen()) {
+    // Track if this is a retry after reconnect
+    if (context->retry_count > 0 && context->retry_count <= kMaxReconnectRetries) {
+      // This is a retry - check if we're connected now
+      if (!connected_ && !isConnectionOpen()) {
+        // Still not connected, schedule another retry with timer delay
+        // Timer allows event loop to process I/O events (like TCP connect) between retries
+        context->retry_count++;
+        context->retry_timer = main_dispatcher_->createTimer([this, context]() {
+          sendRequestInternal(context);
+        });
+        context->retry_timer->enableTimer(std::chrono::milliseconds(10));
+        return;
+      }
+      // Connected now, proceed with send below
+    } else if (context->retry_count > kMaxReconnectRetries) {
+      // Too many retries
+      context->promise.set_value(Response::make_error(
+          context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection not ready after reconnect")));
+      request_tracker_->removeRequest(context->id);
+      client_stats_.requests_failed++;
+      return;
+    } else {
+      // First attempt - need to reconnect
+      // Attempt to reconnect (async - just initiates connection)
+      auto reconnect_result = reconnect();
+      if (is_error<std::nullptr_t>(reconnect_result)) {
+        context->promise.set_value(Response::make_error(
+            context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection closed and reconnect failed")));
+        request_tracker_->removeRequest(context->id);
+        client_stats_.requests_failed++;
+        return;
+      }
+
+      // Reconnect initiated - schedule retry to allow connection event to be processed
+      context->retry_count = 1;
+      main_dispatcher_->post([this, context]() {
+        sendRequestInternal(context);
+      });
+      return;
+    }
+  }
+
+  // Double-check connection after potential reconnect
   if (!connected_ || !connection_manager_) {
     context->promise.set_value(Response::make_error(
         context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Not connected")));
@@ -557,6 +682,9 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
 
 // Handle incoming response
 void McpClient::handleResponse(const Response& response) {
+  // Update last activity time - we received data from the server
+  last_activity_time_ = std::chrono::steady_clock::now();
+
   // Find corresponding request
   auto request = request_tracker_->getRequest(response.id);
   if (!request) {

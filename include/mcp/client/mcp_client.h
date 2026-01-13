@@ -153,6 +153,7 @@ struct RequestContext {
 
   // Timer-based timeout management
   event::TimerPtr timeout_timer;
+  event::TimerPtr retry_timer;  // Timer for reconnect retries
   bool timeout_enabled{false};
   bool completed{false};  // Ensures single completion
 
@@ -160,9 +161,12 @@ struct RequestContext {
       : id(id), method(method), start_time(std::chrono::steady_clock::now()) {}
 
   ~RequestContext() {
-    // Ensure timer is cleaned up
+    // Ensure timers are cleaned up
     if (timeout_timer && timeout_enabled) {
       timeout_timer->disableTimer();
+    }
+    if (retry_timer) {
+      retry_timer->disableTimer();
     }
   }
 };
@@ -423,8 +427,10 @@ class McpClient : public application::ApplicationBase {
 
   // Connection management
   VoidResult connect(const std::string& uri);
+  VoidResult reconnect();  // Reconnect using stored URI
   void disconnect();
   bool isConnected() const { return connected_; }
+  bool isConnectionOpen() const;  // Check actual connection state
 
   // Shutdown the client (stops workers and event loop)
   void shutdown() override;
@@ -576,6 +582,10 @@ class McpClient : public application::ApplicationBase {
   std::unique_ptr<ConnectionPoolImpl> connection_pool_;
   std::atomic<bool> connected_{false};
   std::string current_uri_;
+
+  // Connection activity tracking for detecting stale connections
+  std::chrono::steady_clock::time_point last_activity_time_;
+  static constexpr int kConnectionIdleTimeoutSec = 4;  // Less than server's keep-alive timeout
 
   // Request management
   std::unique_ptr<RequestTracker> request_tracker_;
