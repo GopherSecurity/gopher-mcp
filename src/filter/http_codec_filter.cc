@@ -298,8 +298,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     // Client mode: format as HTTP POST request
     auto current_state = state_machine_->currentState();
 
-    GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}",
-                     HttpCodecStateMachine::getStateName(current_state));
+    GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}, data_len={}",
+                     HttpCodecStateMachine::getStateName(current_state),
+                     data.length());
 
     // Check if we can send a request
     // Client can send when idle or while waiting for response (HTTP pipelining)
@@ -329,8 +330,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
 
-      GOPHER_LOG_DEBUG("HttpCodecFilter client sending HTTP request: {}...",
-                       request_str.substr(0, 200));
+      GOPHER_LOG_DEBUG("HttpCodecFilter client sending HTTP request (len={}): {}...",
+                       request_str.length(), request_str.substr(0, 200));
 
       // Update state machine - only transition if we're in Idle state
       // For pipelined requests (when already WaitingForResponse), just send

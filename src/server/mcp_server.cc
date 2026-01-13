@@ -609,7 +609,9 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
       } else if (request.method == "tools/list") {
         response = handleListTools(request, *session);
       } else if (request.method == "tools/call") {
+        GOPHER_LOG_DEBUG("Calling handleCallTool for request");
         response = handleCallTool(request, *session);
+        GOPHER_LOG_DEBUG("handleCallTool returned");
       } else if (request.method == "prompts/list") {
         response = handleListPrompts(request, *session);
       } else if (request.method == "prompts/get") {
@@ -993,6 +995,7 @@ jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
 
 jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
                                             SessionContext& session) {
+  GOPHER_LOG_DEBUG("handleCallTool entered");
   // Extract tool name and arguments
   if (!request.params.has_value()) {
     return jsonrpc::Response::make_error(
@@ -1037,7 +1040,9 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   }
 
   // Call tool
+  GOPHER_LOG_DEBUG("Calling tool_registry_->callTool for: {}", name);
   auto result = tool_registry_->callTool(name, arguments, session);
+  GOPHER_LOG_DEBUG("tool_registry_->callTool returned for: {}", name);
 
   // Convert CallToolResult to proper response
   // Extract text content from the result
