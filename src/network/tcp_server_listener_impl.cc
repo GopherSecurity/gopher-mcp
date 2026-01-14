@@ -5,6 +5,12 @@
 
 #include <errno.h>
 
+#include "mcp/logging/log_macros.h"
+
+// Define log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "tcp_listener"
+
 #ifdef _WIN32
 #include <io.h>
 #include <winsock2.h>
