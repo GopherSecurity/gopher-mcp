@@ -110,6 +110,36 @@ elseif(MSVC)
     add_compile_options(/W4 /WX)
 endif()
 
+# Memory sanitizer options for debugging
+option(ENABLE_ASAN "Enable AddressSanitizer for memory error detection" OFF)
+option(ENABLE_LSAN "Enable LeakSanitizer for memory leak detection" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer for data race detection" OFF)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer for undefined behavior detection" OFF)
+
+if(ENABLE_ASAN)
+    message(STATUS "AddressSanitizer enabled")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
+endif()
+
+if(ENABLE_LSAN)
+    message(STATUS "LeakSanitizer enabled")
+    add_compile_options(-fsanitize=leak)
+    add_link_options(-fsanitize=leak)
+endif()
+
+if(ENABLE_TSAN)
+    message(STATUS "ThreadSanitizer enabled")
+    add_compile_options(-fsanitize=thread -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
+if(ENABLE_UBSAN)
+    message(STATUS "UndefinedBehaviorSanitizer enabled")
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+endif()
+
 #Include directories 
 # Always set include directories for building gopher-mcp sources
 # Use BEFORE to ensure our includes come before parent project's includes

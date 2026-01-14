@@ -84,6 +84,12 @@ add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
 add_executable(test_builders core/test_builders.cc)
 
+# MCP Client threading tests 
+add_executable(test_mcp_client_threading client/test_mcp_client_threading.cc)
+
+# MCP Client memory tests (leak detection, RAII verification)
+add_executable(test_mcp_client_memory client/test_mcp_client_memory.cc)
+
 # C API tests
 if(BUILD_C_API)
     # Tests using new opaque handle API
@@ -590,6 +596,30 @@ target_link_libraries(test_builders
     gtest
     gtest_main
     Threads::Threads
+)
+
+# MCP Client threading tests
+target_link_libraries(test_mcp_client_threading
+    gopher-mcp
+    gopher-mcp-event
+    gopher-mcp-logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    fmt::fmt
+)
+
+# MCP Client memory tests
+target_link_libraries(test_mcp_client_memory
+    gopher-mcp
+    gopher-mcp-event
+    gopher-mcp-logging
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+    fmt::fmt
 )
 
 # Link libraries for C API tests
@@ -1108,6 +1138,8 @@ add_test(NAME FullStackTransportTest COMMAND test_full_stack_transport)
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
 add_test(NAME BuildersTest COMMAND test_builders)
+add_test(NAME McpClientThreadingTest COMMAND test_mcp_client_threading)
+add_test(NAME McpClientMemoryTest COMMAND test_mcp_client_memory)
 
 # New tests for recent fixes
 add_test(NAME ConnectionPoolCallbacksTest COMMAND test_connection_pool_callbacks)
