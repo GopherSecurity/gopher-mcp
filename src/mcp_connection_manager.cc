@@ -3,6 +3,12 @@
 #include <iostream>
 #include <sstream>
 
+#include "mcp/logging/log_macros.h"
+
+// Define log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "connection_manager"
+
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -549,6 +555,7 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   const char* event_name = "unknown";
   switch (event) {
     case network::ConnectionEvent::Connected: event_name = "Connected"; break;
+    case network::ConnectionEvent::ConnectedZeroRtt: event_name = "ConnectedZeroRtt"; break;
     case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
     case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
   }
