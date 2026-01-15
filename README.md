@@ -280,7 +280,7 @@ Install [Cygwin](https://www.cygwin.com/) with these packages:
 
 - [Event Loop Design](docs/event_loop_design.md) - Event-driven architecture and dispatcher design
 - [Filter Usage Guide](docs/filter_usage_guide.md) - Comprehensive guide for using and creating filters
-- [CTAD Alternatives](docs/ctad_alternatives.md) - Class Template Argument Deduction alternatives for C++14
+- [CTAD Alternatives](docs/CTAD_alternatives.md) - Class Template Argument Deduction alternatives for C++14
 - [MCP Serialization Coverage](docs/MCP_serialization_coverage.md) - JSON serialization implementation details
 
 ## FAQ
