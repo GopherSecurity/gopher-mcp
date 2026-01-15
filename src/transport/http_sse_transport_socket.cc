@@ -18,6 +18,8 @@
 #include "mcp/filter/sse_codec_filter.h"
 #include "mcp/network/address_impl.h"
 #include "mcp/network/connection_impl.h"
+#include "mcp/transport/ssl_context.h"
+#include "mcp/transport/ssl_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/transport/tcp_transport_socket.h"
 
@@ -98,8 +100,56 @@ HttpSseTransportSocket::createUnderlyingTransport() {
     }
 
     case HttpSseTransportSocketConfig::UnderlyingTransport::SSL: {
-      // SSL transport not implemented yet
-      throw std::runtime_error("SSL transport not implemented yet");
+      // Create TCP transport socket first
+      TcpTransportSocketConfig tcp_config;
+      tcp_config.tcp_nodelay = true;
+      tcp_config.tcp_keepalive = true;
+      tcp_config.connect_timeout = std::chrono::milliseconds(30000);
+      tcp_config.io_timeout = std::chrono::milliseconds(60000);
+      auto tcp_socket = std::make_unique<TcpTransportSocket>(dispatcher_, tcp_config);
+
+      // Create SSL context config
+      SslContextConfig ssl_ctx_config;
+      ssl_ctx_config.is_client = (config_.mode == HttpSseTransportSocketConfig::Mode::CLIENT);
+      ssl_ctx_config.verify_peer = false;  // Default to no verification for flexibility
+      ssl_ctx_config.protocols = {"TLSv1.2", "TLSv1.3"};
+      ssl_ctx_config.alpn_protocols = {"h2", "http/1.1"};  // Support HTTP/2 and HTTP/1.1
+
+      // Apply SSL config if provided
+      if (config_.ssl_config.has_value()) {
+        const auto& ssl_cfg = config_.ssl_config.value();
+        ssl_ctx_config.verify_peer = ssl_cfg.verify_peer;
+        if (ssl_cfg.ca_cert_path.has_value()) {
+          ssl_ctx_config.ca_cert_file = ssl_cfg.ca_cert_path.value();
+        }
+        if (ssl_cfg.client_cert_path.has_value()) {
+          ssl_ctx_config.cert_chain_file = ssl_cfg.client_cert_path.value();
+        }
+        if (ssl_cfg.client_key_path.has_value()) {
+          ssl_ctx_config.private_key_file = ssl_cfg.client_key_path.value();
+        }
+        if (ssl_cfg.sni_hostname.has_value()) {
+          ssl_ctx_config.sni_hostname = ssl_cfg.sni_hostname.value();
+        }
+        if (ssl_cfg.alpn_protocols.has_value()) {
+          ssl_ctx_config.alpn_protocols = ssl_cfg.alpn_protocols.value();
+        }
+      }
+
+      // Get or create SSL context
+      auto ctx_result = SslContextManager::getInstance().getOrCreateContext(ssl_ctx_config);
+      if (holds_alternative<Error>(ctx_result)) {
+        throw std::runtime_error("Failed to create SSL context: " +
+                                 get<Error>(ctx_result).message);
+      }
+
+      // Determine SSL role
+      auto role = ssl_ctx_config.is_client ? SslTransportSocket::InitialRole::Client
+                                           : SslTransportSocket::InitialRole::Server;
+
+      // Create SSL transport socket wrapping TCP
+      return std::make_unique<SslTransportSocket>(
+          std::move(tcp_socket), get<SslContextSharedPtr>(ctx_result), role, dispatcher_);
     }
 
     case HttpSseTransportSocketConfig::UnderlyingTransport::STDIO: {
@@ -161,19 +211,6 @@ VoidResult HttpSseTransportSocket::connect(network::Socket& socket) {
     }
   }
   
-  // WORKAROUND: For HTTP connections, assume immediate connection success
-  // This addresses timing issues where onConnected() callback may not be triggered
-  // properly from the connection manager
-  if (config_.underlying_transport != HttpSseTransportSocketConfig::UnderlyingTransport::STDIO) {
-    // Schedule immediate connection success for HTTP connections
-    dispatcher_.post([this]() {
-      if (connecting_ && !connected_) {
-        std::cerr << "[HttpSseTransportSocket] Applying connection workaround" << std::endl;
-        onConnected();
-      }
-    });
-  }
-
   return VoidResult(nullptr);
 }
 
@@ -247,9 +284,10 @@ TransportIoResult HttpSseTransportSocket::doRead(Buffer& buffer) {
   // Process through filter manager if we have data
   if (read_buffer_.length() > 0 && filter_manager_) {
     result = processFilterManagerRead(buffer);
-  } else {
+  } else if (read_buffer_.length() > 0) {
     // No filter manager, pass through directly
-    buffer.move(read_buffer_);
+    // Move from read_buffer_ INTO buffer
+    read_buffer_.move(buffer);
     result.bytes_processed_ = buffer.length();
   }
 
@@ -278,7 +316,8 @@ TransportIoResult HttpSseTransportSocket::doWrite(Buffer& buffer,
     }
   } else {
     // No filter manager, buffer directly for write
-    write_buffer_.move(buffer);
+    // FIX: Move from buffer INTO write_buffer_ (not the other way around)
+    buffer.move(write_buffer_);
     result.bytes_processed_ = write_buffer_.length();
   }
 
@@ -323,8 +362,9 @@ void HttpSseTransportSocket::onConnected() {
     underlying_transport_->onConnected();
   }
 
-  // Notify callbacks
-  if (callbacks_) {
+  // Notify callbacks - but only if underlying transport doesn't defer the event
+  // (e.g., SSL transport defers until handshake completes)
+  if (callbacks_ && (!underlying_transport_ || !underlying_transport_->defersConnectedEvent())) {
     callbacks_->raiseEvent(network::ConnectionEvent::Connected);
   }
 }
@@ -346,7 +386,8 @@ TransportIoResult HttpSseTransportSocket::processFilterManagerRead(
   }
 
   // Move processed data to output buffer
-  buffer.move(read_buffer_);
+  // FIX: Move from read_buffer_ INTO buffer (not the other way around)
+  read_buffer_.move(buffer);
 
   return TransportIoResult::success(buffer.length(),
                                     TransportIoResult::CONTINUE);
@@ -368,7 +409,8 @@ TransportIoResult HttpSseTransportSocket::processFilterManagerWrite(
   }
 
   // Move processed data to write buffer
-  write_buffer_.move(buffer);
+  // FIX: Move from buffer INTO write_buffer_ (not the other way around)
+  buffer.move(write_buffer_);
 
   return TransportIoResult::success(write_buffer_.length(),
                                     TransportIoResult::CONTINUE);
@@ -508,13 +550,6 @@ std::unique_ptr<HttpSseTransportSocket> HttpSseTransportBuilder::build() {
 std::unique_ptr<HttpSseTransportSocketFactory>
 HttpSseTransportBuilder::buildFactory() {
   // Create factory without filter support for now
-
-  // Check if SSL is requested but not implemented
-  if (config_.underlying_transport ==
-      HttpSseTransportSocketConfig::UnderlyingTransport::SSL) {
-    throw std::runtime_error("SSL transport not implemented yet");
-  }
-
   return std::make_unique<HttpSseTransportSocketFactory>(config_, dispatcher_);
 }
 

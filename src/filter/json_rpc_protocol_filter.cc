@@ -337,7 +337,9 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
       }
     } else if (json_val.contains("result") || json_val.contains("error")) {
       // JSON-RPC Response
+      std::cerr << "[JsonRpcProtocolFilter] Parsing response..." << std::endl;
       jsonrpc::Response response = json::from_json<jsonrpc::Response>(json_val);
+      std::cerr << "[JsonRpcProtocolFilter] Calling handler_.onResponse" << std::endl;
       responses_received_++;
       handler_.onResponse(response);
     } else {

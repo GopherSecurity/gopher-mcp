@@ -700,6 +700,15 @@ void ConnectionImpl::setTransportSocketIsReadable() {
 }
 
 void ConnectionImpl::raiseEvent(ConnectionEvent event) {
+  // When transport socket (e.g., SSL) raises Connected event after handshake,
+  // we need to mark socket as write-ready and flush any pending data
+  if (event == ConnectionEvent::Connected || event == ConnectionEvent::ConnectedZeroRtt) {
+    write_ready_ = true;
+    // If there's pending data in write buffer, flush it now
+    if (write_buffer_.length() > 0) {
+      doWrite();
+    }
+  }
   raiseConnectionEvent(event);
 }
 
@@ -912,7 +921,10 @@ void ConnectionImpl::onWriteReady() {
     // Notify transport socket (reference pattern)
     onConnected();
 
-    raiseConnectionEvent(ConnectionEvent::Connected);
+    // Only raise Connected if transport doesn't defer it (e.g., SSL defers until handshake completes)
+    if (!transport_socket_->defersConnectedEvent()) {
+      raiseConnectionEvent(ConnectionEvent::Connected);
+    }
 
     // Flush any pending write data (reference pattern)
     // Transport may have queued data during handshake
@@ -1127,7 +1139,10 @@ void ConnectionImpl::doConnect() {
     // Notify transport socket (must be before raising event)
     onConnected();
 
-    raiseConnectionEvent(ConnectionEvent::Connected);
+    // Only raise Connected if transport doesn't defer it (e.g., SSL defers until handshake completes)
+    if (!transport_socket_->defersConnectedEvent()) {
+      raiseConnectionEvent(ConnectionEvent::Connected);
+    }
     // CRITICAL FIX: Only enable Read events initially.
     // Write events should only be enabled when there's data to send.
     // Enabling both causes busy loop on macOS/kqueue.
@@ -1166,8 +1181,11 @@ void ConnectionImpl::doConnect() {
               state_machine_->handleEvent(ConnectionStateMachineEvent::SocketConnected);
             }
             onConnected();
-            raiseConnectionEvent(ConnectionEvent::Connected);
-            
+            // Only raise Connected if transport doesn't defer it
+            if (!transport_socket_->defersConnectedEvent()) {
+              raiseConnectionEvent(ConnectionEvent::Connected);
+            }
+
             // Enable read events for normal operation
             enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
           } else {

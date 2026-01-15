@@ -581,11 +581,20 @@ VoidResult McpClient::sendNotification(const std::string& method,
 
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
+  std::cerr << "[McpClient] sendRequestInternal: method=" << context->method
+            << ", connected_=" << connected_
+            << ", isConnectionOpen()=" << isConnectionOpen()
+            << ", retry_count=" << context->retry_count << std::endl;
+
   // Check if connection is stale (idle for too long)
   auto now = std::chrono::steady_clock::now();
   auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
       now - last_activity_time_).count();
   bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
+
+  std::cerr << "[McpClient] sendRequestInternal stale check: idle_seconds=" << idle_seconds
+            << ", timeout=" << kConnectionIdleTimeoutSec
+            << ", is_stale=" << is_stale << std::endl;
 
   // Check if connection is stale or not open - need to reconnect
   // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
@@ -650,8 +659,16 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.params = context->params;
   request.id = context->id;
 
+  std::cerr << "[McpClient] Sending request through connection_manager: method=" << context->method << std::endl;
+
+  // Update activity time BEFORE sending - we're actively using the connection
+  // This prevents stale connection detection while waiting for response
+  last_activity_time_ = std::chrono::steady_clock::now();
+
   // Send through connection manager
   auto send_result = connection_manager_->sendRequest(request);
+
+  std::cerr << "[McpClient] sendRequest result: is_error=" << is_error<std::nullptr_t>(send_result) << std::endl;
 
   if (is_error<std::nullptr_t>(send_result)) {
     // Send failed, check if we should retry
@@ -786,21 +803,50 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       // Extract server address from URI
       // URI format: http://host:port or https://host:port
       std::string server_addr;
+      bool is_https = false;
       if (current_uri_.find("http://") == 0) {
         server_addr = current_uri_.substr(7);  // Remove "http://"
       } else if (current_uri_.find("https://") == 0) {
         server_addr = current_uri_.substr(8);  // Remove "https://"
+        is_https = true;
       } else {
         server_addr = current_uri_;
       }
 
-      // Remove any path component (everything after first /)
+      // Extract path component (everything after first /)
+      std::string http_path = "/";  // Default path
       size_t slash_pos = server_addr.find('/');
       if (slash_pos != std::string::npos) {
-        server_addr = server_addr.substr(0, slash_pos);
+        http_path = server_addr.substr(slash_pos);  // Include the /
+        server_addr = server_addr.substr(0, slash_pos);  // Remove path from address
       }
 
       http_config.server_address = server_addr;
+      config.http_path = http_path;
+      config.http_host = server_addr;  // Host header value (without port for now)
+
+      // Set SSL transport for HTTPS URLs
+      if (is_https) {
+        http_config.underlying_transport =
+            transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        // Configure SSL with reasonable defaults
+        transport::HttpSseTransportSocketConfig::SslConfig ssl_cfg;
+        ssl_cfg.verify_peer = false;  // For now, disable peer verification
+        // Use HTTP/1.1 only - our HTTP codec doesn't support HTTP/2 binary framing
+        ssl_cfg.alpn_protocols = std::vector<std::string>{"http/1.1"};
+
+        // Extract hostname for SNI (Server Name Indication)
+        // server_addr may contain port (host:port), extract just the hostname
+        std::string sni_host = server_addr;
+        size_t colon_pos = sni_host.find(':');
+        if (colon_pos != std::string::npos) {
+          sni_host = sni_host.substr(0, colon_pos);
+        }
+        ssl_cfg.sni_hostname = mcp::make_optional(sni_host);
+
+        http_config.ssl_config = mcp::make_optional(ssl_cfg);
+      }
+
       config.http_sse_config = mcp::make_optional(http_config);
       break;
     }
@@ -1576,11 +1622,15 @@ void McpClient::coordinateProtocolState() {
 
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
+  std::cerr << "[McpClient] handleConnectionEvent called, event="
+            << static_cast<int>(event) << std::endl;
   // Handle connection events in dispatcher context
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
+      std::cerr << "[McpClient] Setting connected_=true" << std::endl;
       connected_ = true;
+      last_activity_time_ = std::chrono::steady_clock::now();  // Reset idle timer on connection
       client_stats_.connections_active++;
 
       // Notify protocol state machine of network connection

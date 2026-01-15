@@ -301,8 +301,11 @@ void SslStateMachine::initializeClientTransitions() {
       SslSocketState::Error};
 
   // Client handshake transitions
+  // Note: HandshakeWantRead is valid because after sending ClientHello,
+  // SSL_do_handshake returns WANT_READ to wait for server response
   valid_transitions_[SslSocketState::ClientHandshakeInit] = {
       SslSocketState::ClientHelloSent, SslSocketState::HandshakeWantWrite,
+      SslSocketState::HandshakeWantRead,  // Added: wait for server response
       SslSocketState::Error};
 
   valid_transitions_[SslSocketState::ClientHelloSent] = {
@@ -335,7 +338,10 @@ void SslStateMachine::initializeClientTransitions() {
       SslSocketState::Error};
 
   // Async handshake states
+  // HandshakeWantRead can transition to any handshake stage since
+  // SSL_do_handshake will resume from wherever it left off
   valid_transitions_[SslSocketState::HandshakeWantRead] = {
+      SslSocketState::ClientHandshakeInit,  // Added: retry handshake step
       SslSocketState::ClientHelloSent, SslSocketState::ServerHelloReceived,
       SslSocketState::ClientFinished, SslSocketState::Connected,
       SslSocketState::Error};

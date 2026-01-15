@@ -21,6 +21,7 @@
 #include "mcp/transport/ssl_transport_socket.h"
 
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 
 #include <openssl/bio.h>
@@ -249,6 +250,9 @@ SslTransportSocket::~SslTransportSocket() {
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
   }
+  if (handshake_retry_timer_) {
+    handshake_retry_timer_->disableTimer();
+  }
 
   // Unregister state listener
   if (state_listener_id_ && state_machine_) {
@@ -352,25 +356,40 @@ VoidResult SslTransportSocket::connect(network::Socket& socket) {
 void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   /**
    * Close Flow:
-   * 1. Handle based on current state
-   * 2. Attempt graceful SSL shutdown if connected
-   * 3. Update statistics
+   * 1. Cancel all pending timers/callbacks to prevent use-after-free
+   * 2. Send close_notify if connected (best effort, no followup)
+   * 3. Transition directly to Closed state
    * 4. Close inner socket
+   *
+   * IMPORTANT: This is a "hard close" - we don't schedule any callbacks
+   * like scheduleShutdownCheck() because the socket is about to be destroyed.
+   * Scheduling callbacks that capture 'this' would cause use-after-free.
    */
 
   auto state = state_machine_->getCurrentState();
+  std::cerr << "[SslTransportSocket] closeSocket current state=" << static_cast<int>(state) << std::endl;
 
-  if (state == SslSocketState::Connected) {
-    // Attempt graceful SSL shutdown
-    initiateShutdown();
+  // Cancel any pending timers that might reference this object
+  if (handshake_timer_) {
+    handshake_timer_->disableTimer();
+  }
+  if (handshake_retry_timer_) {
+    handshake_retry_timer_->disableTimer();
+  }
+
+  // Send close_notify if connected (best effort, don't wait for peer's response)
+  if (state == SslSocketState::Connected && ssl_ && !shutdown_sent_) {
+    SSL_shutdown(ssl_);  // Best effort, ignore return value
+    shutdown_sent_ = true;
+    moveFromBio();  // Flush the close_notify to the network
   } else if (state_machine_->isHandshaking()) {
     // Cancel handshake
     stats_->handshakes_failed++;
     cancelHandshake();
-  } else {
-    // Direct close
-    state_machine_->transition(SslSocketState::Closed);
   }
+
+  // Transition directly to Closed state - don't schedule any followup callbacks
+  state_machine_->transition(SslSocketState::Closed);
 
   // Close inner socket
   if (inner_socket_) {
@@ -381,11 +400,31 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
 void SslTransportSocket::onConnected() {
   /**
    * TCP Connected Flow:
-   * 1. Transition to TcpConnected
-   * 2. Initialize SSL structures
-   * 3. Start handshake timer
-   * 4. Begin handshake process
+   * 1. Notify inner socket that TCP is connected
+   * 2. Transition to TcpConnected
+   * 3. Initialize SSL structures
+   * 4. Start handshake timer
+   * 5. Begin handshake process
    */
+  std::cerr << "[SslTransportSocket] onConnected called, state="
+            << static_cast<int>(state_machine_->getCurrentState()) << std::endl;
+
+  // Guard: Only process if we haven't started the connection process yet
+  auto current_state = state_machine_->getCurrentState();
+  if (current_state != SslSocketState::Connecting &&
+      current_state != SslSocketState::Uninitialized &&
+      current_state != SslSocketState::Initialized) {
+    std::cerr << "[SslTransportSocket] Already connected/connecting, ignoring duplicate onConnected" << std::endl;
+    return;
+  }
+
+  // CRITICAL: Notify inner socket that TCP connection is established.
+  // This allows the inner socket (TcpTransportSocket) to transition to
+  // Connected state, enabling reads and writes during SSL handshake.
+  if (inner_socket_) {
+    std::cerr << "[SslTransportSocket] Notifying inner socket" << std::endl;
+    inner_socket_->onConnected();
+  }
 
   // Transition state
   state_machine_->transition(SslSocketState::TcpConnected);
@@ -418,10 +457,12 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
    * 3. Update statistics
    * 4. Handle errors
    */
+  std::cerr << "[SSL] doRead called" << std::endl;
 
   auto state = state_machine_->getCurrentState();
 
   if (state != SslSocketState::Connected) {
+    std::cerr << "[SSL] doRead: not connected, state=" << static_cast<int>(state) << std::endl;
     if (state_machine_->isHandshaking()) {
       // Still handshaking
       return TransportIoResult::stop();
@@ -431,7 +472,9 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   }
 
   // Perform optimized SSL read
-  return performOptimizedSslRead(buffer);
+  auto result = performOptimizedSslRead(buffer);
+  std::cerr << "[SSL] doRead result: bytes=" << result.bytes_processed_ << ", action=" << static_cast<int>(result.action_) << std::endl;
+  return result;
 }
 
 TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
@@ -540,7 +583,10 @@ void SslTransportSocket::configureClientSsl() {
 
   // Configure SNI
   if (!config.sni_hostname.empty()) {
+    std::cerr << "[SSL] Setting SNI hostname: " << config.sni_hostname << std::endl;
     SSL_set_tlsext_host_name(ssl_, config.sni_hostname.c_str());
+  } else {
+    std::cerr << "[SSL] WARNING: No SNI hostname configured!" << std::endl;
   }
 
   // Enable session resumption
@@ -684,6 +730,7 @@ void SslTransportSocket::performHandshakeStep() {
    */
 
   handshake_attempts_++;
+  std::cerr << "[SSL] performHandshakeStep attempt=" << handshake_attempts_ << std::endl;
 
   // Prevent infinite handshake attempts
   if (handshake_attempts_ > kMaxHandshakeAttempts) {
@@ -693,26 +740,37 @@ void SslTransportSocket::performHandshakeStep() {
   }
 
   // Move data between socket and BIOs
-  moveToBio();
+  size_t bytes_to_bio = moveToBio();
+  std::cerr << "[SSL] moveToBio returned " << bytes_to_bio << " bytes" << std::endl;
 
   // Perform handshake
   int ret = SSL_do_handshake(ssl_);
+  std::cerr << "[SSL] SSL_do_handshake returned " << ret << std::endl;
+
+  // Debug: check BIO state immediately after handshake
+  size_t bio_pending = BIO_ctrl_pending(network_bio_);
+  std::cerr << "[SSL] BIO_ctrl_pending(network_bio_)=" << bio_pending << std::endl;
+  std::cerr << "[SSL] ssl_=" << (void*)ssl_ << ", network_bio_=" << (void*)network_bio_ << std::endl;
 
   // Move generated data to socket
-  moveFromBio();
+  size_t bytes_from_bio = moveFromBio();
+  std::cerr << "[SSL] moveFromBio returned " << bytes_from_bio << " bytes" << std::endl;
 
   if (ret == 1) {
     // Handshake complete
+    std::cerr << "[SSL] Handshake complete!" << std::endl;
     onHandshakeComplete();
     return;
   }
 
   // Check error and determine next action
   int ssl_error = SSL_get_error(ssl_, ret);
+  std::cerr << "[SSL] SSL_get_error=" << ssl_error << std::endl;
   auto action = handleHandshakeResult(ssl_error);
 
   // Handle PostIoAction result
   if (action == TransportIoResult::PostIoAction::CLOSE) {
+    std::cerr << "[SSL] Handshake failed, closing" << std::endl;
     handleSslError(getSslErrorDetails(ssl_, ret));
   }
 }
@@ -724,12 +782,25 @@ TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(
    */
 
   switch (ssl_error) {
-    case SSL_ERROR_WANT_READ:
-      state_machine_->transition(SslSocketState::HandshakeWantRead);
+    case SSL_ERROR_WANT_READ: {
+      auto current = state_machine_->getCurrentState();
+      std::cerr << "[SSL] Need more data (WANT_READ), current state=" << static_cast<int>(current) << std::endl;
+      // If already in HandshakeWantRead, just schedule retry directly
+      // Otherwise, transition to HandshakeWantRead (which will trigger scheduleHandshakeRetry)
+      if (current == SslSocketState::HandshakeWantRead) {
+        std::cerr << "[SSL] Already in HandshakeWantRead, scheduling retry directly" << std::endl;
+        scheduleHandshakeRetry();
+      } else {
+        std::cerr << "[SSL] Scheduling transition to HandshakeWantRead" << std::endl;
+        state_machine_->scheduleTransition(SslSocketState::HandshakeWantRead);
+      }
       return TransportIoResult::PostIoAction::CONTINUE;
+    }
 
     case SSL_ERROR_WANT_WRITE:
-      state_machine_->transition(SslSocketState::HandshakeWantWrite);
+      std::cerr << "[SSL] Need to write more (WANT_WRITE), scheduling transition to HandshakeWantWrite" << std::endl;
+      // Use scheduleTransition to avoid "transition already in progress" error
+      state_machine_->scheduleTransition(SslSocketState::HandshakeWantWrite);
       return TransportIoResult::PostIoAction::CONTINUE;
 
     case SSL_ERROR_WANT_X509_LOOKUP:
@@ -961,6 +1032,8 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
     if (ret > 0) {
       // Data read successfully
+      std::cerr << "[SSL] Read " << ret << " decrypted bytes: "
+                << std::string(static_cast<const char*>(data), std::min(ret, 200)) << std::endl;
       buffer.commit(slice, ret);
       total_bytes_read += ret;
       stats_->bytes_decrypted += ret;
@@ -1121,6 +1194,7 @@ size_t SslTransportSocket::moveFromBio() {
 
   // Check pending data
   size_t pending = BIO_ctrl_pending(network_bio_);
+  std::cerr << "[SSL-moveFromBio] pending=" << pending << std::endl;
   if (pending == 0) {
     return 0;
   }
@@ -1130,15 +1204,19 @@ size_t SslTransportSocket::moveFromBio() {
   RawSlice slice;
   void* data = temp_buffer.reserveSingleSlice(pending, slice);
   int read = BIO_read(network_bio_, data, slice.len_);
+  std::cerr << "[SSL-moveFromBio] BIO_read returned " << read << std::endl;
 
   if (read <= 0) {
     return 0;
   }
 
   temp_buffer.commit(slice, read);
+  std::cerr << "[SSL-moveFromBio] buffer length after commit=" << temp_buffer.length() << std::endl;
 
   // Write to inner socket
   auto result = inner_socket_->doWrite(temp_buffer, false);
+  std::cerr << "[SSL-moveFromBio] doWrite bytes_processed=" << result.bytes_processed_
+            << ", action=" << static_cast<int>(result.action_) << std::endl;
 
   return result.bytes_processed_;
 }
@@ -1216,11 +1294,17 @@ void SslTransportSocket::onStateChanged(SslSocketState old_state,
   /**
    * Handle state changes
    */
+  std::cerr << "[SSL] onStateChanged: " << static_cast<int>(old_state)
+            << " -> " << static_cast<int>(new_state) << std::endl;
 
   switch (new_state) {
     case SslSocketState::Connected:
+      std::cerr << "[SSL] State is Connected, transport_callbacks_="
+                << (transport_callbacks_ ? "set" : "NULL") << std::endl;
       if (transport_callbacks_) {
+        std::cerr << "[SSL] Raising ConnectionEvent::Connected" << std::endl;
         transport_callbacks_->raiseEvent(network::ConnectionEvent::Connected);
+        std::cerr << "[SSL] ConnectionEvent::Connected raised" << std::endl;
       }
       break;
 
@@ -1258,10 +1342,14 @@ void SslTransportSocket::scheduleHandshakeRetry() {
   /**
    * Schedule handshake retry with exponential backoff
    */
+  std::cerr << "[SSL] scheduleHandshakeRetry, this=" << this << std::endl;
 
   if (!handshake_retry_timer_) {
     handshake_retry_timer_ =
-        dispatcher_.createTimer([this]() { performHandshakeStep(); });
+        dispatcher_.createTimer([this]() {
+          std::cerr << "[SSL] retry timer fired, this=" << this << std::endl;
+          performHandshakeStep();
+        });
   }
 
   // Use exponential backoff
@@ -1269,6 +1357,7 @@ void SslTransportSocket::scheduleHandshakeRetry() {
                         std::chrono::milliseconds(1000));
   retry_count_++;
 
+  std::cerr << "[SSL] enabling retry timer with delay=" << delay.count() << "ms" << std::endl;
   handshake_retry_timer_->enableTimer(delay);
 }
 
