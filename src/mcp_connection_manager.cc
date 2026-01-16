@@ -628,7 +628,6 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
     case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
   }
-  std::cerr << "[McpConnectionManager] onConnectionEvent event=" << event_name
             << ", is_server=" << is_server_ << std::endl;
   GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent event={}, is_server={}",
                    event_name, is_server_);
@@ -694,12 +693,9 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   }
 
   // Forward event to upper layer callbacks
-  std::cerr << "[McpConnectionManager] Forwarding event to protocol_callbacks_="
             << (protocol_callbacks_ ? "set" : "NULL") << std::endl;
   if (protocol_callbacks_) {
-    std::cerr << "[McpConnectionManager] Calling protocol_callbacks_->onConnectionEvent" << std::endl;
     protocol_callbacks_->onConnectionEvent(event);
-    std::cerr << "[McpConnectionManager] protocol_callbacks_->onConnectionEvent returned" << std::endl;
 
     // Ensure protocol callbacks are processed before any requests
     if (event == network::ConnectionEvent::Connected) {
@@ -858,15 +854,12 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
         : request_(request), connection_(conn) {}
 
     void onEvent(network::ConnectionEvent event) override {
-      std::cerr << "[PostConnection] onEvent: " << static_cast<int>(event) << std::endl;
       if (event == network::ConnectionEvent::Connected) {
-        std::cerr << "[PostConnection] Connected, sending POST request" << std::endl;
         OwnedBuffer buffer;
         buffer.add(request_);
         connection_->write(buffer, false);
       } else if (event == network::ConnectionEvent::RemoteClose ||
                  event == network::ConnectionEvent::LocalClose) {
-        std::cerr << "[PostConnection] Connection closed" << std::endl;
         // Connection closed - this is expected after we get the response
       }
     }

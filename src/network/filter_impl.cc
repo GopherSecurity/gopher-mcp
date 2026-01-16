@@ -97,7 +97,6 @@ bool FilterManagerImpl::initializeReadFilters() {
 
 void FilterManagerImpl::onRead() {
   if (!initialized_) {
-    std::cerr << "[FilterManager] onRead: not initialized" << std::endl;
     return;
   }
 
@@ -109,7 +108,6 @@ void FilterManagerImpl::onRead() {
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
-  std::cerr << "[FilterManager] onRead: buffer_len=" << buffer.length()
             << ", end_stream=" << end_stream
             << ", num_read_filters=" << read_filters_.size() << std::endl;
 
@@ -148,7 +146,6 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer,
   current_read_filter_ = entry;
 
   if (end_stream && current_read_filter_ == read_filters_.end()) {
-    std::cerr << "[FilterManager] Closing connection due to end_stream" << std::endl;
     connection_.close(ConnectionCloseType::FlushWrite);
   }
 

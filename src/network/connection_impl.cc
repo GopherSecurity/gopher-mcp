@@ -786,7 +786,6 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // Events may still fire from libevent queue even after file_event_ is reset
   if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
 #ifndef NDEBUG
-    std::cerr << "[CONN] onFileEvent(): ignoring events on closed connection, fd="
               << (socket_ ? socket_->ioHandle().fd() : -1) 
               << " state=" << static_cast<int>(state_)
               << " (0=Open, 1=Closing, 2=Closed)" << std::endl;

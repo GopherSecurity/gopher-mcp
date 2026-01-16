@@ -581,20 +581,11 @@ VoidResult McpClient::sendNotification(const std::string& method,
 
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
-  std::cerr << "[McpClient] sendRequestInternal: method=" << context->method
-            << ", connected_=" << connected_
-            << ", isConnectionOpen()=" << isConnectionOpen()
-            << ", retry_count=" << context->retry_count << std::endl;
-
   // Check if connection is stale (idle for too long)
   auto now = std::chrono::steady_clock::now();
   auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
       now - last_activity_time_).count();
   bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
-
-  std::cerr << "[McpClient] sendRequestInternal stale check: idle_seconds=" << idle_seconds
-            << ", timeout=" << kConnectionIdleTimeoutSec
-            << ", is_stale=" << is_stale << std::endl;
 
   // Check if connection is stale or not open - need to reconnect
   // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
@@ -659,16 +650,12 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.params = context->params;
   request.id = context->id;
 
-  std::cerr << "[McpClient] Sending request through connection_manager: method=" << context->method << std::endl;
-
   // Update activity time BEFORE sending - we're actively using the connection
   // This prevents stale connection detection while waiting for response
   last_activity_time_ = std::chrono::steady_clock::now();
 
   // Send through connection manager
   auto send_result = connection_manager_->sendRequest(request);
-
-  std::cerr << "[McpClient] sendRequest result: is_error=" << is_error<std::nullptr_t>(send_result) << std::endl;
 
   if (is_error<std::nullptr_t>(send_result)) {
     // Send failed, check if we should retry
@@ -1622,13 +1609,10 @@ void McpClient::coordinateProtocolState() {
 
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
-  std::cerr << "[McpClient] handleConnectionEvent called, event="
-            << static_cast<int>(event) << std::endl;
   // Handle connection events in dispatcher context
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
-      std::cerr << "[McpClient] Setting connected_=true" << std::endl;
       connected_ = true;
       last_activity_time_ = std::chrono::steady_clock::now();  // Reset idle timer on connection
       client_stats_.connections_active++;

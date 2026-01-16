@@ -36,7 +36,6 @@ namespace transport {
 TcpTransportSocket::TcpTransportSocket(event::Dispatcher& dispatcher,
                                        const TcpTransportSocketConfig& config)
     : config_(config), dispatcher_(dispatcher) {
-  std::cerr << "[TcpTransportSocket] CONSTRUCTOR this=" << this << std::endl;
   // Initialize state machine with basic config
   StateMachineConfig sm_config;
   sm_config.mode = StateMachineConfig::Mode::Client;
@@ -191,7 +190,6 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
                                                        bool end_stream) {
   // Check state - only allow writes in Connected state
   auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
-  std::cerr << "[TcpTransportSocket] doWrite called, state=" << static_cast<int>(current_state)
             << ", buffer_len=" << buffer.length() << std::endl;
   if (!state_machine_ ||
       current_state != TransportSocketState::Connected) {
@@ -199,7 +197,6 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
     err.code = ENOTCONN;
     err.message = "Socket not connected";
     failure_reason_ = err.message;
-    std::cerr << "[TcpTransportSocket] doWrite failed: not connected" << std::endl;
     return network::TransportIoResult::error(err);
   }
 
@@ -312,7 +309,6 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
 void TcpTransportSocket::onConnected() {
   // Called when the underlying socket connects
   auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
-  std::cerr << "[TcpTransportSocket] onConnected called, this=" << this << ", current_state=" << static_cast<int>(current_state) << std::endl;
   if (state_machine_) {
     // State machine requires: Connecting -> TcpConnected -> Connected
     if (current_state == TransportSocketState::Connecting) {
@@ -320,9 +316,7 @@ void TcpTransportSocket::onConnected() {
                                    "TCP connection established");
       state_machine_->transitionTo(TransportSocketState::Connected,
                                    "Connection ready");
-      std::cerr << "[TcpTransportSocket] transitioned to Connected" << std::endl;
     } else {
-      std::cerr << "[TcpTransportSocket] NOT transitioning, state was " << static_cast<int>(current_state) << std::endl;
     }
   }
 
@@ -333,7 +327,6 @@ void TcpTransportSocket::onConnected() {
 }
 
 VoidResult TcpTransportSocket::connect(network::Socket& socket) {
-  std::cerr << "[TcpTransportSocket] connect called, this=" << this << std::endl;
   // Initialize connection process
   if (state_machine_) {
     auto before_state = state_machine_->currentState();
@@ -345,7 +338,6 @@ VoidResult TcpTransportSocket::connect(network::Socket& socket) {
     state_machine_->transitionTo(TransportSocketState::Connecting,
                                  "Connect initiated");
     auto after_state = state_machine_->currentState();
-    std::cerr << "[TcpTransportSocket] transitioned: " << static_cast<int>(before_state)
               << " -> " << static_cast<int>(after_state) << std::endl;
   }
 

@@ -222,7 +222,6 @@ ConfigurableFilterChainFactory::~ConfigurableFilterChainFactory() {
 bool ConfigurableFilterChainFactory::createFilterChain(
     const FilterCreationContext& context,
     network::FilterManager& filter_manager) {
-  std::cerr << "Creating filter chain from configuration" << std::endl;
 
   auto result = assembler_->assembleFilterChain(filter_chain_config_, context,
                                                 filter_manager);
@@ -231,7 +230,6 @@ bool ConfigurableFilterChainFactory::createFilterChain(
     std::cerr << "Failed to create filter chain: " << result.error_message
               << std::endl;
   } else {
-    std::cerr << "Successfully created filter chain with "
               << result.created_filters.size() << " filters" << std::endl;
   }
 
