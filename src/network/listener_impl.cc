@@ -104,8 +104,6 @@ ActiveListener::ActiveListener(event::Dispatcher& dispatcher,
 ActiveListener::~ActiveListener() { disable(); }
 
 VoidResult ActiveListener::listen() {
-            << config_.bind_to_port
-            << " address=" << config_.address->asStringView() << std::endl;
   // Create socket
   if (config_.bind_to_port) {
     // Use the global createListenSocket function
@@ -125,7 +123,6 @@ VoidResult ActiveListener::listen() {
     }
 
     socket_ = std::move(socket);
-              << socket_->ioHandle().fd() << std::endl;
 
     // Call listen() to start accepting connections
     auto listen_result =
@@ -136,7 +133,6 @@ VoidResult ActiveListener::listen() {
       err.message = "Failed to listen on socket";
       return makeVoidError(err);
     }
-              << config_.backlog << std::endl;
 
     // Apply socket options
     if (config_.socket_options) {
@@ -172,8 +168,6 @@ VoidResult ActiveListener::listen() {
       [this](uint32_t events) { onSocketEvent(events); },
       event::PlatformDefaultTriggerType,  // Use platform-specific default
       static_cast<uint32_t>(event::FileReadyType::Closed));
-            << (file_event_ ? "SUCCESS" : "FAILED")
-            << " fd=" << socket_->ioHandle().fd() << std::endl;
 
   if (enabled_) {
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
@@ -185,7 +179,6 @@ VoidResult ActiveListener::listen() {
 void ActiveListener::disable() {
   enabled_ = false;
   if (file_event_) {
-              << socket_->ioHandle().fd() << std::endl;
     file_event_->setEnabled(0);
   }
 }
@@ -193,7 +186,6 @@ void ActiveListener::disable() {
 void ActiveListener::enable() {
   enabled_ = true;
   if (file_event_) {
-              << socket_->ioHandle().fd() << std::endl;
     file_event_->setEnabled(static_cast<uint32_t>(event::FileReadyType::Read));
   }
 }
@@ -225,7 +217,6 @@ void ActiveListener::doAccept() {
                                  reinterpret_cast<sockaddr*>(&addr), &addr_len);
 
     if (!accept_result.ok()) {
-                << accept_result.error_code() << std::endl;
       if (accept_result.error_code() == EAGAIN ||
           accept_result.error_code() == EWOULDBLOCK) {
         // No more connections to accept

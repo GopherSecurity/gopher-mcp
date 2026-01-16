@@ -628,7 +628,6 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
     case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
   }
-            << ", is_server=" << is_server_ << std::endl;
   GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent event={}, is_server={}",
                    event_name, is_server_);
 
@@ -693,7 +692,6 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   }
 
   // Forward event to upper layer callbacks
-            << (protocol_callbacks_ ? "set" : "NULL") << std::endl;
   if (protocol_callbacks_) {
     protocol_callbacks_->onConnectionEvent(event);
 

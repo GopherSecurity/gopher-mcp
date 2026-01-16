@@ -229,8 +229,6 @@ bool ConfigurableFilterChainFactory::createFilterChain(
   if (!result.success) {
     std::cerr << "Failed to create filter chain: " << result.error_message
               << std::endl;
-  } else {
-              << result.created_filters.size() << " filters" << std::endl;
   }
 
   return result.success;

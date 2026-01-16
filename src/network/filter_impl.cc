@@ -108,8 +108,6 @@ void FilterManagerImpl::onRead() {
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
-            << ", end_stream=" << end_stream
-            << ", num_read_filters=" << read_filters_.size() << std::endl;
 
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);

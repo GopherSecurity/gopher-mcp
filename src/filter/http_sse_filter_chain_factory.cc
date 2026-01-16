@@ -200,7 +200,6 @@ class HttpSseJsonRpcProtocolFilter
     // Data flows through protocol layers in sequence
     // HTTP -> SSE -> JSON-RPC
     size_t initial_len = data.length();
-              << ", end_stream=" << end_stream << std::endl;
     if (initial_len > 0) {
       std::string preview(static_cast<const char*>(data.linearize(std::min(initial_len, (size_t)200))), std::min(initial_len, (size_t)200));
     }
@@ -286,10 +285,6 @@ class HttpSseJsonRpcProtocolFilter
    * recursion!
    */
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
-              << ", is_server=" << is_server_ << ", is_sse_mode=" << is_sse_mode_
-              << ", waiting_for_endpoint=" << waiting_for_sse_endpoint_
-              << ", sse_get_sent=" << http_filter_->hasSentSseGetRequest() << std::endl;
-
     // Client mode: handle SSE GET initialization
     if (!is_server_ && waiting_for_sse_endpoint_) {
       // First write after connection - send SSE GET request first
@@ -416,7 +411,6 @@ class HttpSseJsonRpcProtocolFilter
 
       // Send via separate POST connection
       if (!mcp_callbacks_.sendHttpPost(json_body)) {
-                  << json_body.substr(0, 100) << std::endl;
       }
       // Return StopIteration - we've handled the data via POST, don't write to SSE
       return network::FilterStatus::StopIteration;
@@ -470,7 +464,6 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
-              << ", keep_alive=" << keep_alive << ", num_headers=" << headers.size() << std::endl;
     for (const auto& [key, value] : headers) {
     }
 
@@ -506,7 +499,6 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onBody(const std::string& data, bool end_stream) override {
-              << ", end_stream=" << end_stream << ", is_sse_mode=" << is_sse_mode_ << std::endl;
     if (data.length() > 0 && data.length() < 200) {
     }
     // Server receives JSON-RPC in request body regardless of SSE mode
@@ -559,7 +551,6 @@ class HttpSseJsonRpcProtocolFilter
   void onEvent(const std::string& event,
                const std::string& data,
                const optional<std::string>& id) override {
-              << ", data=" << data << std::endl;
 
     // Handle special MCP SSE events
     if (event == "endpoint") {
@@ -707,9 +698,6 @@ class HttpSseJsonRpcProtocolFilter
    * Called when we get the "endpoint" SSE event from server
    */
   void processPendingMessages() {
-              << " pending messages, message_endpoint=" << http_filter_->getMessageEndpoint()
-              << ", hasMessageEndpoint=" << http_filter_->hasMessageEndpoint() << std::endl;
-
     for (auto& msg_buffer : pending_messages_) {
       if (msg_buffer.length() > 0) {
         // For HTTP/SSE transport, POST must go on a separate connection

@@ -405,7 +405,6 @@ void SslTransportSocket::onConnected() {
    * 4. Start handshake timer
    * 5. Begin handshake process
    */
-            << static_cast<int>(state_machine_->getCurrentState()) << std::endl;
 
   // Guard: Only process if we haven't started the connection process yet
   auto current_state = state_machine_->getCurrentState();
@@ -1010,7 +1009,6 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
     if (ret > 0) {
       // Data read successfully
-                << std::string(static_cast<const char*>(data), std::min(ret, 200)) << std::endl;
       buffer.commit(slice, ret);
       total_bytes_read += ret;
       stats_->bytes_decrypted += ret;
@@ -1189,7 +1187,6 @@ size_t SslTransportSocket::moveFromBio() {
 
   // Write to inner socket
   auto result = inner_socket_->doWrite(temp_buffer, false);
-            << ", action=" << static_cast<int>(result.action_) << std::endl;
 
   return result.bytes_processed_;
 }
@@ -1267,11 +1264,9 @@ void SslTransportSocket::onStateChanged(SslSocketState old_state,
   /**
    * Handle state changes
    */
-            << " -> " << static_cast<int>(new_state) << std::endl;
 
   switch (new_state) {
     case SslSocketState::Connected:
-                << (transport_callbacks_ ? "set" : "NULL") << std::endl;
       if (transport_callbacks_) {
         transport_callbacks_->raiseEvent(network::ConnectionEvent::Connected);
       }

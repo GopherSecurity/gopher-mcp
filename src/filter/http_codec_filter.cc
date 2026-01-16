@@ -299,11 +299,6 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     // Client mode: format as HTTP request (GET for SSE init, POST for messages)
     auto current_state = state_machine_->currentState();
 
-              << HttpCodecStateMachine::getStateName(current_state)
-              << ", data_len=" << data.length()
-              << ", use_sse_get=" << use_sse_get_
-              << ", sse_get_sent=" << sse_get_sent_ << std::endl;
-
     GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}, data_len={}",
                      HttpCodecStateMachine::getStateName(current_state),
                      data.length());

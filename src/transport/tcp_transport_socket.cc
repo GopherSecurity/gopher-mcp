@@ -6,7 +6,6 @@
 #include "mcp/transport/tcp_transport_socket.h"
 
 #include <errno.h>
-#include <iostream>
 
 #ifdef _WIN32
 #include <io.h>
@@ -190,7 +189,6 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
                                                        bool end_stream) {
   // Check state - only allow writes in Connected state
   auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
-            << ", buffer_len=" << buffer.length() << std::endl;
   if (!state_machine_ ||
       current_state != TransportSocketState::Connected) {
     Error err;
@@ -337,8 +335,6 @@ VoidResult TcpTransportSocket::connect(network::Socket& socket) {
     }
     state_machine_->transitionTo(TransportSocketState::Connecting,
                                  "Connect initiated");
-    auto after_state = state_machine_->currentState();
-              << " -> " << static_cast<int>(after_state) << std::endl;
   }
 
   // Apply TCP-specific socket options
