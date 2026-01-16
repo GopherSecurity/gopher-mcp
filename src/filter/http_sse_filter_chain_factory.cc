@@ -137,12 +137,14 @@ class HttpSseJsonRpcProtocolFilter
                                McpProtocolCallbacks& mcp_callbacks,
                                bool is_server,
                                const std::string& http_path = "/rpc",
-                               const std::string& http_host = "localhost")
+                               const std::string& http_host = "localhost",
+                               bool use_sse = true)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
         http_path_(http_path),
-        http_host_(http_host) {
+        http_host_(http_host),
+        use_sse_(use_sse) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
     // Create routing filter first (it will receive HTTP callbacks)
@@ -159,8 +161,11 @@ class HttpSseJsonRpcProtocolFilter
     // Set client endpoint for HTTP requests
     if (!is_server) {
       http_filter_->setClientEndpoint(http_path, http_host);
-      // Enable SSE GET mode for client - will send GET /sse first
-      http_filter_->setUseSseGet(true);
+      // Only enable SSE GET mode if use_sse is true
+      // For Streamable HTTP, we send POST requests directly
+      if (use_sse) {
+        http_filter_->setUseSseGet(true);
+      }
     }
 
     // Now set the encoder in routing filter
@@ -242,7 +247,8 @@ class HttpSseJsonRpcProtocolFilter
     // For client mode with SSE, mark that we need to send GET request
     // Don't send here - connection is not ready yet (SSL handshake pending)
     // The GET will be sent on first onWrite() call after connection is established
-    if (!is_server_) {
+    // For Streamable HTTP mode (use_sse_ = false), skip the SSE endpoint waiting
+    if (!is_server_ && use_sse_) {
       waiting_for_sse_endpoint_ = true;
     }
 
@@ -289,7 +295,6 @@ class HttpSseJsonRpcProtocolFilter
     if (!is_server_ && waiting_for_sse_endpoint_) {
       // First write after connection - send SSE GET request first
       if (!http_filter_->hasSentSseGetRequest()) {
-
         // Send empty buffer to trigger SSE GET in http_filter_
         OwnedBuffer get_buffer;
         auto result = http_filter_->onWrite(get_buffer, false);
@@ -499,8 +504,6 @@ class HttpSseJsonRpcProtocolFilter
   }
 
   void onBody(const std::string& data, bool end_stream) override {
-    if (data.length() > 0 && data.length() < 200) {
-    }
     // Server receives JSON-RPC in request body regardless of SSE mode
     // SSE mode only affects the response format
     if (is_server_) {
@@ -520,13 +523,15 @@ class HttpSseJsonRpcProtocolFilter
         sse_filter_->onData(pending_sse_data_, end_stream);
         // SSE filter drains what it consumes, keeping partial events
       } else {
-        // In RPC mode, body contains JSON-RPC
-        // Accumulate and forward to JSON-RPC filter
-        pending_json_data_.add(data);
-        if (end_stream) {
-          jsonrpc_filter_->onData(pending_json_data_, true);
-          pending_json_data_.drain(pending_json_data_.length());
+        // In Streamable HTTP mode, body contains JSON-RPC response
+        // Process each chunk immediately - the HTTP codec may call onBody multiple times
+        OwnedBuffer temp_buffer;
+        temp_buffer.add(data);
+        // Add newline for JSON-RPC parsing (expects newline-delimited messages)
+        if (!data.empty() && data.back() != '\n') {
+          temp_buffer.add("\n", 1);
         }
+        jsonrpc_filter_->onData(temp_buffer, end_stream);
       }
     }
   }
@@ -770,6 +775,7 @@ class HttpSseJsonRpcProtocolFilter
   bool is_server_;
   std::string http_path_;  // HTTP path for SSE endpoint
   std::string http_host_;  // HTTP host header value
+  bool use_sse_;           // True for SSE mode, false for Streamable HTTP
   bool is_sse_mode_{false};
   bool client_accepts_sse_{
       false};  // Track if client supports SSE (Accept header)
@@ -871,7 +877,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
 
   // Create the combined protocol filter
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
-      dispatcher_, message_callbacks_, is_server_, http_path_, http_host_);
+      dispatcher_, message_callbacks_, is_server_, http_path_, http_host_, use_sse_);
 
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);

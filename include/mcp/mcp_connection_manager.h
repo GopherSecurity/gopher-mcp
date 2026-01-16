@@ -19,9 +19,10 @@ namespace mcp {
  * MCP transport type
  */
 enum class TransportType {
-  Stdio,     // Standard I/O transport
-  HttpSse,   // HTTP with Server-Sent Events
-  WebSocket  // WebSocket transport (future)
+  Stdio,          // Standard I/O transport
+  HttpSse,        // HTTP with Server-Sent Events
+  StreamableHttp, // Streamable HTTP (simple POST request/response)
+  WebSocket       // WebSocket transport (future)
 };
 
 /**

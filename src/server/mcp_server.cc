@@ -516,6 +516,7 @@ void McpServer::setupFilterChain(application::FilterChainBuilder& builder) {
 void McpServer::onRequest(const jsonrpc::Request& request) {
   GOPHER_LOG_DEBUG("McpServer::onRequest called with method: {}",
                    request.method);
+  std::cerr << "[McpServer] onRequest: method=" << request.method << std::endl;
 
   // Handle request in dispatcher context - already in dispatcher
   server_stats_.requests_total++;
@@ -607,10 +608,13 @@ void McpServer::onRequest(const jsonrpc::Request& request) {
       } else if (request.method == "resources/unsubscribe") {
         response = handleUnsubscribe(request, *session);
       } else if (request.method == "tools/list") {
+        std::cerr << "[McpServer] Handling tools/list request" << std::endl;
         response = handleListTools(request, *session);
       } else if (request.method == "tools/call") {
+        std::cerr << "[McpServer] Handling tools/call request" << std::endl;
         GOPHER_LOG_DEBUG("Calling handleCallTool for request");
         response = handleCallTool(request, *session);
+        std::cerr << "[McpServer] tools/call completed" << std::endl;
         GOPHER_LOG_DEBUG("handleCallTool returned");
       } else if (request.method == "prompts/list") {
         response = handleListPrompts(request, *session);
@@ -996,8 +1000,11 @@ jsonrpc::Response McpServer::handleListTools(const jsonrpc::Request& request,
 jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
                                             SessionContext& session) {
   GOPHER_LOG_DEBUG("handleCallTool entered");
+  std::cerr << "[McpServer] handleCallTool entered" << std::endl;
+
   // Extract tool name and arguments
   if (!request.params.has_value()) {
+    std::cerr << "[McpServer] handleCallTool: Missing parameters" << std::endl;
     return jsonrpc::Response::make_error(
         request.id, Error(jsonrpc::INVALID_PARAMS, "Missing parameters"));
   }
@@ -1006,11 +1013,13 @@ jsonrpc::Response McpServer::handleCallTool(const jsonrpc::Request& request,
   auto name_it = params.find("name");
   if (name_it == params.end() ||
       !holds_alternative<std::string>(name_it->second)) {
+    std::cerr << "[McpServer] handleCallTool: Invalid name parameter" << std::endl;
     return jsonrpc::Response::make_error(
         request.id, Error(jsonrpc::INVALID_PARAMS, "Invalid name parameter"));
   }
 
   std::string name = get<std::string>(name_it->second);
+  std::cerr << "[McpServer] handleCallTool: tool name = " << name << std::endl;
 
   // Extract optional arguments
   // The MCP protocol expects arguments to be nested under "arguments" field
