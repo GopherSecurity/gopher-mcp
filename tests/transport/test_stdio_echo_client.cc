@@ -366,8 +366,7 @@ class StdioEchoClientTest : public ::testing::Test {
             Metadata result;
             add_metadata(result, "echo", true);
             add_metadata(result, "method", request.method);
-            response.result =
-                mcp::make_optional(jsonrpc::ResponseResult(result));
+            response.result = mcp::make_optional(jsonrpc::ResponseResult(result));
 
             auto response_json = json::to_json(response);
             writeMessage(response_json.toString());
@@ -627,7 +626,7 @@ TEST_F(StdioEchoClientTest, ErrorResponse) {
   jsonrpc::Response error_response;
   error_response.id = RequestId(1);
   error_response.error =
-      make_optional(Error(jsonrpc::METHOD_NOT_FOUND, "Method not found"));
+      mcp::make_optional(Error(jsonrpc::METHOD_NOT_FOUND, "Method not found"));
 
   auto json_result = json::to_json(error_response);
 

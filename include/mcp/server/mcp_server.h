@@ -39,10 +39,15 @@
 #include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/metrics_filter.h"
 #include "mcp/json/json_bridge.h"
+#include "mcp/logging/log_macros.h"
 #include "mcp/mcp_application_base.h"  // TODO: Migrate to mcp_application_base_refactored.h
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/filter.h"
 #include "mcp/types.h"
+
+// Define log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "server"
 
 namespace mcp {
 
@@ -400,15 +405,31 @@ class ToolRegistry {
   CallToolResult callTool(const std::string& name,
                           const optional<Metadata>& arguments,
                           SessionContext& session) {
+    GOPHER_LOG_DEBUG("ToolRegistry::callTool invoked for: {}", name);
+    std::cerr << "[ToolRegistry] callTool invoked for: " << name << std::endl;
+
     std::lock_guard<std::mutex> lock(mutex_);
+
+    // Debug: print all registered tools
+    std::cerr << "[ToolRegistry] Registered tools (" << tool_handlers_.size() << "): ";
+    for (const auto& pair : tool_handlers_) {
+      std::cerr << "'" << pair.first << "' ";
+    }
+    std::cerr << std::endl;
 
     auto it = tool_handlers_.find(name);
     if (it != tool_handlers_.end()) {
+      GOPHER_LOG_DEBUG("Tool handler found, invoking: {}", name);
+      std::cerr << "[ToolRegistry] Tool handler found, invoking: " << name << std::endl;
       try {
         auto result = it->second(name, arguments, session);
+        GOPHER_LOG_DEBUG("Tool handler returned successfully for: {}", name);
+        std::cerr << "[ToolRegistry] Tool handler returned successfully" << std::endl;
         stats_.tools_executed++;
         return result;
       } catch (const std::exception& e) {
+        GOPHER_LOG_DEBUG("Exception in tool handler for {}: {}", name, e.what());
+        std::cerr << "[ToolRegistry] Exception in tool handler: " << e.what() << std::endl;
         stats_.tools_failed++;
         CallToolResult error_result;
         error_result.isError = true;
@@ -419,6 +440,8 @@ class ToolRegistry {
     }
 
     // Tool not found
+    GOPHER_LOG_DEBUG("Tool not found in registry: {}", name);
+    std::cerr << "[ToolRegistry] Tool NOT FOUND in registry: " << name << std::endl;
     CallToolResult error_result;
     error_result.isError = true;
     error_result.content.push_back(
@@ -783,6 +806,7 @@ class McpServer : public application::ApplicationBase,
     explicit ServerProtocolCallbacks(McpServer& server) : server_(server) {}
 
     void onRequest(const jsonrpc::Request& request) override {
+      GOPHER_LOG_DEBUG("ServerProtocolCallbacks::onRequest for method: {}", request.method);
       server_.onRequest(request);
     }
 

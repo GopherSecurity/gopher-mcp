@@ -188,8 +188,9 @@ network::TransportIoResult TcpTransportSocket::doRead(Buffer& buffer) {
 network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
                                                        bool end_stream) {
   // Check state - only allow writes in Connected state
+  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
   if (!state_machine_ ||
-      state_machine_->currentState() != TransportSocketState::Connected) {
+      current_state != TransportSocketState::Connected) {
     Error err;
     err.code = ENOTCONN;
     err.message = "Socket not connected";
@@ -305,11 +306,15 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
 
 void TcpTransportSocket::onConnected() {
   // Called when the underlying socket connects
+  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
   if (state_machine_) {
-    // Transition from Connecting to Connected
-    if (state_machine_->currentState() == TransportSocketState::Connecting) {
+    // State machine requires: Connecting -> TcpConnected -> Connected
+    if (current_state == TransportSocketState::Connecting) {
+      state_machine_->transitionTo(TransportSocketState::TcpConnected,
+                                   "TCP connection established");
       state_machine_->transitionTo(TransportSocketState::Connected,
-                                   "Connection established");
+                                   "Connection ready");
+    } else {
     }
   }
 
@@ -322,7 +327,12 @@ void TcpTransportSocket::onConnected() {
 VoidResult TcpTransportSocket::connect(network::Socket& socket) {
   // Initialize connection process
   if (state_machine_) {
-    // Transition from Unconnected to Connecting
+    auto before_state = state_machine_->currentState();
+    // State machine requires: Uninitialized -> Initialized -> Connecting
+    if (before_state == TransportSocketState::Uninitialized) {
+      state_machine_->transitionTo(TransportSocketState::Initialized,
+                                   "Socket initialized");
+    }
     state_machine_->transitionTo(TransportSocketState::Connecting,
                                  "Connect initiated");
   }

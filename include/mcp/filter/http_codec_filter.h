@@ -152,6 +152,51 @@ class HttpCodecFilter : public network::Filter {
   MessageEncoder& messageEncoder() { return *message_encoder_; }
 
   /**
+   * Set HTTP client endpoint (client mode only)
+   * @param path HTTP request path (e.g., "/sse", "/mcp")
+   * @param host HTTP Host header value
+   */
+  void setClientEndpoint(const std::string& path, const std::string& host) {
+    client_path_ = path;
+    client_host_ = host;
+  }
+
+  /**
+   * Set the message endpoint for POST requests (client mode only)
+   * Called after receiving endpoint event from SSE stream
+   * @param endpoint The URL path for sending JSON-RPC messages
+   */
+  void setMessageEndpoint(const std::string& endpoint) {
+    message_endpoint_ = endpoint;
+    has_message_endpoint_ = true;
+  }
+
+  /**
+   * Check if we have a message endpoint for POST requests
+   */
+  bool hasMessageEndpoint() const { return has_message_endpoint_; }
+
+  /**
+   * Get the message endpoint
+   */
+  const std::string& getMessageEndpoint() const { return message_endpoint_; }
+
+  /**
+   * Set whether to use GET for initial SSE connection (client mode only)
+   */
+  void setUseSseGet(bool use_sse_get) { use_sse_get_ = use_sse_get; }
+
+  /**
+   * Check if initial SSE GET request has been sent
+   */
+  bool hasSentSseGetRequest() const { return sse_get_sent_; }
+
+  /**
+   * Mark SSE GET request as sent
+   */
+  void markSseGetSent() { sse_get_sent_ = true; }
+
+  /**
    * Get and clear the message buffer
    * Used after encodeHeaders/encodeData to get the built message
    */
@@ -239,6 +284,12 @@ class HttpCodecFilter : public network::Filter {
   MessageCallbacks* message_callbacks_;
   event::Dispatcher& dispatcher_;
   bool is_server_;
+  std::string client_path_{"/rpc"};    // HTTP request path for client mode
+  std::string client_host_{"localhost"};  // HTTP Host header for client mode
+  std::string message_endpoint_;  // Endpoint for POST requests (from SSE endpoint event)
+  bool has_message_endpoint_{false};  // Whether we have received the message endpoint
+  bool use_sse_get_{false};  // Whether to use GET for initial SSE connection
+  bool sse_get_sent_{false};  // Whether the initial SSE GET has been sent
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};
 

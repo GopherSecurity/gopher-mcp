@@ -5,6 +5,12 @@
 
 #include <errno.h>
 
+#include "mcp/logging/log_macros.h"
+
+// Define log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "tcp_listener"
+
 #ifdef _WIN32
 #include <io.h>
 #include <winsock2.h>
@@ -218,6 +224,7 @@ void TcpListenerImpl::onSocketEvent(uint32_t events) {
 }
 
 bool TcpListenerImpl::doAccept() {
+  GOPHER_LOG_DEBUG("TcpListenerImpl::doAccept called");
   // Check global connection limit first (cheapest check)
   if (!ignore_global_conn_limit_ && rejectCxOverGlobalLimit()) {
     num_rejected_connections_++;
@@ -485,6 +492,7 @@ void TcpActiveListener::configureFilterChain(
 }
 
 void TcpActiveListener::onAccept(ConnectionSocketPtr&& socket) {
+  GOPHER_LOG_DEBUG("TcpActiveListener::onAccept called");
   // If we have filters, run them
   if (!config_.listener_filters.empty()) {
     runFilterChain(std::move(socket));
@@ -545,6 +553,8 @@ void TcpActiveListener::removeFilterContext(FilterChainContext* context) {
 }
 
 void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
+  GOPHER_LOG_DEBUG("TcpActiveListener::createConnection called, filter_factory={}, filter_chain_factory={}",
+                   filter_factory_ ? true : false, config_.filter_chain_factory ? true : false);
   // Create connection with filter chain
   if (config_.transport_socket_factory) {
     // Create transport socket

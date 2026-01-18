@@ -351,13 +351,11 @@ class EnhancedProtocolFilter : public network::Filter,
   void onRequestThrottled(const std::string& method,
                           size_t current_rate,
                           size_t max_rate) override {
-    std::cerr << "[Rate Limiter] Request throttled: " << method
               << " (rate: " << current_rate << "/" << max_rate << ")"
               << std::endl;
   }
 
   void onRateLimitExceeded(const std::string& bucket_name) override {
-    std::cerr << "[Rate Limiter] Rate limit exceeded for bucket: "
               << bucket_name << std::endl;
   }
 
@@ -375,7 +373,6 @@ class EnhancedProtocolFilter : public network::Filter,
 
   void onValidationFailure(const jsonrpc::Request& request,
                            const std::string& reason) override {
-    std::cerr << "[Validator] Request validation failed: " << reason
               << std::endl;
   }
 

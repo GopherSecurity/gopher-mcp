@@ -21,6 +21,7 @@
 #include "mcp/transport/ssl_transport_socket.h"
 
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 
 #include <openssl/bio.h>
@@ -249,6 +250,9 @@ SslTransportSocket::~SslTransportSocket() {
   if (handshake_timer_) {
     handshake_timer_->disableTimer();
   }
+  if (handshake_retry_timer_) {
+    handshake_retry_timer_->disableTimer();
+  }
 
   // Unregister state listener
   if (state_listener_id_ && state_machine_) {
@@ -352,25 +356,39 @@ VoidResult SslTransportSocket::connect(network::Socket& socket) {
 void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
   /**
    * Close Flow:
-   * 1. Handle based on current state
-   * 2. Attempt graceful SSL shutdown if connected
-   * 3. Update statistics
+   * 1. Cancel all pending timers/callbacks to prevent use-after-free
+   * 2. Send close_notify if connected (best effort, no followup)
+   * 3. Transition directly to Closed state
    * 4. Close inner socket
+   *
+   * IMPORTANT: This is a "hard close" - we don't schedule any callbacks
+   * like scheduleShutdownCheck() because the socket is about to be destroyed.
+   * Scheduling callbacks that capture 'this' would cause use-after-free.
    */
 
   auto state = state_machine_->getCurrentState();
 
-  if (state == SslSocketState::Connected) {
-    // Attempt graceful SSL shutdown
-    initiateShutdown();
+  // Cancel any pending timers that might reference this object
+  if (handshake_timer_) {
+    handshake_timer_->disableTimer();
+  }
+  if (handshake_retry_timer_) {
+    handshake_retry_timer_->disableTimer();
+  }
+
+  // Send close_notify if connected (best effort, don't wait for peer's response)
+  if (state == SslSocketState::Connected && ssl_ && !shutdown_sent_) {
+    SSL_shutdown(ssl_);  // Best effort, ignore return value
+    shutdown_sent_ = true;
+    moveFromBio();  // Flush the close_notify to the network
   } else if (state_machine_->isHandshaking()) {
     // Cancel handshake
     stats_->handshakes_failed++;
     cancelHandshake();
-  } else {
-    // Direct close
-    state_machine_->transition(SslSocketState::Closed);
   }
+
+  // Transition directly to Closed state - don't schedule any followup callbacks
+  state_machine_->transition(SslSocketState::Closed);
 
   // Close inner socket
   if (inner_socket_) {
@@ -381,11 +399,27 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
 void SslTransportSocket::onConnected() {
   /**
    * TCP Connected Flow:
-   * 1. Transition to TcpConnected
-   * 2. Initialize SSL structures
-   * 3. Start handshake timer
-   * 4. Begin handshake process
+   * 1. Notify inner socket that TCP is connected
+   * 2. Transition to TcpConnected
+   * 3. Initialize SSL structures
+   * 4. Start handshake timer
+   * 5. Begin handshake process
    */
+
+  // Guard: Only process if we haven't started the connection process yet
+  auto current_state = state_machine_->getCurrentState();
+  if (current_state != SslSocketState::Connecting &&
+      current_state != SslSocketState::Uninitialized &&
+      current_state != SslSocketState::Initialized) {
+    return;
+  }
+
+  // CRITICAL: Notify inner socket that TCP connection is established.
+  // This allows the inner socket (TcpTransportSocket) to transition to
+  // Connected state, enabling reads and writes during SSL handshake.
+  if (inner_socket_) {
+    inner_socket_->onConnected();
+  }
 
   // Transition state
   state_machine_->transition(SslSocketState::TcpConnected);
@@ -431,7 +465,8 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   }
 
   // Perform optimized SSL read
-  return performOptimizedSslRead(buffer);
+  auto result = performOptimizedSslRead(buffer);
+  return result;
 }
 
 TransportIoResult SslTransportSocket::doWrite(Buffer& buffer, bool end_stream) {
@@ -541,6 +576,7 @@ void SslTransportSocket::configureClientSsl() {
   // Configure SNI
   if (!config.sni_hostname.empty()) {
     SSL_set_tlsext_host_name(ssl_, config.sni_hostname.c_str());
+  } else {
   }
 
   // Enable session resumption
@@ -693,13 +729,16 @@ void SslTransportSocket::performHandshakeStep() {
   }
 
   // Move data between socket and BIOs
-  moveToBio();
+  size_t bytes_to_bio = moveToBio();
 
   // Perform handshake
   int ret = SSL_do_handshake(ssl_);
 
+  // Debug: check BIO state immediately after handshake
+  size_t bio_pending = BIO_ctrl_pending(network_bio_);
+
   // Move generated data to socket
-  moveFromBio();
+  size_t bytes_from_bio = moveFromBio();
 
   if (ret == 1) {
     // Handshake complete
@@ -724,12 +763,21 @@ TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(
    */
 
   switch (ssl_error) {
-    case SSL_ERROR_WANT_READ:
-      state_machine_->transition(SslSocketState::HandshakeWantRead);
+    case SSL_ERROR_WANT_READ: {
+      auto current = state_machine_->getCurrentState();
+      // If already in HandshakeWantRead, just schedule retry directly
+      // Otherwise, transition to HandshakeWantRead (which will trigger scheduleHandshakeRetry)
+      if (current == SslSocketState::HandshakeWantRead) {
+        scheduleHandshakeRetry();
+      } else {
+        state_machine_->scheduleTransition(SslSocketState::HandshakeWantRead);
+      }
       return TransportIoResult::PostIoAction::CONTINUE;
+    }
 
     case SSL_ERROR_WANT_WRITE:
-      state_machine_->transition(SslSocketState::HandshakeWantWrite);
+      // Use scheduleTransition to avoid "transition already in progress" error
+      state_machine_->scheduleTransition(SslSocketState::HandshakeWantWrite);
       return TransportIoResult::PostIoAction::CONTINUE;
 
     case SSL_ERROR_WANT_X509_LOOKUP:
@@ -1261,7 +1309,9 @@ void SslTransportSocket::scheduleHandshakeRetry() {
 
   if (!handshake_retry_timer_) {
     handshake_retry_timer_ =
-        dispatcher_.createTimer([this]() { performHandshakeStep(); });
+        dispatcher_.createTimer([this]() {
+          performHandshakeStep();
+        });
   }
 
   // Use exponential backoff

@@ -135,10 +135,16 @@ class HttpSseJsonRpcProtocolFilter
 
   HttpSseJsonRpcProtocolFilter(event::Dispatcher& dispatcher,
                                McpProtocolCallbacks& mcp_callbacks,
-                               bool is_server)
+                               bool is_server,
+                               const std::string& http_path = "/rpc",
+                               const std::string& http_host = "localhost",
+                               bool use_sse = true)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
-        is_server_(is_server) {
+        is_server_(is_server),
+        http_path_(http_path),
+        http_host_(http_host),
+        use_sse_(use_sse) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
     // Create routing filter first (it will receive HTTP callbacks)
@@ -151,6 +157,16 @@ class HttpSseJsonRpcProtocolFilter
     // Single HTTP codec that sends callbacks to routing filter first
     http_filter_ = std::make_shared<HttpCodecFilter>(*routing_filter_,
                                                      dispatcher_, is_server_);
+
+    // Set client endpoint for HTTP requests
+    if (!is_server) {
+      http_filter_->setClientEndpoint(http_path, http_host);
+      // Only enable SSE GET mode if use_sse is true
+      // For Streamable HTTP, we send POST requests directly
+      if (use_sse) {
+        http_filter_->setUseSseGet(true);
+      }
+    }
 
     // Now set the encoder in routing filter
     routing_filter_->setEncoder(&http_filter_->messageEncoder());
@@ -188,6 +204,10 @@ class HttpSseJsonRpcProtocolFilter
   network::FilterStatus onData(Buffer& data, bool end_stream) override {
     // Data flows through protocol layers in sequence
     // HTTP -> SSE -> JSON-RPC
+    size_t initial_len = data.length();
+    if (initial_len > 0) {
+      std::string preview(static_cast<const char*>(data.linearize(std::min(initial_len, (size_t)200))), std::min(initial_len, (size_t)200));
+    }
 
     // First layer: HTTP codec processes the data
     auto status = http_filter_->onData(data, end_stream);
@@ -223,6 +243,15 @@ class HttpSseJsonRpcProtocolFilter
     http_filter_->onNewConnection();
     sse_filter_->onNewConnection();
     jsonrpc_filter_->onNewConnection();
+
+    // For client mode with SSE, mark that we need to send GET request
+    // Don't send here - connection is not ready yet (SSL handshake pending)
+    // The GET will be sent on first onWrite() call after connection is established
+    // For Streamable HTTP mode (use_sse_ = false), skip the SSE endpoint waiting
+    if (!is_server_ && use_sse_) {
+      waiting_for_sse_endpoint_ = true;
+    }
+
     return network::FilterStatus::Continue;
   }
 
@@ -262,6 +291,45 @@ class HttpSseJsonRpcProtocolFilter
    * recursion!
    */
   network::FilterStatus onWrite(Buffer& data, bool end_stream) override {
+    // Client mode: handle SSE GET initialization
+    if (!is_server_ && waiting_for_sse_endpoint_) {
+      // First write after connection - send SSE GET request first
+      if (!http_filter_->hasSentSseGetRequest()) {
+        // Send empty buffer to trigger SSE GET in http_filter_
+        OwnedBuffer get_buffer;
+        auto result = http_filter_->onWrite(get_buffer, false);
+
+        // The GET request is now in get_buffer - we need to send it
+        // AND queue the current message to send after endpoint is received
+        if (data.length() > 0) {
+          OwnedBuffer msg_copy;
+          size_t len = data.length();
+          msg_copy.add(static_cast<const char*>(data.linearize(len)), len);
+          pending_messages_.push_back(std::move(msg_copy));
+          data.drain(len);
+        }
+
+        // Replace buffer contents with the GET request
+        if (get_buffer.length() > 0) {
+          size_t get_len = get_buffer.length();
+          data.add(static_cast<const char*>(get_buffer.linearize(get_len)), get_len);
+        }
+
+        // Return Continue so the GET request is written to socket
+        return network::FilterStatus::Continue;
+      }
+
+      // GET already sent, but still waiting for endpoint - queue the message
+      if (data.length() > 0) {
+        OwnedBuffer msg_copy;
+        size_t len = data.length();
+        msg_copy.add(static_cast<const char*>(data.linearize(len)), len);
+        pending_messages_.push_back(std::move(msg_copy));
+        data.drain(len);  // Consume the data so it doesn't get written yet
+        return network::FilterStatus::StopIteration;
+      }
+    }
+
     // Write flows through filters in reverse order
     // JSON-RPC -> SSE -> HTTP
 
@@ -338,7 +406,22 @@ class HttpSseJsonRpcProtocolFilter
       return network::FilterStatus::Continue;
     }
 
-    // Normal HTTP path (non-SSE responses)
+    // Client mode with SSE active: send via separate POST connection
+    // The SSE connection is for receiving only - POSTs must go separately
+    if (!is_server_ && is_sse_mode_ && !waiting_for_sse_endpoint_ &&
+        http_filter_->hasMessageEndpoint() && data.length() > 0) {
+      size_t len = data.length();
+      std::string json_body(static_cast<const char*>(data.linearize(len)), len);
+      data.drain(len);  // Consume the data
+
+      // Send via separate POST connection
+      if (!mcp_callbacks_.sendHttpPost(json_body)) {
+      }
+      // Return StopIteration - we've handled the data via POST, don't write to SSE
+      return network::FilterStatus::StopIteration;
+    }
+
+    // Normal HTTP path (non-SSE responses or server mode)
     // JSON-RPC filter handles framing
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter::onWrite - data_len={} is_server={}",
@@ -351,7 +434,8 @@ class HttpSseJsonRpcProtocolFilter
     GOPHER_LOG_DEBUG(
         "HttpSseJsonRpcProtocolFilter::onWrite - calling http_filter");
     // HTTP filter adds headers/framing for normal HTTP responses
-    return http_filter_->onWrite(data, end_stream);
+    auto http_status = http_filter_->onWrite(data, end_stream);
+    return http_status;
   }
 
   void initializeReadFilterCallbacks(
@@ -385,7 +469,8 @@ class HttpSseJsonRpcProtocolFilter
    */
   void onHeaders(const std::map<std::string, std::string>& headers,
                  bool keep_alive) override {
-    // Process headers
+    for (const auto& [key, value] : headers) {
+    }
 
     // Determine transport mode based on headers
     if (is_server_) {
@@ -438,13 +523,15 @@ class HttpSseJsonRpcProtocolFilter
         sse_filter_->onData(pending_sse_data_, end_stream);
         // SSE filter drains what it consumes, keeping partial events
       } else {
-        // In RPC mode, body contains JSON-RPC
-        // Accumulate and forward to JSON-RPC filter
-        pending_json_data_.add(data);
-        if (end_stream) {
-          jsonrpc_filter_->onData(pending_json_data_, true);
-          pending_json_data_.drain(pending_json_data_.length());
+        // In Streamable HTTP mode, body contains JSON-RPC response
+        // Process each chunk immediately - the HTTP codec may call onBody multiple times
+        OwnedBuffer temp_buffer;
+        temp_buffer.add(data);
+        // Add newline for JSON-RPC parsing (expects newline-delimited messages)
+        if (!data.empty() && data.back() != '\n') {
+          temp_buffer.add("\n", 1);
         }
+        jsonrpc_filter_->onData(temp_buffer, end_stream);
       }
     }
   }
@@ -469,14 +556,51 @@ class HttpSseJsonRpcProtocolFilter
   void onEvent(const std::string& event,
                const std::string& data,
                const optional<std::string>& id) override {
-    (void)event;
-    (void)id;
 
-    // SSE event contains JSON-RPC message
-    // Forward to JSON-RPC filter
-    auto buffer = std::make_unique<OwnedBuffer>();
-    buffer->add(data);
-    jsonrpc_filter_->onData(*buffer, false);
+    // Handle special MCP SSE events
+    if (event == "endpoint") {
+      // Server is telling us the endpoint URL for POST requests
+      http_filter_->setMessageEndpoint(data);
+      waiting_for_sse_endpoint_ = false;
+
+      // Notify McpConnectionManager about the message endpoint
+      // This allows it to set up separate POST connections
+      mcp_callbacks_.onMessageEndpoint(data);
+
+      // Process any queued messages now that we have the endpoint
+      // Use dispatcher to defer the write to avoid re-entrancy issues
+      // (we're currently inside an onData callback)
+      dispatcher_.post([this]() {
+        processPendingMessages();
+      });
+      return;
+    }
+
+    if (event == "message") {
+      // SSE message event contains JSON-RPC message
+      // Forward to JSON-RPC filter
+      auto buffer = std::make_unique<OwnedBuffer>();
+      buffer->add(data);
+      // Add trailing newline if missing for newline-delimited parsing
+      if (!data.empty() && data.back() != '\n') {
+        buffer->add("\n", 1);
+      }
+      jsonrpc_filter_->onData(*buffer, false);
+      return;
+    }
+
+    // Default: treat data as JSON-RPC message (for backwards compatibility)
+    if (!data.empty()) {
+      auto buffer = std::make_unique<OwnedBuffer>();
+      buffer->add(data);
+      // CRITICAL FIX: JSON-RPC filter expects newline-delimited messages.
+      // Add trailing newline if missing, otherwise the message will stay
+      // in the partial buffer waiting for more data indefinitely.
+      if (data.back() != '\n') {
+        buffer->add("\n", 1);
+      }
+      jsonrpc_filter_->onData(*buffer, false);
+    }
   }
 
   void onComment(const std::string& comment) override {
@@ -492,6 +616,7 @@ class HttpSseJsonRpcProtocolFilter
    * Server only - clients don't receive requests
    */
   void onRequest(const jsonrpc::Request& request) override {
+    GOPHER_LOG_DEBUG("HttpSseFilter::onRequest for method: {}", request.method);
     // Following production pattern: create a new stream for each request
     // This supports HTTP pipelining with multiple concurrent requests
     // Executed in dispatcher thread - no synchronization needed
@@ -573,6 +698,26 @@ class HttpSseJsonRpcProtocolFilter
   }
 
  private:
+  /**
+   * Process pending messages after receiving endpoint event
+   * Called when we get the "endpoint" SSE event from server
+   */
+  void processPendingMessages() {
+    for (auto& msg_buffer : pending_messages_) {
+      if (msg_buffer.length() > 0) {
+        // For HTTP/SSE transport, POST must go on a separate connection
+        // because the SSE stream is still active on this connection
+        size_t len = msg_buffer.length();
+        std::string json_body(static_cast<const char*>(msg_buffer.linearize(len)), len);
+
+        // Use McpConnectionManager's sendHttpPost to create a separate connection
+        if (!mcp_callbacks_.sendHttpPost(json_body)) {
+        }
+      }
+    }
+    pending_messages_.clear();
+  }
+
   void setupRoutingHandlers() {
     // Register health endpoint
     routing_filter_->registerHandler(
@@ -628,11 +773,16 @@ class HttpSseJsonRpcProtocolFilter
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& mcp_callbacks_;
   bool is_server_;
+  std::string http_path_;  // HTTP path for SSE endpoint
+  std::string http_host_;  // HTTP host header value
+  bool use_sse_;           // True for SSE mode, false for Streamable HTTP
   bool is_sse_mode_{false};
   bool client_accepts_sse_{
       false};  // Track if client supports SSE (Accept header)
   bool sse_headers_written_{
       false};  // Track if HTTP headers sent for SSE stream
+  bool waiting_for_sse_endpoint_{false};  // Client waiting for endpoint event
+  std::vector<OwnedBuffer> pending_messages_;  // Queued messages waiting for endpoint
 
   // Protocol filters
   std::shared_ptr<HttpCodecFilter> http_filter_;
@@ -727,7 +877,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
 
   // Create the combined protocol filter
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
-      dispatcher_, message_callbacks_, is_server_);
+      dispatcher_, message_callbacks_, is_server_, http_path_, http_host_, use_sse_);
 
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);

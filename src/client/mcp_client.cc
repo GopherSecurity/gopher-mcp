@@ -201,6 +201,7 @@ VoidResult McpClient::connect(const std::string& uri) {
         }
       } else {
         // Connection initiated successfully
+        last_activity_time_ = std::chrono::steady_clock::now();
         connect_promise->set_value(VoidResult(nullptr));
       }
     } catch (const std::exception& e) {
@@ -221,7 +222,24 @@ VoidResult McpClient::connect(const std::string& uri) {
 
 // Disconnect from server
 void McpClient::disconnect() {
-  // Trigger protocol shutdown
+  // Don't create timers if we're shutting down
+  if (shutting_down_) {
+    return;
+  }
+  
+  // Check if we're in dispatcher thread or post to it
+  if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
+    // We're not in dispatcher thread, post the disconnect
+    main_dispatcher_->post([this]() {
+      if (protocol_state_machine_ && !shutting_down_) {
+        protocol_state_machine_->handleEvent(
+            protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
+      }
+    });
+    return;
+  }
+  
+  // We're in dispatcher thread or no dispatcher, proceed directly
   if (protocol_state_machine_) {
     protocol_state_machine_->handleEvent(
         protocol::McpProtocolEvent::SHUTDOWN_REQUESTED);
@@ -237,6 +255,77 @@ void McpClient::disconnect() {
   initialized_ = false;
 }
 
+// Check if the underlying connection is actually open
+bool McpClient::isConnectionOpen() const {
+  if (!connected_ || !connection_manager_) {
+    return false;
+  }
+  return connection_manager_->isConnected();
+}
+
+// Reconnect using stored URI
+VoidResult McpClient::reconnect() {
+  if (current_uri_.empty()) {
+    return makeVoidError(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No URI stored for reconnection"));
+  }
+
+  // Disconnect first if we think we're connected
+  if (connected_ || connection_manager_) {
+    // Close the old connection
+    if (connection_manager_) {
+      connection_manager_->close();
+      connection_manager_.reset();
+    }
+    connected_ = false;
+    initialized_ = false;
+  }
+
+  // Now reconnect - reuse existing dispatcher if available
+  if (!main_dispatcher_) {
+    return makeVoidError(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher available for reconnection"));
+  }
+
+  // Do reconnection work directly (not via dispatcher post)
+  // This avoids deadlock when called from the dispatcher thread
+  try {
+    // Negotiate transport based on URI scheme
+    TransportType transport = negotiateTransport(current_uri_);
+
+    // Create connection configuration
+    McpConnectionConfig conn_config = createConnectionConfig(transport);
+
+    // Create new connection manager
+    connection_manager_ = std::make_unique<McpConnectionManager>(
+        *main_dispatcher_, *socket_interface_, conn_config);
+
+    // Set message callback handler
+    connection_manager_->setProtocolCallbacks(*protocol_callbacks_);
+
+    // Initiate connection (asynchronous - doesn't wait for TCP handshake)
+    VoidResult result = connection_manager_->connect();
+
+    if (is_error<std::nullptr_t>(result)) {
+      auto error = get_error<std::nullptr_t>(result);
+      return makeVoidError(*error);
+    }
+
+    // The connection_manager_->connect() initiates the TCP connection asynchronously.
+    // The dispatcher needs to process events for the connection to complete.
+    // Since we might be ON the dispatcher thread, we can't block waiting.
+    //
+    // Simply mark that reconnection is in progress. The handleConnectionEvent
+    // callback will set connected_=true when the TCP handshake completes.
+    // We return success here - the connection will be ready shortly.
+    last_activity_time_ = std::chrono::steady_clock::now();
+
+    return makeSuccess<std::nullptr_t>(nullptr);
+  } catch (const std::exception& e) {
+    return makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR, e.what()));
+  }
+}
+
 // Shutdown client
 void McpClient::shutdown() {
   if (shutting_down_) {
@@ -244,10 +333,21 @@ void McpClient::shutdown() {
   }
   shutting_down_ = true;
 
-  // Disconnect if connected
-  if (connected_) {
-    disconnect();
+  // Close connection directly without triggering state machine
+  if (connection_manager_) {
+    if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
+      // Post to dispatcher thread
+      main_dispatcher_->post([this]() {
+        if (connection_manager_) {
+          connection_manager_->close();
+        }
+      });
+    } else {
+      connection_manager_->close();
+    }
   }
+  
+  connected_ = false;
 
   // Request dispatcher shutdown
   shutdown_requested_ = true;
@@ -305,10 +405,18 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     }
 
     // Build initialize request with client capabilities
+    // MCP spec requires: protocolVersion, capabilities, clientInfo (nested object)
     auto init_params = make_metadata();
     init_params["protocolVersion"] = config_.protocol_version;
-    init_params["clientName"] = config_.client_name;
-    init_params["clientVersion"] = config_.client_version;
+
+    // clientInfo must be a nested object with name and version
+    // Store as JSON string - the serializer will parse it back to an object
+    std::string client_info_json = "{\"name\":\"" + config_.client_name +
+                                   "\",\"version\":\"" + config_.client_version + "\"}";
+    init_params["clientInfo"] = client_info_json;
+
+    // capabilities must be an object (can be empty)
+    init_params["capabilities"] = "{}";
 
     // Send request - do NOT block here!
     *request_future_ptr =
@@ -481,7 +589,60 @@ VoidResult McpClient::sendNotification(const std::string& method,
 
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
-  // Check if connected
+  // Check if connection is stale (idle for too long)
+  auto now = std::chrono::steady_clock::now();
+  auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+      now - last_activity_time_).count();
+  bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
+
+  // Check if connection is stale or not open - need to reconnect
+  // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
+  static constexpr int kMaxReconnectRetries = 50;
+
+  if (is_stale || !isConnectionOpen()) {
+    // Track if this is a retry after reconnect
+    if (context->retry_count > 0 && context->retry_count <= kMaxReconnectRetries) {
+      // This is a retry - check if we're connected now
+      if (!connected_ && !isConnectionOpen()) {
+        // Still not connected, schedule another retry with timer delay
+        // Timer allows event loop to process I/O events (like TCP connect) between retries
+        context->retry_count++;
+        context->retry_timer = main_dispatcher_->createTimer([this, context]() {
+          sendRequestInternal(context);
+        });
+        context->retry_timer->enableTimer(std::chrono::milliseconds(10));
+        return;
+      }
+      // Connected now, proceed with send below
+    } else if (context->retry_count > kMaxReconnectRetries) {
+      // Too many retries
+      context->promise.set_value(Response::make_error(
+          context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection not ready after reconnect")));
+      request_tracker_->removeRequest(context->id);
+      client_stats_.requests_failed++;
+      return;
+    } else {
+      // First attempt - need to reconnect
+      // Attempt to reconnect (async - just initiates connection)
+      auto reconnect_result = reconnect();
+      if (is_error<std::nullptr_t>(reconnect_result)) {
+        context->promise.set_value(Response::make_error(
+            context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection closed and reconnect failed")));
+        request_tracker_->removeRequest(context->id);
+        client_stats_.requests_failed++;
+        return;
+      }
+
+      // Reconnect initiated - schedule retry to allow connection event to be processed
+      context->retry_count = 1;
+      main_dispatcher_->post([this, context]() {
+        sendRequestInternal(context);
+      });
+      return;
+    }
+  }
+
+  // Double-check connection after potential reconnect
   if (!connected_ || !connection_manager_) {
     context->promise.set_value(Response::make_error(
         context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Not connected")));
@@ -496,6 +657,10 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.method = context->method;
   request.params = context->params;
   request.id = context->id;
+
+  // Update activity time BEFORE sending - we're actively using the connection
+  // This prevents stale connection detection while waiting for response
+  last_activity_time_ = std::chrono::steady_clock::now();
 
   // Send through connection manager
   auto send_result = connection_manager_->sendRequest(request);
@@ -529,6 +694,9 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
 
 // Handle incoming response
 void McpClient::handleResponse(const Response& response) {
+  // Update last activity time - we received data from the server
+  last_activity_time_ = std::chrono::steady_clock::now();
+
   // Find corresponding request
   auto request = request_tracker_->getRequest(response.id);
   if (!request) {
@@ -601,10 +769,33 @@ TransportType McpClient::negotiateTransport(const std::string& uri) {
   } else if (uri.find("ws://") == 0 || uri.find("wss://") == 0) {
     return TransportType::WebSocket;
   } else if (uri.find("http://") == 0 || uri.find("https://") == 0) {
-    return TransportType::HttpSse;
+    // For HTTP URLs, use heuristics to determine transport type:
+    // - If URL path contains "/sse" or "/events" -> use SSE transport
+    // - Otherwise -> use Streamable HTTP (simpler, more common)
+
+    // Extract path from URI
+    std::string path;
+    size_t scheme_end = uri.find("://");
+    if (scheme_end != std::string::npos) {
+      size_t path_start = uri.find('/', scheme_end + 3);
+      if (path_start != std::string::npos) {
+        path = uri.substr(path_start);
+      }
+    }
+
+    // Check for SSE-specific paths
+    // SSE transport is indicated by explicit /sse or /events endpoints
+    if (path.find("/sse") != std::string::npos ||
+        path.find("/events") != std::string::npos) {
+      return TransportType::HttpSse;
+    }
+
+    // Default to Streamable HTTP for most HTTP endpoints
+    // (e.g., /rpc, /mcp, /api, etc.)
+    return TransportType::StreamableHttp;
   } else {
-    // Default to HTTP/SSE for backward compatibility
-    return TransportType::HttpSse;
+    // Default to Streamable HTTP for unknown schemes
+    return TransportType::StreamableHttp;
   }
 }
 
@@ -630,21 +821,100 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       // Extract server address from URI
       // URI format: http://host:port or https://host:port
       std::string server_addr;
+      bool is_https = false;
       if (current_uri_.find("http://") == 0) {
         server_addr = current_uri_.substr(7);  // Remove "http://"
       } else if (current_uri_.find("https://") == 0) {
         server_addr = current_uri_.substr(8);  // Remove "https://"
+        is_https = true;
       } else {
         server_addr = current_uri_;
       }
 
-      // Remove any path component (everything after first /)
+      // Extract path component (everything after first /)
+      std::string http_path = "/";  // Default path
       size_t slash_pos = server_addr.find('/');
       if (slash_pos != std::string::npos) {
+        http_path = server_addr.substr(slash_pos);  // Include the /
+        server_addr = server_addr.substr(0, slash_pos);  // Remove path from address
+      }
+
+      http_config.server_address = server_addr;
+      config.http_path = http_path;
+      config.http_host = server_addr;  // Host header value (without port for now)
+
+      // Set SSL transport for HTTPS URLs
+      if (is_https) {
+        http_config.underlying_transport =
+            transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        // Configure SSL with reasonable defaults
+        transport::HttpSseTransportSocketConfig::SslConfig ssl_cfg;
+        ssl_cfg.verify_peer = false;  // For now, disable peer verification
+        // Use HTTP/1.1 only - our HTTP codec doesn't support HTTP/2 binary framing
+        ssl_cfg.alpn_protocols = std::vector<std::string>{"http/1.1"};
+
+        // Extract hostname for SNI (Server Name Indication)
+        // server_addr may contain port (host:port), extract just the hostname
+        std::string sni_host = server_addr;
+        size_t colon_pos = sni_host.find(':');
+        if (colon_pos != std::string::npos) {
+          sni_host = sni_host.substr(0, colon_pos);
+        }
+        ssl_cfg.sni_hostname = mcp::make_optional(sni_host);
+
+        http_config.ssl_config = mcp::make_optional(ssl_cfg);
+      }
+
+      config.http_sse_config = mcp::make_optional(http_config);
+      break;
+    }
+
+    case TransportType::StreamableHttp: {
+      // Streamable HTTP uses the same config as HttpSse but with a different transport type
+      // The connection manager will handle the simpler request/response pattern
+      transport::HttpSseTransportSocketConfig http_config;
+      http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+
+      // Extract server address from URI (same logic as HttpSse)
+      std::string server_addr;
+      bool is_https = false;
+      if (current_uri_.find("http://") == 0) {
+        server_addr = current_uri_.substr(7);
+      } else if (current_uri_.find("https://") == 0) {
+        server_addr = current_uri_.substr(8);
+        is_https = true;
+      } else {
+        server_addr = current_uri_;
+      }
+
+      // Extract path component
+      std::string http_path = "/";
+      size_t slash_pos = server_addr.find('/');
+      if (slash_pos != std::string::npos) {
+        http_path = server_addr.substr(slash_pos);
         server_addr = server_addr.substr(0, slash_pos);
       }
 
       http_config.server_address = server_addr;
+      config.http_path = http_path;
+      config.http_host = server_addr;
+
+      // Set SSL transport for HTTPS URLs
+      if (is_https) {
+        http_config.underlying_transport =
+            transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        transport::HttpSseTransportSocketConfig::SslConfig ssl_cfg;
+        ssl_cfg.verify_peer = false;
+        ssl_cfg.alpn_protocols = std::vector<std::string>{"http/1.1"};
+        std::string sni_host = server_addr;
+        size_t colon_pos = sni_host.find(':');
+        if (colon_pos != std::string::npos) {
+          sni_host = sni_host.substr(0, colon_pos);
+        }
+        ssl_cfg.sni_hostname = mcp::make_optional(sni_host);
+        http_config.ssl_config = mcp::make_optional(ssl_cfg);
+      }
+
       config.http_sse_config = mcp::make_optional(http_config);
       break;
     }
@@ -938,10 +1208,13 @@ std::future<ListToolsResult> McpClient::listTools(
         result_promise->set_exception(std::make_exception_ptr(
             std::runtime_error(response.error->message)));
       } else if (response.result.has_value()) {
-        // Extract tools vector from response and wrap in ListToolsResult
-        // ResponseResult variant contains std::vector<Tool>
+        // Extract tools from response
+        // The response.result contains ListToolsResult
         ListToolsResult result;
-        if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+        if (holds_alternative<ListToolsResult>(response.result.value())) {
+          result = get<ListToolsResult>(response.result.value());
+        } else if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+          // Backward compatibility: if it's a vector of tools directly
           result.tools = get<std::vector<Tool>>(response.result.value());
         }
         result_promise->set_value(result);
@@ -1418,11 +1691,11 @@ void McpClient::coordinateProtocolState() {
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
   // Handle connection events in dispatcher context
-
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
       connected_ = true;
+      last_activity_time_ = std::chrono::steady_clock::now();  // Reset idle timer on connection
       client_stats_.connections_active++;
 
       // Notify protocol state machine of network connection
