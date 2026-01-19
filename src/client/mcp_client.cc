@@ -270,6 +270,38 @@ VoidResult McpClient::reconnect() {
         Error(::mcp::jsonrpc::INTERNAL_ERROR, "No URI stored for reconnection"));
   }
 
+  // Now reconnect - reuse existing dispatcher if available
+  if (!main_dispatcher_) {
+    return makeVoidError(
+        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher available for reconnection"));
+  }
+
+  // CRITICAL FIX: Check if we're on the dispatcher thread
+  // reconnect() is typically called from sendRequestInternal() which runs
+  // on user threads. McpConnectionManager operations MUST run on the
+  // dispatcher thread for thread safety (network I/O, filters, callbacks).
+  if (!main_dispatcher_->isThreadSafe()) {
+    // We're NOT on dispatcher thread - post the reconnection work
+    // Use a promise/future to return the result synchronously to caller
+    auto reconnect_promise = std::make_shared<std::promise<VoidResult>>();
+    auto reconnect_future = reconnect_promise->get_future();
+
+    main_dispatcher_->post([reconnect_promise, this]() {
+      // Now on dispatcher thread - perform reconnection
+      VoidResult result = reconnectInternal();
+      reconnect_promise->set_value(result);
+    });
+
+    // Wait for reconnection to complete
+    return reconnect_future.get();
+  }
+
+  // We're already on dispatcher thread - do work directly to avoid deadlock
+  return reconnectInternal();
+}
+
+// Internal reconnection logic (must be called on dispatcher thread)
+VoidResult McpClient::reconnectInternal() {
   // Disconnect first if we think we're connected
   if (connected_ || connection_manager_) {
     // Close the old connection
@@ -281,14 +313,6 @@ VoidResult McpClient::reconnect() {
     initialized_ = false;
   }
 
-  // Now reconnect - reuse existing dispatcher if available
-  if (!main_dispatcher_) {
-    return makeVoidError(
-        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher available for reconnection"));
-  }
-
-  // Do reconnection work directly (not via dispatcher post)
-  // This avoids deadlock when called from the dispatcher thread
   try {
     // Negotiate transport based on URI scheme
     TransportType transport = negotiateTransport(current_uri_);
@@ -313,7 +337,6 @@ VoidResult McpClient::reconnect() {
 
     // The connection_manager_->connect() initiates the TCP connection asynchronously.
     // The dispatcher needs to process events for the connection to complete.
-    // Since we might be ON the dispatcher thread, we can't block waiting.
     //
     // Simply mark that reconnection is in progress. The handleConnectionEvent
     // callback will set connected_=true when the TCP handshake completes.

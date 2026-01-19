@@ -536,6 +536,9 @@ class McpClient : public application::ApplicationBase {
   void handleTimeout(std::shared_ptr<RequestContext> context);
   void retryRequest(std::shared_ptr<RequestContext> context);
 
+  // Internal reconnection logic (must be called on dispatcher thread)
+  VoidResult reconnectInternal();
+
   // Timer-based timeout management following production patterns
   void enableRequestTimeout(std::shared_ptr<RequestContext> context);
   void disableRequestTimeout(std::shared_ptr<RequestContext> context);
