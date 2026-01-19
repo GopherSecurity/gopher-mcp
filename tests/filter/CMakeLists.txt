@@ -382,3 +382,18 @@ target_link_libraries(test_sse_event_callbacks
   Threads::Threads
 )
 add_test(NAME SseEventCallbacksTest COMMAND test_sse_event_callbacks)
+
+# HTTP Codec SSE GET Test
+add_executable(test_http_codec_sse_get
+  test_http_codec_sse_get.cc
+)
+target_link_libraries(test_http_codec_sse_get
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME HttpCodecSseGetTest COMMAND test_http_codec_sse_get)
