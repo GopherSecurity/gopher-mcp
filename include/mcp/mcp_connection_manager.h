@@ -44,6 +44,10 @@ struct McpConnectionConfig {
 
   // Protocol detection
   bool use_protocol_detection{false};  // Enable automatic protocol detection
+
+  // HTTP endpoint configuration (for HTTP/SSE transport)
+  std::string http_path{"/rpc"};  // Request path (e.g., /sse, /mcp)
+  std::string http_host;  // Host header value (auto-set from server_address if empty)
 };
 
 /**
@@ -160,6 +164,8 @@ class McpConnectionManager : public McpProtocolCallbacks,
   void onResponse(const jsonrpc::Response& response) override;
   void onConnectionEvent(network::ConnectionEvent event) override;
   void onError(const Error& error) override;
+  void onMessageEndpoint(const std::string& endpoint) override;
+  bool sendHttpPost(const std::string& json_body) override;
 
   // ListenerCallbacks interface
   void onAccept(network::ConnectionSocketPtr&& socket) override;
@@ -201,6 +207,15 @@ class McpConnectionManager : public McpProtocolCallbacks,
   // State
   bool is_server_{false};
   bool connected_{false};
+  bool processing_connected_event_{false};  // Guard against re-entrancy
+
+  // HTTP/SSE POST connection support
+  std::string message_endpoint_;  // URL for POST requests (from SSE endpoint event)
+  bool has_message_endpoint_{false};
+
+  // Active POST connection (for sending messages in HTTP/SSE mode)
+  std::unique_ptr<network::ClientConnection> post_connection_;
+  std::unique_ptr<network::ConnectionCallbacks> post_callbacks_;
 };
 
 /**

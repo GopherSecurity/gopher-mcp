@@ -87,6 +87,7 @@ add_executable(test_tcp_echo_server_basic test_tcp_echo_server_basic.cc)
 
 # MCP tests
 add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.cc)
+add_executable(test_connection_manager connection/test_connection_manager.cc)
 add_executable(test_client_disconnect_fixes client/test_client_disconnect_fixes.cc)
 add_executable(test_client_reconnection_and_logging client/test_client_reconnection_and_logging.cc)
 add_executable(test_client_idle_timeout client/test_client_idle_timeout.cc)
@@ -641,6 +642,14 @@ target_link_libraries(test_mcp_connection_manager
     gopher-mcp
     gopher-mcp-event
     gtest
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_connection_manager
+    gopher-mcp
+    gopher-mcp-event
+    gmock
     gtest_main
     Threads::Threads
 )
@@ -1226,6 +1235,7 @@ add_test(NAME FullStackTransportTest COMMAND test_full_stack_transport)
 
 # MCP tests
 add_test(NAME McpConnectionManagerTest COMMAND test_mcp_connection_manager)
+add_test(NAME ConnectionManagerTest COMMAND test_connection_manager)
 add_test(NAME BuildersTest COMMAND test_builders)
 add_test(NAME McpClientThreadingTest COMMAND test_mcp_client_threading)
 add_test(NAME McpClientMemoryTest COMMAND test_mcp_client_memory)
