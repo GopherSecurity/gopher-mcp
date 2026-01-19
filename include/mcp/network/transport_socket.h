@@ -200,6 +200,17 @@ class TransportSocket {
    * Enable/disable TCP keep-alive
    */
   virtual void enableTcpKeepalive() {}
+
+  /**
+   * Check if this transport defers the Connected event.
+   * If true, ConnectionImpl will NOT raise Connected immediately after
+   * onConnected() - instead, the transport socket is responsible for
+   * raising the event when the transport is truly ready (e.g., after
+   * SSL/TLS handshake completes).
+   *
+   * @return true if the transport handles the Connected event itself
+   */
+  virtual bool defersConnectedEvent() const { return false; }
 };
 
 /**
