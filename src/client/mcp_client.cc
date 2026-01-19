@@ -614,11 +614,15 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
   static constexpr int kMaxReconnectRetries = 50;
 
-  if (is_stale || !isConnectionOpen()) {
+  // THREAD SAFETY: Use atomic connected_ flag instead of isConnectionOpen()
+  // isConnectionOpen() reads McpConnectionManager::active_connection_ without
+  // synchronization, creating a data race when called from user threads.
+  // The atomic connected_ flag is safe to read from any thread.
+  if (is_stale || !connected_) {
     // Track if this is a retry after reconnect
     if (context->retry_count > 0 && context->retry_count <= kMaxReconnectRetries) {
       // This is a retry - check if we're connected now
-      if (!connected_ && !isConnectionOpen()) {
+      if (!connected_) {
         // Still not connected, schedule another retry with timer delay
         // Timer allows event loop to process I/O events (like TCP connect) between retries
         context->retry_count++;
