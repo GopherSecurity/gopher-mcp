@@ -650,6 +650,12 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.params = context->params;
   request.id = context->id;
 
+  // CRITICAL FIX: Update activity time BEFORE sending request
+  // This prevents stale connection detection while waiting for response
+  // Without this, connections are marked stale if idle_seconds >= timeout,
+  // causing reconnection while the request is in flight
+  last_activity_time_ = std::chrono::steady_clock::now();
+
   // Send through connection manager
   auto send_result = connection_manager_->sendRequest(request);
 
