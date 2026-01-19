@@ -90,6 +90,7 @@ add_executable(test_mcp_connection_manager network/test_mcp_connection_manager.c
 add_executable(test_client_disconnect_fixes client/test_client_disconnect_fixes.cc)
 add_executable(test_client_reconnection_and_logging client/test_client_reconnection_and_logging.cc)
 add_executable(test_client_idle_timeout client/test_client_idle_timeout.cc)
+add_executable(test_client_connection_check_threading client/test_client_connection_check_threading.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # C API tests
@@ -656,6 +657,15 @@ target_link_libraries(test_client_reconnection_and_logging
 )
 
 target_link_libraries(test_client_idle_timeout
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_client_connection_check_threading
     gopher-mcp
     gopher-mcp-event
     gtest
