@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
@@ -53,13 +54,19 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling requests
    * @param is_server True for server mode, false for client mode
+   * @param http_path HTTP request path for client mode (e.g., "/sse")
+   * @param http_host HTTP Host header value for client mode
    */
   HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
                             McpProtocolCallbacks& message_callbacks,
-                            bool is_server = true)
+                            bool is_server = true,
+                            const std::string& http_path = "/rpc",
+                            const std::string& http_host = "localhost")
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
-        is_server_(is_server) {}
+        is_server_(is_server),
+        http_path_(http_path),
+        http_host_(http_host) {}
 
   /**
    * Create filter chain for the connection
@@ -106,6 +113,8 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
+  std::string http_path_;  // HTTP request path for client mode
+  std::string http_host_;  // HTTP Host header for client mode
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 
   // Store filters for lifetime management
