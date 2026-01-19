@@ -554,13 +554,22 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   const char* event_name = "unknown";
   switch (event) {
-    case network::ConnectionEvent::Connected: event_name = "Connected"; break;
-    case network::ConnectionEvent::ConnectedZeroRtt: event_name = "ConnectedZeroRtt"; break;
-    case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
-    case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
+    case network::ConnectionEvent::Connected:
+      event_name = "Connected";
+      break;
+    case network::ConnectionEvent::ConnectedZeroRtt:
+      event_name = "ConnectedZeroRtt";
+      break;
+    case network::ConnectionEvent::RemoteClose:
+      event_name = "RemoteClose";
+      break;
+    case network::ConnectionEvent::LocalClose:
+      event_name = "LocalClose";
+      break;
   }
-  GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent event={}, is_server={}",
-                   event_name, is_server_);
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager::onConnectionEvent event={}, is_server={}",
+      event_name, is_server_);
 
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
@@ -592,11 +601,13 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     // Connection closed - clean up state
     connected_ = false;
     // CRITICAL FIX: Defer connection destruction
-    // We are being called from within the connection's callback loop (raiseConnectionEvent).
-    // Destroying the connection here would cause use-after-free when the callback loop
-    // continues to iterate. Use post() to defer destruction until after current callback.
+    // We are being called from within the connection's callback loop
+    // (raiseConnectionEvent). Destroying the connection here would cause
+    // use-after-free when the callback loop continues to iterate. Use post() to
+    // defer destruction until after current callback.
     if (active_connection_) {
-      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(std::move(active_connection_));
+      auto conn_to_delete = std::make_shared<network::ConnectionPtr>(
+          std::move(active_connection_));
       dispatcher_.post([conn_to_delete]() {
         // Connection is destroyed when lambda and shared_ptr go out of scope
         conn_to_delete->reset();
@@ -604,10 +615,10 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     }
   }
 
-  // Forward event to upper layer callbacks  
+  // Forward event to upper layer callbacks
   if (protocol_callbacks_) {
     protocol_callbacks_->onConnectionEvent(event);
-    
+
     // Ensure protocol callbacks are processed before any requests
     if (event == network::ConnectionEvent::Connected) {
       dispatcher_.post([this]() {
@@ -727,8 +738,9 @@ McpConnectionManager::createFilterChainFactory() {
 
 VoidResult McpConnectionManager::sendJsonMessage(
     const json::JsonValue& message) {
-  GOPHER_LOG_DEBUG("McpConnectionManager::sendJsonMessage called, connected={}, conn={}",
-                   connected_, (void*)active_connection_.get());
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager::sendJsonMessage called, connected={}, conn={}",
+      connected_, (void*)active_connection_.get());
 
   // Convert to string
   std::string json_str = message.toString();
@@ -751,8 +763,9 @@ VoidResult McpConnectionManager::sendJsonMessage(
   // Post write to dispatcher thread to ensure thread safety
   // The write() call must happen on the dispatcher thread
   dispatcher_.post([json_str = std::move(json_str), conn]() {
-    GOPHER_LOG_DEBUG("McpConnectionManager write callback executing, conn={}, msg_len={}",
-                     (void*)conn, json_str.length());
+    GOPHER_LOG_DEBUG(
+        "McpConnectionManager write callback executing, conn={}, msg_len={}",
+        (void*)conn, json_str.length());
 
     // Create buffer with JSON payload
     OwnedBuffer buffer;

@@ -94,13 +94,9 @@ class MockFilterCallbacks : public network::ReadFilterCallbacks {
     return host;
   }
 
-  void setUpstreamHost(const std::string& host) override {
-    (void)host;
-  }
+  void setUpstreamHost(const std::string& host) override { (void)host; }
 
-  bool shouldContinueFilterChain() override {
-    return true;
-  }
+  bool shouldContinueFilterChain() override { return true; }
 
   void injectReadDataToFilterChain(Buffer& data, bool end_stream) override {
     (void)data;

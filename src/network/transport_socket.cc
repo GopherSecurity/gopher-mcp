@@ -49,10 +49,11 @@ void RawBufferTransportSocket::closeSocket(ConnectionEvent event) {
 
   // Mark as disconnected
   connected_ = false;
-  
+
   // Clear callbacks to prevent use-after-free
-  // Don't raise events back - we're being called FROM the connection during close
-  // Raising events here would create circular callbacks and potential crashes
+  // Don't raise events back - we're being called FROM the connection during
+  // close Raising events here would create circular callbacks and potential
+  // crashes
   callbacks_ = nullptr;
 }
 

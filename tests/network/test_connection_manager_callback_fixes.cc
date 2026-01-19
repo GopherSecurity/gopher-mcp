@@ -25,9 +25,7 @@ using namespace network;
 // Mock connection for testing callback removal
 class MockConnection {
  public:
-  void addCallbacks(void* cb) {
-    callbacks_.push_back(cb);
-  }
+  void addCallbacks(void* cb) { callbacks_.push_back(cb); }
 
   void removeCallbacks(void* cb) {
     auto it = std::find(callbacks_.begin(), callbacks_.end(), cb);
@@ -209,8 +207,7 @@ TEST(ConnectionManagerCallbackFixes, CloseWithoutCallbacks) {
  * Fix: Reset active_connection_ after closing
  */
 TEST(ConnectionManagerCallbackFixes, ConnectionResetAfterClose) {
-  std::unique_ptr<MockConnection> conn =
-      std::make_unique<MockConnection>();
+  std::unique_ptr<MockConnection> conn = std::make_unique<MockConnection>();
 
   void* callback_ptr = reinterpret_cast<void*>(0xBEEF);
   conn->addCallbacks(callback_ptr);

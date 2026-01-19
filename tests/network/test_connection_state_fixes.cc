@@ -186,9 +186,7 @@ TEST(ConnectionStateFixes, DeferredCloseOperation) {
   // This prevents destroying FileEventImpl during its own callback
   bool close_posted = false;
 
-  dispatcher.post([&close_posted]() {
-    close_posted = true;
-  });
+  dispatcher.post([&close_posted]() { close_posted = true; });
 
   // Run dispatcher to process posted events
   dispatcher.run(event::RunType::NonBlock);
@@ -371,9 +369,7 @@ TEST(ConnectionStateFixes, FileEventAfterClose) {
   // if (state_ == Closed || state_ == Closing) { return; }
 
   bool event_processed = false;
-  dispatcher.post([&event_processed]() {
-    event_processed = true;
-  });
+  dispatcher.post([&event_processed]() { event_processed = true; });
 
   dispatcher.run(event::RunType::NonBlock);
   EXPECT_TRUE(event_processed);

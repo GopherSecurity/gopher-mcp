@@ -553,8 +553,11 @@ void TcpActiveListener::removeFilterContext(FilterChainContext* context) {
 }
 
 void TcpActiveListener::createConnection(ConnectionSocketPtr&& socket) {
-  GOPHER_LOG_DEBUG("TcpActiveListener::createConnection called, filter_factory={}, filter_chain_factory={}",
-                   filter_factory_ ? true : false, config_.filter_chain_factory ? true : false);
+  GOPHER_LOG_DEBUG(
+      "TcpActiveListener::createConnection called, filter_factory={}, "
+      "filter_chain_factory={}",
+      filter_factory_ ? true : false,
+      config_.filter_chain_factory ? true : false);
   // Create connection with filter chain
   if (config_.transport_socket_factory) {
     // Create transport socket

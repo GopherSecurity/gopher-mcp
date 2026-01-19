@@ -2,10 +2,12 @@
 //
 // Unit tests for commit 8f5d77a5: Client Reconnection and Debug Logging
 //
-// This file tests the reconnection capabilities and debug logging added in commit
-// 8f5d77a581fe2b4b5307fad3acbb8ef01bb2110e. The commit addresses two main issues:
+// This file tests the reconnection capabilities and debug logging added in
+// commit 8f5d77a581fe2b4b5307fad3acbb8ef01bb2110e. The commit addresses two
+// main issues:
 //
-// 1. Connection Resilience: Automatic reconnection when connections drop or become idle
+// 1. Connection Resilience: Automatic reconnection when connections drop or
+// become idle
 //    - New reconnect() method to reestablish connections
 //    - Idle timeout detection (4 second threshold)
 //    - isConnectionOpen() to check actual connection state
@@ -26,33 +28,33 @@
 // - URI storage for reconnection
 // - Error handling in reconnection scenarios
 
+#include <chrono>
+#include <memory>
+#include <thread>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "mcp/client/mcp_client.h"
 #include "mcp/event/libevent_dispatcher.h"
 #include "mcp/mcp_connection_manager.h"
 #include "mcp/network/socket.h"
 #include "mcp/types.h"
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-
-#include <chrono>
-#include <memory>
-#include <thread>
-
 namespace mcp {
 namespace {
 
-using ::testing::_;
-using ::testing::Return;
 using client::McpClient;
 using client::RequestContext;
+using ::testing::_;
+using ::testing::Return;
 
 // ============================================================================
 // Test Fixture
 // ============================================================================
 
 class ClientReconnectionTest : public ::testing::Test {
-protected:
+ protected:
   void SetUp() override {
     dispatcher_ = std::make_unique<event::LibeventDispatcher>("test");
   }
@@ -309,9 +311,8 @@ TEST_F(ClientReconnectionTest, RetryTimerCanBeCreated) {
   // Create retry timer (simulates what McpClient does)
   bool timer_fired = false;
 
-  context.retry_timer = dispatcher_->createTimer([&timer_fired]() {
-    timer_fired = true;
-  });
+  context.retry_timer =
+      dispatcher_->createTimer([&timer_fired]() { timer_fired = true; });
 
   EXPECT_NE(context.retry_timer, nullptr);
   EXPECT_FALSE(timer_fired);
@@ -321,8 +322,8 @@ TEST_F(ClientReconnectionTest, RetryTimerCanBeCreated) {
 
   // Run dispatcher to fire timer
   auto start = std::chrono::steady_clock::now();
-  while (!timer_fired &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!timer_fired && std::chrono::steady_clock::now() - start <
+                             std::chrono::milliseconds(100)) {
     dispatcher_->run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -348,8 +349,8 @@ TEST_F(ClientReconnectionTest, RetryTimerDelayIs10Milliseconds) {
   context.retry_timer->enableTimer(std::chrono::milliseconds(10));
 
   // Run dispatcher until timer fires
-  while (!timer_fired &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!timer_fired && std::chrono::steady_clock::now() - start <
+                             std::chrono::milliseconds(100)) {
     dispatcher_->run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -357,8 +358,9 @@ TEST_F(ClientReconnectionTest, RetryTimerDelayIs10Milliseconds) {
   EXPECT_TRUE(timer_fired);
 
   // Timer should fire after approximately 10ms (allow some tolerance)
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-      fire_time - start).count();
+  auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(fire_time - start)
+          .count();
   EXPECT_GE(elapsed, 8);   // At least 8ms
   EXPECT_LE(elapsed, 50);  // But not more than 50ms
 }
@@ -468,13 +470,14 @@ TEST_F(ClientReconnectionTest, ActivityTimeUpdatedOnResponse) {
 // Test idle duration calculation
 TEST_F(ClientReconnectionTest, IdleDurationCalculation) {
   // The code calculates idle time as:
-  // auto idle_seconds = duration_cast<seconds>(now - last_activity_time_).count()
+  // auto idle_seconds = duration_cast<seconds>(now -
+  // last_activity_time_).count()
 
   auto now = std::chrono::steady_clock::now();
   auto past = now - std::chrono::seconds(5);
 
-  auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-      now - past).count();
+  auto idle_seconds =
+      std::chrono::duration_cast<std::chrono::seconds>(now - past).count();
 
   EXPECT_EQ(idle_seconds, 5);
 
@@ -491,20 +494,23 @@ TEST_F(ClientReconnectionTest, StaleConnectionThresholdIs4Seconds) {
 
   // 3 seconds idle - not stale
   auto time_3s_ago = now - std::chrono::seconds(3);
-  auto idle_3s = std::chrono::duration_cast<std::chrono::seconds>(
-      now - time_3s_ago).count();
+  auto idle_3s =
+      std::chrono::duration_cast<std::chrono::seconds>(now - time_3s_ago)
+          .count();
   EXPECT_LT(idle_3s, 4);
 
   // 4 seconds idle - stale
   auto time_4s_ago = now - std::chrono::seconds(4);
-  auto idle_4s = std::chrono::duration_cast<std::chrono::seconds>(
-      now - time_4s_ago).count();
+  auto idle_4s =
+      std::chrono::duration_cast<std::chrono::seconds>(now - time_4s_ago)
+          .count();
   EXPECT_GE(idle_4s, 4);
 
   // 5 seconds idle - definitely stale
   auto time_5s_ago = now - std::chrono::seconds(5);
-  auto idle_5s = std::chrono::duration_cast<std::chrono::seconds>(
-      now - time_5s_ago).count();
+  auto idle_5s =
+      std::chrono::duration_cast<std::chrono::seconds>(now - time_5s_ago)
+          .count();
   EXPECT_GE(idle_5s, 4);
 }
 

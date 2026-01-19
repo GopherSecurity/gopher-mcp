@@ -330,8 +330,9 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
 
-      GOPHER_LOG_DEBUG("HttpCodecFilter client sending HTTP request (len={}): {}...",
-                       request_str.length(), request_str.substr(0, 200));
+      GOPHER_LOG_DEBUG(
+          "HttpCodecFilter client sending HTTP request (len={}): {}...",
+          request_str.length(), request_str.substr(0, 200));
 
       // Update state machine - only transition if we're in Idle state
       // For pipelined requests (when already WaitingForResponse), just send

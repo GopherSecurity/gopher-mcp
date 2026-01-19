@@ -58,9 +58,7 @@ TEST(ClientDisconnectFixes, DisconnectPostedToDispatcher) {
   bool disconnect_posted = false;
 
   // Simulate posting disconnect to dispatcher
-  dispatcher.post([&disconnect_posted]() {
-    disconnect_posted = true;
-  });
+  dispatcher.post([&disconnect_posted]() { disconnect_posted = true; });
 
   dispatcher.run(event::RunType::NonBlock);
 
@@ -147,9 +145,7 @@ TEST(ClientDisconnectFixes, ShutdownPostedToDispatcher) {
   // The fix posts close to dispatcher:
   // dispatcher_->post([this]() { connection_manager_->close(); });
 
-  dispatcher.post([&shutdown_posted]() {
-    shutdown_posted = true;
-  });
+  dispatcher.post([&shutdown_posted]() { shutdown_posted = true; });
 
   dispatcher.run(event::RunType::NonBlock);
 
@@ -253,9 +249,7 @@ TEST(ClientDisconnectFixes, DisconnectFromWorkerThread) {
   // Simulate call from worker thread
   std::thread worker([&]() {
     // Should post to dispatcher (the fix)
-    dispatcher.post([&disconnect_called]() {
-      disconnect_called = true;
-    });
+    dispatcher.post([&disconnect_called]() { disconnect_called = true; });
   });
 
   worker.join();
@@ -278,9 +272,7 @@ TEST(ClientDisconnectFixes, ShutdownFromWorkerThread) {
   // Simulate call from worker thread
   std::thread worker([&]() {
     // Should post to dispatcher (the fix)
-    dispatcher.post([&shutdown_called]() {
-      shutdown_called = true;
-    });
+    dispatcher.post([&shutdown_called]() { shutdown_called = true; });
   });
 
   worker.join();
