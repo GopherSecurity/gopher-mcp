@@ -31,9 +31,7 @@ using namespace std::chrono_literals;
  */
 class ClientConnectionCheckThreadingTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    connected_.store(false);
-  }
+  void SetUp() override { connected_.store(false); }
 
   // Simulate the atomic connected_ flag from McpClient
   std::atomic<bool> connected_;
@@ -83,11 +81,12 @@ TEST_F(ClientConnectionCheckThreadingTest, AtomicConnectedFlagIsThreadSafe) {
   }
 
   EXPECT_EQ(total_true, kNumThreads * kReadsPerThread)
-    << "Atomic reads should be consistent across threads";
+      << "Atomic reads should be consistent across threads";
 }
 
 /**
- * Test: Atomic connected_ flag can be written from one thread and read from many
+ * Test: Atomic connected_ flag can be written from one thread and read from
+ * many
  *
  * Simulates dispatcher thread updating connected_ while user threads read it.
  */
@@ -129,7 +128,7 @@ TEST_F(ClientConnectionCheckThreadingTest, AtomicWriteFromOneReadFromMany) {
   // Verify all readers executed
   for (int i = 0; i < kNumReaders; ++i) {
     EXPECT_GT(read_counts[i], 0)
-      << "Reader " << i << " should have read connected_ flag";
+        << "Reader " << i << " should have read connected_ flag";
   }
 }
 
@@ -150,10 +149,8 @@ TEST_F(ClientConnectionCheckThreadingTest, CheckDisconnectedState) {
   bool is_connected = connected_.load();
   bool needs_reconnect = !is_connected;
 
-  EXPECT_FALSE(is_connected)
-    << "Should detect disconnected state";
-  EXPECT_TRUE(needs_reconnect)
-    << "Should need reconnect when disconnected";
+  EXPECT_FALSE(is_connected) << "Should detect disconnected state";
+  EXPECT_TRUE(needs_reconnect) << "Should need reconnect when disconnected";
 }
 
 /**
@@ -169,10 +166,8 @@ TEST_F(ClientConnectionCheckThreadingTest, CheckConnectedState) {
   bool is_connected = connected_.load();
   bool needs_reconnect = !is_connected;
 
-  EXPECT_TRUE(is_connected)
-    << "Should detect connected state";
-  EXPECT_FALSE(needs_reconnect)
-    << "Should not need reconnect when connected";
+  EXPECT_TRUE(is_connected) << "Should detect connected state";
+  EXPECT_FALSE(needs_reconnect) << "Should not need reconnect when connected";
 }
 
 /**
@@ -204,7 +199,7 @@ TEST_F(ClientConnectionCheckThreadingTest, StateTransitionsVisible) {
   user_thread.join();
 
   EXPECT_TRUE(user_saw_connected.load())
-    << "User thread should see connection state change from dispatcher";
+      << "User thread should see connection state change from dispatcher";
 }
 
 // =============================================================================
@@ -269,7 +264,7 @@ TEST_F(ClientConnectionCheckThreadingTest, DataRaceFixDocumented) {
   }
 
   EXPECT_EQ(successful_reads.load(), 1000)
-    << "All atomic reads should succeed without data race";
+      << "All atomic reads should succeed without data race";
 }
 
 /**
@@ -303,13 +298,13 @@ TEST_F(ClientConnectionCheckThreadingTest, OldPatternWasUnsafe) {
 
   // This is a data race according to C++ memory model
   bool is_data_race = true;
-  EXPECT_TRUE(is_data_race)
-    << "Reading non-atomic shared state from multiple threads is undefined behavior";
+  EXPECT_TRUE(is_data_race) << "Reading non-atomic shared state from multiple "
+                               "threads is undefined behavior";
 
   // The fix: Don't access dispatcher-confined members from user threads
   bool fix_uses_atomic_flag = true;
   EXPECT_TRUE(fix_uses_atomic_flag)
-    << "New code uses atomic connected_ flag instead";
+      << "New code uses atomic connected_ flag instead";
 }
 
 // =============================================================================
@@ -328,8 +323,7 @@ TEST_F(ClientConnectionCheckThreadingTest, ReconnectionLogicWithAtomicFlag) {
 
   // Initial check - should need reconnect
   bool needs_reconnect = !connected_.load();
-  EXPECT_TRUE(needs_reconnect)
-    << "Should detect need for reconnection";
+  EXPECT_TRUE(needs_reconnect) << "Should detect need for reconnection";
 
   // Simulate retry attempts
   int retry_count = 0;
@@ -350,12 +344,10 @@ TEST_F(ClientConnectionCheckThreadingTest, ReconnectionLogicWithAtomicFlag) {
 
   user_thread.join();
 
-  EXPECT_GT(retry_count, 0)
-    << "Should have attempted retries";
+  EXPECT_GT(retry_count, 0) << "Should have attempted retries";
   EXPECT_LT(retry_count, kMaxRetries)
-    << "Should have connected before max retries";
-  EXPECT_TRUE(connected_.load())
-    << "Should be connected after reconnection";
+      << "Should have connected before max retries";
+  EXPECT_TRUE(connected_.load()) << "Should be connected after reconnection";
 }
 
 /**
@@ -372,8 +364,9 @@ TEST_F(ClientConnectionCheckThreadingTest, StaleConnectionDetection) {
 
   // Simulate time passing (connection idle for 35 seconds)
   auto now = last_activity + std::chrono::seconds(35);
-  auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-      now - last_activity).count();
+  auto idle_seconds =
+      std::chrono::duration_cast<std::chrono::seconds>(now - last_activity)
+          .count();
 
   constexpr int kTimeout = 30;
 
@@ -381,13 +374,11 @@ TEST_F(ClientConnectionCheckThreadingTest, StaleConnectionDetection) {
   bool is_connected = connected_.load();
   bool is_stale = is_connected && (idle_seconds >= kTimeout);
 
-  EXPECT_TRUE(is_stale)
-    << "Should detect stale connection after timeout";
+  EXPECT_TRUE(is_stale) << "Should detect stale connection after timeout";
 
   // Stale connection needs reconnect
   bool needs_reconnect = is_stale || !is_connected;
-  EXPECT_TRUE(needs_reconnect)
-    << "Stale connection should trigger reconnect";
+  EXPECT_TRUE(needs_reconnect) << "Stale connection should trigger reconnect";
 }
 
 // =============================================================================
@@ -415,15 +406,14 @@ TEST_F(ClientConnectionCheckThreadingTest, AtomicReadsAreFast) {
   }
 
   auto end = std::chrono::steady_clock::now();
-  auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
-      end - start).count();
+  auto duration_us =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+          .count();
 
   // Should complete in reasonable time (< 100ms for 1M reads)
-  EXPECT_LT(duration_us, 100000)
-    << "Atomic reads should be fast";
+  EXPECT_LT(duration_us, 100000) << "Atomic reads should be fast";
 
-  EXPECT_EQ(count, kNumReads)
-    << "All reads should see connected state";
+  EXPECT_EQ(count, kNumReads) << "All reads should see connected state";
 }
 
 /**
@@ -449,18 +439,20 @@ TEST_F(ClientConnectionCheckThreadingTest, NoPerformanceRegression) {
   // Atomic read is typically < 10ns per operation
   constexpr int64_t kExpectedMaxNs = 100;
 
-  Timing atomic_timing{"atomic<bool> load", 5};  // ~5ns on modern CPU
-  Timing mutex_timing{"mutex lock/unlock", 50};  // ~50ns
+  Timing atomic_timing{"atomic<bool> load", 5};     // ~5ns on modern CPU
+  Timing mutex_timing{"mutex lock/unlock", 50};     // ~50ns
   Timing post_timing{"post to dispatcher", 10000};  // ~10µs (10000ns)
 
   EXPECT_LT(atomic_timing.nanoseconds_per_read, kExpectedMaxNs)
-    << "Atomic reads should be very fast";
+      << "Atomic reads should be very fast";
 
-  EXPECT_LT(atomic_timing.nanoseconds_per_read, mutex_timing.nanoseconds_per_read)
-    << "Atomic should be faster than mutex";
+  EXPECT_LT(atomic_timing.nanoseconds_per_read,
+            mutex_timing.nanoseconds_per_read)
+      << "Atomic should be faster than mutex";
 
-  EXPECT_LT(atomic_timing.nanoseconds_per_read, post_timing.nanoseconds_per_read)
-    << "Atomic should be much faster than posting to dispatcher";
+  EXPECT_LT(atomic_timing.nanoseconds_per_read,
+            post_timing.nanoseconds_per_read)
+      << "Atomic should be much faster than posting to dispatcher";
 }
 
 // =============================================================================
@@ -507,7 +499,7 @@ TEST_F(ClientConnectionCheckThreadingTest, SequentialConsistencyGuaranteed) {
   reader.join();
 
   EXPECT_FALSE(saw_wrong_order.load())
-    << "Sequential consistency should prevent out-of-order observations";
+      << "Sequential consistency should prevent out-of-order observations";
 }
 
 }  // namespace

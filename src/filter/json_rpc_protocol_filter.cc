@@ -325,7 +325,8 @@ bool JsonRpcProtocolFilter::parseMessage(const std::string& json_str) {
       if (json_val.contains("id")) {
         // JSON-RPC Request
         jsonrpc::Request request = json::from_json<jsonrpc::Request>(json_val);
-        GOPHER_LOG_DEBUG("JsonRpcFilter dispatching request for method: {}", request.method);
+        GOPHER_LOG_DEBUG("JsonRpcFilter dispatching request for method: {}",
+                         request.method);
         requests_received_++;
         handler_.onRequest(request);
       } else {

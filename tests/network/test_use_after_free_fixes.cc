@@ -100,7 +100,8 @@ TEST(UseAfterFreeFixes, DeferredDestructionScheduledViaPost) {
     auto object = std::make_unique<int>(42);
 
     // Schedule deferred destruction (the fix)
-    auto obj_to_delete = std::make_shared<std::unique_ptr<int>>(std::move(object));
+    auto obj_to_delete =
+        std::make_shared<std::unique_ptr<int>>(std::move(object));
     destruction_scheduled = true;
 
     dispatcher.post([obj_to_delete, &destruction_completed]() {
@@ -115,8 +116,8 @@ TEST(UseAfterFreeFixes, DeferredDestructionScheduledViaPost) {
 
   // Run dispatcher to process posted destruction
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -139,7 +140,8 @@ TEST(UseAfterFreeFixes, ObjectRemainsValidUntilDeferredDestruction) {
     object_value = *object;
 
     // Schedule deferred destruction
-    auto obj_to_delete = std::make_shared<std::unique_ptr<int>>(std::move(object));
+    auto obj_to_delete =
+        std::make_shared<std::unique_ptr<int>>(std::move(object));
 
     dispatcher.post([obj_to_delete, &destruction_completed, &object_value]() {
       // Object should still be valid here
@@ -157,8 +159,8 @@ TEST(UseAfterFreeFixes, ObjectRemainsValidUntilDeferredDestruction) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -186,8 +188,8 @@ TEST(UseAfterFreeFixes, SharedPtrWrapperAllowsDeferredDestruction) {
     auto object = std::make_unique<TrackedObject>(&destructor_count);
 
     // Wrap in shared_ptr (the fix)
-    auto obj_to_delete = std::make_shared<std::unique_ptr<TrackedObject>>(
-        std::move(object));
+    auto obj_to_delete =
+        std::make_shared<std::unique_ptr<TrackedObject>>(std::move(object));
 
     dispatcher.post([obj_to_delete]() {
       obj_to_delete->reset();  // Destructor called here
@@ -199,8 +201,8 @@ TEST(UseAfterFreeFixes, SharedPtrWrapperAllowsDeferredDestruction) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (destructor_count == 0 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (destructor_count == 0 && std::chrono::steady_clock::now() - start <
+                                      std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -221,7 +223,8 @@ TEST(UseAfterFreeFixes, MultipleDeferredDestructionsScheduled) {
   for (int i = 0; i < 5; ++i) {
     auto object = std::make_unique<int>(i);
 
-    auto obj_to_delete = std::make_shared<std::unique_ptr<int>>(std::move(object));
+    auto obj_to_delete =
+        std::make_shared<std::unique_ptr<int>>(std::move(object));
 
     dispatcher.post([obj_to_delete, &destruction_count]() {
       obj_to_delete->reset();
@@ -231,8 +234,8 @@ TEST(UseAfterFreeFixes, MultipleDeferredDestructionsScheduled) {
 
   // Run dispatcher to process all destructions
   auto start = std::chrono::steady_clock::now();
-  while (destruction_count < 5 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (destruction_count < 5 && std::chrono::steady_clock::now() - start <
+                                      std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -270,8 +273,8 @@ TEST(UseAfterFreeFixes, DeferredDestructionPreventsUseAfterFree) {
 
     // Simulate callback that schedules deferred destruction
     auto obj_ptr = object.get();
-    auto obj_to_delete = std::make_shared<std::unique_ptr<CallbackObject>>(
-        std::move(object));
+    auto obj_to_delete =
+        std::make_shared<std::unique_ptr<CallbackObject>>(std::move(object));
 
     dispatcher.post([obj_ptr, obj_to_delete, &destruction_completed]() {
       // Execute callback - object should still be valid
@@ -285,8 +288,8 @@ TEST(UseAfterFreeFixes, DeferredDestructionPreventsUseAfterFree) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -310,9 +313,7 @@ TEST(UseAfterFreeFixes, CallbacksCompleteBeforeDestruction) {
   // Simulate callback iteration with deferred destruction
   std::vector<std::function<void()>> callbacks;
 
-  callbacks.push_back([&]() {
-    callback_order.push_back(1);
-  });
+  callbacks.push_back([&]() { callback_order.push_back(1); });
 
   callbacks.push_back([&]() {
     callback_order.push_back(2);
@@ -320,9 +321,7 @@ TEST(UseAfterFreeFixes, CallbacksCompleteBeforeDestruction) {
     destruction_scheduled = true;
   });
 
-  callbacks.push_back([&]() {
-    callback_order.push_back(3);
-  });
+  callbacks.push_back([&]() { callback_order.push_back(3); });
 
   // Execute callbacks (simulating raiseConnectionEvent)
   for (auto& cb : callbacks) {
@@ -341,8 +340,8 @@ TEST(UseAfterFreeFixes, CallbacksCompleteBeforeDestruction) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -396,19 +395,17 @@ TEST(UseAfterFreeFixes, DispatcherReferenceSavedBeforeCallback) {
   auto& dispatcher_ref = dispatcher;
 
   // Post callback that could destroy object
-  dispatcher.post([&callback_executed]() {
-    callback_executed = true;
-  });
+  dispatcher.post([&callback_executed]() { callback_executed = true; });
 
   // Use saved reference (simulates touchWatchdog call)
-  dispatcher_ref.post([&used_saved_reference]() {
-    used_saved_reference = true;
-  });
+  dispatcher_ref.post(
+      [&used_saved_reference]() { used_saved_reference = true; });
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
   while ((!callback_executed || !used_saved_reference) &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+         std::chrono::steady_clock::now() - start <
+             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -454,9 +451,7 @@ TEST(UseAfterFreeFixes, TriggerTypeSavedBeforeCallback) {
   TriggerType saved_trigger = trigger;
 
   // Callback could modify or destroy object
-  auto callback = [&]() {
-    callback_executed = true;
-  };
+  auto callback = [&]() { callback_executed = true; };
 
   callback();
 
@@ -499,8 +494,8 @@ TEST(UseAfterFreeFixes, ConnectionDestructionDeferredInCloseHandler) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -569,8 +564,8 @@ TEST(UseAfterFreeFixes, FileEventDestructionDeferredDuringError) {
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!destruction_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!destruction_completed && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -590,15 +585,13 @@ TEST(UseAfterFreeFixes, RapidDeferredDestructionsDontInterfere) {
   // Schedule 10 rapid destructions
   for (int i = 0; i < 10; ++i) {
     auto obj = std::make_shared<int>(i);
-    dispatcher.post([obj, &destruction_count]() {
-      destruction_count++;
-    });
+    dispatcher.post([obj, &destruction_count]() { destruction_count++; });
   }
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (destruction_count < 10 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (destruction_count < 10 && std::chrono::steady_clock::now() - start <
+                                       std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -618,21 +611,22 @@ TEST(UseAfterFreeFixes, DeferredDestructionWorksWithNestedCallbacks) {
 
   // Outer deferred destruction
   auto outer_obj = std::make_shared<int>(1);
-  dispatcher.post([outer_obj, &dispatcher, &destruction_count, &all_completed]() {
-    destruction_count++;
+  dispatcher.post(
+      [outer_obj, &dispatcher, &destruction_count, &all_completed]() {
+        destruction_count++;
 
-    // Inner deferred destruction
-    auto inner_obj = std::make_shared<int>(2);
-    dispatcher.post([inner_obj, &destruction_count, &all_completed]() {
-      destruction_count++;
-      all_completed = true;
-    });
-  });
+        // Inner deferred destruction
+        auto inner_obj = std::make_shared<int>(2);
+        dispatcher.post([inner_obj, &destruction_count, &all_completed]() {
+          destruction_count++;
+          all_completed = true;
+        });
+      });
 
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
-  while (!all_completed &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!all_completed && std::chrono::steady_clock::now() - start <
+                               std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

@@ -14,9 +14,6 @@
  *   ./tests/client/test_mcp_client_memory
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -26,6 +23,9 @@
 #include <random>
 #include <thread>
 #include <vector>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "mcp/client/mcp_client.h"
 
@@ -97,8 +97,8 @@ TEST_F(RequestTrackerMemoryTest, TimeoutCleansUpCompletely) {
       leaked_count++;
     }
   }
-  EXPECT_EQ(leaked_count, 0) << "Detected " << leaked_count
-                             << " leaked RequestContext objects";
+  EXPECT_EQ(leaked_count, 0)
+      << "Detected " << leaked_count << " leaked RequestContext objects";
 }
 
 /**
@@ -126,7 +126,8 @@ TEST_F(RequestTrackerMemoryTest, ConcurrentCompletionNoLeak) {
   for (int i = 0; i < NUM_REQUESTS; ++i) {
     for (int c = 0; c < COMPLETERS_PER_REQUEST; ++c) {
       threads.emplace_back([this, i, &successful_completions]() {
-        auto removed = tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
+        auto removed =
+            tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
         if (removed) {
           successful_completions++;
         }
@@ -151,8 +152,8 @@ TEST_F(RequestTrackerMemoryTest, ConcurrentCompletionNoLeak) {
       leaked_count++;
     }
   }
-  EXPECT_EQ(leaked_count, 0) << "Detected " << leaked_count
-                             << " leaked RequestContext objects";
+  EXPECT_EQ(leaked_count, 0)
+      << "Detected " << leaked_count << " leaked RequestContext objects";
 }
 
 /**
@@ -329,7 +330,8 @@ TEST_F(ClientComponentLifecycleTest, ComponentCreationDestructionCycles) {
     auto breaker = std::make_unique<CircuitBreaker>(5, 100ms, 0.5);
 
     // Use them briefly
-    auto request = std::make_shared<RequestContext>(RequestId(static_cast<int64_t>(i)), "test");
+    auto request = std::make_shared<RequestContext>(
+        RequestId(static_cast<int64_t>(i)), "test");
     tracker->trackRequest(request);
     breaker->allowRequest();
     breaker->recordSuccess();
@@ -358,8 +360,8 @@ TEST_F(ClientComponentLifecycleTest, RapidRecreationStress) {
 
     // Create and track requests
     for (int i = 0; i < REQUESTS_PER_ITERATION; ++i) {
-      auto request =
-          std::make_shared<RequestContext>(RequestId(static_cast<int64_t>(i)), "stress_test");
+      auto request = std::make_shared<RequestContext>(
+          RequestId(static_cast<int64_t>(i)), "stress_test");
       weak_refs.push_back(request);
       tracker->trackRequest(request);
 
@@ -384,8 +386,7 @@ TEST_F(ClientComponentLifecycleTest, RapidRecreationStress) {
 
     // All weak_ptrs should be expired
     for (const auto& weak : weak_refs) {
-      EXPECT_TRUE(weak.expired())
-          << "Leak detected in iteration " << iter;
+      EXPECT_TRUE(weak.expired()) << "Leak detected in iteration " << iter;
     }
   }
 }
@@ -555,32 +556,32 @@ TEST_F(MemoryStressTest, CombinedComponentStress) {
 
     // Concurrent tracking and removal
     for (int t = 0; t < NUM_THREADS; ++t) {
-      threads.emplace_back(
-          [&tracker, &breaker, &tracked, &removed, t]() {
-            constexpr int OPS_PER_THREAD = 500 / 8;  // REQUESTS_PER_ITERATION / NUM_THREADS
-            for (int i = 0; i < OPS_PER_THREAD; ++i) {
-              int64_t id = t * 10000 + i;
+      threads.emplace_back([&tracker, &breaker, &tracked, &removed, t]() {
+        constexpr int OPS_PER_THREAD =
+            500 / 8;  // REQUESTS_PER_ITERATION / NUM_THREADS
+        for (int i = 0; i < OPS_PER_THREAD; ++i) {
+          int64_t id = t * 10000 + i;
 
-              // Circuit breaker check
-              if (breaker->allowRequest()) {
-                auto request =
-                    std::make_shared<RequestContext>(RequestId(id), "stress");
-                tracker->trackRequest(request);
-                tracked++;
+          // Circuit breaker check
+          if (breaker->allowRequest()) {
+            auto request =
+                std::make_shared<RequestContext>(RequestId(id), "stress");
+            tracker->trackRequest(request);
+            tracked++;
 
-                // Randomly decide to complete or let timeout
-                if (i % 3 != 0) {
-                  auto result = tracker->removeRequest(RequestId(id));
-                  if (result) {
-                    removed++;
-                    breaker->recordSuccess();
-                  }
-                } else {
-                  breaker->recordFailure();
-                }
+            // Randomly decide to complete or let timeout
+            if (i % 3 != 0) {
+              auto result = tracker->removeRequest(RequestId(id));
+              if (result) {
+                removed++;
+                breaker->recordSuccess();
               }
+            } else {
+              breaker->recordFailure();
             }
-          });
+          }
+        }
+      });
     }
 
     for (auto& t : threads) {

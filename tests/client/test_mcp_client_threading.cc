@@ -10,9 +10,6 @@
  * concurrent access patterns.
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -23,8 +20,12 @@
 #include <thread>
 #include <vector>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "mcp/client/mcp_client.h"
 #include "mcp/event/libevent_dispatcher.h"
+
 #include "../integration/real_io_test_base.h"
 
 namespace mcp {
@@ -97,7 +98,8 @@ TEST_F(RequestTrackerTest, ConcurrentTrackAndRemove) {
 
   // Verify remaining requests
   size_t remaining = tracker_->getPendingCount();
-  EXPECT_EQ(remaining, static_cast<size_t>(NUM_THREADS * REQUESTS_PER_THREAD / 2));
+  EXPECT_EQ(remaining,
+            static_cast<size_t>(NUM_THREADS * REQUESTS_PER_THREAD / 2));
 }
 
 /**
@@ -337,17 +339,18 @@ TEST_F(CircuitBreakerTest, StateTransitionAtomicity) {
   std::atomic<bool> start{false};
 
   for (int t = 0; t < NUM_THREADS; ++t) {
-    threads.emplace_back([this, &start, &recorded_failures, FAILURES_PER_THREAD]() {
-      // Wait for start signal
-      while (!start.load()) {
-        std::this_thread::yield();
-      }
+    threads.emplace_back(
+        [this, &start, &recorded_failures, FAILURES_PER_THREAD]() {
+          // Wait for start signal
+          while (!start.load()) {
+            std::this_thread::yield();
+          }
 
-      for (int i = 0; i < FAILURES_PER_THREAD; ++i) {
-        breaker_->recordFailure();
-        recorded_failures++;
-      }
-    });
+          for (int i = 0; i < FAILURES_PER_THREAD; ++i) {
+            breaker_->recordFailure();
+            recorded_failures++;
+          }
+        });
   }
 
   // Start all threads simultaneously
@@ -380,7 +383,8 @@ TEST_F(CircuitBreakerTest, ConcurrentRecordSuccessFailure) {
   // Success threads
   for (int t = 0; t < NUM_SUCCESS_THREADS; ++t) {
     threads.emplace_back([this, &start, &successes, OPS_PER_THREAD]() {
-      while (!start.load()) std::this_thread::yield();
+      while (!start.load())
+        std::this_thread::yield();
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
         breaker_->recordSuccess();
         successes++;
@@ -391,7 +395,8 @@ TEST_F(CircuitBreakerTest, ConcurrentRecordSuccessFailure) {
   // Failure threads
   for (int t = 0; t < NUM_FAILURE_THREADS; ++t) {
     threads.emplace_back([this, &start, &failures, OPS_PER_THREAD]() {
-      while (!start.load()) std::this_thread::yield();
+      while (!start.load())
+        std::this_thread::yield();
       for (int i = 0; i < OPS_PER_THREAD; ++i) {
         breaker_->recordFailure();
         failures++;
@@ -426,7 +431,8 @@ TEST_F(CircuitBreakerTest, ConcurrentRecordSuccessFailure) {
  * the same counter value.
  *
  * This test verifies the transition from OPEN to HALF_OPEN happens correctly
- * and that the circuit breaker remains in a valid state under concurrent access.
+ * and that the circuit breaker remains in a valid state under concurrent
+ * access.
  */
 TEST_F(CircuitBreakerTest, RaceConditionOpenToHalfOpen) {
   // Open the circuit
@@ -448,7 +454,8 @@ TEST_F(CircuitBreakerTest, RaceConditionOpenToHalfOpen) {
   // Multiple threads try to get the first request after timeout
   for (int t = 0; t < NUM_THREADS; ++t) {
     threads.emplace_back([this, &start, &allowed_count]() {
-      while (!start.load()) std::this_thread::yield();
+      while (!start.load())
+        std::this_thread::yield();
 
       if (breaker_->allowRequest()) {
         allowed_count++;
@@ -483,9 +490,7 @@ TEST_F(CircuitBreakerTest, RaceConditionOpenToHalfOpen) {
 
 class AsyncPatternTest : public mcp::test::RealIoTestBase {
  protected:
-  void SetUp() override {
-    RealIoTestBase::SetUp();
-  }
+  void SetUp() override { RealIoTestBase::SetUp(); }
 };
 
 /**
@@ -773,41 +778,38 @@ TEST_F(RequestFlowTest, HighConcurrencyRequestResponse) {
     tracker_->trackRequest(context);
 
     // Response handler thread
-    std::thread(
-        [this, request_id, expected_value, promise, &matched, &mismatched,
-         &expected_values, &expected_mutex]() {
-          // Random delay to shuffle response order
-          std::random_device rd;
-          std::mt19937 gen(rd());
-          std::uniform_int_distribution<> dis(1, 50);
-          std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
+    std::thread([this, request_id, expected_value, promise, &matched,
+                 &mismatched, &expected_values, &expected_mutex]() {
+      // Random delay to shuffle response order
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<> dis(1, 50);
+      std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
 
-          auto ctx = tracker_->removeRequest(RequestId(request_id));
-          if (ctx) {
-            // Verify this is the right request
-            int64_t ctx_id = holds_alternative<int64_t>(ctx->id)
-                                 ? get<int64_t>(ctx->id)
-                                 : -1;
+      auto ctx = tracker_->removeRequest(RequestId(request_id));
+      if (ctx) {
+        // Verify this is the right request
+        int64_t ctx_id =
+            holds_alternative<int64_t>(ctx->id) ? get<int64_t>(ctx->id) : -1;
 
-            int expected;
-            {
-              std::lock_guard<std::mutex> lock(expected_mutex);
-              expected = expected_values[ctx_id];
-            }
+        int expected;
+        {
+          std::lock_guard<std::mutex> lock(expected_mutex);
+          expected = expected_values[ctx_id];
+        }
 
-            if (ctx_id == request_id && expected == expected_value) {
-              matched++;
-              promise->set_value(true);
-            } else {
-              mismatched++;
-              promise->set_value(false);
-            }
-          } else {
-            mismatched++;
-            promise->set_value(false);
-          }
-        })
-        .detach();
+        if (ctx_id == request_id && expected == expected_value) {
+          matched++;
+          promise->set_value(true);
+        } else {
+          mismatched++;
+          promise->set_value(false);
+        }
+      } else {
+        mismatched++;
+        promise->set_value(false);
+      }
+    }).detach();
   }
 
   // Wait for all
@@ -1067,27 +1069,27 @@ TEST_F(ClientThreadingStressTest, RapidConnectDisconnect) {
     // Process some requests
     std::vector<std::thread> threads;
     for (int t = 0; t < 2; ++t) {
-      threads.emplace_back(
-          [&cycle_tracker, &cycle_breaker, cycle, t, &total_tracked,
-           &total_completed]() {
-            for (int i = 0; i < REQUESTS_PER_CYCLE; ++i) {
-              if (!cycle_breaker->allowRequest()) continue;
+      threads.emplace_back([&cycle_tracker, &cycle_breaker, cycle, t,
+                            &total_tracked, &total_completed]() {
+        for (int i = 0; i < REQUESTS_PER_CYCLE; ++i) {
+          if (!cycle_breaker->allowRequest())
+            continue;
 
-              int64_t id = cycle * 1000 + t * 100 + i;
-              auto ctx =
-                  std::make_shared<RequestContext>(RequestId(id), "cycle_test");
+          int64_t id = cycle * 1000 + t * 100 + i;
+          auto ctx =
+              std::make_shared<RequestContext>(RequestId(id), "cycle_test");
 
-              cycle_tracker->trackRequest(ctx);
-              total_tracked++;
+          cycle_tracker->trackRequest(ctx);
+          total_tracked++;
 
-              // Quick completion
-              auto removed = cycle_tracker->removeRequest(RequestId(id));
-              if (removed) {
-                cycle_breaker->recordSuccess();
-                total_completed++;
-              }
-            }
-          });
+          // Quick completion
+          auto removed = cycle_tracker->removeRequest(RequestId(id));
+          if (removed) {
+            cycle_breaker->recordSuccess();
+            total_completed++;
+          }
+        }
+      });
     }
 
     for (auto& t : threads) {
@@ -1216,7 +1218,8 @@ TEST_F(ErrorScenarioTest, DisconnectWhileRequestsPending) {
 
   // Create pending requests with promises
   for (int i = 0; i < NUM_PENDING; ++i) {
-    auto ctx = std::make_shared<RequestContext>(RequestId(static_cast<int64_t>(i)), "pending_test");
+    auto ctx = std::make_shared<RequestContext>(
+        RequestId(static_cast<int64_t>(i)), "pending_test");
     tracker_->trackRequest(ctx);
     contexts.push_back(ctx);
 
@@ -1245,7 +1248,8 @@ TEST_F(ErrorScenarioTest, DisconnectWhileRequestsPending) {
 
   for (int i = 0; i < NUM_PENDING; ++i) {
     reject_threads.emplace_back([this, i, &rejected, &contexts]() {
-      auto removed = tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
+      auto removed =
+          tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
       if (removed) {
         removed->completed = true;  // Mark as completed (rejected)
         rejected++;
@@ -1288,13 +1292,15 @@ TEST_F(ErrorScenarioTest, TimeoutDuringConcurrentRequests) {
 
   // Add requests that will timeout
   for (int i = 0; i < NUM_REQUESTS; ++i) {
-    auto ctx = std::make_shared<RequestContext>(RequestId(static_cast<int64_t>(i)), "timeout_test");
+    auto ctx = std::make_shared<RequestContext>(
+        RequestId(static_cast<int64_t>(i)), "timeout_test");
     tracker_->trackRequest(ctx);
   }
 
   EXPECT_EQ(tracker_->getPendingCount(), static_cast<size_t>(NUM_REQUESTS));
 
-  // Start multiple timeout checker threads (simulating concurrent timeout handling)
+  // Start multiple timeout checker threads (simulating concurrent timeout
+  // handling)
   std::vector<std::thread> timeout_threads;
   for (int t = 0; t < 4; ++t) {
     timeout_threads.emplace_back(
@@ -1312,7 +1318,8 @@ TEST_F(ErrorScenarioTest, TimeoutDuringConcurrentRequests) {
   // Also try to complete some requests normally (race with timeout)
   std::thread normal_thread([this, &normal_completion]() {
     for (int i = 0; i < NUM_REQUESTS; ++i) {
-      auto removed = tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
+      auto removed =
+          tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
       if (removed) {
         normal_completion++;
       }
@@ -1417,7 +1424,8 @@ TEST_F(ErrorScenarioTest, DoubleCompletionPrevention) {
 
   // Track requests
   for (int i = 0; i < NUM_REQUESTS; ++i) {
-    auto ctx = std::make_shared<RequestContext>(RequestId(static_cast<int64_t>(i)), "double_test");
+    auto ctx = std::make_shared<RequestContext>(
+        RequestId(static_cast<int64_t>(i)), "double_test");
     tracker_->trackRequest(ctx);
   }
 
@@ -1425,14 +1433,16 @@ TEST_F(ErrorScenarioTest, DoubleCompletionPrevention) {
   std::vector<std::thread> threads;
   for (int i = 0; i < NUM_REQUESTS; ++i) {
     for (int c = 0; c < COMPLETERS_PER_REQUEST; ++c) {
-      threads.emplace_back([this, i, &successful_completions, &failed_completions]() {
-        auto removed = tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
-        if (removed) {
-          successful_completions++;
-        } else {
-          failed_completions++;
-        }
-      });
+      threads.emplace_back(
+          [this, i, &successful_completions, &failed_completions]() {
+            auto removed =
+                tracker_->removeRequest(RequestId(static_cast<int64_t>(i)));
+            if (removed) {
+              successful_completions++;
+            } else {
+              failed_completions++;
+            }
+          });
     }
   }
 
