@@ -585,7 +585,7 @@ class McpClient : public application::ApplicationBase {
 
   // Connection activity tracking for detecting stale connections
   std::chrono::steady_clock::time_point last_activity_time_;
-  static constexpr int kConnectionIdleTimeoutSec = 4;  // Less than server's keep-alive timeout
+  static constexpr int kConnectionIdleTimeoutSec = 30;  // Increased for SSE - server responses may take time
 
   // Request management
   std::unique_ptr<RequestTracker> request_tracker_;
