@@ -226,7 +226,7 @@ void McpClient::disconnect() {
   if (shutting_down_) {
     return;
   }
-  
+
   // Check if we're in dispatcher thread or post to it
   if (main_dispatcher_ && !main_dispatcher_->isThreadSafe()) {
     // We're not in dispatcher thread, post the disconnect
@@ -238,7 +238,7 @@ void McpClient::disconnect() {
     });
     return;
   }
-  
+
   // We're in dispatcher thread or no dispatcher, proceed directly
   if (protocol_state_machine_) {
     protocol_state_machine_->handleEvent(
@@ -266,14 +266,14 @@ bool McpClient::isConnectionOpen() const {
 // Reconnect using stored URI
 VoidResult McpClient::reconnect() {
   if (current_uri_.empty()) {
-    return makeVoidError(
-        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No URI stored for reconnection"));
+    return makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                               "No URI stored for reconnection"));
   }
 
   // Now reconnect - reuse existing dispatcher if available
   if (!main_dispatcher_) {
-    return makeVoidError(
-        Error(::mcp::jsonrpc::INTERNAL_ERROR, "No dispatcher available for reconnection"));
+    return makeVoidError(Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                               "No dispatcher available for reconnection"));
   }
 
   // CRITICAL FIX: Check if we're on the dispatcher thread
@@ -335,8 +335,9 @@ VoidResult McpClient::reconnectInternal() {
       return makeVoidError(*error);
     }
 
-    // The connection_manager_->connect() initiates the TCP connection asynchronously.
-    // The dispatcher needs to process events for the connection to complete.
+    // The connection_manager_->connect() initiates the TCP connection
+    // asynchronously. The dispatcher needs to process events for the connection
+    // to complete.
     //
     // Simply mark that reconnection is in progress. The handleConnectionEvent
     // callback will set connected_=true when the TCP handshake completes.
@@ -369,7 +370,7 @@ void McpClient::shutdown() {
       connection_manager_->close();
     }
   }
-  
+
   connected_ = false;
 
   // Request dispatcher shutdown
@@ -607,11 +608,13 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // Check if connection is stale (idle for too long)
   auto now = std::chrono::steady_clock::now();
   auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-      now - last_activity_time_).count();
+                          now - last_activity_time_)
+                          .count();
   bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
 
   // Check if connection is stale or not open - need to reconnect
-  // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms max)
+  // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms
+  // max)
   static constexpr int kMaxReconnectRetries = 50;
 
   // THREAD SAFETY: Use atomic connected_ flag instead of isConnectionOpen()
@@ -620,15 +623,16 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   // The atomic connected_ flag is safe to read from any thread.
   if (is_stale || !connected_) {
     // Track if this is a retry after reconnect
-    if (context->retry_count > 0 && context->retry_count <= kMaxReconnectRetries) {
+    if (context->retry_count > 0 &&
+        context->retry_count <= kMaxReconnectRetries) {
       // This is a retry - check if we're connected now
       if (!connected_) {
         // Still not connected, schedule another retry with timer delay
-        // Timer allows event loop to process I/O events (like TCP connect) between retries
+        // Timer allows event loop to process I/O events (like TCP connect)
+        // between retries
         context->retry_count++;
-        context->retry_timer = main_dispatcher_->createTimer([this, context]() {
-          sendRequestInternal(context);
-        });
+        context->retry_timer = main_dispatcher_->createTimer(
+            [this, context]() { sendRequestInternal(context); });
         context->retry_timer->enableTimer(std::chrono::milliseconds(10));
         return;
       }
@@ -636,7 +640,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
     } else if (context->retry_count > kMaxReconnectRetries) {
       // Too many retries
       context->promise.set_value(Response::make_error(
-          context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection not ready after reconnect")));
+          context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                             "Connection not ready after reconnect")));
       request_tracker_->removeRequest(context->id);
       client_stats_.requests_failed++;
       return;
@@ -646,17 +651,18 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
       auto reconnect_result = reconnect();
       if (is_error<std::nullptr_t>(reconnect_result)) {
         context->promise.set_value(Response::make_error(
-            context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR, "Connection closed and reconnect failed")));
+            context->id, Error(::mcp::jsonrpc::INTERNAL_ERROR,
+                               "Connection closed and reconnect failed")));
         request_tracker_->removeRequest(context->id);
         client_stats_.requests_failed++;
         return;
       }
 
-      // Reconnect initiated - schedule retry to allow connection event to be processed
+      // Reconnect initiated - schedule retry to allow connection event to be
+      // processed
       context->retry_count = 1;
-      main_dispatcher_->post([this, context]() {
-        sendRequestInternal(context);
-      });
+      main_dispatcher_->post(
+          [this, context]() { sendRequestInternal(context); });
       return;
     }
   }
@@ -1132,7 +1138,8 @@ std::future<ListToolsResult> McpClient::listTools(
         ListToolsResult result;
         if (holds_alternative<ListToolsResult>(response.result.value())) {
           result = get<ListToolsResult>(response.result.value());
-        } else if (holds_alternative<std::vector<Tool>>(response.result.value())) {
+        } else if (holds_alternative<std::vector<Tool>>(
+                       response.result.value())) {
           // Backward compatibility: if it's a vector of tools directly
           result.tools = get<std::vector<Tool>>(response.result.value());
         }

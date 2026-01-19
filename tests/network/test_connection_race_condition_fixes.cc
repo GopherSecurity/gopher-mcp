@@ -82,20 +82,19 @@ TEST(ConnectionRaceConditionFixes, FallbackTimerCreatedForConnection) {
   // The test verifies that when a connection enters EINPROGRESS state,
   // a fallback timer is created to handle missed write events
 
-  // This would normally be tested by mocking socket connect() to return EINPROGRESS
-  // and verifying timer creation, but that requires complex socket mocking
+  // This would normally be tested by mocking socket connect() to return
+  // EINPROGRESS and verifying timer creation, but that requires complex socket
+  // mocking
 
   // Instead, we verify the timer mechanism works correctly
   bool timer_fired = false;
-  auto timer = dispatcher.createTimer([&timer_fired]() {
-    timer_fired = true;
-  });
+  auto timer = dispatcher.createTimer([&timer_fired]() { timer_fired = true; });
 
   timer->enableTimer(std::chrono::milliseconds(10));
 
   auto start = std::chrono::steady_clock::now();
-  while (!timer_fired &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!timer_fired && std::chrono::steady_clock::now() - start <
+                             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -111,9 +110,7 @@ TEST(ConnectionRaceConditionFixes, FallbackTimerCanBeDisabled) {
   event::LibeventDispatcher dispatcher("test");
 
   bool timer_fired = false;
-  auto timer = dispatcher.createTimer([&timer_fired]() {
-    timer_fired = true;
-  });
+  auto timer = dispatcher.createTimer([&timer_fired]() { timer_fired = true; });
 
   // Enable timer
   timer->enableTimer(std::chrono::milliseconds(10));
@@ -123,7 +120,8 @@ TEST(ConnectionRaceConditionFixes, FallbackTimerCanBeDisabled) {
 
   // Run dispatcher for longer than timer interval
   auto start = std::chrono::steady_clock::now();
-  while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(50)) {
+  while (std::chrono::steady_clock::now() - start <
+         std::chrono::milliseconds(50)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -146,16 +144,16 @@ TEST(ConnectionRaceConditionFixes, FallbackTimerChecksConnectionState) {
     timer_fired = true;
 
     // Simulate checking SO_ERROR
-    // In real code: socket_->ioHandle().getSocketOption(SOL_SOCKET, SO_ERROR, ...)
-    // For test: simulate connection success detected
+    // In real code: socket_->ioHandle().getSocketOption(SOL_SOCKET, SO_ERROR,
+    // ...) For test: simulate connection success detected
     connection_detected = true;
   });
 
   timer->enableTimer(std::chrono::milliseconds(10));
 
   auto start = std::chrono::steady_clock::now();
-  while (!timer_fired &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!timer_fired && std::chrono::steady_clock::now() - start <
+                             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -183,9 +181,7 @@ TEST(ConnectionRaceConditionFixes, DispatcherPostProvidesSynchronization) {
     state_set = true;
 
     // Post synchronization point (the fix)
-    dispatcher.post([&]() {
-      sync_point_reached = true;
-    });
+    dispatcher.post([&]() { sync_point_reached = true; });
 
     // Protocol operation (should see state_set = true)
     dispatcher.post([&]() {
@@ -200,7 +196,8 @@ TEST(ConnectionRaceConditionFixes, DispatcherPostProvidesSynchronization) {
   // Run dispatcher to process all posted operations
   auto start = std::chrono::steady_clock::now();
   while ((!protocol_operation_started) &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+         std::chrono::steady_clock::now() - start <
+             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -251,7 +248,8 @@ TEST(ConnectionRaceConditionFixes, ConnectionStatePropagationOrder) {
   // Run dispatcher
   auto start = std::chrono::steady_clock::now();
   while (execution_order.size() < 5 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+         std::chrono::steady_clock::now() - start <
+             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -275,14 +273,13 @@ TEST(ConnectionRaceConditionFixes, DispatcherPostFIFOOrdering) {
   std::vector<int> execution_order;
 
   for (int i = 1; i <= 10; ++i) {
-    dispatcher.post([&, i]() {
-      execution_order.push_back(i);
-    });
+    dispatcher.post([&, i]() { execution_order.push_back(i); });
   }
 
   auto start = std::chrono::steady_clock::now();
   while (execution_order.size() < 10 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+         std::chrono::steady_clock::now() - start <
+             std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -323,8 +320,8 @@ TEST(ConnectionRaceConditionFixes, CallbacksReceiveProperState) {
   dispatcher.post(on_connection_event);
 
   auto start = std::chrono::steady_clock::now();
-  while (!callback_saw_connected &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!callback_saw_connected && std::chrono::steady_clock::now() - start <
+                                        std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -363,8 +360,8 @@ TEST(ConnectionRaceConditionFixes, HTTPWorkaroundSchedulesCallback) {
   dispatcher.post(http_connect);
 
   auto start = std::chrono::steady_clock::now();
-  while (connecting &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (connecting && std::chrono::steady_clock::now() - start <
+                           std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -394,7 +391,8 @@ TEST(ConnectionRaceConditionFixes, HTTPWorkaroundOnlyFiresWhenPending) {
   });
 
   auto start = std::chrono::steady_clock::now();
-  while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(50)) {
+  while (std::chrono::steady_clock::now() - start <
+         std::chrono::milliseconds(50)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -439,8 +437,8 @@ TEST(ConnectionRaceConditionFixes, HTTPWorkaroundWithNormalCallback) {
   dispatcher.post(http_connect);
 
   auto start = std::chrono::steady_clock::now();
-  while (connecting &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (connecting && std::chrono::steady_clock::now() - start <
+                           std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -461,9 +459,7 @@ TEST(ConnectionRaceConditionFixes, StateVisibleAcrossIterations) {
   std::atomic<int> checks_saw_true{0};
 
   // First iteration: set state
-  dispatcher.post([&]() {
-    state = true;
-  });
+  dispatcher.post([&]() { state = true; });
 
   // Multiple subsequent iterations: check state
   for (int i = 0; i < 5; ++i) {
@@ -475,8 +471,8 @@ TEST(ConnectionRaceConditionFixes, StateVisibleAcrossIterations) {
   }
 
   auto start = std::chrono::steady_clock::now();
-  while (checks_saw_true < 5 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (checks_saw_true < 5 && std::chrono::steady_clock::now() - start <
+                                    std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -507,8 +503,8 @@ TEST(ConnectionRaceConditionFixes, FallbackTimerIntervalIsAppropriate) {
 
   // Wait for timer to fire
   auto start = std::chrono::steady_clock::now();
-  while (!timer_fired &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(200)) {
+  while (!timer_fired && std::chrono::steady_clock::now() - start <
+                             std::chrono::milliseconds(200)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -545,8 +541,8 @@ TEST(ConnectionRaceConditionFixes, ConcurrentStateChanges) {
   }
 
   auto start = std::chrono::steady_clock::now();
-  while (!all_connected &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!all_connected && std::chrono::steady_clock::now() - start <
+                               std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -565,9 +561,7 @@ TEST(ConnectionRaceConditionFixes, DispatcherPostExceptionHandling) {
   std::atomic<int> task_count{0};
   std::atomic<bool> last_task_ran{false};
 
-  dispatcher.post([&]() {
-    task_count++;
-  });
+  dispatcher.post([&]() { task_count++; });
 
   dispatcher.post([&]() {
     task_count++;
@@ -580,8 +574,8 @@ TEST(ConnectionRaceConditionFixes, DispatcherPostExceptionHandling) {
   });
 
   auto start = std::chrono::steady_clock::now();
-  while (!last_task_ran &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (!last_task_ran && std::chrono::steady_clock::now() - start <
+                               std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -598,16 +592,14 @@ TEST(ConnectionRaceConditionFixes, TimerFiringPatterns) {
   event::LibeventDispatcher dispatcher("test");
 
   std::atomic<int> fire_count{0};
-  auto timer = dispatcher.createTimer([&fire_count]() {
-    fire_count++;
-  });
+  auto timer = dispatcher.createTimer([&fire_count]() { fire_count++; });
 
   // Enable timer
   timer->enableTimer(std::chrono::milliseconds(20));
 
   auto start = std::chrono::steady_clock::now();
-  while (fire_count == 0 &&
-         std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
+  while (fire_count == 0 && std::chrono::steady_clock::now() - start <
+                                std::chrono::milliseconds(100)) {
     dispatcher.run(event::RunType::NonBlock);
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }

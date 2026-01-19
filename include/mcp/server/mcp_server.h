@@ -418,7 +418,8 @@ class ToolRegistry {
         stats_.tools_executed++;
         return result;
       } catch (const std::exception& e) {
-        GOPHER_LOG_DEBUG("Exception in tool handler for {}: {}", name, e.what());
+        GOPHER_LOG_DEBUG("Exception in tool handler for {}: {}", name,
+                         e.what());
         stats_.tools_failed++;
         CallToolResult error_result;
         error_result.isError = true;
@@ -794,7 +795,8 @@ class McpServer : public application::ApplicationBase,
     explicit ServerProtocolCallbacks(McpServer& server) : server_(server) {}
 
     void onRequest(const jsonrpc::Request& request) override {
-      GOPHER_LOG_DEBUG("ServerProtocolCallbacks::onRequest for method: {}", request.method);
+      GOPHER_LOG_DEBUG("ServerProtocolCallbacks::onRequest for method: {}",
+                       request.method);
       server_.onRequest(request);
     }
 
