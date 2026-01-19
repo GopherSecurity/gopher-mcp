@@ -352,3 +352,33 @@ target_link_libraries(test_filter_event_emitter
   Threads::Threads
 )
 add_test(NAME FilterEventEmitterTest COMMAND test_filter_event_emitter)
+
+# HTTP SSE Event Handling Test
+add_executable(test_http_sse_event_handling
+  test_http_sse_event_handling.cc
+)
+target_link_libraries(test_http_sse_event_handling
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME HttpSseEventHandlingTest COMMAND test_http_sse_event_handling)
+
+# SSE Event Callbacks Test (direct filter testing)
+add_executable(test_sse_event_callbacks
+  test_sse_event_callbacks.cc
+)
+target_link_libraries(test_sse_event_callbacks
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME SseEventCallbacksTest COMMAND test_sse_event_callbacks)
