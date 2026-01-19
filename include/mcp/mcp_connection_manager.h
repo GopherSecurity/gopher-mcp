@@ -78,6 +78,24 @@ class McpProtocolCallbacks {
    * Called on connection error
    */
   virtual void onError(const Error& error) = 0;
+
+  /**
+   * Called when SSE endpoint is received (HTTP/SSE transport only)
+   * The endpoint is the URL to POST JSON-RPC messages to
+   */
+  virtual void onMessageEndpoint(const std::string& endpoint) {
+    (void)endpoint;  // Default implementation does nothing
+  }
+
+  /**
+   * Send a POST request to the message endpoint
+   * Used by HTTP/SSE transport to send messages on a separate connection
+   * Returns true if the POST was initiated successfully
+   */
+  virtual bool sendHttpPost(const std::string& json_body) {
+    (void)json_body;  // Default implementation does nothing
+    return false;
+  }
 };
 
 /**
