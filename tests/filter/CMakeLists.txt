@@ -397,3 +397,18 @@ target_link_libraries(test_http_codec_sse_get
   Threads::Threads
 )
 add_test(NAME HttpCodecSseGetTest COMMAND test_http_codec_sse_get)
+
+# HTTP SSE Factory Constructor Test
+add_executable(test_http_sse_factory_constructor
+  test_http_sse_factory_constructor.cc
+)
+target_link_libraries(test_http_sse_factory_constructor
+  PRIVATE
+  gopher-mcp
+  gopher-mcp-logging
+  gtest
+  gtest_main
+  gmock
+  Threads::Threads
+)
+add_test(NAME HttpSseFactoryConstructorTest COMMAND test_http_sse_factory_constructor)
