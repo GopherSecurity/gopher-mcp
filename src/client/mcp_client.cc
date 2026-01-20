@@ -810,10 +810,33 @@ TransportType McpClient::negotiateTransport(const std::string& uri) {
   } else if (uri.find("ws://") == 0 || uri.find("wss://") == 0) {
     return TransportType::WebSocket;
   } else if (uri.find("http://") == 0 || uri.find("https://") == 0) {
-    return TransportType::HttpSse;
+    // For HTTP URLs, use heuristics to determine transport type:
+    // - If URL path contains "/sse" or "/events" -> use SSE transport
+    // - Otherwise -> use Streamable HTTP (simpler, more common)
+
+    // Extract path from URI
+    std::string path;
+    size_t scheme_end = uri.find("://");
+    if (scheme_end != std::string::npos) {
+      size_t path_start = uri.find('/', scheme_end + 3);
+      if (path_start != std::string::npos) {
+        path = uri.substr(path_start);
+      }
+    }
+
+    // Check for SSE-specific paths
+    // SSE transport is indicated by explicit /sse or /events endpoints
+    if (path.find("/sse") != std::string::npos ||
+        path.find("/events") != std::string::npos) {
+      return TransportType::HttpSse;
+    }
+
+    // Default to Streamable HTTP for most HTTP endpoints
+    // (e.g., /rpc, /mcp, /api, etc.)
+    return TransportType::StreamableHttp;
   } else {
-    // Default to HTTP/SSE for backward compatibility
-    return TransportType::HttpSse;
+    // Default to Streamable HTTP for unknown schemes
+    return TransportType::StreamableHttp;
   }
 }
 
@@ -854,6 +877,56 @@ McpConnectionConfig McpClient::createConnectionConfig(TransportType transport) {
       }
 
       http_config.server_address = server_addr;
+      config.http_sse_config = mcp::make_optional(http_config);
+      break;
+    }
+
+    case TransportType::StreamableHttp: {
+      // Streamable HTTP uses the same config as HttpSse but with a different transport type
+      // The connection manager will handle the simpler request/response pattern
+      transport::HttpSseTransportSocketConfig http_config;
+      http_config.mode = transport::HttpSseTransportSocketConfig::Mode::CLIENT;
+
+      // Extract server address from URI (same logic as HttpSse)
+      std::string server_addr;
+      bool is_https = false;
+      if (current_uri_.find("http://") == 0) {
+        server_addr = current_uri_.substr(7);
+      } else if (current_uri_.find("https://") == 0) {
+        server_addr = current_uri_.substr(8);
+        is_https = true;
+      } else {
+        server_addr = current_uri_;
+      }
+
+      // Extract path component
+      std::string http_path = "/";
+      size_t slash_pos = server_addr.find('/');
+      if (slash_pos != std::string::npos) {
+        http_path = server_addr.substr(slash_pos);
+        server_addr = server_addr.substr(0, slash_pos);
+      }
+
+      http_config.server_address = server_addr;
+      config.http_path = http_path;
+      config.http_host = server_addr;
+
+      // Set SSL transport for HTTPS URLs
+      if (is_https) {
+        http_config.underlying_transport =
+            transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+        transport::HttpSseTransportSocketConfig::SslConfig ssl_cfg;
+        ssl_cfg.verify_peer = false;
+        ssl_cfg.alpn_protocols = std::vector<std::string>{"http/1.1"};
+        std::string sni_host = server_addr;
+        size_t colon_pos = sni_host.find(':');
+        if (colon_pos != std::string::npos) {
+          sni_host = sni_host.substr(0, colon_pos);
+        }
+        ssl_cfg.sni_hostname = mcp::make_optional(sni_host);
+        http_config.ssl_config = mcp::make_optional(ssl_cfg);
+      }
+
       config.http_sse_config = mcp::make_optional(http_config);
       break;
     }
