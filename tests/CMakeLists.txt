@@ -94,6 +94,7 @@ add_executable(test_client_disconnect_fixes client/test_client_disconnect_fixes.
 add_executable(test_client_reconnection_and_logging client/test_client_reconnection_and_logging.cc)
 add_executable(test_client_idle_timeout client/test_client_idle_timeout.cc)
 add_executable(test_client_connection_check_threading client/test_client_connection_check_threading.cc)
+add_executable(test_streamable_http_transport client/test_streamable_http_transport.cc)
 add_executable(test_builders core/test_builders.cc)
 
 # MCP Client threading tests 
@@ -706,6 +707,14 @@ target_link_libraries(test_client_connection_check_threading
     gopher-mcp-event
     gtest
     gmock
+    gtest_main
+    Threads::Threads
+)
+
+target_link_libraries(test_streamable_http_transport
+    gopher-mcp
+    gopher-mcp-event
+    gtest
     gtest_main
     Threads::Threads
 )
@@ -1419,6 +1428,16 @@ target_link_libraries(test_http_sse_filter_chain_factory
     Threads::Threads
 )
 add_test(NAME HttpSseFilterChainFactoryTest COMMAND test_http_sse_filter_chain_factory)
+
+add_executable(test_http_sse_filter_chain_mode filter/test_http_sse_filter_chain_mode.cc)
+target_link_libraries(test_http_sse_filter_chain_mode
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpSseFilterChainModeTest COMMAND test_http_sse_filter_chain_mode)
 
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES

@@ -137,12 +137,14 @@ class HttpSseJsonRpcProtocolFilter
                                McpProtocolCallbacks& mcp_callbacks,
                                bool is_server,
                                const std::string& http_path = "/rpc",
-                               const std::string& http_host = "localhost")
+                               const std::string& http_host = "localhost",
+                               bool use_sse = true)
       : dispatcher_(dispatcher),
         mcp_callbacks_(mcp_callbacks),
         is_server_(is_server),
         http_path_(http_path),
-        http_host_(http_host) {
+        http_host_(http_host),
+        use_sse_(use_sse) {
     // Following production pattern: all operations for this filter
     // happen in the single dispatcher thread
     // Create routing filter first (it will receive HTTP callbacks)
@@ -158,12 +160,13 @@ class HttpSseJsonRpcProtocolFilter
                                                      dispatcher_, is_server_);
 
     // Set client endpoint for HTTP requests
-    if (!is_server_) {
-      GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: Setting client endpoint: path={}, host={}", http_path, http_host);
+    if (!is_server) {
       http_filter_->setClientEndpoint(http_path, http_host);
-      // Enable SSE GET mode for client - will send GET /sse first
-      http_filter_->setUseSseGet(true);
-      GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: Enabled SSE GET mode for client");
+      // Only enable SSE GET mode if use_sse is true
+      // For Streamable HTTP, we send POST requests directly
+      if (use_sse) {
+        http_filter_->setUseSseGet(true);
+      }
     }
 
     // Now set the encoder in routing filter
@@ -198,8 +201,8 @@ class HttpSseJsonRpcProtocolFilter
     // For client mode with SSE, mark that we need to send GET request
     // Don't send here - connection is not ready yet (SSL handshake pending)
     // The GET will be sent on first onWrite() call after connection is established
-    if (!is_server_) {
-      GOPHER_LOG_DEBUG("HttpSseJsonRpcProtocolFilter: Client mode - will send SSE GET on first write");
+    // For Streamable HTTP mode (use_sse_ = false), skip the SSE endpoint waiting
+    if (!is_server_ && use_sse_) {
       waiting_for_sse_endpoint_ = true;
     }
 
@@ -528,13 +531,15 @@ class HttpSseJsonRpcProtocolFilter
         sse_filter_->onData(pending_sse_data_, end_stream);
         // SSE filter drains what it consumes, keeping partial events
       } else {
-        // In RPC mode, body contains JSON-RPC
-        // Accumulate and forward to JSON-RPC filter
-        pending_json_data_.add(data);
-        if (end_stream) {
-          jsonrpc_filter_->onData(pending_json_data_, true);
-          pending_json_data_.drain(pending_json_data_.length());
+        // In Streamable HTTP mode, body contains JSON-RPC response
+        // Process each chunk immediately - the HTTP codec may call onBody multiple times
+        OwnedBuffer temp_buffer;
+        temp_buffer.add(data);
+        // Add newline for JSON-RPC parsing (expects newline-delimited messages)
+        if (!data.empty() && data.back() != '\n') {
+          temp_buffer.add("\n", 1);
         }
+        jsonrpc_filter_->onData(temp_buffer, end_stream);
       }
     }
   }
@@ -803,6 +808,7 @@ class HttpSseJsonRpcProtocolFilter
   // SSE client endpoint configuration
   std::string http_path_{"/rpc"};     // Default HTTP path for requests
   std::string http_host_{"localhost"}; // Default HTTP host for requests
+  bool use_sse_{true};           // True for SSE mode, false for Streamable HTTP
 
   // SSE endpoint negotiation (client mode only)
   bool waiting_for_sse_endpoint_{false}; // Waiting for "endpoint" SSE event
@@ -901,7 +907,7 @@ bool HttpSseFilterChainFactory::createFilterChain(
 
   // Create the combined protocol filter
   auto combined_filter = std::make_shared<HttpSseJsonRpcProtocolFilter>(
-      dispatcher_, message_callbacks_, is_server_);
+      dispatcher_, message_callbacks_, is_server_, http_path_, http_host_, use_sse_);
 
   // Add as both read and write filter
   filter_manager.addReadFilter(combined_filter);
