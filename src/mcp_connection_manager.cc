@@ -438,6 +438,154 @@ VoidResult McpConnectionManager::connect() {
     // TODO: Add connection timeout handling
     // TODO: Add retry logic with exponential backoff for connection failures
     // TODO: Support TLS/HTTPS connections using SSL transport socket
+  } else if (config_.transport_type == TransportType::StreamableHttp) {
+    // Streamable HTTP client connection flow:
+    // Similar to HTTP/SSE but uses simple POST request/response pattern
+    // No SSE event stream needed - responses come back in the HTTP response body
+
+    if (!config_.http_sse_config.has_value()) {
+      Error err;
+      err.code = -1;
+      err.message = "HTTP config not set for Streamable HTTP transport";
+      return makeVoidError(err);
+    }
+
+    // Parse server address (same as HttpSse)
+    std::string server_address = config_.http_sse_config.value().server_address;
+    std::string host = "127.0.0.1";
+
+    bool is_https = config_.http_sse_config.value().underlying_transport ==
+                    transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    uint32_t default_port = is_https ? 443 : 80;
+    uint32_t port = default_port;
+
+    size_t colon_pos = server_address.rfind(':');
+    if (colon_pos != std::string::npos) {
+      std::string port_str = server_address.substr(colon_pos + 1);
+      bool valid_port = !port_str.empty() &&
+                        port_str.find_first_not_of("0123456789") == std::string::npos;
+      if (valid_port) {
+        try {
+          port = std::stoi(port_str);
+          host = server_address.substr(0, colon_pos);
+        } catch (const std::exception& e) {
+          host = server_address;
+          port = default_port;
+        }
+      } else {
+        host = server_address;
+      }
+    } else {
+      host = server_address;
+    }
+
+    if (host == "localhost") {
+      host = "127.0.0.1";
+    }
+
+    auto tcp_address = network::Address::parseInternetAddress(host, port);
+
+    if (!tcp_address) {
+      std::string resolved_ip = resolveHostname(host);
+      if (!resolved_ip.empty()) {
+        tcp_address = network::Address::parseInternetAddress(resolved_ip, port);
+      }
+    }
+
+    if (!tcp_address) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to resolve server address: " + host + ":" + std::to_string(port);
+      return makeVoidError(err);
+    }
+
+    auto local_address = network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+
+    auto socket_result = socket_interface_.socket(
+        network::SocketType::Stream, network::Address::Type::Ip,
+        network::Address::IpVersion::v4, false);
+
+    if (!socket_result.ok()) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create TCP socket";
+      return makeVoidError(err);
+    }
+
+    auto io_handle = socket_interface_.ioHandleForFd(*socket_result.value, false);
+    if (!io_handle) {
+      socket_interface_.close(*socket_result.value);
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create IO handle";
+      return makeVoidError(err);
+    }
+
+    auto socket_wrapper = std::make_unique<network::ConnectionSocketImpl>(
+        std::move(io_handle), local_address, tcp_address);
+
+    socket_wrapper->ioHandle().setBlocking(false);
+
+    int nodelay = 1;
+    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    auto transport_factory = createTransportSocketFactory();
+    if (!transport_factory) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create transport factory";
+      return makeVoidError(err);
+    }
+
+    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
+    if (!client_factory) {
+      Error err;
+      err.code = -1;
+      err.message = "Transport factory does not support client connections";
+      return makeVoidError(err);
+    }
+
+    network::TransportSocketPtr transport_socket = client_factory->createTransportSocket(nullptr);
+    if (!transport_socket) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create transport socket";
+      return makeVoidError(err);
+    }
+
+    auto connection = std::make_unique<network::ConnectionImpl>(
+        dispatcher_, std::move(socket_wrapper), std::move(transport_socket), false);
+
+    active_connection_ = std::unique_ptr<network::ClientConnection>(std::move(connection));
+
+    if (!active_connection_) {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to create client connection";
+      return makeVoidError(err);
+    }
+
+    active_connection_->addConnectionCallbacks(*this);
+
+    // Apply filter chain for Streamable HTTP (simpler than SSE - just HTTP codec + JSON-RPC)
+    auto filter_factory = createFilterChainFactory();
+    if (filter_factory && active_connection_) {
+      auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
+      if (conn_base) {
+        filter_factory->createFilterChain(conn_base->filterManager());
+        conn_base->filterManager().initializeReadFilters();
+      }
+    }
+
+    auto client_conn = dynamic_cast<network::ClientConnection*>(active_connection_.get());
+    if (client_conn) {
+      client_conn->connect();
+    } else {
+      Error err;
+      err.code = -1;
+      err.message = "Failed to cast to ClientConnection";
+      return makeVoidError(err);
+    }
   } else {
     Error err;
     err.code = -1;
@@ -960,6 +1108,7 @@ McpConnectionManager::createTransportSocketFactory() {
       }
 
     case TransportType::HttpSse:
+    case TransportType::StreamableHttp:
       // Check if SSL is needed for HTTPS
       if (config_.http_sse_config.has_value() &&
           config_.http_sse_config.value().underlying_transport ==
@@ -968,10 +1117,14 @@ McpConnectionManager::createTransportSocketFactory() {
         return transport::createHttpsSseTransportFactory(
             config_.http_sse_config.value(), dispatcher_);
       }
-      // For HTTP+SSE without SSL, use RawBufferTransportSocketFactory
-      // The filter chain handles the HTTP and SSE protocols
+      // For HTTP without SSL, use RawBufferTransportSocketFactory
+      // The filter chain handles the HTTP protocol
       // The transport socket only handles raw buffer I/O
       return std::make_unique<network::RawBufferTransportSocketFactory>();
+
+    case TransportType::WebSocket:
+      // WebSocket not yet implemented
+      break;
 
     default:
       break;
@@ -1008,6 +1161,17 @@ McpConnectionManager::createFilterChainFactory() {
 
     return std::make_shared<filter::HttpSseFilterChainFactory>(
         dispatcher_, *this, is_server_, config_.http_path, config_.http_host);
+
+  } else if (config_.transport_type == TransportType::StreamableHttp) {
+    // Streamable HTTP: Simple POST request/response pattern
+    // [TCP] → [HTTP+JSON-RPC Filter] → [Application]
+    //
+    // No SSE event stream - direct HTTP POST with JSON-RPC body
+    // Response is JSON-RPC in HTTP response body
+
+    return std::make_shared<filter::HttpSseFilterChainFactory>(
+        dispatcher_, *this, is_server_, config_.http_path, config_.http_host,
+        false /* use_sse */);
 
   } else {
     // Simple direct transport (stdio, websocket):
