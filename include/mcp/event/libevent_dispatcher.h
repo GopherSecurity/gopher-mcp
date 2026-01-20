@@ -129,7 +129,8 @@ class LibeventDispatcher : public Dispatcher {
   // Libevent timer implementation
   class TimerImpl : public Timer {
    public:
-    TimerImpl(LibeventDispatcher& dispatcher, TimerCb cb);
+    TimerImpl(LibeventDispatcher& dispatcher, TimerCb cb,
+              std::shared_ptr<std::atomic<bool>> dispatcher_valid);
     ~TimerImpl() override;
 
     void disableTimer() override;
@@ -144,6 +145,9 @@ class LibeventDispatcher : public Dispatcher {
     TimerCb cb_;
     libevent_event* event_;
     bool enabled_;
+    // Shared flag to safely check if dispatcher is still valid without
+    // accessing the dispatcher reference (which may be dangling)
+    std::shared_ptr<std::atomic<bool>> dispatcher_valid_;
   };
 
   // Schedulable callback implementation
@@ -220,6 +224,10 @@ class LibeventDispatcher : public Dispatcher {
 
   // Watchdog
   std::unique_ptr<WatchdogRegistration> watchdog_registration_;
+
+  // Shared validity flag - allows timers to safely check if dispatcher is valid
+  // without accessing dispatcher members (which may be destroyed)
+  std::shared_ptr<std::atomic<bool>> dispatcher_valid_;
 
   // Stats
   DispatcherStats* stats_ = nullptr;
