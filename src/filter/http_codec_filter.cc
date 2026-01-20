@@ -344,6 +344,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Accept: text/event-stream\r\n";
         request << "Cache-Control: no-cache\r\n";
         request << "Connection: keep-alive\r\n";
+        request << "User-Agent: gopher-mcp/1.0\r\n";
         request << "\r\n";
 
         sse_get_sent_ = true;
@@ -372,8 +373,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "Host: " << client_host_ << "\r\n";
         request << "Content-Type: application/json\r\n";
         request << "Content-Length: " << body_length << "\r\n";
-        request << "Accept: text/event-stream\r\n";  // Support SSE responses
+        // MCP servers may require both Accept types
+        // Always include both to maximize compatibility
+        request << "Accept: application/json, text/event-stream\r\n";
         request << "Connection: keep-alive\r\n";
+        request << "User-Agent: gopher-mcp/1.0\r\n";
         request << "\r\n";
         request << body_data;
       }
