@@ -97,6 +97,7 @@ bool FilterManagerImpl::initializeReadFilters() {
 
 void FilterManagerImpl::onRead() {
   if (!initialized_) {
+    GOPHER_LOG_DEBUG("onRead: not initialized");
     return;
   }
 
@@ -108,6 +109,8 @@ void FilterManagerImpl::onRead() {
 
   Buffer& buffer = connection_.readBuffer();
   bool end_stream = connection_.readHalfClosed();
+  GOPHER_LOG_DEBUG("onRead: buffer_len={}, end_stream={}, num_read_filters={}",
+                   buffer.length(), end_stream, read_filters_.size());
 
   current_read_filter_ = read_filters_.begin();
   onContinueReading(buffer, end_stream);
@@ -144,6 +147,7 @@ FilterStatus FilterManagerImpl::onContinueReading(Buffer& buffer,
   current_read_filter_ = entry;
 
   if (end_stream && current_read_filter_ == read_filters_.end()) {
+    GOPHER_LOG_DEBUG("Closing connection due to end_stream");
     connection_.close(ConnectionCloseType::FlushWrite);
   }
 
