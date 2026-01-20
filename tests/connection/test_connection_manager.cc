@@ -193,10 +193,13 @@ TEST_F(ConnectionManagerSection2Test, SendHttpPostParsesHttpsUrl) {
   // Set endpoint with HTTPS URL
   manager->onMessageEndpoint("https://example.com:443/api/message");
 
-  // SSL transport is not yet implemented, so we expect this to throw
-  EXPECT_THROW({
-    manager->sendHttpPost(R"({"jsonrpc":"2.0","method":"initialize","id":1})");
-  }, std::runtime_error);
+  // SSL transport is now implemented, so sendHttpPost should not throw
+  // Note: The actual connection may fail since we're not connecting to a real server,
+  // but the sendHttpPost call itself should succeed in creating the POST connection
+  bool result = manager->sendHttpPost(R"({"jsonrpc":"2.0","method":"initialize","id":1})");
+  // Result may be true or false depending on whether connection succeeds,
+  // but the important thing is it doesn't throw
+  (void)result;  // Suppress unused variable warning
 }
 
 /**
