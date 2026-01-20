@@ -433,10 +433,18 @@ std::future<InitializeResult> McpClient::initializeProtocol() {
     }
 
     // Build initialize request with client capabilities
+    // MCP spec requires: protocolVersion, capabilities, clientInfo (nested object)
     auto init_params = make_metadata();
     init_params["protocolVersion"] = config_.protocol_version;
-    init_params["clientName"] = config_.client_name;
-    init_params["clientVersion"] = config_.client_version;
+
+    // clientInfo must be a nested object with name and version
+    // Store as JSON string - the serializer will parse it back to an object
+    std::string client_info_json = "{\"name\":\"" + config_.client_name +
+                                   "\",\"version\":\"" + config_.client_version + "\"}";
+    init_params["clientInfo"] = client_info_json;
+
+    // capabilities must be an object (can be empty)
+    init_params["capabilities"] = "{}";
 
     // Send request - do NOT block here!
     *request_future_ptr =

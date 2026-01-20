@@ -1439,6 +1439,16 @@ target_link_libraries(test_http_sse_filter_chain_mode
 )
 add_test(NAME HttpSseFilterChainModeTest COMMAND test_http_sse_filter_chain_mode)
 
+# MCP Initialize Request Tests (Section 3 & 4)
+add_executable(test_mcp_initialize_request client/test_mcp_initialize_request.cc)
+target_link_libraries(test_mcp_initialize_request
+    gopher-mcp
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME McpInitializeRequestTest COMMAND test_mcp_initialize_request)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
