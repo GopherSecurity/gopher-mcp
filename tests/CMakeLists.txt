@@ -1449,6 +1449,17 @@ target_link_libraries(test_mcp_initialize_request
 )
 add_test(NAME McpInitializeRequestTest COMMAND test_mcp_initialize_request)
 
+# HTTP Headers Compatibility Tests (Section 5)
+add_executable(test_http_headers_compatibility filter/test_http_headers_compatibility.cc)
+target_link_libraries(test_http_headers_compatibility
+    gopher-mcp
+    gopher-mcp-event
+    gtest
+    gtest_main
+    Threads::Threads
+)
+add_test(NAME HttpHeadersCompatibilityTest COMMAND test_http_headers_compatibility)
+
 # Set test properties
 set_tests_properties(VariantTest PROPERTIES
     TIMEOUT 60
