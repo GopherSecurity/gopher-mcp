@@ -1,5 +1,9 @@
 #include "mcp/client/mcp_client.h"
 
+// Override the default log component for this file
+#undef GOPHER_LOG_COMPONENT
+#define GOPHER_LOG_COMPONENT "client"
+
 #include <algorithm>
 #include <future>
 #include <sstream>
@@ -605,12 +609,18 @@ VoidResult McpClient::sendNotification(const std::string& method,
 
 // Send request internally with retry logic
 void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
+  GOPHER_LOG_DEBUG("sendRequestInternal: method={}, connected_={}, isConnectionOpen()={}, retry_count={}",
+                   context->method, connected_.load(), isConnectionOpen(), context->retry_count);
+
   // Check if connection is stale (idle for too long)
   auto now = std::chrono::steady_clock::now();
   auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(
                           now - last_activity_time_)
                           .count();
   bool is_stale = connected_ && (idle_seconds >= kConnectionIdleTimeoutSec);
+
+  GOPHER_LOG_DEBUG("sendRequestInternal stale check: idle_seconds={}, timeout={}, is_stale={}",
+                   idle_seconds, kConnectionIdleTimeoutSec, is_stale);
 
   // Check if connection is stale or not open - need to reconnect
   // Maximum retries to wait for connection after reconnect (50 * 10ms = 500ms
@@ -683,6 +693,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
   request.params = context->params;
   request.id = context->id;
 
+  GOPHER_LOG_DEBUG("Sending request through connection_manager: method={}", context->method);
+
   // CRITICAL FIX: Update activity time BEFORE sending request
   // This prevents stale connection detection while waiting for response
   // Without this, connections are marked stale if idle_seconds >= timeout,
@@ -691,6 +703,8 @@ void McpClient::sendRequestInternal(std::shared_ptr<RequestContext> context) {
 
   // Send through connection manager
   auto send_result = connection_manager_->sendRequest(request);
+
+  GOPHER_LOG_DEBUG("sendRequest result: is_error={}", is_error<std::nullptr_t>(send_result));
 
   if (is_error<std::nullptr_t>(send_result)) {
     // Send failed, check if we should retry
@@ -1616,11 +1630,14 @@ void McpClient::coordinateProtocolState() {
 
 // Handle connection events from network layer
 void McpClient::handleConnectionEvent(network::ConnectionEvent event) {
+  GOPHER_LOG_DEBUG("handleConnectionEvent called, event={}", static_cast<int>(event));
   // Handle connection events in dispatcher context
   switch (event) {
     case network::ConnectionEvent::Connected:
     case network::ConnectionEvent::ConnectedZeroRtt:
+      GOPHER_LOG_DEBUG("Setting connected_=true");
       connected_ = true;
+      last_activity_time_ = std::chrono::steady_clock::now();  // Reset idle timer on connection
       client_stats_.connections_active++;
 
       // Notify protocol state machine of network connection
