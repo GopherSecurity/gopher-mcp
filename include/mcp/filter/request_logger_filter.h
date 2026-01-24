@@ -83,7 +83,7 @@ class RequestLoggerFilter : public network::NetworkFilterBase,
   Config config_;
   JsonRpcProtocolFilter::MessageHandler* next_callbacks_{nullptr};
   mutable std::mutex write_mutex_;
-  std::optional<std::ofstream> file_stream_;
+  mcp::optional<std::ofstream> file_stream_;
 };
 
 }  // namespace filter

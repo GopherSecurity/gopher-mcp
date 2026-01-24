@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "mcp/event/event_loop.h"
 #include "mcp/filter/http_codec_filter.h"
@@ -53,13 +54,23 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * @param dispatcher Event dispatcher for async operations
    * @param message_callbacks MCP message callbacks for handling requests
    * @param is_server True for server mode, false for client mode
+   * @param http_path HTTP request path for client mode (e.g., "/sse")
+   * @param http_host HTTP Host header value for client mode
+   * @param use_sse True for SSE mode (GET /sse first), false for Streamable
+   * HTTP (direct POST)
    */
   HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
                             McpProtocolCallbacks& message_callbacks,
-                            bool is_server = true)
+                            bool is_server = true,
+                            const std::string& http_path = "/rpc",
+                            const std::string& http_host = "localhost",
+                            bool use_sse = true)
       : dispatcher_(dispatcher),
         message_callbacks_(message_callbacks),
-        is_server_(is_server) {}
+        is_server_(is_server),
+        http_path_(http_path),
+        http_host_(http_host),
+        use_sse_(use_sse) {}
 
   /**
    * Create filter chain for the connection
@@ -106,6 +117,9 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
   event::Dispatcher& dispatcher_;
   McpProtocolCallbacks& message_callbacks_;
   bool is_server_;
+  std::string http_path_;  // HTTP request path for client mode
+  std::string http_host_;  // HTTP Host header for client mode
+  bool use_sse_;           // True for SSE mode, false for Streamable HTTP
   mutable bool enable_metrics_ = true;  // Enable metrics by default
 
   // Store filters for lifetime management

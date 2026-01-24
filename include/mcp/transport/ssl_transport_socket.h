@@ -119,6 +119,7 @@ class SslTransportSocket
   TransportIoResult doRead(Buffer& buffer) override;
   TransportIoResult doWrite(Buffer& buffer, bool end_stream) override;
   void onConnected() override;
+  bool defersConnectedEvent() const override { return true; }
 
   /**
    * Register handshake callbacks

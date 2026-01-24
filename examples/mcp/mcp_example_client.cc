@@ -101,6 +101,7 @@ struct ClientOptions {
   std::string host = "localhost";
   int port = 3000;
   std::string transport = "http";
+  std::string url;  // Full URL if provided (takes precedence)
   bool demo = false;
   bool metrics = false;
   bool verbose = false;
@@ -162,6 +163,8 @@ void signal_handler(int signal) {
 void printUsage(const char* program) {
   std::cerr << "USAGE: " << program << " [options]\n\n";
   std::cerr << "OPTIONS:\n";
+  std::cerr << "  --url <url>          Full server URL (e.g., "
+               "https://example.com/sse)\n";
   std::cerr << "  --host <hostname>    Server hostname (default: localhost)\n";
   std::cerr << "  --port <port>        Server port (default: 3000)\n";
   std::cerr << "  --transport <type>   Transport type: http, stdio, websocket "
@@ -185,6 +188,8 @@ ClientOptions parseArguments(int argc, char* argv[]) {
     if (arg == "--help" || arg == "-h") {
       printUsage(argv[0]);
       exit(0);
+    } else if (arg == "--url" && i + 1 < argc) {
+      options.url = argv[++i];
     } else if (arg == "--host" && i + 1 < argc) {
       options.host = argv[++i];
     } else if (arg == "--port" && i + 1 < argc) {
@@ -871,7 +876,10 @@ int main(int argc, char* argv[]) {
 
   // Build server URI based on transport type
   std::string server_uri;
-  if (options.transport == "stdio") {
+  if (!options.url.empty()) {
+    // Use full URL if provided
+    server_uri = options.url;
+  } else if (options.transport == "stdio") {
     server_uri = "stdio://";
   } else if (options.transport == "websocket" || options.transport == "ws") {
     std::ostringstream uri;

@@ -246,7 +246,23 @@ struct JsonSerializeTraits<Metadata> {
     for (const auto& kv : metadata) {
       match(
           kv.second, [&](std::nullptr_t) { builder.addNull(kv.first); },
-          [&](const std::string& s) { builder.add(kv.first, s); },
+          [&](const std::string& s) {
+            // Check if string looks like JSON object or array
+            // This allows storing nested structures as JSON strings in Metadata
+            // which get serialized back to proper nested JSON
+            if (!s.empty() && ((s.front() == '{' && s.back() == '}') ||
+                               (s.front() == '[' && s.back() == ']'))) {
+              try {
+                auto parsed = JsonValue::parse(s);
+                builder.add(kv.first, parsed);
+              } catch (...) {
+                // Not valid JSON, add as string
+                builder.add(kv.first, s);
+              }
+            } else {
+              builder.add(kv.first, s);
+            }
+          },
           [&](int64_t i) { builder.add(kv.first, static_cast<int>(i)); },
           [&](double d) { builder.add(kv.first, d); },
           [&](bool b) { builder.add(kv.first, b); });
