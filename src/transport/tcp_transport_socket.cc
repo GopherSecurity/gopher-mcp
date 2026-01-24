@@ -80,9 +80,11 @@ void TcpTransportSocket::setTransportSocketCallbacks(
 }
 
 void TcpTransportSocket::closeSocket(network::ConnectionEvent event) {
-  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
+  auto current_state = state_machine_ ? state_machine_->currentState()
+                                      : TransportSocketState::Error;
   GOPHER_LOG_DEBUG("closeSocket called, this={}, state={}, event={}",
-                   (void*)this, static_cast<int>(current_state), static_cast<int>(event));
+                   (void*)this, static_cast<int>(current_state),
+                   static_cast<int>(event));
 
   // Transition state machine to closing/closed
   if (state_machine_) {
@@ -104,12 +106,12 @@ void TcpTransportSocket::closeSocket(network::ConnectionEvent event) {
 
 network::TransportIoResult TcpTransportSocket::doRead(Buffer& buffer) {
   // Check state - only allow reads in Connected state
-  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
-  GOPHER_LOG_DEBUG("doRead called, this={}, state={}",
-                   (void*)this, static_cast<int>(current_state));
+  auto current_state = state_machine_ ? state_machine_->currentState()
+                                      : TransportSocketState::Error;
+  GOPHER_LOG_DEBUG("doRead called, this={}, state={}", (void*)this,
+                   static_cast<int>(current_state));
 
-  if (!state_machine_ ||
-      current_state != TransportSocketState::Connected) {
+  if (!state_machine_ || current_state != TransportSocketState::Connected) {
     Error err;
     err.code = ENOTCONN;
     err.message = "Socket not connected";
@@ -206,11 +208,11 @@ network::TransportIoResult TcpTransportSocket::doRead(Buffer& buffer) {
 network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
                                                        bool end_stream) {
   // Check state - only allow writes in Connected state
-  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
+  auto current_state = state_machine_ ? state_machine_->currentState()
+                                      : TransportSocketState::Error;
   GOPHER_LOG_DEBUG("doWrite called, state={}, buffer_len={}",
                    static_cast<int>(current_state), buffer.length());
-  if (!state_machine_ ||
-      current_state != TransportSocketState::Connected) {
+  if (!state_machine_ || current_state != TransportSocketState::Connected) {
     Error err;
     err.code = ENOTCONN;
     err.message = "Socket not connected";
@@ -329,9 +331,10 @@ network::TransportIoResult TcpTransportSocket::doWrite(Buffer& buffer,
 
 void TcpTransportSocket::onConnected() {
   // Called when the underlying socket connects
-  auto current_state = state_machine_ ? state_machine_->currentState() : TransportSocketState::Error;
-  GOPHER_LOG_DEBUG("onConnected called, this={}, current_state={}",
-                   (void*)this, static_cast<int>(current_state));
+  auto current_state = state_machine_ ? state_machine_->currentState()
+                                      : TransportSocketState::Error;
+  GOPHER_LOG_DEBUG("onConnected called, this={}, current_state={}", (void*)this,
+                   static_cast<int>(current_state));
   if (state_machine_) {
     // State machine requires: Connecting -> TcpConnected -> Connected
     if (current_state == TransportSocketState::Connecting) {
@@ -341,7 +344,8 @@ void TcpTransportSocket::onConnected() {
                                    "Connection ready");
       GOPHER_LOG_DEBUG("transitioned to Connected");
     } else {
-      GOPHER_LOG_DEBUG("NOT transitioning, state was {}", static_cast<int>(current_state));
+      GOPHER_LOG_DEBUG("NOT transitioning, state was {}",
+                       static_cast<int>(current_state));
     }
   }
 
@@ -364,8 +368,8 @@ VoidResult TcpTransportSocket::connect(network::Socket& socket) {
     state_machine_->transitionTo(TransportSocketState::Connecting,
                                  "Connect initiated");
     auto after_state = state_machine_->currentState();
-    GOPHER_LOG_DEBUG("transitioned: {} -> {}",
-                     static_cast<int>(before_state), static_cast<int>(after_state));
+    GOPHER_LOG_DEBUG("transitioned: {} -> {}", static_cast<int>(before_state),
+                     static_cast<int>(after_state));
   }
 
   // Apply TCP-specific socket options

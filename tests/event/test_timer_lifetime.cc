@@ -44,7 +44,8 @@ class TimerLifetimeTest : public ::testing::Test {
   }
 
   void runDispatcher() {
-    dispatcher_thread_ = std::thread([this]() { dispatcher_->run(RunType::Block); });
+    dispatcher_thread_ =
+        std::thread([this]() { dispatcher_->run(RunType::Block); });
     // Give dispatcher time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
@@ -64,9 +65,8 @@ TEST_F(TimerLifetimeTest, ValidityFlagInitializedToTrue) {
   // Create a timer - it should capture the validity flag
   std::atomic<bool> callback_executed{false};
 
-  auto timer = dispatcher_->createTimer([&callback_executed]() {
-    callback_executed = true;
-  });
+  auto timer = dispatcher_->createTimer(
+      [&callback_executed]() { callback_executed = true; });
 
   // Enable timer with short duration
   timer->enableTimer(std::chrono::milliseconds(1));
@@ -87,13 +87,14 @@ TEST_F(TimerLifetimeTest, CallbackDoesNotRunAfterDispatcherDestroyed) {
   std::atomic<bool> dispatcher_destroyed{false};
 
   // Create timer with long duration
-  auto timer = dispatcher_->createTimer([&callback_executed, &dispatcher_destroyed]() {
-    // If this runs after dispatcher destroyed, we have a problem
-    if (dispatcher_destroyed) {
-      ADD_FAILURE() << "Timer callback ran after dispatcher destroyed!";
-    }
-    callback_executed = true;
-  });
+  auto timer =
+      dispatcher_->createTimer([&callback_executed, &dispatcher_destroyed]() {
+        // If this runs after dispatcher destroyed, we have a problem
+        if (dispatcher_destroyed) {
+          ADD_FAILURE() << "Timer callback ran after dispatcher destroyed!";
+        }
+        callback_executed = true;
+      });
 
   timer->enableTimer(std::chrono::seconds(10));
 
@@ -121,17 +122,14 @@ TEST_F(TimerLifetimeTest, MultipleTimersShareValidityFlag) {
   std::atomic<int> callback_count{0};
 
   // Create multiple timers
-  auto timer1 = dispatcher_->createTimer([&callback_count]() {
-    callback_count++;
-  });
+  auto timer1 =
+      dispatcher_->createTimer([&callback_count]() { callback_count++; });
 
-  auto timer2 = dispatcher_->createTimer([&callback_count]() {
-    callback_count++;
-  });
+  auto timer2 =
+      dispatcher_->createTimer([&callback_count]() { callback_count++; });
 
-  auto timer3 = dispatcher_->createTimer([&callback_count]() {
-    callback_count++;
-  });
+  auto timer3 =
+      dispatcher_->createTimer([&callback_count]() { callback_count++; });
 
   // Enable all timers with short durations
   timer1->enableTimer(std::chrono::milliseconds(5));
@@ -157,13 +155,14 @@ TEST_F(TimerLifetimeTest, ShutdownInvalidatesValidityFlag) {
   std::atomic<bool> callback_executed{false};
   std::atomic<bool> shutdown_called{false};
 
-  auto timer = dispatcher_->createTimer([&callback_executed, &shutdown_called]() {
-    // This should not run if shutdown was called first
-    if (shutdown_called) {
-      ADD_FAILURE() << "Timer callback ran after shutdown!";
-    }
-    callback_executed = true;
-  });
+  auto timer =
+      dispatcher_->createTimer([&callback_executed, &shutdown_called]() {
+        // This should not run if shutdown was called first
+        if (shutdown_called) {
+          ADD_FAILURE() << "Timer callback ran after shutdown!";
+        }
+        callback_executed = true;
+      });
 
   timer->enableTimer(std::chrono::seconds(10));
 
@@ -190,7 +189,8 @@ TEST_F(TimerLifetimeTest, CallbackThatDestroysDispatcherDoesNotCrash) {
   std::atomic<bool> callback_executed{false};
 
   // This test verifies that a timer callback can trigger dispatcher destruction
-  // without causing a crash from accessing dispatcher members after the callback
+  // without causing a crash from accessing dispatcher members after the
+  // callback
   auto timer = dispatcher_->createTimer([&callback_executed, this]() {
     callback_executed = true;
     // Request exit, which will lead to dispatcher destruction
@@ -326,9 +326,8 @@ TEST_F(TimerLifetimeTest, ExitSetsExitRequestedFlag) {
 TEST_F(TimerLifetimeTest, TimerCanBeDisabledAndReEnabled) {
   std::atomic<int> callback_count{0};
 
-  auto timer = dispatcher_->createTimer([&callback_count]() {
-    callback_count++;
-  });
+  auto timer =
+      dispatcher_->createTimer([&callback_count]() { callback_count++; });
 
   // Enable, disable, enable again
   timer->enableTimer(std::chrono::milliseconds(10));
@@ -349,9 +348,8 @@ TEST_F(TimerLifetimeTest, TimerCleanupOnDestruction) {
   std::atomic<bool> callback_executed{false};
 
   {
-    auto timer = dispatcher_->createTimer([&callback_executed]() {
-      callback_executed = true;
-    });
+    auto timer = dispatcher_->createTimer(
+        [&callback_executed]() { callback_executed = true; });
 
     timer->enableTimer(std::chrono::milliseconds(500));
     // Timer destroyed here - callback should not execute

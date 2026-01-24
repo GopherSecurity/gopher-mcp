@@ -129,7 +129,8 @@ class LibeventDispatcher : public Dispatcher {
   // Libevent timer implementation
   class TimerImpl : public Timer {
    public:
-    TimerImpl(LibeventDispatcher& dispatcher, TimerCb cb,
+    TimerImpl(LibeventDispatcher& dispatcher,
+              TimerCb cb,
               std::shared_ptr<std::atomic<bool>> dispatcher_valid);
     ~TimerImpl() override;
 

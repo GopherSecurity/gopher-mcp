@@ -147,7 +147,8 @@ TEST_F(ConnectionManagerSection2Test, SendHttpPostFailsWithoutEndpoint) {
       *dispatcher_, network::socketInterface(), config);
 
   // Try to send POST without setting endpoint first
-  bool result = manager->sendHttpPost(R"({"jsonrpc":"2.0","method":"test","id":1})");
+  bool result =
+      manager->sendHttpPost(R"({"jsonrpc":"2.0","method":"test","id":1})");
 
   EXPECT_FALSE(result);
 }
@@ -194,9 +195,11 @@ TEST_F(ConnectionManagerSection2Test, SendHttpPostParsesHttpsUrl) {
   manager->onMessageEndpoint("https://example.com:443/api/message");
 
   // SSL transport is now implemented, so sendHttpPost should not throw
-  // Note: The actual connection may fail since we're not connecting to a real server,
-  // but the sendHttpPost call itself should succeed in creating the POST connection
-  bool result = manager->sendHttpPost(R"({"jsonrpc":"2.0","method":"initialize","id":1})");
+  // Note: The actual connection may fail since we're not connecting to a real
+  // server, but the sendHttpPost call itself should succeed in creating the
+  // POST connection
+  bool result = manager->sendHttpPost(
+      R"({"jsonrpc":"2.0","method":"initialize","id":1})");
   // Result may be true or false depending on whether connection succeeds,
   // but the important thing is it doesn't throw
   (void)result;  // Suppress unused variable warning
@@ -213,7 +216,8 @@ TEST_F(ConnectionManagerSection2Test, SendHttpPostExtractsPathFromUrl) {
       *dispatcher_, network::socketInterface(), config);
 
   // Set endpoint with various URL formats
-  manager->onMessageEndpoint("http://server.example.com:9090/custom/endpoint/path");
+  manager->onMessageEndpoint(
+      "http://server.example.com:9090/custom/endpoint/path");
 
   // The actual POST will fail to connect, but path parsing should work
   bool result = manager->sendHttpPost(R"({"test":"value"})");
@@ -249,7 +253,8 @@ TEST_F(ConnectionManagerSection2Test, CloseHandlesPostConnection) {
 /**
  * Test: onConnectionEvent() handles duplicate Connected events
  */
-TEST_F(ConnectionManagerSection2Test, OnConnectionEventPreventsDuplicateConnected) {
+TEST_F(ConnectionManagerSection2Test,
+       OnConnectionEventPreventsDuplicateConnected) {
   McpConnectionConfig config;
   config.transport_type = TransportType::HttpSse;
 
@@ -259,12 +264,14 @@ TEST_F(ConnectionManagerSection2Test, OnConnectionEventPreventsDuplicateConnecte
   manager->setProtocolCallbacks(*callbacks_);
 
   // First Connected event should be processed
-  EXPECT_CALL(*callbacks_, onConnectionEvent(network::ConnectionEvent::Connected))
+  EXPECT_CALL(*callbacks_,
+              onConnectionEvent(network::ConnectionEvent::Connected))
       .Times(1);
 
   // Simulate receiving Connected event twice
   manager->onConnectionEvent(network::ConnectionEvent::Connected);
-  manager->onConnectionEvent(network::ConnectionEvent::Connected);  // Should be ignored
+  manager->onConnectionEvent(
+      network::ConnectionEvent::Connected);  // Should be ignored
 }
 
 /**

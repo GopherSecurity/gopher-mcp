@@ -81,7 +81,8 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
     : message_callbacks_(&callbacks),
       dispatcher_(dispatcher),
       is_server_(is_server) {
-  std::cerr << "[HttpCodecFilter] CONSTRUCTOR is_server=" << is_server_ << ", this=" << (void*)this << std::endl;
+  std::cerr << "[HttpCodecFilter] CONSTRUCTOR is_server=" << is_server_
+            << ", this=" << (void*)this << std::endl;
   // Initialize HTTP parser callbacks
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
 
@@ -313,12 +314,12 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     // Check if we can send a request
     // Client can send when idle or while waiting for response (HTTP pipelining)
     // HTTP/1.1 allows multiple requests to be sent before receiving responses
-    // Also allow sending while receiving SSE response body - SSE is a continuous
-    // stream and we need to be able to POST to message endpoint on same connection
+    // Also allow sending while receiving SSE response body - SSE is a
+    // continuous stream and we need to be able to POST to message endpoint on
+    // same connection
     if (current_state == HttpCodecState::Idle ||
         current_state == HttpCodecState::WaitingForResponse ||
         current_state == HttpCodecState::ReceivingResponseBody) {
-
       // Check if this is an SSE GET initialization request
       // SSE GET is triggered by empty data with use_sse_get_ flag
       bool is_sse_get = use_sse_get_ && !sse_get_sent_ && data.length() == 0;
@@ -348,7 +349,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "\r\n";
 
         sse_get_sent_ = true;
-        std::cerr << "[HttpCodecFilter] Sending SSE GET request to " << client_path_ << std::endl;
+        std::cerr << "[HttpCodecFilter] Sending SSE GET request to "
+                  << client_path_ << std::endl;
       } else {
         // Regular POST request with JSON-RPC body
         // Use message_endpoint_ if available (from SSE endpoint event)
@@ -386,9 +388,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
 
-      std::cerr << "[HttpCodecFilter] Sending HTTP request:\n" << request_str.substr(0, 300) << std::endl;
-      GOPHER_LOG_DEBUG("HttpCodecFilter client sending HTTP request (len={}): {}...",
-                       request_str.length(), request_str.substr(0, 200));
+      std::cerr << "[HttpCodecFilter] Sending HTTP request:\n"
+                << request_str.substr(0, 300) << std::endl;
+      GOPHER_LOG_DEBUG(
+          "HttpCodecFilter client sending HTTP request (len={}): {}...",
+          request_str.length(), request_str.substr(0, 200));
 
       // Update state machine - only transition if we're in Idle state
       // For pipelined requests (when already WaitingForResponse), just send
@@ -628,13 +632,17 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   GOPHER_LOG_DEBUG("ParserCallbacks::onBody - received {} bytes", length);
-  std::cerr << "[HttpCodecFilter] ParserCallbacks::onBody - received " << length << " bytes" << std::endl;
+  std::cerr << "[HttpCodecFilter] ParserCallbacks::onBody - received " << length
+            << " bytes" << std::endl;
 
   // For client mode (receiving responses), forward body data immediately
   // This is critical for SSE streams which never complete
   if (!parent_.is_server_ && parent_.message_callbacks_) {
     std::string body_chunk(data, length);
-    std::cerr << "[HttpCodecFilter] Forwarding body chunk: " << body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)) << std::endl;
+    std::cerr << "[HttpCodecFilter] Forwarding body chunk: "
+              << body_chunk.substr(0,
+                                   std::min(body_chunk.length(), (size_t)100))
+              << std::endl;
     parent_.message_callbacks_->onBody(body_chunk, false);
   }
 

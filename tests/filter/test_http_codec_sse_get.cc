@@ -90,8 +90,9 @@ TEST_F(HttpCodecSseGetTest, SetClientEndpointConfiguresPathAndHost) {
   EXPECT_GT(buffer.length(), 0);
 
   // Extract the HTTP request
-  std::string request_str(static_cast<const char*>(buffer.linearize(buffer.length())),
-                          buffer.length());
+  std::string request_str(
+      static_cast<const char*>(buffer.linearize(buffer.length())),
+      buffer.length());
 
   // Verify it's a GET request to the configured path
   EXPECT_NE(request_str.find("GET /sse HTTP/1.1"), std::string::npos);
@@ -116,8 +117,9 @@ TEST_F(HttpCodecSseGetTest, SseGetGeneratedOnFirstWriteWithEmptyBuffer) {
 
   // Verify GET request was generated
   EXPECT_GT(buffer.length(), 0);
-  std::string request_str(static_cast<const char*>(buffer.linearize(buffer.length())),
-                          buffer.length());
+  std::string request_str(
+      static_cast<const char*>(buffer.linearize(buffer.length())),
+      buffer.length());
 
   EXPECT_NE(request_str.find("GET /api/sse HTTP/1.1"), std::string::npos);
   EXPECT_NE(request_str.find("Accept: text/event-stream"), std::string::npos);
