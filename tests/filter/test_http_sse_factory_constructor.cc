@@ -8,10 +8,9 @@
  * - Default values work correctly
  */
 
-#include <sys/socket.h>
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <sys/socket.h>
 
 #include "mcp/filter/http_sse_filter_chain_factory.h"
 #include "mcp/mcp_connection_manager.h"
@@ -67,8 +66,8 @@ class HttpSseFactoryConstructorTest : public test::RealIoTestBase {
  */
 TEST_F(HttpSseFactoryConstructorTest, ConstructorWithDefaults) {
   // Create factory with default parameters (server mode, /rpc, localhost)
-  auto factory = std::make_shared<HttpSseFilterChainFactory>(
-      *dispatcher_, *callbacks_, true);
+  auto factory = std::make_shared<HttpSseFilterChainFactory>(*dispatcher_,
+                                                             *callbacks_, true);
 
   EXPECT_NE(factory, nullptr);
 }
@@ -90,7 +89,8 @@ TEST_F(HttpSseFactoryConstructorTest, ConstructorWithCustomPath) {
 TEST_F(HttpSseFactoryConstructorTest, ConstructorWithCustomPathAndHost) {
   // Create factory with custom path and host
   auto factory = std::make_shared<HttpSseFilterChainFactory>(
-      *dispatcher_, *callbacks_, false, "/api/events", "server.example.com:8080");
+      *dispatcher_, *callbacks_, false, "/api/events",
+      "server.example.com:8080");
 
   EXPECT_NE(factory, nullptr);
 }

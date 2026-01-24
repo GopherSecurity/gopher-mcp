@@ -704,7 +704,8 @@ void ConnectionImpl::setTransportSocketIsReadable() {
 void ConnectionImpl::raiseEvent(ConnectionEvent event) {
   // When transport socket (e.g., SSL) raises Connected event after handshake,
   // we need to mark socket as write-ready and flush any pending data
-  if (event == ConnectionEvent::Connected || event == ConnectionEvent::ConnectedZeroRtt) {
+  if (event == ConnectionEvent::Connected ||
+      event == ConnectionEvent::ConnectedZeroRtt) {
     write_ready_ = true;
     // If there's pending data in write buffer, flush it now
     if (write_buffer_.length() > 0) {
@@ -926,7 +927,8 @@ void ConnectionImpl::onWriteReady() {
     // Notify transport socket (reference pattern)
     onConnected();
 
-    // Only raise Connected if transport doesn't defer it (e.g., SSL defers until handshake completes)
+    // Only raise Connected if transport doesn't defer it (e.g., SSL defers
+    // until handshake completes)
     if (!transport_socket_->defersConnectedEvent()) {
       raiseConnectionEvent(ConnectionEvent::Connected);
     }

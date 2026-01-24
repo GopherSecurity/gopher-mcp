@@ -8,10 +8,9 @@
  * - POST routing via sendHttpPost callback
  */
 
-#include <sys/socket.h>
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <sys/socket.h>
 
 #include "mcp/buffer.h"
 #include "mcp/filter/http_sse_filter_chain_factory.h"

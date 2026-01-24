@@ -342,8 +342,10 @@ void SslStateMachine::initializeClientTransitions() {
   // SSL_do_handshake will resume from wherever it left off
   valid_transitions_[SslSocketState::HandshakeWantRead] = {
       SslSocketState::ClientHandshakeInit,  // Added: retry handshake step
-      SslSocketState::ClientHelloSent, SslSocketState::ServerHelloReceived,
-      SslSocketState::ClientFinished, SslSocketState::Connected,
+      SslSocketState::ClientHelloSent,
+      SslSocketState::ServerHelloReceived,
+      SslSocketState::ClientFinished,
+      SslSocketState::Connected,
       SslSocketState::Error};
 
   valid_transitions_[SslSocketState::HandshakeWantWrite] = {

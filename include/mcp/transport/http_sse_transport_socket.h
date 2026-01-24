@@ -204,7 +204,8 @@ class HttpSseTransportSocket : public network::TransportSocket {
    * Defer Connected event if underlying transport defers it
    */
   bool defersConnectedEvent() const override {
-    return underlying_transport_ && underlying_transport_->defersConnectedEvent();
+    return underlying_transport_ &&
+           underlying_transport_->defersConnectedEvent();
   }
 
   // ===== Additional Methods =====

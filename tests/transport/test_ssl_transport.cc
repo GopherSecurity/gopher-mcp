@@ -51,7 +51,8 @@ class SslTransportTest : public ::testing::Test {
   }
 
   void runDispatcher() {
-    dispatcher_thread_ = std::thread([this]() { dispatcher_->run(RunType::Block); });
+    dispatcher_thread_ =
+        std::thread([this]() { dispatcher_->run(RunType::Block); });
     // Give dispatcher time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
@@ -79,7 +80,8 @@ class SslTransportTest : public ::testing::Test {
    public:
     MockInnerTransport() = default;
 
-    void setTransportSocketCallbacks(TransportSocketCallbacks& callbacks) override {
+    void setTransportSocketCallbacks(
+        TransportSocketCallbacks& callbacks) override {
       callbacks_ = &callbacks;
     }
 
@@ -87,13 +89,9 @@ class SslTransportTest : public ::testing::Test {
     std::string failureReason() const override { return ""; }
     bool canFlushClose() override { return true; }
 
-    VoidResult connect(Socket& socket) override {
-      return VoidResult(nullptr);
-    }
+    VoidResult connect(Socket& socket) override { return VoidResult(nullptr); }
 
-    void closeSocket(ConnectionEvent event) override {
-      closed_ = true;
-    }
+    void closeSocket(ConnectionEvent event) override { closed_ = true; }
 
     TransportIoResult doRead(Buffer& buffer) override {
       return TransportIoResult::stop();
@@ -103,9 +101,7 @@ class SslTransportTest : public ::testing::Test {
       return TransportIoResult::success(0);
     }
 
-    void onConnected() override {
-      on_connected_called_++;
-    }
+    void onConnected() override { on_connected_called_++; }
 
     bool defersConnectedEvent() const override { return false; }
 
@@ -136,7 +132,8 @@ TEST_F(SslTransportTest, DefersConnectedEventReturnsTrue) {
 
   // Create TCP inner socket
   TcpTransportSocketConfig tcp_config;
-  auto tcp_socket = std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
+  auto tcp_socket =
+      std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
 
   // Create SSL transport wrapping TCP
   auto ssl_socket = std::make_unique<SslTransportSocket>(
@@ -152,7 +149,8 @@ TEST_F(SslTransportTest, DefersConnectedEventReturnsTrue) {
  */
 TEST_F(SslTransportTest, TcpDoesNotDeferConnectedEvent) {
   TcpTransportSocketConfig tcp_config;
-  auto tcp_socket = std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
+  auto tcp_socket =
+      std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
 
   // Verify TCP does not defer
   EXPECT_FALSE(tcp_socket->defersConnectedEvent());
@@ -170,7 +168,8 @@ TEST_F(SslTransportTest, CloseSocketCancelsTimers) {
   ASSERT_NE(ssl_context, nullptr);
 
   TcpTransportSocketConfig tcp_config;
-  auto tcp_socket = std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
+  auto tcp_socket =
+      std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
 
   auto ssl_socket = std::make_unique<SslTransportSocket>(
       std::move(tcp_socket), ssl_context,
@@ -199,7 +198,8 @@ TEST_F(SslTransportTest, CloseSocketMultipleCallsSafe) {
   ASSERT_NE(ssl_context, nullptr);
 
   TcpTransportSocketConfig tcp_config;
-  auto tcp_socket = std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
+  auto tcp_socket =
+      std::make_unique<TcpTransportSocket>(*dispatcher_, tcp_config);
 
   auto ssl_socket = std::make_unique<SslTransportSocket>(
       std::move(tcp_socket), ssl_context,
@@ -237,9 +237,7 @@ TEST_F(SslTransportTest, OnConnectedNotifiesInnerSocket) {
 
   // Simulate TCP connection established
   // Note: onConnected will be called asynchronously via dispatcher
-  dispatcher_->post([&ssl_socket]() {
-    ssl_socket->onConnected();
-  });
+  dispatcher_->post([&ssl_socket]() { ssl_socket->onConnected(); });
 
   // Wait for callback to execute
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -265,9 +263,7 @@ TEST_F(SslTransportTest, OnConnectedDuplicateCallGuard) {
   runDispatcher();
 
   // Call onConnected first time
-  dispatcher_->post([&ssl_socket]() {
-    ssl_socket->onConnected();
-  });
+  dispatcher_->post([&ssl_socket]() { ssl_socket->onConnected(); });
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -278,7 +274,8 @@ TEST_F(SslTransportTest, OnConnectedDuplicateCallGuard) {
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-  // Inner socket should only be notified once (guard prevents duplicates after state change)
+  // Inner socket should only be notified once (guard prevents duplicates after
+  // state change)
   EXPECT_EQ(mock_ptr->getOnConnectedCallCount(), 1);
 }
 
@@ -291,7 +288,8 @@ TEST_F(SslTransportTest, OnConnectedDuplicateCallGuard) {
  */
 TEST_F(SslTransportTest, StateMachineHandshakeWantReadTransition) {
   // Create state machine in client mode
-  auto state_machine = std::make_unique<SslStateMachine>(SslSocketMode::Client, *dispatcher_);
+  auto state_machine =
+      std::make_unique<SslStateMachine>(SslSocketMode::Client, *dispatcher_);
 
   runDispatcher();
 
@@ -316,14 +314,16 @@ TEST_F(SslTransportTest, StateMachineHandshakeWantReadTransition) {
   }
 
   EXPECT_TRUE(test_complete);
-  // Cannot check state from here - state machine must be accessed from dispatcher thread
+  // Cannot check state from here - state machine must be accessed from
+  // dispatcher thread
 }
 
 /**
  * Test: State machine allows ClientHandshakeInit from HandshakeWantRead
  */
 TEST_F(SslTransportTest, StateMachineRetryFromWantRead) {
-  auto state_machine = std::make_unique<SslStateMachine>(SslSocketMode::Client, *dispatcher_);
+  auto state_machine =
+      std::make_unique<SslStateMachine>(SslSocketMode::Client, *dispatcher_);
 
   runDispatcher();
 
@@ -348,7 +348,8 @@ TEST_F(SslTransportTest, StateMachineRetryFromWantRead) {
   }
 
   EXPECT_TRUE(test_complete);
-  // Cannot check state from here - state machine must be accessed from dispatcher thread
+  // Cannot check state from here - state machine must be accessed from
+  // dispatcher thread
 }
 
 // =============================================================================
@@ -372,9 +373,7 @@ TEST_F(SslTransportTest, FullFlowWithInnerSocketNotification) {
   runDispatcher();
 
   // Simulate connection flow
-  dispatcher_->post([&ssl_socket]() {
-    ssl_socket->onConnected();
-  });
+  dispatcher_->post([&ssl_socket]() { ssl_socket->onConnected(); });
 
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
 

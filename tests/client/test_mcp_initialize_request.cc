@@ -8,7 +8,8 @@
  * - capabilities as object (can be empty)
  *
  * Commit: 19f359f19cf37184636ec745f19fe4087b47052a
- * Feature: MCP Initialize Request Fix (Section 3) and JSON Serialization (Section 4)
+ * Feature: MCP Initialize Request Fix (Section 3) and JSON Serialization
+ * (Section 4)
  */
 
 #include <gtest/gtest.h>

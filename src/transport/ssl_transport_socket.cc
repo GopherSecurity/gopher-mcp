@@ -380,7 +380,8 @@ void SslTransportSocket::closeSocket(network::ConnectionEvent event) {
     handshake_retry_timer_->disableTimer();
   }
 
-  // Send close_notify if connected (best effort, don't wait for peer's response)
+  // Send close_notify if connected (best effort, don't wait for peer's
+  // response)
   if (state == SslSocketState::Connected && ssl_ && !shutdown_sent_) {
     SSL_shutdown(ssl_);  // Best effort, ignore return value
     shutdown_sent_ = true;
@@ -409,14 +410,16 @@ void SslTransportSocket::onConnected() {
    * 4. Start handshake timer
    * 5. Begin handshake process
    */
-  GOPHER_LOG_DEBUG("onConnected called, state={}", static_cast<int>(state_machine_->getCurrentState()));
+  GOPHER_LOG_DEBUG("onConnected called, state={}",
+                   static_cast<int>(state_machine_->getCurrentState()));
 
   // Guard: Only process if we haven't started the connection process yet
   auto current_state = state_machine_->getCurrentState();
   if (current_state != SslSocketState::Connecting &&
       current_state != SslSocketState::Uninitialized &&
       current_state != SslSocketState::Initialized) {
-    GOPHER_LOG_DEBUG("Already connected/connecting, ignoring duplicate onConnected");
+    GOPHER_LOG_DEBUG(
+        "Already connected/connecting, ignoring duplicate onConnected");
     return;
   }
 
@@ -464,7 +467,8 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
   auto state = state_machine_->getCurrentState();
 
   if (state != SslSocketState::Connected) {
-    GOPHER_LOG_DEBUG("doRead: not connected, state={}", static_cast<int>(state));
+    GOPHER_LOG_DEBUG("doRead: not connected, state={}",
+                     static_cast<int>(state));
     if (state_machine_->isHandshaking()) {
       // Still handshaking
       return TransportIoResult::stop();
@@ -475,7 +479,8 @@ TransportIoResult SslTransportSocket::doRead(Buffer& buffer) {
 
   // Perform optimized SSL read
   auto result = performOptimizedSslRead(buffer);
-  GOPHER_LOG_DEBUG("doRead result: bytes={}, action={}", result.bytes_processed_, static_cast<int>(result.action_));
+  GOPHER_LOG_DEBUG("doRead result: bytes={}, action={}",
+                   result.bytes_processed_, static_cast<int>(result.action_));
   return result;
 }
 
@@ -752,7 +757,8 @@ void SslTransportSocket::performHandshakeStep() {
   // Debug: check BIO state immediately after handshake
   size_t bio_pending = BIO_ctrl_pending(network_bio_);
   GOPHER_LOG_DEBUG("BIO_ctrl_pending(network_bio_)={}", bio_pending);
-  GOPHER_LOG_DEBUG("ssl_={}, network_bio_={}", (void*)ssl_, (void*)network_bio_);
+  GOPHER_LOG_DEBUG("ssl_={}, network_bio_={}", (void*)ssl_,
+                   (void*)network_bio_);
 
   // Move generated data to socket
   size_t bytes_from_bio = moveFromBio();
@@ -786,11 +792,14 @@ TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(
   switch (ssl_error) {
     case SSL_ERROR_WANT_READ: {
       auto current = state_machine_->getCurrentState();
-      GOPHER_LOG_DEBUG("Need more data (WANT_READ), current state={}", static_cast<int>(current));
+      GOPHER_LOG_DEBUG("Need more data (WANT_READ), current state={}",
+                       static_cast<int>(current));
       // If already in HandshakeWantRead, just schedule retry directly
-      // Otherwise, transition to HandshakeWantRead (which will trigger scheduleHandshakeRetry)
+      // Otherwise, transition to HandshakeWantRead (which will trigger
+      // scheduleHandshakeRetry)
       if (current == SslSocketState::HandshakeWantRead) {
-        GOPHER_LOG_DEBUG("Already in HandshakeWantRead, scheduling retry directly");
+        GOPHER_LOG_DEBUG(
+            "Already in HandshakeWantRead, scheduling retry directly");
         scheduleHandshakeRetry();
       } else {
         GOPHER_LOG_DEBUG("Scheduling transition to HandshakeWantRead");
@@ -800,7 +809,9 @@ TransportIoResult::PostIoAction SslTransportSocket::handleHandshakeResult(
     }
 
     case SSL_ERROR_WANT_WRITE:
-      GOPHER_LOG_DEBUG("Need to write more (WANT_WRITE), scheduling transition to HandshakeWantWrite");
+      GOPHER_LOG_DEBUG(
+          "Need to write more (WANT_WRITE), scheduling transition to "
+          "HandshakeWantWrite");
       // Use scheduleTransition to avoid "transition already in progress" error
       state_machine_->scheduleTransition(SslSocketState::HandshakeWantWrite);
       return TransportIoResult::PostIoAction::CONTINUE;
@@ -1034,8 +1045,9 @@ TransportIoResult SslTransportSocket::performOptimizedSslRead(Buffer& buffer) {
 
     if (ret > 0) {
       // Data read successfully
-      GOPHER_LOG_DEBUG("Read {} decrypted bytes: {}", ret,
-                       std::string(static_cast<const char*>(data), std::min(ret, 200)));
+      GOPHER_LOG_DEBUG(
+          "Read {} decrypted bytes: {}", ret,
+          std::string(static_cast<const char*>(data), std::min(ret, 200)));
       buffer.commit(slice, ret);
       total_bytes_read += ret;
       stats_->bytes_decrypted += ret;
@@ -1213,7 +1225,8 @@ size_t SslTransportSocket::moveFromBio() {
   }
 
   temp_buffer.commit(slice, read);
-  GOPHER_LOG_DEBUG("moveFromBio buffer length after commit={}", temp_buffer.length());
+  GOPHER_LOG_DEBUG("moveFromBio buffer length after commit={}",
+                   temp_buffer.length());
 
   // Write to inner socket
   auto result = inner_socket_->doWrite(temp_buffer, false);
@@ -1296,7 +1309,8 @@ void SslTransportSocket::onStateChanged(SslSocketState old_state,
   /**
    * Handle state changes
    */
-  GOPHER_LOG_DEBUG("onStateChanged: {} -> {}", static_cast<int>(old_state), static_cast<int>(new_state));
+  GOPHER_LOG_DEBUG("onStateChanged: {} -> {}", static_cast<int>(old_state),
+                   static_cast<int>(new_state));
 
   switch (new_state) {
     case SslSocketState::Connected:
@@ -1346,11 +1360,10 @@ void SslTransportSocket::scheduleHandshakeRetry() {
   GOPHER_LOG_DEBUG("scheduleHandshakeRetry, this={}", (void*)this);
 
   if (!handshake_retry_timer_) {
-    handshake_retry_timer_ =
-        dispatcher_.createTimer([this]() {
-          GOPHER_LOG_DEBUG("retry timer fired, this={}", (void*)this);
-          performHandshakeStep();
-        });
+    handshake_retry_timer_ = dispatcher_.createTimer([this]() {
+      GOPHER_LOG_DEBUG("retry timer fired, this={}", (void*)this);
+      performHandshakeStep();
+    });
   }
 
   // Use exponential backoff

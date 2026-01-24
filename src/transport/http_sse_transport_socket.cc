@@ -108,14 +108,18 @@ HttpSseTransportSocket::createUnderlyingTransport() {
       tcp_config.tcp_keepalive = true;
       tcp_config.connect_timeout = std::chrono::milliseconds(30000);
       tcp_config.io_timeout = std::chrono::milliseconds(60000);
-      auto tcp_socket = std::make_unique<TcpTransportSocket>(dispatcher_, tcp_config);
+      auto tcp_socket =
+          std::make_unique<TcpTransportSocket>(dispatcher_, tcp_config);
 
       // Create SSL context config
       SslContextConfig ssl_ctx_config;
-      ssl_ctx_config.is_client = (config_.mode == HttpSseTransportSocketConfig::Mode::CLIENT);
-      ssl_ctx_config.verify_peer = false;  // Default to no verification for flexibility
+      ssl_ctx_config.is_client =
+          (config_.mode == HttpSseTransportSocketConfig::Mode::CLIENT);
+      ssl_ctx_config.verify_peer =
+          false;  // Default to no verification for flexibility
       ssl_ctx_config.protocols = {"TLSv1.2", "TLSv1.3"};
-      ssl_ctx_config.alpn_protocols = {"h2", "http/1.1"};  // Support HTTP/2 and HTTP/1.1
+      ssl_ctx_config.alpn_protocols = {
+          "h2", "http/1.1"};  // Support HTTP/2 and HTTP/1.1
 
       // Apply SSL config if provided
       if (config_.ssl_config.has_value()) {
@@ -139,19 +143,22 @@ HttpSseTransportSocket::createUnderlyingTransport() {
       }
 
       // Get or create SSL context
-      auto ctx_result = SslContextManager::getInstance().getOrCreateContext(ssl_ctx_config);
+      auto ctx_result =
+          SslContextManager::getInstance().getOrCreateContext(ssl_ctx_config);
       if (holds_alternative<Error>(ctx_result)) {
         throw std::runtime_error("Failed to create SSL context: " +
                                  get<Error>(ctx_result).message);
       }
 
       // Determine SSL role
-      auto role = ssl_ctx_config.is_client ? SslTransportSocket::InitialRole::Client
-                                           : SslTransportSocket::InitialRole::Server;
+      auto role = ssl_ctx_config.is_client
+                      ? SslTransportSocket::InitialRole::Client
+                      : SslTransportSocket::InitialRole::Server;
 
       // Create SSL transport socket wrapping TCP
       return std::make_unique<SslTransportSocket>(
-          std::move(tcp_socket), get<SslContextSharedPtr>(ctx_result), role, dispatcher_);
+          std::move(tcp_socket), get<SslContextSharedPtr>(ctx_result), role,
+          dispatcher_);
     }
 
     case HttpSseTransportSocketConfig::UnderlyingTransport::STDIO: {
@@ -369,7 +376,8 @@ void HttpSseTransportSocket::onConnected() {
 
   // Notify callbacks - but only if underlying transport doesn't defer the event
   // (e.g., SSL transport defers until handshake completes)
-  if (callbacks_ && (!underlying_transport_ || !underlying_transport_->defersConnectedEvent())) {
+  if (callbacks_ && (!underlying_transport_ ||
+                     !underlying_transport_->defersConnectedEvent())) {
     callbacks_->raiseEvent(network::ConnectionEvent::Connected);
   }
 }

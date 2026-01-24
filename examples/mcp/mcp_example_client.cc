@@ -163,7 +163,8 @@ void signal_handler(int signal) {
 void printUsage(const char* program) {
   std::cerr << "USAGE: " << program << " [options]\n\n";
   std::cerr << "OPTIONS:\n";
-  std::cerr << "  --url <url>          Full server URL (e.g., https://example.com/sse)\n";
+  std::cerr << "  --url <url>          Full server URL (e.g., "
+               "https://example.com/sse)\n";
   std::cerr << "  --host <hostname>    Server hostname (default: localhost)\n";
   std::cerr << "  --port <port>        Server port (default: 3000)\n";
   std::cerr << "  --transport <type>   Transport type: http, stdio, websocket "

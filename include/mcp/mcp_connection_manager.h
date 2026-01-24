@@ -19,10 +19,10 @@ namespace mcp {
  * MCP transport type
  */
 enum class TransportType {
-  Stdio,          // Standard I/O transport
-  HttpSse,        // HTTP with Server-Sent Events
-  StreamableHttp, // Streamable HTTP (simple POST request/response)
-  WebSocket       // WebSocket transport (future)
+  Stdio,           // Standard I/O transport
+  HttpSse,         // HTTP with Server-Sent Events
+  StreamableHttp,  // Streamable HTTP (simple POST request/response)
+  WebSocket        // WebSocket transport (future)
 };
 
 /**
@@ -48,7 +48,8 @@ struct McpConnectionConfig {
 
   // HTTP endpoint configuration (for HTTP/SSE transport)
   std::string http_path{"/rpc"};  // Request path (e.g., /sse, /mcp)
-  std::string http_host;  // Host header value (auto-set from server_address if empty)
+  std::string
+      http_host;  // Host header value (auto-set from server_address if empty)
 };
 
 /**
@@ -211,7 +212,8 @@ class McpConnectionManager : public McpProtocolCallbacks,
   bool processing_connected_event_{false};  // Guard against re-entrancy
 
   // HTTP/SSE POST connection support
-  std::string message_endpoint_;  // URL for POST requests (from SSE endpoint event)
+  std::string
+      message_endpoint_;  // URL for POST requests (from SSE endpoint event)
   bool has_message_endpoint_{false};
 
   // Active POST connection (for sending messages in HTTP/SSE mode)

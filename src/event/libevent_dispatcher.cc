@@ -252,11 +252,14 @@ void LibeventDispatcher::registerWatchdog(
   watchdog_registration_->interval = min_touch_interval;
 
   // Create timer to touch watchdog periodically
-  watchdog_registration_->timer = std::make_unique<TimerImpl>(*this, [this]() {
-    touchWatchdog();
-    watchdog_registration_->timer->enableTimer(
-        watchdog_registration_->interval);
-  }, dispatcher_valid_);
+  watchdog_registration_->timer = std::make_unique<TimerImpl>(
+      *this,
+      [this]() {
+        touchWatchdog();
+        watchdog_registration_->timer->enableTimer(
+            watchdog_registration_->interval);
+      },
+      dispatcher_valid_);
 
   // Start the timer
   watchdog_registration_->timer->enableTimer(min_touch_interval);
@@ -418,10 +421,11 @@ void LibeventDispatcher::initializeStats(DispatcherStats& stats) {
 
 void LibeventDispatcher::shutdown() {
   // IMPORTANT: Always clear callbacks even when called from another thread.
-  // When the dispatcher is being destroyed (e.g., after dispatcher_thread_.join()),
-  // isThreadSafe() returns false but we still need to clear pending callbacks
-  // BEFORE the event_base is freed. Otherwise, the callback destructors
-  // (e.g., FileEvent destructor calling event_del) will access freed memory.
+  // When the dispatcher is being destroyed (e.g., after
+  // dispatcher_thread_.join()), isThreadSafe() returns false but we still need
+  // to clear pending callbacks BEFORE the event_base is freed. Otherwise, the
+  // callback destructors (e.g., FileEvent destructor calling event_del) will
+  // access freed memory.
 
   // CRITICAL FIX: Set exit_requested_ to prevent callbacks (like touchWatchdog)
   // from accessing resources that are about to be destroyed. This must be set
@@ -510,11 +514,12 @@ void LibeventDispatcher::runDeferredDeletes() {
 }
 
 void LibeventDispatcher::touchWatchdog() {
-  // CRITICAL FIX: Guard against accessing watchdog_registration_ during or after
-  // shutdown. When the dispatcher is being destroyed, watchdog_registration_
-  // may have been reset or is in the process of being destroyed. Timer callbacks
-  // that fire during shutdown may call touchWatchdog() after the registration
-  // is destroyed, causing a use-after-free crash.
+  // CRITICAL FIX: Guard against accessing watchdog_registration_ during or
+  // after shutdown. When the dispatcher is being destroyed,
+  // watchdog_registration_ may have been reset or is in the process of being
+  // destroyed. Timer callbacks that fire during shutdown may call
+  // touchWatchdog() after the registration is destroyed, causing a
+  // use-after-free crash.
   if (exit_requested_.load(std::memory_order_acquire)) {
     return;
   }
@@ -764,10 +769,13 @@ void LibeventDispatcher::FileEventImpl::registerEventIfEmulatedEdge(
 }
 
 // TimerImpl implementation
-LibeventDispatcher::TimerImpl::TimerImpl(LibeventDispatcher& dispatcher,
-                                         TimerCb cb,
-                                         std::shared_ptr<std::atomic<bool>> dispatcher_valid)
-    : dispatcher_(dispatcher), cb_(std::move(cb)), enabled_(false),
+LibeventDispatcher::TimerImpl::TimerImpl(
+    LibeventDispatcher& dispatcher,
+    TimerCb cb,
+    std::shared_ptr<std::atomic<bool>> dispatcher_valid)
+    : dispatcher_(dispatcher),
+      cb_(std::move(cb)),
+      enabled_(false),
       dispatcher_valid_(std::move(dispatcher_valid)) {
   event_ = evtimer_new(
       dispatcher_.base(),
@@ -849,10 +857,13 @@ LibeventDispatcher::SchedulableCallbackImpl::SchedulableCallbackImpl(
     LibeventDispatcher& dispatcher, std::function<void()> cb)
     : dispatcher_(dispatcher), cb_(std::move(cb)), scheduled_(false) {
   // Use a timer with 0 delay for scheduling
-  timer_ = std::make_unique<TimerImpl>(dispatcher_, [this]() {
-    scheduled_ = false;
-    cb_();
-  }, dispatcher_.dispatcher_valid_);
+  timer_ = std::make_unique<TimerImpl>(
+      dispatcher_,
+      [this]() {
+        scheduled_ = false;
+        cb_();
+      },
+      dispatcher_.dispatcher_valid_);
 }
 
 LibeventDispatcher::SchedulableCallbackImpl::~SchedulableCallbackImpl() {

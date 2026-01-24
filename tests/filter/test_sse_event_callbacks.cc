@@ -52,7 +52,8 @@ class SseEventCallbacksTest : public ::testing::Test {
     callbacks_ = std::make_unique<MockSseCallbacks>();
 
     // Create SSE filter (client mode - decoding)
-    filter_ = std::make_unique<SseCodecFilter>(*callbacks_, *dispatcher_, false);
+    filter_ =
+        std::make_unique<SseCodecFilter>(*callbacks_, *dispatcher_, false);
 
     // Initialize filter
     filter_->onNewConnection();
@@ -241,9 +242,7 @@ TEST_F(SseEventCallbacksTest, MultilineDataConcatenated) {
 
   EXPECT_CALL(*callbacks_, onEvent(_, _, _))
       .WillOnce([&](const std::string& event, const std::string& data,
-                    const optional<std::string>& id) {
-        received_data = data;
-      });
+                    const optional<std::string>& id) { received_data = data; });
 
   // Simulate SSE event with multiline data
   std::string sse_data =
