@@ -56,7 +56,8 @@ class HttpSseFilterChainFactory : public network::FilterChainFactory {
    * @param is_server True for server mode, false for client mode
    * @param http_path HTTP request path for client mode (e.g., "/sse")
    * @param http_host HTTP Host header value for client mode
-   * @param use_sse True for SSE mode (GET /sse first), false for Streamable HTTP (direct POST)
+   * @param use_sse True for SSE mode (GET /sse first), false for Streamable
+   * HTTP (direct POST)
    */
   HttpSseFilterChainFactory(event::Dispatcher& dispatcher,
                             McpProtocolCallbacks& message_callbacks,

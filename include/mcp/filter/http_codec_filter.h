@@ -284,11 +284,13 @@ class HttpCodecFilter : public network::Filter {
   MessageCallbacks* message_callbacks_;
   event::Dispatcher& dispatcher_;
   bool is_server_;
-  std::string client_path_{"/rpc"};    // HTTP request path for client mode
+  std::string client_path_{"/rpc"};       // HTTP request path for client mode
   std::string client_host_{"localhost"};  // HTTP Host header for client mode
-  std::string message_endpoint_;  // Endpoint for POST requests (from SSE endpoint event)
-  bool has_message_endpoint_{false};  // Whether we have received the message endpoint
-  bool use_sse_get_{false};  // Whether to use GET for initial SSE connection
+  std::string message_endpoint_;  // Endpoint for POST requests (from SSE
+                                  // endpoint event)
+  bool has_message_endpoint_{
+      false};                 // Whether we have received the message endpoint
+  bool use_sse_get_{false};   // Whether to use GET for initial SSE connection
   bool sse_get_sent_{false};  // Whether the initial SSE GET has been sent
   network::ReadFilterCallbacks* read_callbacks_{nullptr};
   network::WriteFilterCallbacks* write_callbacks_{nullptr};

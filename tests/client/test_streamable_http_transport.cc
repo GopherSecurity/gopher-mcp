@@ -205,7 +205,8 @@ TEST_F(StreamableHttpTransportTest, StreamableHttpSupportsHttps) {
 // =============================================================================
 
 /**
- * Test helper to extract path from URL (mirrors the logic in negotiateTransport)
+ * Test helper to extract path from URL (mirrors the logic in
+ * negotiateTransport)
  */
 class UrlParsingTest : public ::testing::Test {
  protected:

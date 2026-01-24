@@ -14,9 +14,10 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
-#include <netinet/tcp.h>  // For TCP_NODELAY
-#include <netdb.h>        // For getaddrinfo
+#include <netdb.h>  // For getaddrinfo
+
 #include <arpa/inet.h>    // For inet_ntop
+#include <netinet/tcp.h>  // For TCP_NODELAY
 #endif
 
 #include "mcp/core/result.h"
@@ -33,10 +34,10 @@
 #include "mcp/stream_info/stream_info_impl.h"
 #include "mcp/transport/http_sse_transport_socket.h"
 #include "mcp/transport/https_sse_transport_factory.h"
-#include "mcp/transport/tcp_transport_socket.h"
 #include "mcp/transport/pipe_io_handle.h"
 #include "mcp/transport/stdio_pipe_transport.h"
 #include "mcp/transport/stdio_transport_socket.h"
+#include "mcp/transport/tcp_transport_socket.h"
 
 namespace mcp {
 
@@ -58,8 +59,10 @@ std::string resolveHostname(const std::string& hostname) {
   std::string ip_address;
   if (result != nullptr) {
     char ip_str[INET_ADDRSTRLEN];
-    struct sockaddr_in* ipv4 = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, sizeof(ip_str)) != nullptr) {
+    struct sockaddr_in* ipv4 =
+        reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, sizeof(ip_str)) !=
+        nullptr) {
       ip_address = ip_str;
     }
     freeaddrinfo(result);
@@ -251,8 +254,9 @@ VoidResult McpConnectionManager::connect() {
     std::string host = "127.0.0.1";
 
     // Check if SSL is being used to determine default port
-    bool is_https = config_.http_sse_config.value().underlying_transport ==
-                    transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    bool is_https =
+        config_.http_sse_config.value().underlying_transport ==
+        transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     uint32_t default_port = is_https ? 443 : 80;
     uint32_t port = default_port;
 
@@ -262,8 +266,9 @@ VoidResult McpConnectionManager::connect() {
     if (colon_pos != std::string::npos) {
       // Check if there's a valid port number after the colon
       std::string port_str = server_address.substr(colon_pos + 1);
-      bool valid_port = !port_str.empty() &&
-                        port_str.find_first_not_of("0123456789") == std::string::npos;
+      bool valid_port =
+          !port_str.empty() &&
+          port_str.find_first_not_of("0123456789") == std::string::npos;
       if (valid_port) {
         try {
           port = std::stoi(port_str);
@@ -441,7 +446,8 @@ VoidResult McpConnectionManager::connect() {
   } else if (config_.transport_type == TransportType::StreamableHttp) {
     // Streamable HTTP client connection flow:
     // Similar to HTTP/SSE but uses simple POST request/response pattern
-    // No SSE event stream needed - responses come back in the HTTP response body
+    // No SSE event stream needed - responses come back in the HTTP response
+    // body
 
     if (!config_.http_sse_config.has_value()) {
       Error err;
@@ -454,16 +460,18 @@ VoidResult McpConnectionManager::connect() {
     std::string server_address = config_.http_sse_config.value().server_address;
     std::string host = "127.0.0.1";
 
-    bool is_https = config_.http_sse_config.value().underlying_transport ==
-                    transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
+    bool is_https =
+        config_.http_sse_config.value().underlying_transport ==
+        transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL;
     uint32_t default_port = is_https ? 443 : 80;
     uint32_t port = default_port;
 
     size_t colon_pos = server_address.rfind(':');
     if (colon_pos != std::string::npos) {
       std::string port_str = server_address.substr(colon_pos + 1);
-      bool valid_port = !port_str.empty() &&
-                        port_str.find_first_not_of("0123456789") == std::string::npos;
+      bool valid_port =
+          !port_str.empty() &&
+          port_str.find_first_not_of("0123456789") == std::string::npos;
       if (valid_port) {
         try {
           port = std::stoi(port_str);
@@ -495,11 +503,13 @@ VoidResult McpConnectionManager::connect() {
     if (!tcp_address) {
       Error err;
       err.code = -1;
-      err.message = "Failed to resolve server address: " + host + ":" + std::to_string(port);
+      err.message = "Failed to resolve server address: " + host + ":" +
+                    std::to_string(port);
       return makeVoidError(err);
     }
 
-    auto local_address = network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+    auto local_address =
+        network::Address::anyAddress(network::Address::IpVersion::v4, 0);
 
     auto socket_result = socket_interface_.socket(
         network::SocketType::Stream, network::Address::Type::Ip,
@@ -512,7 +522,8 @@ VoidResult McpConnectionManager::connect() {
       return makeVoidError(err);
     }
 
-    auto io_handle = socket_interface_.ioHandleForFd(*socket_result.value, false);
+    auto io_handle =
+        socket_interface_.ioHandleForFd(*socket_result.value, false);
     if (!io_handle) {
       socket_interface_.close(*socket_result.value);
       Error err;
@@ -527,7 +538,8 @@ VoidResult McpConnectionManager::connect() {
     socket_wrapper->ioHandle().setBlocking(false);
 
     int nodelay = 1;
-    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    socket_wrapper->setSocketOption(IPPROTO_TCP, TCP_NODELAY, &nodelay,
+                                    sizeof(nodelay));
 
     auto transport_factory = createTransportSocketFactory();
     if (!transport_factory) {
@@ -537,7 +549,8 @@ VoidResult McpConnectionManager::connect() {
       return makeVoidError(err);
     }
 
-    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
+    auto client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
+        transport_factory.get());
     if (!client_factory) {
       Error err;
       err.code = -1;
@@ -545,7 +558,8 @@ VoidResult McpConnectionManager::connect() {
       return makeVoidError(err);
     }
 
-    network::TransportSocketPtr transport_socket = client_factory->createTransportSocket(nullptr);
+    network::TransportSocketPtr transport_socket =
+        client_factory->createTransportSocket(nullptr);
     if (!transport_socket) {
       Error err;
       err.code = -1;
@@ -554,9 +568,11 @@ VoidResult McpConnectionManager::connect() {
     }
 
     auto connection = std::make_unique<network::ConnectionImpl>(
-        dispatcher_, std::move(socket_wrapper), std::move(transport_socket), false);
+        dispatcher_, std::move(socket_wrapper), std::move(transport_socket),
+        false);
 
-    active_connection_ = std::unique_ptr<network::ClientConnection>(std::move(connection));
+    active_connection_ =
+        std::unique_ptr<network::ClientConnection>(std::move(connection));
 
     if (!active_connection_) {
       Error err;
@@ -567,17 +583,20 @@ VoidResult McpConnectionManager::connect() {
 
     active_connection_->addConnectionCallbacks(*this);
 
-    // Apply filter chain for Streamable HTTP (simpler than SSE - just HTTP codec + JSON-RPC)
+    // Apply filter chain for Streamable HTTP (simpler than SSE - just HTTP
+    // codec + JSON-RPC)
     auto filter_factory = createFilterChainFactory();
     if (filter_factory && active_connection_) {
-      auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
+      auto* conn_base =
+          dynamic_cast<network::ConnectionImplBase*>(active_connection_.get());
       if (conn_base) {
         filter_factory->createFilterChain(conn_base->filterManager());
         conn_base->filterManager().initializeReadFilters();
       }
     }
 
-    auto client_conn = dynamic_cast<network::ClientConnection*>(active_connection_.get());
+    auto client_conn =
+        dynamic_cast<network::ClientConnection*>(active_connection_.get());
     if (client_conn) {
       client_conn->connect();
     } else {
@@ -705,7 +724,8 @@ VoidResult McpConnectionManager::sendResponse(
 }
 
 void McpConnectionManager::close() {
-  // Close POST connection first (it may reference resources from main connection)
+  // Close POST connection first (it may reference resources from main
+  // connection)
   if (post_connection_) {
     if (post_callbacks_) {
       post_connection_->removeConnectionCallbacks(*post_callbacks_);
@@ -771,24 +791,36 @@ void McpConnectionManager::onResponse(const jsonrpc::Response& response) {
 void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   const char* event_name = "unknown";
   switch (event) {
-    case network::ConnectionEvent::Connected: event_name = "Connected"; break;
-    case network::ConnectionEvent::ConnectedZeroRtt: event_name = "ConnectedZeroRtt"; break;
-    case network::ConnectionEvent::RemoteClose: event_name = "RemoteClose"; break;
-    case network::ConnectionEvent::LocalClose: event_name = "LocalClose"; break;
+    case network::ConnectionEvent::Connected:
+      event_name = "Connected";
+      break;
+    case network::ConnectionEvent::ConnectedZeroRtt:
+      event_name = "ConnectedZeroRtt";
+      break;
+    case network::ConnectionEvent::RemoteClose:
+      event_name = "RemoteClose";
+      break;
+    case network::ConnectionEvent::LocalClose:
+      event_name = "LocalClose";
+      break;
   }
   std::cerr << "[McpConnectionManager] onConnectionEvent event=" << event_name
             << ", is_server=" << is_server_ << std::endl;
-  GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent event={}, is_server={}",
-                   event_name, is_server_);
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager::onConnectionEvent event={}, is_server={}",
+      event_name, is_server_);
 
   // Handle connection state transitions
   // All events are invoked in dispatcher thread context
   if (event == network::ConnectionEvent::Connected) {
-    // IMPORTANT: Return early if already connected to prevent infinite recursion.
-    // The transport layer may raise additional Connected events as each layer
-    // completes its handshake (TCP -> SSL -> HTTP). We only process the first one.
+    // IMPORTANT: Return early if already connected to prevent infinite
+    // recursion. The transport layer may raise additional Connected events as
+    // each layer completes its handshake (TCP -> SSL -> HTTP). We only process
+    // the first one.
     if (connected_) {
-      GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent - already connected, ignoring duplicate Connected event");
+      GOPHER_LOG_DEBUG(
+          "McpConnectionManager::onConnectionEvent - already connected, "
+          "ignoring duplicate Connected event");
       return;
     }
     // Connection established successfully
@@ -822,7 +854,9 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
     // Guard against duplicate close events - the transport stack may raise
     // LocalClose from multiple layers (TCP, SSL, HTTP). Only process once.
     if (!connected_ && !active_connection_) {
-      GOPHER_LOG_DEBUG("McpConnectionManager::onConnectionEvent - ignoring duplicate close event");
+      GOPHER_LOG_DEBUG(
+          "McpConnectionManager::onConnectionEvent - ignoring duplicate close "
+          "event");
       return;
     }
 
@@ -847,9 +881,13 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   std::cerr << "[McpConnectionManager] Forwarding event to protocol_callbacks_="
             << (protocol_callbacks_ ? "set" : "NULL") << std::endl;
   if (protocol_callbacks_) {
-    std::cerr << "[McpConnectionManager] Calling protocol_callbacks_->onConnectionEvent" << std::endl;
+    std::cerr << "[McpConnectionManager] Calling "
+                 "protocol_callbacks_->onConnectionEvent"
+              << std::endl;
     protocol_callbacks_->onConnectionEvent(event);
-    std::cerr << "[McpConnectionManager] protocol_callbacks_->onConnectionEvent returned" << std::endl;
+    std::cerr << "[McpConnectionManager] "
+                 "protocol_callbacks_->onConnectionEvent returned"
+              << std::endl;
 
     // Ensure protocol callbacks are processed before any requests
     if (event == network::ConnectionEvent::Connected) {
@@ -867,7 +905,8 @@ void McpConnectionManager::onError(const Error& error) {
 }
 
 void McpConnectionManager::onMessageEndpoint(const std::string& endpoint) {
-  GOPHER_LOG_DEBUG("McpConnectionManager::onMessageEndpoint endpoint={}", endpoint);
+  GOPHER_LOG_DEBUG("McpConnectionManager::onMessageEndpoint endpoint={}",
+                   endpoint);
   message_endpoint_ = endpoint;
   has_message_endpoint_ = true;
 
@@ -878,8 +917,9 @@ void McpConnectionManager::onMessageEndpoint(const std::string& endpoint) {
 }
 
 bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
-  GOPHER_LOG_DEBUG("McpConnectionManager::sendHttpPost endpoint={}, body_len={}",
-                   message_endpoint_, json_body.length());
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager::sendHttpPost endpoint={}, body_len={}",
+      message_endpoint_, json_body.length());
 
   if (!has_message_endpoint_) {
     GOPHER_LOG_ERROR("McpConnectionManager: No message endpoint available");
@@ -922,13 +962,15 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
     host = host.substr(0, port_pos);
   }
 
-  GOPHER_LOG_DEBUG("McpConnectionManager: POST to host={}, port={}, path={}, ssl={}",
-                   host, port, path, use_ssl);
+  GOPHER_LOG_DEBUG(
+      "McpConnectionManager: POST to host={}, port={}, path={}, ssl={}", host,
+      port, path, use_ssl);
 
   // Resolve hostname
   std::string ip_address = resolveHostname(host);
   if (ip_address.empty()) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Failed to resolve hostname: {}", host);
+    GOPHER_LOG_ERROR("McpConnectionManager: Failed to resolve hostname: {}",
+                     host);
     return false;
   }
 
@@ -943,11 +985,13 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   request << json_body;
 
   std::string request_str = request.str();
-  GOPHER_LOG_TRACE("McpConnectionManager: HTTP POST request (first 300 chars): {}",
-                   request_str.substr(0, 300));
+  GOPHER_LOG_TRACE(
+      "McpConnectionManager: HTTP POST request (first 300 chars): {}",
+      request_str.substr(0, 300));
 
   // Create address
-  auto address = std::make_shared<network::Address::Ipv4Instance>(ip_address, port);
+  auto address =
+      std::make_shared<network::Address::Ipv4Instance>(ip_address, port);
 
   // Create stream info
   auto stream_info = stream_info::StreamInfoImpl::create();
@@ -956,19 +1000,24 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   // This ensures proper TCP+SSL handling
   auto transport_factory = createTransportSocketFactory();
   if (!transport_factory) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Failed to create transport factory");
+    GOPHER_LOG_ERROR(
+        "McpConnectionManager: Failed to create transport factory");
     return false;
   }
 
-  auto* client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(transport_factory.get());
+  auto* client_factory = dynamic_cast<network::ClientTransportSocketFactory*>(
+      transport_factory.get());
   if (!client_factory) {
-    GOPHER_LOG_ERROR("McpConnectionManager: Transport factory doesn't support client connections");
+    GOPHER_LOG_ERROR(
+        "McpConnectionManager: Transport factory doesn't support client "
+        "connections");
     return false;
   }
   auto transport_socket = client_factory->createTransportSocket(nullptr);
 
   // Create TCP socket using MCP socket interface (same pattern as connect())
-  auto local_address = network::Address::anyAddress(network::Address::IpVersion::v4, 0);
+  auto local_address =
+      network::Address::anyAddress(network::Address::IpVersion::v4, 0);
 
   auto socket_result = socket_interface_.socket(
       network::SocketType::Stream, network::Address::Type::Ip,
@@ -1004,13 +1053,16 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   // Simple connection callback that writes the request after connect
   class PostConnectionCallbacks : public network::ConnectionCallbacks {
    public:
-    PostConnectionCallbacks(const std::string& request, network::Connection* conn)
+    PostConnectionCallbacks(const std::string& request,
+                            network::Connection* conn)
         : request_(request), connection_(conn) {}
 
     void onEvent(network::ConnectionEvent event) override {
-      std::cerr << "[PostConnection] onEvent: " << static_cast<int>(event) << std::endl;
+      std::cerr << "[PostConnection] onEvent: " << static_cast<int>(event)
+                << std::endl;
       if (event == network::ConnectionEvent::Connected) {
-        std::cerr << "[PostConnection] Connected, sending POST request" << std::endl;
+        std::cerr << "[PostConnection] Connected, sending POST request"
+                  << std::endl;
         OwnedBuffer buffer;
         buffer.add(request_);
         connection_->write(buffer, false);
@@ -1034,7 +1086,8 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   post_callbacks_.reset();
 
   // Store callbacks as member to keep alive
-  post_callbacks_ = std::make_unique<PostConnectionCallbacks>(request_str, post_conn_ptr);
+  post_callbacks_ =
+      std::make_unique<PostConnectionCallbacks>(request_str, post_conn_ptr);
   post_connection->addConnectionCallbacks(*post_callbacks_);
 
   // CRITICAL FIX: Initialize the filter manager for the POST connection.
@@ -1044,7 +1097,8 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
   // leading to crashes. Even though we don't need to parse the HTTP response
   // (it's just a 200 OK acknowledgment), we need the filter manager initialized
   // for the connection to function correctly.
-  auto* conn_base = dynamic_cast<network::ConnectionImplBase*>(post_connection.get());
+  auto* conn_base =
+      dynamic_cast<network::ConnectionImplBase*>(post_connection.get());
   if (conn_base) {
     conn_base->filterManager().initializeReadFilters();
   }
@@ -1112,7 +1166,8 @@ McpConnectionManager::createTransportSocketFactory() {
       // Check if SSL is needed for HTTPS
       if (config_.http_sse_config.has_value() &&
           config_.http_sse_config.value().underlying_transport ==
-              transport::HttpSseTransportSocketConfig::UnderlyingTransport::SSL) {
+              transport::HttpSseTransportSocketConfig::UnderlyingTransport::
+                  SSL) {
         // Use HTTPS transport factory for SSL connections
         return transport::createHttpsSseTransportFactory(
             config_.http_sse_config.value(), dispatcher_);
@@ -1192,8 +1247,9 @@ VoidResult McpConnectionManager::sendJsonMessage(
 
   // Convert to string
   std::string json_str = message.toString();
-  GOPHER_LOG_TRACE("McpConnectionManager: JSON message (first 200 chars): {}...",
-                   json_str.substr(0, 200));
+  GOPHER_LOG_TRACE(
+      "McpConnectionManager: JSON message (first 200 chars): {}...",
+      json_str.substr(0, 200));
 
   // Layered architecture:
   // - This method: JSON serialization only
@@ -1213,12 +1269,14 @@ VoidResult McpConnectionManager::sendJsonMessage(
   dispatcher_.post([this, json_str = std::move(json_str)]() {
     // Check if connection is still valid - it may have been closed
     if (!active_connection_) {
-      GOPHER_LOG_DEBUG("McpConnectionManager: Write skipped - connection already closed");
+      GOPHER_LOG_DEBUG(
+          "McpConnectionManager: Write skipped - connection already closed");
       return;
     }
 
-    GOPHER_LOG_DEBUG("McpConnectionManager write callback executing, conn={}, msg_len={}",
-                     (void*)active_connection_.get(), json_str.length());
+    GOPHER_LOG_DEBUG(
+        "McpConnectionManager write callback executing, conn={}, msg_len={}",
+        (void*)active_connection_.get(), json_str.length());
 
     // Create buffer with JSON payload
     OwnedBuffer buffer;

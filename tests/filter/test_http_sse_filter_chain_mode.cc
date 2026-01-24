@@ -91,8 +91,9 @@ class MockMcpProtocolCallbacks : public McpProtocolCallbacks {
 class HttpFilterChainModeTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    dispatcher_ = event::createPlatformDefaultDispatcherFactory()
-                      ->createDispatcher("test");
+    dispatcher_ =
+        event::createPlatformDefaultDispatcherFactory()->createDispatcher(
+            "test");
   }
 
   void TearDown() override { dispatcher_.reset(); }
