@@ -173,9 +173,9 @@ class optional : private optional_storage<T> {
 
   // Move assignment - more accurate noexcept specification in C++14
   optional& operator=(optional&& other) noexcept(
-      std::is_nothrow_move_assignable<T>::value &&
-      std::is_nothrow_move_constructible<T>::value &&
-      std::is_nothrow_destructible<T>::value) {
+      std::is_nothrow_move_assignable<T>::value&&
+          std::is_nothrow_move_constructible<T>::value&&
+              std::is_nothrow_destructible<T>::value) {
     if (this != &other) {
       if (other.has_value_) {
         if (has_value_) {
@@ -261,8 +261,8 @@ class optional : private optional_storage<T> {
 
   // Modifiers - C++14 has better swap detection
   void swap(optional& other) noexcept(
-      std::is_nothrow_move_constructible<T>::value &&
-      noexcept(std::swap(std::declval<T&>(), std::declval<T&>()))) {
+      std::is_nothrow_move_constructible<T>::value&& noexcept(
+          std::swap(std::declval<T&>(), std::declval<T&>()))) {
     if (has_value_ && other.has_value_) {
       using std::swap;
       swap(value_, other.value_);

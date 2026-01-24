@@ -478,8 +478,8 @@ class variant {
 
   // Move constructor - conditional noexcept based on contained types
   variant(variant&& other) noexcept(
-      all_nothrow_move_constructible<Types...>::value &&
-      all_nothrow_destructible<Types...>::value)
+      all_nothrow_move_constructible<Types...>::value&&
+          all_nothrow_destructible<Types...>::value)
       : type_index_(static_cast<std::size_t>(-1)) {
     move_construct_impl(std::move(other));
   }
@@ -498,8 +498,8 @@ class variant {
 
   // Move assignment - conditional noexcept
   variant& operator=(variant&& other) noexcept(
-      all_nothrow_move_constructible<Types...>::value &&
-      all_nothrow_destructible<Types...>::value) {
+      all_nothrow_move_constructible<Types...>::value&&
+          all_nothrow_destructible<Types...>::value) {
     if (this != &other) {
       destroy_impl();
       move_construct_impl(std::move(other));

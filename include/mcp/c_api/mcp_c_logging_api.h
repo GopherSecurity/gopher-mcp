@@ -151,14 +151,15 @@ typedef struct mcp_string_view {
 
 /** Helper macro to create string view from literal */
 #define MCP_STRING_VIEW(str) \
-  (mcp_string_view_t){.data = (str), .length = sizeof(str) - 1}
+  (mcp_string_view_t) { .data = (str), .length = sizeof(str) - 1 }
 
 /** Helper macro to create string view from C string */
 #define MCP_STRING_VIEW_C(str) \
   (mcp_string_view_t) { .data = (str), .length = strlen(str) }
 
 /** Helper macro for empty string view */
-#define MCP_EMPTY_STRING_VIEW (mcp_string_view_t){.data = NULL, .length = 0}
+#define MCP_EMPTY_STRING_VIEW \
+  (mcp_string_view_t) { .data = NULL, .length = 0 }
 
 /* ============================================================================
  * Log Message Structure
