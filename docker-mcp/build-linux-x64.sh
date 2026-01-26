@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Build script for libgopher-mcp on Linux ARM64/aarch64
-# Target: Linux ARM64 (glibc-based distributions)
-# Architecture: aarch64/arm64
+# Build script for libgopher-mcp on Linux x86_64
+# Target: Linux x86_64 (glibc-based distributions)
+# Architecture: x86_64
 
 set -e
 
@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Building libgopher-mcp for Linux ARM64${NC}"
+echo -e "${GREEN}Building libgopher-mcp for Linux x86_64${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Get the script directory
@@ -21,21 +21,20 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Build configuration
-BUILD_DIR="${PROJECT_ROOT}/build-linux-arm64"
-DEPS_DIR="${PROJECT_ROOT}/_deps-linux-arm64"
+BUILD_DIR="${PROJECT_ROOT}/build-linux-x64"
+DEPS_DIR="${PROJECT_ROOT}/_deps-linux-x64"
 INSTALL_DIR="${PROJECT_ROOT}/install_prefix_dir"
-OUTPUT_DIR="${PROJECT_ROOT}/build-output/linux-arm64"
+OUTPUT_DIR="${PROJECT_ROOT}/build-output/linux-x64"
 
 # Detect architecture
 CURRENT_ARCH=$(uname -m)
 echo -e "${YELLOW}Detecting system architecture...${NC}"
 echo "  Current architecture: $CURRENT_ARCH"
 
-if [ "$CURRENT_ARCH" != "aarch64" ] && [ "$CURRENT_ARCH" != "arm64" ]; then
-    echo -e "${RED}Error: This script is for ARM64/aarch64 Linux${NC}"
+if [ "$CURRENT_ARCH" != "x86_64" ]; then
+    echo -e "${RED}Error: This script is for x86_64 Linux${NC}"
     echo "Current architecture: $CURRENT_ARCH"
-    echo "Use build-linux-x64.sh for x86_64 systems"
-    echo "Or use build-linux-arm64-docker.sh for cross-compilation via Docker"
+    echo "Use build-linux-arm64.sh for ARM64 systems"
     exit 1
 fi
 
@@ -116,7 +115,7 @@ mkdir -p "$OUTPUT_DIR"
 cd "$BUILD_DIR"
 
 # Configure CMake
-echo -e "${YELLOW}Configuring CMake for Linux ARM64...${NC}"
+echo -e "${YELLOW}Configuring CMake for Linux x86_64...${NC}"
 
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
@@ -167,8 +166,8 @@ cat > verify_mcp.c << 'VERIFY_EOF'
 #include <stdlib.h>
 
 int main() {
-    printf("libgopher-mcp verification tool (Linux ARM64)\n");
-    printf("==============================================\n\n");
+    printf("libgopher-mcp verification tool (Linux x86_64)\n");
+    printf("===============================================\n\n");
 
     // Try to load the C API library (used for FFI bindings)
     void* handle = dlopen("./libgopher_mcp_c.so", RTLD_NOW);
@@ -228,7 +227,7 @@ VERIFY_EOF
 gcc -o verify_mcp verify_mcp.c -ldl -O2
 rm -f verify_mcp.c
 
-echo "  Created verify_mcp (Linux ARM64)"
+echo "  Created verify_mcp (Linux x86_64)"
 
 # Clean up build directory
 cd "$PROJECT_ROOT"
@@ -262,7 +261,7 @@ if [ -n "$MAIN_LIB" ] && [ -f "verify_mcp" ]; then
     echo ""
 
     echo -e "${GREEN}Output contains:${NC}"
-    echo "  - $MAIN_LIB (the MCP library, ARM64)"
+    echo "  - $MAIN_LIB (the MCP library, x86_64)"
     [ -f "libgopher-mcp.so" ] && echo "  - libgopher-mcp.so (symlink)"
     [ -f "libgopher-mcp-event.so.0.1.0" ] && echo "  - libgopher-mcp-event.so.0.1.0 (event library)"
     [ -f "libgopher_mcp_c.so.0.1.0" ] && echo "  - libgopher_mcp_c.so.0.1.0 (C API for FFI)"
@@ -290,8 +289,8 @@ echo ""
 echo -e "${GREEN}Build complete!${NC}"
 echo ""
 echo "Output structure:"
-echo "  build-output/linux-arm64/"
-echo "    ├── libgopher-mcp.so.0.1.0 (ARM64)"
+echo "  build-output/linux-x64/"
+echo "    ├── libgopher-mcp.so.0.1.0 (x86_64)"
 echo "    ├── libgopher-mcp.so (symlink)"
 echo "    ├── libgopher-mcp-event.*.so (if built)"
 echo "    ├── libgopher_mcp_c.so.0.1.0 (C API for FFI)"
@@ -300,7 +299,7 @@ echo "    ├── verify_mcp (verification tool)"
 echo "    └── include/ (headers)"
 echo ""
 echo "To use:"
-echo "  1. Copy the entire build-output/linux-arm64/ directory"
+echo "  1. Copy the entire build-output/linux-x64/ directory"
 echo "  2. Set LD_LIBRARY_PATH to include the directory"
 echo "  3. Run: LD_LIBRARY_PATH=. ./verify_mcp"
 echo ""
