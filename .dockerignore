@@ -1,0 +1,30 @@
+# Build directories
+build*/
+cmake-build*/
+_deps*/
+install_prefix_dir/
+build-output/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+tests/**/build*/
+
+# SDK node_modules
+sdk/**/node_modules/
+
+# Temporary files
+*.tmp
+*.log
