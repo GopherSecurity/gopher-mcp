@@ -33,72 +33,50 @@ RUN mkdir -p cmake-build && cd cmake-build && \
 
 # Create output directory and organize files
 RUN mkdir -p /output && \
-    # Copy main library files
     cp /build/install_prefix_dir/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
     cp /build/install_prefix_dir/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
-    # Copy dependency libraries that were built
     cp /build/install_prefix_dir/lib/libfmt*.so* /output/ 2>/dev/null || true && \
     cp /build/install_prefix_dir/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
-    # Copy headers
     cp -r /build/install_prefix_dir/include /output/ 2>/dev/null || true
 
 # Build verification tool
-RUN cat > /tmp/verify_mcp.c << 'EOF'
-#include <stdio.h>
-#include <dlfcn.h>
-#include <stdlib.h>
-
-int main() {
-    printf("libgopher-mcp verification tool (Linux x86_64)\n");
-    printf("===============================================\n\n");
-
-    // Try to load the C API library (used for FFI bindings)
-    void* handle = dlopen("./libgopher_mcp_c.so", RTLD_NOW);
-    if (!handle) {
-        printf("Note: C API library not found: %s\n", dlerror());
-        // Try the main library as fallback
-        handle = dlopen("./libgopher-mcp.so", RTLD_NOW);
-        if (!handle) {
-            printf("X Failed to load main library: %s\n", dlerror());
-            return 1;
-        }
-        printf("OK Main library loaded successfully\n");
-    } else {
-        printf("OK C API library loaded successfully\n");
-    }
-
-    // Check for mcp_init function
-    void* init_func = dlsym(handle, "mcp_init");
-    if (init_func) {
-        printf("OK mcp_init function found\n");
-    } else {
-        printf("-- mcp_init function not found\n");
-    }
-
-    // Check for mcp_cleanup function
-    void* cleanup_func = dlsym(handle, "mcp_cleanup");
-    if (cleanup_func) {
-        printf("OK mcp_cleanup function found\n");
-    } else {
-        printf("-- mcp_cleanup function not found\n");
-    }
-
-    // Check for mcp_client_create function (C API)
-    void* create_func = dlsym(handle, "mcp_client_create");
-    if (create_func) {
-        printf("OK mcp_client_create function found (C API)\n");
-    } else {
-        printf("-- mcp_client_create function not found\n");
-    }
-
-    dlclose(handle);
-
-    printf("\nOK Verification complete\n");
-    return 0;
-}
-EOF
-
-RUN gcc -o /output/verify_mcp /tmp/verify_mcp.c -ldl -O2
+RUN printf '%s\n' \
+    '#include <stdio.h>' \
+    '#include <dlfcn.h>' \
+    '#include <stdlib.h>' \
+    '' \
+    'int main() {' \
+    '    printf("libgopher-mcp verification tool (Linux x86_64)\\n");' \
+    '    printf("===============================================\\n\\n");' \
+    '    void* handle = dlopen("./libgopher_mcp_c.so", RTLD_NOW);' \
+    '    if (!handle) {' \
+    '        printf("Note: C API library not found: %s\\n", dlerror());' \
+    '        handle = dlopen("./libgopher-mcp.so", RTLD_NOW);' \
+    '        if (!handle) {' \
+    '            printf("X Failed to load main library: %s\\n", dlerror());' \
+    '            return 1;' \
+    '        }' \
+    '        printf("OK Main library loaded successfully\\n");' \
+    '    } else {' \
+    '        printf("OK C API library loaded successfully\\n");' \
+    '    }' \
+    '    void* init_func = dlsym(handle, "mcp_init");' \
+    '    if (init_func) {' \
+    '        printf("OK mcp_init function found\\n");' \
+    '    } else {' \
+    '        printf("-- mcp_init function not found\\n");' \
+    '    }' \
+    '    void* cleanup_func = dlsym(handle, "mcp_cleanup");' \
+    '    if (cleanup_func) {' \
+    '        printf("OK mcp_cleanup function found\\n");' \
+    '    } else {' \
+    '        printf("-- mcp_cleanup function not found\\n");' \
+    '    }' \
+    '    dlclose(handle);' \
+    '    printf("\\nOK Verification complete\\n");' \
+    '    return 0;' \
+    '}' > /tmp/verify_mcp.c && \
+    gcc -o /output/verify_mcp /tmp/verify_mcp.c -ldl -O2
 
 # Default command to copy files to host
 CMD cp -r /output/* /host-output/ && \
