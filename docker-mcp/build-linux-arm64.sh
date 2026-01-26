@@ -120,7 +120,7 @@ echo -e "${YELLOW}Configuring CMake for Linux ARM64...${NC}"
 
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_STANDARD=14 \
+    -DCMAKE_CXX_STANDARD=17 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DBUILD_SHARED_LIBS=ON \
     -DBUILD_STATIC_LIBS=ON \

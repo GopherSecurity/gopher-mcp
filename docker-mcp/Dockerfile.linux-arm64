@@ -24,7 +24,7 @@ ENV OPENSSL_SSL_LIBRARY=/usr/lib/aarch64-linux-gnu/libssl.so
 # Create build directory and build
 RUN mkdir -p cmake-build && cd cmake-build && \
     cmake -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_CXX_STANDARD=14 \
+          -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
           -DBUILD_SHARED_LIBS=ON \
           -DBUILD_STATIC_LIBS=ON \
