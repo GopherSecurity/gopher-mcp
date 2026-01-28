@@ -16,7 +16,9 @@
 #include <sstream>
 #include <string_view>
 
+#if MCP_HAS_LLHTTP
 #include "mcp/http/llhttp_parser.h"
+#endif
 #include "mcp/logging/log_macros.h"
 #include "mcp/network/connection.h"
 
@@ -86,11 +88,18 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
 
   // Create HTTP/1.1 parser using llhttp
   // Parser type depends on mode: REQUEST for server, RESPONSE for client
+#if MCP_HAS_LLHTTP
   http::HttpParserType parser_type = is_server_
                                          ? http::HttpParserType::REQUEST
                                          : http::HttpParserType::RESPONSE;
   parser_ = std::make_unique<http::LLHttpParser>(
       parser_type, parser_callbacks_.get(), http::HttpVersion::HTTP_1_1);
+#else
+  // llhttp not available - parser will be null
+  // HTTP codec operations will fail at runtime
+  GOPHER_LOG_WARN(
+      "HttpCodecFilter created without llhttp support - HTTP parsing disabled");
+#endif
 
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
@@ -131,11 +140,17 @@ HttpCodecFilter::HttpCodecFilter(const filter::FilterCreationContext& context,
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
 
   // Create HTTP/1.1 parser using llhttp
+#if MCP_HAS_LLHTTP
   http::HttpParserType parser_type = is_server_
                                          ? http::HttpParserType::REQUEST
                                          : http::HttpParserType::RESPONSE;
   parser_ = std::make_unique<http::LLHttpParser>(
       parser_type, parser_callbacks_.get(), http::HttpVersion::HTTP_1_1);
+#else
+  // llhttp not available - parser will be null
+  GOPHER_LOG_WARN(
+      "HttpCodecFilter created without llhttp support - HTTP parsing disabled");
+#endif
 
   // Initialize message encoder
   message_encoder_ = std::make_unique<MessageEncoderImpl>(*this);
