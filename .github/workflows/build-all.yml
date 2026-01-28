@@ -139,7 +139,7 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: macos-13  # Intel runner
+            runner: macos-14  # Apple Silicon runner (cross-compile for x64)
           - arch: arm64
             runner: macos-14  # Apple Silicon runner (M1)
 
