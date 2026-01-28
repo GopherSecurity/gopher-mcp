@@ -42,6 +42,42 @@ cd "$BUILD_DIR"
 # Configure CMake with macOS-specific settings
 echo -e "${YELLOW}Configuring CMake for macOS x86_64...${NC}"
 
+# When cross-compiling x64 on Apple Silicon, we need to use x86_64 libraries
+# Install x86_64 Homebrew and dependencies if needed
+CURRENT_ARCH=$(uname -m)
+X86_BREW="/usr/local/bin/brew"
+X86_PREFIX="/usr/local"
+
+if [ "$CURRENT_ARCH" = "arm64" ]; then
+    echo -e "${YELLOW}Cross-compiling x86_64 on Apple Silicon...${NC}"
+
+    # Check if x86_64 Homebrew exists, if not install it
+    if [ ! -f "$X86_BREW" ]; then
+        echo -e "${YELLOW}Installing x86_64 Homebrew...${NC}"
+        arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+
+    # Install x86_64 dependencies
+    echo -e "${YELLOW}Installing x86_64 dependencies via Homebrew...${NC}"
+    arch -x86_64 $X86_BREW install openssl@3 libevent libnghttp2 2>/dev/null || true
+
+    # Get paths to x86_64 libraries
+    X86_OPENSSL_PREFIX=$(arch -x86_64 $X86_BREW --prefix openssl@3 2>/dev/null || echo "/usr/local/opt/openssl@3")
+    X86_LIBEVENT_PREFIX=$(arch -x86_64 $X86_BREW --prefix libevent 2>/dev/null || echo "/usr/local/opt/libevent")
+    X86_NGHTTP2_PREFIX=$(arch -x86_64 $X86_BREW --prefix libnghttp2 2>/dev/null || echo "/usr/local/opt/libnghttp2")
+
+    echo "Using x86_64 OpenSSL from: $X86_OPENSSL_PREFIX"
+    echo "Using x86_64 libevent from: $X86_LIBEVENT_PREFIX"
+    echo "Using x86_64 nghttp2 from: $X86_NGHTTP2_PREFIX"
+
+    # Set CMake flags to use x86_64 libraries and ignore ARM64 ones
+    EXTRA_CMAKE_FLAGS="-DCMAKE_IGNORE_PATH=/opt/homebrew;/opt/homebrew/lib;/opt/homebrew/include"
+    EXTRA_CMAKE_FLAGS="$EXTRA_CMAKE_FLAGS -DOPENSSL_ROOT_DIR=$X86_OPENSSL_PREFIX"
+    EXTRA_CMAKE_FLAGS="$EXTRA_CMAKE_FLAGS -DCMAKE_PREFIX_PATH=$X86_PREFIX;$X86_OPENSSL_PREFIX;$X86_LIBEVENT_PREFIX;$X86_NGHTTP2_PREFIX"
+else
+    EXTRA_CMAKE_FLAGS=""
+fi
+
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_STANDARD=17 \
@@ -59,6 +95,7 @@ cmake \
     -DCMAKE_MACOSX_RPATH=ON \
     -DCMAKE_INSTALL_RPATH="@loader_path" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    ${EXTRA_CMAKE_FLAGS} \
     "${PROJECT_ROOT}"
 
 # Build the library

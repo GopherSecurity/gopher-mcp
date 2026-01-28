@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Cross-compile libgopher-mcp for Linux ARM64 using Docker
-# This script can run on any platform with Docker (macOS, Linux x64, Windows)
-# Uses Docker buildx for ARM64 emulation
+# Uses x64 container with aarch64-linux-gnu cross-compiler (fast, no QEMU emulation)
 
 set -e
 
@@ -15,7 +14,7 @@ NC='\033[0m'
 
 echo -e "${MAGENTA}========================================${NC}"
 echo -e "${MAGENTA}Building libgopher-mcp for Linux ARM64${NC}"
-echo -e "${MAGENTA}Using Docker for cross-platform build${NC}"
+echo -e "${MAGENTA}Using cross-compilation (no QEMU)${NC}"
 echo -e "${MAGENTA}========================================${NC}"
 echo ""
 
@@ -30,28 +29,19 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Check for buildx support
-if ! docker buildx version &> /dev/null; then
-    echo -e "${RED}Error: Docker buildx is not available${NC}"
-    echo "Please update Docker Desktop to a recent version"
-    exit 1
-fi
-
 # Clean and create output directory
 echo -e "${YELLOW}Cleaning previous builds...${NC}"
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-echo -e "${YELLOW}Building ARM64 library using Docker...${NC}"
-echo "This may take several minutes on first run (downloading base image and dependencies)"
+echo -e "${YELLOW}Building ARM64 library using cross-compilation...${NC}"
+echo "This runs at native x64 speed (no QEMU emulation)"
 echo ""
 
-# Build using Docker buildx with ARM64 platform
-docker buildx build \
-    --platform linux/arm64 \
-    --load \
-    -t gopher-mcp:linux-arm64 \
-    -f "$SCRIPT_DIR/Dockerfile.linux-arm64" \
+# Build using Docker with cross-compilation (no --platform flag needed)
+docker build \
+    -t gopher-mcp:linux-arm64-cross \
+    -f "$SCRIPT_DIR/Dockerfile.linux-arm64-cross" \
     "$PROJECT_ROOT"
 
 if [ $? -ne 0 ]; then
@@ -62,11 +52,10 @@ fi
 echo ""
 echo -e "${YELLOW}Extracting built files...${NC}"
 
-# Run container and copy files to host
+# Run container and copy files to host (no --platform flag needed)
 docker run --rm \
-    --platform linux/arm64 \
     -v "$OUTPUT_DIR:/host-output" \
-    gopher-mcp:linux-arm64
+    gopher-mcp:linux-arm64-cross
 
 # Check results
 if [ -f "$OUTPUT_DIR/libgopher-mcp.so" ] || [ -f "$OUTPUT_DIR/libgopher-mcp.so.0.1.0" ]; then
