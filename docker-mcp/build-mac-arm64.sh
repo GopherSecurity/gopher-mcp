@@ -144,6 +144,8 @@ CMAKE_ARGS=(
     -DCMAKE_INSTALL_RPATH="@loader_path"
     # Add Homebrew prefix path so CMake finds libraries first
     -DCMAKE_PREFIX_PATH="${HOMEBREW_PREFIX};${OPENSSL_ROOT};${LIBEVENT_ROOT}"
+    # Fix compatibility with older CMakeLists.txt in dependencies (yaml-cpp)
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 )
 
 # Add explicit OpenSSL paths
