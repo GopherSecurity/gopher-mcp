@@ -58,6 +58,7 @@ cmake \
     -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
     -DCMAKE_MACOSX_RPATH=ON \
     -DCMAKE_INSTALL_RPATH="@loader_path" \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     "${PROJECT_ROOT}"
 
 # Build the library
