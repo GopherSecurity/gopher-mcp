@@ -1,0 +1,51 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [ dev_cross_build ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-macos-arm64:
+    name: macOS ARM64 (Apple Silicon)
+    runs-on: macos-14  # M1 runner
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Build using script
+      run: |
+        chmod +x docker-mcp/build-mac-arm64.sh
+        ./docker-mcp/build-mac-arm64.sh
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gopher-mcp-macos-arm64
+        path: build-output/mac-arm64/
+        retention-days: 30
+
+  build-macos-x64:
+    name: macOS x64 (Intel)
+    runs-on: macos-13  # Intel runner
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Build using script
+      run: |
+        chmod +x docker-mcp/build-mac-x64.sh
+        ./docker-mcp/build-mac-x64.sh
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gopher-mcp-macos-x64
+        path: build-output/mac-x64/
+        retention-days: 30
