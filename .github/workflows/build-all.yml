@@ -59,12 +59,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Make build script executable
-        run: chmod +x docker-mcp/build-linux-${{ matrix.arch }}.sh
+        run: chmod +x docker-mcp/build-linux-${{ matrix.arch }}-docker.sh
 
       - name: Build library
         run: |
           echo "Building for Linux ${{ matrix.arch }}..."
-          ./docker-mcp/build-linux-${{ matrix.arch }}.sh
+          ./docker-mcp/build-linux-${{ matrix.arch }}-docker.sh
 
       - name: Verify build output
         run: |
