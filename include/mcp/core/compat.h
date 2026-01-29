@@ -7,6 +7,41 @@
 #include <cstddef>
 #include <type_traits>
 
+// ============================================================================
+// Windows/POSIX compatibility types
+// Must be included at global scope BEFORE any namespace declarations
+// ============================================================================
+#ifdef _WIN32
+// MinGW provides POSIX types in sys/types.h - include it at global scope
+// to ensure types are defined globally, not inside a namespace
+#include <sys/types.h>
+
+// MSVC doesn't define these POSIX types - define them ourselves
+#ifdef _MSC_VER
+#ifndef _PID_T_DEFINED
+#define _PID_T_DEFINED
+typedef int pid_t;
+#endif
+#ifndef _MODE_T_DEFINED
+#define _MODE_T_DEFINED
+typedef unsigned short mode_t;
+#endif
+#ifndef _USECONDS_T_DEFINED
+#define _USECONDS_T_DEFINED
+typedef unsigned int useconds_t;
+#endif
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+#ifdef _WIN64
+typedef long long ssize_t;
+#else
+typedef long ssize_t;
+#endif
+#endif
+#endif  // _MSC_VER
+#endif  // _WIN32
+// ============================================================================
+
 // Check C++ version and feature availability
 // Can be overridden by CMake definition
 #ifndef MCP_USE_STD_OPTIONAL_VARIANT
