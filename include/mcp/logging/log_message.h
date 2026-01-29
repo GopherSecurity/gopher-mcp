@@ -4,7 +4,14 @@
 #include <map>
 #include <string>
 #include <thread>
+
+// Platform-specific process ID header
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
 #include <unistd.h>
+#endif
 
 #include "mcp/logging/log_level.h"
 
