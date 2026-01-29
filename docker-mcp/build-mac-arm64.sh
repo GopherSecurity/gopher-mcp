@@ -24,7 +24,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Build configuration
 BUILD_DIR="${PROJECT_ROOT}/build-mac-arm64"
 DEPS_DIR="${PROJECT_ROOT}/_deps-arm64"
-INSTALL_DIR="${PROJECT_ROOT}/install_prefix_dir"
+INSTALL_DIR="${BUILD_DIR}/install"
 OUTPUT_DIR="${PROJECT_ROOT}/build-output/mac-arm64"
 MIN_MACOS_VERSION="11.0"  # Minimum version for Apple Silicon
 
