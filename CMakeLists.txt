@@ -766,6 +766,11 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
             endif()
             target_link_libraries(${lib_target} PUBLIC ${LIBEVENT_LIBRARIES})
         endif()
+
+        # Add Windows-specific socket libraries for event library
+        if(WIN32)
+            target_link_libraries(${lib_target} PRIVATE ws2_32)
+        endif()
     endif()
 endforeach()
 
