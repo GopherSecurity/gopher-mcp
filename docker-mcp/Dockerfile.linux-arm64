@@ -35,17 +35,18 @@ RUN mkdir -p cmake-build && cd cmake-build && \
           -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} \
           -DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY} \
           -DOPENSSL_SSL_LIBRARY=${OPENSSL_SSL_LIBRARY} \
+          -DCMAKE_INSTALL_PREFIX=/build/cmake-build/install \
           /build && \
     make -j$(nproc) && \
     make install
 
 # Create output directory and organize files
 RUN mkdir -p /output && \
-    cp /build/install_prefix_dir/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libfmt*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
-    cp -r /build/install_prefix_dir/include /output/ 2>/dev/null || true
+    cp /build/cmake-build/install/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libfmt*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
+    cp -r /build/cmake-build/install/include /output/ 2>/dev/null || true
 
 # Build verification tool
 RUN printf '%s\n' \

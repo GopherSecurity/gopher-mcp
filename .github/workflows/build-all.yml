@@ -68,6 +68,14 @@ jobs:
             echo "Error: Library not found!"
             exit 1
           fi
+          # Check for headers
+          if [ -d "build-output/linux-${{ matrix.arch }}/include/mcp" ]; then
+            echo "✓ Headers found"
+            ls build-output/linux-${{ matrix.arch }}/include/mcp/ | head -10
+          else
+            echo "Error: Headers not found!"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -111,6 +119,14 @@ jobs:
             echo "✓ DLL found"
           else
             echo "Error: DLL not found!"
+            exit 1
+          fi
+          # Check for headers
+          if [ -d "build-output/windows-${{ matrix.arch }}/include/mcp" ]; then
+            echo "✓ Headers found"
+            ls build-output/windows-${{ matrix.arch }}/include/mcp/ | head -10
+          else
+            echo "Error: Headers not found!"
             exit 1
           fi
 
@@ -175,6 +191,14 @@ jobs:
             echo "✓ Library found"
           else
             echo "Error: Library not found!"
+            exit 1
+          fi
+          # Check for headers
+          if [ -d "build-output/mac-${{ matrix.arch }}/include/mcp" ]; then
+            echo "✓ Headers found"
+            ls build-output/mac-${{ matrix.arch }}/include/mcp/ | head -10
+          else
+            echo "Error: Headers not found!"
             exit 1
           fi
 
