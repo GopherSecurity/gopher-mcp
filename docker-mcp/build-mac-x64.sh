@@ -24,7 +24,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Build configuration
 BUILD_DIR="${PROJECT_ROOT}/build-mac-x64"
 DEPS_DIR="${PROJECT_ROOT}/_deps-x64"
-INSTALL_DIR="${PROJECT_ROOT}/install_prefix_dir"
+INSTALL_DIR="${BUILD_DIR}/install"
 OUTPUT_DIR="${PROJECT_ROOT}/build-output/mac-x64"
 MIN_MACOS_VERSION="10.14"
 

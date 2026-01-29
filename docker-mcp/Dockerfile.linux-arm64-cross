@@ -93,7 +93,7 @@ RUN mkdir -p cmake-build && cd cmake-build && \
           -DBUILD_C_API=ON \
           -DBUILD_BINDINGS_EXAMPLES=OFF \
           -DBUILD_EXAMPLES=OFF \
-          -DCMAKE_INSTALL_PREFIX=/build/install_prefix_dir \
+          -DCMAKE_INSTALL_PREFIX=/build/cmake-build/install \
           -DOPENSSL_ROOT_DIR=/usr \
           -DOPENSSL_INCLUDE_DIR=/usr/include \
           -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/aarch64-linux-gnu/libcrypto.so \
@@ -104,11 +104,11 @@ RUN mkdir -p cmake-build && cd cmake-build && \
 
 # Create output directory and organize files
 RUN mkdir -p /output && \
-    cp /build/install_prefix_dir/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libfmt*.so* /output/ 2>/dev/null || true && \
-    cp /build/install_prefix_dir/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
-    cp -r /build/install_prefix_dir/include /output/ 2>/dev/null || true
+    cp /build/cmake-build/install/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libfmt*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
+    cp -r /build/cmake-build/install/include /output/ 2>/dev/null || true
 
 # Build verification tool using cross-compiler
 RUN printf '%s\n' \
