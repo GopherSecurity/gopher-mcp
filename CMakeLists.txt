@@ -83,8 +83,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# Set custom install prefix
-set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir")
+# Set custom install prefix (only if not specified by user)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir" CACHE PATH "Install prefix" FORCE)
+endif()
 
 #Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
