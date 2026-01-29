@@ -1423,8 +1423,13 @@ void ConnectionImpl::doWrite() {
       enableFileEvents(static_cast<uint32_t>(event::FileReadyType::Read));
       // Debug: Check if socket has pending data
       if (socket_) {
+#ifdef _WIN32
+        u_long bytes_available = 0;
+        if (ioctlsocket(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
+#else
         int bytes_available = 0;
         if (ioctl(socket_->ioHandle().fd(), FIONREAD, &bytes_available) == 0) {
+#endif
           GOPHER_LOG_TRACE("doWrite(): socket has {} bytes pending",
                            bytes_available);
         }

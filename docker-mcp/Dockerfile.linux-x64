@@ -1,0 +1,85 @@
+# Dockerfile for Linux x86_64 build of libgopher-mcp
+# Uses pre-built GCC image for fast x86_64 builds
+FROM gcc:11
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    cmake \
+    libssl-dev \
+    libevent-dev \
+    pkg-config \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy the entire project
+COPY . /build/
+
+# Create build directory and build
+RUN mkdir -p cmake-build && cd cmake-build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=17 \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DBUILD_SHARED_LIBS=ON \
+          -DBUILD_STATIC_LIBS=ON \
+          -DBUILD_TESTS=OFF \
+          -DBUILD_C_API=ON \
+          -DBUILD_BINDINGS_EXAMPLES=OFF \
+          -DBUILD_EXAMPLES=OFF \
+          -DCMAKE_INSTALL_PREFIX=/build/cmake-build/install \
+          /build && \
+    make -j$(nproc) && \
+    make install
+
+# Create output directory and organize files
+RUN mkdir -p /output && \
+    cp /build/cmake-build/install/lib/libgopher-mcp*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libgopher_mcp_c*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libfmt*.so* /output/ 2>/dev/null || true && \
+    cp /build/cmake-build/install/lib/libllhttp*.so* /output/ 2>/dev/null || true && \
+    cp -r /build/cmake-build/install/include /output/ 2>/dev/null || true
+
+# Build verification tool
+RUN printf '%s\n' \
+    '#include <stdio.h>' \
+    '#include <dlfcn.h>' \
+    '#include <stdlib.h>' \
+    '' \
+    'int main() {' \
+    '    printf("libgopher-mcp verification tool (Linux x86_64)\\n");' \
+    '    printf("===============================================\\n\\n");' \
+    '    void* handle = dlopen("./libgopher_mcp_c.so", RTLD_NOW);' \
+    '    if (!handle) {' \
+    '        printf("Note: C API library not found: %s\\n", dlerror());' \
+    '        handle = dlopen("./libgopher-mcp.so", RTLD_NOW);' \
+    '        if (!handle) {' \
+    '            printf("X Failed to load main library: %s\\n", dlerror());' \
+    '            return 1;' \
+    '        }' \
+    '        printf("OK Main library loaded successfully\\n");' \
+    '    } else {' \
+    '        printf("OK C API library loaded successfully\\n");' \
+    '    }' \
+    '    void* init_func = dlsym(handle, "mcp_init");' \
+    '    if (init_func) {' \
+    '        printf("OK mcp_init function found\\n");' \
+    '    } else {' \
+    '        printf("-- mcp_init function not found\\n");' \
+    '    }' \
+    '    void* cleanup_func = dlsym(handle, "mcp_cleanup");' \
+    '    if (cleanup_func) {' \
+    '        printf("OK mcp_cleanup function found\\n");' \
+    '    } else {' \
+    '        printf("-- mcp_cleanup function not found\\n");' \
+    '    }' \
+    '    dlclose(handle);' \
+    '    printf("\\nOK Verification complete\\n");' \
+    '    return 0;' \
+    '}' > /tmp/verify_mcp.c && \
+    gcc -o /output/verify_mcp /tmp/verify_mcp.c -ldl -O2
+
+# Default command to copy files to host
+CMD cp -r /output/* /host-output/ && \
+    echo "x86_64 build complete!" && \
+    ls -la /output/

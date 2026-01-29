@@ -83,8 +83,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# Set custom install prefix
-set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir")
+# Set custom install prefix (only if not specified by user)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install_prefix_dir" CACHE PATH "Install prefix" FORCE)
+endif()
 
 #Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -429,7 +431,6 @@ set(MCP_CORE_SOURCES
     src/transport/ssl_context.cc
     src/transport/ssl_state_machine.cc
     src/transport/ssl_transport_socket.cc
-    src/transport/https_sse_transport_factory.cc
     src/transport/transport_socket_state_machine.cc
     src/transport/tcp_transport_socket_state_machine.cc
     src/transport/tcp_transport_socket.cc
@@ -484,6 +485,7 @@ if(LLHTTP_FOUND)
     list(APPEND MCP_HTTP_SOURCES
         src/http/llhttp_parser.cc
         src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
+        src/transport/https_sse_transport_factory.cc  # HTTPS+SSE factory
     )
 endif()
 
@@ -647,6 +649,15 @@ else()
     foreach(lib_target ${REAL_TARGETS})
         if(TARGET ${lib_target})
             target_compile_definitions(${lib_target} PUBLIC MCP_HAS_NGHTTP2=0)
+        endif()
+    endforeach()
+endif()
+
+# Add Windows-specific socket libraries
+if(WIN32)
+    foreach(lib_target ${REAL_TARGETS})
+        if(TARGET ${lib_target})
+            target_link_libraries(${lib_target} PRIVATE ws2_32 crypt32 iphlpapi)
         endif()
     endforeach()
 endif()

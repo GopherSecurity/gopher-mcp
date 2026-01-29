@@ -1,0 +1,33 @@
+# Simple Windows ARM64 build - note this creates stub DLLs
+# Real ARM64 support requires LLVM-MinGW or Visual Studio
+FROM busybox:latest
+
+WORKDIR /output
+
+# Create stub files for demonstration
+RUN echo "Windows ARM64 support requires LLVM-MinGW toolchain" > README_ARM64.txt && \
+    echo "This is a placeholder build. For real ARM64 support:" >> README_ARM64.txt && \
+    echo "1. Use Dockerfile.windows-arm64-llvm (downloads LLVM-MinGW)" >> README_ARM64.txt && \
+    echo "2. Or build on Windows with Visual Studio 2022 ARM64 tools" >> README_ARM64.txt && \
+    echo "" >> README_ARM64.txt && \
+    echo "To build with real ARM64 support:" >> README_ARM64.txt && \
+    echo "  ./docker-mcp/build-windows-arm64.sh" >> README_ARM64.txt && \
+    echo "  (without --stub flag)" >> README_ARM64.txt && \
+    touch gopher-mcp_arm64_STUB.dll && \
+    touch gopher_mcp_c_arm64_STUB.dll && \
+    touch verify_mcp_arm64_STUB.exe
+
+# Create a batch file that explains the situation
+RUN echo '@echo off' > /output/test_arm64.bat && \
+    echo 'echo =====================================' >> /output/test_arm64.bat && \
+    echo 'echo libgopher-mcp Windows ARM64 Build Status' >> /output/test_arm64.bat && \
+    echo 'echo =====================================' >> /output/test_arm64.bat && \
+    echo 'echo.' >> /output/test_arm64.bat && \
+    echo 'echo This is a STUB build for demonstration.' >> /output/test_arm64.bat && \
+    echo 'echo For real ARM64 support, use one of:' >> /output/test_arm64.bat && \
+    echo 'echo   1. LLVM-MinGW toolchain (Dockerfile.windows-arm64-llvm)' >> /output/test_arm64.bat && \
+    echo 'echo   2. Visual Studio 2022 with ARM64 tools' >> /output/test_arm64.bat && \
+    echo 'echo.' >> /output/test_arm64.bat && \
+    echo 'type README_ARM64.txt' >> /output/test_arm64.bat
+
+CMD ["sh", "-c", "ls -la /output/"]

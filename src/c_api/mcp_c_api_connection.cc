@@ -9,7 +9,9 @@
 #include "mcp/c_api/mcp_c_raii.h"
 #include "mcp/network/connection_impl.h"
 #include "mcp/network/server_listener_impl.h"
+#if MCP_HAS_LLHTTP
 #include "mcp/transport/http_sse_transport_socket.h"
+#endif
 #include "mcp/transport/ssl_transport_socket.h"
 #include "mcp/transport/stdio_transport_socket.h"
 #include "mcp/transport/tcp_transport_socket_state_machine.h"
@@ -50,6 +52,7 @@ mcp_connection_t mcp_connection_create_client_ex(
     std::unique_ptr<mcp::network::TransportSocket> transport_socket;
 
     switch (transport_config->type) {
+#if MCP_HAS_LLHTTP
       case MCP_TRANSPORT_HTTP_SSE: {
         // TODO: Full implementation of HTTP+SSE configuration
         // Note: Use configuration from transport_config
@@ -67,6 +70,13 @@ mcp_connection_t mcp_connection_create_client_ex(
             );
         break;
       }
+#else
+      case MCP_TRANSPORT_HTTP_SSE: {
+        ErrorManager::SetError(MCP_ERROR_NOT_IMPLEMENTED,
+                               "HTTP+SSE transport requires llhttp library");
+        return nullptr;
+      }
+#endif
 
       case MCP_TRANSPORT_STDIO: {
         // TODO: Full implementation of stdio configuration
