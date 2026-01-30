@@ -384,17 +384,19 @@ if(NOT TARGET nlohmann_json_schema_validator)
     message(STATUS "json-schema-validator download complete.")
 endif()
 
-# Google Test
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG release-1.12.1
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-message(STATUS "Downloading Google Test... This may take a moment depending on your connection speed.")
-FetchContent_MakeAvailable(googletest)
-message(STATUS "Google Test download complete.")
+# Google Test - only fetch when tests are enabled
+if(BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG release-1.12.1
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    message(STATUS "Downloading Google Test... This may take a moment depending on your connection speed.")
+    FetchContent_MakeAvailable(googletest)
+    message(STATUS "Google Test download complete.")
+endif()
 
 message(STATUS "")
 message(STATUS "==================================================")
