@@ -696,21 +696,48 @@ endif()
 foreach(lib_target ${ECHO_REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
-            PUBLIC 
+            PUBLIC
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
         )
-        # Link to appropriate main library
-        if(TARGET gopher-mcp)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
-        elseif(TARGET gopher-mcp-static)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+
+        # Determine if this is a static or shared library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
         endif()
-        target_link_libraries(${lib_target} PUBLIC
-            Threads::Threads
-            gopher-mcp-logging
-            fmt::fmt
-        )
+
+        # Link to appropriate main library based on target type
+        if(_is_static_target)
+            # Static library: prefer static dependencies
+            if(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            elseif(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+            # Link logging and fmt as PRIVATE to avoid transitive shared lib deps
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+            if(TARGET fmt)
+                target_link_libraries(${lib_target} PRIVATE fmt)
+            endif()
+        else()
+            # Shared library: use PUBLIC dependencies normally
+            if(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            elseif(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC
+                Threads::Threads
+                gopher-mcp-logging
+                fmt::fmt
+            )
+        endif()
     endif()
 endforeach()
 
@@ -751,16 +778,45 @@ foreach(lib_target ${EVENT_REAL_TARGETS})
                 $<BUILD_INTERFACE:${LIBEVENT_INCLUDE_DIRS}>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
         )
-        # Link to appropriate main library
-        if(TARGET gopher-mcp)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp)
-        elseif(TARGET gopher-mcp-static)
-            target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
-        endif()
-        target_link_libraries(${lib_target} PUBLIC Threads::Threads)
 
-        # Link logging library for GOPHER_LOG macros
-        target_link_libraries(${lib_target} PUBLIC gopher-mcp-logging fmt::fmt)
+        # Determine if this is a static or shared library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
+        endif()
+
+        # Link to appropriate main library based on target type
+        # Static targets should link to static dependencies to avoid shared lib transitive deps
+        if(_is_static_target)
+            # Static library: use static dependencies with PRIVATE to embed symbols
+            if(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            elseif(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+
+            # Link logging library - use static version with PRIVATE to embed
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+            # Link fmt as PRIVATE to avoid transitive dependency
+            if(TARGET fmt)
+                target_link_libraries(${lib_target} PRIVATE fmt)
+            endif()
+        else()
+            # Shared library: use PUBLIC dependencies normally
+            if(TARGET gopher-mcp)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp)
+            elseif(TARGET gopher-mcp-static)
+                target_link_libraries(${lib_target} PUBLIC gopher-mcp-static)
+            endif()
+            target_link_libraries(${lib_target} PUBLIC Threads::Threads)
+            # Link logging library for GOPHER_LOG macros
+            target_link_libraries(${lib_target} PUBLIC gopher-mcp-logging fmt::fmt)
+        endif()
 
         if(LIBEVENT_FOUND)
             if(LIBEVENT_LIBRARY_DIRS)
