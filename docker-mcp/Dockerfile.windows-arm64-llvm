@@ -104,7 +104,13 @@ RUN echo 'set(CMAKE_SYSTEM_NAME Windows)' > /build/toolchain-win-arm64.cmake && 
     echo '# libevent paths' >> /build/toolchain-win-arm64.cmake && \
     echo 'set(LIBEVENT_INCLUDE_DIRS /deps/libevent/include)' >> /build/toolchain-win-arm64.cmake && \
     echo 'set(LIBEVENT_LIBRARIES /deps/libevent/lib/libevent_core.a /deps/libevent/lib/libevent_extra.a)' >> /build/toolchain-win-arm64.cmake && \
-    echo 'set(LIBEVENT_FOUND TRUE)' >> /build/toolchain-win-arm64.cmake
+    echo 'set(LIBEVENT_FOUND TRUE)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'include_directories(/deps/libevent/include)' >> /build/toolchain-win-arm64.cmake && \
+    echo '' >> /build/toolchain-win-arm64.cmake && \
+    echo '# Windows-specific linking - add socket libraries' >> /build/toolchain-win-arm64.cmake && \
+    echo 'link_libraries(ws2_32 crypt32 iphlpapi)' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lws2_32 -lcrypt32 -liphlpapi")' >> /build/toolchain-win-arm64.cmake && \
+    echo 'set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lws2_32 -lcrypt32 -liphlpapi")' >> /build/toolchain-win-arm64.cmake
 
 # Build the library for Windows ARM64
 RUN mkdir -p cmake-build && cd cmake-build && \
@@ -122,8 +128,9 @@ RUN mkdir -p cmake-build && cd cmake-build && \
         -DMCP_USE_NGHTTP2=OFF \
         -DCMAKE_INSTALL_PREFIX=/install \
         -DCMAKE_SYSTEM_NAME=Windows \
-        /build && \
-    make -j$(nproc) VERBOSE=1 || make -j1 VERBOSE=1 && \
+        /build 2>&1 | tee /tmp/cmake_output.log && \
+    make -j$(nproc) VERBOSE=1 2>&1 | tee /tmp/make_output.log || \
+    (echo "=== Build failed, showing logs ===" && cat /tmp/cmake_output.log && cat /tmp/make_output.log && make -j1 VERBOSE=1) && \
     make install || true
 
 # Create output directory
@@ -152,5 +159,8 @@ RUN aarch64-w64-mingw32-strip --strip-unneeded *.dll 2>/dev/null || true && \
 
 # List final output
 RUN echo "=== Output files ===" && ls -la /output/
+
+# Keep logs for debugging
+RUN cp /tmp/*.log /output/ 2>/dev/null || true
 
 CMD ["/bin/bash"]
