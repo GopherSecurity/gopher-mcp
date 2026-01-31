@@ -90,17 +90,16 @@ void McpServer::setupEnhancedFilterChain(
 
       void onBackpressureApplied() override {
         server_.server_stats_.backpressure_events++;
-        std::cerr << "[BACKPRESSURE] Applied - pausing read" << std::endl;
+        GOPHER_LOG_DEBUG("Backpressure applied - pausing read");
       }
 
       void onBackpressureReleased() override {
-        std::cerr << "[BACKPRESSURE] Released - resuming read" << std::endl;
+        GOPHER_LOG_DEBUG("Backpressure released - resuming read");
       }
 
       void onDataDropped(size_t bytes) override {
         server_.server_stats_.bytes_dropped += bytes;
-        std::cerr << "[BACKPRESSURE] Dropped " << bytes << " bytes"
-                  << std::endl;
+        GOPHER_LOG_WARN("Backpressure: Dropped {} bytes", bytes);
       }
 
      private:
@@ -149,9 +148,8 @@ void McpServer::setupEnhancedFilterChain(
       void onThresholdExceeded(const std::string& metric_name,
                                uint64_t value,
                                uint64_t threshold) override {
-        std::cerr << "[METRICS] Threshold exceeded: " << metric_name
-                  << " value=" << value << " threshold=" << threshold
-                  << std::endl;
+        GOPHER_LOG_WARN("Metrics threshold exceeded: {} value={} threshold={}",
+                        metric_name, value, threshold);
         server_.server_stats_.threshold_violations++;
       }
 
@@ -195,14 +193,13 @@ void McpServer::setupEnhancedFilterChain(
         void onRequestRejected(const std::string& method,
                                const std::string& reason) override {
           server_.server_stats_.requests_invalid++;
-          std::cerr << "[VALIDATION] Request rejected: " << method
-                    << " Reason: " << reason << std::endl;
+          GOPHER_LOG_WARN("Validation: Request rejected: {} Reason: {}",
+                          method, reason);
         }
 
         void onRateLimitExceeded(const std::string& method) override {
           server_.server_stats_.rate_limited_requests++;
-          std::cerr << "[VALIDATION] Method rate limit exceeded: " << method
-                    << std::endl;
+          GOPHER_LOG_WARN("Validation: Method rate limit exceeded: {}", method);
         }
 
        private:
@@ -284,8 +281,8 @@ void McpServer::setupEnhancedFilterChain(
           }
 
           // Log for debugging
-          std::cerr << "[CIRCUIT_BREAKER] Event: "
-                    << filter::toString(event.event_type) << std::endl;
+          GOPHER_LOG_DEBUG("Circuit breaker event: {}",
+                           filter::toString(event.event_type));
         }
 
         // Track rate limiter events
@@ -295,8 +292,8 @@ void McpServer::setupEnhancedFilterChain(
             server_.server_stats_.rate_limited_requests++;
           }
 
-          std::cerr << "[RATE_LIMITER] Event: "
-                    << filter::toString(event.event_type) << std::endl;
+          GOPHER_LOG_DEBUG("Rate limiter event: {}",
+                           filter::toString(event.event_type));
         }
       }
 
