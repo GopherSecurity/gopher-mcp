@@ -329,6 +329,11 @@ else()
 endif()
 
 # fmt library for formatting - download and build
+# Force fmt to build as static library regardless of BUILD_SHARED_LIBS
+# This ensures fmt symbols are embedded when linking statically into bundled shared libs
+set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
+
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
@@ -336,6 +341,9 @@ FetchContent_Declare(
 )
 message(STATUS "Downloading fmt... This may take a moment depending on your connection speed.")
 FetchContent_MakeAvailable(fmt)
+
+# Restore BUILD_SHARED_LIBS
+set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
 # Enable position-independent code for shared library linking
 if(TARGET fmt)
     set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
