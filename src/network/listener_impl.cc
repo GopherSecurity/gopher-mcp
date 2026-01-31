@@ -1,6 +1,8 @@
 #include <errno.h>
 #include <iostream>
 
+#include "mcp/logging/log_macros.h"
+
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>

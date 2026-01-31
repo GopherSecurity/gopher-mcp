@@ -9,6 +9,7 @@
 
 #include "mcp/filter/filter_chain_event_hub.h"
 #include "mcp/filter/filter_event_emitter.h"
+#include "mcp/logging/log_macros.h"
 
 namespace mcp {
 namespace filter {
