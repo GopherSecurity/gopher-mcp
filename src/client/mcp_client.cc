@@ -58,6 +58,11 @@ using mcp::jsonrpc::Response;
 
 namespace jsonrpc = mcp::jsonrpc;
 
+// Out-of-class definition for static constexpr member (required for C++14)
+// In C++17+, constexpr static members are implicitly inline, but C++14 requires
+// explicit out-of-class definition when the member is ODR-used
+constexpr int McpClient::kConnectionIdleTimeoutSec;
+
 // Constructor
 McpClient::McpClient(const McpClientConfig& config)
     : ApplicationBase(config), config_(config) {
