@@ -282,7 +282,7 @@ class EnhancedProtocolFilter : public network::Filter,
   }
 
   void onError(const std::string& error) override {
-    std::cerr << "[HTTP Error] " << error << std::endl;
+    GOPHER_LOG_ERROR("HTTP Error: {}", error);
   }
 
   // ===== SseCodecFilter::EventCallbacks =====
@@ -298,7 +298,7 @@ class EnhancedProtocolFilter : public network::Filter,
   }
 
   void onSseError(const std::string& error) override {
-    std::cerr << "[SSE Error] " << error << std::endl;
+    GOPHER_LOG_ERROR("SSE Error: {}", error);
   }
 
   // ===== JsonRpcProtocolFilter::MessageHandler =====
@@ -351,14 +351,13 @@ class EnhancedProtocolFilter : public network::Filter,
   void onRequestThrottled(const std::string& method,
                           size_t current_rate,
                           size_t max_rate) override {
-    std::cerr << "[Rate Limiter] Request throttled: " << method
-              << " (rate: " << current_rate << "/" << max_rate << ")"
-              << std::endl;
+    GOPHER_LOG_WARN("Rate Limiter: Request throttled: {} (rate: {}/{})",
+                    method, current_rate, max_rate);
   }
 
   void onRateLimitExceeded(const std::string& bucket_name) override {
-    std::cerr << "[Rate Limiter] Rate limit exceeded for bucket: "
-              << bucket_name << std::endl;
+    GOPHER_LOG_WARN("Rate Limiter: Rate limit exceeded for bucket: {}",
+                    bucket_name);
   }
 
   // ===== Metrics Callbacks =====
@@ -375,23 +374,22 @@ class EnhancedProtocolFilter : public network::Filter,
 
   void onValidationFailure(const jsonrpc::Request& request,
                            const std::string& reason) override {
-    std::cerr << "[Validator] Request validation failed: " << reason
-              << std::endl;
+    GOPHER_LOG_WARN("Validator: Request validation failed: {}", reason);
   }
 
   // ===== Backpressure Callbacks =====
 
   void onBackpressureActivated(size_t queue_size, size_t max_size) override {
-    std::cerr << "[Backpressure] Activated (queue: " << queue_size << "/"
-              << max_size << ")" << std::endl;
+    GOPHER_LOG_WARN("Backpressure activated (queue: {}/{})", queue_size,
+                    max_size);
   }
 
   void onBackpressureRelieved() override {
-    std::cerr << "[Backpressure] Relieved" << std::endl;
+    GOPHER_LOG_DEBUG("Backpressure relieved");
   }
 
   void onRequestDropped(const std::string& reason) override {
-    std::cerr << "[Backpressure] Request dropped: " << reason << std::endl;
+    GOPHER_LOG_WARN("Backpressure: Request dropped: {}", reason);
   }
 
  private:

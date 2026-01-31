@@ -54,12 +54,10 @@ HttpSseTransportSocket::~HttpSseTransportSocket() {
       underlying_transport_->closeSocket(network::ConnectionEvent::LocalClose);
     } catch (const std::exception& e) {
       // Log but don't propagate exception during destructor
-      std::cerr << "[ERROR] Exception during transport close: " << e.what()
-                << std::endl;
+      GOPHER_LOG_ERROR("Exception during transport close: {}", e.what());
     } catch (...) {
       // Catch any other exception to prevent destructor crash
-      std::cerr << "[ERROR] Unknown exception during transport close"
-                << std::endl;
+      GOPHER_LOG_ERROR("Unknown exception during transport close");
     }
   }
 }
@@ -248,12 +246,10 @@ void HttpSseTransportSocket::closeSocket(network::ConnectionEvent event) {
     try {
       underlying_transport_->closeSocket(event);
     } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Exception in underlying transport closeSocket: "
-                << e.what() << std::endl;
+      GOPHER_LOG_ERROR("Exception in underlying transport closeSocket: {}",
+                       e.what());
     } catch (...) {
-      std::cerr
-          << "[ERROR] Unknown exception in underlying transport closeSocket"
-          << std::endl;
+      GOPHER_LOG_ERROR("Unknown exception in underlying transport closeSocket");
     }
     // Clear the transport pointer to prevent double-close
     underlying_transport_.reset();

@@ -91,8 +91,6 @@ bool FilterOrderValidator::validate(
                result.errors.size());
     for (const auto& error : result.errors) {
       GOPHER_LOG(Error, "  {}", error);
-      // Also store for debugging
-      std::cerr << "Validation error: " << error << std::endl;
     }
   }
 

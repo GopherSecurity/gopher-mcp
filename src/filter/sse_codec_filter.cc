@@ -184,9 +184,7 @@ network::FilterStatus SseCodecFilter::onData(Buffer& data, bool end_stream) {
     // For SSE, end_stream doesn't mean immediate close - it means no more data
     // We should keep the connection open for future events
     // Only close if explicitly requested or on error
-    std::cerr << "[DEBUG] SSE end_stream received - keeping connection open "
-                 "for SSE events"
-              << std::endl;
+    GOPHER_LOG_DEBUG("SSE end_stream received - keeping connection open for SSE events");
     // Don't trigger CloseStream here - let the connection manager handle it
   }
 
