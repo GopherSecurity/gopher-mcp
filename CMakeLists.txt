@@ -485,17 +485,17 @@ set(MCP_CLIENT_SERVER_SOURCES
     src/server/mcp_server.cc
 )
 
-# HTTP parser sources (conditional on llhttp)
+# HTTP parser sources (some conditional on llhttp)
 set(MCP_HTTP_SOURCES
     src/http/http_parser.cc
     src/http/sse_parser.cc
+    src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
+    src/transport/https_sse_transport_factory.cc  # HTTPS+SSE factory
 )
 
 if(LLHTTP_FOUND)
     list(APPEND MCP_HTTP_SOURCES
         src/http/llhttp_parser.cc
-        src/transport/http_sse_transport_socket.cc  # HTTP+SSE with layered architecture
-        src/transport/https_sse_transport_factory.cc  # HTTPS+SSE factory
     )
 endif()
 
