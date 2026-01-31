@@ -567,25 +567,48 @@ endif()
 foreach(lib_target ${REAL_TARGETS})
     if(TARGET ${lib_target})
         target_include_directories(${lib_target}
-            PUBLIC 
+            PUBLIC
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include/gopher-mcp>
             PRIVATE
                 $<BUILD_INTERFACE:$<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>>
                 ${LIBEVENT_INCLUDE_DIRS}
         )
-        target_link_libraries(${lib_target} 
-            PUBLIC 
-                Threads::Threads 
-                OpenSSL::SSL 
+
+        # Determine if this is a static library target
+        set(_is_static_target FALSE)
+        if("${lib_target}" MATCHES "-static$")
+            set(_is_static_target TRUE)
+        endif()
+
+        # Base libraries for all targets
+        target_link_libraries(${lib_target}
+            PUBLIC
+                Threads::Threads
+                OpenSSL::SSL
                 OpenSSL::Crypto
             PRIVATE
                 nlohmann_json::nlohmann_json
                 ${LIBEVENT_LIBRARIES}
                 yaml-cpp::yaml-cpp
-                $<$<TARGET_EXISTS:gopher-mcp-logging>:gopher-mcp-logging>
-                $<$<AND:$<NOT:$<TARGET_EXISTS:gopher-mcp-logging>>,$<TARGET_EXISTS:gopher-mcp-logging-static>>:gopher-mcp-logging-static>
         )
+
+        # Link logging library - static targets prefer static version to avoid transitive deps
+        if(_is_static_target)
+            if(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            elseif(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            endif()
+        else()
+            # Shared library can use shared logging
+            if(TARGET gopher-mcp-logging)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging)
+            elseif(TARGET gopher-mcp-logging-static)
+                target_link_libraries(${lib_target} PRIVATE gopher-mcp-logging-static)
+            endif()
+        endif()
+
         # Disable json-schema-validator by default to avoid export/link issues
         target_compile_definitions(${lib_target} PUBLIC MCP_HAS_JSON_SCHEMA_VALIDATOR=0)
         if(LIBEVENT_LIBRARY_DIRS)
