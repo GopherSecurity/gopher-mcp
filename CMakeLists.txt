@@ -518,6 +518,11 @@ set(MCP_EVENT_SOURCES
     src/event/worker.cc
 )
 
+# Add logging subdirectory BEFORE main library configuration
+# This ensures gopher-mcp-logging target exists when gopher-mcp links against it
+add_subdirectory(src/logging)
+message(STATUS "Building logging framework")
+
 # Create Gopher MCP libraries (both static and shared)
 # Combine all sources for the main library (including event sources)
 set(MCP_SDK_SOURCES ${MCP_CORE_SOURCES} ${MCP_CLIENT_SERVER_SOURCES} ${MCP_EVENT_SOURCES})
@@ -880,9 +885,8 @@ if(NOT GOPHER_MCP_IS_SUBMODULE OR GOPHER_MCP_BUILD_TESTS)
     endif()
 endif()
 
-# Add logging subdirectory
-add_subdirectory(src/logging)
-message(STATUS "Building logging framework")
+# NOTE: Logging subdirectory moved earlier in the file (before gopher-mcp linking)
+# to ensure gopher-mcp-logging target exists when gopher-mcp links against it.
 
 # Add C API subdirectory (if enabled)
 if(BUILD_C_API)
