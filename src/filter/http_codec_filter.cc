@@ -83,8 +83,7 @@ HttpCodecFilter::HttpCodecFilter(MessageCallbacks& callbacks,
     : message_callbacks_(&callbacks),
       dispatcher_(dispatcher),
       is_server_(is_server) {
-  std::cerr << "[HttpCodecFilter] CONSTRUCTOR is_server=" << is_server_
-            << ", this=" << (void*)this << std::endl;
+  GOPHER_LOG_DEBUG("HttpCodecFilter CONSTRUCTOR is_server={}", is_server_);
   // Initialize HTTP parser callbacks
   parser_callbacks_ = std::make_unique<ParserCallbacks>(*this);
 
@@ -316,15 +315,11 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
     // Client mode: format as HTTP request (GET for SSE init, POST for messages)
     auto current_state = state_machine_->currentState();
 
-    std::cerr << "[HttpCodecFilter] onWrite client mode: state="
-              << HttpCodecStateMachine::getStateName(current_state)
-              << ", data_len=" << data.length()
-              << ", use_sse_get=" << use_sse_get_
-              << ", sse_get_sent=" << sse_get_sent_ << std::endl;
-
-    GOPHER_LOG_DEBUG("HttpCodecFilter::onWrite client state={}, data_len={}",
-                     HttpCodecStateMachine::getStateName(current_state),
-                     data.length());
+    GOPHER_LOG_DEBUG(
+        "HttpCodecFilter::onWrite client state={}, data_len={}, "
+        "use_sse_get={}, sse_get_sent={}",
+        HttpCodecStateMachine::getStateName(current_state), data.length(),
+        use_sse_get_, sse_get_sent_);
 
     // Check if we can send a request
     // Client can send when idle or while waiting for response (HTTP pipelining)
@@ -338,7 +333,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       // Check if this is an SSE GET initialization request
       // SSE GET is triggered by empty data with use_sse_get_ flag
       bool is_sse_get = use_sse_get_ && !sse_get_sent_ && data.length() == 0;
-      std::cerr << "[HttpCodecFilter] is_sse_get=" << is_sse_get << std::endl;
+      GOPHER_LOG_DEBUG("HttpCodecFilter is_sse_get={}", is_sse_get);
 
       // Save the original request body (JSON-RPC) if any
       size_t body_length = data.length();
@@ -364,8 +359,8 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
         request << "\r\n";
 
         sse_get_sent_ = true;
-        std::cerr << "[HttpCodecFilter] Sending SSE GET request to "
-                  << client_path_ << std::endl;
+        GOPHER_LOG_DEBUG("HttpCodecFilter sending SSE GET request to {}",
+                         client_path_);
       } else {
         // Regular POST request with JSON-RPC body
         // Use message_endpoint_ if available (from SSE endpoint event)
@@ -384,7 +379,7 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
             post_path = message_endpoint_;
           }
         }
-        std::cerr << "[HttpCodecFilter] POST path: " << post_path << std::endl;
+        GOPHER_LOG_DEBUG("HttpCodecFilter POST path: {}", post_path);
 
         request << "POST " << post_path << " HTTP/1.1\r\n";
         request << "Host: " << client_host_ << "\r\n";
@@ -403,8 +398,6 @@ network::FilterStatus HttpCodecFilter::onWrite(Buffer& data, bool end_stream) {
       std::string request_str = request.str();
       data.add(request_str.c_str(), request_str.length());
 
-      std::cerr << "[HttpCodecFilter] Sending HTTP request:\n"
-                << request_str.substr(0, 300) << std::endl;
       GOPHER_LOG_DEBUG(
           "HttpCodecFilter client sending HTTP request (len={}): {}...",
           request_str.length(), request_str.substr(0, 200));
@@ -647,17 +640,14 @@ HttpCodecFilter::ParserCallbacks::onHeadersComplete() {
 http::ParserCallbackResult HttpCodecFilter::ParserCallbacks::onBody(
     const char* data, size_t length) {
   GOPHER_LOG_DEBUG("ParserCallbacks::onBody - received {} bytes", length);
-  std::cerr << "[HttpCodecFilter] ParserCallbacks::onBody - received " << length
-            << " bytes" << std::endl;
 
   // For client mode (receiving responses), forward body data immediately
   // This is critical for SSE streams which never complete
   if (!parent_.is_server_ && parent_.message_callbacks_) {
     std::string body_chunk(data, length);
-    std::cerr << "[HttpCodecFilter] Forwarding body chunk: "
-              << body_chunk.substr(0,
-                                   std::min(body_chunk.length(), (size_t)100))
-              << std::endl;
+    GOPHER_LOG_DEBUG(
+        "HttpCodecFilter forwarding body chunk: {}...",
+        body_chunk.substr(0, std::min(body_chunk.length(), (size_t)100)));
     parent_.message_callbacks_->onBody(body_chunk, false);
   }
 

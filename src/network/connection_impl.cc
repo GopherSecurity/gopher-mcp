@@ -788,13 +788,9 @@ void ConnectionImpl::onFileEvent(uint32_t events) {
   // This prevents processing events after closeSocket() has been called
   // Events may still fire from libevent queue even after file_event_ is reset
   if (state_ == ConnectionState::Closed || state_ == ConnectionState::Closing) {
-#ifndef NDEBUG
-    std::cerr
-        << "[CONN] onFileEvent(): ignoring events on closed connection, fd="
-        << (socket_ ? socket_->ioHandle().fd() : -1)
-        << " state=" << static_cast<int>(state_)
-        << " (0=Open, 1=Closing, 2=Closed)" << std::endl;
-#endif
+    GOPHER_LOG_DEBUG(
+        "onFileEvent(): ignoring events on closed connection, fd={} state={}",
+        (socket_ ? socket_->ioHandle().fd() : -1), static_cast<int>(state_));
     return;
   }
 
@@ -1063,11 +1059,10 @@ void ConnectionImpl::closeSocket(ConnectionEvent close_type) {
     try {
       transport_socket_->closeSocket(close_type);
     } catch (const std::exception& e) {
-      std::cerr << "[ERROR] Exception in transport_socket_->closeSocket: "
-                << e.what() << std::endl;
+      GOPHER_LOG_ERROR("Exception in transport_socket_->closeSocket: {}",
+                       e.what());
     } catch (...) {
-      std::cerr << "[ERROR] Unknown exception in transport_socket_->closeSocket"
-                << std::endl;
+      GOPHER_LOG_ERROR("Unknown exception in transport_socket_->closeSocket");
     }
   }
 

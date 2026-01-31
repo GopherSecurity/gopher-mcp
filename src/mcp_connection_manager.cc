@@ -804,8 +804,6 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
       event_name = "LocalClose";
       break;
   }
-  std::cerr << "[McpConnectionManager] onConnectionEvent event=" << event_name
-            << ", is_server=" << is_server_ << std::endl;
   GOPHER_LOG_DEBUG(
       "McpConnectionManager::onConnectionEvent event={}, is_server={}",
       event_name, is_server_);
@@ -878,16 +876,12 @@ void McpConnectionManager::onConnectionEvent(network::ConnectionEvent event) {
   }
 
   // Forward event to upper layer callbacks
-  std::cerr << "[McpConnectionManager] Forwarding event to protocol_callbacks_="
-            << (protocol_callbacks_ ? "set" : "NULL") << std::endl;
+  GOPHER_LOG_DEBUG("McpConnectionManager forwarding event to protocol_callbacks_={}",
+                   (protocol_callbacks_ ? "set" : "NULL"));
   if (protocol_callbacks_) {
-    std::cerr << "[McpConnectionManager] Calling "
-                 "protocol_callbacks_->onConnectionEvent"
-              << std::endl;
+    GOPHER_LOG_DEBUG("McpConnectionManager calling protocol_callbacks_->onConnectionEvent");
     protocol_callbacks_->onConnectionEvent(event);
-    std::cerr << "[McpConnectionManager] "
-                 "protocol_callbacks_->onConnectionEvent returned"
-              << std::endl;
+    GOPHER_LOG_DEBUG("McpConnectionManager protocol_callbacks_->onConnectionEvent returned");
 
     // Ensure protocol callbacks are processed before any requests
     if (event == network::ConnectionEvent::Connected) {
@@ -1058,17 +1052,15 @@ bool McpConnectionManager::sendHttpPost(const std::string& json_body) {
         : request_(request), connection_(conn) {}
 
     void onEvent(network::ConnectionEvent event) override {
-      std::cerr << "[PostConnection] onEvent: " << static_cast<int>(event)
-                << std::endl;
+      GOPHER_LOG_DEBUG("PostConnection onEvent: {}", static_cast<int>(event));
       if (event == network::ConnectionEvent::Connected) {
-        std::cerr << "[PostConnection] Connected, sending POST request"
-                  << std::endl;
+        GOPHER_LOG_DEBUG("PostConnection connected, sending POST request");
         OwnedBuffer buffer;
         buffer.add(request_);
         connection_->write(buffer, false);
       } else if (event == network::ConnectionEvent::RemoteClose ||
                  event == network::ConnectionEvent::LocalClose) {
-        std::cerr << "[PostConnection] Connection closed" << std::endl;
+        GOPHER_LOG_DEBUG("PostConnection connection closed");
         // Connection closed - this is expected after we get the response
       }
     }
