@@ -74,22 +74,35 @@ uint32_t fromLibeventEvents(short events) {
   return result;
 }
 
-// Lazy initialization for libevent threading support
-// Uses std::call_once to ensure thread-safe one-time initialization
-// This avoids blocking in static initialization which was causing hangs
-void ensureLibeventThreadingInitialized() {
-  static std::once_flag init_flag;
-  std::call_once(init_flag, []() {
+// Early initialization for libevent threading support
+// CRITICAL: This must run BEFORE any other libevent functions or libraries
+// that might use libevent (like curl with libevent support).
+// evthread_use_pthreads() is safe to call multiple times - it returns 0 after first call
+struct LibeventEarlyInit {
+  LibeventEarlyInit() {
 #ifdef _WIN32
     evthread_use_windows_threads();
 #else
     evthread_use_pthreads();
 #endif
-    // Enable debug mode in debug builds
-#ifndef NDEBUG
-    event_enable_debug_mode();
+    // NOTE: event_enable_debug_mode() is NOT called here because:
+    // 1. It can only be called once across the entire process
+    // 2. With shared libraries, this code may run from multiple TUs
+    // 3. Debug mode is only needed for debugging libevent internals
+  }
+};
+
+// Single static instance ensures initialization at program startup
+static LibeventEarlyInit s_libevent_early_init;
+
+// This function is kept for compatibility
+void ensureLibeventThreadingInitialized() {
+  // evthread functions are safe to call multiple times
+#ifdef _WIN32
+  evthread_use_windows_threads();
+#else
+  evthread_use_pthreads();
 #endif
-  });
 }
 
 }  // namespace
